@@ -715,11 +715,19 @@ pub(super) fn is_body_expression(
                 }
                 if !supports_scoped_body(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, block) { return false; }
             }
-            ArenaExprKind::Run(_) => {
+            ArenaExprKind::Run(_) | ArenaExprKind::Spawn(crate::syntax::arena::ArenaSpawnForm { target: crate::syntax::arena::ArenaSpawnTarget::Run(_), .. }) => {
                 if owner_kind == crate::sema::types::CallableKind::Pure { return false; }
                 let mut children = Vec::new();
                 program.arena.for_each_expr_child(expression, |child| children.push(child));
                 if !command_children_are_available(program, owner_kind, prepared, command_sites, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, program.arena.expr(expression).span, children, BodyCompletion::Statement) { return false; }
+            }
+            ArenaExprKind::Wait(wait) => {
+                if owner_kind == crate::sema::types::CallableKind::Pure { return false; }
+                pending.push(wait.target);
+            }
+            ArenaExprKind::Spawn(crate::syntax::arena::ArenaSpawnForm { target: crate::syntax::arena::ArenaSpawnTarget::Command(command), .. }) => {
+                if owner_kind == crate::sema::types::CallableKind::Pure { return false; }
+                pending.push(command);
             }
             ArenaExprKind::Loop { block } => {
                 if !supports_generalized_body(program, owner_kind, prepared, command_sites, block, bindings, available, captures, tails, positions, checked_operations, registered_calls, types, constructor_producers, noncompleting, result_constructors, collect_yields, BodyCompletion::Statement) { return false; }

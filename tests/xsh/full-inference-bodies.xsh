@@ -761,6 +761,30 @@ print $c
   assert output.stdout == "13\n20\n3\n"
 }
 
+test test_full_inference_spawn_is_lowered_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc launch(marker) [process, io, error] {
+  let child = spawn run echo spawned ?
+  let _ = wait child ?
+  print $marker
+}
+proc launch_plan(marker) [process, io, error] {
+  let plan = process.command_argv("echo", ["echo", "planned"], p".", {})
+  let child = spawn plan?
+  let _ = wait child ?
+  print $marker
+}
+proc main() [process, io, error] {
+  launch("one")?
+  launch_plan("two")?
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "spawned\none\nplanned\ntwo\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

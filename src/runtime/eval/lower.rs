@@ -4922,6 +4922,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
                 self.lower_run_binding_value_in_domain(run, slots, Some(current_function), None, &mut domain)?
             }
+            ArenaExprKind::Spawn(form) => {
+                let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                self.lower_spawn_expr_in_domain(form.target, span, slots, Some(current_function), None, &mut domain)?
+            }
+            ArenaExprKind::Wait(wait) => {
+                let target = self.lower_scheme_expression(wait.target, slots, current_function, facts, visited, lowered_types, body)?;
+                push_build_row!(self, expr, BuildExprRow::Wait { target, span })
+            }
             ArenaExprKind::Ident(name) => {
                 if let SchemeType::Callable { kind, .. } = &ty
                     && self.expression_binding(expression).is_none()

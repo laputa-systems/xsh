@@ -3969,6 +3969,40 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn spawn_and_wait_in_a_generic_body_authenticate_their_operands() {
+        let program = prepare("proc launch(marker) [process, io, error] {\n  let plan = process.command_argv(\"echo\", [\"echo\", \"x\"], p\".\", {})\n  let child = spawn plan?\n  let _ = wait child?\n  print $marker\n}\nproc main() [process, io, error] { launch(\"one\")? }\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "launch").unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let find = |tag| range.clone().find(|instruction| program.store.tags[*instruction] == tag).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        for tag in [FullTag::ExprSpawnCommand, FullTag::ExprWait] {
+            let site = find(tag);
+            let operand = match decoder.expression_view(site).unwrap() {
+                schema::ExprView::SpawnCommand { command, .. } => command.raw() as usize,
+                schema::ExprView::Wait { target, .. } => target.raw() as usize,
+                _ => unreachable!(),
+            };
+            let mut operand = operand;
+            while let Ok(schema::ExprView::ValueBlock { body, .. }) = decoder.expression_view(operand) {
+                operand = body.filter_map(|statement| match decoder.statement_view(statement.unwrap().raw() as usize) { Ok(schema::StmtView::Value { value }) => Some(value.raw() as usize), _ => None }).last().unwrap();
+            }
+            assert_eq!(program.store.tags[operand], FullTag::ExprParam);
+            let mut forged = cold();
+            let words = forged.store.data[operand].range().bounds(forged.store.extra.len()).unwrap();
+            forged.store.extra[words.start] = 0;
+            let error = FullVerifier::verify(&forged).expect_err("an operand that is not the actual handle or command");
+            assert!(!error.message.contains("unowned rows"), "{error:?}");
+        }
+    }
+
+    #[test]
     fn regex_literal_call_arguments_authenticate_their_literal_type() {
         let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
         program.store.in_place.take();

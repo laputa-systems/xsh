@@ -3137,6 +3137,24 @@ fn verify_body_expression(
             }
             output
         }
+        schema::ExprView::SpawnRun(run) => {
+            commands::operands(run.operands, scheme_scope, &mut child, budget)?;
+            SchemeType::Ground(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError)))
+        }
+        schema::ExprView::SpawnCommand { command, .. } => {
+            let command = child(command, budget)?;
+            if !body_types_equal(&command, &SchemeType::Ground(Type::Command)) { return Err(IrVerifyError::new("generic spawn target is not a command")); }
+            SchemeType::Ground(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError)))
+        }
+        schema::ExprView::Wait { target, .. } => {
+            let target = child(target, budget)?;
+            let payload = match target.closed_ground_type().as_ref().map(Type::unvalidated) {
+                Some(Type::ProcessHandle) => Type::Status,
+                Some(Type::List(item)) if item.unvalidated() == &Type::ProcessHandle => Type::List(Box::new(Type::Status)),
+                _ => return Err(IrVerifyError::new("generic wait target is neither ProcessHandle nor List[ProcessHandle]")),
+            };
+            SchemeType::Ground(Type::Result(Box::new(payload), Box::new(Type::ProcessError)))
+        }
         schema::ExprView::Abort { status, .. } => {
             let status = child(status, budget)?;
             if status.closed_ground_type().is_none_or(|ty| !ty.matches_expected(&Type::Int)) { return Err(IrVerifyError::new("generic exit status has no Int producer")); }

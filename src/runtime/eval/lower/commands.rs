@@ -672,12 +672,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        self.lower_spawn_expr_in_domain(target, span, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
+    }
+
+    pub(super) fn lower_spawn_expr_in_domain(
+        &mut self,
+        target: ArenaSpawnTarget,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        domain: &mut CommandLoweringDomain<'_>,
+    ) -> Option<BuildExprId> {
         match target {
             ArenaSpawnTarget::Command(command) => Some(push_build_row!(
                 self,
                 expr,
                 BuildExprRow::SpawnCommand {
-                    command: self.lower_expr(command, slots, current_function, item_slot)?,
+                    command: self.lower_command_expression(command, slots, current_function, item_slot, domain)?,
                     span,
                 }
             )),
@@ -696,7 +708,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     segment,
                     slots,
                     current_function,
-                    item_slot, &mut CommandLoweringDomain::Ordinary)?;
+                    item_slot, domain)?;
                 let run = LoweredSpawnRun {
                     operands,
                     span,
