@@ -641,6 +641,38 @@ proc main() [process, error] {
   assert "err[check." in output.stderr, output.stderr
 }
 
+test test_full_inference_single_receiver_method_is_a_retained_requirement { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure has_special(mode) { mode.bit_and(0o4000) != 0 }
+pure ratio(count, span) { count.float() / span.float() }
+pure widened(mode, extra) { mode.bit_or(extra).bit_and(0o7777) }
+let a = has_special(0o4755)
+let b = has_special(0o755)
+let c = ratio(1, 4)
+let d = widened(0o700, 0o55)
+print $a
+print $b
+print $c
+print $d
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\nfalse\n0.25\n493\n"
+}
+
+test test_full_inference_single_receiver_method_rejects_another_receiver { |ctx|
+  let cases = [
+    {name: "text receiver", source: "pure has_special(mode) { mode.bit_and(0o4000) != 0 }\nlet value = has_special(\"x\")\n"},
+    {name: "list receiver", source: "pure ratio(count) { count.float() }\nlet value = ratio([1])\n"},
+  ]
+  for {name, source} in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, name
+    assert "err[check." in output.stderr, f"{name}: {output.stderr}"
+  }
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

@@ -234,7 +234,7 @@ fn validate_requirement(
     let (family_name, return_type, _, _) = family_contract(requirement.kind, budget)?;
     let result_matches = match return_type {
         crate::modules::signature::MethodFamilyResult::UniformGround(return_type) => body_types_equal(&requirement.result, &SchemeType::Ground(return_type)),
-        crate::modules::signature::MethodFamilyResult::SelectedSignature if matches!(requirement.kind, MethodRequirementKind::Overloaded(_)) => {
+        crate::modules::signature::MethodFamilyResult::SelectedSignature if matches!(requirement.kind, MethodRequirementKind::Named(_)) => {
             crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, _, _, member)| scheme_result_may_match(&requirement.result, &member.sig.return_ty))
         }
         crate::modules::signature::MethodFamilyResult::SelectedSignature => match &requirement.result {

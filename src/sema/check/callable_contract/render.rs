@@ -339,7 +339,7 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
         let result = render_scheme_type(&method.result, names, identities, context);
         let label = match method.kind {
             crate::sema::schemes::MethodRequirementKind::Family(_) => format!("method-family({}", method.kind),
-            crate::sema::schemes::MethodRequirementKind::Overloaded(_) => format!("method-overload({}", method.kind),
+            crate::sema::schemes::MethodRequirementKind::Named(_) => format!("method-named({}", method.kind),
         };
         parts.push(format!("{label}, receiver={receiver}, args=[{arguments}]) -> {result}"));
     }

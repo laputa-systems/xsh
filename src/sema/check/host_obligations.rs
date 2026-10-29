@@ -170,7 +170,7 @@ impl HostMethodCandidates {
         let first = *self.candidates.first()?;
         let kind = match api_spec().method_family_id(first.receiver, name, first.signature) {
             Some(family) => MethodRequirementKind::Family(family),
-            None => MethodRequirementKind::Overloaded(api_spec().overloaded_method_id(name)?),
+            None => MethodRequirementKind::Named(api_spec().named_method_id(name)?),
         };
         let policy = api_spec().method_requirement_result(kind)?;
         let result = match &policy {

@@ -46,11 +46,11 @@ pub struct ApiSpec {
     registered_methods: Vec<RegisteredMethodLocation>,
     registered_method_ids: Vec<BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
     method_family_members: [Vec<RegisteredMethodId>; 5],
-    overloaded_methods: Vec<OverloadedMethod>,
+    named_methods: Vec<NamedMethod>,
 }
 
 #[derive(Clone, Debug)]
-struct OverloadedMethod {
+struct NamedMethod {
     name: &'static str,
     members: Vec<RegisteredMethodId>,
 }
@@ -64,7 +64,7 @@ impl Clone for ApiSpec {
             registered_methods: self.registered_methods.clone(),
             registered_method_ids: self.registered_method_ids.clone(),
             method_family_members: self.method_family_members.clone(),
-            overloaded_methods: self.overloaded_methods.clone(),
+            named_methods: self.named_methods.clone(),
         }
     }
 }
@@ -78,7 +78,7 @@ impl std::fmt::Debug for ApiSpec {
             .field("registered_methods", &self.registered_methods)
             .field("registered_method_ids", &self.registered_method_ids)
             .field("method_family_members", &self.method_family_members)
-            .field("overloaded_methods", &self.overloaded_methods)
+            .field("named_methods", &self.named_methods)
             .finish()
     }
 }
@@ -166,9 +166,9 @@ fn method_family_for_signature(
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
-pub struct OverloadedMethodId(u16);
+pub struct NamedMethodId(u16);
 
-impl OverloadedMethodId {
+impl NamedMethodId {
     pub const fn from_raw(raw: u16) -> Self {
         Self(raw)
     }
@@ -217,18 +217,14 @@ impl ApiSpec {
                 }
             }
         }
-        let mut by_name = BTreeMap::<&'static str, (usize, Vec<RegisteredMethodId>)>::new();
+        let mut by_name = BTreeMap::<&'static str, Vec<RegisteredMethodId>>::new();
         for receiver in &methods {
             for method in &receiver.methods {
-                let (receivers, members) = by_name.entry(method.name).or_default();
-                *receivers += 1;
-                members.extend(registered_method_ids[receiver.receiver as usize][method.name].iter().copied());
+                by_name.entry(method.name).or_default()
+                    .extend(registered_method_ids[receiver.receiver as usize][method.name].iter().copied());
             }
         }
-        let overloaded_methods = by_name.into_iter()
-            .filter(|(_, (receivers, _))| *receivers > 1)
-            .map(|(name, (_, members))| OverloadedMethod { name, members })
-            .collect();
+        let named_methods = by_name.into_iter().map(|(name, members)| NamedMethod { name, members }).collect();
         Self {
             modules,
             methods,
@@ -236,7 +232,7 @@ impl ApiSpec {
             registered_methods,
             registered_method_ids,
             method_family_members,
-            overloaded_methods,
+            named_methods,
         }
     }
 
@@ -288,17 +284,17 @@ impl ApiSpec {
         &self.method_family_members[family.raw() as usize]
     }
 
-    pub fn overloaded_method_id(&self, name: &str) -> Option<OverloadedMethodId> {
-        let index = self.overloaded_methods.binary_search_by(|method| method.name.cmp(name)).ok()?;
-        Some(OverloadedMethodId(u16::try_from(index).expect("overloaded method count fits its identifier")))
+    pub fn named_method_id(&self, name: &str) -> Option<NamedMethodId> {
+        let index = self.named_methods.binary_search_by(|method| method.name.cmp(name)).ok()?;
+        Some(NamedMethodId(u16::try_from(index).expect("named method count fits its identifier")))
     }
 
-    pub fn overloaded_method_name(&self, id: OverloadedMethodId) -> Option<&'static str> {
-        self.overloaded_methods.get(usize::from(id.raw())).map(|method| method.name)
+    pub fn named_method_name(&self, id: NamedMethodId) -> Option<&'static str> {
+        self.named_methods.get(usize::from(id.raw())).map(|method| method.name)
     }
 
-    pub fn overloaded_method_member_ids(&self, id: OverloadedMethodId) -> &[RegisteredMethodId] {
-        self.overloaded_methods.get(usize::from(id.raw())).map_or(&[], |method| method.members.as_slice())
+    pub fn named_method_member_ids(&self, id: NamedMethodId) -> &[RegisteredMethodId] {
+        self.named_methods.get(usize::from(id.raw())).map_or(&[], |method| method.members.as_slice())
     }
 
     /// Every embedded implementation module identity named by a binding.

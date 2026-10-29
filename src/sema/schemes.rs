@@ -151,14 +151,14 @@ pub(crate) struct CallableRequirements {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum MethodRequirementKind {
     Family(xsh_registry::signature::MethodFamilyId),
-    Overloaded(xsh_registry::signature::OverloadedMethodId),
+    Named(xsh_registry::signature::NamedMethodId),
 }
 
 impl MethodRequirementKind {
     pub(crate) fn members(self) -> &'static [xsh_registry::signature::RegisteredMethodId] {
         match self {
             Self::Family(family) => xsh_registry::signature::api_spec().method_family_member_ids(family),
-            Self::Overloaded(overloaded) => xsh_registry::signature::api_spec().overloaded_method_member_ids(overloaded),
+            Self::Named(named) => xsh_registry::signature::api_spec().named_method_member_ids(named),
         }
     }
 
@@ -171,8 +171,8 @@ impl std::fmt::Display for MethodRequirementKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Family(family) => write!(formatter, "{family:?}"),
-            Self::Overloaded(overloaded) => formatter.write_str(
-                xsh_registry::signature::api_spec().overloaded_method_name(*overloaded).expect("a retained overloaded method requirement names a registered method"),
+            Self::Named(named) => formatter.write_str(
+                xsh_registry::signature::api_spec().named_method_name(*named).expect("a retained named method requirement names a registered method"),
             ),
         }
     }

@@ -225,12 +225,12 @@ impl ApiSpec {
         Some((receiver.receiver, method.name, method.overloads.get(overload)?))
     }
 
-    pub(crate) fn overloaded_method_id(&self, name: &str) -> Option<registry::OverloadedMethodId> {
-        registry::api_spec().overloaded_method_id(name)
+    pub(crate) fn named_method_id(&self, name: &str) -> Option<registry::NamedMethodId> {
+        registry::api_spec().named_method_id(name)
     }
 
-    pub(crate) fn overloaded_method_name(&self, id: registry::OverloadedMethodId) -> Option<&'static str> {
-        registry::api_spec().overloaded_method_name(id)
+    pub(crate) fn named_method_name(&self, id: registry::NamedMethodId) -> Option<&'static str> {
+        registry::api_spec().named_method_name(id)
     }
 
     pub(crate) fn method_requirement_members<'a>(
@@ -259,7 +259,7 @@ impl ApiSpec {
                 && candidate.receiver_ty.as_ref() == Some(&candidate.sig.return_ty);
         }
         if uniform && !first.sig.return_ty.contains_builtin_parameter() { Some(MethodFamilyResult::UniformGround(first.sig.return_ty.clone())) }
-        else if selected && matches!(kind, MethodRequirementKind::Family(_)) || matches!(kind, MethodRequirementKind::Overloaded(_)) { Some(MethodFamilyResult::SelectedSignature) }
+        else if selected && matches!(kind, MethodRequirementKind::Family(_)) || matches!(kind, MethodRequirementKind::Named(_)) { Some(MethodFamilyResult::SelectedSignature) }
         else { None }
     }
 
@@ -272,7 +272,7 @@ impl ApiSpec {
         let (_, _, signature) = self.registered_method(method)?;
         match kind {
             MethodRequirementKind::Family(_) => Some(signature.sig.return_ty.clone()),
-            MethodRequirementKind::Overloaded(_) => {
+            MethodRequirementKind::Named(_) => {
                 let (_, name, _) = self.registered_method(method)?;
                 let (_, actual) = self.selection_receiver(name, receiver_type);
                 crate::sema::builtin_templates::concrete_method_signature(signature, actual).map(|signature| signature.return_ty)
@@ -322,7 +322,7 @@ impl ApiSpec {
             let instantiated;
             let parameters = match kind {
                 MethodRequirementKind::Family(_) => &signature.sig.params,
-                MethodRequirementKind::Overloaded(_) => {
+                MethodRequirementKind::Named(_) => {
                     let Some(concrete) = crate::sema::builtin_templates::concrete_method_signature(signature, actual) else { continue };
                     instantiated = concrete.params;
                     &instantiated
