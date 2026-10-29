@@ -3063,6 +3063,11 @@ impl<'a> ProducerProof<'a> {
         super::scoped_expression_type(self.store, decoder, instruction, &scopes.scopes, &mut self.budget)
     }
 
+    fn scoped_value_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        if !matches!(self.store.tags[instruction], FullTag::ExprParam | FullTag::ExprMethod) { return Ok(None); }
+        Ok(self.scoped_expression_type(decoder, instruction)?.and_then(|ty| ty.closed_ground_type()).map(Arc::new))
+    }
+
     fn scoped_field_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<super::SchemeType>, IrVerifyError> {
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) {
             return Err(IrVerifyError::new("scoped field proof has another physical expression"));
@@ -3989,7 +3994,10 @@ impl<'a> ProducerProof<'a> {
             { return Ok(Some(Arc::new(member))); }
             return Ok(Some(read));
         }
-        self.contextual_producer_type(decoder, instruction)
+        match self.contextual_producer_type(decoder, instruction)? {
+            Some(ty) => Ok(Some(ty)),
+            None => self.scoped_value_type(decoder, instruction),
+        }
     }
 
     fn declared_read_type(&self, decoder: &FullDecoder<'a>, instruction: usize, declared: Arc<Type>) -> Result<Arc<Type>, IrVerifyError> {
@@ -6067,7 +6075,7 @@ impl<'a> ProducerProof<'a> {
                 } else {
                     let (subject, fact) = match declared {
                         Some(ty) => (ty.clone(), Some(DeclaredProducerFact { owner, instruction: value.raw() as usize, ty, binding: None })),
-                        None => match self.contextual_producer_type(&decoder, value.raw() as usize)? {
+                        None => match self.need_context(&decoder, value.raw() as usize)? {
                             Some(subject) => (subject, None),
                             None if self.is_erased_record_field(&decoder, value.raw() as usize)? => (Arc::new(Type::Any), None),
                             None => return Err(IrVerifyError::new(format!("ground match expression has no subject contract at owner {owner}, instruction {instruction}, subject {} {:?}", value.raw(), self.store.tags[value.raw() as usize]))),
@@ -6826,10 +6834,7 @@ impl<'a> ProducerProof<'a> {
             None => {
                 let context = match self.contextual_producer_type(decoder, instruction)? {
                     Some(context) => Some(context),
-                    None if matches!(self.store.tags[instruction], FullTag::ExprParam | FullTag::ExprMethod) => {
-                        self.scoped_expression_type(decoder, instruction)?.and_then(|ty| ty.closed_ground_type()).map(Arc::new)
-                    }
-                    None => None,
+                    None => self.scoped_value_type(decoder, instruction)?,
                 };
                 ProducerOperandContext::Contextual(context)
             }

@@ -3858,6 +3858,33 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn optional_method_match_subjects_authenticate_their_scheme_fact() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare("proc digits(raw) [error] -> Result[Int] {\n  let total = raw.len()\n  var out = []\n  var at = 0\n  while at < total {\n    let next = raw.byte_at(at) ?? 0\n    if next == 48 or (next >= 49 and next <= 55) { out += [next - 48] }\n    at += 1\n  }\n  Ok(bytes.from_ints(out)?.len())\n}\nlet counted = digits(b\"0a7\")\n");
+        let (owner, scheme_id) = generic_owner(&program);
+        FullVerifier::verify(&program).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let subject = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::MatchExpr { value, .. }) => Some(value.raw() as usize),
+            _ => None,
+        }).unwrap();
+        let facts = program.store.scheme(scheme_id).unwrap().body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+        let subject_fact = facts.clone().find(|&index| {
+            let fact = program.store.scheme_body_facts[index];
+            fact.instruction as usize == subject && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))
+        }).unwrap();
+        let FullSchemeBodyFactValue::Expression(original) = program.store.scheme_body_facts[subject_fact].value else { unreachable!() };
+        let wrong = facts.clone().find_map(|index| match program.store.scheme_body_facts[index].value {
+            FullSchemeBodyFactValue::Expression(ty) if program.store.scheme_types[ty.index()].tag == FullSchemeTypeTag::Ground && ty != original => Some(ty),
+            _ => None,
+        }).unwrap();
+        let mut retyped = program.clone();
+        retyped.store.in_place.take();
+        retyped.store.scheme_body_facts[subject_fact].value = FullSchemeBodyFactValue::Expression(wrong);
+        assert!(FullVerifier::verify(&retyped).is_err());
+    }
+
+    #[test]
     fn regex_literal_call_arguments_authenticate_their_literal_type() {
         let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
         program.store.in_place.take();

@@ -554,6 +554,36 @@ print $fallback
   assert output.stdout == "none\nsome\nb\nz\n"
 }
 
+test test_full_inference_optional_method_result_in_a_producer_checked_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc digits(raw) [error] -> Result[Int] {
+  let total = raw.len()
+  var out = []
+  var at = 0
+
+  while at < total {
+    let next = raw.byte_at(at) ?? 0
+
+    if next == 48 or (next >= 49 and next <= 55) {
+      out += [next - 48]
+    }
+
+    at += 1
+  }
+
+  Ok(bytes.from_ints(out)?.len())
+}
+proc main() [error, io] {
+  let counted = digits(b"0a7")?
+  print $counted
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,
