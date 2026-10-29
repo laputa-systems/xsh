@@ -2963,7 +2963,7 @@ impl<'a> ProducerProof<'a> {
         }
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
             op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
-        } | schema::ExprView::ListComp { .. }) {
+        } | schema::ExprView::ListComp { .. } | schema::ExprView::Record(_)) {
             let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
             let binding = self.binding(owner, instruction, slot)?;
             self.budget.charge(1)?;
@@ -3709,7 +3709,10 @@ impl<'a> ProducerProof<'a> {
                 let mut fields = BTreeMap::new();
                 for (name, writer) in writers {
                     let ty = match writer {
-                        super::super::CheckedRecordFieldWriter::Value(value) => match self.need_context(decoder, value)? { Some(ty) => (*ty).clone(), None => return Ok(None) },
+                        super::super::CheckedRecordFieldWriter::Value(value) => {
+                            let known = match self.need_context(decoder, value)? { Some(ty) => Some(ty), None => self.derive_unannotated_type(decoder, value)? };
+                            match known { Some(ty) => (*ty).clone(), None => return Ok(None) }
+                        }
                         super::super::CheckedRecordFieldWriter::Spread { fields, .. } => {
                             let Type::Record(fields) = fields.unvalidated() else { unreachable!("record writer has a non-record spread") };
                             fields[&name].clone()

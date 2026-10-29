@@ -1634,3 +1634,21 @@ proc main() [io] {
   )?
   assert output.stdout == "true\n4\n", output.stdout
 }
+
+test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Whole = {neg: Bool, mag: List[Int]}
+pure text_of(value) -> Str { if value.neg { "-" } else { "+" } }
+pure combine(a: Whole, b: Whole) -> Str { text_of({neg: a.neg != b.neg and ! a.mag.is_empty(), mag: a.mag}) }
+proc main() [io] {
+  print combine({neg: true, mag: [1]}, {neg: false, mag: [2]})
+  print combine({neg: true, mag: [1]}, {neg: true, mag: [2]})
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "-\n+\n", output.stdout
+}

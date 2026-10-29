@@ -48382,6 +48382,27 @@ assert wide.count == 1
     }
 
     #[test]
+    fn a_record_argument_derives_the_type_of_a_computed_field_and_not_of_an_ill_typed_one() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-record-argument-computed-field.xsh", r#"
+type Whole = {neg: Bool, mag: List[Int]}
+pure text_of(value) -> Str { if value.neg { "-" } else { "+" } }
+pure combine(a: Whole, b: Whole) -> Str { text_of({neg: a.neg != b.neg, mag: a.mag}) }
+assert combine({neg: true, mag: [1]}, {neg: false, mag: [2]}) == "-"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let arithmetic = function_instruction_indices(&program, "combine", FullTag::ExprBinary);
+            assert_eq!(arithmetic.len(), 1);
+            let words = program.store.data[arithmetic[0]].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_operation = program.clone();
+            let operation = u32::try_from(wrong_operation.store.binary_ops.len()).unwrap();
+            wrong_operation.store.binary_ops.push(BinaryOp::Add);
+            wrong_operation.store.extra[words.start] = operation;
+            FullVerifier::verify(&wrong_operation).expect_err("a field that is not a comparison has no derivable type");
+        });
+    }
+
+    #[test]
     fn a_record_override_of_known_fields_keeps_its_remainder_and_a_new_field_cannot() {
         run_with_large_stack(|| {
             let program = fixture("generic-record-override-known-fields.xsh", r#"
