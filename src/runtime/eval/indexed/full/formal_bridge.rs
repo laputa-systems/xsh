@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
+mod arithmetic;
+
 const SOURCE_SCHEMA: &str = "xsh-source-v1";
 const RAW_IR_SCHEMA: &str = "xsh-raw-ir-v1";
 const RAW_IR_SCOPE: &str = "scalar-literal-boundary-fixture-v1";
