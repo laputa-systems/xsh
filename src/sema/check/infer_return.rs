@@ -327,13 +327,18 @@ impl Checker {
                 if decl.kind() == Some(CallableKind::Proc) {
                     let returns_value = proc_may_return_value(program, def);
                     if !returns_value {
+                        let diagnostics_before = self.diagnostics.len();
                         self.check_body_before_callers(program, source, decl, &declarations, def);
-                    }
-                    let completes = returns_value
-                        || self.type_constraints.proc_completion_return(self.effect_declaration_id(program, def.body)).ok().flatten().is_some();
-                    if !completes {
-                        self.generalize_pending_function(program, id);
-                        continue;
+                        let owner = self.effect_declaration_id(program, def.body);
+                        let completes = self.type_constraints.proc_completion_return(owner).ok().flatten().is_some()
+                            && !self.diagnostics[diagnostics_before..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error);
+                        if !completes {
+                            self.generalize_pending_function(program, id);
+                            continue;
+                        }
+                        if let Some(signature) = self.declaration_inference.pending_mut(super::FunctionDeclarationId::new(owner)) {
+                            signature.reopen_body();
+                        }
                     }
                     {
                         let boundary = if decl.name == "main" || decl.name.as_str().starts_with("main ") {
@@ -342,7 +347,11 @@ impl Checker {
                             None
                         };
                         let diagnostics_before = self.diagnostics.len();
-                        self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                        if returns_value {
+                            self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                        } else {
+                            self.without_pending_call_instantiations(|checker| checker.infer_proc_return(program, source, decl, &declarations, def, boundary));
+                        }
                         if !self.diagnostics[diagnostics_before..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
                             let body = program.arena.span(program.arena.block(def.body).span);
                             if let Some(return_ty) = self.function_return_types.get(&body).cloned().filter(|ty| *ty != Type::Invalid) {
@@ -665,6 +674,11 @@ impl Checker {
         if !candidates.iter().any(proc_candidate_produces_value) && conflicts.is_empty()
         {
             let mut ty = self.type_from_arena(program, def.return_ty);
+            if candidates.is_empty()
+                && let Ok(Some(returned)) = self.type_constraints.proc_completion_return(owner)
+            {
+                self.expect_type(&returned, &ty, body_span);
+            }
             if !candidates.is_empty() {
                 let failure_only = candidates.iter().any(|candidate| candidate.failure_only_result);
                 self.return_conflicts = Some(Vec::new());
@@ -702,6 +716,7 @@ impl Checker {
             for (error, span) in propagated {
                 match &ty {
                     Type::Result(_, expected_error) if error.matches_expected(expected_error) => {}
+                    Type::Result(_, expected_error) if matches!(expected_error.as_ref(), Type::Inference(_)) => self.expect_type(expected_error, &error, span),
                     Type::Result(_, _) => self.error(span, "propagated error does not match the inferred Result; declare its return type", DiagnosticCode::CheckTryError),
                     _ => self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext),
                 }

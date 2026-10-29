@@ -1672,3 +1672,43 @@ proc main(...argv: List[Str]) [io, error] {
   let rejected = test.expect(ctx, program, status: 3, args: ["negative"], env: {})?
   assert rejected.stdout == "b\nthree\n", rejected.stdout
 }
+
+test test_full_inference_proc_with_a_statement_error_call_and_an_index_on_an_unannotated_parameter { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc say(text: Str) [io, error] { print $text }
+proc show(items) [io, error] {
+  say("first")
+  let value = items[0]
+  print $value
+}
+proc main() [io, error] {
+  show(["a", "b"])?
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "first\na\n", output.stdout
+}
+
+test test_full_inference_empty_list_branch_joins_a_generic_item_list { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure count(flag, item) {
+  let items = if flag { [item] } else { [] }
+  items.len()
+}
+proc main() [io] {
+  print $count(true, "a")
+  print $count(false, "a")
+  print $count(true, 7)
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "1\n0\n1\n", output.stdout
+}

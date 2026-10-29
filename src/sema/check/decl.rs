@@ -329,6 +329,23 @@ impl Checker {
             is_diverging_block.then(|| Some((right, body_types.get(&expression)?.clone()))).flatten()
         }).collect::<Vec<_>>();
         for (handler, joined) in diverging_handlers { body_types.insert(handler, joined); }
+        let branch_joins = program.arena.source_rows().expr_ids(body_span.source_id).filter_map(|expression| {
+            let span = program.arena.expr(expression).span;
+            if span.start() < body_span.start() || span.end() > body_span.end() { return None; }
+            let crate::syntax::arena::ArenaExprKind::If { branches, else_value } = program.arena.expr(expression).kind else { return None };
+            let joined = self.expr_types.get(&span)?;
+            if !matches!(joined, Type::List(_)) || joined.contains_recovery() { return None; }
+            let values = program.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain(std::iter::once(else_value));
+            Some(values.map(|value| (program.arena.expr(value).span, joined.clone())).collect::<Vec<_>>())
+        }).flatten().collect::<Vec<_>>();
+        let empty_list_branches = body_types.iter().filter(|(expression, ty)| {
+            **ty == Type::List(Box::new(Type::Unknown)) && super::expr::list_literal_is_empty(program, **expression) == Some(true)
+        }).filter_map(|(&expression, _)| {
+            let span = program.arena.expr(expression).span;
+            branch_joins.iter().find(|(branch, _)| branch.source_id == span.source_id && branch.start() <= span.start() && span.end() <= branch.end())
+                .map(|(_, joined)| (expression, joined.clone()))
+        }).collect::<Vec<_>>();
+        for (branch, joined) in empty_list_branches { body_types.insert(branch, joined); }
         let noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
             matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. })
                 && !self.stream_expr_may_complete(program, expression)

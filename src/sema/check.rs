@@ -1098,6 +1098,10 @@ impl PendingFunctionSig {
         self.body_checked
     }
 
+    pub(super) fn reopen_body(&mut self) {
+        self.body_checked = false;
+    }
+
     pub(super) fn mark_body_checked(&mut self) {
         self.body_checked = true;
     }
