@@ -1,18 +1,17 @@
 use crate::budget::Budget;
 use crate::compression::{BUFFER_SIZE, Compression, Encode, Encoder};
 use crate::entry::Format;
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Error, Result};
 use crate::extract::{Collision, normalize};
+use crate::output::PendingOutput;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use tar::{EntryType, Header};
-use xsh_root::{FileKind, Metadata, OpenOptions, RenameMode, Root};
+use xsh_root::{FileKind, Metadata, OpenOptions, Root};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CreateOptions {
@@ -23,8 +22,6 @@ pub struct CreateOptions {
 }
 
 type Components = Vec<Vec<u8>>;
-
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn create(
     dest: &Path,
@@ -55,66 +52,20 @@ pub fn create(
         None => None,
     };
     let source = Root::open(source_root).map_err(|error| Error::from_open(&error))?;
-    let parent_path = match dest.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
-        _ => PathBuf::from("."),
-    };
-    let parent = Root::open(&parent_path).map_err(|error| Error::from_open(&error))?;
-    let (temp_name, file) = open_temporary(&parent)?;
-    let identity = file
-        .metadata()
-        .map(|metadata| (metadata.dev(), metadata.ino()))
-        .map_err(|error| Error::from_host(&error))?;
-    let written = write_archive(file, encode.as_ref(), &source, &roots, options.format, identity, budget);
-    let published = written.and_then(|()| {
-        let mode = match options.collision {
-            Collision::Refuse => RenameMode::NoReplace,
-            Collision::Replace => RenameMode::Replace,
-        };
-        parent
-            .rename(Path::new(&temp_name), Path::new(leaf), mode)
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::AlreadyExists {
-                    Error::new(ErrorKind::Collision, "destination exists")
-                } else {
-                    Error::from_host(&error)
-                }
-            })
-    });
-    match published {
-        Ok(()) => Ok(()),
-        Err(error) => match parent.remove_file(Path::new(&temp_name)) {
-            Ok(()) => Err(error),
-            Err(cleanup) if cleanup.kind() == io::ErrorKind::NotFound => Err(error),
-            Err(cleanup) => Err(error.with_cleanup(&Error::from_host(&cleanup))),
-        },
+    let (pending, file) = PendingOutput::open(dest)?;
+    let written = write_archive(
+        file,
+        encode.as_ref(),
+        &source,
+        &roots,
+        options.format,
+        pending.identity(),
+        budget,
+    );
+    match written {
+        Ok(()) => pending.publish(options.collision),
+        Err(error) => Err(pending.discard(error)),
     }
-}
-
-fn open_temporary(parent: &Root) -> Result<(String, File)> {
-    for _ in 0..16 {
-        let name = format!(
-            ".xsh-archive-out-{}-{}",
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        );
-        match parent.open_with(
-            &name,
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .no_symlinks(true)
-                .mode(0o666),
-        ) {
-            Ok(file) => return Ok((name, file)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(Error::from_open(&error)),
-        }
-    }
-    Err(Error::new(
-        ErrorKind::Io,
-        "could not create a unique temporary file",
-    ))
 }
 
 fn write_archive(

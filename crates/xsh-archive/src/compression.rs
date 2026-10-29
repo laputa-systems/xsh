@@ -274,9 +274,25 @@ pub fn decoder<R: BufRead + Send + 'static>(
     reader: R,
     workspace_bytes: u64,
 ) -> Result<Box<dyn Read + Send>> {
+    decoder_with_mtime(codec, reader, workspace_bytes).map(|(decoder, _)| decoder)
+}
+
+pub fn decoder_with_mtime<R: BufRead + Send + 'static>(
+    codec: Codec,
+    reader: R,
+    workspace_bytes: u64,
+) -> Result<(Box<dyn Read + Send>, Option<u32>)> {
     let host = |error: io::Error| Error::from_read(&error);
+    let mut mtime = None;
     let decoder: Box<dyn Read + Send> = match codec {
-        Codec::Gzip => Box::new(MultiGzDecoder::new(reader)),
+        Codec::Gzip => {
+            let decoder = MultiGzDecoder::new(reader);
+            mtime = decoder
+                .header()
+                .map(flate2::GzHeader::mtime)
+                .filter(|time| *time != 0);
+            Box::new(decoder)
+        }
         Codec::Bzip2 => Box::new(MultiBzDecoder::new(reader)),
         Codec::Xz => Box::new(XzReader::new(reader, true)),
         Codec::Lzma => {
@@ -290,7 +306,7 @@ pub fn decoder<R: BufRead + Send + 'static>(
             Box::new(decoder)
         }
     };
-    Ok(decoder)
+    Ok((decoder, mtime))
 }
 
 pub fn xz_dictionary_bytes(header: &[u8]) -> Option<u64> {

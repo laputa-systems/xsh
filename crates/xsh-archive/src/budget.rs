@@ -67,6 +67,12 @@ impl Budget {
         }
     }
 
+    pub fn output_allowance(&self) -> u64 {
+        self.limits
+            .total_output
+            .saturating_sub(self.total_output.load(Ordering::Relaxed))
+    }
+
     pub fn charge_output(&self, bytes: u64) -> Result<()> {
         let total = self
             .total_output
@@ -135,7 +141,9 @@ impl<R> Metered<R> {
 impl<R: Read> Read for Metered<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.budget.checkpoint()?;
-        let count = self.inner.read(buffer)?;
+        let allowance = self.budget.output_allowance().saturating_add(1);
+        let want = usize::try_from(allowance).map_or(buffer.len(), |allowed| allowed.min(buffer.len()));
+        let count = self.inner.read(&mut buffer[..want])?;
         self.budget.charge_output(count as u64)?;
         Ok(count)
     }
