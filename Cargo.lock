@@ -2144,6 +2144,7 @@ dependencies = [
  "rawzip",
  "tar",
  "tempfile",
+ "xsh-root",
  "zstd",
 ]
 

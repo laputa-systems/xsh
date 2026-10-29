@@ -7,6 +7,7 @@ mod cpio_reader;
 mod cursor;
 mod entry;
 mod error;
+mod extract;
 mod input;
 mod tar_reader;
 mod zip_reader;
@@ -20,4 +21,7 @@ pub use compression::{
 pub use cursor::{Completion, Cursor, Entry, Finish};
 pub use entry::{EntryKind, EntryMeta, Format};
 pub use error::{Error, ErrorKind, Result};
+pub use extract::{
+    Collision, Links, Modes, Ownership, Policy, Report, Special, extract, normalize, remove_tree,
+};
 pub use input::{Input, ReadSeek, Source};

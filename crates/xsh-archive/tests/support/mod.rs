@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod specs;
+
 use rawzip::time::UtcDateTime;
 use rawzip::{CompressionMethod, ZipArchiveWriter};
 use std::ffi::OsStr;
