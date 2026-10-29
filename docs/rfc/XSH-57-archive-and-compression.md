@@ -1,6 +1,6 @@
 # XSH-57: One entry model, one compression lifecycle, one extraction boundary
 
-Status: accepted by the owner for implementation
+Status: implemented
 
 ## Summary
 
@@ -9,7 +9,7 @@ Archive and compression support is rebuilt as a reusable workspace crate,
 layers: compression (bytes to bytes), archive formats (bytes to ordered entries)
 and a filesystem adapter built on `crates/xsh-root`'s retained root. A shared
 driver owns iteration, body consumption, integrity checks, one resource budget
-and explicit completion levels. A thin adapter in `src/modules/archive` converts
+and explicit completion flags. A thin adapter in `src/modules/archive` converts
 XSH values and errors.
 
 The nine format-named functions (`tar_list`, `tar_extract`, `tar_create`,
@@ -161,7 +161,8 @@ Signatures (parameter labels are free, so positional and named calls both work):
 
 ```
 archive.list(source: Path | Bytes | Stream[Bytes], format: archive.Format,
-             compression: archive.Compression = .Auto, members: List[Path] = [])
+             compression: archive.Compression = .Auto, members: List[Path] = [],
+             max_output: UInt? = null, max_entry: UInt? = null, max_entries: UInt? = null)
     -> Result[Stream[ArchiveEntry], ArchiveError]
 
 archive.extract(source: Path | Bytes | Stream[Bytes], dest: Path, format: archive.Format,
@@ -290,27 +291,30 @@ those already in the tree (`tar`, `rawzip`, `flate2`, `bzip2`, `lzma-rust2`,
   no-clobber (or replacing) rename of a temporary file in the destination
   directory.
 
-### Completion levels
+### Completion flags
 
-`Completion` is ordered; an operation reports the highest level it reached and
-the XSH operations succeed only at the level they promise.
+`Completion` is a set of independent facts, not a ladder: an operation reports
+the facts it established, and the XSH operations succeed only when the facts
+they promise hold. A listing, for example, has `Inspected` and
+`StructureComplete` but not `PayloadConsumed`.
 
-| Level | Meaning |
+| Flag | Meaning |
 |---|---|
-| `Inspected` | headers were read; bodies skipped or unread |
+| `Inspected` | headers were read |
 | `PayloadConsumed` | every selected body was read to its declared end |
-| `ChecksumVerified` | each consumed body matched its stored checksum, where the format stores one (ZIP CRC32, CPIO `070702`; TAR stores only header checksums, which are checked for every header) |
+| `ChecksumVerified` | the format's checksums held: TAR header checksums (checked for every header) once the archive ended, and ZIP CRC32 or CPIO `070702` sums for the bodies that were read to their end |
 | `StructureComplete` | the end-of-archive trailer was found and nothing but zero padding follows |
 | `OuterComplete` | the compression stream read to its end and its trailer checks passed |
 
-`archive.extract` succeeds only at `OuterComplete` (and `ChecksumVerified` when
-the format stores checksums); a missing or damaged trailer is `Truncated` or
-`Corrupt`. A fully consumed `archive.list` stream reaches `StructureComplete` and
-`OuterComplete`, and its last pull returns the error if either fails; ZIP also
-checks the central directory count. A listing that is abandoned early has
-verified nothing, and listing two names does not verify an archive. Checksums
-are integrity checks, not authenticity: nothing here proves who wrote the
-archive.
+For TAR and CPIO the cursor drains the trailing zero padding to the end of the
+decoded stream, so `StructureComplete` implies `OuterComplete`; ZIP has no outer
+layer. `archive.extract` succeeds only after the structure and compression
+completed; a missing or damaged trailer is `Truncated` or `Corrupt`. A fully
+consumed `archive.list` stream reaches both, and its last pull returns the error
+if either fails; ZIP also checks the central directory count. A listing that is
+abandoned early has verified nothing, and listing two names does not verify an
+archive. Checksums are integrity checks, not authenticity: nothing here proves
+who wrote the archive.
 
 ### Stream and seek rules
 
@@ -321,10 +325,17 @@ socket, process output, a `Stream[Bytes]`).
 - A `Path` is opened and classified by `fstat`: regular files are `Seekable`,
   everything else `Sequential`.
 - `Bytes` is `Seekable` (it is already resident; ZIP from `Bytes` does not spool).
-- `Stream[Bytes]` is `Sequential`; its chunks are pulled on demand with bounded
-  buffering. A script-produced stream is materialized by the caller before the
-  call; only live host streams and already-materialized streams are read
-  directly.
+- `Stream[Bytes]` is `Sequential`. A script-produced stream (`run.stream
+  --bytes`) can only be pulled by the evaluator, so the evaluator pulls it and
+  hands chunks to a worker thread running the archive operation through a bounded
+  channel of eight chunks; if the worker stops early the stream is cancelled.
+  `archive.extract` runs this way. `archive.list` from such a stream is eager:
+  the call reads the stream to its end, drains and discards every body, keeps
+  only the entry metadata (bounded by `max_entries` and the fixed metadata
+  budget) and returns a materialized listing, so the archive is fully verified
+  by the call. A failure of the producing stream is thrown as itself, never
+  returned as an `ArchiveError`. `run.stream` itself caps a stream's stdout at
+  16 MiB, so process output larger than that cannot be an archive source.
 - TAR and CPIO accept any `Input`, with any compression.
 - ZIP requires `Seekable` and `compression` of `Auto` or `Plain` (ZIP compresses
   entries itself). A `Sequential` input fails with `ArchiveError.NeedsSeek`
@@ -419,7 +430,8 @@ crate types (the `Stream[Bytes]` reader, `Path` bytes, enum tags), calls the
 crate, converts `ArchiveEntry` records and `ArchiveError`, and implements `Cancel`
 with the runtime's cancellation signal. The listing stream is a `LiveStream`
 that owns the cursor and pulls one entry per `next`, with `Completion` checked
-when the cursor ends. The `archive` effect remains `fs`. The
+when the cursor ends. Stream sources go through the worker described in the
+stream rules. The `archive` effect remains `fs`. The
 `ExprArchiveTarCreate` specialization and `ArchiveTar*`/`ArchiveZip*`/`ArchiveCpio*`
 `RuntimeOp`s are deleted with the old functions.
 
@@ -507,19 +519,19 @@ and seed native tests, for increment 9.
 
 ## Open questions
 
-1. `Format` has no `Auto`. Default: callers choose by suffix; a later helper in
-   userspace can map a name to a format.
-2. A payload-free enum value is a `Value::Tag` with an interned name, not a small
-   integer. Compacting it would make every enum cheaper and is a runtime-wide
-   change. Default: not in this campaign; the crate's enums are `repr(u8)`.
-3. Type annotations that spell `archive.Format`: the checker resolves variants
-   and parameter types without them. Default: annotations are added only if a
-   migrated caller needs one.
-4. Ownership `Apply` and `special: .Create` need privilege that the unit tests
-   lack outside a user namespace. Default: tested in a private user namespace
-   where the kernel allows it, skipped with a named reason otherwise.
-5. macOS rooted extraction is implemented against the `O_NOFOLLOW_ANY` and
-   `O_RESOLVE_BENEATH` flags and compiled but not run in this campaign.
+Answered during implementation:
+
+1. `Format` has no `Auto`; callers choose by suffix.
+2. A payload-free enum value stays a `Value::Tag` with an interned name. The
+   owner ruled that compacting it is a language-level change outside this
+   campaign. The crate's enums are `repr(u8)`.
+3. Type annotations that spell `archive.Format` were needed by `core/tar.xsh` and
+   the showcase, and are supported in parameter, return, binding and schema
+   positions.
+4. Ownership `Apply` is tested with the kernel's answer (an error when
+   unprivileged, success as root); `special: .Create` is tested for FIFOs, which
+   need no privilege. Device nodes are untested.
+5. macOS compiles but was not run.
 
 ## Decision
 
@@ -527,7 +539,109 @@ Accepted by the owner for implementation. The binding decisions are the
 format-parameterized API with real enums for every closed option set, a breaking
 migration of every caller with no compatibility adapters, stream input for TAR
 and CPIO in the first slice, and explicit ZIP rejection of non-seekable input.
+On review the owner accepted the eager listing of a script-produced stream,
+provided bodies are drained without buffering and the listing is bounded by the
+entry and metadata budget, and ruled out compacting `Value::Tag`.
 
 ## Outcome
 
-Open.
+Delivered on XSH `master` through `56f5fa9f8`, with the list budget follow-up
+after it, and Laputa's call sites in `d59b91f`.
+
+What landed:
+
+- `crates/xsh-archive`: the entry cursor over `tar` headers (read directly, so
+  extension headers are bounded by the budget instead of read whole), `rawzip`
+  and newc CPIO; one `Budget` for decoded output, entry size, entry count,
+  metadata memory and decoder workspace, with cancellation polled at every
+  refill; one `Encoder` with a single fallible `finish` and per-algorithm level
+  checks; rooted extraction into a private staging directory with a policy;
+  TAR and CPIO creation; single-file compression.
+- `crates/xsh-root`: `open_dir_strict`, `OpenOptions::no_symlinks` and the
+  mutation operations, covered by their own tests including a concurrent
+  directory-swap race.
+- Registry and checker: a built-in enum type resolved to a nominal `Tag` type,
+  `ArchiveError`, the new `ArchiveEntry` record, annotation support for
+  `archive.Format`-style names.
+- Callers: `archive.list`, `archive.extract` and `archive.create` replace the
+  eight format-named functions; `compress`, `decompress` and `decompress_bytes`
+  take `archive.Compression` and a collision policy. The evaluator's
+  `ExprArchiveTarCreate` row, `src/modules/archive/{tar,zip,cpio,policy}.rs` and
+  the old compression code are deleted; `compression.transform` runs on the
+  shared codec layer. Every XSH caller and the 22 Laputa files are migrated.
+
+Contract changes:
+
+- Removed: `tar_list`, `tar_extract`, `tar_create`, `zip_list`, `zip_extract`,
+  `cpio_list`, `cpio_extract`, `cpio_create`.
+- New enums: `archive.Format`, `Compression`, `Collision`, `Links`, `Special`,
+  `Modes`, `Ownership`, `EntryKind`. New family `ArchiveError`.
+- `ArchiveEntry`: `kind` is an `archive.EntryKind`; `size`, `mode`, `modified`,
+  `uid`, `gid` are nullable; `link_name` is a nullable `Path`; new
+  `device_major` and `device_minor`. ZIP `modified` is reported.
+- `compress`, `decompress`, `decompress_bytes`: `format:` is an
+  `archive.Compression`, `collision:` replaces `overwrite:`, `level` is
+  `Int?`, and `decompress_bytes` takes `max_bytes:`.
+- Behavior: a missing archive or compression trailer, a damaged gzip trailer and
+  data after the end blocks are errors; setuid bits, absolute or escaping
+  symbolic links, FIFOs and devices are refused unless asked for; an existing
+  destination directory keeps its own mode; TAR creation writes mode, zero
+  owner and zero time (the previous code wrote the full `st_mode`, no owner and
+  zero time).
+- The instruction schema lost one variant (`ExprArchiveTarCreate`, ordinal 96),
+  so its counted variants went from 154 to 153 and the retired ordinal stays a
+  gap.
+
+Evidence:
+
+- Crate tests: 67 in `xsh-archive` (26 reading, 22 extraction, 15 creation, 4
+  single-file) and 7 in `xsh-root` mutation, run as gate cases
+  `test-archive-*` and `test-root-mutation`. They cover truncation at every
+  length, missing and damaged trailers, expansion beyond the budget stopping
+  within one byte of the limit, traversal and absolute names, writing through an
+  archive-made symlink, links escaping the root, duplicate names, destination
+  collisions publishing nothing, cancellation cleanup, non-UTF-8 names, a 768 MiB
+  body streamed, TAR and CPIO from a one-byte-at-a-time reader, and ZIP
+  rejecting a stream.
+- Interoperability: archives written by BusyBox `tar`, Python `tarfile` (ustar,
+  GNU, pax), Python `zipfile`, Info-ZIP `zip` and `cpio` are read and extracted;
+  archives written by the crate are read by BusyBox `tar`, Python `tarfile` and
+  `cpio`.
+- Native tests: `tests/xsh/stdlib/archive.xsh` (17 tests) covers every operation,
+  each enum parameter, each error variant class, stream sources and the bounded
+  stream listing.
+- Gates: the plan-selected cases for the changed paths pass on the merged tree,
+  including `check-compile`, `test-sema-unit`, `test-api`, `test-libxsh-api`,
+  `check-api-snippets`, `check-docs`, the native stdlib, showcase, core `tar` and
+  dev suites, and the core, runtime and loader cases. Laputa's PM, system and
+  seed tests, and its `pm.root/compose`, `pm.execute/reuse-count` and
+  `pm.plan/inventory` scenarios, pass on the migrated calls.
+
+Residual limits:
+
+- macOS rooted extraction compiles (`aarch64-apple-darwin`) but was not run, and
+  `make_node` is Linux-only.
+- The pinned image has BusyBox `tar`, `cpio` and `unzip` and Python, but no GNU
+  tar or bsdtar, so those two are not covered.
+- Ownership `Apply` and device-node creation are untested as root; FIFOs are
+  covered.
+- `xz` workspace is checked only for the first block's dictionary size
+  (`lzma-rust2` has no memory limit on `XzReader`).
+- CPIO hard-link sets (data stored with the last link) and sparse TAR members are
+  reported as `Unsupported`.
+- Publication is atomic per entry and not durable; nothing is `fsync`ed. When
+  merging into an existing destination, a concurrent writer can make a rename
+  fail after others succeeded; the error reports how many were published.
+- `run.stream` caps stdout at 16 MiB, which bounds process output as an archive
+  source.
+
+Follow-ups:
+
+- An `xsht api` query for enum variants (the signature shows the enum type, the
+  variants are documented in the SPEC and the registry).
+- Pattern matching over built-in enum values.
+- A GNU tar and bsdtar interoperability pass if the image gains them, and a
+  macOS run of the rooted extraction tests.
+- A durable publication flag on the same publication step.
+- Evaluating `compcol` or `libarchive_oxide` behind the cursor trait, ZIP
+  creation and `repack`, if a caller needs them.
