@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::modules::compression::{Compression, copy_compressed};
+    use xsh_archive::Codec;
     use crate::modules::linux::api::{blkid, partition_table};
     use crate::modules::linux::block::{
         fsck_impl_with_path, page_size, write_partition_table_impl,
@@ -130,14 +130,20 @@ mod tests {
         bytes
     }
 
-    fn write_compressed_module(path: &Path, compression: Compression, fields: &[&str]) {
+    fn write_compressed_module(path: &Path, codec: Codec, fields: &[&str]) {
         let raw = path.with_extension("raw");
         let bytes = module_bytes(fields);
         fs::write(&raw, &bytes).expect("write raw module fixture");
-        let input = File::open(&raw).expect("open raw module fixture");
-        let output = File::create(path).expect("create compressed module fixture");
-        copy_compressed(input, output, compression, 6, bytes.len() as u64, span())
-            .expect("compress module fixture");
+        let budget = xsh_archive::Budget::uncancelable(xsh_archive::Limits::default());
+        xsh_archive::compress_file(
+            &raw,
+            path,
+            xsh_archive::Compression::Codec(codec),
+            None,
+            xsh_archive::Collision::Replace,
+            &budget,
+        )
+        .expect("compress module fixture");
     }
 
     fn table_record(label: &str, partitions: Vec<Value>) -> RecordMap {
@@ -633,17 +639,17 @@ mod tests {
         fs::create_dir_all(&module_dir).expect("create module dir");
         write_compressed_module(
             &module_dir.join("gzip-demo.ko.gz"),
-            Compression::Gz,
+            Codec::Gzip,
             &["description=gzip module", "license=GPL"],
         );
         write_compressed_module(
             &module_dir.join("xz-demo.ko.xz"),
-            Compression::Xz,
+            Codec::Xz,
             &["description=xz module", "license=MIT"],
         );
         write_compressed_module(
             &module_dir.join("bzip-demo.ko.bz2"),
-            Compression::Bz2,
+            Codec::Bzip2,
             &["description=bzip module", "license=Apache-2.0"],
         );
 
