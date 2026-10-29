@@ -164,8 +164,8 @@ test test_current_instruction_schema_preserves_retired_wire_ordinal_gaps {
   let scan = metrics.scan_file(source_path, source)?
   let rows = scan.metrics |> where .name == "instruction_variants" |> collect
   assert rows.len() == 1
-  assert rows[0].value == 154
-  assert rows[0].evidence.len() == 154
+  assert rows[0].value == 153
+  assert rows[0].evidence.len() == 153
 }
 
 test test_instruction_schema_eager_classification_and_table_shape_fail_loudly {

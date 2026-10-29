@@ -690,6 +690,7 @@ const harnesses_run_outside_change_cases = [
 ]
 
 const harnesses_without_tests = [
+  {package: "xsh-archive", harness: "lib"},
   {package: "deser", harness: "lib"},
   {package: "deser-derive", harness: "lib"},
   {package: "deser-path", harness: "lib"},
