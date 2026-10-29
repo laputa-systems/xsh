@@ -10,7 +10,7 @@ use stage_contract as contract
 use test_workflows as tests
 
 ## Gate families owned by the repository's testing contract.
-export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness }
+export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Deser, Interactive }
 
 ## A path that has no known verification owner.
 export error GateError = UnmappedPath(path: Str)
@@ -411,20 +411,22 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Syntax, Grammar, Docs] when changed_path == "src/syntax/grammar.rs" or changed_path.starts_with("src/syntax/grammar/")
   return [Syntax] when changed_path.starts_with("src/syntax/") or changed_path == "tests/grammar.rs" or changed_path == "crates/xsht/tests/syntax.rs"
   return [Memory] when changed_path == "src/frontend_stats.rs"
-  return [Checker] when changed_path.starts_with("src/sema/") or changed_path == "src/sema.rs" or changed_path == "tests/sema.rs" or changed_path == "src/loader.rs"
+  return [Checker] when changed_path.starts_with("src/sema/") or changed_path == "src/sema.rs" or changed_path == "tests/sema.rs" or changed_path == "tests/sema_bundle_view.rs" or changed_path == "src/loader.rs"
   return [Lowering] when changed_path.starts_with("src/runtime/eval/indexed/") or changed_path == "src/runtime/eval/indexed.rs" or changed_path.starts_with("src/runtime/eval/lower.") or changed_path.starts_with("src/runtime/eval/lower/")
   return [RouteWitness] when changed_path == "src/runtime/eval/route_witness.rs"
   return [Runtime] when changed_path.starts_with("src/runtime/") or changed_path == "src/runtime.rs" or changed_path.starts_with("src/trace") or changed_path == "src/runner.rs" or changed_path.starts_with("tests/runtime/") or changed_path == "tests/runtime.rs"
   return [Sugar] when changed_path.starts_with("crates/xsht/src/sugar_") or changed_path.starts_with("crates/xsht/src/desugar")
   return [Tooling] when changed_path.starts_with("crates/xsht/src/") or changed_path.starts_with("crates/xsht/tests/")
   return [Api] when changed_path.starts_with("crates/xsh-registry/") or changed_path.starts_with("src/api/") or changed_path == "tests/libxsh_api.rs"
-  return [Stdlib, Api] when changed_path == "src/stdlib.rs" or changed_path.starts_with("stdlib/") or changed_path.starts_with("src/modules/") or changed_path == "src/modules.rs"
+  return [Stdlib, Api] when changed_path == "src/stdlib.rs" or changed_path == "tests/stdlib_port.rs" or changed_path.starts_with("stdlib/") or changed_path.starts_with("src/modules/") or changed_path == "src/modules.rs"
   return [Docs, Api] when changed_path.starts_with("docs/snippets/api/")
   return [Docs] when changed_path.starts_with("docs/")
   return [Core] when changed_path.starts_with("core/")
   return [Showcase] when changed_path.starts_with("showcase/")
   return [Automation] when changed_path.starts_with("dev/") or changed_path.starts_with("tools/") or changed_path == "Makefile"
   return [Soundness] when changed_path.starts_with("crates/xsh-fuzz/")
+  return [Deser] when changed_path.starts_with("crates/deser/")
+  return [Interactive] when changed_path.starts_with("crates/xshi/")
   return [Runtime] when changed_path.starts_with("crates/xsh-net/") or changed_path == "tests/linux_priv.rs"
   return [Compile, Api] when changed_path == "Cargo.toml" or changed_path == "Cargo.lock" or changed_path == "build.rs" or changed_path == "rust-toolchain.toml" or changed_path.starts_with(".cargo/")
   return [Compile] when changed_path.starts_with("src/") or changed_path.starts_with("crates/") or changed_path.starts_with("tests/") or changed_path == "AGENTS.md" or changed_path == "TODO.md" or changed_path == "xsht-config.ini" or changed_path == "Dockerfile.test"
@@ -494,7 +496,7 @@ pure native_exact_gate(ctx: context.Context, profile: tests.TestProfile, name: S
 
 pure requires_process_products(area: Area) -> Bool {
   match area {
-    Compile => false
+    Compile => true
     Syntax => true
     Grammar => true
     Checker => true
@@ -511,6 +513,8 @@ pure requires_process_products(area: Area) -> Bool {
     Core => true
     Showcase => true
     Soundness => false
+    Deser => false
+    Interactive => false
   }
 }
 
@@ -529,6 +533,91 @@ pure required_products(selection: Selection) -> List[tests.Product] {
   return [tests.Xsh, tests.Xsht] when Docs in selection.areas
   return [tests.Xsht] when Memory in selection.areas
   []
+}
+
+const deser_harnesses = [
+  {package: "deser", harness: "integration"},
+  {package: "deser-cbor", harness: "lib"},
+  {package: "deser-cbor", harness: "integration"},
+  {package: "deser-core", harness: "lib"},
+  {package: "deser-csv", harness: "lib"},
+  {package: "deser-csv", harness: "integration"},
+  {package: "deser-encoding", harness: "lib"},
+  {package: "deser-ini", harness: "lib"},
+  {package: "deser-ini", harness: "integration"},
+  {package: "deser-json", harness: "lib"},
+  {package: "deser-json", harness: "integration"},
+  {package: "deser-location", harness: "lib"},
+  {package: "deser-path", harness: "integration"},
+  {package: "deser-toml", harness: "lib"},
+  {package: "deser-toml", harness: "integration"},
+  {package: "deser-value", harness: "integration"},
+  {package: "deser-yaml", harness: "lib"},
+  {package: "deser-yaml", harness: "integration"},
+]
+
+pure harness_target(harness: Str) -> List[Str] {
+  if harness == "lib" { ["--lib"] } else { ["--test", harness] }
+}
+
+pure skipping(names: List[Str]) -> List[Str] {
+  collect {
+    for name in names { yield @["--skip", name] }
+  }
+}
+
+pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) -> Result[List[contract.CommandSpec], Error] {
+  let root_lib = ["-p", "xsh", "--lib"]
+  let root_target = ["-p", "xsh", "--test", "integration"]
+  match area {
+    Compile => [
+      rust_gate(ctx, profile, "test-core-unit", [@root_lib, "--", @skipping(["sema::", "syntax::", "modules::", "runtime::", "runner::", "trace::", "stdlib::", "loader::"])], debug: true)?,
+      rust_gate(ctx, profile, "test-core-integration", [@root_target, "--", @skipping(["runtime::", "sema::", "sema_bundle_view::", "stdlib_port::", "grammar::", "libxsh_api"])])?,
+      rust_gate(ctx, profile, "test-ambient-fs-policy", ["-p", "xsh", "--test", "ambient_fs_policy"], debug: true)?,
+      rust_gate(ctx, profile, "test-symbol-plateau", ["-p", "xsh", "--test", "symbol_plateau"])?,
+      rust_gate(ctx, profile, "test-core-compat-boundaries", ["-p", "xsh", "--test", "core_compat_boundaries"])?,
+      rust_gate(ctx, profile, "test-core-compat-extra", ["-p", "xsh", "--test", "core_compat_extra", "--", @skipping(["split::", "date_clock::test_date_set_valid"])])?,
+      rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?,
+      rust_gate(ctx, profile, "test-root-security", ["-p", "xsh-root", "--test", "security"], debug: true)?,
+    ]
+    Syntax => [rust_gate(ctx, profile, "test-syntax-unit", [@root_lib, "syntax::"], debug: true)?]
+    Checker => [
+      rust_gate(ctx, profile, "test-loader-unit", [@root_lib, "loader::"], debug: true)?,
+      rust_gate(ctx, profile, "test-sema-bundle-view", [@root_target, "sema_bundle_view::"])?,
+    ]
+    Runtime => [
+      rust_gate(ctx, profile, "test-runtime-unit", [@root_lib, "runtime::"], debug: true)?,
+      rust_gate(ctx, profile, "test-runner-unit", [@root_lib, "runner::"], debug: true)?,
+      rust_gate(ctx, profile, "test-trace-unit", [@root_lib, "trace::"], debug: true)?,
+      rust_gate(ctx, profile, "test-net-unit", ["-p", "xsh-net", "--lib"], debug: true)?,
+    ]
+    Tooling => [
+      rust_gate(ctx, profile, "test-tooling-unit", ["-p", "xsht", "--lib", "--", @skipping(["sugar_expansion_tests", "desugar_tests"])], debug: true)?,
+    ]
+    Api => [
+      rust_gate(ctx, profile, "test-modules-unit", [@root_lib, "modules::", "--", "--skip", "modules::linux::real::netlink::tests::live_raw_reply_capture_or_replay_uses_the_network_decoder"], debug: true)?,
+      rust_gate(ctx, profile, "test-registry-reference", ["-p", "xsh-registry", "--test", "api_reference"], debug: true)?,
+    ]
+    Stdlib => [
+      rust_gate(ctx, profile, "test-stdlib-unit", [@root_lib, "stdlib::", "--", "--skip", "stdlib::tests::cold_start_phase_profile"], debug: true)?,
+      rust_gate(ctx, profile, "test-stdlib-port", [@root_target, "stdlib_port::"])?,
+    ]
+    Soundness => [
+      rust_gate(ctx, profile, "test-fuzz-unit", ["-p", "xsh-fuzz", "--lib"], debug: true)?,
+      rust_gate(ctx, profile, "test-effect-oracle", ["-p", "xsh-fuzz", "--test", "effect_oracle"], debug: true)?,
+    ]
+    Interactive => [
+      rust_gate(ctx, profile, "test-xshi-unit", ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true)?,
+      rust_gate(ctx, profile, "test-xshi-cli", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"])?,
+      rust_gate(ctx, profile, "test-xshi-preparation", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "stdlib_preparation"])?,
+    ]
+    Deser => collect {
+      for entry in deser_harnesses {
+        yield rust_gate(ctx, profile, f"test-{entry.package}-{entry.harness}", ["-p", entry.package, @harness_target(entry.harness)], debug: true)?
+      }
+    }
+    else => []
+  }
 }
 
 ## Maps each selected area to its focused compiler or Rust gate and native
@@ -564,7 +653,10 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
       Core => plan += [native_gate(ctx, profile, "core/tests")],
       Showcase => plan += [native_gate(ctx, profile, "showcase/tests")],
       Soundness => plan += [rust_gate(ctx, profile, "test-soundness", ["-p", "xsh-fuzz", "--test", "soundness"]) ?],
+      Deser => {},
+      Interactive => {},
     }
+    plan += unit_gates(ctx, profile, area)?
   }
   for file in selection.native_files {
     plan += [native_gate(ctx, profile, file)]
@@ -1073,7 +1165,7 @@ export pure full_plan(ctx: context.Context, profile: tests.TestProfile) -> Resul
 }
 
 pure all_areas() -> List[Area] {
-  [Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness]
+  [Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Deser, Interactive]
 }
 
 ## Plans known ownership, discovers owned native-file IDs, and records unknown scope.

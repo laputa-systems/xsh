@@ -3,6 +3,7 @@ use fixtures
 use gate_lane
 use gates
 use gate_execution
+use stage_contract as contract
 use internal as container_internal
 use test_workflows as tests
 use unix
@@ -158,7 +159,7 @@ test test_scenario_only_scope_does_not_report_a_focused_pass { |ctx|
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
-  gates.lane(fixtures.linux_context(p"{root}")?, ["crates/xsh-fuzz/src/driver.rs"])?
+  gates.lane(fixtures.linux_context(p"{root}")?, ["core/tests/test-gnu-sort.xsh"])?
 }}
 main()?
 """, status: 2, stdout: ["incomplete"], args: [], env: {{
@@ -655,14 +656,181 @@ test test_sema_gate_runs_the_library_unit_tests_of_the_files_it_owns {
   assert "test-sema-unit" in [entry.id for entry in changed.cases]
 }
 
-test test_compile_and_soundness_leaf_gates_skip_product_builds {
+type RustHarness = {package: Str, harness: Str}
+
+const harness_owner_paths = [
+  "src/diagnostic.rs",
+  "src/syntax/token.rs",
+  "src/syntax/grammar.rs",
+  "src/sema/check/expr.rs",
+  "src/loader.rs",
+  "src/runtime/value.rs",
+  "src/runtime/eval/route_witness.rs",
+  "src/runner.rs",
+  "src/trace.rs",
+  "src/stdlib.rs",
+  "src/modules/json.rs",
+  "src/frontend_stats.rs",
+  "crates/xsht/src/lint.rs",
+  "crates/xsht/src/sugar_expand.rs",
+  "crates/xsh-registry/src/lib.rs",
+  "crates/xsh-fuzz/src/driver.rs",
+  "crates/deser/deser-json/src/lib.rs",
+  "crates/xshi/src/lib.rs",
+]
+
+const harnesses_run_outside_change_cases = [
+  {package: "xsh", harness: "core_compat_extra_privileged"},
+  {package: "xsh", harness: "linux_priv"},
+  {package: "xsht", harness: "profile_parity"},
+  {package: "deser-csv", harness: "papaparse_test_suite"},
+  {package: "deser-ini", harness: "corpus"},
+  {package: "deser-toml", harness: "toml_test_suite"},
+  {package: "deser-yaml", harness: "yaml_test_suite"},
+]
+
+const harnesses_without_tests = [
+  {package: "deser", harness: "lib"},
+  {package: "deser-derive", harness: "lib"},
+  {package: "deser-path", harness: "lib"},
+  {package: "deser-value", harness: "lib"},
+]
+
+pure planned_harnesses(plan: List[contract.CommandSpec]) -> List[RustHarness] {
+  var found: List[RustHarness] = []
+  for spec in plan {
+    continue when spec.executable != "cargo" or spec.argv[1] != "test"
+    var package = ""
+    var index = 2
+    while index < spec.argv.len() {
+      let word = spec.argv[index]
+      break when word == "--"
+      if word == "-p" {
+        package = spec.argv[index + 1]
+      } else if word == "--lib" {
+        found += [{package: package, harness: "lib"}]
+      } else if word == "--test" {
+        found += [{package: package, harness: spec.argv[index + 1]}]
+      }
+      index += 1
+    }
+  }
+  found
+}
+
+proc declared_harnesses(directory: Path) [fs, error] -> Result[List[RustHarness], Error] {
+  let manifest = toml.read(fp"{directory}/Cargo.toml")?.require(Record)?
+  let package = manifest.get("package")?.require(Record)?
+  let name = package.get("name")?.require(Str)?
+  var found: List[RustHarness] = []
+  found += [{package: name, harness: "lib"}] when fp"{directory}/src/lib.rs".exists()?
+  var declared: List[Str] = []
+  if "test" in manifest.keys() {
+    for entry in manifest.get("test")?.require(List[Record])? {
+      declared += [entry.get("name")?.require(Str)?]
+    }
+  }
+  let autotests = if "autotests" in package.keys() { package.get("autotests")?.require(Bool)? } else { true }
+  if autotests and fp"{directory}/tests".exists()? {
+    for entry in fs.children(fp"{directory}/tests")? {
+      continue when entry.kind != "file" or ! entry.name.ends_with(".rs")
+      let stem = entry.name[..entry.name.byte_len() - 3]
+      declared += [stem] when stem not in declared
+    }
+  }
+  for harness in declared {
+    found += [{package: name, harness: harness}]
+  }
+  found
+}
+
+test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
+  let ctx = fixtures.linux_context(/repo)?
+  let owners = [
+    {path: "src/syntax/token.rs", stage: "test-syntax-unit", words: ["-p", "xsh", "--lib", "syntax::"], debug: true},
+    {path: "src/modules/json.rs", stage: "test-modules-unit", words: ["-p", "xsh", "--lib", "modules::", "--skip", "modules::linux::real::netlink::tests::live_raw_reply_capture_or_replay_uses_the_network_decoder"], debug: true},
+    {path: "src/runner.rs", stage: "test-runner-unit", words: ["-p", "xsh", "--lib", "runner::"], debug: true},
+    {path: "src/runtime/value.rs", stage: "test-runtime-unit", words: ["-p", "xsh", "--lib", "runtime::"], debug: true},
+    {path: "src/trace.rs", stage: "test-trace-unit", words: ["-p", "xsh", "--lib", "trace::"], debug: true},
+    {path: "src/stdlib.rs", stage: "test-stdlib-unit", words: ["-p", "xsh", "--lib", "stdlib::", "--skip", "stdlib::tests::cold_start_phase_profile"], debug: true},
+    {path: "src/loader.rs", stage: "test-loader-unit", words: ["-p", "xsh", "--lib", "loader::"], debug: true},
+    {path: "tests/sema_bundle_view.rs", stage: "test-sema-bundle-view", words: ["-p", "xsh", "--test", "integration", "sema_bundle_view::"], debug: false},
+    {path: "tests/stdlib_port.rs", stage: "test-stdlib-port", words: ["-p", "xsh", "--test", "integration", "stdlib_port::"], debug: false},
+    {path: "src/diagnostic.rs", stage: "test-core-unit", words: ["-p", "xsh", "--lib", "--skip", "sema::"], debug: true},
+    {path: "src/diagnostic.rs", stage: "test-core-integration", words: ["-p", "xsh", "--test", "integration", "--skip", "runtime::"], debug: false},
+    {path: "src/diagnostic.rs", stage: "test-core-compat-extra", words: ["-p", "xsh", "--test", "core_compat_extra", "--skip", "split::", "--skip", "date_clock::test_date_set_valid"], debug: false},
+    {path: "src/diagnostic.rs", stage: "test-ambient-fs-policy", words: ["-p", "xsh", "--test", "ambient_fs_policy"], debug: true},
+    {path: "crates/xsh-root/src/lib.rs", stage: "test-root-security", words: ["-p", "xsh-root", "--test", "security"], debug: true},
+    {path: "crates/xsh-net/src/lib.rs", stage: "test-net-unit", words: ["-p", "xsh-net", "--lib"], debug: true},
+    {path: "crates/xsh-registry/tests/api_reference.rs", stage: "test-registry-reference", words: ["-p", "xsh-registry", "--test", "api_reference"], debug: true},
+    {path: "crates/xsh-fuzz/src/driver.rs", stage: "test-effect-oracle", words: ["-p", "xsh-fuzz", "--test", "effect_oracle"], debug: true},
+    {path: "crates/xsht/src/lint.rs", stage: "test-tooling-unit", words: ["-p", "xsht", "--lib", "--skip", "sugar_expansion_tests", "--skip", "desugar_tests"], debug: true},
+    {path: "crates/deser/deser-json/src/lib.rs", stage: "test-deser-json-integration", words: ["-p", "deser-json", "--test", "integration"], debug: true},
+    {path: "crates/deser/deser-yaml/src/lib.rs", stage: "test-deser-yaml-integration", words: ["-p", "deser-yaml", "--test", "integration"], debug: true},
+    {path: "crates/xshi/src/lib.rs", stage: "test-xshi-unit", words: ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true},
+    {path: "crates/xshi/src/lib.rs", stage: "test-xshi-cli", words: ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"], debug: false},
+  ]
+  for owner in owners {
+    let plan = gates.lane_plan(ctx, tests.Verification, gates.select([owner.path])?)?
+    let matching = [spec for spec in plan |> where .stage == owner.stage]
+    assert matching.len() == 1
+    for word in owner.words {
+      assert word in matching[0].argv
+    }
+    let profiled = "--profile" in matching[0].argv
+    assert profiled != owner.debug
+  }
+  assert gates.select(["crates/deser/deser-core/src/lib.rs"])?.areas == [gates.Deser]
+  assert gates.select(["crates/xshi/src/lib.rs"])?.areas == [gates.Interactive]
+  assert gates.select(["tests/sema_bundle_view.rs"])?.areas == [gates.Checker]
+  assert gates.select(["tests/stdlib_port.rs"])?.areas == [gates.Stdlib, gates.Api]
+  let deser = gates.lane_plan(ctx, tests.Verification, gates.select(["crates/deser/deser-core/src/lib.rs"])?)?
+  assert "test-products" not in [spec.stage for spec in deser]
+}
+
+test test_compile_residual_cases_skip_only_prefixes_another_case_runs {
+  let ctx = fixtures.linux_context(/repo)?
+  let plan = gates.lane_plan(ctx, tests.Verification, gates.select(harness_owner_paths)?)?
+  for residual in [spec for spec in plan if spec.stage in ["test-core-unit", "test-core-integration"]] {
+    let harness_word = if "--lib" in residual.argv { "--lib" } else { "integration" }
+    var index = 0
+    while index < residual.argv.len() {
+      if residual.argv[index] == "--skip" {
+        let prefix = residual.argv[index + 1]
+        let owners = [spec for spec in plan if spec.stage != residual.stage and prefix in spec.argv and harness_word in spec.argv and "xsh" in spec.argv]
+        assert ! owners.is_empty()
+      }
+      index += 1
+    }
+  }
+}
+
+test test_every_workspace_rust_harness_has_a_change_case {
+  let repository = fs.cwd()?
+  let ctx = fixtures.linux_context(/repo)?
+  let plan = gates.lane_plan(ctx, tests.Verification, gates.select(harness_owner_paths)?)?
+  let owned = planned_harnesses(plan)
+  let root = toml.read(fp"{repository}/Cargo.toml")?.require(Record)?
+  var directories = [repository]
+  for member in root.get("workspace")?.require(Record)?.get("members")?.require(List[Str])? {
+    directories += [fp"{repository}/{member}"]
+  }
+  var declared: List[RustHarness] = []
+  for directory in directories {
+    declared += declared_harnesses(directory)?
+  }
+  assert declared.len() > 40
+  for harness in declared {
+    continue when harness in harnesses_run_outside_change_cases or harness in harnesses_without_tests
+    assert harness in owned
+  }
+}
+
+test test_soundness_leaf_gates_skip_product_builds {
   let ctx = fixtures.linux_context(/repo)?
 
-  let compile = gates.lane_plan(ctx, tests.Verification, gates.select(["src/frontend/source.rs"])?)?
-  assert [spec.stage for spec in compile] == ["check-compile"]
-
   let soundness = gates.lane_plan(ctx, tests.Verification, gates.select(["crates/xsh-fuzz/src/driver.rs"])?)?
-  assert [spec.stage for spec in soundness] == ["test-soundness"]
+  assert [spec.stage for spec in soundness] == ["test-soundness", "test-fuzz-unit", "test-effect-oracle"]
 
   let no_products = tests.product_builds(ctx, tests.Verification, [])?
   assert no_products.is_empty()
@@ -1412,7 +1580,7 @@ test test_soundness_fuzzing_is_an_explicit_scenario_offered_for_semantic_changes
   assert "test-soundness" not in [entry.id for entry in semantic.cases]
   assert semantic.available_scenarios == ["test-soundness"]
   let owner = gates.plan_paths(ctx, tests.Verification, ["crates/xsh-fuzz/src/driver.rs"], [], gates.Change)?
-  assert owner.cases.is_empty()
+  assert [entry.id for entry in owner.cases] == ["test-fuzz-unit", "test-effect-oracle"]
   assert owner.available_scenarios == ["test-soundness"]
   let unrelated = gates.plan_paths(ctx, tests.Verification, ["docs/TESTING.md"], [], gates.Change)?
   assert unrelated.available_scenarios.is_empty()

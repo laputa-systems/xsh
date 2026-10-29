@@ -53,6 +53,22 @@ building products or starting Docker. Add `--json` for schema 1 inspection outpu
 Saved plans carry no execution authority and cannot be passed back for execution.
 Unknown paths produce incomplete scope and exit 2. They never select a broad fallback.
 
+Every workspace library and test harness that lists tests has a Change case, and
+`dev/tests/test-gates.xsh` checks the manifests against the catalogue. A Cargo
+case names one package and one harness, so each harness is its own case. The
+Compile area owns the remainder of the root library and integration harnesses:
+`test-core-unit` and `test-core-integration` skip only the prefixes that a
+focused area case runs. Some harnesses cannot be Change cases. The gate's Cargo
+adapter needs libtest's JSON listing and a nonempty selection, so the
+`harness = false` suites (`papaparse_test_suite`, the INI `corpus`,
+`toml_test_suite` and `yaml_test_suite`) and the libraries with no tests have
+none; run the suites with `cargo test -p PACKAGE --test NAME`. Three more
+stay with manual lanes: `core_compat_extra_privileged` and `linux_priv` need the
+privileged `cargo dev test linux` container, and `profile_parity` compares
+builds that exist only on aarch64 Linux and macOS. `split::` runs in its
+resource-limited container, and the `runtime::coverage` test and the
+external-corpus tests that the XSHT runs skip by name are manual.
+
 A focused case that passes stores a record under the checkout's `.work/gate/`,
 bound to the source digest and the product digests and modes the run used. The
 record is disposable local evidence and is never committed. A case starts by
