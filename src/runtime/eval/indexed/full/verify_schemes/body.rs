@@ -11,6 +11,7 @@ pub(super) struct InitialBinding {
     pub(super) ty: SchemeType,
     pub(super) mutable: bool,
     pub(super) access: BindingAccess,
+    pub(super) capture_use: Option<crate::source::Span>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -21,6 +22,7 @@ struct LocalBinding {
     mutable: bool,
     initializer: Option<(usize, LexicalScope)>,
     access: BindingAccess,
+    capture_use: Option<crate::source::Span>,
 }
 
 struct LexicalFrame {
@@ -67,7 +69,7 @@ impl LexicalScope {
 
     pub(super) fn slot_type<'a>(&self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<&'a SchemeType>, IrVerifyError> {
         let binding = self.binding(scopes, slot, budget)?;
-        if binding.is_some_and(|binding| binding.access == BindingAccess::StaticCallableNamespace) { return Err(IrVerifyError::new("generic namespace capture escapes its callable projection")); }
+        if binding.is_some_and(|binding| binding.access == BindingAccess::StaticCallableNamespace) { return Err(IrVerifyError::at(binding.and_then(|binding| binding.capture_use), "generic namespace capture escapes its callable projection")); }
         Ok(binding.map(|binding| &binding.ty))
     }
 
@@ -384,7 +386,7 @@ fn optional_guard_continuation(
     let continuation = branch_scope(scope, scopes, budget)?;
     budget.charge(1)?;
     scopes.frames[continuation.frame].bindings.insert(slot, LocalBinding {
-        ty: payload.clone(), mutable: false, initializer, access: BindingAccess::Value,
+        ty: payload.clone(), mutable: false, initializer, access: BindingAccess::Value, capture_use: None,
     });
     Ok(continuation)
 }
@@ -431,7 +433,7 @@ fn record_capture_transfers(
 fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, initializer: Option<(usize, LexicalScope)>, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     if scope.binding(scopes, slot, budget)?.is_some() { return Err(IrVerifyError::new("generic declaration rewrites a visible slot")); }
     budget.charge(1)?;
-    scopes.frames[scope.frame].bindings.insert(slot, LocalBinding { ty, mutable, initializer, access: BindingAccess::Value });
+    scopes.frames[scope.frame].bindings.insert(slot, LocalBinding { ty, mutable, initializer, access: BindingAccess::Value, capture_use: None });
     Ok(())
 }
 
@@ -975,7 +977,7 @@ pub(super) fn verify_body(
     let mut writers = slots.iter().map(|(&slot, binding)| (slot, binding.ty.clone())).collect::<BTreeMap<_, _>>();
     let function_boundary = PropagationBoundary::for_scheme_function(store, decoder.owner, expected_return, scheme_scope, completion_group, budget)?;
     let namespace_slots = slots.iter().filter_map(|(&slot, binding)| (binding.access == BindingAccess::StaticCallableNamespace).then_some(slot)).collect::<BTreeSet<_>>();
-    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, binding)| (slot, LocalBinding { ty: binding.ty, mutable: binding.mutable, initializer: None, access: binding.access })).collect() }], error_boundaries: Vec::new(), function_boundary };
+    let mut scopes = LexicalScopes { frames: vec![LexicalFrame { parent: None, bindings: slots.into_iter().map(|(slot, binding)| (slot, LocalBinding { ty: binding.ty, mutable: binding.mutable, initializer: None, access: binding.access, capture_use: binding.capture_use })).collect() }], error_boundaries: Vec::new(), function_boundary };
     let scope = LexicalScope { frame: 0, loop_depth: 0, error_boundary: None };
     let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic body has no function owner"))?;
     let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("generic default has no function owner"))?;
@@ -991,7 +993,7 @@ pub(super) fn verify_body(
     for (&slot, binding) in &scopes.frames[0].bindings {
         if slot >= parameter_count {
             budget.charge_scheme_clone(&binding.ty)?;
-            default_bindings.insert(slot, LocalBinding { ty: binding.ty.clone(), mutable: binding.mutable, initializer: None, access: binding.access });
+            default_bindings.insert(slot, LocalBinding { ty: binding.ty.clone(), mutable: binding.mutable, initializer: None, access: binding.access, capture_use: binding.capture_use });
         }
     }
     let default_scope = LexicalScope { frame: scopes.frames.len(), loop_depth: 0, error_boundary: None };
@@ -4124,7 +4126,7 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
             assert!(changed.store.in_place.get().is_none());
             let error = FullVerifier::verify(&changed).expect_err(label);
             assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
-            error.message
+            error.message.clone()
         };
         let mut out_of_table = program.clone();
         out_of_table.store.scheme_methods[method_index].kind = MethodRequirementKind::Named(NamedMethodId::from_raw(u16::MAX));
@@ -5320,7 +5322,7 @@ test verify_completion_cleanup {
                     node.first = wrong.first;
                 }
             }
-            let message = FullVerifier::verify(&changed).unwrap_err().message;
+            let message = FullVerifier::verify(&changed).unwrap_err().message.clone();
             assert!(
                 matches!(
                     (operation, message.as_str()),

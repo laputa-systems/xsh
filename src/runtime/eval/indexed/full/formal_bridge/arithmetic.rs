@@ -546,7 +546,7 @@ fn export_arithmetic_document(
     source_id: IrId,
     schedule: &[&str],
 ) -> Result<ArithmeticDocument, String> {
-    FullVerifier::verify(program).map_err(|error| error.message)?;
+    FullVerifier::verify(program).map_err(|error| error.message.clone())?;
     if source_id.raw().checked_sub(1) != Some(program.store.source_id.raw() as u32) {
         return Err("raw-IR document does not name its source document".to_string());
     }
@@ -562,7 +562,7 @@ fn export_arithmetic_document(
         .iter()
         .map(|function| store.string(function.name).map(str::to_string))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.message)?;
+        .map_err(|error| error.message.clone())?;
     if syntax_names != lowered_names {
         return Err("arena function names do not match the lowered function table".to_string());
     }
@@ -614,7 +614,7 @@ fn export_arithmetic_document(
                 name: store
                     .string(function.name)
                     .map(str::to_string)
-                    .map_err(|error| error.message)?,
+                    .map_err(|error| error.message.clone())?,
                 params_start: function.params.start,
                 params_len: function.params.len,
                 captures_start: function.captures.start,

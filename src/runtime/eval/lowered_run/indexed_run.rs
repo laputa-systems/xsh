@@ -311,7 +311,7 @@ fn indexed_eager_atom_value<'e>(
         ExprView::PreparedConstant(value) => value.0.clone(),
         ExprView::Path(value) => LoweredValue::Path(
             PathValue::new(value.to_vec())
-                .map_err(|error| indexed_error(IrVerifyError { message: error.message }, span))?,
+                .map_err(|error| indexed_error(IrVerifyError::at(None, error.message), span))?,
         ),
         ExprView::Param(slot) => {
             lowered_freeze_large_slot_list(&mut slots[slot]);

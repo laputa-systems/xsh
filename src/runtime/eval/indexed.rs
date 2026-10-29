@@ -143,16 +143,36 @@ impl IrBuildError {
     }
 }
 
+/// Boxed so a verification result stays one word wide: the verifiers recurse
+/// deeply and a wider error would grow every frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IrVerifyError {
+pub struct IrVerifyError(Box<IrVerifyErrorDetail>);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IrVerifyErrorDetail {
     pub message: String,
+    /// The source the failing construct came from, when the IR records it.
+    pub span: Option<Span>,
+}
+
+impl std::ops::Deref for IrVerifyError {
+    type Target = IrVerifyErrorDetail;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl IrVerifyError {
     fn new(message: impl Into<String>) -> Self {
-        Self {
+        Self::at(None, message)
+    }
+
+    pub(in crate::runtime::eval) fn at(span: Option<Span>, message: impl Into<String>) -> Self {
+        Self(Box::new(IrVerifyErrorDetail {
             message: message.into(),
-        }
+            span,
+        }))
     }
 }
 

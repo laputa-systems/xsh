@@ -356,6 +356,7 @@ impl LoweredTopLevelSlotView<'_> {
             binding_identity: None,
             runtime_identity: None,
             mutable: self.mutable,
+            use_span: None,
         })
     }
 }
@@ -953,7 +954,7 @@ macro_rules! enum_schema {
 // Exact checker types remain verifier metadata; the encoded row carries only these fields.
 struct_schema!(LoweredTopLevelSlot => LoweredTopLevelSlotView {
     name: Name, slot: usize, kind: LoweredType, mutable: bool,
-} with { checked_type: None, binding_identity: None, runtime_identity: None });
+} with { checked_type: None, binding_identity: None, runtime_identity: None, use_span: None });
 
 struct_schema!(LoweredRunArg => RunArgView {
     kind: LoweredRunArgKind, span: Span,

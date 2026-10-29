@@ -391,6 +391,7 @@ struct FullCapture {
     slot_and_flags: u32,
     binding_identity: u32,
     owner: u32,
+    use_location: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -946,6 +947,13 @@ impl Default for FullStore {
 }
 
 impl FullStore {
+    fn capture_use_span(&self, capture: &FullCapture) -> Option<Span> {
+        let id = IrLocationId::from_raw(capture.use_location)?.index();
+        let location = self.locations.get(id)?;
+        let source = *self.location_sources.get(id)?;
+        Some(Span::new(source, location.start as usize, location.start as usize + location.len as usize))
+    }
+
     fn try_operand(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
         if self.tags.get(instruction) != Some(&FullTag::ExprTry) { return Ok(None); }
         let data = self.data.get(instruction).ok_or_else(|| IrVerifyError::new("error transfer has no instruction payload"))?;
@@ -3702,6 +3710,7 @@ impl<'a> FullFunctionView<'a> {
                 binding_identity: None,
                 runtime_identity,
                 mutable: capture.slot_and_flags & (1 << 31) != 0,
+                use_span: None,
             });
         }
         let (return_kind, return_check) = match contract {
@@ -3915,6 +3924,7 @@ impl<'a> FullDriverStepView<'a> {
                     .then(|| self.program.runtime_binding_identity(slot.binding_identity))
                     .transpose()?,
                 mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
+                use_span: None,
             });
         }
         Ok(slots)
@@ -4277,7 +4287,7 @@ impl FullBuilder {
         } else {
             FullVerifier::verify_with_contexts(&program, verify_schemes::ProducerContexts::Pending(&self.producer_contexts))
         }.map_err(|error| {
-            IrBuildError::format("full_ir_verification", None, 0, 0).with_detail(Some(error.message))
+            IrBuildError::format("full_ir_verification", error.span, 0, 0).with_detail(Some(error.message.clone()))
         })?;
         for (instruction, owner, ty) in contexts {
             let type_id = self.semantic.intern_type(&mut program.store.semantic, &ty)?;
@@ -4722,12 +4732,17 @@ impl FullBuilder {
                     Some(ty) => self.intern_checked_type(&executable_type(ty))?,
                     None => self.intern_lowered_type(capture.kind)?,
                 };
+                let use_location = capture.use_span
+                    .map(|span| self.intern_location(span).map(IrLocationId::raw))
+                    .transpose()?
+                    .unwrap_or(IR_NONE);
                 self.store.captures.push(FullCapture {
                     name,
                     type_id,
                     slot_and_flags: slot | u32::from(capture.mutable) << 31,
                     binding_identity,
                     owner: capture_owner,
+                    use_location,
                 });
             }
             let checked_return_type = if scheme.is_some() {
@@ -21132,7 +21147,7 @@ impl FullCodec for PreparedConstantValue {
             true
         });
         let origin = self.1.as_ref().map(|origin| map_prepared_constant_origin(origin, 0, &mut |ty: &Arc<Type>| {
-            verify_schemes::ensure_substitution_type(ty).map_err(|error| IrBuildError::format("prepared_constructor_type", None, 0, 0).with_detail(Some(error.message)))?;
+            verify_schemes::ensure_substitution_type(ty).map_err(|error| IrBuildError::format("prepared_constructor_type", None, 0, 0).with_detail(Some(error.message.clone())))?;
             builder.intern_checked_type(ty)
         }, &|| IrBuildError::format("prepared_constructor_origin_depth", None, 0, 0))).transpose()?;
         builder.store.prepared_constants.push(PreparedConstantValue(self.0.clone(), origin));
@@ -22179,12 +22194,12 @@ macro_rules! impl_build_id_codec {
                         crate::runtime::eval::CheckedExprPurpose::CheckedContract { function_ref, with_error_source } => Some(FullCheckedExprPurpose::CheckedContract { function_ref, with_error_source }),
                         crate::runtime::eval::CheckedExprPurpose::CapturedErrorContract => {
                             let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("captured_error_owner", None, 0, instruction))?;
-                            let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("captured_error_owner", None, 0, instruction).with_detail(Some(error.message)))?;
+                            let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("captured_error_owner", None, 0, instruction).with_detail(Some(error.message.clone())))?;
                             Some(FullCheckedExprPurpose::CapturedErrorContract(owner))
                         }
                         crate::runtime::eval::CheckedExprPurpose::ProducerContext => {
                             let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("producer_context_owner", None, 0, instruction))?;
-                            let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("producer_context_owner", None, 0, instruction).with_detail(Some(error.message)))?;
+                            let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("producer_context_owner", None, 0, instruction).with_detail(Some(error.message.clone())))?;
                             if builder.producer_demand == crate::runtime::eval::ProducerDemand::Needed { builder.producer_contexts.push((instruction as u32, owner, Arc::new(ty.ty.clone()))); }
                             None
                         }
@@ -42245,7 +42260,7 @@ pure foreign(payload, count: Int) {
         assert_eq!(size_of::<scheme_values::FullSchemeCallableTarget>(), 28);
         assert_eq!(size_of::<PreparedInvocationBindings>(), 2 * size_of::<usize>());
         assert_eq!(size_of::<FullParamCold>(), 12);
-        assert_eq!(size_of::<FullCapture>(), 20);
+        assert_eq!(size_of::<FullCapture>(), 24);
         assert_eq!(size_of::<FullFunctionMetadata>(), 8);
         assert_eq!(size_of::<FullValidation>(), 8);
         assert_eq!(size_of::<FullDriverStep>(), 48);
@@ -58416,7 +58431,7 @@ assert identity(labels([{name: "a", size: 1}], [{name: "w", size: "2"}], [{name:
     }
 
     fn rejection(label: &str, forged: &super::FullProgram) -> String {
-        super::FullVerifier::verify(forged).expect_err(label).message
+        super::FullVerifier::verify(forged).expect_err(label).message.clone()
     }
 
     fn parameter_slot(program: &super::FullProgram, owner: usize, instruction: usize) -> usize {

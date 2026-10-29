@@ -1611,6 +1611,7 @@ struct LoweredTopLevelSlot {
     binding_identity: Option<LoweredBindingIdentity>,
     runtime_identity: Option<RuntimeBindingIdentity>,
     mutable: bool,
+    use_span: Option<Span>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -4348,7 +4349,7 @@ impl Evaluator {
         let program = Arc::clone(&indexed_body.program);
         let view = program
             .driver_step_view_absolute(indexed_body.driver_step)
-            .map_err(|error| RuntimeError::new("indexed-ir", error.message).with_span(call_span))?;
+            .map_err(|error| RuntimeError::new("indexed-ir", error.message.clone()).with_span(call_span))?;
         self.indexed_root_slots = Some(IndexedRootSlots {
             address: slots.as_ptr() as usize,
             scope_revision: self.scope_write_revision,

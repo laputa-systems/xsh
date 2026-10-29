@@ -2442,7 +2442,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         script_arguments_type(self.program, &self.scope, self.declarations)
     }
 
-    fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&std::collections::BTreeSet<BindingId>>) -> LoweredTopLevelSlots {
+    fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&std::collections::BTreeSet<BindingId>>, within: Span) -> LoweredTopLevelSlots {
         let mut bindings = self.bodies.resolved_bindings.declarations.iter()
             .filter(|(id, declaration)| {
                 reads.is_none_or(|reads| reads.contains(id)) && (**id == BindingId::args() || (declaration.global && declaration.namespace == self.current_namespace))
@@ -2476,6 +2476,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for (binding, name, kind, mutable, binding_identity, checked_type) in bindings {
             let slot = slots.reserve("captured global");
             slots.bind_source_at(binding, name, slot, checked_type.clone());
+            let use_span = self.bodies.resolved_bindings.expressions.iter()
+                .filter(|(_, resolved)| **resolved == binding)
+                .map(|(expression, _)| self.program.arena.expr(*expression).span)
+                .filter(|span| span.source_id == within.source_id && span.start() >= within.start() && span.end() <= within.end())
+                .min_by_key(|span| span.start());
             captures.push(LoweredTopLevelSlot {
                 name,
                 slot,
@@ -2484,6 +2489,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 binding_identity: Some(binding_identity),
                 runtime_identity: None,
                 mutable,
+                use_span,
             });
         }
         captures
@@ -2940,7 +2946,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for _ in &params {
             slots.reserve("parameter");
         }
-        let captures = self.append_immutable_top_level_captures(&mut slots, scheme_body_facts.as_ref().map(|facts| facts.read_bindings()));
+        let captures = self.append_immutable_top_level_captures(&mut slots, scheme_body_facts.as_ref().map(|facts| facts.read_bindings()), self.program.arena.span(self.program.arena.block(def.body).span));
         let blockers_before = self.output.blocker_events;
         let mut default_prefix = Vec::new();
         let mut scheme_default_types = BTreeMap::new();
@@ -6527,6 +6533,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             binding_identity: binding.binding_identity,
                             runtime_identity: None,
                             mutable: binding.mutable,
+                            use_span: None,
                         })
                     })
                     .collect();
@@ -9763,6 +9770,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     binding_identity: binding.binding_identity,
                     runtime_identity: None,
                     mutable: binding.mutable,
+                    use_span: None,
                 })
             })
             .collect();

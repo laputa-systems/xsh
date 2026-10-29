@@ -1225,14 +1225,26 @@ print $read({anchor: "x"})
   assert output.stdout == "1\n1\n"
 }
 
-test test_full_inference_generic_body_rejects_mutable_and_computed_captures { |ctx|
+test test_full_inference_generic_capture_rejections_point_at_the_use { |ctx|
   let cases = [
-    {name: "mutable capture", source: "var marker = {value: 1}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\nprint $read({anchor: 1})\n", message: "generic body captures resource state"},
-    {name: "computed record capture", source: "type Marker = {value: Int}\npure make() -> Marker { {value: 1} }\nlet marker = make()\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\nprint $read({anchor: 1})\n", message: "generic record capture has a nonliteral payload"},
+    {name: "mutable capture", source: "var marker = {value: 1}\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\nprint $read({anchor: 1})\n", message: "generic body captures resource state", at: ":2:51"},
+    {name: "computed record capture", source: "type Marker = {value: Int}\npure make() -> Marker { {value: 1} }\nlet marker = make()\npure read(row) -> Int { let ignored = row.anchor; marker.value.bit_or(0) }\nprint $read({anchor: 1})\n", message: "generic record capture has a nonliteral payload", at: ":4:51"},
   ]
-  for {name, source, message} in cases {
+  for {name, source, message, at} in cases {
     let output = test.run_xsh(ctx, source)?
     assert output.success == false, name
     assert message in output.stderr, f"{name}: {output.stderr}"
+    assert at in output.stderr, f"{name}: {output.stderr}"
   }
+}
+
+test test_full_inference_generic_namespace_capture_points_at_the_use { |ctx|
+  let root = test.temp_dir(ctx, name: "generic-namespace-capture")?
+  fp"{root}/api.xsh".write(r"""##! A fixture module.
+## A marker value.
+export const marker = 1
+""")
+  let output = test.expect(ctx, "use api\npure namespace_value(value) { let _ = api; value }\nprint $namespace_value(1)\n", status: 2, args: [], env: {XSH_MODULE_PATH: root})?
+  assert "generic namespace capture escapes its callable projection" in output.stderr, output.stderr
+  assert ":2:39" in output.stderr, output.stderr
 }

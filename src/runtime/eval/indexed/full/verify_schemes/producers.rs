@@ -2371,7 +2371,7 @@ enum StorageContractRelation { ReadCompatible, ExactDeclaration }
 
 enum Obligation {
     GroundFunction(usize),
-    LiteralPayload(u32, usize),
+    LiteralPayload(u32, usize, Option<crate::source::Span>),
     Expression(u32, usize, Arc<Type>, bool, Option<DeclaredProducerFact>),
     Slot(u32, ProducerBinding, usize, Arc<Type>),
     PipelinePrefix(u32, usize, usize, Arc<Type>),
@@ -2535,7 +2535,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
             if capture.slot_and_flags & (1 << 31) == 0 && matches!(ty.as_ref(), Type::Record(_)) {
                 let (owner, producer) = proof.binding_producer(capture.binding_identity, ProducerTargetPurpose::LiteralPayload, &mut Vec::new())?;
                 let CallableProducer::Expression(instruction) = producer else { return Err(IrVerifyError::new("generic record capture has no literal lexical initializer")); };
-                proof.pending.push(Obligation::LiteralPayload(owner, instruction));
+                proof.pending.push(Obligation::LiteralPayload(owner, instruction, store.capture_use_span(capture)));
             }
             proof.slot(decoder.owner, decoder.instruction_range.start, (capture.slot_and_flags & !(1 << 31)) as usize, ty)?;
         }
@@ -5027,7 +5027,7 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn verify_literal_payload(&mut self, owner: u32, instruction: usize) -> Result<(), IrVerifyError> {
+    fn verify_literal_payload(&mut self, owner: u32, instruction: usize, origin: Option<crate::source::Span>) -> Result<(), IrVerifyError> {
         let decoder = self.owner(owner)?;
         if !decoder.instruction_range.contains(&instruction) { return Err(IrVerifyError::new("literal capture payload escapes its lexical owner")); }
         match decoder.expression_view(instruction)? {
@@ -5041,28 +5041,28 @@ impl<'a> ProducerProof<'a> {
                     let value = match entry? {
                         super::super::decode::RecordEntryView::Field(_, value) | super::super::decode::RecordEntryView::Spread(value) => value,
                     };
-                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize, origin));
                 }
             }
             schema::ExprView::List(mut values) => {
                 for value in &mut values {
                     self.budget.charge(1)?;
-                    self.pending.push(Obligation::LiteralPayload(owner, value?.raw() as usize));
+                    self.pending.push(Obligation::LiteralPayload(owner, value?.raw() as usize, origin));
                 }
             }
             schema::ExprView::ListBuild(mut values) => {
                 for value in &mut values {
                     self.budget.charge(1)?;
                     let (_, value, _) = value?;
-                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize, origin));
                 }
             }
             schema::ExprView::MapLiteral(mut entries) => {
                 for entry in &mut entries {
                     self.budget.charge(1)?;
                     let (key, value, _) = entry?;
-                    if let Some(key) = key { self.pending.push(Obligation::LiteralPayload(owner, key.raw() as usize)); }
-                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
+                    if let Some(key) = key { self.pending.push(Obligation::LiteralPayload(owner, key.raw() as usize, origin)); }
+                    self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize, origin));
                 }
             }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add | crate::syntax::node::BinaryOp::Sub
@@ -5071,27 +5071,27 @@ impl<'a> ProducerProof<'a> {
                 | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge
                 | crate::syntax::node::BinaryOp::And | crate::syntax::node::BinaryOp::Or
                 | crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, left, right, .. } => {
-                self.pending.push(Obligation::LiteralPayload(owner, left.raw() as usize));
-                self.pending.push(Obligation::LiteralPayload(owner, right.raw() as usize));
+                self.pending.push(Obligation::LiteralPayload(owner, left.raw() as usize, origin));
+                self.pending.push(Obligation::LiteralPayload(owner, right.raw() as usize, origin));
             }
-            schema::ExprView::Field { base, .. } => self.pending.push(Obligation::LiteralPayload(owner, base.raw() as usize)),
+            schema::ExprView::Field { base, .. } => self.pending.push(Obligation::LiteralPayload(owner, base.raw() as usize, origin)),
             schema::ExprView::IfExpr { mut branches, else_value, .. } => {
                 self.budget.charge(branches.len() + 2)?;
-                let Some((condition, value)) = branches.next().transpose()? else { return Err(IrVerifyError::new("generic record capture has a nonliteral payload")); };
+                let Some((condition, value)) = branches.next().transpose()? else { return Err(IrVerifyError::at(origin, "generic record capture has a nonliteral payload")); };
                 if branches.next().is_some()
                     || !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Bool(false))
                     || !matches!(decoder.expression_view(else_value.raw() as usize)?, schema::ExprView::Bool(true))
-                { return Err(IrVerifyError::new("generic record capture has a nonliteral payload")); }
+                { return Err(IrVerifyError::at(origin, "generic record capture has a nonliteral payload")); }
                 self.verify_condition(owner, condition.raw() as usize, ConditionRole::Boolean)?;
-                self.pending.push(Obligation::LiteralPayload(owner, condition.raw() as usize));
-                self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize));
-                self.pending.push(Obligation::LiteralPayload(owner, else_value.raw() as usize));
+                self.pending.push(Obligation::LiteralPayload(owner, condition.raw() as usize, origin));
+                self.pending.push(Obligation::LiteralPayload(owner, value.raw() as usize, origin));
+                self.pending.push(Obligation::LiteralPayload(owner, else_value.raw() as usize, origin));
             }
             schema::ExprView::PreparedConstant(value) => {
-                let work = super::super::prepared_constant_data_work(&value.0, 0).ok_or_else(|| IrVerifyError::new("generic capture literal contains a runtime payload"))?;
+                let work = super::super::prepared_constant_data_work(&value.0, 0).ok_or_else(|| IrVerifyError::at(origin, "generic capture literal contains a runtime payload"))?;
                 self.budget.charge(work)?;
             }
-            _ => return Err(IrVerifyError::new("generic record capture has a nonliteral payload")),
+            _ => return Err(IrVerifyError::at(origin, "generic record capture has a nonliteral payload")),
         }
         Ok(())
     }
@@ -5114,7 +5114,7 @@ impl<'a> ProducerProof<'a> {
                             self.expression(owner, value.raw() as usize, Arc::clone(&expected), true);
                         }
                     }
-                    Obligation::LiteralPayload(owner, instruction) => self.verify_literal_payload(owner, instruction)?,
+                    Obligation::LiteralPayload(owner, instruction, origin) => self.verify_literal_payload(owner, instruction, origin)?,
                     Obligation::Expression(owner, instruction, expected, returned, fact) => self.verify_expression(owner, instruction, expected, returned, fact)?,
                     Obligation::Slot(owner, binding, slot, expected) => self.verify_slot(owner, binding, slot, expected)?,
                     Obligation::PipelinePrefix(owner, pipeline, end, expected) => self.verify_pipeline_prefix(owner, pipeline, end, expected)?,

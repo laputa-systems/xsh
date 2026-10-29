@@ -631,7 +631,7 @@ fn export_raw_ir_document(
     float_output_bits: Vec<u64>,
     native_path_inputs: Vec<Vec<u8>>,
 ) -> Result<RawIrDocument, String> {
-    FullVerifier::verify(program).map_err(|error| error.message)?;
+    FullVerifier::verify(program).map_err(|error| error.message.clone())?;
     if source_id.raw().checked_sub(1) != Some(program.store.source_id.raw() as u32) {
         return Err("raw-IR document does not name its source document".to_string());
     }
@@ -649,7 +649,7 @@ fn export_raw_ir_document(
         .iter()
         .map(|function| program.store.string(function.name).map(str::to_string))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.message)?;
+        .map_err(|error| error.message.clone())?;
     if function_names != lowered_function_names {
         return Err("arena function names do not match the lowered function table".to_string());
     }
@@ -678,7 +678,7 @@ fn export_raw_ir_document(
             .iter()
             .map(|param| program.store.string(param.name).map(str::to_string))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.message)?;
+            .map_err(|error| error.message.clone())?;
         if syntax_params != lowered_params {
             return Err(
                 "arena parameter names do not match the lowered parameter table".to_string(),
@@ -704,7 +704,7 @@ fn export_raw_ir_document(
         let words = program
             .store
             .payload(data.range())
-            .map_err(|error| error.message)?;
+            .map_err(|error| error.message.clone())?;
         let [low, high] = words else {
             return Err("64-bit literal payload does not have two raw words".to_string());
         };
@@ -762,7 +762,7 @@ fn build_fixture(
         source_id,
     )
     .map_err(|error| format!("fixture lowerer failed: {error:?}"))?;
-    FullVerifier::verify(&program).map_err(|error| error.message)?;
+    FullVerifier::verify(&program).map_err(|error| error.message.clone())?;
     Ok((sources, parsed, program))
 }
 

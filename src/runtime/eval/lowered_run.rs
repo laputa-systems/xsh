@@ -7826,14 +7826,14 @@ impl Evaluator {
         let indexed = Arc::clone(self.indexed_program.as_ref()
             .expect("indexed module program remains installed"));
         let step_count = indexed.driver_step_count().map_err(|error| {
-            RuntimeError::new("module-load", error.message).with_span(call_span)
+            RuntimeError::new("module-load", error.message.clone()).with_span(call_span)
         })?;
         let mut defers = Vec::new();
         for index in 0..step_count {
             let span = indexed.driver_step_view(index)
                 .and_then(|view| view.source_span())
                 .map_err(|error| {
-                    RuntimeError::new("module-load", error.message).with_span(call_span)
+                    RuntimeError::new("module-load", error.message.clone()).with_span(call_span)
                 })?;
             if indexed.driver_step_is_skip(index).unwrap_or(false) {
                 continue;
@@ -7865,7 +7865,7 @@ impl Evaluator {
                 .as_ref()
                 .expect("indexed module program remains installed")
                 .driver_step_defers_on_error(index)
-                .map_err(|error| RuntimeError::new("module-load", error.message).with_span(span))?;
+                .map_err(|error| RuntimeError::new("module-load", error.message.clone()).with_span(span))?;
             if on_error {
                 continue;
             }

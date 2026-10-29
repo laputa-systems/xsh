@@ -1926,15 +1926,16 @@ fn verify_scheme_body_facts(
         if !membership_checks.is_empty() { return Err(IrVerifyError::new("membership key check has no body type")); }
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
-            slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false, access: body::BindingAccess::Value });
+            slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false, access: body::BindingAccess::Value, capture_use: None });
         }
         for capture in bounded(function.captures, &store.captures, "generic capture range is invalid")? {
             let slot = (capture.slot_and_flags & !(1 << 31)) as usize;
+            let capture_use = store.capture_use_span(capture);
             let ty = store.semantic.to_type_with_budget(capture.type_id, &mut budget.semantic_types)?;
             ensure_closed_type(&ty)?;
             let namespace = capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Module(_))
                 && producer_index.static_namespace_capture(store, capture.binding_identity, &ty, &mut budget)?;
-            if ty.may_hold_resource() && !namespace && !(capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Record(_))) { return Err(IrVerifyError::new("generic body captures resource state")); }
+            if ty.may_hold_resource() && !namespace && !(capture.slot_and_flags & (1 << 31) == 0 && matches!(&ty, Type::Record(_))) { return Err(IrVerifyError::at(capture_use, "generic body captures resource state")); }
             if namespace && producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("generic callable namespace has no mandatory storage proof")); }
             if matches!(&ty, Type::Record(_)) && producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("generic record capture has no mandatory literal payload proof")); }
             if capture.slot_and_flags & (1 << 31) != 0 {
@@ -1943,7 +1944,7 @@ fn verify_scheme_body_facts(
                 let actual = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("generic capture has no authenticated lexical writer type"))?;
                 if store.semantic.to_type_with_budget(actual, &mut budget.semantic_types)? != ty { return Err(IrVerifyError::new("generic capture type disagrees with its lexical writer")); }
             }
-            if slots.insert(slot, body::InitialBinding { ty: SchemeType::Ground(ty), mutable: capture.slot_and_flags & (1 << 31) != 0, access: if namespace { body::BindingAccess::StaticCallableNamespace } else { body::BindingAccess::Value } }).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
+            if slots.insert(slot, body::InitialBinding { ty: SchemeType::Ground(ty), mutable: capture.slot_and_flags & (1 << 31) != 0, access: if namespace { body::BindingAccess::StaticCallableNamespace } else { body::BindingAccess::Value }, capture_use }).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
         }
         let body_id = IrBlockId::from_raw(function.body).ok_or_else(|| IrVerifyError::new("generic body block is invalid"))?;
         let block = store.blocks.get(body_id.index()).ok_or_else(|| IrVerifyError::new("generic body block is out of bounds"))?;
