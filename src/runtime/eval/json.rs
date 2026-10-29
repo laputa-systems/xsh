@@ -8,7 +8,7 @@ use crate::symbol::Name;
 use std::collections::BTreeMap;
 use std::borrow::Cow;
 use deser::{Atom, Error, ErrorKind, Serialize, State};
-use deser::ser::{Emit, MapEmitter, SeqEmitter, SerializeHandle, StructEmitter};
+use deser::ser::{Emit, SeqEmitter, SerializeHandle, StructEmitter};
 use std::sync::Arc;
 
 const NON_FINITE_FLOAT_MESSAGE: &str = "non-finite Float values are not JSON-compatible";
@@ -231,7 +231,6 @@ impl Serialize for BorrowedValue<'_> {
             }
             CodecNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
             CodecNode::Sequence(items) => Emit::seq(Items { items, pretty: value.pretty, span: value.span, format: value.format }, state),
-            CodecNode::Map(fields) if value.format.is_binary() => Emit::map(BinaryFields { fields: fields.fields(), pending: None, format: value.format, pretty: value.pretty, span: value.span }, state),
             CodecNode::Map(fields) => {
                 if !value.pretty && !fields.all_string_keys() { return Err(rejected(NON_STRING_KEY_MESSAGE)); }
                 Emit::structure(Fields { fields: fields.fields(), pretty: value.pretty, span: value.span, format: value.format }, state)
@@ -312,27 +311,6 @@ pub(super) fn borrowed_runtime<'a>(format: Format, value: &'a Value, span: Span)
 
 pub(super) fn borrowed_lowered<'a>(format: Format, value: &'a LoweredValue, span: Span) -> impl Serialize + 'a {
     BorrowedValue { value: CodecInput::Lowered(value), format, pretty: false, span }
-}
-
-struct BinaryFields<'a> {
-    fields: CodecFields<'a>,
-    pending: Option<CodecInput<'a>>,
-    format: Format,
-    pretty: bool,
-    span: Span,
-}
-
-impl MapEmitter for BinaryFields<'_> {
-    fn next_key(&mut self, state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
-        let Some((key, value)) = self.fields.next() else { return Ok(None); };
-        let CodecFieldKey::Map(key) = key else { unreachable!("binary map scalar key") };
-        self.pending = Some(value);
-        Ok(Some(SerializeHandle::arena(BorrowedValue { value: CodecInput::Key(key), format: self.format, pretty: self.pretty, span: self.span }, state)))
-    }
-    fn next_value(&mut self, state: &mut State) -> Result<SerializeHandle<'_>, Error> {
-        let value = self.pending.take().expect("binary map value after key");
-        Ok(SerializeHandle::arena(BorrowedValue { value, format: self.format, pretty: self.pretty, span: self.span }, state))
-    }
 }
 
 #[cfg(test)]

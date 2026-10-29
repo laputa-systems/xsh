@@ -5,9 +5,12 @@ test test_codec_dispatch_preserves_values_and_rejects_wrong_boundaries {
   assert codec.decode_bytes("json", codec.encode_bytes("json", {value: 42})?)? == json.decode("{\"value\":42}")?
   test.error_kind(codec.decode("cbor", ""), "CodecError.UnsupportedFormat")
   test.error_kind(codec.encode("msgpack", 1), "CodecError.UnsupportedFormat")
+  test.error_kind(codec.decode_bytes("cbor", b"\x01"), "CodecError.UnsupportedFormat")
+  test.error_kind(codec.encode_bytes("msgpack", 1), "CodecError.UnsupportedFormat")
+  test.error_kind(codec.decode_all_bytes("msgpack", b"\x01"), "CodecError.UnsupportedFormat")
+  test.error_kind(codec.encode_all_bytes("cbor", [1]), "CodecError.UnsupportedFormat")
   test.error_kind(codec.decode("JSON", "null"), "CodecError.UnsupportedFormat")
   test.error_kind(codec.decode("pickle", ""), "CodecError.UnsupportedFormat")
-  test.error_kind(codec.encode_bytes("json", 1, canonical: true), "CodecError.Options")
   match codec.decode_bytes("toml", b"a=\xff") {
     Err(CodecError.Encoding {format: format, offset: offset, input_path: input_path, ..}) => {
       assert format == "toml"

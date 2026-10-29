@@ -41,7 +41,7 @@ print "checked"
 
 test test_codec_files_roundtrip_each_format_and_preserve_failed_destinations { |ctx|
   let record = {name: "worker", port: "42"}
-  for format in ["json", "yaml", "toml", "ini", "csv", "tsv", "cbor", "msgpack"] {
+  for format in ["json", "yaml", "toml", "ini", "csv", "tsv"] {
     let config_path = test.temp_path(ctx, name: f"roundtrip-{format}.data")
     let value: Any = if format == "csv" or format == "tsv" { [record] } else { record }
     codec.write(format, config_path, value)?

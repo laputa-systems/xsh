@@ -17,7 +17,6 @@ members = [
     "crates/deser/deser-ini",
     "crates/deser/deser-csv",
     "crates/deser/deser-cbor",
-    "crates/deser/deser-msgpack",
     "crates/deser/deser-path",
     "crates/deser/deser-location",
     "crates/deser/deser-value",
@@ -108,8 +107,6 @@ deser-yaml = { path = "crates/deser/deser-yaml" }
 deser-toml = { path = "crates/deser/deser-toml" }
 deser-ini = { path = "crates/deser/deser-ini" }
 deser-csv = { path = "crates/deser/deser-csv" }
-deser-cbor = { path = "crates/deser/deser-cbor" }
-deser-msgpack = { path = "crates/deser/deser-msgpack" }
 deser-value = { path = "crates/deser/deser-value" }
 regex-lite = "0.1.9"
 rustc-hash = "2.1.3"

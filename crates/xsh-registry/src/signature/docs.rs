@@ -146,7 +146,7 @@ fn module_docs(module: &str) -> ApiDocs {
             "Hash file contents as bytes, not formatted text.",
         ),
         "csv" => ("Delimited tables with explicit header, delimiter and column options.", "Plain fields remain strings; use codec.decode_as or codec.read_as for explicit schema-guided lexical conversion."),
-        "codec" => ("Structured text and binary encoding, decoding, and files.", "Formats use fixed identifiers and reject values without a faithful representation."),
+        "codec" => ("Structured text encoding, decoding, and files.", "Formats use fixed identifiers and reject values without a faithful representation."),
         "yaml" => ("YAML 1.2 decoding, encoding, and files.", "Custom tags and conflicting merged keys are rejected."),
         "toml" => ("TOML decoding, encoding, and files.", "Datetime values have no XSH representation and are rejected."),
         "ini" => ("Case-preserving INI decoding, encoding, and file helpers.", "Untyped fields remain strings."),
@@ -268,9 +268,9 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("system", "parse_long_double") => Some(("Parses a native C long double prefix and returns its ordering key.", "Consumed is a byte offset, including leading whitespace, or zero when no number is recognized. NUL ends parsing. range_error reports native ERANGE. C locale is isolated from process locale. Keys compare lexically: failed conversion, NaN, negative infinity, negative finite values, zero, positive finite values, positive infinity. All NaNs and signed zeros compare equal. Keys are opaque and target-specific.", &["numeric", "parsing", "ordering"])),
         ("system", "format_long_double") => Some(("Parses and formats numeric text with native C long double precision.", "Accepts fFeEgGaA with optional nonnegative C-int precision; null uses the native default. alternate selects the # form. Reports consumed bytes and ERANGE from parsing. Uses C locale; retains signed zero, infinities, NaNs and target-native rounding. Invalid conversions, invalid precision, formatting and allocation failures return errors.", &["numeric", "formatting"])),
         ("system", "long_double_precision") => Some(("Returns the target C long double significand bit count.", "Matches the native parsing and formatting boundary: 64 on x86 extended precision, 113 on IEEE binary128 targets, and 53 on targets where C long double is binary64.", &["numeric", "precision"])),
-        ("codec", "decode_all") | ("codec", "decode_all_bytes") => Some(("Creates an owned lazy stream of decoded items.", "JSON Lines, YAML documents, CSV/TSV records and consecutive CBOR/MessagePack values use the existing Stream owner. Text decode_all rejects binary formats; decode_all_bytes also accepts binary input. Construction consumes no item. Each pull yields Ok(value) or a structured CodecError. Framed JSON Lines and CSV row errors may recover; header, framing, budget, YAML and binary failures terminate. Input, item and emitted-payload budgets are cumulative. TOML and INI do not support sequences.", &["codec", "stream", "decoding", "ownership"])),
+        ("codec", "decode_all") | ("codec", "decode_all_bytes") => Some(("Creates an owned lazy stream of decoded items.", "JSON Lines, YAML documents and CSV/TSV records use the existing Stream owner. decode_all takes text and decode_all_bytes takes bytes. Construction consumes no item. Each pull yields Ok(value) or a structured CodecError. Framed JSON Lines and CSV row errors may recover; header, framing, budget and YAML failures terminate. Input, item and emitted-payload budgets are cumulative. TOML and INI do not support sequences.", &["codec", "stream", "decoding", "ownership"])),
         ("codec", "read_all") => Some(("Opens one owned reader for lazy decoded items.", "Declares filesystem effects at creation. The existing Stream owner closes the reader on exhaustion, terminal failure, cancellation or early drop. Codec failures retain the actual input Path; mid-read host failures keep their host facets and propagate at the pull site. Parsing consumes bounded chunks and never collects the file. Supported formats and recovery follow decode_all.", &["codec", "stream", "filesystem", "ownership"])),
-        ("codec", "encode_all") | ("codec", "encode_all_bytes") => Some(("Encodes an explicit list as a format sequence.", "Accepts List[Any], never resumes a Stream or executes callbacks, and applies per-value limits plus cumulative item and output limits. JSON emits compact JSON Lines; YAML emits documents; CSV/TSV share one ordered header and exact row key set; CBOR/MessagePack emit consecutive values. encode_all returns text and rejects binary formats; encode_all_bytes returns bytes. TOML and INI reject sequences.", &["codec", "stream", "encoding", "limits"])),
+        ("codec", "encode_all") | ("codec", "encode_all_bytes") => Some(("Encodes an explicit list as a format sequence.", "Accepts List[Any], never resumes a Stream or executes callbacks, and applies per-value limits plus cumulative item and output limits. JSON emits compact JSON Lines; YAML emits documents; CSV/TSV share one ordered header and exact row key set. encode_all returns text; encode_all_bytes returns bytes. TOML and INI reject sequences.", &["codec", "stream", "encoding", "limits"])),
         ("codec", "decode_as") => Some(("Decodes lexical fields using an explicit schema.", "The mandatory trailing type operand uses schema syntax and determines Result[T]. Value operands remain in declared order, evaluate left to right, and accept matching labels in that order; reordered and spread arguments fail. CSV, TSV and INI fields convert only at typed leaves; existing schema admission owns missing fields, unions, refinements and wire enums. Strings, Any and extra fields retain exact text. Self-describing formats fail.", &["codec", "schema", "lexical"])),
         ("codec", "read_as") => Some(("Reads lexical fields using an explicit schema.", "Reads a bounded file and admits its CSV, TSV or INI values under the mandatory trailing schema. Declares filesystem effects; codec failures retain the input path. The schema is not a runtime argument.", &["codec", "schema", "filesystem"])),
         ("csv", "decode") => Some(("Decodes delimited rows with explicit table options.", "Headers default true and delimiter defaults comma. Headers must be unique and row widths equal. Headerless input produces row lists. Fields remain strings and columns is not a decode option.", &["csv", "table", "decoding"])),
@@ -279,12 +279,12 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("csv", "write") => Some(("Writes delimited rows after validating encoding.", "Uses the csv.encode options and defaults overwrite to false. Complete encoding precedes destination creation or replacement, so encoding failure preserves an existing destination.", &["csv", "filesystem", "encoding"])),
         ("codec", "decode") | ("yaml", "decode") | ("toml", "decode") => Some((
             "Decode one bounded text document with strict duplicate-key rejection.",
-            "Binary formats require codec.decode_bytes; untyped INI fields remain strings.",
+            "Untyped INI fields remain strings.",
             &["codec", "text", "dynamic"],
         )),
         ("codec", "decode_bytes") => Some((
-            "Decode binary data directly or text after strict UTF-8 validation.",
-            "Trailing documents, unsupported tags and values outside the XSH representation fail.",
+            "Decode bytes after strict UTF-8 validation.",
+            "Trailing documents and values outside the XSH representation fail.",
             &["codec", "bytes", "dynamic"],
         )),
         ("codec", "encode") | ("yaml", "encode") | ("toml", "encode") => Some((
@@ -293,8 +293,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["codec", "encoding", "text"],
         )),
         ("codec", "encode_bytes") => Some((
-            "Encode binary formats directly or text as UTF-8 bytes.",
-            "canonical defaults to false; true is supported only for CBOR.",
+            "Encode a value as UTF-8 text bytes.",
+            "Unsupported values fail rather than being stringified or omitted.",
             &["codec", "encoding", "bytes"],
         )),
         ("codec", "read") | ("yaml", "read") | ("toml", "read") => Some((
@@ -309,7 +309,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("codec", "formats") => Some((
             "Return capabilities in stable format order.",
-            "Each record names its identifier and text, binary, single, sequence and lexical_typing support.",
+            "Each record names its identifier and single, sequence and lexical_typing support.",
             &["codec", "discovery"],
         )),
         ("json", "read") => Some((

@@ -8,43 +8,33 @@ use deser::{Atom, Deserialize, Error, ErrorKind, State};
 use deser::de::{DeserializeDriver, Sink, SinkHandle};
 use std::sync::Arc;
 use crate::map_key::MapKey;
-use std::collections::BTreeMap;
-
-pub(crate) mod binary;
 
 pub(crate) const INPUT_LIMIT: usize = 64 * 1024 * 1024;
 pub(crate) const OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Format { Json, Yaml, Toml, Ini, Csv, Tsv, Cbor, Msgpack }
-
-#[derive(Clone, Copy)]
-enum FormatKind { Text, Binary }
+pub(crate) enum Format { Json, Yaml, Toml, Ini, Csv, Tsv }
 
 struct FormatInfo {
     format: Format,
     identifier: &'static str,
-    kind: FormatKind,
     sequence: bool,
     lexical: bool,
     bytes: bool,
 }
 
 const FORMATS: &[FormatInfo] = &[
-    FormatInfo { format: Format::Json, identifier: "json", kind: FormatKind::Text, sequence: true, lexical: false, bytes: false },
-    FormatInfo { format: Format::Yaml, identifier: "yaml", kind: FormatKind::Text, sequence: true, lexical: false, bytes: true },
-    FormatInfo { format: Format::Toml, identifier: "toml", kind: FormatKind::Text, sequence: false, lexical: false, bytes: false },
-    FormatInfo { format: Format::Ini, identifier: "ini", kind: FormatKind::Text, sequence: false, lexical: true, bytes: false },
-    FormatInfo { format: Format::Csv, identifier: "csv", kind: FormatKind::Text, sequence: true, lexical: true, bytes: false },
-    FormatInfo { format: Format::Tsv, identifier: "tsv", kind: FormatKind::Text, sequence: true, lexical: true, bytes: false },
-    FormatInfo { format: Format::Cbor, identifier: "cbor", kind: FormatKind::Binary, sequence: true, lexical: false, bytes: true },
-    FormatInfo { format: Format::Msgpack, identifier: "msgpack", kind: FormatKind::Binary, sequence: true, lexical: false, bytes: true },
+    FormatInfo { format: Format::Json, identifier: "json", sequence: true, lexical: false, bytes: false },
+    FormatInfo { format: Format::Yaml, identifier: "yaml", sequence: true, lexical: false, bytes: true },
+    FormatInfo { format: Format::Toml, identifier: "toml", sequence: false, lexical: false, bytes: false },
+    FormatInfo { format: Format::Ini, identifier: "ini", sequence: false, lexical: true, bytes: false },
+    FormatInfo { format: Format::Csv, identifier: "csv", sequence: true, lexical: true, bytes: false },
+    FormatInfo { format: Format::Tsv, identifier: "tsv", sequence: true, lexical: true, bytes: false },
 ];
 
 impl Format {
     fn info(self) -> &'static FormatInfo { FORMATS.iter().find(|info| info.format == self).expect("codec capability definition") }
     pub(crate) fn identifier(self) -> &'static str { self.info().identifier }
-    pub(crate) fn is_binary(self) -> bool { matches!(self.info().kind, FormatKind::Binary) }
     pub(crate) fn supports_bytes(self) -> bool { self.info().bytes }
     pub(crate) fn supports_sequence(self) -> bool { self.info().sequence }
     pub(crate) fn supports_lexical(self) -> bool { self.info().lexical }
@@ -192,10 +182,6 @@ impl DecodeSink<'_> {
                     }
                     fields.insert(key, child);
                 }
-                Some(Value::Map(fields)) => {
-                    let key = self.key.take().expect("decoded map key");
-                    if fields.insert(key, child).is_some() { return Err(Error::new(ErrorKind::DuplicateKey, "duplicate map key")); }
-                }
                 _ => return Err(Error::new(ErrorKind::InvalidState, "decoded child without container")),
             }
         }
@@ -237,14 +223,13 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
         Ok(())
     }
     fn seq(&mut self, _: &mut State) -> Result<(), Error> { self.value = Some(Value::List(Vec::new())); Ok(()) }
-    fn map(&mut self, state: &mut State) -> Result<(), Error> {
-        let format = *state.get::<Format>().expect("codec decode format");
-        self.value = Some(if format.is_binary() { Value::Map(BTreeMap::new()) } else { Value::Record(RecordMap::new()) });
+    fn map(&mut self, _: &mut State) -> Result<(), Error> {
+        self.value = Some(Value::Record(RecordMap::new()));
         Ok(())
     }
     fn next_key(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
         self.flush()?;
-        Ok(SinkHandle::arena(KeySink { out: &mut self.key, format: *state.get::<Format>().expect("codec decode format") }, state))
+        Ok(SinkHandle::arena(KeySink { out: &mut self.key }, state))
     }
     fn next_value(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
         self.flush()?;
@@ -258,15 +243,6 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
                     fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
                 ))
             }),
-            Value::Map(fields) if !fields.is_empty() && fields.keys().all(|key| key.as_str().is_some()) => {
-                state.get_mut::<crate::symbol::SymbolOwner>().with_current(|| {
-                    let values = fields.into_iter().map(|(key, value)| {
-                        let MapKey::Str(key) = key else { unreachable!("string-keyed binary map") };
-                        (Name::intern(&key), value)
-                    }).collect();
-                    Value::Record(RecordMap::from_name_values(values))
-                })
-            }
             value => value,
         };
         *self.out = Some(Decoded(value));
@@ -274,17 +250,13 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
     }
 }
 
-struct KeySink<'a> { out: &'a mut Option<MapKey>, format: Format }
+struct KeySink<'a> { out: &'a mut Option<MapKey> }
 
 impl<'de> Sink<'de> for KeySink<'_> {
     fn atom(&mut self, atom: Atom, _: &mut State) -> Result<(), Error> {
         let atom = match atom { Atom::Implicit(value) => value.value().to_atom(), other => other };
         *self.out = Some(match atom {
             Atom::Str(value) | Atom::Lexical(value) => MapKey::Str(Arc::from(value.as_ref())),
-            Atom::I64(value) if self.format.is_binary() => MapKey::Int(value),
-            Atom::U64(value) if self.format.is_binary() => MapKey::Int(i64::try_from(value).map_err(|_| Error::new(ErrorKind::OutOfRange, "map key exceeds i64"))?),
-            Atom::Bool(value) if self.format.is_binary() => MapKey::Bool(value),
-            Atom::Bytes(value) if self.format.is_binary() => MapKey::Bytes(Arc::from(value.data())),
             _ => return Err(Error::new(ErrorKind::UnsupportedType, "unsupported map key")),
         });
         Ok(())
@@ -390,12 +362,6 @@ mod tests {
                 assert_eq!(program.dynamic_stats(), before, "{format:?}");
                 assert_eq!(crate::symbol::SymbolOwner::current().expect("decode restores the calling owner").dynamic_stats(), program.dynamic_stats());
             }
-            for format in [Format::Cbor, Format::Msgpack] {
-                let encoded = encode_bytes(format, &BTreeMap::from([(key, 7i64)]), false, span()).unwrap();
-                values.push((decode_bytes(format, &encoded, span()).unwrap(), Value::Int(7)));
-                assert_eq!(program.dynamic_stats(), before, "{format:?}");
-                assert_eq!(crate::symbol::SymbolOwner::current().expect("decode restores the calling owner").dynamic_stats(), program.dynamic_stats());
-            }
             values
         });
         drop(program);
@@ -459,15 +425,6 @@ mod tests {
                     assert_eq!(super::super::json::encode_json(&rows[1], false, span()).unwrap(), r#"{"name":"pkg-two","version":2}"#);
                 }
             }
-            let rows = [BTreeMap::from([("name", "pkg-one"), ("version", "1")]), BTreeMap::from([("name", "pkg-two"), ("version", "2")])];
-            for (format, empty, scalar_map) in [(Format::Cbor, &[0xa0][..], &[0xa1, 1, 2][..]), (Format::Msgpack, &[0x80][..], &[0x81, 1, 2][..])] {
-                let bytes = encode_bytes(format, &rows, false, span()).unwrap();
-                let decoded = decode_bytes(format, &bytes, span()).unwrap();
-                let start = shapes.len(); collect(&decoded, &mut shapes);
-                assert_eq!(shapes.len() - start, 2, "{format:?}");
-                assert!(matches!(decode_bytes(format, empty, span()).unwrap(), Value::Map(fields) if fields.is_empty()));
-                assert!(matches!(decode_bytes(format, scalar_map, span()).unwrap(), Value::Map(fields) if fields.get(&MapKey::Int(1)) == Some(&Value::Int(2))));
-            }
             assert!(shapes.iter().all(|shape| Arc::ptr_eq(shape, &shapes[0])));
             assert_eq!(decode_json(r#"{"name":"first","name":"second"}"#, span()).unwrap_err().variant, "DuplicateKey");
         });
@@ -523,13 +480,11 @@ pub(crate) fn decode_text(format: Format, text: &str, span: Span) -> Result<Valu
         Format::Json => decode_json(text, span),
         Format::Yaml | Format::Toml | Format::Ini => config::decode(format, text, span),
         Format::Csv | Format::Tsv => decode_table(format, text, span),
-        _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support text decoding", span)),
     }
 }
 
 pub(crate) fn decode_bytes(format: Format, bytes: &[u8], span: Span) -> Result<Value, RuntimeError> {
     if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
-    if format.is_binary() { return binary::decode(format, bytes, span); }
     let text = std::str::from_utf8(bytes).map_err(|error| {
         codec_error("Encoding", format.identifier(), "invalid UTF-8".into(), None, None, Some(error.valid_up_to()), span)
     })?;
@@ -545,14 +500,11 @@ pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &
         }
         Format::Yaml | Format::Toml | Format::Ini => config::encode(format, value, span),
         Format::Csv | Format::Tsv => encode_table(format, value, span),
-        _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support text encoding", span)),
     }
 }
 
-pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: &T, canonical: bool, span: Span) -> Result<Vec<u8>, RuntimeError> {
-    if canonical && format != Format::Cbor { return Err(failure("Options", format.identifier(), "canonical encoding requires cbor", span)); }
-    if format.is_binary() { binary::encode(format, value, canonical, span) }
-    else { encode_text(format, value, span).map(String::into_bytes) }
+pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    encode_text(format, value, span).map(String::into_bytes)
 }
 
 fn input_io_error(path: &std::path::Path, error: std::io::Error, span: Span) -> RuntimeError {
@@ -584,8 +536,6 @@ pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::r
 pub(crate) fn formats() -> Value {
     Value::List(FORMATS.iter().map(|info| Value::Record(RecordMap::from([
         ("identifier".into(), Value::Str(info.identifier.into())),
-        ("text".into(), Value::Bool(matches!(info.kind, FormatKind::Text))),
-        ("binary".into(), Value::Bool(matches!(info.kind, FormatKind::Binary))),
         ("single".into(), Value::Bool(true)),
         ("sequence".into(), Value::Bool(info.format.supports_sequence())),
         ("lexical_typing".into(), Value::Bool(info.format.supports_lexical())),

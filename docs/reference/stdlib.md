@@ -61,18 +61,18 @@ Script command-line parsing into typed option records.
 
 ### `codec`
 
-Structured text and binary encoding, decoding, and files.
+Structured text encoding, decoding, and files.
 
 - `codec.decode(format: Str, text: Str) -> Result[Any, CodecError]` — Decode one bounded text document with strict duplicate-key rejection.
 - `codec.decode_all(format: Str, text: Str) -> Result[Stream[Result[Any, CodecError]], CodecError]` — Creates an owned lazy stream of decoded items.
 - `codec.decode_all_bytes(format: Str, bytes: Bytes) -> Result[Stream[Result[Any, CodecError]], CodecError]` — Creates an owned lazy stream of decoded items.
 - `codec.decode_as(format: Str, text: Str, T) -> Result[T, Error]` — Decodes lexical fields using an explicit schema.
-- `codec.decode_bytes(format: Str, bytes: Bytes) -> Result[Any, CodecError]` — Decode binary data directly or text after strict UTF-8 validation.
+- `codec.decode_bytes(format: Str, bytes: Bytes) -> Result[Any, CodecError]` — Decode bytes after strict UTF-8 validation.
 - `codec.encode(format: Str, value: Any) -> Result[Str, CodecError]` — Encode a value as one text document.
 - `codec.encode_all(format: Str, values: List[Any]) -> Result[Str, CodecError]` — Encodes an explicit list as a format sequence.
 - `codec.encode_all_bytes(format: Str, values: List[Any]) -> Result[Bytes, CodecError]` — Encodes an explicit list as a format sequence.
-- `codec.encode_bytes(format: Str, value: Any, canonical: Bool = default) -> Result[Bytes, CodecError]` — Encode binary formats directly or text as UTF-8 bytes.
-- `codec.formats() -> List[{binary: Bool, identifier: Str, lexical_typing: Bool, sequence: Bool, single: Bool, text: Bool}]` — Return capabilities in stable format order.
+- `codec.encode_bytes(format: Str, value: Any) -> Result[Bytes, CodecError]` — Encode a value as UTF-8 text bytes.
+- `codec.formats() -> List[{identifier: Str, lexical_typing: Bool, sequence: Bool, single: Bool}]` — Return capabilities in stable format order.
 - `codec.read(format: Str, path: Path) -> Result[Any, Error]` — Read and decode one bounded document from a path.
 - `codec.read_all(format: Str, path: Path) -> Result[Stream[Result[Any, CodecError]], Error]` — Opens one owned reader for lazy decoded items.
 - `codec.read_as(format: Str, path: Path, T) -> Result[T, Error]` — Reads lexical fields using an explicit schema.

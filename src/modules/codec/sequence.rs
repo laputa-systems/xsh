@@ -99,7 +99,7 @@ mod tests {
     fn sequence_chunked_formats_retain_parser_state_and_close_on_exhaustion() {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();
-        for format in [Format::Json, Format::Yaml, Format::Cbor, Format::Msgpack] {
+        for format in [Format::Json, Format::Yaml] {
             let encoded = encode_all(format, [1i64, 2, 3], span()).unwrap();
             let reads = Arc::new(AtomicUsize::new(0));
             let drops = Arc::new(AtomicUsize::new(0));
@@ -132,7 +132,7 @@ mod tests {
     fn sequence_terminal_errors_drop_readers_before_the_error_is_published() {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();
-        for (format, bytes) in [(Format::Cbor, &b"\xff"[..]), (Format::Msgpack, &b"\xc1"[..]), (Format::Yaml, &b"--- [broken\n--- 2\n"[..])] {
+        for (format, bytes) in [(Format::Yaml, &b"--- [broken\n--- 2\n"[..])] {
             let drops = Arc::new(AtomicUsize::new(0));
             let stream = from_reader(format, Probe { input: Cursor::new(bytes.to_vec()), reads: Arc::new(AtomicUsize::new(0)), drops: drops.clone(), chunk: 1 }, None, span()).unwrap();
             assert!(matches!(stream.next_live(span()).unwrap(), Some(Value::Result(ResultValue::Err(_)))));
@@ -212,7 +212,7 @@ mod tests {
         assert!(budget.accept(&error));
         assert!(!budget.accept(&error));
         let list = Value::ok(Value::List(vec![Value::Int(0); 1_000_000]));
-        let mut budget = EmittedBudget::new(Format::Cbor, None, span());
+        let mut budget = EmittedBudget::new(Format::Json, None, span());
         for _ in 0..14 { assert!(budget.accept(&list)); }
         assert!(!budget.accept(&list));
         assert!(budget.used + emitted_cost(&budget.limit_error(15)) <= OUTPUT_LIMIT as u64);
@@ -396,7 +396,6 @@ impl Read for TextInput {
 }
 
 pub(crate) fn decode_text(format: Format, text: Arc<str>, span: Span) -> Result<StreamValue, RuntimeError> {
-    if format.is_binary() { return Err(failure("UnsupportedFormat", format.identifier(), "binary sequences require Bytes", span)); }
     if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
     from_reader(format, TextInput { text, position: 0 }, None, span)
 }
@@ -523,8 +522,6 @@ fn from_reader<R: Read + Send + 'static>(format: Format, input: R, path: Option<
         }
         Format::Yaml => source(format, input, path, deser_yaml::StreamDeserializer::with_config(super::config::yaml_sequence_config()), span),
         Format::Csv | Format::Tsv => source(format, input, path, deser_csv::StreamDeserializer::with_config(super::table::decode_config(format, super::table::DecodeOptions::defaults(format))), span),
-        Format::Cbor => source(format, input, path, deser_cbor::StreamDeserializer::with_config(super::binary::cbor_config()), span),
-        Format::Msgpack => source(format, input, path, deser_msgpack::StreamDeserializer::with_config(super::binary::msgpack_config()), span),
         _ => return Err(failure("UnsupportedFormat", format.identifier(), "format does not support sequences", span)),
     })
 }
@@ -536,12 +533,11 @@ impl<R: Read + Send + 'static, D: StreamDeserializer + Send + 'static> LiveStrea
         let result = reader.read_with::<Decoded, _>(|driver| match format {
             Format::Yaml => super::config::setup_decode(format, driver),
             Format::Csv | Format::Tsv => super::table::setup_decode(driver),
-            Format::Cbor | Format::Msgpack => super::binary::setup_decode(format, driver),
             _ => {}
         });
         if matches!(result, Ok(None)) { self.reader.take(); return Ok(None); }
         self.items += 1;
-        let mut terminal = matches!(format, Format::Yaml | Format::Cbor | Format::Msgpack);
+        let mut terminal = format == Format::Yaml;
         let item = if reader.get_ref().exceeded {
             terminal = true;
             self.budget.limit_error(self.items)
@@ -662,8 +658,6 @@ where I: IntoIterator<Item = T>, T: Serialize {
             encode(format, values, deser_yaml::Serializer::with_config(config), span)
         }
         Format::Csv | Format::Tsv => super::table::encode_all(format, values, span),
-        Format::Cbor => encode(format, values, deser_cbor::Serializer::new(), span),
-        Format::Msgpack => encode(format, values, deser_msgpack::Serializer::new(), span),
         _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support sequences", span)),
     }
 }

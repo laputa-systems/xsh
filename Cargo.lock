@@ -426,17 +426,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deser-msgpack"
-version = "0.10.1"
-dependencies = [
- "deser",
- "deser-core",
- "deser-encoding",
- "deser-json",
- "simdutf8",
-]
-
-[[package]]
 name = "deser-path"
 version = "0.10.1"
 dependencies = [
@@ -2100,11 +2089,9 @@ dependencies = [
  "crossbeam-channel",
  "data-encoding",
  "deser",
- "deser-cbor",
  "deser-csv",
  "deser-ini",
  "deser-json",
- "deser-msgpack",
  "deser-toml",
  "deser-value",
  "deser-yaml",

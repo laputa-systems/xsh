@@ -119,9 +119,8 @@ impl Evaluator {
             Ok(format) => format,
             Err(error) => return Ok(ControlFlow::Continue(lowered_result_err_value(codec_input_error(error, input_path.as_ref())))),
         };
-        let text_only = matches!(op, RuntimeOp::CodecDecodeAll | RuntimeOp::CodecEncodeAll);
         let result = (|| -> Result<LoweredValue, RuntimeError> {
-            if !format.supports_sequence() || (text_only && format.is_binary()) {
+            if !format.supports_sequence() {
                 return Err(codec::failure("UnsupportedFormat", format.identifier(), "format does not support this sequence operation", span));
             }
             match op {
@@ -208,9 +207,8 @@ impl Evaluator {
                 }
             }
             Operation::EncodeBytes => {
-                let canonical = lowered_bool_arg_or(values.get(1).cloned(), false, "codec.encode_bytes", span)?;
                 let value = super::super::json::borrowed_lowered(format, &values[0], span);
-                match codec::encode_bytes(format, &value, canonical, span) {
+                match codec::encode_bytes(format, &value, span) {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -223,7 +221,7 @@ impl Evaluator {
                 let overwrite = lowered_bool_arg_or(values.get(2).cloned(), op == RuntimeOp::IniWrite, "codec.write", span)?;
                 let path = lowered_path_arg(values.remove(0), "codec.write", span)?;
                 let value = super::super::json::borrowed_lowered(format, &values[0], span);
-                match codec::encode_bytes(format, &value, false, span) {
+                match codec::encode_bytes(format, &value, span) {
                     Ok(bytes) => lowered_unit_result(if overwrite { fs::write_path(self.host_path(&path), &bytes, span) } else { fs::create_path(self.host_path(&path), &bytes, span).map_err(|error| {
                         if op == RuntimeOp::IniWrite && error.errno() == Some(i64::from(libc::EEXIST)) {
                             RuntimeError::new("ini-write", "destination exists").with_span(span)

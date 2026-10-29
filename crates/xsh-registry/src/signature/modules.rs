@@ -5204,8 +5204,7 @@ fn text_codec_module(ops: [RuntimeOp; 4]) -> ModuleSig {
 
 fn codec_module() -> ModuleSig {
     let capability = Type::Record(btree_map(vec![
-        ("identifier", Type::Str), ("text", Type::Bool),
-        ("binary", Type::Bool), ("single", Type::Bool),
+        ("identifier", Type::Str), ("single", Type::Bool),
         ("sequence", Type::Bool), ("lexical_typing", Type::Bool),
     ]));
     let mut entries = vec![
@@ -5214,7 +5213,7 @@ fn codec_module() -> ModuleSig {
         ("decode_all", sig(vec![param("format", Type::Str), param("text", Type::Str)], codec_result(Type::Stream(Box::new(codec_result(Type::Any)))), true, RuntimeOp::CodecDecodeAll)),
         ("decode_all_bytes", sig(vec![param("format", Type::Str), param("bytes", Type::Bytes)], codec_result(Type::Stream(Box::new(codec_result(Type::Any)))), true, RuntimeOp::CodecDecodeAllBytes)),
         ("encode", sig(vec![param("format", Type::Str), param("value", Type::Any)], codec_result(Type::Str), true, RuntimeOp::CodecEncode)),
-        ("encode_bytes", sig(vec![param("format", Type::Str), param("value", Type::Any), codec_option("canonical")], codec_result(Type::Bytes), true, RuntimeOp::CodecEncodeBytes)),
+        ("encode_bytes", sig(vec![param("format", Type::Str), param("value", Type::Any)], codec_result(Type::Bytes), true, RuntimeOp::CodecEncodeBytes)),
         ("encode_all", sig(vec![param("format", Type::Str), param("values", Type::List(Box::new(Type::Any)))], codec_result(Type::Str), true, RuntimeOp::CodecEncodeAll)),
         ("encode_all_bytes", sig(vec![param("format", Type::Str), param("values", Type::List(Box::new(Type::Any)))], codec_result(Type::Bytes), true, RuntimeOp::CodecEncodeAllBytes)),
         ("read", sig(vec![param("format", Type::Str), param("path", Type::Path)], result(Type::Any), false, RuntimeOp::CodecRead)),

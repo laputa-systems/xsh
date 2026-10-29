@@ -5097,13 +5097,14 @@ Treat `Any` as a short-lived boundary value. Use `.require(T)?` when the
 program knows the shape, and keep dynamic matching inside small helpers.
 
 
-### Structured text and binary codecs
+### Structured text codecs
 
 `codec.decode(format, text)` and `codec.encode(format, value)` return
-`Result[Any, CodecError]` and `Result[Str, CodecError]`. Binary formats use
-`codec.decode_bytes` and `codec.encode_bytes`; text formats accept bytes only
-after strict UTF-8 validation and emit UTF-8 bytes. Identifiers are fixed and
-case-sensitive: `json`, `yaml`, `toml`, `ini`, `csv`, `tsv`, `cbor`, `msgpack`.
+`Result[Any, CodecError]` and `Result[Str, CodecError]`. `codec.decode_bytes`
+and `codec.encode_bytes` accept bytes only after strict UTF-8 validation and
+emit UTF-8 bytes. Identifiers are fixed and case-sensitive: `json`, `yaml`,
+`toml`, `ini`, `csv`, `tsv`. Other identifiers fail with
+`CodecError.UnsupportedFormat`.
 No filename detection or aliases apply. `codec.formats()` returns capabilities
 in that order. `yaml` and `toml` expose thin decode/encode/read/write entries.
 
@@ -5169,22 +5170,13 @@ columns. Delimiters are one ASCII byte excluding NUL, newline and quote.
 write defaults overwrite to false and encodes before touching its destination.
 Generic CSV/TSV operations use fixed presets without an options bag.
 
-CBOR and MessagePack preserve Bytes, signed i64 integers, finite floats, lists
-and maps. Map keys may be Str, Bool, Int or Bytes; other key types fail without
-stringification. Empty binary maps become Map; nonempty all-string maps become
-records. Unsupported tags and extensions fail, including MessagePack timestamp
-extensions. Single decode rejects trailing data. `codec.encode_bytes("cbor",
-value, canonical: true)` uses canonical CBOR ordering and numeric encoding;
-`canonical: true` on another format fails with `CodecError.Options`.
-
 `codec.decode_all(format, text)` and `codec.decode_all_bytes(format, bytes)`
 return `Result[Stream[Result[Any, CodecError]], CodecError]`.
 `codec.read_all(format, path)` returns the same owned stream through the ordinary
 file-error union and declares filesystem effects. Supported sequences are JSON
-Lines, YAML documents, CSV/TSV records and consecutive CBOR/MessagePack values.
-TOML and INI reject sequence operations. The text operation rejects binary
-formats; the byte operation accepts binary input and validates text frames as
-UTF-8. Stream construction consumes no item. Memory input remains owned for the
+Lines, YAML documents and CSV/TSV records.
+TOML and INI reject sequence operations. The byte operation validates text
+frames as UTF-8. Stream construction consumes no item. Memory input remains owned for the
 stream lifetime; file input has one reader owner. Exhaustion, terminal error,
 cancellation and early drop release that reader. File-opening failures return
 from read_all; later host read failures propagate at the pulling site with
