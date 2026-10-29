@@ -40,11 +40,11 @@ pure paths(items: List[Str]) -> List[Path] {
 }
 
 proc command(world: World, argv: List[Path], log: Path) [fs, process, error] -> Result[Command] {
-  process.command_argv(world.xsh, [world.xsh].extend(argv), world.dir, child_env(world), b"", log, log, timeout: 120s)
+  process.command_argv(world.xsh, [world.xsh, support(world, "dhcp_bound"), world.xsh, world.xsh].extend(argv), world.dir, child_env(world), b"", log, log, timeout: 120s)
 }
 
 proc joined(world: World, argv: List[Path], log: Path) [fs, process, error] -> Result[Command] {
-  let launcher = [support(world, "dhcp_join"), world.server_ns, world.xsh, world.xsh]
+  let launcher = [support(world, "dhcp_join"), world.server_ns, world.xsh, world.xsh, support(world, "dhcp_bound"), world.xsh, world.xsh]
   process.command_argv(world.xsh, [world.xsh, @launcher, @argv], world.dir, child_env(world), b"", log, log, timeout: 120s)
 }
 
@@ -96,7 +96,7 @@ export proc start_program(world: World, in_server: Bool, program: Str, args: Lis
   let plan = if in_server {
     process.command_argv(
       world.xsh,
-      [world.xsh, support(world, "dhcp_join"), world.server_ns, fp"{program}", fp"{program}"].extend(paths(args)),
+      [world.xsh, support(world, "dhcp_join"), world.server_ns, world.xsh, world.xsh, support(world, "dhcp_bound"), fp"{program}", fp"{program}"].extend(paths(args)),
       world.dir,
       child_env(world),
       b"",
@@ -105,7 +105,7 @@ export proc start_program(world: World, in_server: Bool, program: Str, args: Lis
       timeout: 120s,
     )
   } else {
-    process.command_argv(program, [fp"{program}"].extend(paths(args)), world.dir, child_env(world), b"", log, log, timeout: 120s)
+    process.command_argv(world.xsh, [world.xsh, support(world, "dhcp_bound"), fp"{program}", fp"{program}"].extend(paths(args)), world.dir, child_env(world), b"", log, log, timeout: 120s)
   }
   let started = unix.spawn_process_group_log(plan, log)?
   Job(group: started.pid, log:)

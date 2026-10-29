@@ -58,3 +58,38 @@ test test_the_veth_peer_is_created_with_the_requested_name_in_the_server_namespa
   }
   assert fp"{dir}/server-link.log".read_text()? == ""
 }
+
+proc live_support_pids(dir: Path) [process, time, error] -> Result[List[Str]] {
+  var pids: List[Str] = []
+  var waited = 0
+  while waited <= 3000 {
+    let rows: List[ProcessEntry] = process.list()? |> collect
+    pids = [f"{row.pid}" for row in rows if dir.display() in row.argv]
+    break when pids.len() == 0
+    time.sleep(100ms)
+    waited += 100
+  }
+  pids
+}
+
+test test_a_support_replaced_under_the_same_job_name_does_not_outlive_the_scenario { |ctx|
+  let file = write_script(ctx, [])?
+  guard let dir = scenario.execute(
+    ctx,
+    "replaced",
+    [scenario.server_xsh(file), scenario.wait_for("server.requests", "", 5000), scenario.server_xsh(file), scenario.sleep(300)],
+  )? else { return }
+  let leaked = live_support_pids(dir)?
+  assert leaked == [], f"supports outlived the scenario: {leaked.join(" ")}"
+}
+
+test test_supports_do_not_outlive_a_driver_killed_mid_scenario { |ctx|
+  let file = write_script(ctx, [])?
+  guard let dir = scenario.execute_aborted(
+    ctx,
+    "aborted",
+    [scenario.capture("server", "server.pcap"), scenario.server_xsh(file), scenario.wait_for("server.requests", "", 5000), scenario.sleep(300), scenario.abort()],
+  )? else { return }
+  let leaked = live_support_pids(dir)?
+  assert leaked == [], f"supports outlived the driver: {leaked.join(" ")}"
+}

@@ -114,6 +114,13 @@ proc run_fixture(action: Str, args: List[Str]) [process, net, error] {
   }
 }
 
+proc adopt(table: Jobs, name: Str, job: world.Job) [process, error] -> Jobs {
+  if let Ok(replaced) = table.get(name) {
+    world.signal(replaced, "KILL")
+  }
+  table.set(name, job)
+}
+
 proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process, net, time, error] -> Result[Jobs, Error] {
   let dir = setup.dir
   var table = jobs
@@ -121,7 +128,7 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process,
     "server_xsh" => {
       let script = required(step.file, "file", step.do)?
       let name = step.name ?? "server"
-      table = table.set(name, world.start_support(setup, true, "dhcp_server", [world.SERVER_INTERFACE, script, fp"{dir}/{name}.requests".display()], fp"{dir}/{name}.log")?)
+      table = adopt(table, name, world.start_support(setup, true, "dhcp_server", [world.SERVER_INTERFACE, script, fp"{dir}/{name}.requests".display()], fp"{dir}/{name}.log")?)
     }
     "server_stop" => {
       let name = step.name ?? "server"
@@ -147,25 +154,25 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process,
         "--log-dhcp",
         f"--log-facility={dir}/dnsmasq.log",
       ].extend(step.args)
-      table = table.set(name, world.start_program(setup, true, "dnsmasq", flags, fp"{dir}/{name}.out")?)
+      table = adopt(table, name, world.start_program(setup, true, "dnsmasq", flags, fp"{dir}/{name}.out")?)
     }
     "tcpdump" => {
       let side = step.side ?? "client"
       let file = required(step.file, "file", step.do)?
       let interface = if side == "server" { world.SERVER_INTERFACE } else { world.CLIENT_INTERFACE }
       let name = step.name ?? f"tcpdump-{side}"
-      table = table.set(name, world.start_program(setup, side == "server", "tcpdump", ["-n", "-U", "--immediate-mode", "-s", "0", "-i", interface, "-w", fp"{dir}/{file}".display()], fp"{dir}/{name}.out")?)
+      table = adopt(table, name, world.start_program(setup, side == "server", "tcpdump", ["-n", "-U", "--immediate-mode", "-s", "0", "-i", interface, "-w", fp"{dir}/{file}".display()], fp"{dir}/{name}.out")?)
     }
     "capture" => {
       let side = step.side ?? "client"
       let file = required(step.file, "file", step.do)?
       let interface = if side == "server" { world.SERVER_INTERFACE } else { world.CLIENT_INTERFACE }
       let name = step.name ?? f"capture-{side}"
-      table = table.set(name, world.start_support(setup, side == "server", "dhcp_record", [interface, fp"{dir}/{file}".display()], fp"{dir}/{name}.log")?)
+      table = adopt(table, name, world.start_support(setup, side == "server", "dhcp_record", [interface, fp"{dir}/{file}".display()], fp"{dir}/{name}.log")?)
     }
     "client" => {
       let name = step.name ?? "client"
-      table = table.set(name, world.start(setup, false, fp"{setup.core}/dhcpc.xsh", expand(step.args, dir), fp"{dir}/{name}.log")?)
+      table = adopt(table, name, world.start(setup, false, fp"{setup.core}/dhcpc.xsh", expand(step.args, dir), fp"{dir}/{name}.log")?)
     }
     "probe" => {
       let status = world.run_support(setup, false, "dhcp_probe", [world.CLIENT_INTERFACE, world.CLIENT_MAC, fp"{dir}/probe.json".display(), step.text ?? "12345"], fp"{dir}/probe.log")?
@@ -215,6 +222,7 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process,
         fixture.link_up(world.CLIENT_INTERFACE)
       }
     }
+    "abort" => process.kill(process.current_pid()?, "KILL")?
     "snapshot" => snapshot(fp"{dir}/{step.name ?? "snapshot"}.json")
     else => return Err(error.failure(f"unknown step {step.do}"))
   }

@@ -70,6 +70,27 @@ export proc execute_as_real_root(ctx: TestContext, name: Str, steps: List[types.
 }
 
 proc run_scenario(ctx: TestContext, name: Str, steps: List[types.Step], mapped: Bool) [fs, process, error] -> Result[Path?, Error] {
+  let launch = launch_driver(ctx, name, steps, mapped)?
+  match launch.outcome {
+    Ok(status) => {
+      return Ok(launch.dir) when status.exited_with(0)
+      let text = launch.log.read_text()?
+      if "cannot" in text or "Operation not permitted" in text {
+        test.skip(f"cannot build the namespaces: {text.trim()}")
+        return Ok(null)
+      }
+      Err(error.failure(f"scenario {name} failed ({status.shell_code()?}): {text}"))
+    }
+    Err(failure) => {
+      test.skip(f"the kernel refuses user, mount and network namespaces: {failure.message}")
+      Ok(null)
+    }
+  }
+}
+
+type Launch = {dir: Path, log: Path, outcome: Result[Status, Error]}
+
+proc launch_driver(ctx: TestContext, name: Str, steps: List[types.Step], mapped: Bool) [fs, process, error] -> Result[Launch, Error] {
   let dir = test.temp_dir(ctx, name:)?
   let scenario = types.Scenario(xsh: ctx.xsh_bin.display(), core: ctx.core_dir.display(), dir: dir.display(), steps:)
   let file = fp"{dir}/scenario.json"
@@ -86,21 +107,28 @@ proc run_scenario(ctx: TestContext, name: Str, steps: List[types.Step], mapped: 
     timeout: 120s,
   )
   let kinds = if mapped { ["user", "mnt", "net"] } else { ["mnt", "net"] }
-  match linux.run_in_namespaces(plan, unshare: kinds, map_root_user: mapped) {
+  Launch(dir:, log:, outcome: linux.run_in_namespaces(plan, unshare: kinds, map_root_user: mapped))
+}
+
+## Runs `steps` like `execute`, for steps that end with `abort`: the driver
+## must die by SIGKILL. Returns the scenario directory, or null after skipping.
+export proc execute_aborted(ctx: TestContext, name: Str, steps: List[types.Step]) [fs, process, error] -> Result[Path?, Error] {
+  let launch = launch_driver(ctx, name, steps, true)?
+  match launch.outcome {
     Ok(status) => {
-      return Ok(dir) when status.exited_with(0)
-      let text = log.read_text()?
-      if "cannot" in text or "Operation not permitted" in text {
-        test.skip(f"cannot build the namespaces: {text.trim()}")
-        return Ok(null)
-      }
-      Err(error.failure(f"scenario {name} failed ({status.shell_code()?}): {text}"))
+      return Ok(launch.dir) when status.shell_code()? == 137
+      Err(error.failure(f"scenario {name} was not killed ({status.shell_code()?}): {launch.log.read_text()?}"))
     }
     Err(failure) => {
       test.skip(f"the kernel refuses user, mount and network namespaces: {failure.message}")
       Ok(null)
     }
   }
+}
+
+## Kills the driver itself with SIGKILL.
+export pure abort() -> types.Step {
+  step("abort")
 }
 
 ## Starts the supervised client with `args` (`{dir}` stands for the scenario
