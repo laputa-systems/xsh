@@ -1,7 +1,7 @@
 {
   "schema": 2,
-  "source_state": "provisional-during-consolidation",
-  "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory remains provisional and makes no G0b freeze, semantic proof, full grammar, Rust conformance, or host-behavior claim.",
+  "source_state": "frozen-post-consolidation",
+  "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory is frozen at the recorded source identity. Its finite Rust conformance cases are evidence for those named tests only; it makes no semantic proof, full grammar, universal Rust conformance, or host-behavior claim.",
   "core_inventory": {
     "control.eval_flow": {
       "source": "src/runtime/eval.rs",
@@ -3066,8 +3066,133 @@
   ],
   "finite_conformance": {
     "evidence_class": "RUST_CONFORMANCE",
-    "status": "planned",
-    "cases": []
+    "status": "passed",
+    "cases": [
+      {
+        "name": "float-equality.test_float_constant_equality_uses_ieee_values",
+        "test_id": "tests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
+          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "xsht",
+          "test",
+          "--exact",
+          "tests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values"
+        ],
+        "expected_result": {
+          "test_id": "tests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": null
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "running 1 tests\ntests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values ... ok 0ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n",
+          "stderr": ""
+        },
+        "status": "passed"
+      },
+      {
+        "name": "float-equality.test_float_runtime_equality_uses_ieee_values",
+        "test_id": "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
+          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "xsht",
+          "test",
+          "--exact",
+          "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values"
+        ],
+        "expected_result": {
+          "test_id": "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": null
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "running 1 tests\ntests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values ... ok 0ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n",
+          "stderr": ""
+        },
+        "status": "passed"
+      },
+      {
+        "name": "float-equality.test_keyed_stages_compare_recursive_float_keys_semantically",
+        "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
+          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "xsht",
+          "test",
+          "--exact",
+          "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically"
+        ],
+        "expected_result": {
+          "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": null
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "running 1 tests\ntests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically ... ok 0ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n",
+          "stderr": ""
+        },
+        "status": "passed"
+      },
+      {
+        "name": "float-equality.test_keyed_stages_use_ieee_float_equality",
+        "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
+          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "xsht",
+          "test",
+          "--exact",
+          "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality"
+        ],
+        "expected_result": {
+          "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": null
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "running 1 tests\ntests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality ... ok 0ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n",
+          "stderr": ""
+        },
+        "status": "passed"
+      }
+    ]
   },
   "evidence_classes": [
     {
@@ -9254,5 +9379,8 @@
       "boundary": "Finite Path byte-list, List, Stream, Set, Map, Optional, Result, and runtime-payload models only. Validated-to-validated assignment requires the exact ValidationIdentity; base views recurse only over modeled List, Stream, Map values, Optional, and Result shapes, while Set elements and Map keys are invariant. Eligible Map values may widen through baseView. Optional injection excludes Optional and Any sources. Result coverage is a selected structural baseView witness only; it proves no full Any or Optional field conversion. Null, Record, Union, and other omitted types are excluded. The sibling-path update requires distinct source and target VariableIdentity values; its witness preserves the ResourceIdentity carried by the RuntimeValue payload. No source or Rust correspondence or full G2 closure."
     }
   ],
-  "source_identity": null
+  "source_identity": {
+    "commit": "65fcb0f428a39a91832c6e9c9188ab8322d2fcd0",
+    "tree": "6947bd3de2eb6ba81f5e0a19a22249f15345aea6"
+  }
 }

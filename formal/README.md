@@ -6,11 +6,12 @@ imports mathematical models of selected XSH behavior. A `SPEC_PROVED` theorem
 proves a property of its Lean definitions; it does not establish correspondence
 with XSH source, indexed IR, Rust runtime, or host behavior.
 
-[`coverage.json`](coverage.json) is the authority for provisional coverage:
-`source_identity` is null, every universal obligation remains planned, and the
-finite Rust-conformance ledger has no cases. The fixed source/IR corpus,
-semantic scenario suite, and replay runner have not been introduced. Private
-bridge fixtures are not conformance cases.
+[`coverage.json`](coverage.json) is the authority for coverage. It records
+the frozen source commit and tree, every universal obligation remains planned,
+and the finite Rust-conformance ledger holds only the named tests that ran
+against binaries built from that commit. Each case is evidence for its own test
+only. The fixed source/IR corpus, semantic scenario suite, and replay runner
+have not been introduced. Private bridge fixtures are not conformance cases.
 
 Every claim here starts after parsing unless planned source-admission evidence
 covers the source bytes. Rust is the only implementation compared so far. The
@@ -21,7 +22,7 @@ implementation or evidence about one exists.
 [tests](tests/inventory/test_check_inventory.py) validate inventory structure,
 owner coverage, root reachability, and evidence records. They do not test Lean
 theorem behavior or Rust conformance. [`xsh-lean.md`](../xsh-lean.md) is the
-paused, owner-managed plan and is parsed by the inventory checker; preserve its
+owner-managed plan and is parsed by the inventory checker; preserve its
 G0–G10 structure when updating it.
 
 ## Build and check

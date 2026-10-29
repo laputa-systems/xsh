@@ -1,9 +1,10 @@
 # XSH semantic soundness campaign
 
-**Status:** paused by the owner on 2026-10-15. Start no new Lean lanes. Git
-keeps the existing foundations and unfinished work.
+**Status:** resumed by the owner on 2026-10-29. G0b is recorded: the source
+is frozen and the first finite Rust conformance cases have run. Next is G1b's
+test-only bridge and the connected milestone below.
 
-**Resume:** only on an explicit Lean resume. Then complete one connected
+**Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
 requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements))
 while retaining the full-core obligations and the post-consolidation source
@@ -13,22 +14,22 @@ resume leaves Lean paused.
 **State:** `formal/coverage.json` is the only inventory. It lists 685
 theorem roots across 92 owners, all `SPEC_PROVED` finite models of selected
 behavior. None establishes source, raw-IR, Rust, OS, or clock correspondence or
-closes a full-language obligation. All 77 universal obligations stay planned,
-`source_identity` is null, and `finite_conformance.cases` is empty. Each
+closes a full-language obligation. All 77 universal obligations stay planned.
+`source_identity` records the frozen commit `65fcb0f42` and its tree, and
+`finite_conformance.cases` holds the four Float equality tests, run once each
+with a fresh verification `xsh`/`xsht` pair built from that commit in the
+pinned container. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
 
 **Open items:**
 
-- Consolidation acceptance and the G0b source freeze gate everything below.
 - The record-update fragment models the checker's path-prefix overlap rule.
   `docs/SPEC.md` does not state that rule. Add it to the SPEC template or
   record an owner decision.
 - `Xsh.Paths.Fields` does not match every Rust `Path.name`, `Path.ext`, and
   `Path.parent` edge case, such as `foo/.` and `foo/..`. It claims no API
   correspondence.
-- After G0b, run `tests/xsh/float-equality.xsh` against the frozen source and
-  record the result as finite evidence.
 - No Goose implementation exists, and none is a prerequisite for any
   obligation. See [Replacement implementation
   contract](#replacement-implementation-contract).
@@ -559,6 +560,14 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
 
 ### Log
 
+- 2026-10-29: The owner resumed Lean. G0b froze the source at `65fcb0f42`
+  (tree `6947bd3de`). The four `tests/xsh/float-equality.xsh` tests passed
+  through `xsht test --exact` with verification `xsh` and `xsht` built from that
+  commit in the pinned container, and are the first `RUST_CONFORMANCE` cases.
+  At that commit the inventory check, its 51 tests, the axiom audit over 12,948
+  declarations and its self-test, and the paranoid kernel recheck passed. The
+  host was loaded (around 20 on 32 cores), so the loop costs are diagnostic:
+  an incremental `lake build` took 19 s wall and the fresh recheck 478 s.
 - 2026-10-28: The owner revised the scope so the independent contract supports a second implementation, with Goose as the first intended experiment. SRC-ADMIT, TYPE-COMPLETE, TYPE-DIAG, CERT-FACTS, and IMPL-REFINE joined the plan as planned obligations, raising the count from 72 to 77. The pause and the source-freeze gate are unchanged.
 
 ## For the owner afterwards

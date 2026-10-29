@@ -111,7 +111,7 @@ class InventoryCheckerTests(unittest.TestCase):
         ]
         return coverage
 
-    def test_current_owner_sets_match_provisional_inventory(self) -> None:
+    def test_current_owner_sets_match_frozen_inventory(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         result = CHECKER.validate_coverage(ROOT, coverage)
         self.assertEqual(set(CHECKER.OWNER_SPECS), set(result["owners"]))
@@ -122,9 +122,21 @@ class InventoryCheckerTests(unittest.TestCase):
         )
         self.assertEqual(685, len(result["fragment_roots"]))
         self.assertEqual(77, len(result["obligations"]))
-        self.assertEqual("provisional-during-consolidation", coverage["source_state"])
-        self.assertIsNone(coverage["source_identity"])
-        self.assertEqual([], coverage["finite_conformance"]["cases"])
+        self.assertEqual("frozen-post-consolidation", coverage["source_state"])
+        self.assertEqual(
+            self.git_object(f"{coverage['source_identity']['commit']}^{{tree}}"),
+            coverage["source_identity"]["tree"],
+        )
+        self.assertEqual("passed", coverage["finite_conformance"]["status"])
+        self.assertEqual(
+            [
+                "tests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values",
+                "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
+                "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically",
+                "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality",
+            ],
+            [case["test_id"] for case in coverage["finite_conformance"]["cases"]],
+        )
 
     def test_root_import_reaches_every_project_module(self) -> None:
         formal_root = ROOT / "formal"
@@ -1256,6 +1268,7 @@ class InventoryCheckerTests(unittest.TestCase):
     def test_frozen_source_requires_exact_commit_and_tree(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         coverage["source_state"] = "frozen-post-consolidation"
+        coverage["source_identity"] = None
         with self.assertRaisesRegex(CHECKER.InventoryError, "requires exact commit and tree"):
             CHECKER.validate_coverage(ROOT, coverage)
 
@@ -1283,6 +1296,7 @@ class InventoryCheckerTests(unittest.TestCase):
 
     def test_provisional_source_cannot_carry_frozen_identity(self) -> None:
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        coverage["source_state"] = "provisional-during-consolidation"
         coverage["source_identity"] = {"commit": "a" * 40, "tree": "b" * 40}
         with self.assertRaisesRegex(CHECKER.InventoryError, "cannot carry a frozen source identity"):
             CHECKER.validate_coverage(ROOT, coverage)
