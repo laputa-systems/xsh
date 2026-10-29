@@ -203,7 +203,7 @@ strip = "debuginfo"
 
 [profile.release]
 lto = "thin"
-opt-level = 3
+opt-level = 2
 # Redundant: DIST_RUSTFLAGS in the Makefile already passes -Cpanic=immediate-abort
 # for dist builds. Keeping it here would prevent cargo test --profile dist (the test
 # harness needs catch_unwind). The install builds use this profile as well.
@@ -211,7 +211,7 @@ opt-level = 3
 
 [profile.verification]
 inherits = "release"
-opt-level = 3
+opt-level = 2
 lto = false
 codegen-units = 64
 

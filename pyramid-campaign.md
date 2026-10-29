@@ -111,6 +111,15 @@ Pyramid closes when all of these hold:
   | `xsht` | 57,345,872 | 60,585,776 |
   | `xshi` | 587,320 | 566,240 |
 
+  These baselines used `opt-level = 3`. The release and verification profiles
+  then moved to `opt-level = 2`. Stripped `dist` products went from 27,342,344
+  to 25,945,608 bytes for `xsh` and from 39,288,200 to 37,090,696 for `xsht`.
+  Ten interleaved `dist` pairs on a loaded host gave paired CPU ratios (O2 over
+  O3, median and range) of 1.026 (0.950 to 1.043) for `xsht check core`, 1.041
+  (0.977 to 1.272) for `sort` over 300,000 lines, 0.984 (0.887 to 1.011) for
+  `wc` and 1.013 (0.965 to 1.433) for startup. Compare later O2 work against
+  O2 products, not against the O3 rows above.
+
 - **Item 1.** `native-core/tests` is no longer a Change case. Native cases run
   as the host user. Tests the unprivileged lane cannot run are declared in
   `dev/gate_lane.xsh` and run by the explicit `lane/root-native` and
