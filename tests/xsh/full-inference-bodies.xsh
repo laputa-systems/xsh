@@ -1652,3 +1652,23 @@ proc main() [io] {
   )?
   assert output.stdout == "-\n+\n", output.stdout
 }
+
+test test_full_inference_proc_indexing_an_unannotated_parameter_fails_only_for_a_uint_map_key { |ctx|
+  let program = r"""proc show(items, key: Int) [io, error] {
+  let value = items[key]
+  print $value
+}
+proc main(...argv: List[Str]) [io, error] {
+  show(["a", "b"], 1)?
+  var table: Map[UInt, Str] = {}
+  table[3] = "three"
+  show(table, 3)?
+  if argv.len() > 0 { show(table, -1)? }
+  print "end"
+}
+"""
+  let listed = test.expect(ctx, program, status: 0, args: [], env: {})?
+  assert listed.stdout == "b\nthree\nend\n", listed.stdout
+  let rejected = test.expect(ctx, program, status: 3, args: ["negative"], env: {})?
+  assert rejected.stdout == "b\nthree\n", rejected.stdout
+}

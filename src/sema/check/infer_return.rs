@@ -325,7 +325,17 @@ impl Checker {
                     continue;
                 }
                 if decl.kind() == Some(CallableKind::Proc) {
-                    if proc_may_return_value(program, def) {
+                    let returns_value = proc_may_return_value(program, def);
+                    if !returns_value {
+                        self.check_body_before_callers(program, source, decl, &declarations, def);
+                    }
+                    let completes = returns_value
+                        || self.type_constraints.proc_completion_return(self.effect_declaration_id(program, def.body)).ok().flatten().is_some();
+                    if !completes {
+                        self.generalize_pending_function(program, id);
+                        continue;
+                    }
+                    {
                         let boundary = if decl.name == "main" || decl.name.as_str().starts_with("main ") {
                             Some("entry")
                         } else {
