@@ -2135,6 +2135,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "xsh-archive"
+version = "0.0.1"
+dependencies = [
+ "bzip2",
+ "flate2",
+ "lzma-rust2",
+ "rawzip",
+ "tar",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "xsh-fuzz"
 version = "0.0.1"
 dependencies = [

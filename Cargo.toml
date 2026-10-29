@@ -23,6 +23,7 @@ members = [
     "crates/deser/deser-derive",
     "crates/deser/deser-encoding",
 
+    "crates/xsh-archive",
     "crates/xsh-fuzz",
     "crates/xsh-net",
     "crates/xsh-registry",
