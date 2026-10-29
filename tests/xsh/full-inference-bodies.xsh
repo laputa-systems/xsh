@@ -1569,3 +1569,31 @@ proc main(...argv: List[Str]) [io] {
   )?
   assert output.stdout == "9\n", output.stdout
 }
+
+test test_full_inference_inferred_error_variant_in_a_generic_body_fails_with_its_family { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""error Failure = Fatal | Other
+
+proc scan(data) [error] -> Result[Int, Failure] {
+  if data.len() == 0 {
+    fail .Fatal("premature end of file")
+  }
+  Ok(data.len())
+}
+
+proc main() [error, io] {
+  let length = scan(b"abc")?
+  print $length
+  match scan(b"") {
+    Err(failure) => print $failure.message
+    Ok(_) => print "ok"
+  }
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "3\npremature end of file\n", output.stdout
+}

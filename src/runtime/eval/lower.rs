@@ -4384,6 +4384,53 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    fn lower_scheme_error_constructor(
+        &mut self, expression: ExprId, callee: ExprId, args: crate::syntax::arena::ArenaRange,
+        inferred: Option<(Name, Name)>, ty: SchemeType, span: Span,
+        slots: &mut SlotScope, current_function: Name, facts: &SchemeBodyFacts,
+        visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
+        body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
+        if !matches!(ty.closed_ground_type(), Some(Type::ErrorVariant { .. })) { return self.block_scheme_lowering_expr(expression); }
+        if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+        let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+        let (error, bindings) = match inferred {
+            Some((family, variant)) => {
+                let key = self.inferred_error_family_key(family);
+                self.lower_error_variant_payload(expression, key, variant, &arguments, slots, Some(current_function), None)?
+            }
+            None => self.lower_compact_error_expr(expression, callee, &arguments, slots, Some(current_function), None)?,
+        };
+        let mut bound_types = BTreeMap::new();
+        for (value, slot) in bindings {
+            let actual = lowered_types.get(&value)?.clone();
+            bound_types.insert(slot, actual.clone());
+            let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: None });
+            slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: actual, mutability: super::SchemeLocalMutability::Immutable });
+            body.push(declaration);
+        }
+        let LoweredErrorExpr::Structured { fields, .. } = &error;
+        for (_, value) in fields {
+            let generated = self.scratch.borrow().expressions[value.index()].clone();
+            match generated {
+                BuildExprRow::Param(slot) if bound_types.contains_key(&slot) => {
+                    lowered_types.insert(*value, bound_types[&slot].clone());
+                }
+                BuildExprRow::CheckedValue { value: source, check: LoweredValueCheck::Ground(check), .. } => {
+                    let source_row = self.scratch.borrow().expressions[source.index()].clone();
+                    let BuildExprRow::Param(slot) = source_row else { return self.block_scheme_lowering_expr(expression); };
+                    lowered_types.insert(source, bound_types.get(&slot)?.clone());
+                    self.record_scheme_storage_elaboration(*value, &SchemeType::Ground(check.ty), lowered_types);
+                }
+                BuildExprRow::Str(_) => { lowered_types.insert(*value, SchemeType::Ground(Type::Str)); }
+                _ if lowered_types.contains_key(value) => {},
+                _ => return self.block_scheme_lowering_expr(expression),
+            }
+        }
+        let value = self.push_checked_structured_error(expression, error, span)?;
+        Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body))
+    }
+
     fn lower_scheme_call_arguments(
         &mut self, expression: ExprId, args: crate::syntax::arena::ArenaRange,
         plan: Option<&crate::sema::schemes::RegisteredCallPlan>,
@@ -5467,7 +5514,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: lowered, span })
             }
             ArenaExprKind::Call { callee, args } if self.bodies.inferred_variants.contains_key(&expression) => {
-                let Some(crate::sema::check::InferredVariant::Tag { type_name, variant, field_types }) = self.bodies.inferred_variants.get(&expression).cloned() else { return self.block_scheme_lowering_expr(expression) };
+                let (type_name, variant, field_types) = match self.bodies.inferred_variants.get(&expression).cloned() {
+                    Some(crate::sema::check::InferredVariant::Tag { type_name, variant, field_types }) => (type_name, variant, field_types),
+                    Some(crate::sema::check::InferredVariant::Error { family, variant }) => return self.lower_scheme_error_constructor(expression, callee, args, Some((family, variant)), ty, span, slots, current_function, facts, visited, lowered_types, body),
+                    None => return self.block_scheme_lowering_expr(expression),
+                };
                 if field_types.iter().any(Type::has_unsigned_constraint) || !self.record_checked_tag_schema(type_name, variant, &field_types) { return self.block_scheme_lowering_expr(expression); }
                 let arguments = self.program.arena.call_args(args).to_vec();
                 if arguments.len() != field_types.len() { return self.block_scheme_lowering_expr(expression); }
@@ -5572,38 +5623,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
                 }
                 if self.bodies.error_constructors.contains_key(&expression) {
-                    if !matches!(ty.closed_ground_type(), Some(Type::ErrorVariant { .. })) { return self.block_scheme_lowering_expr(expression); }
-                    if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
-                    let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
-                    let (error, bindings) = self.lower_compact_error_expr(expression, callee, &arguments, slots, Some(current_function), None)?;
-                    let mut bound_types = BTreeMap::new();
-                    for (value, slot) in bindings {
-                        let actual = lowered_types.get(&value)?.clone();
-                        bound_types.insert(slot, actual.clone());
-                        let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: None });
-                        slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: actual, mutability: super::SchemeLocalMutability::Immutable });
-                        body.push(declaration);
-                    }
-                    let LoweredErrorExpr::Structured { fields, .. } = &error;
-                    for (_, value) in fields {
-                        let generated = self.scratch.borrow().expressions[value.index()].clone();
-                        match generated {
-                            BuildExprRow::Param(slot) if bound_types.contains_key(&slot) => {
-                                lowered_types.insert(*value, bound_types[&slot].clone());
-                            }
-                            BuildExprRow::CheckedValue { value: source, check: LoweredValueCheck::Ground(check), .. } => {
-                                let source_row = self.scratch.borrow().expressions[source.index()].clone();
-                                let BuildExprRow::Param(slot) = source_row else { return self.block_scheme_lowering_expr(expression); };
-                                lowered_types.insert(source, bound_types.get(&slot)?.clone());
-                                self.record_scheme_storage_elaboration(*value, &SchemeType::Ground(check.ty), lowered_types);
-                            }
-                            BuildExprRow::Str(_) => { lowered_types.insert(*value, SchemeType::Ground(Type::Str)); }
-                            _ if lowered_types.contains_key(value) => {},
-                            _ => return self.block_scheme_lowering_expr(expression),
-                        }
-                    }
-                    let value = self.push_checked_structured_error(expression, error, span)?;
-                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                    return self.lower_scheme_error_constructor(expression, callee, args, None, ty, span, slots, current_function, facts, visited, lowered_types, body);
                 }
                 if self.bodies.resolved_type_expressions.instantiations.contains_key(&expression) || facts.constructor_instances().contains_key(&expression) {
                     let construction = if facts.constructor_instances().contains_key(&expression) {

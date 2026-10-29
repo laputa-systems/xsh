@@ -514,7 +514,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// An error variant value from its constructor arguments. The checker
     /// decided which payload field each argument fills; a call it published
     /// no binding for is not lowered.
-    fn lower_error_variant_payload<T>(
+    pub(super) fn lower_error_variant_payload<T>(
         &mut self,
         call: ExprId,
         family_key: CompactErrorFamilyKey,
@@ -582,6 +582,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     // import aliases; they have no runtime receiver to evaluate.
     pub(super) fn resolved_compact_error_family_key(&self, base: ExprId) -> Option<CompactErrorFamilyKey> {
         Some(self.resolve_compact_error_family_owner(compact_error_family_key(self.program, base)?))
+    }
+
+    pub(super) fn inferred_error_family_key(&self, family: Name) -> CompactErrorFamilyKey {
+        let key = match family.as_str().rsplit_once('.') {
+            Some((namespace, member)) => CompactErrorFamilyKey::Qualified(
+                QualifiedName::new(Name::intern(namespace), Name::intern(member)),
+            ),
+            None => CompactErrorFamilyKey::Local(family),
+        };
+        self.resolve_compact_error_family_owner(key)
     }
 
     fn resolve_compact_error_family_owner(
@@ -663,13 +673,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(self.wrap_argument_bindings(value, bindings, span))
             }
             crate::sema::check::InferredVariant::Error { family, variant } => {
-                let key = match family.as_str().rsplit_once('.') {
-                    Some((namespace, member)) => CompactErrorFamilyKey::Qualified(
-                        QualifiedName::new(Name::intern(namespace), Name::intern(member)),
-                    ),
-                    None => CompactErrorFamilyKey::Local(family),
-                };
-                let key = self.resolve_compact_error_family_owner(key);
+                let key = self.inferred_error_family_key(family);
                 let args = self.source_call_arguments(&args)?;
                 let (error, bindings) = self.lower_error_variant_payload(
                     id,
