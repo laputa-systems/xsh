@@ -504,7 +504,7 @@ pub struct CheckedStreamStage {
 pub(crate) enum CheckedResultConstructor { Ok, Err }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum CheckedBuiltinCall { Range, Path, Environment, ErrorFail, ErrorFailure }
+pub(crate) enum CheckedBuiltinCall { Range, Path, PathParseBytes, Environment, ErrorFail, ErrorFailure }
 
 /// Opaque checker proofs used by lowering to preserve checked control flow.
 /// The carrier stays public so output structs remain constructible with

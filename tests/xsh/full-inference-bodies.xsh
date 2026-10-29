@@ -785,6 +785,21 @@ proc main() [process, io, error] {
   assert output.stdout == "spawned\none\nplanned\ntwo\n"
 }
 
+test test_full_inference_type_namespaced_call_is_lowered_in_a_generic_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure to_path(value, marker) { Path.parse_bytes(value) }
+pure joined(prefix, child) { Path.parse_bytes(bytes.concat([prefix, child])) }
+let a = to_path(b"/etc/hosts", 1)?
+let b = joined(b"/usr/", b"bin")?
+print $a
+print $b
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "/etc/hosts\n/usr/bin\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

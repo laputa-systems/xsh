@@ -5488,6 +5488,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                     return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
                 }
+                if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::PathParseBytes) {
+                    let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else { return self.block_scheme_lowering_expr(expression) };
+                    if !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "Path") || name != "parse_bytes" { return self.block_scheme_lowering_expr(expression); }
+                    let arguments = self.program.arena.call_args(args).to_vec();
+                    let [argument] = arguments.as_slice() else { return self.block_scheme_lowering_expr(expression) };
+                    let ArenaCallArgKind::Positional(input) = argument.kind else { return self.block_scheme_lowering_expr(expression) };
+                    for namespace in [callee, base] { if facts.expression_types().contains_key(&namespace) { visited.insert(namespace); } }
+                    let input = self.lower_scheme_expression(input, slots, current_function, facts, visited, lowered_types, body)?;
+                    let value = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::PathParseBytes, args: vec![Some(input)], span });
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
                 if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::Range) {
                     if !matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range") { return self.block_scheme_lowering_expr(expression); }
                     let mut bounds = Vec::new();

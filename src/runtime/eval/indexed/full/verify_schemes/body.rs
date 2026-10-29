@@ -4003,6 +4003,30 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn type_namespaced_path_parse_in_a_generic_body_authenticates_its_operand() {
+        let program = prepare("pure to_path(value, marker) { let _ = marker; Path.parse_bytes(value) }\nlet found = to_path(b\"/etc\", 1)\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "to_path").unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let call = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::PathParseBytes, .. }))).unwrap();
+        let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let operand = args.next().unwrap().unwrap().unwrap().raw() as usize;
+        assert_eq!(program.store.tags[operand], FullTag::ExprParam);
+        let mut forged = cold();
+        let words = forged.store.data[operand].range().bounds(forged.store.extra.len()).unwrap();
+        assert_ne!(forged.store.extra[words.start], 1);
+        forged.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&forged).expect_err("the marker cannot stand for the Bytes operand");
+        assert!(!error.message.contains("unowned rows"), "{error:?}");
+    }
+
+    #[test]
     fn regex_literal_call_arguments_authenticate_their_literal_type() {
         let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
         program.store.in_place.take();

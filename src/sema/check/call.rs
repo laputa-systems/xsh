@@ -772,7 +772,9 @@ impl Checker {
                     return contract.return_ty;
                 }
                 if module == "Path" {
-                    return self.check_registered_method_arena(
+                    self.builtin_calls.remove(&span);
+                    let reported = self.diagnostics.len();
+                    let result = self.check_registered_method_arena(
                         arena,
                         source,
                         call_source.clone(),
@@ -785,6 +787,10 @@ impl Checker {
                         expected_context,
                         None,
                     );
+                    if name == "parse_bytes" && !self.diagnostics[reported..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error) {
+                        self.builtin_calls.insert(span, super::CheckedBuiltinCall::PathParseBytes);
+                    }
+                    return result;
                 }
                 if unbound_namespace && api_spec().module(&module.as_str()).is_some() {
                     let canonical_name = if module == "fs" && name == "ls" {
