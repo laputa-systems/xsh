@@ -474,6 +474,7 @@ pub(super) fn is_body_expression(
     expression: crate::syntax::arena::ExprId,
 ) -> bool {
     let mut pending = vec![expression];
+    let mut pipeline_holes = FxHashSet::<crate::syntax::arena::ExprId>::default();
     while let Some(expression) = pending.pop() {
         if let Some(value) = prepared.values.get(&expression) {
             let Some(expected) = prepared.types.get(&expression) else { return false };
@@ -486,6 +487,12 @@ pub(super) fn is_body_expression(
             if kind != crate::sema::schemes::NonmaterialConstructor::Record { continue; }
         }
         match program.arena.expr(expression).kind {
+            ArenaExprKind::Ident(_) if pipeline_holes.contains(&expression) && types.contains_key(&expression) => {}
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                pipeline_holes.insert(hole);
+                pending.push(input);
+                pending.push(call);
+            }
             ArenaExprKind::Ident(_) | ArenaExprKind::Item => {
                 let named_callable = matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(_))
                     && checked_operations.contains(&program.arena.expr(expression).span)

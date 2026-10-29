@@ -4800,7 +4800,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(value);
         }
         let requirements = facts.requirement_pack_at(expression).ok()?;
-        if let Some(receiver) = slots.postfix_receivers.get(&expression) { return Some(*receiver); }
+        if let Some(receiver) = slots.postfix_receivers.get(&expression) {
+            let receiver = *receiver;
+            if facts.expression_types().contains_key(&expression) { visited.insert(expression); }
+            return Some(receiver);
+        }
         if !slots.guarded_postfixes.contains(&expression) && facts.wrapper_site(expression).is_none_or(|ordinal| {
             requirements.wrappers.get(ordinal as usize).is_some_and(|requirement| matches!(requirement.kind, crate::sema::wrapper_operation::WrapperRequirementKind::KeyValidation { .. }))
         }) {
@@ -5065,6 +5069,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let span = self.propagation_span(expression, value, slots);
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 push_build_row!(self, expr, BuildExprRow::Try { value, span })
+            }
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                let input_type = facts.expression_types().get(&input)?.clone();
+                let value = self.lower_scheme_expression(input, slots, current_function, facts, visited, lowered_types, body)?;
+                let slot = slots.reserve("value pipeline input");
+                let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: None });
+                slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: input_type.clone(), mutability: super::SchemeLocalMutability::Immutable });
+                body.push(declaration);
+                let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                lowered_types.insert(bound, input_type);
+                let previous = slots.postfix_receivers.insert(hole, bound);
+                let selected = self.lower_scheme_expression(call, slots, current_function, facts, visited, lowered_types, body);
+                match previous {
+                    Some(previous) => { slots.postfix_receivers.insert(hole, previous); }
+                    None => { slots.postfix_receivers.remove(&hole); }
+                }
+                selected?
             }
             ArenaExprKind::Unary { op, expr } => {
                 let value = self.lower_scheme_expression(expr, slots, current_function, facts, visited, lowered_types, body)?;

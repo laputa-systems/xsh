@@ -742,6 +742,25 @@ print $b
   assert output.stdout == "4\n-1\n"
 }
 
+test test_full_inference_value_pipeline_placeholder_is_a_generic_call_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure add(left, right) { left + right }
+pure scaled(value, factor) { value |> add(_, factor) |> add(_, 10) }
+pure measured(items) { items |> count_of(_) }
+pure count_of(values) { values.len() }
+let a = scaled(1, 2)
+let b = scaled(5, 5)
+let c = measured([1, 2, 3])
+print $a
+print $b
+print $c
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "13\n20\n3\n"
+}
+
 test test_full_inference_regex_literal_is_a_generic_call_argument { |ctx|
   let output = test.run_xsh(
     ctx,

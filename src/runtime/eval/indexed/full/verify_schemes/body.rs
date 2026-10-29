@@ -3941,6 +3941,34 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn pipeline_placeholder_reads_require_the_input_binding_to_precede_them() {
+        let program = prepare("pure add(left, right) { left + right }\npure one(value, factor) { value |> add(_, factor) }\nlet found = one(1, 2)\n");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "one").unwrap();
+        let cold = || {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            changed
+        };
+        FullVerifier::verify(&cold()).unwrap();
+        let body = IrBlockId::from_raw(program.store.functions[owner].body).unwrap();
+        let words = program.store.blocks[body.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let statements = ((words.start + 1)..words.end).collect::<Vec<_>>();
+        let reads = |word: usize| match decoder.statement_view(program.store.extra[word] as usize) {
+            Ok(schema::StmtView::Let { slot, value, .. }) => Some((slot, match decoder.expression_view(value.raw() as usize) { Ok(schema::ExprView::Param(read)) => Some(read), _ => None })),
+            _ => None,
+        };
+        let dependent = statements.windows(2).filter(|pair| matches!((reads(pair[0]), reads(pair[1])), (Some((slot, _)), Some((_, Some(read)))) if slot == read)).collect::<Vec<_>>();
+        assert!(!dependent.is_empty());
+        for pair in dependent {
+            let mut moved = cold();
+            moved.store.extra.swap(pair[0], pair[1]);
+            assert_eq!(FullVerifier::verify(&moved).unwrap_err().message, "generic body reads an uninitialized slot");
+        }
+    }
+
+    #[test]
     fn regex_literal_call_arguments_authenticate_their_literal_type() {
         let mut program = prepare("pure keep(value, marker) { marker }\nlet flag = true\nlet kept = keep(rx\"x\", flag)\n");
         program.store.in_place.take();
