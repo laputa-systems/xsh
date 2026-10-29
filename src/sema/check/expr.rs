@@ -2354,6 +2354,13 @@ impl Checker {
                         ty @ Type::Inference(_) if relational_spread => { open_spread = Some(ty); }
                         Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
                         Type::Unknown => {}
+                        Type::Inference(_) => {
+                            self.error(
+                                last_span,
+                                "a spread of a value whose record type is not known cannot follow named fields, because those fields could override fields the compiler cannot see; write the named fields after the spread, as in `{...value, field: 1}`, or annotate the value's record type",
+                                DiagnosticCode::CheckSpreadNotRecord,
+                            );
+                        }
                         _ => {
                             self.error(
                                 last_span,

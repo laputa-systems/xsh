@@ -1248,3 +1248,32 @@ export const marker = 1
   assert "generic namespace capture escapes its callable projection" in output.stderr, output.stderr
   assert ":2:39" in output.stderr, output.stderr
 }
+
+test test_full_inference_row_override_rejections_name_the_cause_and_the_fix { |ctx|
+  let cases = [
+    {name: "named fields before an unknown spread", source: "pure a(r) { {n: 0, ...r} }\n", message: "cannot follow named fields", fix: "{...value, field: 1}", at: ":1:20"},
+    {name: "field assignment on a copy", source: "pure c(r) { var local = r; local.n = 1; local }\n", message: "field assignment needs a known record type", fix: "{...value, field: new}", at: ":1:28"},
+  ]
+  for {name, source, message, fix, at} in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, name
+    assert message in output.stderr, f"{name}: {output.stderr}"
+    assert fix in output.stderr, f"{name}: {output.stderr}"
+    assert at in output.stderr, f"{name}: {output.stderr}"
+  }
+}
+
+test test_full_inference_row_override_after_the_spread_is_accepted { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure override(r) { {...r, n: 0} }
+let a = override({n: 5, label: "kept"})
+let b = override({label: "added"})
+print $a.n
+print $a.label
+print $b.n
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "0\nkept\n0\n"
+}

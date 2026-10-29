@@ -5947,6 +5947,14 @@ impl Checker {
                         Type::Unknown
                     }),
                     Type::Unknown => Type::Unknown,
+                    Type::Inference(_) => {
+                        self.error(
+                            span,
+                            "field assignment needs a known record type, and this value comes from an unannotated parameter; annotate the record type, or build the updated copy with `{...value, field: new}`",
+                            DiagnosticCode::CheckAssignTarget,
+                        );
+                        Type::Unknown
+                    }
                     _ => {
                         self.error(
                             span,
