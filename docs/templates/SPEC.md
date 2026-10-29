@@ -532,7 +532,8 @@ in the result.
 without `use` and cannot be aliased; they are namespaces, not values, so a
 member must be called rather than used as a value (`check.module-member`).
 User modules resolve relative to the
-importing file, then through each directory in `XSH_MODULE_PATH` (separated by
+importing file (for a symlinked entry script, beside its resolved target),
+then through each directory in `XSH_MODULE_PATH` (separated by
 the platform's path-list separator), then through each project module root.
 Dotted paths name subdirectories.
 

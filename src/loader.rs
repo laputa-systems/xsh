@@ -720,7 +720,7 @@ pub fn parse_load_entry_source_arena_only_with_overrides(
         for (key, bytes) in source_overrides {
             loader.set_source_override(key, bytes);
         }
-        let imports = loader.load_imports_with_cancellation(Path::new(file), root_statements, &module_roots, &mut cancellation_requested)?;
+        let imports = loader.load_imports_with_cancellation(&entry_import_path(Path::new(file)), root_statements, &module_roots, &mut cancellation_requested)?;
         runtime_import_diagnostics(&imports, &loader.finish(), &mut loaded, &mut diagnostics);
         if linkage == StdlibLinkage::Prepare {
             let mut embedded = EmbeddedModuleLoader::new(&mut sources, &mut builder);
@@ -762,7 +762,7 @@ pub fn parse_load_entry_source_shared_arena_only(
     let mut loaded = FxHashSet::default();
     if diagnostics.is_empty() {
         let mut loader = ModuleLoader::new(sources, &mut builder);
-        let imports = loader.load_imports(Path::new(file), root_statements, &module_roots);
+        let imports = loader.load_imports(&entry_import_path(Path::new(file)), root_statements, &module_roots);
         runtime_import_diagnostics(&imports, &loader.finish(), &mut loaded, &mut diagnostics);
         // Tooling that checks or lints a workspace must see the same standard
         // implementations the runner would prepare, or a script-backed call
@@ -868,7 +868,7 @@ pub fn parse_load_entries_shared_arena_only_with_cancellation(
         {
             root_imports.push(if *load_imports {
                 loader.load_imports_with_cancellation(
-                    Path::new(file),
+                    &entry_import_path(Path::new(file)),
                     entry.statements,
                     module_roots,
                     &mut cancellation_requested,
@@ -1317,6 +1317,14 @@ pub fn prepare_stdlib_catalog_module(identity: &str) -> Option<(SourceMap, Arena
             diagnostics,
         },
     ))
+}
+
+fn entry_import_path(path: &Path) -> PathBuf {
+    if path.symlink_metadata().is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    }
 }
 
 pub fn module_key(path: &Path) -> String {

@@ -1,6 +1,26 @@
 #![allow(clippy::single_call_fn)]
 
 use super::common::*;
+#[test]
+fn symlinked_entry_resolves_imports_beside_target() {
+    let root = temp_path("symlinked-entry-imports");
+    let target = root.join("target");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(target.join("lib")).unwrap();
+    std::fs::create_dir_all(bin.join("lib")).unwrap();
+    std::fs::write(target.join("applet"), "use lib.probe\nprint probe.value()\n").unwrap();
+    std::fs::write(target.join("lib/probe.xsh"), "export pure value() -> Str { \"target\" }\n").unwrap();
+    std::fs::write(bin.join("lib/probe.xsh"), "export pure value() -> Str { \"link\" }\n").unwrap();
+    std::os::unix::fs::symlink("../target/applet", bin.join("applet")).unwrap();
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(bin.join("applet"))
+        .env_remove("XSH_MODULE_PATH")
+        .output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"target\n");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(feature = "net")]
 use std::sync::atomic::AtomicBool;
 
