@@ -228,7 +228,7 @@ pub(super) fn verify_record_override_site(
         (SchemeRowTail::Closed, SchemeRowTail::Closed) if derived.len() == output_fields.len() => {}
         (SchemeRowTail::Parameter(input), SchemeRowTail::Parameter(output)) if input != output => {}
         (SchemeRowTail::Parameter(input), SchemeRowTail::Parameter(output)) if input == output && overrides.iter().all(|(name, _)| known_before.contains(name)) => {}
-        (SchemeRowTail::Parameter(_), SchemeRowTail::Closed) if derived.len() == output_fields.len() => {}
+        (SchemeRowTail::Parameter(_), SchemeRowTail::Closed) => {}
         _ => return Err(IrVerifyError::new("record override result has no independent remainder")),
     }
     Ok(())

@@ -1597,3 +1597,22 @@ proc main() [error, io] {
   )?
   assert output.stdout == "3\npremature end of file\n", output.stdout
 }
+
+test test_full_inference_record_override_into_a_closed_result_keeps_the_unwritten_fields { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Run = {failed: Bool, name: Str, count: Int}
+pure mark(state) -> Run { {...state, failed: true} }
+proc main() [io] {
+  let marked = mark({failed: false, name: "a", count: 4})
+  print $marked.failed
+  print $marked.name
+  print $marked.count
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "true\na\n4\n", output.stdout
+}

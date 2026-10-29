@@ -48334,6 +48334,29 @@ assert result.extra == 9
     }
 
     #[test]
+    fn a_record_override_into_a_closed_result_takes_its_remainder_from_the_actual_receiver() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-record-override-closed-result.xsh", r#"
+type Run = {failed: Bool, name: Str, count: Int}
+pure mark(state) -> Run { {...state, failed: true} }
+let first = mark({failed: false, name: "a", count: 1})
+assert first.count == 1
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "mark");
+            let call = scheme_fixture_root_call(&program, "mark");
+            let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == call).unwrap();
+            let rows = instance.arguments.row_arguments.bounds(program.store.call_row_arguments.len()).unwrap();
+            let row = rows.into_iter().next().expect("the receiver remainder is a row argument");
+            let remainder = program.store.call_row_arguments[row].fields.bounds(program.store.call_row_fields.len()).unwrap();
+            assert!(!remainder.is_empty());
+            let mut renamed = program.clone();
+            renamed.store.call_row_fields[remainder.start].name = program.store.functions[owner].name;
+            FullVerifier::verify(&renamed).expect_err("the closed result must be the receiver with the overrides applied");
+        });
+    }
+
+    #[test]
     fn a_record_override_of_known_fields_keeps_its_remainder_and_a_new_field_cannot() {
         run_with_large_stack(|| {
             let program = fixture("generic-record-override-known-fields.xsh", r#"
