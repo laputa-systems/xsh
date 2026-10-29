@@ -3446,7 +3446,7 @@ impl Checker {
                         let handler = self.expr_types.get(&right_span).cloned().unwrap_or(Type::Invalid);
                         return self.check_wrapper_requirement(WrapperRequirementKind::Handler { source: left_ty, error, handler, result: result.clone() }, span, DiagnosticCode::CheckFallbackBlockResult, result);
                     }
-                    let fallback = self.fresh_wrapper_type(right_span);
+                    let fallback = if matches!(arena.arena.expr(right).kind, ArenaExprKind::Null) { Type::Null } else { self.fresh_wrapper_type(right_span) };
                     self.check_wrapper_requirement(WrapperRequirementKind::Fallback { source: left_ty.clone(), fallback: fallback.clone(), result: result.clone() }, span, DiagnosticCode::CheckResultFallback, result.clone());
                     let fallback = self.check_expr_arena(arena, source, right, Some(&fallback));
                     return self.check_wrapper_requirement(WrapperRequirementKind::Fallback { source: left_ty, fallback, result: result.clone() }, span, DiagnosticCode::CheckResultFallback, result);

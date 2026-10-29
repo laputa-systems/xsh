@@ -8789,6 +8789,17 @@ impl<'a> FullDecoder<'a> {
                         }
                     }
                 }
+                FullTag::ExprMatch => {
+                    let schema::ExprView::MatchExpr { arms, .. } = self.expression_view(instruction)? else { continue };
+                    let arms = arms.collect::<Result<Vec<_>, _>>()?;
+                    for (pattern, guard, _) in &arms {
+                        charge(1)?;
+                        if !self.pattern_capture_slots_with_charge(pattern.raw() as usize, &mut |amount| charge(amount))?.contains(&slot) { continue; }
+                        let hoisted_temporary = arms.len() == 1 && guard.is_none()
+                            && matches!(self.checked_pattern_view(pattern.raw())?, schema::PatternView::Bind { slot: bound } if bound == slot);
+                        if !hoisted_temporary { return Ok(true); }
+                    }
+                }
                 FullTag::ExprListComp | FullTag::ExprMapComp => {
                     let qualifiers = match self.expression_view(instruction)? {
                         schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => qualifiers,
@@ -23830,6 +23841,35 @@ pure text(label, body: Str) -> State {
             let mut wrong_field = program.clone();
             wrong_field.store.extra[words.start + 1] = program.store.extra[text_words.start + 1];
             assert_eq!(FullVerifier::verify(&wrong_field).unwrap_err().message, "generic tag payload disagrees with its declared field type");
+        });
+    }
+
+    #[test]
+    fn match_pattern_bindings_are_user_slots_in_generic_call_arguments() {
+        run_with_large_stack(|| {
+            let program = fixture("match-pattern-generic-argument.xsh", r#"
+enum Alias { AliasNone, AliasRename(Str), AliasLink(Str) }
+pure make(pattern: Str, captures) -> Str { pattern }
+pure resolve(alias: Alias, captures: List[Int]) -> Str {
+    match alias {
+        AliasNone => "none"
+        AliasRename(pattern) => make(pattern, captures)
+        AliasLink(label) => make(label, captures)
+    }
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "resolve");
+            let parameters = program.store.functions[owner].params.bounds(program.store.params.len()).unwrap().len();
+            let slot_of = |instruction: usize| program.store.extra[program.store.data[instruction].range().start as usize] as usize;
+            let mut locals = function_instruction_indices(&program, "resolve", FullTag::ExprParam).into_iter()
+                .filter(|&instruction| slot_of(instruction) >= parameters).collect::<Vec<_>>();
+            locals.sort_by_key(|&instruction| slot_of(instruction));
+            let [first, second] = locals.as_slice() else { panic!("two pattern-bound arguments: {locals:?}") };
+            assert_ne!(slot_of(*first), slot_of(*second));
+            let mut forged = program.clone();
+            forged.store.extra[forged.store.data[*first].range().start as usize] = u32::try_from(slot_of(*second)).unwrap();
+            assert!(FullVerifier::verify(&forged).is_err());
         });
     }
 

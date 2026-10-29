@@ -4892,7 +4892,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self.scratch.borrow_mut().scheme_noncompleting.insert(value.index());
             return Some(value);
         }
-        let mut ty = facts.expression_types().get(&expression)?.clone();
+        let Some(fact) = facts.expression_types().get(&expression) else {
+            let ty = self.declarations.prepared_constants.types.get(&expression)?.clone();
+            visited.remove(&expression);
+            let value = self.lower_expr(expression, slots, Some(current_function), None)?;
+            return Some(self.publish_scheme_expression(value, SchemeType::Ground(ty), slots, lowered_types, body));
+        };
+        let mut ty = fact.clone();
         let materialization = match self.bodies.call_instantiations.get(&crate::sema::schemes::InstantiationSite::value(expression)) {
             Some(crate::sema::value_materialization::InstantiationEvidence::Value(plan)) => Some(plan.clone()),
             _ => None,

@@ -1154,3 +1154,44 @@ proc main() [io, error] {
   assert "unix" in output.stdout
   assert "/run/sock" in output.stdout
 }
+
+test test_full_inference_null_fallback_over_a_generic_element_is_checked_at_the_call { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Capture = {start: Int, end: Int}
+pure start_at(captures, index: Int) -> Int {
+  if let capture = captures.get(index) ?? null {
+    return capture.start
+  }
+  -1
+}
+let sparse: List[Capture?] = [{start: 4, end: 6}, null]
+print $start_at(sparse, 0)
+print $start_at(sparse, 1)
+print $start_at(sparse, 5)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "4\n-1\n-1\n"
+}
+
+test test_full_inference_match_payload_binding_feeds_a_generic_call { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""enum Alias { AliasNone, AliasRename(Str), AliasLink(Str) }
+pure label(text: Str, extra) -> Str { f"{text}:{extra}" }
+pure resolve(alias: Alias, extra) -> Str {
+  match alias {
+    AliasNone => "none"
+    AliasRename(name) => label(name, extra)
+    AliasLink(target) => label(target, extra)
+  }
+}
+print $resolve(AliasNone, 1)
+print $resolve(AliasRename("a"), 2)
+print $resolve(AliasLink("b"), "x")
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "none\na:2\nb:x\n"
+}
