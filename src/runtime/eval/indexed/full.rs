@@ -37959,8 +37959,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        let dead_ordinals = [50, 64, 95, 97, 98, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 154);
+        let dead_ordinals = [50, 64, 95, 96, 97, 98, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 153);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
