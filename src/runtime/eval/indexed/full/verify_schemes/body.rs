@@ -1539,7 +1539,11 @@ pub(super) fn verify_body(
             Obligation::Block { statements, position, scope, value: value_contract } => {
                 let Some(&instruction) = statements.get(position) else {
                     let diverges = match statements.last() {
-                        Some(&last) => matches!(decoder.statement_view(last)?, schema::StmtView::Return { .. }),
+                        Some(&last) => match decoder.statement_view(last)? {
+                            schema::StmtView::Return { .. } => true,
+                            schema::StmtView::Expr { value, .. } => matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Abort { .. }),
+                            _ => false,
+                        },
                         None => false,
                     };
                     if value_contract.is_some() && !diverges { return Err(IrVerifyError::new("generic value block has no terminal value")); }

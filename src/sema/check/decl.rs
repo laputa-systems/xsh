@@ -322,6 +322,13 @@ impl Checker {
                 |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
+        let diverging_handlers = body_types.keys().copied().filter_map(|expression| {
+            let crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, right, .. } = program.arena.expr(expression).kind else { return None };
+            let is_diverging_block = matches!(program.arena.expr(right).kind, crate::syntax::arena::ArenaExprKind::ValueBlock(_))
+                && body_types.get(&right) == Some(&Type::Unknown);
+            is_diverging_block.then(|| Some((right, body_types.get(&expression)?.clone()))).flatten()
+        }).collect::<Vec<_>>();
+        for (handler, joined) in diverging_handlers { body_types.insert(handler, joined); }
         let noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
             matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. })
                 && !self.stream_expr_may_complete(program, expression)

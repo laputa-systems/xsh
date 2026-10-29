@@ -24182,6 +24182,32 @@ proc launch(label) [process, error] {
     }
 
     #[test]
+    fn a_diverging_fallback_handler_must_end_in_a_real_abort() {
+        run_with_large_stack(|| {
+            let program = fixture("diverging-fallback-handler.xsh", r#"
+proc load(file) [fs, process, error, io] {
+    let spare = 7
+    let text = fp"{file}".read_text() ?? { |_|
+        exit 255
+    }
+    print $text
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let abort = function_instruction_indices(&program, "load", FullTag::ExprAbort)[0];
+            let owner = scheme_fixture_root_function(&program, "load");
+            let decoder = function_view_decoder(&program.store, owner);
+            let spare = function_instruction_indices(&program, "load", FullTag::ExprInt).into_iter()
+                .find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(7))))
+                .unwrap();
+            let mut wrong = program.clone();
+            wrong.store.tags.swap(abort, spare);
+            wrong.store.data.swap(abort, spare);
+            assert!(FullVerifier::verify(&wrong).is_err());
+        });
+    }
+
+    #[test]
     fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"

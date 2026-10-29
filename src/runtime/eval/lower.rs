@@ -3672,7 +3672,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let block_data = self.program.arena.block(block);
         let statements = self.program.arena.stmt_ids(block_data.statements).map(|statement| self.program.arena.core_stmt_id(statement)).collect::<Vec<_>>();
-        let diverges = statements.last().is_some_and(|tail| matches!(self.program.arena.stmt(*tail).kind, ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(_)))));
+        let diverges = statements.last().is_some_and(|tail| matches!(self.program.arena.stmt(*tail).kind, ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(_))) | ArenaStmtKind::Exit(_)));
         if !diverges { return self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types); }
         let saved = slots.enter();
         let mut body = Vec::new();
@@ -5186,7 +5186,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     _ => return self.block_scheme_lowering_expr(expression),
                 };
                 visited.insert(right);
-                let handler = self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?;
+                let handler = self.lower_scheme_branch_value_block(block, &ty, slots, current_function, facts, visited, lowered_types)?;
                 slots.exit(saved);
                 let success_slot = slots.reserve("fallback.success");
                 let success = push_build_row!(self, expr, BuildExprRow::Param(success_slot));
@@ -8242,6 +8242,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 || scratch.scheme_callable_calls.insert(checked.index(), relationship).is_some()
             { return None; }
             return Some(checked);
+        }
+        if slots.guarded_postfixes.contains(&id) {
+            return Some(lowered);
         }
         let with_error_source = self.with_error_source_exprs.contains_key(&id);
         let checked_uint_literal = self.bodies.expr_types.get(&id).is_some_and(|ty| {

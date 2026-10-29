@@ -1137,6 +1137,36 @@ mod tests {
 }
 
 #[cfg(test)]
+mod inferred_body_scope_tests {
+    use crate::diagnostic::{DiagnosticCode, Severity};
+    use crate::sema::check::{CheckOptions, Checker};
+
+    fn errors(source: &str) -> Vec<DiagnosticCode> {
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution())
+            .diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).filter_map(|diagnostic| diagnostic.code).collect()
+    }
+
+    #[test]
+    fn a_body_may_redeclare_a_parameter_whether_or_not_its_return_is_inferred() {
+        for source in [
+            "proc v(n: Int) [fs, error] -> Result[Unit] { let n = 2; p\"x\".mkdir() }\n",
+            "proc v(n: Int) [fs, error] { let n = 2; p\"x\".mkdir() }\n",
+            "pure v(n: Int) -> Int { let n = 2; n }\n",
+            "pure v(n: Int) { let n = 2; n }\n",
+        ] {
+            assert_eq!(errors(source), Vec::<DiagnosticCode>::new(), "{source}");
+        }
+    }
+
+    #[test]
+    fn a_body_may_not_declare_one_name_twice_when_its_return_is_inferred() {
+        assert_eq!(errors("pure v(n: Int) { let m = 1; let m = 2; n }\n"), vec![DiagnosticCode::CheckDuplicateName]);
+    }
+}
+
+#[cfg(test)]
 mod pure_error_return_tests {
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::sema::check::{CheckOptions, Checker};

@@ -467,6 +467,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let span = self.program.arena.expr(id).span;
         let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
         let slot = slots.reserve("optional receiver");
+        let payload = self.concrete_checked_type(base).and_then(|ty| match ty.unvalidated() {
+            Type::Optional(payload) => Some((**payload).clone()),
+            _ => None,
+        });
+        if let Some(payload) = payload
+            && !slots.record_checked_slot_type(slot, payload)
+        {
+            return None;
+        }
         let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
         let previous = slots.postfix_receivers.insert(base, bound);
         slots.guarded_postfixes.insert(id);

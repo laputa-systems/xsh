@@ -5046,11 +5046,13 @@ impl Checker {
             .map(|tail| arena.arena.core_stmt_id(tail));
         if inferring || checking_application_return {
             let enclosing_tail = std::mem::replace(&mut self.boundary.result_unit_function_tail, body_tail);
+            self.push_scope();
             let tail = if pure {
                 self.check_tail_block_arena(arena, source, def.body, None)
             } else {
                 self.check_tail_block_for_purpose_arena(arena, source, def.body, None, TailCheckingPurpose::ProcCompletion)
             };
+            self.pop_scope();
             self.boundary.result_unit_function_tail = enclosing_tail;
             if def.return_ty_defaulted && !def.test_declaration {
                 self.forget_discardable_tail_bindings(arena, def.body);

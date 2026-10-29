@@ -1509,3 +1509,43 @@ print $words.len()
   assert rejected.success == false
   assert "err[check." in rejected.stderr, rejected.stderr
 }
+
+test test_full_inference_null_safe_path_method_with_a_stream_result_runs_for_present_and_absent_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "null-safe-lines")?
+  fp"{root}/data.txt".write("one\ntwo\n")?
+  let output = test.expect(
+    ctx,
+    r"""proc probe(target: Path?) [fs, error, io] {
+  let lines = target?.lines()
+  if lines == null { print "absent" } else { print "present" }
+}
+proc main(...argv: List[Str]) [fs, error, io] {
+  probe(null)?
+  probe(Path(argv[0]))?
+}
+""",
+    status: 0,
+    args: [f"{root}/data.txt"],
+    env: {},
+  )?
+  assert output.stdout == "absent\npresent\n", output.stdout
+}
+
+test test_full_inference_diverging_fallback_handler_in_a_generic_body_runs_both_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "diverging-handler")?
+  fp"{root}/present.txt".write("contents")?
+  let program = r"""proc load(file) [fs, process, error, io] {
+  let text = fp"{file}".read_text() ?? { |_|
+    exit 7
+  }
+  print $text
+}
+proc main(...argv: List[Str]) [fs, process, error, io] {
+  load(argv[0])?
+}
+"""
+  let present = test.expect(ctx, program, status: 0, args: [f"{root}/present.txt"], env: {})?
+  assert present.stdout == "contents\n", present.stdout
+  let absent = test.expect(ctx, program, status: 7, args: [f"{root}/missing.txt"], env: {})?
+  assert absent.stdout == "", absent.stdout
+}
