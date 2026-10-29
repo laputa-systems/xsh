@@ -45,7 +45,7 @@ pure code_point(character: Str) -> Int {
   let first = encoded.byte_at(0) ?? 0
   let second = (encoded.byte_at(1) ?? 0) % 64
   let third = (encoded.byte_at(2) ?? 0) % 64
-  if first < 128 { first } else if first < 224 { (first % 32) * 64 + second } else { (first % 16) * 4096 + second * 64 + third }
+  if first < 128 { first } else if first < 224 { first % 32 * 64 + second } else { first % 16 * 4096 + second * 64 + third }
 }
 
 pure escape_unsafe(character: Str) -> Str {
