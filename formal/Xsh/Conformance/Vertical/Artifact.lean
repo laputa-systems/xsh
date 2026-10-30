@@ -10,7 +10,7 @@ def sourceSchema : String := "xsh-source-v1"
 
 def rawIrSchema : String := "xsh-raw-ir-v1"
 
-def arithmeticScope : String := "integer-arithmetic-local-fixture-v1"
+def arithmeticScope : String := "integer-arithmetic-local-fixture-v2"
 
 /-- The raw instruction tags of the integer-arithmetic local fixture. Any other tag name is
 an unknown transport tag and fails the decoder. -/
@@ -119,9 +119,34 @@ structure FunctionRow where
   slotCount : Word32
   deriving DecidableEq
 
+/-- The specified failures of integer arithmetic, named as the language reports them. -/
+inductive FragmentFailure where
+  | divisionByZero
+  | integerOverflow
+  deriving DecidableEq, Repr
+
+namespace FragmentFailure
+
+def all : List FragmentFailure := [divisionByZero, integerOverflow]
+
+def name : FragmentFailure → String
+  | divisionByZero => "division-by-zero"
+  | integerOverflow => "integer-overflow"
+
+def ofName? (text : String) : Option FragmentFailure := all.find? fun failure => failure.name == text
+
+end FragmentFailure
+
+/-- What a recorded call of a function ended with: the 64-bit pattern of the integer it
+returned, or the specified failure it raised. -/
+inductive ObservedOutcome where
+  | value (bits : Word64)
+  | failure (kind : FragmentFailure)
+  deriving DecidableEq
+
 structure Observation where
   function : BridgeId
-  result : Word64
+  outcome : ObservedOutcome
   deriving DecidableEq
 
 structure RawArtifact where
@@ -197,9 +222,17 @@ def decodeFunction (value : WireValue) : Option FunctionRow := do
     ← wordField fields "paramsLen", ← wordField fields "capturesStart",
     ← wordField fields "capturesLen", ← idField fields "body", ← wordField fields "slotCount"⟩
 
+/-- An observation is a value with its sixteen-digit bits or a failure with its specified
+name; any other outcome word, and any detail of the other shape, is rejected. -/
 def decodeObservation (value : WireValue) : Option Observation := do
-  let fields ← value.closedObject? ["function", "result"]
-  pure ⟨← idField fields "function", ← wideField fields "result"⟩
+  let fields ← value.closedObject? ["function", "outcome", "detail"]
+  let function ← idField fields "function"
+  let outcome ← match textField fields "outcome" with
+    | some "value" => (wideField fields "detail").map ObservedOutcome.value
+    | some "failure" =>
+        ((textField fields "detail").bind FragmentFailure.ofName?).map ObservedOutcome.failure
+    | _ => none
+  pure ⟨function, outcome⟩
 
 private def listField (fields : List (String × WireValue)) (name : String)
     (decode : WireValue → Option α) : Option (List α) :=
@@ -267,6 +300,24 @@ theorem operation_carrying_another_operations_ordinal_is_rejected :
       (decodeOp (.object [("name", .string "Pow"), ("ordinal", .string "0000000b")])).isNone =
         true := by
   refine ⟨?_, ?_, ?_⟩ <;> decide
+
+def sampleObservation (outcome detail : String) : WireValue :=
+  .object [("function", .string "00000001"), ("outcome", .string outcome),
+    ("detail", .string detail)]
+
+theorem observations_decode_a_value_or_a_specified_failure :
+    (decodeObservation (sampleObservation "value" "0000000000000005")).isSome = true ∧
+      (decodeObservation (sampleObservation "failure" "division-by-zero")).isSome = true ∧
+      (decodeObservation (sampleObservation "failure" "integer-overflow")).isSome = true := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide
+
+theorem observations_reject_an_unknown_outcome_or_a_mismatched_detail :
+    (decodeObservation (sampleObservation "completed" "0000000000000005")).isNone = true ∧
+      (decodeObservation (sampleObservation "failure" "index-out-of-range")).isNone = true ∧
+      (decodeObservation (sampleObservation "failure" "0000000000000005")).isNone = true ∧
+      (decodeObservation (sampleObservation "value" "division-by-zero")).isNone = true ∧
+      (decodeObservation (sampleObservation "value" "05")).isNone = true := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide
 
 theorem source_document_round_trips_exact_text :
     decodeSourceDocument (codesOf "{\"schema\":\"xsh-source-v1\",\"id\":\"00000001\",\"text\":\"pure f() {\\n}\"}") =

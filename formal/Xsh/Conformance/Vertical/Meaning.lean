@@ -20,6 +20,17 @@ def FragmentOp.toInteger : FragmentOp → IntegerBinaryOp
   | .div => .divide
   | .rem => .remainder
 
+def FragmentFailure.fault : FragmentFailure → IntegerFault
+  | .divisionByZero => .divisionByZero
+  | .integerOverflow => .overflow
+
+/-- What the IR meaning of a function ends with: the integer it completes with, or the
+specified failure the base machine terminates with. -/
+inductive FunctionOutcome where
+  | value (result : Int)
+  | failure (kind : FragmentFailure)
+  deriving DecidableEq
+
 /-- Low word first, as the exchange preserves; the 64-bit pattern is two's complement. -/
 def signedOfWords (low high : Word32) : Int :=
   let unsigned : Nat := low.val + high.val * 4294967296
@@ -129,18 +140,30 @@ def machineOf (bindings : List LetBinding) (expression : BaseExpr) : MachineConf
 
 def runBudget : Nat := 64
 
-/-- The integer the base machine completes with. Faults, host requests and fuel exhaustion
-are not results. -/
-def programResult? (bindings : List LetBinding) (expression : BaseExpr) : Option IntValue :=
+/-- The outcome the base machine completes with: an integer, or one of the two specified
+arithmetic failures. Other faults, host requests and fuel exhaustion are not outcomes of this
+subset. -/
+def programOutcome? (bindings : List LetBinding) (expression : BaseExpr) :
+    Option FunctionOutcome :=
   match runFuel runBudget (machineOf bindings expression) with
-  | .completed (.value value) => integerPayload? value
+  | .completed (.value value) => (integerPayload? value).map fun result => .value result.val
+  | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
+  | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
   | _ => none
 
-def functionResult? (artifact : RawArtifact) (function : FunctionRow) : Option IntValue :=
+def functionOutcome? (artifact : RawArtifact) (function : FunctionRow) :
+    Option FunctionOutcome :=
   (functionProgram? artifact function).bind fun program =>
-    programResult? program.1 program.2
+    programOutcome? program.1 program.2
 
-def resultBits (value : IntValue) : Nat := (value.val % 18446744073709551616).toNat
+def resultBits (value : Int) : Nat := (value % 18446744073709551616).toNat
+
+/-- A recorded outcome agrees with a meaning when both are the same failure, or both are values
+and the record holds that integer's 64-bit pattern. -/
+def outcomeRecorded : FunctionOutcome → ObservedOutcome → Bool
+  | .value result, .value bits => resultBits result == bits.val
+  | .failure kind, .failure recorded => kind == recorded
+  | _, _ => false
 
 def idsInOrder (ids : List BridgeId) : Bool :=
   ((List.range ids.length).zip ids).all fun (index, id) => BridgeId.fromIndex? index == some id
@@ -168,8 +191,8 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
           | _, _ => false
 
 /-- The artifact validator: ordered identifiers, every row well formed, every block owned by
-the function that names it as body, every function with a defined integer meaning, and every
-recorded observation, in order, equal to the meaning of the function it names. -/
+the function that names it as body, every function with a defined outcome, and every
+recorded observation, in order, equal to the outcome of the function it names. -/
 def validateArtifact (artifact : RawArtifact) : Bool :=
   idsInOrder (artifact.rows.map (·.id)) &&
   idsInOrder (artifact.blocks.map (·.id)) &&
@@ -179,28 +202,30 @@ def validateArtifact (artifact : RawArtifact) : Bool :=
     artifact.functions.any fun function =>
       function.body == block.id && block.owner == OptionalBridgeId.mk (some function.id)) &&
   artifact.functions.all (fun function =>
-    !function.name.isEmpty && (functionResult? artifact function).isSome) &&
+    !function.name.isEmpty && (functionOutcome? artifact function).isSome) &&
   artifact.observations.all fun observation =>
     artifact.functions.any fun function =>
       function.id == observation.function &&
-        (functionResult? artifact function).map resultBits == some observation.result.val
+        (functionOutcome? artifact function).any fun outcome =>
+          outcomeRecorded outcome observation.outcome
 
-def namedResults (artifact : RawArtifact) : Option (List (String × Int)) :=
+def namedResults (artifact : RawArtifact) : Option (List (String × FunctionOutcome)) :=
   artifact.observations.mapM fun observation => do
     let function ← artifact.functions.find? fun function => function.id == observation.function
-    let value ← functionResult? artifact function
-    pure (function.name, value.val)
+    let outcome ← functionOutcome? artifact function
+    pure (function.name, outcome)
 
 /-- Decode both documents, require the raw-IR document to name the source document, validate
-the artifact, and report each observed function with the integer its IR denotes. -/
-def certify (sourceText rawText : ExchangeCodes) : Option (List (String × Int)) := do
+the artifact, and report each observed function with the outcome its IR denotes. -/
+def certify (sourceText rawText : ExchangeCodes) : Option (List (String × FunctionOutcome)) := do
   let source ← decodeSourceDocument sourceText
   let raw ← decodeRawDocument rawText
   if raw.sourceId = source.id then pure () else none
   if validateArtifact raw then pure () else none
   namedResults raw
 
-theorem certify_sound {sourceText rawText : ExchangeCodes} {results : List (String × Int)}
+theorem certify_sound {sourceText rawText : ExchangeCodes}
+    {results : List (String × FunctionOutcome)}
     (certified : certify sourceText rawText = some results) :
     ∃ source raw, decodeSourceDocument sourceText = some source ∧
       decodeRawDocument rawText = some raw ∧ raw.sourceId = source.id ∧
@@ -219,64 +244,79 @@ theorem certify_sound {sourceText rawText : ExchangeCodes} {results : List (Stri
             · simp [sourceDecoded, rawDecoded, associated, valid] at certified
           · simp [sourceDecoded, rawDecoded, associated] at certified
 
-theorem program_result_is_a_completed_machine_run {bindings : List LetBinding}
-    {expression : BaseExpr} {value : IntValue}
-    (result : programResult? bindings expression = some value) :
-    ∃ final, runFuel runBudget (machineOf bindings expression) = .completed (.value final) ∧
-      integerPayload? final = some value := by
-  unfold programResult? at result
+/-- A program outcome is exactly a completed base machine run: an integer value, or one of
+the two specified arithmetic faults. -/
+theorem program_outcome_is_a_completed_machine_run {bindings : List LetBinding}
+    {expression : BaseExpr} {outcome : FunctionOutcome}
+    (result : programOutcome? bindings expression = some outcome) :
+    (∃ final value, runFuel runBudget (machineOf bindings expression) = .completed (.value final) ∧
+      integerPayload? final = some value ∧ outcome = .value value.val) ∨
+    (∃ kind, runFuel runBudget (machineOf bindings expression) =
+        .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) := by
+  unfold programOutcome? at result
   cases run : runFuel runBudget (machineOf bindings expression) with
-  | completed outcome =>
-      cases outcome with
+  | completed completed =>
+      rw [run] at result
+      cases completed with
       | value final =>
-          rw [run] at result
-          exact ⟨final, rfl, result⟩
-      | fault fault => rw [run] at result; simp at result
+          cases payload : integerPayload? final with
+          | none => simp [payload] at result
+          | some value =>
+              simp only [payload, Option.map_some, Option.some.injEq] at result
+              exact .inl ⟨final, value, rfl, payload, result.symm⟩
+      | fault fault =>
+          cases fault <;> try (simp at result; done)
+          rename_i arithmetic
+          cases arithmetic with
+          | overflow =>
+              simp only [Option.some.injEq] at result
+              exact .inr ⟨.integerOverflow, rfl, result.symm⟩
+          | divisionByZero =>
+              simp only [Option.some.injEq] at result
+              exact .inr ⟨.divisionByZero, rfl, result.symm⟩
   | hostRequest waiting => rw [run] at result; simp at result
   | outOfFuel => rw [run] at result; simp at result
   | internalStuck => rw [run] at result; simp at result
 
-/-- Every recorded observation of a validated artifact is the result of a completed base
-machine run of the named function's IR meaning. -/
+/-- Every recorded observation of a validated artifact agrees with the outcome of a completed
+base machine run of the named function's IR meaning. -/
 theorem validated_observation_is_a_machine_run {artifact : RawArtifact}
     (valid : validateArtifact artifact = true) {observation : Observation}
     (recorded : observation ∈ artifact.observations) :
     ∃ function ∈ artifact.functions, function.id = observation.function ∧
-      ∃ bindings expression value final,
+      ∃ bindings expression outcome,
         functionProgram? artifact function = some (bindings, expression) ∧
-        runFuel runBudget (machineOf bindings expression) = .completed (.value final) ∧
-        integerPayload? final = some value ∧ resultBits value = observation.result.val := by
+        programOutcome? bindings expression = some outcome ∧
+        outcomeRecorded outcome observation.outcome = true := by
   unfold validateArtifact at valid
   simp only [Bool.and_eq_true, List.all_eq_true] at valid
   have observed := valid.2 observation recorded
   simp only [List.any_eq_true, Bool.and_eq_true, beq_iff_eq] at observed
-  obtain ⟨function, member, sameId, sameResult⟩ := observed
+  obtain ⟨function, member, sameId, sameOutcome⟩ := observed
   refine ⟨function, member, sameId, ?_⟩
-  unfold functionResult? at sameResult
+  unfold functionOutcome? at sameOutcome
   cases program : functionProgram? artifact function with
-  | none => simp [program] at sameResult
+  | none => simp [program] at sameOutcome
   | some pair =>
       obtain ⟨bindings, expression⟩ := pair
-      rw [program] at sameResult
-      simp only [Option.bind_some] at sameResult
-      cases result : programResult? bindings expression with
-      | none => simp [result] at sameResult
-      | some value =>
-          obtain ⟨final, run, payload⟩ := program_result_is_a_completed_machine_run result
-          rw [result] at sameResult
-          exact ⟨bindings, expression, value, final, rfl, run, payload, by simpa using sameResult⟩
+      rw [program] at sameOutcome
+      simp only [Option.bind_some, Option.any_eq_true] at sameOutcome
+      obtain ⟨outcome, result, agrees⟩ := sameOutcome
+      exact ⟨bindings, expression, outcome, rfl, result, agrees⟩
 
-/-- The recorded result does not depend on the fuel budget: a completed run keeps its answer
-under any larger budget. -/
-theorem machine_run_result_is_independent_of_extra_fuel
-    {bindings : List LetBinding} {expression : BaseExpr} {final : BaseTypedValue}
-    (completed : runFuel runBudget (machineOf bindings expression) = .completed (.value final))
-    (extra : Nat) :
-    runFuel (runBudget + extra) (machineOf bindings expression) = .completed (.value final) := by
-  have settled : runFuel runBudget (machineOf bindings expression) ≠ .outOfFuel := by
-    rw [completed]; intro impossible; cases impossible
-  have stable := Xsh.Proofs.Base.Runner.base_runner.2.2.2.2.2.2.1 runBudget
-    (machineOf bindings expression) settled extra
-  rw [stable, completed]
+/-- A recorded outcome does not depend on the fuel budget: a run that settles within the
+budget gives the same answer under any larger budget, failures included. -/
+theorem machine_run_outcome_is_independent_of_extra_fuel
+    {bindings : List LetBinding} {expression : BaseExpr} {outcome : FunctionOutcome}
+    (settled : programOutcome? bindings expression = some outcome) (extra : Nat) :
+    runFuel (runBudget + extra) (machineOf bindings expression) =
+      runFuel runBudget (machineOf bindings expression) := by
+  have notExhausted : runFuel runBudget (machineOf bindings expression) ≠ .outOfFuel := by
+    intro exhausted
+    unfold programOutcome? at settled
+    rw [exhausted] at settled
+    simp at settled
+  exact Xsh.Proofs.Base.Runner.base_runner.2.2.2.2.2.2.1 runBudget
+    (machineOf bindings expression) notExhausted extra
 
 end Xsh.Conformance.Vertical

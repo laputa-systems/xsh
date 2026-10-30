@@ -1,15 +1,25 @@
 # XSH semantic soundness campaign
 
-**Status:** resumed by the owner on 2026-10-29, and holding after G1b's first
-vertical stage until the owner restarts lanes. G0b froze the source and ran the
-first finite Rust conformance cases. G1 proved the base theorems as fragment
-roots. G1b certified one exported integer-arithmetic artifact and its rejected
-corruptions. Next, in order: an `artifact_certificates` inventory list so
-ARTIFACT_CERTIFIED evidence stops riding on SPEC_PROVED fragment roots; a new
-freeze and a `RUST_CONFORMANCE` case for the bridge test; a specified-failure
-outcome and a malformed-IR witness inside the artifact; then the connected
-milestone below. The integrator accepted `decide +kernel` for the byte-level
-certificate theorems: it adds no axiom and all six fresh kernels accept it.
+**Status:** resumed by the owner on 2026-10-30; the Lean lane stopped after the
+first connected stage and awaits the next restart. G0b froze the source and G1
+proved the base theorems as fragment roots. G1b's vertical now starts at source
+bytes for one fixture: independent Lean definitions parse the admitted source
+productions and lower them to the rows Rust emitted, and the certificate checks
+the IR meaning and four recorded outcomes, two of them the specified
+`division-by-zero` and `integer-overflow` failures. `artifact_certificates`
+(coverage schema 3) holds that ARTIFACT_CERTIFIED record apart from the
+SPEC_PROVED fragment roots. The new freeze `a08a0a133` carries ten
+`RUST_CONFORMANCE` cases: the four Float tests and six bridge tests. Not
+reached: the connected milestone. The IR subset has no parameters, calls or
+control flow, the lowerer is validated per artifact rather than proved, and no
+independent fact validator exists. Next, in order: parameters in the schedule
+and IR rows, then a call row and a conditional with a base-machine meaning;
+prove the lowerer for the admitted shape instead of validating each artifact;
+then the CERT-FACTS validator. The integrator accepted `decide +kernel` for the
+byte-level certificate theorems: it adds no axiom and all six fresh kernels
+accept it. The independent kernels hold the whole export in memory, so a
+certificate that evaluates a string literal or repeats a document decode can
+pass the bundled kernel and still exceed the paranoid check's address-space cap.
 
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
@@ -25,28 +35,29 @@ correspondence. All 77 universal obligations stay planned. G1's five base
 theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
 roots: they hold for the base expression machine, which is not the frozen
 core.
-`source_identity` records the frozen commit `65fcb0f42` and its tree, and
-`finite_conformance.cases` holds the four Float equality tests, run once each
-with a fresh verification `xsh`/`xsht` pair built from that commit in the
-pinned container. Each
+`source_identity` records the frozen commit `a08a0a133` and its tree, and
+`finite_conformance.cases` holds the four Float equality tests and six
+`formal_bridge/arithmetic.rs` tests, run once each against a verification
+`xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
+the pinned container. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
 
 **Open items:**
 
-- BASE-VERTICAL stays planned. G1b's first stage exists: a test-only exporter
-  and decoder (`formal_bridge/arithmetic.rs`) emit the real compiler's
-  lowering of `tests/fixtures/runtime/formal-bridge-integer-locals.xsh`, an
-  integer `let` and an arithmetic row over its slot, and
-  `Xsh.Conformance.Vertical.Certificate` kernel-checks that exact
-  source/raw-IR document pair. Left open: the Lean side has no source parser
-  and no lowering relation, so the claim starts at the supplied IR rows and
-  the source is bound by identifier only; the new Rust test postdates the
-  frozen commit, so no `RUST_CONFORMANCE` case exists for it; the artifact
-  has no failure outcome or malformed-IR witness inside it; the coverage
-  schema has no `ARTIFACT_CERTIFIED` row, so the certificate is recorded as a
-  `SPEC_PROVED` fragment root; and the IR subset is two integer functions
-  without parameters, calls or control flow.
+- BASE-VERTICAL stays planned. For one fixture
+  (`tests/fixtures/runtime/formal-bridge-integer-locals.xsh`, four functions
+  with one integer `let` and one binary return, two of them failing) a
+  test-only exporter and decoder (`formal_bridge/arithmetic.rs`) emit the real
+  compiler's lowering and `Xsh.Conformance.Vertical.Certificate` kernel-checks
+  that the source bytes parse in an independent Lean grammar, lower to exactly
+  the exchanged rows, mean the same as their IR, and match the recorded
+  outcomes. Left open: that grammar and lowerer are Lean's own and agree with
+  Rust only on this artifact (a universal lowering theorem and a source
+  admission proof do not exist); span words are read from the document; the IR
+  subset has no parameters, calls or control flow; no CERT-FACTS or
+  CERT-SOUND validator exists; and execution of the IR by Rust is evidence only
+  through the recorded run.
 - G1's base theorems cover the base machine only: integer expressions,
   scalar literals, identifiers and one host request family (`time.now`). The
   machine has no assignment or declaration form, so typed store writes are
@@ -102,7 +113,7 @@ Keep evidence distinct in the ledger:
 
 Each class names its subject. A `SPEC_PROVED` theorem about a Lean model of an implementation proves that model, and the record says so. `RUST_CONFORMANCE` is reserved for evidence that actually ran Rust. An `ARTIFACT_CERTIFIED` record names its artifact kind (original source bytes with their module inputs, source document, raw-IR document, candidate fact set, or source/IR pair), the artifact identity, and the exact proposition checked. A certificate for emitted IR does not prove that the producing compiler is correct on other inputs, and does not prove that Rust or any other runtime executes that IR correctly.
 
-Evidence about a future implementation records its revision, artifact kind and identity, theorem or property, checker and toolchain identity, supported domain and preconditions, the trusted extraction, compilation, runtime, and host boundaries, and the adjacent boundaries that only tests support. Compiler pins and hashes establish identity and reproducibility, not refinement. Schema 2 has no field for a non-Rust implementation. The first such evidence needs a versioned, tested schema change that keeps existing records' meaning; it may add an implementation-indexed class but must not record non-Rust runs as `RUST_CONFORMANCE`, rename an existing class, or start a parallel ledger.
+Evidence about a future implementation records its revision, artifact kind and identity, theorem or property, checker and toolchain identity, supported domain and preconditions, the trusted extraction, compilation, runtime, and host boundaries, and the adjacent boundaries that only tests support. Compiler pins and hashes establish identity and reproducibility, not refinement. Schema 3 has no field for a non-Rust implementation. The first such evidence needs a versioned, tested schema change that keeps existing records' meaning; it may add an implementation-indexed class but must not record non-Rust runs as `RUST_CONFORMANCE`, rename an existing class, or start a parallel ledger.
 
 All production proof roots must build and pass a separate fresh kernel recheck. The only allowed foundational axioms are those actually needed from `propext`, `Quot.sound`, and `Classical.choice`. Audit the transitive dependency closure independently: bundled fresh checking does not enforce this allowlist. Reject `sorry`, `admit`, `sorryAx`, project axioms, native-evaluation axioms, unsafe proof escapes, and theorem statements whose definitions smuggle the conclusion into a premise. Keep all required roots under the root import `Xsh`.
 
@@ -133,7 +144,7 @@ The integrator chooses file splits and proof lemmas within the domains and owner
 
 G0a established the pinned Lean/Lake/checker setup, private test-only bridge, provisional source inventory, and initial scalar foundation. G0b starts after consolidation closes: use the actual post-close source tree, core behavior, and measured loop costs as the baseline. Capture HEAD, clean/dirty state, current binaries and source identity, Lean/Lake/checker versions, Rust target/profile/compiler, and the pinned container. Build a fresh matching `xsh`/`xsht` pair before any process/native observation. Do not let an old verification binary certify changed source.
 
-Coverage schema 2 keeps `source_state` provisional and `source_identity` null
+Coverage schema 3 keeps `source_state` provisional and `source_identity` null
 through consolidation; `finite_conformance.cases` stays empty until G0b freezes
 the source. At freeze, record an existing full Git commit and its exact root
 tree; the commit may be an ancestor of `HEAD`. Each named `RUST_CONFORMANCE`
@@ -622,6 +633,42 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   host was loaded (around 20 on 32 cores), so the loop costs are diagnostic:
   an incremental `lake build` took 19 s wall and the fresh recheck 478 s.
 - 2026-10-28: The owner revised the scope so the independent contract supports a second implementation, with Goose as the first intended experiment. SRC-ADMIT, TYPE-COMPLETE, TYPE-DIAG, CERT-FACTS, and IMPL-REFINE joined the plan as planned obligations, raising the count from 72 to 77. The pause and the source-freeze gate are unchanged.
+
+- 2026-10-30: The Lean lane resumed. The live tree had drifted from the
+  inventory (a registry `Enum` type, regrouped archive operations, a removed
+  `ExprArchiveTarCreate`), which failed the checker and 22 tests; only those
+  three owner lists were regenerated. Coverage schema 3 adds
+  `artifact_certificates` and moves the ten certificate theorems out of the
+  fragment roots; schema 2 is rejected.
+- 2026-10-30: The specified-failure outcome came before the new freeze, not
+  after it, because a freeze before it would have gone stale on the same test
+  when the exporter changed. Observations carry `value` or `failure` under
+  scope v2; `divided` and `overflowed` end in `division-by-zero` and
+  `integer-overflow`.
+- 2026-10-30: The freeze is `a08a0a133` (tree `c2d969f9f`). In the pinned
+  container (`xsh-test`, image `sha256:8ddba911cc1b`, nightly 2026-09-15,
+  two cargo jobs) the four Float tests ran under `xsht test --exact` and the
+  six bridge tests under `cargo test --profile verification ... --lib ID --
+  --exact`, each once, from a fresh target directory. The Cargo runs were not
+  wrapped in `flock` on `gate-host.lock`: they are single-package unit tests,
+  and waiting behind another lane's gate had no bound. The Float cases were
+  re-run because the previous binaries predate this commit.
+- 2026-10-30: The Lean on `PATH` was 4.34.1, not the pinned 4.35.0; the
+  checks here used `~/.local/lib/lean4/v4.35.0/bin`. All six kernels
+  accept the root (`check-fresh.py`, about 5.5 minutes), the axiom audit and
+  its self-test pass, and so do the inventory checker and its 70 tests.
+  `formal/tests/test_check_fresh.py` fails one sandbox case because the
+  sandbox hides the Python path; it fails the same without these changes.
+- 2026-10-30: The narrowest honest lowering step is a per-artifact
+  translation validation, not a lowering theorem: `certifyFromSource` accepts
+  a pair only when the Lean lowerer reproduces the document. Document-level
+  byte corruption of the raw-IR document was dropped from the certificate
+  because each decode cost the bundled `con-leche` kernel about 0.3 GiB; row,
+  source and outcome corruptions remain on decoded structures. Parameters,
+  calls and control flow are parked: they need new Rust rows, a schedule with
+  arguments, and base-machine forms for call and conditional. Next probe:
+  add one `ExprIf` function to the fixture and extend `BaseExpr` with a
+  conditional in `Xsh.Semantics.BaseMachine`.
 
 ## For the owner afterwards
 

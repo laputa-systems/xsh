@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 3,
   "source_state": "frozen-post-consolidation",
   "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory is frozen at the recorded source identity. Its finite Rust conformance cases are evidence for those named tests only; it makes no semantic proof, full grammar, universal Rust conformance, or host-behavior claim.",
   "core_inventory": {
@@ -182,7 +182,6 @@
         "ExprPathWrite=92|BuildExprRow:ExprView:Expr|PathWrite(path:tokens:[\"BuildExprId\"],data:tokens:[\"BuildExprId\"],atomic:tokens:[\"bool\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprPathMkdir=93|BuildExprRow:ExprView:Expr|PathMkdir(path:tokens:[\"BuildExprId\"],parents:tokens:[\"Option\",\"<\",\"BuildExprId\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprPathRemove=94|BuildExprRow:ExprView:Expr|PathRemove(path:tokens:[\"BuildExprId\"],missing_ok:tokens:[\"Option\",\"<\",\"BuildExprId\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
-        "ExprArchiveTarCreate=96|BuildExprRow:ExprView:Expr|ArchiveTarCreate(path:tokens:[\"BuildExprId\"],root:tokens:[\"BuildExprId\"],entries:tokens:[\"BuildExprId\"],compression:tokens:[\"Option\",\"<\",\"BuildExprId\",\">\"],overwrite:tokens:[\"Option\",\"<\",\"BuildExprId\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprModuleCall=99|BuildExprRow:ExprView:Expr|ModuleCall(op:tokens:[\"RuntimeOp\"],call_plan:tokens:[\"Option\",\"<\",\"Arc\",\"<\",\"crate\",\"::\",\"runtime\",\"::\",\"eval\",\"::\",\"ModuleCallPlan\",\">\",\">\"],args:tokens:[\"Vec\",\"<\",\"Option\",\"<\",\"BuildExprId\",\">\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
         "ExprProcessCommandArgv=100|BuildExprRow:ExprView:Expr|ProcessCommandArgv(value:tokens:[\"Box\",\"<\",\"LoweredProcessCommandArgv\",\">\"])|tokens:[\"EFFECT_PROCESS\",\"|\",\"EFFECT_CANCELLATION\",\"|\",\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprProcessCommandBuilder=101|BuildExprRow:ExprView:Expr|ProcessCommandBuilder(entries:tokens:[\"Vec\",\"<\",\"LoweredProcessCommandBuilderEntry\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROCESS\",\"|\",\"EFFECT_CANCELLATION\",\"|\",\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
@@ -1496,6 +1495,7 @@
         "Error",
         "ProcessError",
         "ErrorFamily(tokens:[\"&\",\"'\",\"static\",\"str\"])",
+        "Enum(tokens:[\"&\",\"'\",\"static\",\"str\"])",
         "Pure",
         "Proc",
         "Command",
@@ -1727,14 +1727,9 @@
         "AppletLoginSession",
         "AppletSuSession",
         "AppletSuloginSession",
-        "ArchiveTarList",
-        "ArchiveTarExtract",
-        "ArchiveTarCreate",
-        "ArchiveCpioList",
-        "ArchiveCpioExtract",
-        "ArchiveCpioCreate",
-        "ArchiveZipList",
-        "ArchiveZipExtract",
+        "ArchiveList",
+        "ArchiveExtract",
+        "ArchiveCreate",
         "ArchiveCompress",
         "ArchiveDecompress",
         "ArchiveDecompressBytes",
@@ -1834,6 +1829,7 @@
         "RegexCapturesHostBytes",
         "FloatFormatNumber",
         "FloatAtan2",
+        "UnixConnectStream",
         "UnixReadFd",
         "UnixWriteFd",
         "UnixSeekFd",
@@ -3073,8 +3069,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3104,8 +3100,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3135,8 +3131,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3166,8 +3162,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3189,6 +3185,240 @@
           "exit_code": 0,
           "stdout": "running 1 tests\ntests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality ... ok 0ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n",
           "stderr": ""
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.exported_documents_are_the_lean_certified_bytes",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "   Compiling proc-macro2 v1.0.106\n   Compiling quote v1.0.46\n   Compiling unicode-ident v1.0.24\n   Compiling vte v0.15.0\n   Compiling vt100 v0.16.2\n   Compiling syn v2.0.118\n   Compiling laputa-ptytest v0.1.1\n   Compiling xsh v0.0.1 (/work)\n    Finished `verification` profile [optimized] target(s) in 7m 01s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.09s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.source_and_artifact_association_is_explicit",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.wire_corruptions_are_rejected_by_the_decoder",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.01s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.tampered_observations_are_rejected_against_the_scheduled_run",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
         },
         "status": "passed"
       }
@@ -10225,21 +10455,39 @@
       "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
     },
     {
+      "id": "fragment.Xsh.Conformance.Vertical.observations_decode_a_value_or_a_specified_failure",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.observations_decode_a_value_or_a_specified_failure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.observations_reject_an_unknown_outcome_or_a_mismatched_detail",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.observations_reject_an_unknown_outcome_or_a_mismatched_detail",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Vertical.certify_sound",
       "module": "Xsh.Conformance.Vertical.Meaning",
       "declaration": "Xsh.Conformance.Vertical.certify_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.program_result_is_a_completed_machine_run",
+      "id": "fragment.Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "module": "Xsh.Conformance.Vertical.Meaning",
-      "declaration": "Xsh.Conformance.Vertical.program_result_is_a_completed_machine_run",
+      "declaration": "Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
@@ -10248,111 +10496,132 @@
       "declaration": "Xsh.Conformance.Vertical.validated_observation_is_a_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.machine_run_result_is_independent_of_extra_fuel",
+      "id": "fragment.Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "module": "Xsh.Conformance.Vertical.Meaning",
-      "declaration": "Xsh.Conformance.Vertical.machine_run_result_is_independent_of_extra_fuel",
+      "declaration": "Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.base_vertical_artifact_certified",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.base_vertical_artifact_certified",
+      "id": "fragment.Xsh.Conformance.Vertical.the_admitted_productions_parse",
+      "module": "Xsh.Conformance.Vertical.Frontend",
+      "declaration": "Xsh.Conformance.Vertical.the_admitted_productions_parse",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "The admitted source productions of the integer-arithmetic fixture: integer functions with integer lets and one return of at most one binary operation, read from exact source characters by an independent Lean tokenizer and parser.",
+      "boundary": "The grammar is the Lean model's own for this subset. It is not shown equal to the XSH parser or grammar outside artifacts that name it; text outside the subset is refused, which says nothing about whether XSH accepts it."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
+      "id": "fragment.Xsh.Conformance.Vertical.text_outside_the_admitted_productions_is_refused",
+      "module": "Xsh.Conformance.Vertical.Frontend",
+      "declaration": "Xsh.Conformance.Vertical.text_outside_the_admitted_productions_is_refused",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "The admitted source productions of the integer-arithmetic fixture: integer functions with integer lets and one return of at most one binary operation, read from exact source characters by an independent Lean tokenizer and parser.",
+      "boundary": "The grammar is the Lean model's own for this subset. It is not shown equal to the XSH parser or grammar outside artifacts that name it; text outside the subset is refused, which says nothing about whether XSH accepts it."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
+      "id": "fragment.Xsh.Conformance.Vertical.a_function_outside_the_lowered_shape_is_refused",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.a_function_outside_the_lowered_shape_is_refused",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.unmodified_artifact_is_certified",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.unmodified_artifact_is_certified",
+      "id": "fragment.Xsh.Conformance.Vertical.a_lowered_function_has_the_observed_rows",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.a_lowered_function_has_the_observed_rows",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
+      "id": "fragment.Xsh.Conformance.Vertical.certify_from_source_sound",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_from_source_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
+      "id": "fragment.Xsh.Conformance.Vertical.certify_decoded_sound",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_decoded_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
+      "id": "fragment.Xsh.Conformance.Vertical.certify_decoded_of_checks",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_decoded_of_checks",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
+      "id": "fragment.Xsh.Conformance.Vertical.certify_from_source_of_decodes",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_from_source_of_decodes",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
+    }
+  ],
+  "artifact_certificates": [
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
+      "id": "artifact.integer-arithmetic-locals",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.sourceDocumentCodes",
+        "Xsh.Conformance.Vertical.rawIrDocumentCodes"
+      ],
       "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "certificate": "Xsh.Conformance.Vertical.base_vertical_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_fixture_source_parses_to_the_fixture_functions",
+        "Xsh.Conformance.Vertical.the_fixture_functions_lower_to_the_artifact",
+        "Xsh.Conformance.Vertical.the_fixture_artifact_validates",
+        "Xsh.Conformance.Vertical.the_fixture_functions_agree_with_the_artifact",
+        "Xsh.Conformance.Vertical.the_fixture_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.fixture_pair_is_certified",
+        "Xsh.Conformance.Vertical.unmodified_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
+        "Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
+        "Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_failure_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
+        "Xsh.Conformance.Vertical.malformed_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_lowering_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_source_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions; lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; each function means the same under the source and the IR; the artifact validates; and the base machine runs of `shifted`, `scaled`, `divided` and `overflowed` end with 5, 42, a division-by-zero failure and an integer-overflow failure, recorded in that order. The rejection theorems show that a wrong binding identifier, operation, operand, recorded result or failure kind, a missing, reordered or repeated observation, structurally malformed IR rows, a changed source, and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR, and the artifact covers a two-statement function shape with no parameters, calls or control flow."
     }
   ],
   "source_identity": {
-    "commit": "65fcb0f428a39a91832c6e9c9188ab8322d2fcd0",
-    "tree": "6947bd3de2eb6ba81f5e0a19a22249f15345aea6"
+    "commit": "a08a0a1338616c80bea962d17fe74fb9ebda8d11",
+    "tree": "c2d969f9f87e1edd8e7268f87e59eba28574faf1"
   }
 }
