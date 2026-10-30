@@ -239,6 +239,19 @@ sampled sites; the others were not read site by site.
 | Checker panic (`call instantiation is recorded once`) | 6 | Defect, not an annotation question. `let x = generic_call(...).field` checked the call twice; fixed in slice 24, which erases four of the six (ptx `trim_span` and shuf `wide_add`) |
 | `infer-param` default, ambiguous overload, result fallback, display conversion, CLI entry, callable mismatch | 11 | `check.cli-entry` (`dhcpc.xsh`) is justified, because a CLI parameter must be a supported scalar. The four `infer-param` cases need a concrete default or an annotation by rule. The rest are missing inference |
 
+The five btop sites that fail with "generic body expression disagrees with
+its checked type" (`limited_observations`, `limited_models`, and three
+siblings) retain an `Int?` annotation for a parameter that is tested against
+`null` and then used as a present `Int`. SPEC 5.4 narrows `T?` to `T` after a
+null test and says that passing an inferred parameter to a known nullable
+formal "does not make the parameter nullable"; nothing infers optionality from
+a null test, so the annotation states the contract the callers rely on
+(`null` means no limit) and is justified. A separate checker and verifier
+limit is open: `count == null or count > 1` over an unannotated parameter is
+accepted by the checker, but the verifier cannot authenticate the narrowed
+read, because the read is an operand temporary whose initializer the prefix
+proof does not follow.
+
 On this reading 28 sites (optional contract and nominal `Error`) plus the CLI
 entry are justified retained annotations, and `smartctl.xsh` `json_document
 options` is a thirtieth, because substituting `Any` into a generic call is
