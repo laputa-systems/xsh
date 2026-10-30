@@ -5312,8 +5312,11 @@ Contracts worth knowing without consulting the reference:
 - HTTPS clients read the optional administrator policy at
   `/etc/laputa/trust-policy`. A blocked SHA-256 SPKI digest rejects every supplied
   peer certificate with that key, including unused intermediates and alternate
-  cross-signed certificates. Custom CA bundles and `tls_verify: false` cannot
-  override a block. Verified TLS retains hostname and handshake-signature checks.
+  cross-signed certificates. Custom CA bundles cannot override a block. With an
+  installed policy, `tls_verify: false` is rejected because an unverified peer can
+  omit its issuer and hide that issuer's key. General XSH use without a policy
+  retains the verification-disable option. Verified TLS retains hostname and
+  handshake-signature checks.
   The file uses UTF-8 with LF line endings and a final LF:
 
   ```text

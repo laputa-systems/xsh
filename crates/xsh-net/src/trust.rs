@@ -157,8 +157,11 @@ impl TrustGuard {
         result
     }
 
-    fn check_chain(&self, leaf: &CertificateDer<'_>, intermediates: &[CertificateDer<'_>]) -> Result<(), rustls::Error> {
+    fn check_chain(&self, verification_enabled: bool, leaf: &CertificateDer<'_>, intermediates: &[CertificateDer<'_>]) -> Result<(), rustls::Error> {
         let snapshot = self.current().map_err(|error| rustls::Error::General(error.message))?;
+        if !verification_enabled && snapshot.policy.is_some() {
+            return Err(rustls::Error::General("TLS verification cannot be disabled while a Laputa trust policy is installed".into()));
+        }
         if snapshot.blocked.is_empty() { return Ok(()); }
         for cert in std::iter::once(leaf).chain(intermediates) {
             let digest = spki_digest(cert)?;
@@ -282,12 +285,13 @@ fn parse_policy(bytes: &[u8]) -> NetResult<Vec<[u8; 32]>> {
 #[derive(Debug)]
 pub(super) struct PolicyVerifier {
     pub(super) inner: Arc<dyn ServerCertVerifier>,
+    pub(super) verification_enabled: bool,
     pub(super) trust: Arc<TrustGuard>,
 }
 
 impl ServerCertVerifier for PolicyVerifier {
     fn verify_server_cert(&self, leaf: &CertificateDer<'_>, intermediates: &[CertificateDer<'_>], name: &ServerName<'_>, ocsp: &[u8], now: UnixTime) -> Result<ServerCertVerified, rustls::Error> {
-        self.trust.check_chain(leaf, intermediates)?;
+        self.trust.check_chain(self.verification_enabled, leaf, intermediates)?;
         let result = self.inner.verify_server_cert(leaf, intermediates, name, ocsp, now)?;
         self.trust.check().map_err(|error| rustls::Error::General(error.message))?;
         Ok(result)
@@ -351,7 +355,7 @@ mod tests {
             for root in roots { store.add(CertificateDer::from(*root)).unwrap(); }
             rustls::client::WebPkiServerVerifier::builder_with_provider(Arc::new(store), Arc::new(default_provider())).build().unwrap()
         } else { Arc::new(DisabledVerifier) };
-        PolicyVerifier { inner, trust }
+        PolicyVerifier { inner, trust, verification_enabled: verify }
     }
 
     fn verify(verifier: &PolicyVerifier, issuer: &[u8], name: &str) -> Result<ServerCertVerified, rustls::Error> {
@@ -383,9 +387,28 @@ mod tests {
         assert_eq!(spki_digest(&CertificateDer::from(ISSUER_A)).unwrap(), spki_digest(&CertificateDer::from(ISSUER_B)).unwrap());
         for (root, issuer) in [(ROOT_A, ISSUER_A), (ROOT_B, ISSUER_B)] {
             for enabled in [true, false] {
-                assert!(matches!(verify(&verifier(Arc::clone(&trust), &[root], enabled), issuer, "localhost"), Err(rustls::Error::InvalidCertificate(rustls::CertificateError::ApplicationVerificationFailure))));
+                let result = verify(&verifier(Arc::clone(&trust), &[root], enabled), issuer, "localhost");
+                if enabled {
+                    assert!(matches!(result, Err(rustls::Error::InvalidCertificate(rustls::CertificateError::ApplicationVerificationFailure))));
+                } else {
+                    assert!(matches!(result, Err(rustls::Error::General(message)) if message.contains("cannot be disabled")));
+                }
             }
         }
+    }
+
+    #[test]
+    fn active_policy_refuses_disabled_verification_with_omitted_or_unrelated_issuers() {
+        let scratch = Scratch::new();
+        let trust = guard(&scratch.0, Some(&policy(1, &[ISSUER_A])));
+        let configured = verifier(trust, &[ROOT_A], false);
+        for intermediates in [vec![], vec![CertificateDer::from(ROOT_B)]] {
+            let result = configured.verify_server_cert(&CertificateDer::from(LEAF), &intermediates, &ServerName::try_from("localhost").unwrap(), &[], UnixTime::now());
+            assert!(matches!(result, Err(rustls::Error::General(message)) if message.contains("cannot be disabled")));
+        }
+        let absent = guard(&scratch.0.join("absent"), None);
+        let development = verifier(absent, &[ROOT_A], false);
+        assert!(development.verify_server_cert(&CertificateDer::from(LEAF), &[], &ServerName::try_from("localhost").unwrap(), &[], UnixTime::now()).is_ok());
     }
 
     #[test]
