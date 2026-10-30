@@ -1,11 +1,7 @@
 # XSH: complete general inference across the language
 
-**Status:** active on `master`. Execution launched 2026-10-19 from `9134db7e7`
-under the owner's grant for bounded isolated edits, local commits and
-integration, and owned offline Docker operations. No pushing. The G3 matrix
-rows pass and the G3 gaps are closed on `master` (2026-10-28). Two G3 items stay
-open. G4, the corpus reductions, has started. G5 and G6 have not. The
-[ROADMAP](docs/ROADMAP.md) orders this campaign after Pyramid.
+**Status:** winding down (2026-10-30). No new slices start; the in-flight
+slice finishes or is committed to `inference/next`.
 
 **Resume:** read `AGENTS.md`, `TODO.md`, and this document. The checkable G3
 status and the G4 measurements are in
