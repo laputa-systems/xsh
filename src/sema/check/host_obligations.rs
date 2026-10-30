@@ -523,6 +523,18 @@ impl Checker {
         }
     }
 
+    pub(in super::super) fn pending_host_result_is_result(&self, ty: &Type) -> Result<bool, ConstraintResolutionError> {
+        let subject = self.type_constraints.resolve(ty)?;
+        if !matches!(subject, Type::Inference(_)) { return Ok(false) }
+        let mut found = false;
+        for obligation in &self.local_inference.host_obligations.entries {
+            if self.type_constraints.resolve(&obligation.candidates.result)? != subject || obligation.candidates.candidates.is_empty() { continue }
+            found = true;
+            if !obligation.candidates.candidates.iter().all(|candidate| matches!(candidate.signature.sig.return_ty, Type::Result(_, _))) { return Ok(false) }
+        }
+        Ok(found)
+    }
+
     pub(in super::super) fn method_result_matches_written_path_return(&self, expected: &Type, actual: &Type) -> Result<bool, ConstraintResolutionError> {
         let Some(owner) = self.stream_origin_owner else { return Ok(false); };
         let Some(pending) = self.declaration_inference.pending(super::super::FunctionDeclarationId::new(owner)) else { return Ok(false); };

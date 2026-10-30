@@ -4599,7 +4599,23 @@ impl Checker {
         // rewritten on every check of this statement, because inference may
         // check a body more than once with a sharper subject type.
         self.optional_binding_spans.remove(&span);
+        let pending_result = match self.pending_host_result_is_result(&init_ty) {
+            Ok(result) => result,
+            Err(error) => {
+                self.error(span, &format!("guard initializer type resolution failed: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return;
+            }
+        };
         let init_ty = match self.type_constraints.resolve(&init_ty) {
+            Ok(Type::Inference(variable)) if pending_result => {
+                let subject = super::expr::expr_or_run_span_arena(arena, initializer);
+                let required = Type::Result(
+                    Box::new(self.type_constraints.fresh_at_level(subject, self.callable_solver_level())),
+                    Box::new(self.type_constraints.fresh_at_level(subject, self.callable_solver_level())),
+                );
+                self.expect_type(&required, &Type::Inference(variable), subject);
+                required
+            }
             Ok(Type::Inference(variable)) => {
                 let subject = super::expr::expr_or_run_span_arena(arena, initializer);
                 let present = self.type_constraints.fresh_at_level(subject, self.callable_solver_level());

@@ -598,6 +598,29 @@ for member in time_members(clock) { print $member.key }
   assert output.stdout == "time_t\nasctime\n"
 }
 
+test test_full_inference_guard_binds_a_pending_result_method { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc action(values) -> Bytes {
+  guard let value = values.get("ACTION") else { return b"none" }
+  value
+}
+proc has_path(values) -> Bool {
+  guard let _ = values.get("DEVPATH") else { return false }
+  true
+}
+let present: Map[Str, Bytes] = {"ACTION": b"add", "DEVPATH": b"/devices/x"}
+let absent: Map[Str, Bytes] = {}
+print (action(present).utf8() ?? "-")
+print (action(absent).utf8() ?? "-")
+print $has_path(present)
+print $has_path(absent)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "add\nnone\ntrue\nfalse\n"
+}
+
 test test_full_inference_emptiness_family_is_a_generic_condition { |ctx|
   let output = test.run_xsh(
     ctx,
