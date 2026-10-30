@@ -3364,6 +3364,14 @@ fn signal_process_group_owned(
 }
 
 fn configure_process_group(command: &mut Command, group: ProcessGroupConfig) {
+    if child_signals_start_as_defaults() {
+        place_in_process_group(command, group);
+    } else {
+        reset_signals_and_place_in_process_group(command, group);
+    }
+}
+
+fn reset_signals_and_place_in_process_group(command: &mut Command, group: ProcessGroupConfig) {
     unsafe {
         command.pre_exec(move || {
             reset_child_signal_handlers();
@@ -3378,6 +3386,54 @@ fn configure_process_group(command: &mut Command, group: ProcessGroupConfig) {
             }
         });
     }
+}
+
+fn place_in_process_group(command: &mut Command, group: ProcessGroupConfig) {
+    match group {
+        ProcessGroupConfig::Inherit => {}
+        ProcessGroupConfig::NewRoot => {
+            command.process_group(0);
+        }
+        ProcessGroupConfig::Join(pgid) => {
+            command.process_group(pgid);
+        }
+    }
+}
+
+const CHILD_RESET_SIGNALS: [libc::c_int; 12] = [
+    libc::SIGHUP,
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGTERM,
+    libc::SIGTSTP,
+    libc::SIGTTIN,
+    libc::SIGTTOU,
+    libc::SIGUSR1,
+    libc::SIGUSR2,
+    libc::SIGALRM,
+    libc::SIGXCPU,
+    libc::SIGXFSZ,
+];
+
+/// A `pre_exec` closure forces the standard library to fork, and a fork holds
+/// the parent's address-space lock exclusively while it copies page tables, which
+/// stalls every faulting thread in a many-threaded process. Exec already drops
+/// handlers, so only ignored signals need the reset.
+fn child_signals_start_as_defaults() -> bool {
+    child_signals_start_as_defaults_with(signal_ignored, sigpipe_ignored())
+}
+
+fn child_signals_start_as_defaults_with(
+    ignored: impl Fn(libc::c_int) -> bool,
+    sigpipe_ignored: bool,
+) -> bool {
+    !sigpipe_ignored && !CHILD_RESET_SIGNALS.iter().any(|&signal| ignored(signal))
+}
+
+fn signal_ignored(signal: libc::c_int) -> bool {
+    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+    let queried = unsafe { libc::sigaction(signal, std::ptr::null(), &mut action) } == 0;
+    queried && action.sa_sigaction == libc::SIG_IGN
 }
 
 fn assign_child_to_process_group(child: &std::process::Child, group: ProcessGroup) {
@@ -3480,19 +3536,10 @@ fn change_process_signal_action(
 }
 
 fn reset_child_signal_handlers() {
-    unsafe {
-        libc::signal(libc::SIGHUP, libc::SIG_DFL);
-        libc::signal(libc::SIGINT, libc::SIG_DFL);
-        libc::signal(libc::SIGQUIT, libc::SIG_DFL);
-        libc::signal(libc::SIGTERM, libc::SIG_DFL);
-        libc::signal(libc::SIGTSTP, libc::SIG_DFL);
-        libc::signal(libc::SIGTTIN, libc::SIG_DFL);
-        libc::signal(libc::SIGTTOU, libc::SIG_DFL);
-        libc::signal(libc::SIGUSR1, libc::SIG_DFL);
-        libc::signal(libc::SIGUSR2, libc::SIG_DFL);
-        libc::signal(libc::SIGALRM, libc::SIG_DFL);
-        libc::signal(libc::SIGXCPU, libc::SIG_DFL);
-        libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
+    for signal in CHILD_RESET_SIGNALS {
+        unsafe {
+            libc::signal(signal, libc::SIG_DFL);
+        }
     }
     apply_sigpipe_disposition_to_child();
 }
@@ -3636,6 +3683,17 @@ pub fn resolve_executable(invocation: &ProcessInvocation) -> Result<PathBuf, Run
 }
 
 fn configure_managed_child(command: &mut Command, options: SpawnManagedOptions) {
+    let signals_ready = !options.reset_signals || child_signals_start_as_defaults();
+    if signals_ready && !options.spawn.ignore_hup && !options.spawn.new_session {
+        place_in_process_group(
+            command,
+            match options.group {
+                ProcessGroupConfig::Inherit if options.spawn.detach => ProcessGroupConfig::NewRoot,
+                group => group,
+            },
+        );
+        return;
+    }
     unsafe {
         command.pre_exec(move || {
             if options.reset_signals {
@@ -4203,6 +4261,51 @@ mod tests {
             panic!("the cleanup cause remains a process error")
         };
         assert_eq!(cleanup.message, "cleanup failed");
+    }
+
+    #[test]
+    fn child_signal_reset_is_skipped_only_when_no_disposition_needs_it() {
+        assert!(child_signals_start_as_defaults_with(|_| false, false));
+        assert!(!child_signals_start_as_defaults_with(|_| false, true));
+        for signal in CHILD_RESET_SIGNALS {
+            assert!(
+                !child_signals_start_as_defaults_with(|ignored| ignored == signal, false),
+                "an ignored signal {signal} must keep the reset"
+            );
+        }
+        assert!(child_signals_start_as_defaults_with(|signal| signal == libc::SIGCHLD, false));
+    }
+
+    #[cfg(target_os = "linux")]
+    fn spawned_identity_and_group(configure: impl FnOnce(&mut Command)) -> (i32, i32) {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", r#"echo $$ $(cut -d' ' -f5 /proc/$$/stat)"#])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped());
+        configure(&mut command);
+        let output = command.output().expect("the shell starts");
+        assert!(output.status.success());
+        let text = String::from_utf8(output.stdout).expect("numbers are text");
+        let mut fields = text.split_whitespace().map(|field| field.parse::<i32>().expect("a number"));
+        (fields.next().expect("pid"), fields.next().expect("pgrp"))
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn spawn_and_pre_exec_paths_place_children_in_the_same_group() {
+        let own_group = rprocess::getpgrp().as_raw_nonzero().get();
+        for place in [place_in_process_group, reset_signals_and_place_in_process_group] {
+            let (pid, group) = spawned_identity_and_group(|command| place(command, ProcessGroupConfig::NewRoot));
+            assert_eq!(group, pid, "a new root leads its own group");
+            let (_, group) = spawned_identity_and_group(|command| place(command, ProcessGroupConfig::Inherit));
+            assert_eq!(group, own_group, "an inheriting child stays in the caller's group");
+            let (pid, joined) = spawned_identity_and_group(|command| {
+                place(command, ProcessGroupConfig::Join(own_group));
+            });
+            assert_ne!(pid, 0);
+            assert_eq!(joined, own_group, "a joining child lands in the requested group");
+        }
     }
 
     #[test]

@@ -134,7 +134,9 @@ test test_gnu_cat_splice_log { |ctx|
   uu.succeeds(fallback)
   uu.stdout_only(fallback, "yy")
 
-  let no_pipe = wrapper_run(s, ["/dev/zero"], r"""exec strace -f -o /dev/null -e inject=pipe,pipe2:error=EMFILE "$@" >/dev/null""", timeout)?
+  let traced_cat = [p"/usr/bin/strace", p"-f", p"-o", p"/dev/null", p"-e", p"inject=pipe,pipe2:error=EMFILE"].extend(cat)
+  let bounded_traced_cat = uu.argv(s, "timeout", [p".1"].extend(traced_cat))?
+  let no_pipe = wrapper_run(s, ["/dev/zero"], r"""exec "$@" >/dev/null""", bounded_traced_cat)?
   uu.fails_with_code(no_pipe, 124)
   uu.no_output(no_pipe)
 }

@@ -27,16 +27,57 @@ test test_uu_numfmt_invalid_fail_with_fields_does_not_duplicate_output { |ctx|
   uu.stderr_is(r1, "numfmt: invalid number: 'Foo'\n")
 }
 
-# origin: uutils test_numfmt::test_invalid_following_valid_suffix
-test test_uu_numfmt_invalid_following_valid_suffix { |ctx|
-  let s = uu.scene(ctx)?
-  for valid_suffix in ["K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q", "k"] {
-    for c in ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".byte_slice(i, length: 1) for i in range(52)] {
-      let r = uu.invoke(s, "numfmt", ["--from=si", "--to=si", f"1{valid_suffix}{c}"])?
-      uu.fails_with_code(r, 2)
-      uu.stderr_only(r, f"numfmt: invalid suffix in input '1{valid_suffix}{c}': '{c}'\n")
-    }
+proc reject_every_letter_after(s: uu.Scene, valid_suffix: Str) [fs, process, env, error] {
+  for c in ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".byte_slice(i, length: 1) for i in range(52)] {
+    let r = uu.invoke(s, "numfmt", ["--from=si", "--to=si", f"1{valid_suffix}{c}"])?
+    uu.fails_with_code(r, 2)
+    uu.stderr_only(r, f"numfmt: invalid suffix in input '1{valid_suffix}{c}': '{c}'\n")
   }
+}
+
+# origin: uutils test_numfmt::test_invalid_following_valid_suffix
+test test_uu_numfmt_invalid_following_valid_suffix_kilo { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "K")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_mega { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "M")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_giga { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "G")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_tera { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "T")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_peta { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "P")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_exa { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "E")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_zetta { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "Z")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_yotta { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "Y")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_ronna { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "R")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_quetta { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "Q")
+}
+
+test test_uu_numfmt_invalid_following_valid_suffix_lowercase_kilo { |ctx|
+  reject_every_letter_after(uu.scene(ctx)?, "k")
 }
 
 # origin: uutils test_numfmt::test_invalid_padding_value
