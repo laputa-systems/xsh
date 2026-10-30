@@ -2932,6 +2932,9 @@ Either way nothing is bound when the block runs, so like the block of
 `guard cond` it must leave the enclosing continuation
 (`check.guard-fallthrough`).
 
+When an unresolved method call has only `Result`-returning candidates, a
+`guard let` on that call uses the Result form while its receiver is inferred.
+
 ```xsh
 {{.spec.optional_binding.source}}
 ```
@@ -3535,7 +3538,8 @@ and schema context, while the source list still requires one homogeneous item
 type. Supplied expressions are evaluated once in source order.
 
 A positional splice with an unknown length may fill the final rest parameter;
-it cannot supply a fixed slot before that parameter. Defaulted parameters and
+its inferred element type is constrained by that parameter. It cannot supply
+a fixed slot before that parameter. Defaulted parameters and
 immutable callable aliases follow the same binding rules. Omitted defaults
 retain their declaration scope and evaluation order described above.
 
