@@ -1,7 +1,22 @@
 # XSH: complete general inference across the language
 
-**Status:** winding down (2026-10-30). No new slices start; the in-flight
-slice finishes or is committed to `inference/next`.
+**Status:** paused 2026-10-30. Last accepted code `7cabcbd6c` (slice 34), doc tip
+`a49eaac29`; both combined gate runs green there. Erasure 4,583 of 4,725
+parameter sites (97.0%); the 142 left are classified in
+[the inference evidence](docs/PERFORMANCE-INFERENCE.md). No branch is parked:
+`inference/next` was merged and deleted. The older `campaign/full-inference-*`
+and `parked/winddown-20261024/*` branches predate 2026-10-28 and are superseded,
+unreviewed history. Next slice: the open prefix-proof defect logged at the end
+of the log (`count == null or count > 1` in a generic body passes the checker
+and fails verification). Start with its failing native test in
+`tests/xsh/full-inference-bodies.xsh`, then `guarded_nonnull_read` in
+`src/runtime/eval/indexed/full/verify_schemes/producers.rs`. After it: the checker
+type-mismatch classes, then the four §9 module-overload slices. Gate each slice
+with two combined runs under `flock -o .work/gate-host.lock`: A =
+`test-lowering test-sema native-tests/xsh/full-inference-bodies.xsh
+native-tests/xsh/checker-`; B = `test-sema-unit test-tooling-unit
+test-type-agreement test-runtime native-tests/xsh/lowering-coverage.xsh`. First
+command: `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
 
 **Resume:** read `AGENTS.md`, `TODO.md`, and this document. The checkable G3
 status and the G4 measurements are in
