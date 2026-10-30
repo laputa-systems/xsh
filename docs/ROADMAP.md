@@ -16,7 +16,7 @@ instructions, and open items.
 |---|---|---|---|---|
 | 1 | G0 release candidate | done | [G0](#g0-release-candidate) | Tagged `xsh-g0-rc1` at `b268b5007`. |
 | 2 | Pyramid: scoped verification | done | [pyramid-campaign.md](../pyramid-campaign.md) | Closed 2026-10-29 with the P0 timing, memory and size baselines recorded on `fcdae517e`. |
-| 3 | Inference: general type, row, and effect inference | active | [full-inference-campaign.md](../full-inference-campaign.md) | Close the two open G3 items, then reduce annotations in G4. |
+| 3 | Inference: general type, row, and effect inference | paused | [full-inference-campaign.md](../full-inference-campaign.md) | G3 closed. G4 at 97.0% erasure; resume from the campaign Status. |
 | 4 | Lean: connected compiler proof | holding | [xsh-lean.md](../xsh-lean.md) | G0b, G1's base theorems and G1b's first certified vertical artifact landed 2026-10-29. Holding until the owner restarts lanes; the next steps are listed in the live doc. |
 | 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |
 | 6 | Deser cutover | done, qualification open | [TODO.md](../TODO.md) | Correctness and platform qualification are open items there. |
