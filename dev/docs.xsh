@@ -29,6 +29,7 @@
 use cargo_steps
 use context
 use stage as stages
+use targets
 use test_workflows as tests
 use tour_html
 
@@ -640,6 +641,7 @@ proc release_environment(ctx: context.Context) [env, error] -> Result[Record, Er
       if rustflags != "" {
         return {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags}
       }
+      return {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: targets.host_driver_rustflags} when env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "")? == ""
       defaults
     }
     "aarch64-unknown-linux-musl" => {
@@ -647,6 +649,7 @@ proc release_environment(ctx: context.Context) [env, error] -> Result[Record, Er
       if rustflags != "" {
         return {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags}
       }
+      return {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: targets.host_driver_rustflags} when env.get_or("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "")? == ""
       defaults
     }
     "aarch64-apple-darwin" => {

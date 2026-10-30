@@ -296,6 +296,12 @@ export pure cflags_variable(triple: Str) -> Result[Str, Error] {
   }
 }
 
+## Static-link flags for a Linux build linked by the host C compiler driver,
+## which needs the `-Wl,` form of the symbol aliases the container adapter
+## translates, and mold because GNU ld rejects an alias to an unreferenced
+## symbol.
+export const host_driver_rustflags = "-C target-feature=+crt-static -C link-arg=-fuse-ld=mold -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol"
+
 ## Produces the static-link flags needed by Linux container test builds.
 export pure docker_test_env(triple: Str) -> Result[Record, Error] {
   let flags = [
