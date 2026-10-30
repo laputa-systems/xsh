@@ -2015,3 +2015,12 @@ forward("a", "b", "c")
   assert output.success, output.stderr
   assert output.stdout == "3\n"
 }
+
+test test_full_inference_argument_to_any_preserves_caller_types { |ctx|
+  let output = test.run_xsh(ctx, r"""pure keep(value: Any) -> Int { 1 }
+pure forward(value) -> Int { keep(value) }
+assert forward(1) == 1
+assert forward("a") == 1
+""")?
+  assert output.success, output.stderr
+}

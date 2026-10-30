@@ -240,6 +240,7 @@ pub(super) fn known_argument_assignment_matches_ground(
     expected: &Type,
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<bool, IrVerifyError> {
+    if matches!(expected, Type::Any) { return Ok(true); }
     if body_type_matches_ground(actual, expected) { return Ok(true); }
     if !matches!(actual, SchemeType::Parameter(_)) || !matches!(expected, Type::Optional(_)) && !super::methods::owns_selected_result(store, scope, actual, budget)? { return Ok(false); }
     let owner = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("nullable argument proof has no function owner"))?;

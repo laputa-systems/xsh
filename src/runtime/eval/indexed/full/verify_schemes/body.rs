@@ -7562,6 +7562,29 @@ print (label({node: node, other: other}))
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
+    #[test]
+    fn inferred_record_field_continuation_rejects_opposite_guard() {
+        let mut program = prepare(r#"
+proc label(row) {
+  if row.node == null { return }
+  print f"{row.node}"
+}
+let node: Str? = "value"
+label({node: node})
+assert 1 != 2
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "label").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let comparison = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq, .. }))).unwrap();
+        let words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let unequal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Ne).unwrap();
+        program.store.extra[words.start] = unequal as u32;
+        assert!(FullVerifier::verify(&program).is_err());
+    }
+
     fn guarded_record_fact(program: &FullProgram, name: &str, narrowed: bool) -> usize {
         let _symbols = program.symbol_owner().enter();
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();

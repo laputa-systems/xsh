@@ -439,7 +439,7 @@ impl Checker {
                     }
                     return;
                 }
-            } else {
+            } else if !matches!(expected, Type::Any) {
                 self.expect_type(expected, actual, span);
             }
         }

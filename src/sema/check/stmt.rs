@@ -3009,12 +3009,6 @@ impl Checker {
         Type::Int
     }
 
-    fn is_inferred_field_non_null(&self, narrowing: &Narrowing) -> bool {
-        matches!(narrowing.refinement, super::proof::Refinement::NonNull { .. })
-            && !narrowing.path.is_empty()
-            && self.lookup(narrowing.name).is_some_and(|binding| super::proof::projected_type(&binding.ty, &narrowing.path).is_none())
-    }
-
     pub(super) fn apply_narrowings(&mut self, narrowings: &[Narrowing]) {
         for narrowing in narrowings {
             let Some(binding) = self.lookup(narrowing.name).cloned() else {
@@ -4187,12 +4181,7 @@ impl Checker {
             self.pop_scope();
         }
         self.push_scope();
-        if else_block.is_some() {
-            self.apply_narrowings(&previous_failure);
-        } else {
-            let continuing = previous_failure.into_iter().filter(|narrowing| !self.is_inferred_field_non_null(narrowing)).collect::<Vec<_>>();
-            self.apply_narrowings(&continuing);
-        }
+        self.apply_narrowings(&previous_failure);
         let fallthrough_guard = self.scopes.last().and_then(|scope| scope.guard);
         if let Some(block) = else_block {
             self.check_block_arena(arena, source, block);
@@ -4248,6 +4237,18 @@ impl Checker {
         }
         if reaching.is_empty() {
             return;
+        }
+        if let [bindings] = reaching.as_slice() {
+            for (name, initial) in &original {
+                if let Some(reached) = bindings.get(name).filter(|binding| binding.proof.same_binding(&initial.proof))
+                    && !reached.guarded_field_views.is_empty()
+                    && let Some(mut binding) = self.lookup(*name).cloned()
+                    && binding.proof.same_binding(&initial.proof)
+                {
+                    binding.guarded_field_views = reached.guarded_field_views.clone();
+                    self.current_scope_mut().insert(*name, binding);
+                }
+            }
         }
         for (name, initial) in &original {
             let mut origins = super::stream_origins::StreamOrigins::default();

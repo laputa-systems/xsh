@@ -1393,6 +1393,13 @@ impl Checker {
             }
             ArenaExprKind::Field { base, name } => {
                 let view = self.guarded_field_view_arena(arena, id);
+                if let Some(view) = &view
+                    && let Some(guard) = self.scopes.last().and_then(|scope| scope.guard)
+                    && let Err(error) = self.type_constraints.note_guard_view_read(guard, view)
+                {
+                    self.error(expr.span, &format!("guarded field view is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
                 let ty = self.check_field_arena(arena, source, *base, *name, expr.span, expected);
                 view.unwrap_or(ty)
             }
