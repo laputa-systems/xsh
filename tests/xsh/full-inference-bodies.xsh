@@ -567,6 +567,22 @@ print $b
   assert output.stdout == "2\n-1\n"
 }
 
+test test_full_inference_record_field_extends_with_a_literal_element { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Header = {name: Str, value: Str}
+type Options = {quiet: Bool, headers: List[Header]}
+pure with_header(options, name: Str) -> Options { {...options, headers: options.headers.extend([{name: name, value: ""}])} }
+pure with_word(words, word: Str) { words.extend([word]) }
+let options = with_header(with_header(Options(quiet: true, headers: []), "a"), "b")
+for header in options.headers { print $header.name }
+for word in with_word(["x"], "y") { print $word }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "a\nb\nx\ny\n"
+}
+
 test test_full_inference_emptiness_family_is_a_generic_condition { |ctx|
   let output = test.run_xsh(
     ctx,

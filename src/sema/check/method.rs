@@ -1074,6 +1074,9 @@ fn common_method_overload_expected_arena(
         else {
             continue;
         };
+        if candidate.contains_builtin_parameter() {
+            return None;
+        }
         match &expected {
             Some(current) if current != &candidate => return None,
             Some(_) => {}
