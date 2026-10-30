@@ -3616,6 +3616,20 @@ test namespace_borrow {
     }
 
     #[test]
+    fn generic_command_input_authenticates_bytes_or_path_requirement() {
+        let program = prepare("pure plan(input) { process.command_argv(\"cat\", [\"cat\"], stdin: input) }");
+        FullVerifier::verify(&program).unwrap();
+        for mode in [0, 1, 16, 32] {
+            let mut changed = program.clone();
+            changed.store.in_place.take();
+            let parameter = changed.store.scheme_type_parameters.iter_mut().find(|parameter| parameter.conversions != 0).unwrap();
+            assert_eq!(parameter.conversions, 64);
+            parameter.conversions = mode;
+            assert!(FullVerifier::verify(&changed).is_err(), "{mode}");
+        }
+    }
+
+    #[test]
     fn generic_conversion_proofs_follow_natural_body_work_bounds() {
         for width in [64, 128, 256, 512] {
             let names = (0..width).map(|index| format!("value{index}")).collect::<Vec<_>>();

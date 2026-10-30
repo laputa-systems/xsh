@@ -77,11 +77,15 @@ pub(super) fn process_command_argv(
         budget.charge(1 + signature.params.len())?;
         if signature.params.len() != arguments.len() { continue; }
         let mut fits = true;
-        for (parameter, actual) in signature.params[2..].iter().zip(&arguments[2..]) {
+        for (offset, (parameter, actual)) in signature.params[2..].iter().zip(&arguments[2..]).enumerate() {
             fits &= match actual {
                 Some(actual) => {
                     budget.charge_scheme_clone(actual)?;
-                    super::body_type_matches_ground(actual, &parameter.ty)
+                    if offset == 2 && actual.closed_ground_type().is_none() {
+                        super::scheme_conversion(actual, super::ValueConversion::ProcessInput, scope, budget)?
+                    } else {
+                        super::body_type_matches_ground(actual, &parameter.ty)
+                    }
                 }
                 None => parameter.defaulted,
             };

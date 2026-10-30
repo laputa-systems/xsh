@@ -2055,3 +2055,25 @@ print (tail(b"abc") ?? "")
 """)?
   assert !mismatch.success and "check.operator-type" in mismatch.stderr, mismatch.stderr
 }
+
+test test_full_inference_command_stdin_accepts_bytes_and_path { |ctx|
+  let output = test.run_xsh(ctx, r"""proc copy(input, output: Path) {
+  let status = process.run(process.command_argv("/bin/cat", ["cat"], stdin: input, stdout: output))?
+  assert status.exited_with(0)
+}
+tempdir root {
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write(b"from path")
+  copy(b"from bytes", target)?
+  assert target.read_bytes()? == b"from bytes"
+  copy(source, target)?
+  assert target.read_bytes()? == b"from path"
+}
+""")?
+  assert output.success, output.stderr
+  let invalid = test.run_xsh(ctx, r"""pure plan(input) { process.command_argv("cat", ["cat"], stdin: input) }
+let _ = plan(true)
+""")?
+  assert !invalid.success and "check.type-mismatch" in invalid.stderr, invalid.stderr
+}

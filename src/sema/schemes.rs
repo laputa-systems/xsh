@@ -35,10 +35,10 @@ pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord, Env }
+pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord, Env, ProcessInput }
 
 impl ValueConversion {
-    pub(crate) const ALL: [Self; 6] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env];
+    pub(crate) const ALL: [Self; 7] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env, Self::ProcessInput];
 
     pub(crate) fn requirement(self) -> &'static str {
         match self {
@@ -48,6 +48,7 @@ impl ValueConversion {
             Self::ArgvList => "as a list of command arguments",
             Self::ProcessWord => "as a command word, which must be Str or Path",
             Self::Env => "as an environment value",
+            Self::ProcessInput => "as command input, which must be Bytes or Path",
         }
     }
 
@@ -57,6 +58,7 @@ impl ValueConversion {
             Self::Display => ty.can_display(),
             Self::Env => ty.can_be_env_value(),
             Self::ProcessWord => ty.can_be_process_command_argv_item(),
+            Self::ProcessInput => matches!(ty.unvalidated(), Type::Bytes | Type::Path),
             Self::Argv => ty.can_be_argv_item(),
             Self::ArgvOrList => ty.can_be_argv_item() || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
             Self::ArgvList => matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
@@ -80,7 +82,7 @@ impl ValueConversionSet {
     pub(crate) fn accepts(self, ty: &Type) -> bool { ValueConversion::ALL.into_iter().all(|conversion| !self.contains(conversion) || conversion.accepts(ty)) }
     pub(crate) fn is_satisfiable(self, map_key: bool) -> bool {
         !self.contains(ValueConversion::ArgvList)
-            || !(map_key || self.contains(ValueConversion::Display) || self.contains(ValueConversion::Argv) || self.contains(ValueConversion::ProcessWord))
+            || !(map_key || self.contains(ValueConversion::Display) || self.contains(ValueConversion::Argv) || self.contains(ValueConversion::ProcessWord) || self.contains(ValueConversion::ProcessInput))
     }
 }
 

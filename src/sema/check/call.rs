@@ -2824,9 +2824,9 @@ impl Checker {
             if offset + 2 == 4 {
                 let actual = self.check_optional_api_arg_arena(arena, source, slots[4], None);
                 if let Some(arg) = slots[4]
-                    && actual != Type::Bytes
+                    && !self.require_value_conversion(&actual, crate::sema::schemes::ValueConversion::ProcessInput, call_arg_span_arena(arena, arg))
                 {
-                    self.expect_type(&Type::Path, &actual, call_arg_span_arena(arena, arg));
+                    self.error(call_arg_span_arena(arena, arg), "expected Bytes or Path", DiagnosticCode::CheckTypeMismatch);
                 }
             } else {
                 self.check_optional_api_arg_arena(arena, source, slots[offset + 2], Some(expected));
