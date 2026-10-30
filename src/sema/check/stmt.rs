@@ -2861,6 +2861,44 @@ impl Checker {
         })
     }
 
+    fn check_unresolved_compound_assignment(
+        &mut self,
+        rhs_expression: ExprId,
+        op: AssignOp,
+        left: &Type,
+        right: &Type,
+        span: Span,
+        value_span: Span,
+    ) -> Type {
+        let Ok(left) = self.resolve_compound_operand(left, span) else { return Type::Invalid };
+        let Ok(right) = self.resolve_compound_operand(right, value_span) else { return Type::Invalid };
+        let binary = match op {
+            AssignOp::Add => BinaryOp::Add,
+            AssignOp::Sub => BinaryOp::Sub,
+            AssignOp::Mul => BinaryOp::Mul,
+            AssignOp::Div => BinaryOp::Div,
+            AssignOp::Rem => BinaryOp::Rem,
+            AssignOp::Set => unreachable!("an unresolved compound assignment is not a plain assignment"),
+        };
+        let operator = crate::sema::sealed_operation::arithmetic_operator(binary).expect("arithmetic syntax has a sealed operator");
+        let site = Span::new(span.source_id, span.start(), value_span.end());
+        let owner = self.constraint_scope();
+        let result = match self.type_constraints.source_sealed_operation(owner, site) {
+            Some(operation) => operation.result().expect("arithmetic operations have a value result").clone(),
+            None => {
+                let level = self.stream_origin_owner.and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner))).map_or(0, |declaration| declaration.solver_level());
+                self.type_constraints.fresh_at_level(site, level)
+            }
+        };
+        let operation = crate::sema::sealed_operation::SealedBinaryOperation { operator, left, right, result: result.clone(), span: site };
+        if let Err(error) = self.type_constraints.register_source_sealed_operation(owner, operation).and_then(|_| self.type_constraints.solve_sealed_operations()) {
+            self.error(site, &error.to_string(), DiagnosticCode::CheckOperatorType);
+            return Type::Invalid;
+        }
+        self.compound_assignment_operations.insert(rhs_expression, site);
+        result
+    }
+
     pub(super) fn check_compound_assignment_op(
         &mut self,
         op: AssignOp,
@@ -5818,7 +5856,13 @@ impl Checker {
         }
         let rhs = self.check_expr_or_run_arena(arena, source, value, Some(target_ty.unvalidated()));
         let value_span = expr_or_run_span_arena(arena, value);
-        let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
+        let unresolved_local = matches!(arena.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(_))
+            && matches!(self.type_constraints.resolve(&target_ty), Ok(Type::Inference(_)))
+            && !(op == AssignOp::Add && matches!(self.type_constraints.resolve(&rhs), Ok(Type::List(_))));
+        let result = match value {
+            ArenaExprOrRun::Expr(rhs_expression) if unresolved_local => self.check_unresolved_compound_assignment(rhs_expression, op, &target_ty, &rhs, span, value_span),
+            _ => self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span),
+        };
         self.expect_type(&target_ty, &result, span);
         self.invalidate_binding_projection_arena(arena, target, &binding);
     }
@@ -9268,9 +9312,10 @@ mod compound_assignment_inference_tests {
     }
 
     #[test]
-    fn list_append_preserves_validation_and_numeric_ambiguity() {
+    fn list_append_preserves_validation_and_an_unresolved_compound_operand_keeps_the_binary_operator_rules() {
         accepts("pure append_unsigned(items: List[UInt], value: Int) -> List[UInt] { var output = items; output += [value]; output }\npure append(items: NonEmpty[Int], value: Int) -> NonEmpty[Int] { var output = items; output += [value]; output }\npure scale(value: Duration) -> Duration { var output = value; output *= 2; output }\n");
-        let source = "pure scale(value) { var output = value; output *= 2; output }\n";
+        accepts("pure scale(value) { var output = value; output *= 2; output }\nlet doubled: Int = scale(3)\nlet stretched: Duration = scale(2s)\n");
+        let source = "pure scale(value) { var output = value; output *= \"x\"; output }\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions::for_execution());

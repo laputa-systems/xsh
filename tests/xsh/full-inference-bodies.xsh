@@ -1745,3 +1745,33 @@ proc main() [io] {
   )?
   assert output.stdout == "7\n", output.stdout
 }
+
+test test_full_inference_compound_assignment_over_a_generic_local_runs_for_each_domain { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure bump(start, step) {
+  var total = start
+  total += step
+  total *= step
+  total -= step
+  total /= step
+  total
+}
+pure join(first, more) {
+  var items = first
+  items += more
+  items
+}
+proc main() [io] {
+  print $bump(10, 2)
+  print $bump(1.5, 2.0)
+  print $join("ab", "cd")
+  print $join(["x"], ["y"]).len()
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "11\n2.5\nabcd\n2\n", output.stdout
+}

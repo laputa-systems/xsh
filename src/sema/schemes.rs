@@ -369,6 +369,7 @@ pub(crate) struct SchemeBodyFacts {
     read_bindings: BTreeSet<super::check::BindingId>,
     proc_return_sites: BTreeMap<Span, SchemeProcReturnSite>,
     operation_sites: BTreeMap<ExprId, u32>,
+    compound_sites: BTreeMap<ExprId, u32>,
     method_sites: BTreeMap<ExprId, u32>,
     wrapper_sites: BTreeMap<ExprId, u32>,
     guard_scopes: super::guarded_requirements::GuardBodyScopes,
@@ -1428,6 +1429,7 @@ impl SchemeBodyFacts {
             read_bindings: BTreeSet::new(),
             proc_return_sites: BTreeMap::new(),
             operation_sites: BTreeMap::new(),
+            compound_sites: BTreeMap::new(),
             method_sites: BTreeMap::new(),
             wrapper_sites: BTreeMap::new(), guard_scopes,
         }.with_noncompleting_expressions(noncompleting_expressions)
@@ -1481,6 +1483,14 @@ impl SchemeBodyFacts {
     }
 
     pub(crate) fn operation_site(&self, expression: ExprId) -> Option<u32> { self.operation_sites.get(&expression).copied() }
+    pub(crate) fn with_compound_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| !matches!(requirements.operations.get(*ordinal as usize), Some(super::sealed_operation::SealedOperation::Binary(_))))) {
+            return Err(SchemeBuildError::UnresolvedSealedOperation);
+        }
+        self.compound_sites = sites;
+        Ok(self)
+    }
+    pub(crate) fn compound_site(&self, value: ExprId) -> Option<u32> { self.compound_sites.get(&value).copied() }
     pub(crate) fn with_wrapper_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
         if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| requirements.wrappers.get(*ordinal as usize).is_none())) { return Err(SchemeBuildError::UnresolvedWrapper); }
         self.wrapper_sites = sites;
@@ -1651,6 +1661,7 @@ impl SchemeBodyFacts {
             .saturating_add(self.read_bindings.len() * size_of::<super::check::BindingId>())
             .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.operation_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.compound_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.method_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.wrapper_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.guard_scopes.expressions.len() * size_of::<(ExprId, super::guarded_requirements::GuardScopeId)>())

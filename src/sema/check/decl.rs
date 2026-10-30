@@ -944,6 +944,20 @@ impl Checker {
                 }
             }
         }
+        let mut compound_sites = BTreeMap::new();
+        for (&expression, &site) in &self.compound_assignment_operations {
+            if !pending.generalized_body_types()?.contains_key(&expression) { continue; }
+            if let Some(operation) = self.type_constraints.sealed_operation_at(self.constraint_scope_at(effect_declaration, site), site) {
+                match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { compound_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(site, &format!("sealed operation has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
         let mut wrapper_sites = BTreeMap::new();
         for &expression in pending.generalized_body_types()?.keys() {
             let checked = program.arena.expr(expression);
@@ -992,7 +1006,7 @@ impl Checker {
                 pending.generalized_tail_types()?.clone(),
                 pending.generalized_guard_scopes()?.clone(),
                 noncompleting_expressions,
-            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
+            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_compound_sites(compound_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

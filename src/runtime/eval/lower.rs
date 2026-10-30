@@ -3819,9 +3819,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             _ => return None,
                         });
                     }
+                    if op != AssignOp::Set && path.is_empty()
+                        && let Some(ordinal) = facts.compound_site(expression)
+                    {
+                        let binary = match op { AssignOp::Add => BinaryOp::Add, AssignOp::Sub => BinaryOp::Sub, AssignOp::Mul => BinaryOp::Mul, AssignOp::Div => BinaryOp::Div, AssignOp::Rem => BinaryOp::Rem, AssignOp::Set => unreachable!() };
+                        let target_type = self.scheme_assignment_target_type(target, node.span, slots)?;
+                        let right = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, body)?;
+                        let current = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                        lowered_types.insert(current, target_type.clone());
+                        let value = push_build_row!(self, expr, BuildExprRow::Binary { op: binary, left: current, right, span: node.span });
+                        lowered_types.insert(value, target_type);
+                        let mut scratch = self.scratch.borrow_mut();
+                        if scratch.scheme_operations.insert(value.index(), ordinal).is_some() { return None; }
+                        scratch.non_int_binary_expressions.insert(value.index());
+                        drop(scratch);
+                        BuildStmtRow::Assign { slot, op: AssignOp::Set, value, check, span: node.span }
+                    } else {
                     let value = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?;
                     if path.is_empty() { BuildStmtRow::Assign { slot, op, value, check, span: node.span } }
                     else { BuildStmtRow::AssignPath { slot, path: super::LoweredAssignPath(path), op, value, check, span: node.span } }
+                    }
                 }
                 ArenaStmtKind::Expr(expression) => {
                     let value = if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(expression).kind {

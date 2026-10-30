@@ -48382,6 +48382,34 @@ assert wide.count == 1
     }
 
     #[test]
+    fn a_compound_assignment_over_a_type_parameter_is_authenticated_by_its_operation() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-compound-assignment.xsh", r#"
+pure bump(start, step) {
+  var total = start
+  total += step
+  total
+}
+assert bump(1, 2) == 3
+assert bump("a", "b") == "ab"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let arithmetic = function_instruction_indices(&program, "bump", FullTag::ExprBinary);
+            assert_eq!(arithmetic.len(), 1);
+            let words = program.store.data[arithmetic[0]].range().bounds(program.store.extra.len()).unwrap();
+            let mut wrong_operation = program.clone();
+            let operation = u32::try_from(wrong_operation.store.binary_ops.len()).unwrap();
+            wrong_operation.store.binary_ops.push(BinaryOp::Sub);
+            wrong_operation.store.extra[words.start] = operation;
+            FullVerifier::verify(&wrong_operation).expect_err("the written operator must be the sealed operation's operator");
+            let mut ownerless = program.clone();
+            let fact = ownerless.store.scheme_body_facts.iter().position(|fact| fact.instruction == arithmetic[0] as u32 && matches!(fact.value, schemes::FullSchemeBodyFactValue::Operation(_))).expect("the compound assignment owns an operation fact");
+            ownerless.store.scheme_body_facts.remove(fact);
+            FullVerifier::verify(&ownerless).expect_err("a compound assignment over a parameter needs its operation");
+        });
+    }
+
+    #[test]
     fn a_byte_length_argument_is_an_int_and_a_forged_one_is_not() {
         run_with_large_stack(|| {
             let program = fixture("generic-byte-length-argument.xsh", r#"
