@@ -2212,7 +2212,7 @@ pure sort_files(ctx: Ctx, files: List[File]) -> List[File] {
   sorted
 }
 
-pure ind_get(colors: Colors, code: Str) -> Str? {
+pure ind_get(colors, code: Str) -> Str? {
   if let Ok(text) = colors.ind.get(code) {
     text
   } else {
