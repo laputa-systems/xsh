@@ -548,6 +548,25 @@ print $present_and_big(null)
   assert output.stdout == "true\ntrue\ntrue\nfalse\n"
 }
 
+test test_full_inference_record_bound_element_returns_into_an_annotated_optional { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Ch = {name: Str, code: Int}
+type Table = {chars: List[Ch]}
+pure char_named(table, name: Str) -> Ch? { for char in table.chars { return char when char.name == name } null }
+let t: Table = {chars: [{name: "a", code: 1}, {name: "b", code: 2}]}
+let found = char_named(t, "b")
+let missing = char_named(t, "z")
+let a = if found == null { -1 } else { found.code }
+let b = if missing == null { -1 } else { missing.code }
+print $a
+print $b
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n-1\n"
+}
+
 test test_full_inference_emptiness_family_is_a_generic_condition { |ctx|
   let output = test.run_xsh(
     ctx,

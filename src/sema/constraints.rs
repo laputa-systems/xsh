@@ -3874,6 +3874,12 @@ impl TypeConstraints {
                 && self.is_unresolved_arithmetic_result(variable).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
             { Type::Int } else { expected };
             match (&expected, &actual) {
+                (Type::Optional(payload), Type::Inference(id))
+                    if self.record_binding(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_some() =>
+                {
+                    pending.push((payload.as_ref().clone(), actual.clone(), depth + 1));
+                    continue;
+                }
                 (Type::Inference(id), Type::Record(fields))
                     if self.record_binding(*id).ok().flatten().is_some() =>
                 {
