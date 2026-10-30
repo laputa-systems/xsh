@@ -2024,3 +2024,34 @@ assert forward("a") == 1
 """)?
   assert output.success, output.stderr
 }
+
+test test_full_inference_optional_return_preserves_input_element_type { |ctx|
+  let output = test.run_xsh(ctx, r"""pure tail(data) -> Bytes? {
+  let rest = data[1..]
+  if rest.is_empty() { null } else { rest }
+}
+pure words(data) -> List[Int]? {
+  let rest = data[1..]
+  if rest.is_empty() { null } else { rest }
+}
+pure text(data) -> Str? {
+  let rest = data[1..]
+  if rest.is_empty() { null } else { rest }
+}
+pure optional_identity(value) -> Bytes? { value }
+let absent: Bytes? = null
+assert tail(b"abc") == b"bc"
+assert tail(b"a") == null
+assert words([1, 2]) == [2]
+assert words([1]) == null
+assert text("ab") == "b"
+assert text("a") == null
+assert optional_identity(b"x") == b"x"
+assert optional_identity(absent) == null
+""")?
+  assert output.success, output.stderr
+  let mismatch = test.run_xsh(ctx, r"""pure tail(data) -> Str? { data[1..] }
+print (tail(b"abc") ?? "")
+""")?
+  assert !mismatch.success and "check.operator-type" in mismatch.stderr, mismatch.stderr
+}

@@ -380,6 +380,18 @@ impl SealedOperations {
 }
 
 impl TypeConstraints {
+    pub(super) fn is_unresolved_slice_result(&self, variable: super::TypeVariableId) -> Result<bool, ConstraintResolutionError> {
+        let root = self.representative_root(variable)?;
+        let Some(Variable::Representative(actual)) = self.variables.get(&root) else { unreachable!() };
+        if actual.binding.is_some() { return Ok(false); }
+        for id in self.operations.watchers.get(&ApplicationDependency::Type(root)).into_iter().flatten() {
+            let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            let SealedOperation::Slice { result: Type::Inference(result), .. } = &entry.operation else { continue; };
+            if entry.selection.is_none() && self.representative_root(*result)? == root { return Ok(true); }
+        }
+        Ok(false)
+    }
+
     pub(super) fn is_unresolved_arithmetic_result(&self, variable: super::TypeVariableId) -> Result<bool, ConstraintResolutionError> {
         let root = self.representative_root(variable)?;
         let Some(Variable::Representative(actual)) = self.variables.get(&root) else { unreachable!() };
