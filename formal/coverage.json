@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 3,
   "source_state": "frozen-post-consolidation",
   "scope": "Tracks enum variants and tuple/record payload shapes for every public enum in src/syntax/arena.rs and src/syntax/node.rs; registry builtin type labels and type/parameter enums; semantic, lowered, indexed type, control, and effect enum schemas; the live LoweredValue enum and exactly-one encoded, alias, custom, or rejected codec route for every variant; effect and stream-stage companion tables; managed-resource enums and complete rule rows; raw instruction, pattern, driver, value, and pipeline-stage schemas, including payload types, ordinals, exclusions, and routing metadata. It excludes full grammar productions, arbitrary dynamic declarations, host behavior, and proof/conformance results. Additional derived owners cover runtime Value and ResultValue, LiteralConstant, Validation, closed RuntimeOp identities, checked callable construction and compatibility plus indexed signature encoding, stream parameter types/defaults/validations and callable policy, indexed ID/sentinel/range/location layouts, and TypeTag payload/pool classification. New owner rows state their derivation and boundary explicitly. The inventory is frozen at the recorded source identity. Its finite Rust conformance cases are evidence for those named tests only; it makes no semantic proof, full grammar, universal Rust conformance, or host-behavior claim.",
   "core_inventory": {
@@ -10255,96 +10255,35 @@
       "status": "fragment",
       "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
-    },
+    }
+  ],
+  "artifact_certificates": [
     {
-      "id": "fragment.Xsh.Conformance.Vertical.base_vertical_artifact_certified",
+      "id": "artifact.integer-arithmetic-locals",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.sourceDocumentCodes",
+        "Xsh.Conformance.Vertical.rawIrDocumentCodes"
+      ],
       "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.base_vertical_artifact_certified",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.unmodified_artifact_is_certified",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.unmodified_artifact_is_certified",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
-      "module": "Xsh.Conformance.Vertical.Certificate",
-      "declaration": "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "One kernel-checked artifact. Artifact kind: source document and raw-IR document pair. Identity: the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes` in formal/Xsh/Conformance/Vertical/Documents.lean, which Rust's exported documents must equal. Proposition: both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The corruption theorems show a wrong binding identifier, a wrong operation, a mutated operand, and a missing, reordered or wrong observation fail the same check.",
-      "boundary": "Starts at the supplied IR rows. The source bytes are associated by identifier only and are not parsed. The statement is ARTIFACT_CERTIFIED in kind but recorded here as a SPEC_PROVED fragment because the schema has no artifact certificate row. It does not show that Rust lowers the source to these rows or executes them."
+      "certificate": "Xsh.Conformance.Vertical.base_vertical_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.unmodified_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_binding_id_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_arithmetic_operation_is_rejected",
+        "Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
+        "Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
+        "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims"
+      ],
+      "proposition": "Both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The rejection theorems show that a wrong binding identifier, a wrong operation, a mutated operand, a wrong recorded result, and a missing, reordered or repeated observation fail the same check, and that the certificate fails for other claims.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The claim starts at the supplied IR rows: the source bytes are associated by identifier only and are not parsed. It does not show that Rust lowers the source to these rows or executes them, and it says nothing about other inputs."
     }
   ],
   "source_identity": {

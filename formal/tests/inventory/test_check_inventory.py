@@ -120,7 +120,8 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(793, len(result["fragment_roots"]))
+        self.assertEqual(783, len(result["fragment_roots"]))
+        self.assertEqual({"artifact.integer-arithmetic-locals"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual([], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
@@ -150,7 +151,12 @@ class InventoryCheckerTests(unittest.TestCase):
         roots = coverage["fragment_roots"]
         module_sources = CHECKER.lean_module_sources(ROOT / "formal")
         reachable = CHECKER.reachable_lean_modules(module_sources)
-        root_ids = CHECKER.validate_fragment_roots(roots, module_sources, reachable)
+        certified_modules = {
+            certificate["module"] for certificate in coverage["artifact_certificates"]
+        }
+        root_ids = CHECKER.validate_fragment_roots(
+            roots, module_sources, reachable, certified_modules
+        )
         self.assertEqual(len(roots), len(root_ids))
         integer_ops_roots = {
             root["declaration"] for root in roots
@@ -976,6 +982,104 @@ class InventoryCheckerTests(unittest.TestCase):
         coverage["universal_theorems"][0]["proof_root_id"] = coverage["fragment_roots"][0]["id"]
         coverage["universal_theorems"][0]["status"] = "proved"
         with self.assertRaisesRegex(CHECKER.InventoryError, "cannot close theorem obligation"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def certificate_coverage(self) -> tuple[dict[str, object], dict[str, object]]:
+        coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
+        return coverage, coverage["artifact_certificates"][0]
+
+    def test_artifact_certificate_is_not_a_fragment_root(self) -> None:
+        coverage, certificate = self.certificate_coverage()
+        self.assertEqual("ARTIFACT_CERTIFIED", certificate["evidence_class"])
+        self.assertEqual("source-ir-pair", certificate["artifact_kind"])
+        fragment_declarations = {root["declaration"] for root in coverage["fragment_roots"]}
+        recorded = {
+            certificate["certificate"],
+            *certificate["supporting_theorems"],
+            *certificate["rejection_theorems"],
+        }
+        self.assertEqual(set(), recorded & fragment_declarations)
+        self.assertEqual(
+            {"SPEC_PROVED"}, {root["evidence_class"] for root in coverage["fragment_roots"]}
+        )
+
+    def test_schema_two_is_rejected(self) -> None:
+        coverage, _ = self.certificate_coverage()
+        coverage["schema"] = 2
+        with self.assertRaisesRegex(CHECKER.InventoryError, "unsupported coverage schema"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_schema_three_requires_the_certificate_list(self) -> None:
+        coverage, _ = self.certificate_coverage()
+        del coverage["artifact_certificates"]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "coverage root keys differ"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_certificate_rows_are_closed_and_named(self) -> None:
+        for field, value, message in [
+            ("evidence_class", "SPEC_PROVED", "must use ARTIFACT_CERTIFIED"),
+            ("artifact_kind", "transcript", "unknown artifact kind"),
+            ("proposition", " ", "proposition must be nonempty text"),
+            ("boundary", "", "boundary must be nonempty text"),
+            ("artifact_definitions", [], "definitions must list at least 1"),
+            ("rejection_theorems", [], "rejection theorems must list at least 1"),
+            ("module", "Xsh.Absent", "names missing module"),
+        ]:
+            with self.subTest(field=field):
+                coverage, certificate = self.certificate_coverage()
+                certificate[field] = value
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_coverage(ROOT, coverage)
+        coverage, certificate = self.certificate_coverage()
+        certificate["unrecorded"] = True
+        with self.assertRaisesRegex(CHECKER.InventoryError, "invalid shape"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_certificate_declarations_must_exist(self) -> None:
+        for field, index, message in [
+            ("artifact_definitions", 0, "identity is not a definition"),
+            ("supporting_theorems", 0, "not a public theorem"),
+            ("rejection_theorems", 0, "not a public theorem"),
+        ]:
+            with self.subTest(field=field):
+                coverage, certificate = self.certificate_coverage()
+                certificate[field][index] = "Xsh.Conformance.Vertical.absent"
+                with self.assertRaisesRegex(CHECKER.InventoryError, message):
+                    CHECKER.validate_coverage(ROOT, coverage)
+        coverage, certificate = self.certificate_coverage()
+        certificate["certificate"] = certificate["artifact_definitions"][0]
+        with self.assertRaisesRegex(CHECKER.InventoryError, "not a public theorem"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_certificate_declarations_cannot_repeat(self) -> None:
+        coverage, certificate = self.certificate_coverage()
+        certificate["supporting_theorems"].append(certificate["certificate"])
+        with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate artifact certificate declaration"):
+            CHECKER.validate_coverage(ROOT, coverage)
+        coverage, certificate = self.certificate_coverage()
+        coverage["artifact_certificates"].append(dict(certificate))
+        with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate artifact certificate id"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_a_declaration_is_not_both_certificate_and_fragment_root(self) -> None:
+        coverage, certificate = self.certificate_coverage()
+        module = certificate["module"]
+        template = coverage["fragment_roots"][0].copy()
+        template.update(
+            {
+                "id": "fragment.duplicate-certificate",
+                "module": module,
+                "declaration": certificate["rejection_theorems"][0],
+            }
+        )
+        coverage["fragment_roots"].append(template)
+        with self.assertRaisesRegex(CHECKER.InventoryError, "both fragment roots and artifact certificates"):
+            CHECKER.validate_coverage(ROOT, coverage)
+
+    def test_a_certificate_module_needs_its_certificate(self) -> None:
+        coverage, _ = self.certificate_coverage()
+        coverage["artifact_certificates"] = []
+        with self.assertRaisesRegex(CHECKER.InventoryError, "missing fragment roots"):
             CHECKER.validate_coverage(ROOT, coverage)
 
     def test_constructor_add_remove_and_rename_drift(self) -> None:

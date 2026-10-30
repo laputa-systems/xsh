@@ -1625,6 +1625,14 @@ def strip_lean_comments(source: str) -> str:
 
 
 def lean_theorem_declarations(source: str) -> set[str]:
+    return lean_declarations(source, "theorem")
+
+
+def lean_definition_declarations(source: str) -> set[str]:
+    return lean_declarations(source, "def")
+
+
+def lean_declarations(source: str, keyword: str) -> set[str]:
     scopes: list[tuple[str, str | None]] = []
     declarations: set[str] = set()
     for line in strip_lean_comments(source).splitlines():
@@ -1669,7 +1677,7 @@ def lean_theorem_declarations(source: str) -> set[str]:
             continue
 
         theorem_match = re.match(
-            r"^\s*theorem\s+([A-Za-z_][A-Za-z0-9_.'?!]*)\b", line
+            rf"^\s*{keyword}\s+([A-Za-z_][A-Za-z0-9_.'?!]*)\b", line
         )
         if theorem_match:
             name = theorem_match.group(1)
@@ -1678,10 +1686,125 @@ def lean_theorem_declarations(source: str) -> set[str]:
     return declarations
 
 
+ARTIFACT_KINDS = {
+    "original-source-with-module-inputs",
+    "source-document",
+    "raw-ir-document",
+    "candidate-fact-set",
+    "source-ir-pair",
+}
+ARTIFACT_CERTIFICATE_KEYS = {
+    "id",
+    "evidence_class",
+    "artifact_kind",
+    "artifact_module",
+    "artifact_definitions",
+    "module",
+    "certificate",
+    "supporting_theorems",
+    "rejection_theorems",
+    "proposition",
+    "boundary",
+}
+
+
+def require_text(value: Any, description: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise InventoryError(f"{description} must be nonempty text")
+    return value
+
+
+def qualified_names(value: Any, description: str, minimum: int) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or len(value) < minimum
+        or any(not isinstance(name, str) or not name.strip() for name in value)
+        or len(set(value)) != len(value)
+    ):
+        raise InventoryError(f"{description} must list at least {minimum} distinct declarations")
+    return value
+
+
+def validate_artifact_certificates(
+    certificates: Any,
+    module_sources: dict[str, Path],
+    reachable_modules: set[str],
+) -> tuple[set[str], set[str], set[str]]:
+    if not isinstance(certificates, list):
+        raise InventoryError("artifact_certificates must be an array")
+    seen_ids: set[str] = set()
+    seen_declarations: set[str] = set()
+    modules: set[str] = set()
+    for entry in certificates:
+        if not isinstance(entry, dict) or set(entry) != ARTIFACT_CERTIFICATE_KEYS:
+            raise InventoryError("artifact certificate row has an invalid shape")
+        identifier = require_text(entry["id"], "artifact certificate id")
+        if identifier in seen_ids:
+            raise InventoryError(f"duplicate artifact certificate id {identifier}")
+        seen_ids.add(identifier)
+        if entry["evidence_class"] != "ARTIFACT_CERTIFIED":
+            raise InventoryError(f"artifact certificate {identifier} must use ARTIFACT_CERTIFIED")
+        if entry["artifact_kind"] not in ARTIFACT_KINDS:
+            raise InventoryError(
+                f"artifact certificate {identifier} names an unknown artifact kind "
+                f"{entry['artifact_kind']!r}"
+            )
+        for field in ("proposition", "boundary"):
+            require_text(entry[field], f"artifact certificate {identifier} {field}")
+
+        artifact_module = entry["artifact_module"]
+        module = entry["module"]
+        for field, name in (("artifact_module", artifact_module), ("module", module)):
+            if not isinstance(name, str) or not name.startswith("Xsh."):
+                raise InventoryError(f"artifact certificate {identifier} {field} must name an Xsh module")
+            if name not in module_sources:
+                raise InventoryError(f"artifact certificate {identifier} names missing module {name}")
+            if name not in reachable_modules:
+                raise InventoryError(f"unreachable artifact certificate module {name}")
+        definitions = lean_definition_declarations(
+            module_sources[artifact_module].read_text(encoding="utf-8")
+        )
+        for name in qualified_names(
+            entry["artifact_definitions"], f"artifact certificate {identifier} definitions", 1
+        ):
+            if name not in definitions:
+                raise InventoryError(
+                    f"artifact certificate {identifier} identity is not a definition "
+                    f"in {artifact_module}: {name}"
+                )
+
+        theorems = lean_theorem_declarations(module_sources[module].read_text(encoding="utf-8"))
+        certificate = require_text(entry["certificate"], f"artifact certificate {identifier} theorem")
+        groups = [
+            [certificate],
+            qualified_names(
+                entry["supporting_theorems"],
+                f"artifact certificate {identifier} supporting theorems",
+                0,
+            ),
+            qualified_names(
+                entry["rejection_theorems"],
+                f"artifact certificate {identifier} rejection theorems",
+                1,
+            ),
+        ]
+        for name in (name for group in groups for name in group):
+            if name not in theorems:
+                raise InventoryError(
+                    f"artifact certificate {identifier} is not a public theorem in {module}: {name}"
+                )
+            if name in seen_declarations:
+                raise InventoryError(f"duplicate artifact certificate declaration {name}")
+            seen_declarations.add(name)
+        modules.add(module)
+    return seen_ids, modules, seen_declarations
+
+
 def validate_fragment_roots(
     roots: Any,
     module_sources: dict[str, Path],
     reachable_modules: set[str],
+    certified_modules: set[str] = frozenset(),
 ) -> set[str]:
     if not isinstance(roots, list) or not roots:
         raise InventoryError("fragment_roots must be a nonempty array")
@@ -1750,7 +1873,7 @@ def validate_fragment_roots(
                 raise InventoryError(f"fragment root {identifier} needs explicit {field} text")
         seen_modules.add(module)
 
-    missing_modules = expected_modules - seen_modules
+    missing_modules = expected_modules - seen_modules - certified_modules
     if missing_modules:
         raise InventoryError(f"missing fragment roots for Lean modules: {sorted(missing_modules)}")
     return seen_ids
@@ -2240,6 +2363,7 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         "scope",
         "core_inventory",
         "fragment_roots",
+        "artifact_certificates",
         "universal_theorems",
         "finite_conformance",
         "evidence_classes",
@@ -2249,7 +2373,7 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
             f"coverage root keys differ: missing={sorted(required_root_keys - set(coverage))}, "
             f"unknown={sorted(set(coverage) - required_root_keys)}"
         )
-    if type(coverage["schema"]) is not int or coverage["schema"] != 2:
+    if type(coverage["schema"]) is not int or coverage["schema"] != 3:
         raise InventoryError("unsupported coverage schema")
     validate_source_identity(root, coverage["source_state"], coverage["source_identity"])
     if not isinstance(coverage["scope"], str) or not coverage["scope"].strip():
@@ -2303,16 +2427,26 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
         raise InventoryError(f"cannot read formal plan {plan_path}: {exc}") from exc
     module_sources = lean_module_sources(root / "formal")
     reachable_modules = reachable_lean_modules(module_sources)
-    fragment_root_ids = validate_fragment_roots(
-        coverage["fragment_roots"], module_sources, reachable_modules
+    certificate_ids, certified_modules, certified_declarations = validate_artifact_certificates(
+        coverage["artifact_certificates"], module_sources, reachable_modules
     )
+    fragment_root_ids = validate_fragment_roots(
+        coverage["fragment_roots"], module_sources, reachable_modules, certified_modules
+    )
+    fragment_declarations = {root["declaration"] for root in coverage["fragment_roots"]}
+    overlap = fragment_declarations & certified_declarations
+    if overlap:
+        raise InventoryError(
+            f"declarations recorded as both fragment roots and artifact certificates: "
+            f"{sorted(overlap)[:4]}"
+        )
     obligation_ids = validate_obligation_entries(
         plan,
         coverage["universal_theorems"],
-        fragment_root_ids,
+        fragment_root_ids | certificate_ids,
         module_sources,
         reachable_modules,
-        {root["declaration"] for root in coverage["fragment_roots"]},
+        fragment_declarations | certified_declarations,
     )
     validate_finite_conformance(
         coverage["finite_conformance"],
@@ -2322,6 +2456,7 @@ def validate_coverage(root: Path, coverage: Any) -> dict[str, Any]:
     return {
         "owners": live,
         "fragment_roots": fragment_root_ids,
+        "artifact_certificates": certificate_ids,
         "obligations": obligation_ids,
         "closed_obligations": [
             entry["id"]
@@ -2349,6 +2484,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"inventory ok: {len(result['owners'])} owner sets, "
         f"{len(result['fragment_roots'])} Lean fragment roots, "
+        f"{len(result['artifact_certificates'])} artifact certificates, "
         f"{len(result['obligations'])} theorem obligations "
         f"({len(result['closed_obligations'])} closed)"
     )
