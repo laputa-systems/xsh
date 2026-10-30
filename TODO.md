@@ -100,7 +100,7 @@ out of scope.
 
 - **Area:** Tests
 - **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
-- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed. Focused repairs need qualification, and UDP failures and full-corpus timeouts remain unexplained. Private/resource close remains unrun.
+- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed and none of this is qualified on current source. The causes are now known: the UDP failure (a forked child holding the closed port) was fixed by `e3179f233`, and the full-corpus timeouts came from forking the 32-thread runner for every child, fixed by starting children with `posix_spawn` (`0836935e3`). Private/resource close remains unrun. Requalification is blocked on the pinned `ef7` test image, which is no longer in the local Docker store, and on the inherited tools writing to the main checkout's `.work`.
 - **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
 - **Unmet:** Full combined qualification remains manual-only on a stable source. The known XSH-29 deadline causes have focused written/desugared proof; that does not supply full-corpus acceptance. The replacement image and repaired launcher are available, and historical passes do not qualify them.
 - **Fix with:** orchestrate
