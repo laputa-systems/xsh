@@ -174,6 +174,25 @@ proc perform(setup: world.World, step: types.Step, jobs: Jobs) [fs, io, process,
       let name = step.name ?? "client"
       table = adopt(table, name, world.start(setup, false, fp"{setup.core}/dhcpc.xsh", expand(step.args, dir), fp"{dir}/{name}.log")?)
     }
+    "client_notify" => {
+      let name = step.name ?? "client"
+      let log = fp"{dir}/{name}.log"
+      let plan = process.command_argv(setup.xsh, [setup.xsh, fp"{setup.core}/tests/support/dhcp_bound.xsh", setup.xsh, setup.xsh, fp"{setup.core}/dhcpc.xsh", @expand(step.args, dir)], dir, {XSH_MODULE_PATH: setup.core, LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", log, log)
+      let child = unix.spawn_process_group_log(plan, log, notify: true)?
+      defer unix.notify_close(child.notify_fd)
+      var ready = false
+      var attempts = 0
+      while ! ready and attempts < 100 {
+        ready = unix.notify_ready(child.notify_fd)?
+        if ! ready { time.sleep(50ms) }
+        attempts += 1
+      }
+      if ! ready {
+        let _ = process.kill_group(child.pid, "KILL")
+        return Err(error.failure(f"client did not report readiness: {log.read_text()?}"))
+      }
+      table = adopt(table, name, world.Job(group: child.pid, log:))
+    }
     "probe" => {
       let status = world.run_support(setup, false, "dhcp_probe", [world.CLIENT_INTERFACE, world.CLIENT_MAC, fp"{dir}/probe.json".display(), step.text ?? "12345"], fp"{dir}/probe.log")?
       fp"{dir}/probe.status".write(f"{status.shell_code()?}\n")

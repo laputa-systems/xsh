@@ -31,6 +31,20 @@ pure bound_rules() -> List[types.Rule] {
   ]
 }
 
+test test_the_supervised_client_notifies_readiness_and_acquires_a_lease { |ctx|
+  let file = write_rules(ctx, bound_rules())?
+  guard let dir = scenario.execute(ctx, "notify", [
+    scenario.server_xsh(file),
+    scenario.wait_for("server.requests", "", 5000),
+    scenario.write("etc/resolv.static", ""),
+    {...scenario.client("client", client_args([])), do: "client_notify"},
+    scenario.wait_for("run/eth0.status", "\"state\":\"bound\"", 20000),
+    scenario.copy("run/eth0.status", "bound.status"),
+    scenario.kill("client", "TERM"),
+  ])? else { return }
+  assert "\"state\":\"bound\"" in fp"{dir}/bound.status".read_text()?
+}
+
 test test_the_supervised_client_acquires_a_lease_and_leaves_foreign_state_alone { |ctx|
   let file = write_rules(ctx, bound_rules())?
   guard let dir = scenario.execute(

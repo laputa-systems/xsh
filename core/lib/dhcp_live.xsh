@@ -397,7 +397,8 @@ export proc supervise(settings: client.Settings, mode: client.Mode, notify: Int?
   let ctx = client.Context(settings:, link:, sockets:, boot_id: boot)
   let beginning = client.Beginning(record:, observed:, admin_down: admin_mark(settings).exists()?)
   if let descriptor = notify {
-    let _ = unix.notify_ready(descriptor)?
+    assert unix.write_fd(descriptor, b"r")? == 1
+    unix.close_fd(descriptor)?
   }
   client.drive(host(), ctx, beginning, mode)
 }
