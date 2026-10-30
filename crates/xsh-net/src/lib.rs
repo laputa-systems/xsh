@@ -1919,7 +1919,7 @@ fn tls_config_for_key(key: &NetAgentKey, trust: Arc<trust::TrustGuard>) -> NetRe
         default_tls_verifier(key.system_ca_file.as_deref(), Arc::clone(&trust))?
     };
     let config = builder.dangerous()
-        .with_custom_certificate_verifier(Arc::new(trust::PolicyVerifier { inner: verifier, trust }))
+        .with_custom_certificate_verifier(Arc::new(trust::PolicyVerifier { inner: verifier, trust, verification_enabled: key.tls_verify }))
         .with_no_client_auth();
     Ok(config)
 }

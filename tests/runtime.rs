@@ -24,6 +24,8 @@ mod linux;
 mod modules;
 #[path = "runtime/os.rs"]
 mod os;
+#[path = "runtime/unix_connect_stream.rs"]
+mod unix_connect_stream;
 #[path = "runtime/poll_fds.rs"]
 mod poll_fds;
 #[path = "runtime/process.rs"]

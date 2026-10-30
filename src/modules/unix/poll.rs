@@ -18,6 +18,10 @@ pub(crate) struct PollInterest {
     requested: PollFlags,
 }
 
+pub(crate) fn writable(fd: libc::c_int) -> PollInterest {
+    PollInterest { fd, requested: PollFlags::OUT }
+}
+
 pub(crate) enum PollStep {
     Ready(Vec<(usize, PollFlags)>),
     TimedOut,

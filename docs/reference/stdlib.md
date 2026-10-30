@@ -623,6 +623,7 @@ Terminal styling, control sequences, and width-aware text padding.
 Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 
 - `unix.close_fd(fd: Int) -> Result[Unit, Error]` — Opens a path as a bare descriptor number, or closes one.
+- `unix.connect_stream(path: Path, timeout: Duration) -> Result[Int, Error]` — Connects a Unix stream socket before a deadline.
 - `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.cpu_features() -> List[Str]` — Lists supported host CPU features used by hardware-accelerated utilities.
 - `unix.daemon_start(command: Command, signals: List[Str]) -> Result[Status?, Error]` — Starts a daemon worker and waits for its readiness acknowledgment or exit.

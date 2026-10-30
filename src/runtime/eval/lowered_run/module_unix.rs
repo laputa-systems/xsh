@@ -161,6 +161,11 @@ macro_rules! with_unix_call_rows {
                     Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
                 }
             }
+            callable; RuntimeOp::UnixConnectStream => {
+                let path = lowered_path_arg(unix_require_arg($values.first().cloned(), "unix.connect_stream", $span)?, "unix.connect_stream", $span)?;
+                let timeout = Duration::from_millis(lowered_duration_arg($values.get(1).cloned(), "unix.connect_stream", $span)?.millis);
+                $this.connect_unix_stream(&path, timeout, $span)
+            }
             callable; RuntimeOp::UnixPollFds => {
                 let entries = $values.first().cloned()
                     .ok_or_else(|| RuntimeError::new("arity", "unix.poll_fds expected entries").with_span($span))?
@@ -494,6 +499,84 @@ impl Evaluator {
             ) -> Result<Value, RuntimeError>;
         }
         using self, op, values, span
+    }
+
+    fn connect_unix_stream(
+        &mut self,
+        path: &crate::runtime::value::PathValue,
+        timeout: Duration,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        use rustix::net::{self, AddressFamily, SocketAddrUnix, SocketType};
+        use std::os::fd::{AsRawFd, IntoRawFd};
+        let kind = "unix-connect-stream";
+        let fail = |error: rustix::io::Errno| Value::err(Value::Error(Box::new(
+            RuntimeError::host(kind, &std::io::Error::from(error)).with_span(span))));
+        let deadline = match Instant::now().checked_add(timeout) {
+            Some(deadline) => deadline,
+            None => return Ok(Value::err(Value::Error(Box::new(RuntimeError::new(kind, "timeout is too large").with_span(span))))),
+        };
+        let address = match SocketAddrUnix::new(self.host_path(path)) {
+            Ok(address) => address,
+            Err(error) => return Ok(fail(error)),
+        };
+        loop {
+            self.service_pending_signal(span)?;
+            if self.shutting_down() || (crate::runtime::process::cancellation_escalated_signal().is_some() && self.signal_state.shutdown_complete) {
+                return Err(match self.signal_state.shutdown_status {
+                    Some(status) => RuntimeError::abort(status, self.signal_state.shutdown_force),
+                    None => RuntimeError::new("canceled", "unix.connect_stream was canceled by shutdown"),
+                }.with_span(span));
+            }
+            #[cfg(target_os = "linux")]
+            let socket = net::socket_with(AddressFamily::UNIX, SocketType::STREAM,
+                net::SocketFlags::CLOEXEC | net::SocketFlags::NONBLOCK, None);
+            #[cfg(not(target_os = "linux"))]
+            let socket = net::socket(AddressFamily::UNIX, SocketType::STREAM, None).and_then(|socket| {
+                rustix::io::fcntl_setfd(&socket, rustix::io::FdFlags::CLOEXEC)?;
+                let flags = rustix::fs::fcntl_getfl(&socket)?;
+                rustix::fs::fcntl_setfl(&socket, flags | rustix::fs::OFlags::NONBLOCK)?;
+                Ok(socket)
+            });
+            let socket = match socket { Ok(socket) => socket, Err(error) => return Ok(fail(error)) };
+            match net::connect(&socket, &address) {
+                Ok(()) => return Ok(Value::ok(Value::Int(i64::from(socket.into_raw_fd())))),
+                Err(rustix::io::Errno::INPROGRESS) | Err(rustix::io::Errno::INTR) => {
+                    let interest = [unix_module::poll::writable(socket.as_raw_fd())];
+                    loop {
+                        self.service_pending_signal(span)?;
+                        if self.shutting_down() || (crate::runtime::process::cancellation_escalated_signal().is_some() && self.signal_state.shutdown_complete) {
+                            return Err(match self.signal_state.shutdown_status {
+                                Some(status) => RuntimeError::abort(status, self.signal_state.shutdown_force),
+                                None => RuntimeError::new("canceled", "unix.connect_stream was canceled by shutdown"),
+                            }.with_span(span));
+                        }
+                        match unix_module::poll::step(&interest, Some(deadline), span) {
+                            Ok(unix_module::poll::PollStep::Ready(_)) => match net::sockopt::socket_error(&socket) {
+                                Ok(Ok(())) => return Ok(Value::ok(Value::Int(i64::from(socket.into_raw_fd())))),
+                                Ok(Err(error)) | Err(error) => return Ok(fail(error)),
+                            },
+                            Ok(unix_module::poll::PollStep::TimedOut) => return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("timeout", "unix.connect_stream timed out").with_host_facet(&std::io::Error::from(std::io::ErrorKind::TimedOut)).with_span(span))))),
+                            Ok(unix_module::poll::PollStep::Interrupted) => {},
+                            Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+                        }
+                    }
+                }
+                Err(rustix::io::Errno::AGAIN) => {
+                    drop(socket);
+                    let retry = Instant::now().checked_add(Duration::from_millis(10)).unwrap_or(deadline).min(deadline);
+                    match self.poll_fds_until(&[], Some(retry), span) {
+                        Ok(result @ Value::Result(crate::runtime::value::ResultValue::Err(_))) => return Ok(result),
+                        Err(error) => return Err(error),
+                        _ => {},
+                    }
+                    if Instant::now() >= deadline {
+                        return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("timeout", "unix.connect_stream timed out").with_host_facet(&std::io::Error::from(std::io::ErrorKind::TimedOut)).with_span(span)))));
+                    }
+                }
+                Err(error) => return Ok(fail(error)),
+            }
+        }
     }
 
     fn poll_fds_until(
