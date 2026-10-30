@@ -533,6 +533,21 @@ print $none
   assert output.stdout == "ab\nabcdef\n5\n0\n"
 }
 
+test test_full_inference_null_test_guards_the_right_operand_of_or_and_and { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure small_or_absent(count) { count == null or count > 1 }
+pure present_and_big(count) { count != null and count > 1 }
+print $small_or_absent(5)
+print $small_or_absent(null)
+print $present_and_big(5)
+print $present_and_big(null)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\ntrue\ntrue\nfalse\n"
+}
+
 test test_full_inference_emptiness_family_is_a_generic_condition { |ctx|
   let output = test.run_xsh(
     ctx,

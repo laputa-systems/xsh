@@ -619,6 +619,12 @@ impl ProducerPrefixContext<'_> {
     fn guard_source_binding_path(&self, decoder: &FullDecoder<'_>, source: usize, use_site: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
+        self.guard_source_binding_path_through(decoder, source, use_site, false, charge)
+    }
+
+    fn guard_source_binding_path_through(&self, decoder: &FullDecoder<'_>, source: usize, use_site: usize,
+        through_declarations: bool, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
         let mut at = source;
         let mut suffix = Vec::new();
         for _ in self.evidence.range.clone() {
@@ -632,7 +638,8 @@ impl ProducerPrefixContext<'_> {
             path.extend(suffix);
             if path.len() > 128 { return Ok(None); }
             let binding = self.evidence.binding(decoder.store, decoder.owner, at, slot)?;
-            if self.evidence.visible_binding(decoder.store, decoder.owner, use_site, slot)? == Some(binding) {
+            let follows_declaration = through_declarations && matches!(binding, ProducerBinding::ScopedDeclaration(..));
+            if !follows_declaration && self.evidence.visible_binding(decoder.store, decoder.owner, use_site, slot)? == Some(binding) {
                 let target = (slot, path);
                 return Ok(self.guard_value_binding_path(decoder, source, use_site, &target, charge)?.filter(|actual| actual == &target));
             }
@@ -693,13 +700,12 @@ impl ProducerPrefixContext<'_> {
             }, Some(&mut active), charge)
     }
 
-    fn guarded_nonnull_read_scope(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+    fn guarded_nonnull_read_scope(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize, target: (usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
             return Err(IrVerifyError::new("guarded read context disagrees with its owner"));
         }
-        let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
         if self.evidence.binding(decoder.store, decoder.owner, source, target.0)? != binding { return Ok(false); }
         self.evidence.guarded_path_read_is_narrowed(decoder, instruction, &target, super::super::GuardedReadContract::NonNullRead, binding, Some(self), None, charge)
@@ -708,10 +714,12 @@ impl ProducerPrefixContext<'_> {
     pub(super) fn guarded_nonnull_read(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
-        let Some(read) = self.guard_value_binding_path(decoder, instruction, instruction, &target, charge)? else { return Ok(false); };
-        if read != target { return Ok(false); }
-        self.guarded_nonnull_read_scope(decoder, instruction, source, charge)
+        for through_declarations in [false, true] {
+            let Some(target) = self.guard_source_binding_path_through(decoder, source, instruction, through_declarations, charge)? else { continue };
+            let Some(read) = self.guard_value_binding_path(decoder, instruction, instruction, &target, charge)? else { continue };
+            if read == target && self.guarded_nonnull_read_scope(decoder, instruction, source, target, charge)? { return Ok(true); }
+        }
+        Ok(false)
     }
 
     pub(super) fn guard_identity_read_source(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
