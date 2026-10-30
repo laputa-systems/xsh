@@ -48382,6 +48382,35 @@ assert wide.count == 1
     }
 
     #[test]
+    fn a_conditional_argument_with_an_empty_list_arm_takes_the_other_arm_type() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-conditional-empty-list-argument.xsh", r#"
+pure count(left: List[Bytes], layout) -> Int { left.len() + layout.n }
+pure outer(row: List[Bytes], side: Int) -> Int {
+  let label = "wrong"
+  count(if side == 0 { row } else { [] }, {n: label.byte_len()})
+}
+assert outer([b"a"], 0) == 6
+assert outer([b"a"], 1) == 5
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let empty = function_instruction_indices(&program, "outer", FullTag::ExprList);
+            let empty = *empty.iter().find(|&&instruction| {
+                let owner = scheme_fixture_root_function(&program, "outer");
+                matches!(function_view_decoder(&program.store, owner).expression_view(instruction).unwrap(), schema::ExprView::List(values) if values.len() == 0)
+            }).expect("the empty list arm");
+            let text = function_instruction_indices(&program, "outer", FullTag::ExprStr).into_iter().find(|&instruction| {
+                let owner = scheme_fixture_root_function(&program, "outer");
+                matches!(function_view_decoder(&program.store, owner).expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong_arm = program.clone();
+            wrong_arm.store.tags[empty] = program.store.tags[text];
+            wrong_arm.store.data[empty] = program.store.data[text];
+            FullVerifier::verify(&wrong_arm).expect_err("an arm that is not a list cannot join the list arm");
+        });
+    }
+
+    #[test]
     fn a_record_argument_derives_the_type_of_a_computed_field_and_not_of_an_ill_typed_one() {
         run_with_large_stack(|| {
             let program = fixture("generic-record-argument-computed-field.xsh", r#"

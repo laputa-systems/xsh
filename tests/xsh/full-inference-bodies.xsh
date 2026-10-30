@@ -1712,3 +1712,20 @@ proc main() [io] {
   )?
   assert output.stdout == "1\n0\n1\n", output.stdout
 }
+
+test test_full_inference_conditional_argument_with_an_empty_list_arm_reaches_a_generic_callee { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure count(left: List[Bytes], layout) -> Int { left.len() + layout.n }
+proc main() [io] {
+  let row: List[Bytes] = [b"a", b"b"]
+  print $count(if row.len() > 1 { row } else { [] }, {n: 10})
+  print $count(if row.len() > 5 { row } else { [] }, {n: 10})
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "12\n10\n", output.stdout
+}

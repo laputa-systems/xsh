@@ -2944,7 +2944,13 @@ impl<'a> ProducerProof<'a> {
                 .collect::<Result<Vec<_>, _>>()?;
             self.budget.charge(arms.len())?;
             let mut joined: Option<Type> = None;
+            let mut empty_arms = 0usize;
             for arm in arms {
+                let arm = match decoder.expression_view(arm)? {
+                    schema::ExprView::ValueBlock { mut body, .. } => match decoder.derive_checked_block_tail_expression(&mut body)? { Some(tail) => tail, None => return Ok(None) },
+                    _ => arm,
+                };
+                if matches!(decoder.expression_view(arm)?, schema::ExprView::List(values) if values.len() == 0) { empty_arms += 1; continue; }
                 let arm_type = match self.need_context(&decoder, arm)? {
                     Some(arm_type) => Some((*arm_type).clone()),
                     None => self.derived_argument_type(owner, arm)?,
@@ -2957,6 +2963,7 @@ impl<'a> ProducerProof<'a> {
                 }
             }
             let Some(joined) = joined else { return Ok(None) };
+            if empty_arms > 0 && !matches!(joined, Type::List(_)) { return Ok(None); }
             self.budget.charge_clone(&joined)?;
             self.expression(owner, instruction, Arc::new(joined.clone()), false);
             return Ok(Some(joined));
