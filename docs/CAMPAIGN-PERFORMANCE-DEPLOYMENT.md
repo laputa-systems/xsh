@@ -59,21 +59,17 @@ last source that passed most gates, and old passes do not qualify later source.
   image, not the pinned image; the pairs are not requalified.
 - **Unrun:** private and resource close (`dev/util-linux/check.py
   resources|close`), and every pinned-image stage below.
-- **Blocked on a decision:** `versions.lock.json` pins
-  `sha256:ef7c796588552777825857dc3b8ffca9efe533112a4c340687e625742d93da94`.
-  That image is not in the local store; the 2026-10-28 `Dockerfile.test`
-  rebuild moved the `xsh-test` tag to `sha256:8ddba911cc1b7fd514bfaedd55d8e540e98b5e9b4b5564653cdd449ff5ae8558`.
-  Every inherited tool and `dev/util-linux/check.py` fail before work on the
-  missing pin. Qualifying on the current image changes the owner-approved
-  environment. Separately, the launch, observer and comparison tools fix their
-  controller root, locks and evidence directories under the main checkout's
-  `.work/`, outside any lane worktree.
-- **Limiting stage:** the environment decision above, then current-source
-  acceptance and the remaining XSH-1, XSH-3 and XSH-19 delivery, not a
-  shortage of lanes. Steer again after the first accepted wave or two failed
-  attempts.
-- **Environment:** the owner-approved ef7 image is the environment, and it is
-  unavailable.
+- **Environment:** on 2026-10-30 the owner approved re-pinning
+  `versions.lock.json` to the current `xsh-test` image,
+  `sha256:8ddba911cc1b7fd514bfaedd55d8e540e98b5e9b4b5564653cdd449ff5ae8558`,
+  which replaces the missing ef7 image; pairs measured on ef7 are not
+  comparable with new runs. The launch, observer and comparison tools keep
+  their controller root, locks and evidence under the main checkout's `.work/`,
+  derived from the git common directory, so every lane worktree shares one set
+  of locks; that is approved, not relocated.
+- **Limiting stage:** current-source acceptance and the remaining XSH-1, XSH-3
+  and XSH-19 delivery on the re-pinned image, not a shortage of lanes. Steer
+  again after the first accepted wave or two failed attempts.
 - **Laputa world:** the isolated world build, store verification, rooted
   functionality and unchanged rebuild passed with the R13 seed (85 artifacts
   reused offline). Actual KVM smoke passes with `ASTERINAS_PVH_BOOT_OK`. Full
