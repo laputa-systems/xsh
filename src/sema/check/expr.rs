@@ -1392,7 +1392,9 @@ impl Checker {
                 self.check_inferred_variant_value(*name, expected, expr.span)
             }
             ArenaExprKind::Field { base, name } => {
-                self.check_field_arena(arena, source, *base, *name, expr.span, expected)
+                let view = self.guarded_field_view_arena(arena, id);
+                let ty = self.check_field_arena(arena, source, *base, *name, expr.span, expected);
+                view.unwrap_or(ty)
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 self.check_null_safe_field_arena(arena, source, *base, *name, expr.span)

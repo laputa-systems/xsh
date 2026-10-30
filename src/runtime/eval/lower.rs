@@ -5100,7 +5100,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if facts.wrapper_site(expression).is_none() {
                     let mut source = lowered_types.get(&base)?;
                     while let SchemeType::Validated(_, inner) = source { source = inner; }
-                    ty = match source {
+                    let projected = match source {
                         SchemeType::Record { fields, .. } => fields.get(&name)?.clone(),
                         _ => match source.closed_ground_type()?.unvalidated() {
                             Type::Record(fields) => SchemeType::Ground(fields.get(&name)?.clone()),
@@ -5110,6 +5110,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             },
                         },
                     };
+                    if !matches!((&ty, &projected), (SchemeType::Parameter(view), SchemeType::Parameter(field)) if view != field) {
+                        ty = projected;
+                    }
                 }
                 push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span })
             }

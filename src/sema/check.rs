@@ -993,6 +993,7 @@ pub(super) struct Binding {
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
+    guarded_field_views: Arc<[(proof::Narrowing, Type)]>,
     schemas: BindingSchemaFacts,
 }
 
@@ -1011,6 +1012,7 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
+            guarded_field_views: Arc::from([]),
             schemas: BindingSchemaFacts::default(),
         }
     }

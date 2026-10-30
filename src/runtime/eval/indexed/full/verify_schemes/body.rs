@@ -7539,6 +7539,29 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
         prepare(&source)
     }
 
+    #[test]
+    fn inferred_record_field_guard_rejects_a_different_field() {
+        let program = prepare(r#"
+pure label(row) -> Str {
+  if row.node != null { let _ = row.other; f"{row.node}" } else { "none" }
+}
+let node: Str? = "node"
+let other: Str? = null
+print (label({node: node, other: other}))
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "label").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let fields = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Field { name: "node", .. }))).collect::<Vec<_>>();
+        assert_eq!(fields.len(), 2);
+        let other = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "other").unwrap().0 as u32 + 1;
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        let words = forged.store.data[fields[1]].range().bounds(forged.store.extra.len()).unwrap();
+        forged.store.extra[words.start + 1] = other;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
     fn guarded_record_fact(program: &FullProgram, name: &str, narrowed: bool) -> usize {
         let _symbols = program.symbol_owner().enter();
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();

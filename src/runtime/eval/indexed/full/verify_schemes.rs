@@ -2853,7 +2853,7 @@ fn verify_body_expression(
         schema::ExprView::Field { base, name, .. } => {
             let mut base = child(base, budget)?;
             while let SchemeType::Validated(_, inner) = base { budget.charge(1)?; base = *inner; }
-            match base {
+            let actual = match base {
                 SchemeType::Record { fields, .. } => fields.get(&Name::intern(name)).cloned(),
                 _ => match base.closed_ground_type() {
                     Some(ty) => match ty.unvalidated() {
@@ -2862,7 +2862,15 @@ fn verify_body_expression(
                     },
                     None => None,
                 },
-            }.ok_or_else(|| IrVerifyError::new("generic field projection has no required field contract"))?
+            }.ok_or_else(|| IrVerifyError::new("generic field projection has no required field contract"))?;
+            if !body_types_equal(&actual, ty) && guards::authenticates_read(store, decoder, scheme_scope, instruction, &actual, ty,
+                producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?.as_ref(), budget)?
+            {
+                budget.charge_scheme_clone(ty)?;
+                ty.clone()
+            } else {
+                actual
+            }
         }
         schema::ExprView::TypedCall { callee, kind, signature, args, .. } => {
             let actual = child(callee, budget)?;

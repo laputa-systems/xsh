@@ -3009,6 +3009,12 @@ impl Checker {
         Type::Int
     }
 
+    fn is_inferred_field_non_null(&self, narrowing: &Narrowing) -> bool {
+        matches!(narrowing.refinement, super::proof::Refinement::NonNull { .. })
+            && !narrowing.path.is_empty()
+            && self.lookup(narrowing.name).is_some_and(|binding| super::proof::projected_type(&binding.ty, &narrowing.path).is_none())
+    }
+
     pub(super) fn apply_narrowings(&mut self, narrowings: &[Narrowing]) {
         for narrowing in narrowings {
             let Some(binding) = self.lookup(narrowing.name).cloned() else {
@@ -3017,12 +3023,16 @@ impl Checker {
             if !binding.proof.accepts(narrowing) {
                 continue;
             }
+            let mut field_view = false;
             let ty = match &narrowing.refinement {
                 super::proof::Refinement::Type(ty) => ty.clone(),
                 super::proof::Refinement::NonNull { source, subject, comparison } => {
                     let view = self.fresh_wrapper_type(*subject);
                     match self.type_constraints.register_non_null_guard(self.constraint_scope(), Type::Inference(*source), view.clone(), *subject, *comparison) {
-                        Ok(guard) => self.scopes.last_mut().expect("narrowing has a lexical scope").guard = Some(guard),
+                        Ok(guard) => {
+                            field_view = true;
+                            self.scopes.last_mut().expect("narrowing has a lexical scope").guard = Some(guard);
+                        }
                         Err(error) => {
                             self.error(*subject, &format!("guarded view source is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
                             continue;
@@ -3040,7 +3050,12 @@ impl Checker {
                 &narrowing.path,
                 ty.clone(),
             ) {
-                continue;
+                if !field_view || narrowing.path.is_empty() { continue; }
+                narrowed.guarded_field_views = narrowed.guarded_field_views.iter()
+                    .filter(|(existing, _)| existing.path != narrowing.path)
+                    .cloned()
+                    .chain(std::iter::once((narrowing.clone(), ty.clone())))
+                    .collect();
             }
             self.current_scope_mut().insert(narrowing.name, narrowed);
         }
@@ -3877,7 +3892,10 @@ impl Checker {
                 let binding = self
                     .lookup_value_binding_for_expr(arena, expr)
                     .binding()?;
-                let ty = super::proof::projected_type(&binding.ty, &path)?.clone();
+                let ty = match super::proof::projected_type(&binding.ty, &path) {
+                    Some(ty) => ty.clone(),
+                    None => self.type_constraints.recorded_field_type(&binding.ty, &path).ok()??,
+                };
                 return Some((name, path, ty, binding));
             }
             match arena.arena.expr(expr).kind {
@@ -3888,6 +3906,13 @@ impl Checker {
                 _ => return None,
             }
         }
+    }
+
+    pub(super) fn guarded_field_view_arena(&self, arena: &ArenaProgram, field: ExprId) -> Option<Type> {
+        let (_, path, _, binding) = self.proof_subject_arena(arena, field)?;
+        binding.guarded_field_views.iter()
+            .find(|(narrowing, _)| *narrowing.path == *path && binding.proof.accepts(narrowing))
+            .map(|(_, view)| view.clone())
     }
 
     pub(super) fn is_proven_nonnull_subject_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
@@ -4162,7 +4187,12 @@ impl Checker {
             self.pop_scope();
         }
         self.push_scope();
-        self.apply_narrowings(&previous_failure);
+        if else_block.is_some() {
+            self.apply_narrowings(&previous_failure);
+        } else {
+            let continuing = previous_failure.into_iter().filter(|narrowing| !self.is_inferred_field_non_null(narrowing)).collect::<Vec<_>>();
+            self.apply_narrowings(&continuing);
+        }
         let fallthrough_guard = self.scopes.last().and_then(|scope| scope.guard);
         if let Some(block) = else_block {
             self.check_block_arena(arena, source, block);

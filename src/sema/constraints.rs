@@ -2507,6 +2507,23 @@ impl TypeConstraints {
         })
     }
 
+    pub(crate) fn recorded_field_type(&self, receiver: &Type, path: &[crate::symbol::Name]) -> Result<Option<Type>, ConstraintResolutionError> {
+        let mut current = receiver.clone();
+        for field in path {
+            let next = match self.resolve(&current)? {
+                Type::Record(fields) => fields.get(field).cloned(),
+                Type::Inference(id) => match self.record_binding(id)? {
+                    Some(record) => self.resolve_row(&record.shape)?.fields.get(field).cloned(),
+                    None => None,
+                },
+                _ => None,
+            };
+            let Some(next) = next else { return Ok(None) };
+            current = next;
+        }
+        Ok(Some(current))
+    }
+
     pub(crate) fn project_record_field(
         &mut self,
         receiver: &Type,
