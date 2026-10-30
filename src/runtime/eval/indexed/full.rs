@@ -48382,6 +48382,32 @@ assert wide.count == 1
     }
 
     #[test]
+    fn a_byte_length_argument_is_an_int_and_a_forged_one_is_not() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-byte-length-argument.xsh", r#"
+pure add(left: Int, extra) -> Int { left + extra }
+pure outer(first: Str, extra: Int) -> Int {
+  let marker = "wrong"
+  add(first.byte_len(), extra) + marker.byte_len() - 5
+}
+assert outer("ab", 1) == 3
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "outer");
+            let decoder = function_view_decoder(&program.store, owner);
+            let length = function_instruction_indices(&program, "outer", FullTag::ExprStrByteLen);
+            assert_eq!(length.len(), 2);
+            let text = function_instruction_indices(&program, "outer", FullTag::ExprStr).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.tags[length[0]] = program.store.tags[text];
+            wrong.store.data[length[0]] = program.store.data[text];
+            FullVerifier::verify(&wrong).expect_err("a string cannot fill an integer parameter");
+        });
+    }
+
+    #[test]
     fn a_conditional_argument_with_an_empty_list_arm_takes_the_other_arm_type() {
         run_with_large_stack(|| {
             let program = fixture("generic-conditional-empty-list-argument.xsh", r#"

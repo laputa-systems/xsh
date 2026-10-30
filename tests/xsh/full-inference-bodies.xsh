@@ -1729,3 +1729,19 @@ proc main() [io] {
   )?
   assert output.stdout == "12\n10\n", output.stdout
 }
+
+test test_full_inference_byte_length_argument_reaches_a_generic_callee { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure add(left: Int, extra) -> Int { left + extra }
+pure outer(first: Str, extra: Int) -> Int { add(first.byte_len(), extra) }
+proc main() [io] {
+  print $outer("abc", 4)
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "7\n", output.stdout
+}
