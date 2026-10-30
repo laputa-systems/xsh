@@ -1,7 +1,7 @@
 use super::*;
 use crate::syntax::node::BinaryOp;
 
-const ARITHMETIC_SCOPE: &str = "integer-arithmetic-local-fixture-v1";
+const ARITHMETIC_SCOPE: &str = "integer-arithmetic-local-fixture-v2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProjectedTag {
@@ -152,9 +152,39 @@ struct ProjectedFunction {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProjectedFailure {
+    DivisionByZero,
+    IntegerOverflow,
+}
+
+impl ProjectedFailure {
+    const ALL: [Self; 2] = [Self::DivisionByZero, Self::IntegerOverflow];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::DivisionByZero => "division-by-zero",
+            Self::IntegerOverflow => "integer-overflow",
+        }
+    }
+
+    fn from_name(name: &str) -> Result<Self, String> {
+        Self::ALL
+            .into_iter()
+            .find(|failure| failure.name() == name)
+            .ok_or_else(|| format!("unknown specified failure {name:?}"))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Outcome {
+    Value(u64),
+    Failure(ProjectedFailure),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Observation {
     function: IrId,
-    result_bits: u64,
+    outcome: Outcome,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -335,7 +365,14 @@ fn encode_arithmetic_document(document: &ArithmeticDocument) -> Result<String, S
         ])).collect())),
         ("observations", WireValue::Array(document.observations.iter().map(|observation| wire_object([
             ("function", wire_string(hex_u32(observation.function.raw()))),
-            ("result", wire_string(hex_u64(observation.result_bits))),
+            ("outcome", wire_string(match observation.outcome {
+                Outcome::Value(_) => "value",
+                Outcome::Failure(_) => "failure",
+            })),
+            ("detail", wire_string(match observation.outcome {
+                Outcome::Value(bits) => hex_u64(bits),
+                Outcome::Failure(failure) => failure.name().to_string(),
+            })),
         ])).collect())),
     ]);
     deser_json::to_string(&value).map_err(|error| error.to_string())
@@ -469,11 +506,16 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
     let observations = take_array(&mut fields, "observations")?
         .into_iter()
         .map(|value| {
-            let mut row = parse_object_fields(value, &["function", "result"])?;
-            Ok(Observation {
-                function: take_id(&mut row, "function")?,
-                result_bits: parse_hex_u64(&take_string(&mut row, "result")?)?,
-            })
+            let mut row = parse_object_fields(value, &["function", "outcome", "detail"])?;
+            let function = take_id(&mut row, "function")?;
+            let outcome = take_string(&mut row, "outcome")?;
+            let detail = take_string(&mut row, "detail")?;
+            let outcome = match outcome.as_str() {
+                "value" => Outcome::Value(parse_hex_u64(&detail)?),
+                "failure" => Outcome::Failure(ProjectedFailure::from_name(&detail)?),
+                other => return Err(format!("unknown observation outcome {other:?}")),
+            };
+            Ok(Observation { function, outcome })
         })
         .collect::<Result<Vec<_>, String>>()?;
     let document = ArithmeticDocument {
@@ -493,25 +535,27 @@ fn call_integer_function(
     program: &FullProgram,
     sources: &SourceMap,
     name: &str,
-) -> Result<u64, String> {
+) -> Result<Outcome, String> {
     use crate::runtime::eval::{CallableKind, LoweredFunctionKey};
     use crate::runtime::value::Value;
     let mut evaluator =
         crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources.clone());
     evaluator.indexed_program = Some(Arc::new(program.clone()));
     let key = LoweredFunctionKey::Name(program.symbol_owner().with_current(|| Name::intern(name)));
-    match evaluator
+    let call = evaluator
         .call_indexed_direct(
             key,
             CallableKind::Pure,
             &[],
             Span::new(program.store.source_id, 0, 0),
         )
-        .ok_or_else(|| format!("function {name:?} is absent"))?
-        .map_err(|error| format!("function {name:?} failed: {error:?}"))?
-    {
-        Value::Int(value) => Ok(value as u64),
-        other => Err(format!("function {name:?} returned {other:?}")),
+        .ok_or_else(|| format!("function {name:?} is absent"))?;
+    match call {
+        Ok(Value::Int(value)) => Ok(Outcome::Value(value as u64)),
+        Ok(other) => Err(format!("function {name:?} returned {other:?}")),
+        Err(error) => ProjectedFailure::from_name(&error.kind)
+            .map(Outcome::Failure)
+            .map_err(|_| format!("function {name:?} failed outside the projection: {error:?}")),
     }
 }
 
@@ -533,7 +577,7 @@ fn execute_schedule(
                 .ok_or_else(|| format!("scheduled function {name:?} is absent"))?;
             Ok(Observation {
                 function: IrId::from_index(index)?,
-                result_bits: call_integer_function(program, sources, name)?,
+                outcome: call_integer_function(program, sources, name)?,
             })
         })
         .collect()
@@ -655,7 +699,7 @@ fn check_artifact_against_program(
 mod tests {
     use super::*;
 
-    const SCHEDULE: [&str; 2] = ["shifted", "scaled"];
+    const SCHEDULE: [&str; 4] = ["shifted", "scaled", "divided", "overflowed"];
 
     const FIXTURE_SOURCE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -703,12 +747,16 @@ mod tests {
         output
     }
 
-    fn assert_lean_document(definition: &str, text: &str) {
-        assert_eq!(
-            lean_document(definition),
-            text,
+    fn assert_lean_documents(documents: &[(&str, &str)]) {
+        let stale = documents
+            .iter()
+            .filter(|(definition, text)| lean_document(definition) != *text)
+            .map(|(definition, text)| lean_definition(definition, text))
+            .collect::<Vec<_>>();
+        assert!(
+            stale.is_empty(),
             "Lean documents must hold the exported bytes; the current export is\n{}",
-            lean_definition(definition, text)
+            stale.join("\n")
         );
     }
 
@@ -764,8 +812,10 @@ mod tests {
         let fixture = fixture();
         let source_text = encode_source_document(&fixture.source);
         let raw_text = encode_arithmetic_document(&fixture.document).unwrap();
-        assert_lean_document("sourceDocumentCodes", &source_text);
-        assert_lean_document("rawIrDocumentCodes", &raw_text);
+        assert_lean_documents(&[
+            ("sourceDocumentCodes", &source_text),
+            ("rawIrDocumentCodes", &raw_text),
+        ]);
 
         assert_eq!(decode_source_document(&source_text).unwrap(), fixture.source);
         let decoded = decode_arithmetic_document(&raw_text).unwrap();
@@ -803,8 +853,16 @@ mod tests {
         assert_eq!(
             document.observations,
             [
-                Observation { function: IrId::from_raw(1).unwrap(), result_bits: 5 },
-                Observation { function: IrId::from_raw(2).unwrap(), result_bits: 42 },
+                Observation { function: IrId::from_raw(1).unwrap(), outcome: Outcome::Value(5) },
+                Observation { function: IrId::from_raw(2).unwrap(), outcome: Outcome::Value(42) },
+                Observation {
+                    function: IrId::from_raw(3).unwrap(),
+                    outcome: Outcome::Failure(ProjectedFailure::DivisionByZero),
+                },
+                Observation {
+                    function: IrId::from_raw(4).unwrap(),
+                    outcome: Outcome::Failure(ProjectedFailure::IntegerOverflow),
+                },
             ]
         );
     }
@@ -907,6 +965,18 @@ mod tests {
         reject("unknown scope", &|value| {
             set_field(value, "scope", WireValue::String("scalar-literal-boundary-fixture-v1".to_string()))
         });
+        reject("unknown observation outcome", &|value| {
+            set_nested_wire(value, "observations", 0, "outcome", "completed")
+        });
+        reject("unknown specified failure", &|value| {
+            set_nested_wire(value, "observations", 2, "detail", "index-out-of-range")
+        });
+        reject("failure outcome carrying value bits", &|value| {
+            set_nested_wire(value, "observations", 2, "outcome", "value")
+        });
+        reject("value outcome carrying a failure name", &|value| {
+            set_nested_wire(value, "observations", 0, "outcome", "failure")
+        });
         reject("uppercase hex word", &|value| {
             set_nested_wire(value, "instructions", binary_index, "lhs", "0000000A")
         });
@@ -944,9 +1014,22 @@ mod tests {
         assert!(check(&reordered).is_err());
 
         let mut wrong_result = fixture.document.clone();
-        wrong_result.observations[0].result_bits ^= 1;
+        wrong_result.observations[0].outcome = Outcome::Value(4);
         assert!(validate_arithmetic_document(&wrong_result).is_ok());
         assert!(check(&wrong_result).is_err());
+
+        let mut value_recorded_as_failure = fixture.document.clone();
+        value_recorded_as_failure.observations[0].outcome =
+            Outcome::Failure(ProjectedFailure::IntegerOverflow);
+        assert!(check(&value_recorded_as_failure).is_err());
+
+        let mut failure_recorded_as_value = fixture.document.clone();
+        failure_recorded_as_value.observations[2].outcome = Outcome::Value(0);
+        assert!(check(&failure_recorded_as_value).is_err());
+
+        let mut wrong_failure = fixture.document.clone();
+        wrong_failure.observations[2].outcome = Outcome::Failure(ProjectedFailure::IntegerOverflow);
+        assert!(check(&wrong_failure).is_err());
 
         let mut duplicated = fixture.document.clone();
         duplicated.observations.push(duplicated.observations[0]);
@@ -976,8 +1059,8 @@ mod tests {
         wrong_operation.store.binary_ops[add] = BinaryOp::Mul;
         FullVerifier::verify(&wrong_operation).expect("the multiplication is still well typed");
         assert_eq!(
-            execute_schedule(&wrong_operation, &fixture.sources, &SCHEDULE).unwrap()[0].result_bits,
-            6
+            execute_schedule(&wrong_operation, &fixture.sources, &SCHEDULE).unwrap()[0].outcome,
+            Outcome::Value(6)
         );
         assert!(check(&wrong_operation).is_err());
 

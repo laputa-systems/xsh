@@ -10221,21 +10221,39 @@
       "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
     },
     {
+      "id": "fragment.Xsh.Conformance.Vertical.observations_decode_a_value_or_a_specified_failure",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.observations_decode_a_value_or_a_specified_failure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.observations_reject_an_unknown_outcome_or_a_mismatched_detail",
+      "module": "Xsh.Conformance.Vertical.Artifact",
+      "declaration": "Xsh.Conformance.Vertical.observations_reject_an_unknown_outcome_or_a_mismatched_detail",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The decoder of the source document and of the raw-IR document of the integer-arithmetic local fixture: the closed tag and operation tables, ordinal agreement, unknown transport tags, unknown fields, and reserved identifiers.",
+      "boundary": "Decodes supplied ASCII documents to Lean rows and rejects other text; it does not show the rows came from the Rust lowerer, and the source bytes are never parsed."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Vertical.certify_sound",
       "module": "Xsh.Conformance.Vertical.Meaning",
       "declaration": "Xsh.Conformance.Vertical.certify_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.program_result_is_a_completed_machine_run",
+      "id": "fragment.Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "module": "Xsh.Conformance.Vertical.Meaning",
-      "declaration": "Xsh.Conformance.Vertical.program_result_is_a_completed_machine_run",
+      "declaration": "Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
@@ -10244,17 +10262,89 @@
       "declaration": "Xsh.Conformance.Vertical.validated_observation_is_a_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.machine_run_result_is_independent_of_extra_fuel",
+      "id": "fragment.Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "module": "Xsh.Conformance.Vertical.Meaning",
-      "declaration": "Xsh.Conformance.Vertical.machine_run_result_is_independent_of_extra_fuel",
+      "declaration": "Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation is that machine's completed result.",
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
       "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.the_admitted_productions_parse",
+      "module": "Xsh.Conformance.Vertical.Frontend",
+      "declaration": "Xsh.Conformance.Vertical.the_admitted_productions_parse",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted source productions of the integer-arithmetic fixture: integer functions with integer lets and one return of at most one binary operation, read from exact source characters by an independent Lean tokenizer and parser.",
+      "boundary": "The grammar is the Lean model's own for this subset. It is not shown equal to the XSH parser or grammar outside artifacts that name it; text outside the subset is refused, which says nothing about whether XSH accepts it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.text_outside_the_admitted_productions_is_refused",
+      "module": "Xsh.Conformance.Vertical.Frontend",
+      "declaration": "Xsh.Conformance.Vertical.text_outside_the_admitted_productions_is_refused",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted source productions of the integer-arithmetic fixture: integer functions with integer lets and one return of at most one binary operation, read from exact source characters by an independent Lean tokenizer and parser.",
+      "boundary": "The grammar is the Lean model's own for this subset. It is not shown equal to the XSH parser or grammar outside artifacts that name it; text outside the subset is refused, which says nothing about whether XSH accepts it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_function_outside_the_lowered_shape_is_refused",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.a_function_outside_the_lowered_shape_is_refused",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_lowered_function_has_the_observed_rows",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.a_lowered_function_has_the_observed_rows",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.certify_from_source_sound",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_from_source_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.certify_decoded_sound",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_decoded_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.certify_decoded_of_checks",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_decoded_of_checks",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.certify_from_source_of_decodes",
+      "module": "Xsh.Conformance.Vertical.Lowering",
+      "declaration": "Xsh.Conformance.Vertical.certify_from_source_of_decodes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Translation validation of the integer-arithmetic fixture from parsed source functions: the Lean lowerer's observed row, payload, pool and block layout for one integer let and one binary return, the refusal of other shapes, and the soundness of the validator that accepts a source and raw-IR document pair.",
+      "boundary": "The lowerer reproduces the layout Rust emitted for the fixture; it is checked per artifact and is not proved equal to Rust's lowerer on other programs. Span words are taken from the exchanged document. Execution by Rust is not covered."
     }
   ],
   "artifact_certificates": [
@@ -10272,6 +10362,12 @@
       "supporting_theorems": [
         "Xsh.Conformance.Vertical.fixture_is_the_decoded_raw_ir_document",
         "Xsh.Conformance.Vertical.fixture_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_fixture_source_parses_to_the_fixture_functions",
+        "Xsh.Conformance.Vertical.the_fixture_functions_lower_to_the_artifact",
+        "Xsh.Conformance.Vertical.the_fixture_artifact_validates",
+        "Xsh.Conformance.Vertical.the_fixture_functions_agree_with_the_artifact",
+        "Xsh.Conformance.Vertical.the_fixture_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.fixture_pair_is_certified",
         "Xsh.Conformance.Vertical.unmodified_artifact_is_certified"
       ],
       "rejection_theorems": [
@@ -10280,10 +10376,14 @@
         "Xsh.Conformance.Vertical.a_mutated_ir_operand_is_rejected",
         "Xsh.Conformance.Vertical.a_missing_or_reordered_observation_is_rejected",
         "Xsh.Conformance.Vertical.a_wrong_recorded_result_is_rejected",
-        "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims"
+        "Xsh.Conformance.Vertical.a_wrong_failure_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
+        "Xsh.Conformance.Vertical.malformed_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_lowering_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_source_is_rejected"
       ],
-      "proposition": "Both documents decode, the raw-IR document names the source document, the artifact validates, and the IR meanings of `shifted` and `scaled` complete with 5 and 42, recorded in that order. The rejection theorems show that a wrong binding identifier, a wrong operation, a mutated operand, a wrong recorded result, and a missing, reordered or repeated observation fail the same check, and that the certificate fails for other claims.",
-      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The claim starts at the supplied IR rows: the source bytes are associated by identifier only and are not parsed. It does not show that Rust lowers the source to these rows or executes them, and it says nothing about other inputs."
+      "proposition": "The source document parses in the admitted productions; lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; each function means the same under the source and the IR; the artifact validates; and the base machine runs of `shifted`, `scaled`, `divided` and `overflowed` end with 5, 42, a division-by-zero failure and an integer-overflow failure, recorded in that order. The rejection theorems show that a wrong binding identifier, operation, operand, recorded result or failure kind, a missing, reordered or repeated observation, structurally malformed IR rows, a changed source, and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR, and the artifact covers a two-statement function shape with no parameters, calls or control flow."
     }
   ],
   "source_identity": {
