@@ -524,6 +524,10 @@ impl TypeScheme {
         self.method_path_return_payload(payload)
     }
 
+    pub(crate) fn optional_return_assignment_matches(&self, actual: &SchemeType) -> bool {
+        self.callable().requirements().assigns_to_optional(actual, self.return_type())
+    }
+
     pub(crate) fn method_path_return_payload(&self, actual: &SchemeType) -> bool {
         if !self.explicit_return() || !matches!(actual, SchemeType::Parameter(_)) { return false; }
         let header = match (self.kind(), self.return_type()) {
@@ -902,6 +906,20 @@ fn validate_wrapper_group_contracts(
 }
 
 impl CallableRequirements {
+    pub(crate) fn assigns_to_optional(&self, actual: &SchemeType, expected: &SchemeType) -> bool {
+        matches!(actual, SchemeType::Parameter(_))
+            && expected.is_optional()
+            && self.applications.iter().any(|application| {
+                let CallableApplication::KnownArguments(known) = application else { return false };
+                let layouts = known.parameters.iter().map(|parameter| parameter.layout).collect::<Vec<_>>();
+                let Ok(binding) = super::arguments::bind_parameter_layout(&layouts, known.arguments.iter().map(|argument| (argument.kind, argument.span))) else { return false };
+                known.arguments.iter().zip(&binding.argument_slots).any(|(argument, &slot)| {
+                    let parameter = &known.parameters[slot];
+                    !parameter.layout.rest && &argument.ty == actual && parameter.ty.matches_body_return(expected)
+                })
+            })
+    }
+
     pub(crate) fn guard(&self, id: super::guarded_requirements::GuardScopeId) -> Option<&super::guarded_requirements::GuardRequirements> {
         let mut guards = self.guards.as_slice();
         for _ in 0..=super::constraints::MAX_TYPE_DEPTH {
@@ -1920,6 +1938,10 @@ impl SchemeType {
             Self::Union(members) => members.iter().any(Self::contains_parameter),
             Self::Ground(_) | Self::SchemeCallable(_) => false,
         }
+    }
+
+    pub(crate) fn is_optional(&self) -> bool {
+        matches!(self, Self::Optional(_)) || matches!(self.closed_ground_type(), Some(Type::Optional(_)))
     }
 
     pub(crate) fn matches_body_return(&self, expected: &Self) -> bool {

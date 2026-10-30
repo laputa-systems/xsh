@@ -243,6 +243,29 @@ pub(super) fn known_argument_assignment_matches_ground(
     if matches!(expected, Type::Any) { return Ok(true); }
     if body_type_matches_ground(actual, expected) { return Ok(true); }
     if !matches!(actual, SchemeType::Parameter(_)) || !matches!(expected, Type::Optional(_)) && !super::methods::owns_selected_result(store, scope, actual, budget)? { return Ok(false); }
+    known_argument_assignment(store, owner, scope, actual, &|required| body_type_matches_ground(required, expected), budget)
+}
+
+pub(super) fn known_argument_assignment_matches(
+    store: &FullStore,
+    owner: u32,
+    scope: &SchemeScope,
+    actual: &SchemeType,
+    expected: &SchemeType,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    if !matches!(actual, SchemeType::Parameter(_)) || !expected.is_optional() { return Ok(false); }
+    known_argument_assignment(store, owner, scope, actual, &|required| required.matches_body_return(expected), budget)
+}
+
+fn known_argument_assignment(
+    store: &FullStore,
+    owner: u32,
+    scope: &SchemeScope,
+    actual: &SchemeType,
+    accepts: &dyn Fn(&SchemeType) -> bool,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
     let owner = IrFunctionId::from_raw(owner).ok_or_else(|| IrVerifyError::new("nullable argument proof has no function owner"))?;
     let function = store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("nullable argument proof owner is out of bounds"))?;
     let FullCallableContract::Scheme(scheme) = function.contract else { return Ok(false); };
@@ -265,7 +288,7 @@ pub(super) fn known_argument_assignment_matches_ground(
                     _ => return Err(IrVerifyError::new("nullable argument rest proof has no list domain")),
                 }
             } else { parameter.clone() };
-            if same_type(actual, argument, budget)? && body_type_matches_ground(&required, expected) { return Ok(true); }
+            if same_type(actual, argument, budget)? && accepts(&required) { return Ok(true); }
         }
     }
     Ok(false)

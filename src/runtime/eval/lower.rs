@@ -3445,7 +3445,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> bool {
         let Some(returned_type) = lowered_types.get(&returned) else { return false; };
         let expected = facts.scheme().return_type();
-        if returned_type.matches_body_return(expected) || facts.scheme().method_path_return_matches(returned_type) { return true; }
+        if returned_type.matches_body_return(expected) || facts.scheme().method_path_return_matches(returned_type) || facts.scheme().optional_return_assignment_matches(returned_type) { return true; }
         if facts.scheme().kind() == CallableKind::Proc && !facts.scheme().explicit_return() && returned_type.matches_defaulted_proc_return(expected) { return true; }
         if returned != producer { return false; }
         let Some(source_type) = lowered_types.get(&producer) else { return false; };

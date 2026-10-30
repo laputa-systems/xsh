@@ -4907,7 +4907,9 @@ impl Checker {
                 let actual = self.check_tail_stmt_arena(arena, source, tail, Some(expected));
                 if !tail_type_matches_expected(expected, &actual) {
                     let tail_span = arena.arena.stmt(tail).span;
-                    self.expect_type(expected, &actual, tail_span);
+                    if !self.defer_optional_assignment(expected, &actual, tail_span) {
+                        self.expect_type(expected, &actual, tail_span);
+                    }
                 }
             } else if expected != &Type::Unit
                 && !expected.is_result_unit()
@@ -6195,7 +6197,9 @@ impl Checker {
         }
         if !tail_type_matches_expected(expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
-            self.expect_type(expected, &actual, value_span);
+            if !self.defer_optional_assignment(expected, &actual, value_span) {
+                self.expect_type(expected, &actual, value_span);
+            }
         }
     }
 
@@ -6890,7 +6894,7 @@ impl Checker {
                         .is_some_and(|expectation| expectation.accepts_optional_branch(&ty));
                 if let Some(expected) = expected {
                     let tail_span = arena.arena.stmt(tail).span;
-                    if !tail_type_matches_expected(expected, &ty) && !candidate_accepts {
+                    if !tail_type_matches_expected(expected, &ty) && !candidate_accepts && !self.defer_optional_assignment(expected, &ty, tail_span) {
                         self.expect_type(expected, &ty, tail_span);
                     }
                 }
@@ -7462,6 +7466,7 @@ impl Checker {
                 if !if_stmt_may_produce_value(arena, id) {
                     return self.check_valueless_tail_if_arena(arena, source, id);
                 }
+                let deferred_before = self.local_inference.deferred_optional_assignments;
                 let output_parent = self.constraint_scope();
                 let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && expectation.is_none() && arena.arena.if_branches(branches).len() == 1).then(|| arena.arena.if_branches(branches)[0].condition)
                     .and_then(|condition| self.guard_output_condition_arena(arena, condition).map(|polarity| (condition, polarity)));
@@ -7627,6 +7632,12 @@ impl Checker {
                         "value-producing if requires an else branch",
                         DiagnosticCode::CheckIfValueElse,
                     );
+                }
+                if self.local_inference.deferred_optional_assignments != deferred_before
+                    && let Some(super::types::TypeExpectation::Required(expected)) = expectation
+                    && matches!(expected, Type::Optional(_))
+                {
+                    return expected.clone();
                 }
                 inferred.unwrap_or(Type::Unknown)
             }

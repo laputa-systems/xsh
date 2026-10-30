@@ -20,6 +20,7 @@ pub(super) struct LocalInference {
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
+    pub(super) deferred_optional_assignments: usize,
 }
 
 #[derive(Clone)]
@@ -992,6 +993,7 @@ impl Checker {
             };
             if !expectation
                 .is_some_and(|expectation| expectation.accepts_optional_branch(&resolved))
+                && !self.defer_optional_assignment(context, &resolved, span)
             {
                 self.expect_type(context, &resolved, span);
             }
@@ -999,6 +1001,30 @@ impl Checker {
         self.type_constraints
             .resolve(&resolved)
             .unwrap_or(Type::Invalid)
+    }
+
+    pub(super) fn defer_optional_assignment(&mut self, expected: &Type, actual: &Type, span: Span) -> bool {
+        use crate::sema::arguments::{ArgumentParameterLayout, StaticArgumentKind};
+        use crate::sema::callable_application::{CallableApplicationArgument, KnownArgumentParameter, KnownCallArguments};
+        let (Ok(expected), Ok(actual)) = (self.type_constraints.resolve(expected), self.type_constraints.resolve(actual)) else { return false };
+        if !matches!(actual, Type::Inference(_)) || self.type_constraints.is_present_only_variable(&actual) { return false; }
+        if !matches!(expected, Type::Optional(_)) { return false; }
+        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let relationship = KnownCallArguments {
+            parameters: vec![KnownArgumentParameter { layout: ArgumentParameterLayout { name: crate::symbol::Name::intern("value"), defaulted: false, rest: false }, ty: expected }].into(),
+            arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: actual, span }].into(),
+            span: Span::new(span.source_id, span.start(), span.end() + 1),
+        };
+        match self.type_constraints.register_known_call_arguments(owner, relationship) {
+            Ok(_) => {
+                self.local_inference.deferred_optional_assignments += 1;
+                true
+            }
+            Err(error) => {
+                self.error(span, &format!("known argument relationship failed: {error}"), DiagnosticCode::CheckCallableMismatch);
+                true
+            }
+        }
     }
 
     pub(super) fn record_checked_local_binding(

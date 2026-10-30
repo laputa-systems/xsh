@@ -1,4 +1,4 @@
-use super::{SchemeType, BTreeMap, PropagationBoundary, SchemeInstantiationBudget, IrVerifyError, FullDecoder, Arc, schema, FullStore, SchemeScope, body_types_equal, IrFunctionId, FullCallableContract, bounded, decode_scheme_type, BTreeSet, VerifiedSchemeScopes, producers, wrappers, Type, Name, Validation, iteration_contract, body_propagated_error_matches_owner, RefCell, body_type_matches_ground, body_type_matches, FullTag, applications, scheme_conversion, ValueConversion, SchemeRowTail, verify_body_expression, scheme_stored_type};
+use super::{SchemeType, BTreeMap, PropagationBoundary, SchemeInstantiationBudget, IrVerifyError, FullDecoder, Arc, schema, FullStore, SchemeScope, body_types_equal, IrFunctionId, FullCallableContract, bounded, decode_scheme_type, BTreeSet, VerifiedSchemeScopes, producers, wrappers, Type, Name, Validation, iteration_contract, body_propagated_error_matches_owner, RefCell, body_type_matches_ground, body_type_matches, body_assignment_matches, FullTag, applications, scheme_conversion, ValueConversion, SchemeRowTail, verify_body_expression, scheme_stored_type};
 
 #[derive(Clone, Copy)]
 pub(super) struct LexicalScope {
@@ -1502,7 +1502,7 @@ pub(super) fn verify_body(
                             budget.charge(1)?;
                             let (condition, value, captures) = branch?;
                             let inner = pattern_condition_scope(decoder, condition.raw() as usize, captures, types, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut visited, &mut expression_scopes, budget)?;
-                            if !body_type_matches(&expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
+                            if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
                             pending.push(Obligation::Expression(value.raw() as usize, inner));
                         }
                         if !body_type_matches(&expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
@@ -1900,17 +1900,18 @@ pub(super) fn verify_body(
                                 }
                                 super::wrappers::completion_accepts_returned_result(store, scheme_scope, group, source, expected_return, budget)?
                             } else { false };
-                            let method_path_return = !actual.matches_body_return(expected_return)
-                                && super::methods::written_path_return_matches(store, decoder.owner, scheme_scope, &actual, expected_return, budget)?;
-                            let normalized_error_return = !joined_result_source && !method_path_return
+                            let related_return = !actual.matches_body_return(expected_return)
+                                && (super::methods::written_path_return_matches(store, decoder.owner, scheme_scope, &actual, expected_return, budget)?
+                                    || super::applications::known_argument_assignment_matches(store, decoder.owner, scheme_scope, &actual, expected_return, budget)?);
+                            let normalized_error_return = !joined_result_source && !related_return
                                 && store.function_metadata.get(owner.index()).is_some_and(|metadata| metadata.defaulted_proc_return())
                                 && !actual.matches_body_return(expected_return)
                                 && actual.matches_defaulted_proc_return(expected_return);
-                            if !actual.matches_body_return(expected_return) && !joined_result_source && !method_path_return && !normalized_error_return {
+                            if !actual.matches_body_return(expected_return) && !joined_result_source && !related_return && !normalized_error_return {
                                 return Err(IrVerifyError::new("generic body return does not match its scheme return"));
                             }
                             if let Some(tail) = tails.remove(&instruction) {
-                                let tail_matches = if joined_result_source || method_path_return || normalized_error_return {
+                                let tail_matches = if joined_result_source || related_return || normalized_error_return {
                                     body_types_equal(&tail, &actual)
                                 } else {
                                     tail.matches_body_return(expected_return)
@@ -1922,7 +1923,7 @@ pub(super) fn verify_body(
                     }
                     schema::StmtView::Value { value: returned } => {
                         let expected = value_contract.as_ref().ok_or_else(|| IrVerifyError::new("generic statement block contains an unowned value"))?;
-                        if position + 1 != statements.len() || !body_type_matches(&expression_type(types, returned.raw() as usize, budget)?, expected, budget)? { return Err(IrVerifyError::new("generic block value disagrees with its contract")); }
+                        if position + 1 != statements.len() || !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, returned.raw() as usize, budget)?, expected, budget)? { return Err(IrVerifyError::new("generic block value disagrees with its contract")); }
                         pending.push(Obligation::Expression(returned.raw() as usize, scope));
                         continue;
                     }
@@ -3627,6 +3628,36 @@ test namespace_borrow {
             parameter.conversions = mode;
             assert!(FullVerifier::verify(&changed).is_err(), "{mode}");
         }
+    }
+
+    #[test]
+    fn generic_optional_return_authenticates_its_assignment_relationship() {
+        let program = prepare("pure lookup(values) -> Str? { if let Ok(text) = values.get(\"name\") { text } else { null } }");
+        FullVerifier::verify(&program).unwrap();
+        let (_, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let known = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| match program.store.scheme_applications[index] {
+            super::super::super::schemes::FullSchemeApplication::KnownArguments { parameters, arguments } => Some((parameters, arguments)),
+            _ => None,
+        }).unwrap();
+        let reject = |changed: FullProgram, label: &str| {
+            let mut changed = changed;
+            changed.store.in_place.take();
+            assert!(FullVerifier::verify(&changed).is_err(), "{label}");
+        };
+        let formal = program.store.scheme_callable_parameters[known.0.start as usize].ty;
+        let argument = program.store.scheme_application_arguments[known.1.start as usize].ty;
+        assert_eq!(program.store.scheme_types[argument.index()].tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(program.store.scheme_types[formal.index()].tag, FullSchemeTypeTag::Optional);
+        let ground = program.store.scheme_types.iter().find(|ty| ty.tag == FullSchemeTypeTag::Ground).unwrap().first;
+        let mut wrong_formal = program.clone();
+        wrong_formal.store.scheme_types[formal.index()].tag = FullSchemeTypeTag::Ground;
+        wrong_formal.store.scheme_types[formal.index()].first = ground;
+        reject(wrong_formal, "optional formal");
+        let mut wrong_argument = program.clone();
+        wrong_argument.store.scheme_types[argument.index()].tag = FullSchemeTypeTag::Ground;
+        wrong_argument.store.scheme_types[argument.index()].first = ground;
+        reject(wrong_argument, "returned operand");
     }
 
     #[test]

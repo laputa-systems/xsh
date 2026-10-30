@@ -4096,6 +4096,11 @@ forwards the parameter accepts compatible present values and nullable values,
 including `null`. Argument labels, defaults, schemas, effects, and validation
 of `Any` keep their ordinary contracts.
 
+Returning an inferred value from a declared optional return type retains the
+same requirement. `pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }`
+accepts a `row.values` of `Map[Str, Str]` and of `Map[Str, Str?]`; map values
+stay invariant, so the value type is not made nullable.
+
 Generic guarded field access, value fallback, error handlers, and enclosing
 `try` blocks retain their Optional or Result relationships. Each call selects
 the mode from its checked inputs. An Optional containing an `Err` keeps that

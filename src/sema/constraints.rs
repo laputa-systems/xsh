@@ -3655,6 +3655,10 @@ impl TypeConstraints {
         Ok(variable.binding.as_ref())
     }
 
+    pub(crate) fn is_present_only_variable(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Inference(id) if self.record_binding(*id).ok().flatten().is_some() || self.is_unresolved_slice_result(*id).unwrap_or(false))
+    }
+
     fn record_binding(
         &self,
         id: TypeVariableId,
