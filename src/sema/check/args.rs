@@ -943,6 +943,9 @@ impl Checker {
                                     self.expect_function_call_argument(authority, &item_ty, &item, splice_span);
                                 }
                                 Type::List(item) if item.matches_expected(&item_ty) => {}
+                                Type::List(item) if item.contains_inference() => {
+                                    self.expect_function_call_argument(authority, &item_ty, &item, splice_span);
+                                }
                                 Type::List(_) => self.error(
                                     splice_span,
                                     "splice item type does not match rest parameter",

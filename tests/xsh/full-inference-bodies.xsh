@@ -1980,3 +1980,15 @@ proc main() [io] {
   )?
   assert output.stdout == "4\n", output.stdout
 }
+
+test test_full_inference_rest_parameter_splices_into_a_typed_rest_parameter { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc count(...words: List[Str]) { print (words.len()) }
+proc forward(...words) { count(@words) }
+forward("a", "b", "c")
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3\n"
+}
