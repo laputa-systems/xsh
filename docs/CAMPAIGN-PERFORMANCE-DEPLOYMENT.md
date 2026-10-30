@@ -1,9 +1,12 @@
 # Make XSH fast to run and dependable in Laputa
 
-**Status:** paused 2026-10-25 on `master`. No campaign loop, lane or
-qualification retry is scheduled. The [G0 release
-candidate](ROADMAP.md#g0-release-candidate) defers this campaign's performance
-obligations. Deser has since been cut over. No push grant exists.
+**Status:** resumed 2026-10-30 on branch `perf/g1-next` under the owner's separate
+execution grant. G1 qualification has not started: the pinned qualification
+image is gone from the local Docker store and the inherited tools write
+outside the lane's worktree (see State). One cause of the scheduler-pair
+failures is fixed and measured. The [G0 release
+candidate](ROADMAP.md#g0-release-candidate) still defers this campaign's
+performance obligations. No push grant exists.
 
 **Resume:** the owner's prompt is "Resume this campaign from its 2026-10-25
 handoff on master. Prioritize feature completeness and focused evidence; leave
@@ -28,15 +31,49 @@ last source that passed most gates, and old passes do not qualify later source.
 
 - **Passed on R13:** canonical, supplemental, functional-close, normal opt3
   profile, timed observer, forced-frame and comparative gates.
-- **Failed or unrun:** the three scheduler pairs failed validation, and focused
-  repairs (`a758be15e`, `2b6fcfc66`, `2515907c8`) were not requalified. UDP
-  failures and full-corpus timeouts remain unexplained. Private and resource
-  close (`dev/util-linux/check.py resources|close`) is unrun.
-- **Limiting stage:** current-source acceptance and the remaining XSH-1, XSH-3
-  and XSH-19 delivery, not a shortage of lanes. On resume, choose the next
-  substantive delivery from those, preserve focused evidence, and steer again
-  after the first accepted wave or two failed attempts.
-- **Environment:** the owner-approved ef7 image is the environment.
+- **Scheduler pairs:** all three R13 pairs failed validation. The reference
+  arm (8 workers) failed one test on a read-only mount (`2b6fcfc66`). The
+  candidate arm (32 workers) failed 19 to 24 per round. Four to six were
+  fixture races: the UDP error-queue test raced a concurrent fork that still
+  held the closed port (`e3179f233`), and the descriptor, tail and tee
+  fixtures raced under load (`a758be15e`, `2515907c8`). The other 15 to 18
+  were timeouts of tests that take milliseconds alone. Those were fork cost:
+  every child started through a `pre_exec` closure, so each spawn forked the
+  shared runner under its address-space lock and stalled the other threads'
+  page faults (330 s window: 589 s system against 53 s user CPU, threads
+  blocked in `lock_mm_and_find_vma`, and no wall-time gain over 8 workers).
+  `0836935e3` starts children with `posix_spawn` unless a signal needs
+  resetting. On matched verification builds a 330 s window of the native suite
+  at 32 workers completed 2,839 and 2,883 tests before and 7,941 and 8,214
+  after, with five timeouts falling to one; at 8, 16 and 32 workers it now
+  completes 4,437, 6,793 and about 8,000, so the 32-worker default scales. A
+  whole-suite run at 32 workers finished in 17.7 min with 38 failures, all of
+  which fail identically on the unpatched build in isolation (docker, read-only
+  mount and typing-fixture cases of this container, not qualification
+  failures) except the cat splice test that `5d2f6e63b` repairs; the unpatched
+  build cannot finish that run, because a wedged test thread aborts it after
+  3 min. `c5fd576e1` splits the 106 s numfmt check that remained. The long
+  poles are `test_gnu_sort_sort_buffer_size_log` (676 s) and
+  `test_gnu_sort_sort_compress_hang_log` (395 s), which start late in
+  declaration order. Verification-profile builds on the `xsh-test:latest`
+  image, not the pinned image; the pairs are not requalified.
+- **Unrun:** private and resource close (`dev/util-linux/check.py
+  resources|close`), and every pinned-image stage below.
+- **Blocked on a decision:** `versions.lock.json` pins
+  `sha256:ef7c796588552777825857dc3b8ffca9efe533112a4c340687e625742d93da94`.
+  That image is not in the local store; the 2026-10-28 `Dockerfile.test`
+  rebuild moved the `xsh-test` tag to `sha256:8ddba911cc1b7fd514bfaedd55d8e540e98b5e9b4b5564653cdd449ff5ae8558`.
+  Every inherited tool and `dev/util-linux/check.py` fail before work on the
+  missing pin. Qualifying on the current image changes the owner-approved
+  environment. Separately, the launch, observer and comparison tools fix their
+  controller root, locks and evidence directories under the main checkout's
+  `.work/`, outside any lane worktree.
+- **Limiting stage:** the environment decision above, then current-source
+  acceptance and the remaining XSH-1, XSH-3 and XSH-19 delivery, not a
+  shortage of lanes. Steer again after the first accepted wave or two failed
+  attempts.
+- **Environment:** the owner-approved ef7 image is the environment, and it is
+  unavailable.
 - **Laputa world:** the isolated world build, store verification, rooted
   functionality and unchanged rebuild passed with the R13 seed (85 artifacts
   reused offline). Actual KVM smoke passes with `ASTERINAS_PVH_BOOT_OK`. Full
@@ -350,3 +387,4 @@ universal formal obligations.
 - 2026-10-24: Paused at the owner's request. Completed slices were integrated, three incomplete branches parked, and 312 checkouts reclaimed.
 - 2026-10-25: Paused on `master`. Lint and lsmem source integrated, obsolete lane snapshots committed and their checkouts retired, full qualification explicitly pending.
 - 2026-10-28: G0 defers this campaign's performance obligations. The inference log lines moved to [the inference campaign](../full-inference-campaign.md#log).
+- 2026-10-30: Resumed on `perf/g1-next`. Did not repin the qualification image or write under the main checkout's `.work/`, since either changes the approved environment or the lane's write boundary; both wait for the owner. Attributed the scheduler-pair timeouts to fork under the shared address-space lock and fixed them at the spawn (`0836935e3`). Timing gates were not run: the lane's own suites kept the host busy, so perf gate deferred: host busy.
