@@ -478,10 +478,6 @@ pub(crate) struct FunctionRequirementContract<'a> {
     pub(crate) parameters: &'a [ParamSig],
 }
 
-/// Whether a checked argument can stand where a `Path` is required: a
-/// `Path`, or a recovery type whose own diagnostics apply. A string
-/// literal qualifies only by having taken the `Path` type from its expected
-/// type; a `Str` never does.
 pub(crate) fn is_path_like_type(ty: &Type) -> bool {
     matches!(ty.unvalidated(), Type::Path | Type::Unknown)
 }

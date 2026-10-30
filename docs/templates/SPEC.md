@@ -1886,13 +1886,19 @@ parameter's default). Unknown names and parameters supplied twice are errors.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
-An omitted pure parameter's receiver type can be constrained by relationships
-inside its body. Requiring `Str` from `value.trim()` distinguishes the
-registered `Str` and `Bytes` receiver domains. Within a receiver domain, return
-types never choose an overload. If several registered domains fit, checking
-reports `check.ambiguous-overload`. A domain without a unique inferable type
-still needs an annotation (`check.local-inference`). Callers never supply the
-missing receiver type.
+An omitted parameter's type can be constrained by relationships inside its
+body. Requiring `Str` from `value.trim()` distinguishes the registered `Str`
+and `Bytes` receiver domains. Within a receiver domain, return types never
+choose an overload. When several registered members still fit, such as
+`value.byte_at(i)` over `Str` and `Bytes` or `process.which(name)` over `Str`
+and `Path`, the callable keeps a requirement over exactly those members, and
+each concrete use selects the unique member its argument types fit. A use that
+fits no unique member is an error that lists the candidates. Members that
+differ in purity, effects, labels, or parameter layout are never kept as one
+requirement; such a call reports `check.ambiguous-overload` or
+`check.type-mismatch`, and the parameter needs an annotation. The body fixes
+the requirement; a caller only selects one of its members and never widens or
+narrows it.
 
 ### 6.4 List, record, map, and set literals
 
