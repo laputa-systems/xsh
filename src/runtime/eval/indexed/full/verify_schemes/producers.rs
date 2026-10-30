@@ -7017,7 +7017,7 @@ impl<'a> ProducerProof<'a> {
         let empty_map = !reads_binding
             && decoder.is_empty_map_module_call(value.raw() as usize)?
             && self.contextual_producer_type(decoder, value.raw() as usize)?.is_none();
-        if !empty_map && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
+        if !empty_map && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. } | schema::ExprView::PreparedConstant(_)) { return Ok(None); }
         self.checked_match_binding(decoder, instruction)
     }
 
@@ -7062,7 +7062,7 @@ impl<'a> ProducerProof<'a> {
         let Some(source) = source else { return Ok(false) };
         if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
         if !matches!((self.store.tags[source], expected),
-            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprModuleCall, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)))
+            (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprModuleCall, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)) | (FullTag::ExprPreparedConstant, Type::List(_) | Type::Map(_, _) | Type::Record(_)))
         { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
         ensure_producer_context_type(self.store.tags[source], expected)?;
         let binding = self.binding(decoder.owner, argument, slot)?;
