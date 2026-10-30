@@ -14,9 +14,11 @@ pub use xshi::interactive::{
 #[cfg(not(feature = "laputa-asterinas"))]
 use std::process::ExitCode;
 
-/// Keep non-Laputa builds explicit while the interactive shell is opt-in.
 #[cfg(not(feature = "laputa-asterinas"))]
 pub fn stub_main() -> ExitCode {
-    eprintln!("xshi: disabled — build with the laputa-asterinas feature to enable the interactive shell");
-    ExitCode::FAILURE
+    use std::io::Write;
+    let message = "xshi: disabled — build with the laputa-asterinas feature to enable the interactive shell\n";
+    let output = std::io::stderr().write_all(message.as_bytes());
+    let help = std::env::args_os().nth(1).is_some_and(|flag| flag == "-h" || flag == "--help");
+    if help && output.is_ok() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
