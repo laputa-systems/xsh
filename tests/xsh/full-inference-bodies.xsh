@@ -583,6 +583,21 @@ for word in with_word(["x"], "y") { print $word }
   assert output.stdout == "a\nb\nx\ny\n"
 }
 
+test test_full_inference_record_fields_each_flow_into_a_dynamic_parameter { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Clock = {epoch: Int, text: Str}
+type Member = {key: Str, value: Any}
+pure m(key: Str, value: Any) -> Member { {key: key, value: value} }
+pure time_members(now) -> List[Member] { [m("time_t", now.epoch), m("asctime", now.text)] }
+let clock: Clock = {epoch: 7, text: "Thu"}
+for member in time_members(clock) { print $member.key }
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "time_t\nasctime\n"
+}
+
 test test_full_inference_emptiness_family_is_a_generic_condition { |ctx|
   let output = test.run_xsh(
     ctx,
