@@ -1,16 +1,16 @@
 # XSH: complete general inference across the language
 
-**Status:** resumed 2026-10-30. Slices 35 to 42 landed on `master`, including
+**Status:** resumed 2026-10-30. Slices 35 to 44 landed on `master`, including
 guarded operands, module-function overloads, open-record field exchange,
 pending Result guards, rest splices, and inferred record field guards.
 Erasure 4,588 of 4,725 parameter sites (97.1%) after slice 36, measured with a current `xsht`
 over a HEAD export; slice 37 erases its 7 named sites and was not remeasured core-wide.
 Classes are in [the inference evidence](docs/PERFORMANCE-INFERENCE.md) and the log.
 The older `campaign/full-inference-*` and `parked/winddown-20261024/*` branches predate
-2026-10-28 and are superseded, unreviewed history. The early-return continuation
-of an inferred field null test remains open; the candidate in
-`.work/wt/guard-continuation` fails generalization when the field flows to `Any`.
-The ls `ind_get(colors)` case needs a design decision (slice 38 log). Gate each slice
+2026-10-28 and are superseded, unreviewed history. The ls `ind_get(colors)`
+case needs a deferred assignment relationship: both `Map[Str, Str]` and
+`Map[Str, Str?]` can supply a `Str?` return, while map values remain invariant.
+The failing shape is `pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }`, called with each map type. Gate each slice
 with two combined runs under `flock -o .work/gate-host.lock`: A =
 `test-lowering test-sema native-tests/xsh/full-inference-bodies.xsh
 native-tests/xsh/checker-`; B = `test-sema-unit test-tooling-unit
@@ -701,6 +701,7 @@ prescribed decisions are the starting rules.
 - 2026-10-30, core-wide classification after slice 36: 49 parameter sites fail first with `check.type-mismatch`. About 21 are optional contracts (`expected X, found X?` or `found Null`) and 3 the nominal `Error` family, both justified; 7 were module-function overloads (slice 37); 5 are a generic record against a concrete record (next slice); the rest are single cases. stty `apply_attrs(wanted: UnixTtyAttrs)` fails on `{...wanted, ispeed: input}` passed to a closed registered record, the row-override limit (needs a lacks constraint), not this class.
 - 2026-10-30, slice 38: with an unresolved receiver, method argument contexts come from the candidates' common signature, and `List[T].extend` and `NonEmpty[T].extend` share `other: List[T]`, so a list literal argument was checked against the uninstantiated `T` (`expected T, found Record`). A context that names a template parameter is now dropped. Native test `test_full_inference_record_field_extends_with_a_literal_element`; runs A and B green; curl `parse_header(settings)` and wget `apply(options)` now erase (single-site, current `xsht` on a HEAD export). The other three sites of the class are different defects. smartctl `finish(session)` is justified: its callers pass `members: []` and `notes: []`, which take an element type only from the `Session` annotation. ls `ind_get(colors)` returns `text` from `if let Ok(text) = colors.ind.get(code)` into `-> Str?`, which binds `text` to `Str?` rather than `Str`, so `ind` becomes `Map[Str?]` and the invariant map rejects a caller's `Map[Str]`; erasing it needs a deferred "promotes to `T?`" requirement carried in the scheme, a design decision for the owner. Found while reducing: `C(ind: {"a": "x"}).ind.len()` with `type C = {ind: Map[Str]}` failed to encode for verification in plain annotated code (a prepared-constant constructor argument had no subject contract); fixed separately in `d4fe94dfc` with `test_record_constructor_reads_a_literal_map_field`.
 - 2026-10-30, slices 39–42: open projections exchange a dynamic field (`c2e17ca39`); inferred splices constrain rest elements (`2f3725f2e`); a pending method guard uses the Result form when all candidates return Result (`be304ddb9`); and inferred record fields narrow inside their guarded branch (`6b3f14de3`). The field verifier rejects a forged different field. The combined compiler passed gate A and gate B on `6b3f14de3`; the original nine-case run timed out after gate A passed, and gate B passed separately. An early-return field continuation is still open: carrying the fact in the continuation scope fixes a display repro, but the existing `Any` call control fails generalization. No updated core-wide erasure count was measured.
+- 2026-10-30, slices 43–44: a single reachable continuation carries inferred field guards through early return, and a symbolic argument to `Any` retains its own type (`4544b5057`); the verifier rejects an inverted guard. A slice result is known non-null even before its receiver is chosen, so an optional return constrains the slice to its payload (`7c5071827`); bytes, strings, lists, nullable inputs and incompatible receivers are tested, and the `printf` `character_constant` annotation now erases alone. The combined compiler passed the selected lowering, semantic, native, tooling, agreement and runtime gates. The combined B run exhausted its budget after reporting 13 passing lowering-coverage tests; that case passed alone. A full core-wide erasure count and the general nullable assignment relationship remain open.
 
 ## For the owner afterwards
 
