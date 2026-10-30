@@ -22259,7 +22259,11 @@ macro_rules! impl_build_id_codec {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_method_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_method_owner", None, 0, instruction))?;
                     let requirements = builder.active_requirement_ranges(scheme_guard_scope)?;
-                    if builder.store.tags[instruction] != FullTag::ExprMethod || method >= requirements.methods.len {
+                    let expected_tag = match builder.store.scheme_methods.get(requirements.methods.start as usize + method as usize).map(|requirement| requirement.kind) {
+                        Some(crate::sema::schemes::MethodRequirementKind::Function(_)) => FullTag::ExprModuleCall,
+                        _ => FullTag::ExprMethod,
+                    };
+                    if builder.store.tags[instruction] != expected_tag || method >= requirements.methods.len {
                         return Err(IrBuildError::format("sealed_method_owner", None, 0, instruction));
                     }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact {

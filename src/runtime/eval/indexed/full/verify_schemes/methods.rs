@@ -4,10 +4,11 @@ use super::super::schemes::{FullMethodBinding, FullSchemeMethod};
 use crate::sema::schemes::{MethodFamilyRequirement, MethodRequirementKind, SchemeType};
 use crate::sema::types::Type;
 use crate::syntax::node::Effect;
-use xsh_registry::signature::RegisteredMethodId;
+use xsh_registry::signature::{RegisteredFunctionId, RegisteredMethodId};
 
 enum MethodSelection {
     Selected(RegisteredMethodId),
+    SelectedFunction(RegisteredFunctionId),
     Unresolved,
     Unsupported,
     Ambiguous,
@@ -172,6 +173,25 @@ pub(super) fn verify_bindings(
             (MethodSelection::Selected(_), FullMethodBinding::Selected(_)) => {
                 return Err(IrVerifyError::new("selected method differs from its canonical input signature"));
             }
+            (MethodSelection::SelectedFunction(expected), FullMethodBinding::SelectedFunction(actual)) if expected == actual => {
+                let contract = function_contract(&requirement, budget)?;
+                if requirement.result.closed_ground_type().as_ref() != Some(contract.return_ty) {
+                    return Err(IrVerifyError::new("selected function differs from its canonical result signature"));
+                }
+            }
+            (MethodSelection::SelectedFunction(_), FullMethodBinding::SelectedFunction(_)) => {
+                return Err(IrVerifyError::new("selected function differs from its canonical input signature"));
+            }
+            (MethodSelection::Selected(_), FullMethodBinding::SelectedFunction(_))
+            | (MethodSelection::SelectedFunction(_), FullMethodBinding::Selected(_)) => {
+                return Err(IrVerifyError::new("selected member belongs to another operation kind"));
+            }
+            (MethodSelection::Unresolved, FullMethodBinding::SelectedFunction(_)) => {
+                return Err(IrVerifyError::new("selected function has unresolved canonical inputs"));
+            }
+            (MethodSelection::SelectedFunction(_), FullMethodBinding::Forwarded(_)) => {
+                return Err(IrVerifyError::new("resolved function requirement is forwarded instead of selected"));
+            }
             (MethodSelection::Unresolved, FullMethodBinding::Forwarded(ordinal)) => {
                 let Some((caller, caller_scope)) = caller else {
                     return Err(IrVerifyError::new("ground generic call forwards a method family"));
@@ -221,7 +241,62 @@ fn validate_requirement_for_binding(
     reject_any_or_recovery(std::iter::once(&requirement.receiver)
         .chain(requirement.arguments.iter())
         .chain(std::iter::once(&requirement.result)), budget)?;
-    family_contract(requirement.kind, budget)?;
+    if matches!(requirement.kind, MethodRequirementKind::Function(_)) {
+        function_contract(requirement, budget)?;
+    } else {
+        family_contract(requirement.kind, budget)?;
+    }
+    Ok(())
+}
+
+pub(super) fn function_contract<'a>(
+    requirement: &MethodFamilyRequirement<SchemeType>,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<crate::modules::signature::FunctionRequirementContract<'a>, IrVerifyError> {
+    let MethodRequirementKind::Function(function) = requirement.kind else {
+        return Err(IrVerifyError::new("generic function requirement has a method kind"));
+    };
+    let api = crate::modules::api_spec();
+    budget.charge(api.function_requirement_members(function).count())?;
+    let contract = api.function_requirement_contract(function)
+        .ok_or_else(|| IrVerifyError::new("generic function requirement has inconsistent canonical contracts"))?;
+    if requirement.receiver != SchemeType::Ground(Type::Unit) {
+        return Err(IrVerifyError::new("generic function requirement has a receiver"));
+    }
+    if body_types_equal(&requirement.result, &SchemeType::Ground(contract.return_ty.clone())) {
+        Ok(contract)
+    } else {
+        Err(IrVerifyError::new("generic function requirement disagrees with its canonical result contract"))
+    }
+}
+
+pub(super) fn verify_function_body_site(
+    store: &FullStore,
+    scope: &SchemeScope,
+    ordinal: u32,
+    op: crate::modules::RuntimeOp,
+    arguments: &[Option<SchemeType>],
+    result: &SchemeType,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    let encoded = bounded(scope.methods, &store.scheme_methods, "scheme method range is invalid")?
+        .get(ordinal as usize)
+        .copied()
+        .ok_or_else(|| IrVerifyError::new("body function ordinal is out of scope"))?;
+    let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
+    validate_requirement_for_binding(&requirement, budget)?;
+    let contract = function_contract(&requirement, budget)?;
+    let supplied = arguments.iter().filter(|argument| argument.is_some()).count();
+    if contract.op != op || supplied != requirement.arguments.len() || !body_types_equal(result, &SchemeType::Ground(contract.return_ty.clone())) {
+        return Err(IrVerifyError::new("generic function site disagrees with its retained overload contract"));
+    }
+    budget.charge(arguments.len())?;
+    for (expected, &slot) in requirement.arguments.iter().zip(&requirement.argument_slots) {
+        match arguments.get(slot as usize) {
+            Some(Some(actual)) if body_types_equal(actual, expected) => {}
+            _ => return Err(IrVerifyError::new("generic function site disagrees with its retained overload contract")),
+        }
+    }
     Ok(())
 }
 
@@ -366,6 +441,14 @@ fn select(
         budget.charge_scheme_clone(argument)?;
         let Some(argument) = argument.closed_ground_type() else { return Ok(MethodSelection::Unresolved) };
         arguments.push(argument);
+    }
+    if let MethodRequirementKind::Function(function) = requirement.kind {
+        budget.charge(crate::modules::api_spec().function_requirement_members(function).count())?;
+        return Ok(match crate::modules::api_spec().select_function_requirement(function, &requirement.argument_slots, &arguments) {
+            crate::modules::signature::FunctionSelection::Selected(selected) => MethodSelection::SelectedFunction(selected),
+            crate::modules::signature::FunctionSelection::Unsupported => MethodSelection::Unsupported,
+            crate::modules::signature::FunctionSelection::Ambiguous => MethodSelection::Ambiguous,
+        });
     }
     budget.charge(crate::modules::api_spec().method_requirement_member_count(requirement.kind))?;
     Ok(match crate::modules::api_spec().select_method_requirement(

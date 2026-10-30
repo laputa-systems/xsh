@@ -1012,6 +1012,124 @@ test test_full_inference_overloaded_method_without_a_unique_signature_is_rejecte
   }
 }
 
+test test_full_inference_which_is_a_generic_module_function_over_text_and_path { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc located(command) [process] {
+  match process.which(command) {
+    Ok(_) => true
+    Err(_) => false
+  }
+}
+proc relay(command) [process] { located(command) }
+let text = located("sh")?
+let by_path = located(p"/bin/sh")?
+let missing = located("no-such-command-xsh")?
+let relayed_text = relay("sh")?
+let relayed_path = relay(p"/bin/sh")?
+print $text
+print $by_path
+print $missing
+print $relayed_text
+print $relayed_path
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\ntrue\nfalse\ntrue\ntrue\n"
+}
+
+test test_full_inference_module_function_call_is_chosen_by_its_resolved_arguments { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc adapter(descriptor, mode) [process] {
+  let table = linux.nvme_admin_command(descriptor, 20, 0, nsid: 4294967295, cdw10: mode)
+  match table {
+    Ok(_) => true
+    Err(_) => false
+  }
+}
+proc never(descriptor: Int, mode: Int) [process] {
+  if descriptor < 0 { return adapter(descriptor, mode) }
+  false
+}
+let result = never(3, 1)?
+print $result
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "false\n"
+}
+
+test test_full_inference_module_function_overload_is_resolved_by_a_later_use_in_its_body { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc late(command) [process] {
+  match process.which(command) {
+    Ok(_) => command.upper()
+    Err(_) => "none"
+  }
+}
+let found = late("sh")?
+let missing = late("no-such-command-xsh")?
+print $found
+print $missing
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "SH\nnone\n"
+}
+
+test test_full_inference_module_function_overload_over_environment_maps { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc relaunch(words: List[Str], environment) [process] {
+  let plan = process.command_argv(words[0], words)
+  if let variables = environment { unix.exec_env(plan, variables) } else { unix.exec(plan) }
+}
+proc relaunch_blocking(words: List[Str], environment, blocked) [process] {
+  let plan = process.command_argv(words[0], words)
+  unix.exec_env(plan, environment, block_signals: blocked)
+}
+proc go(flag: Bool) [process, error] {
+  let strings: Map[Str, Str] = {A: "1"}
+  let raw: Map[Str, Bytes] = {B: b"2"}
+  if flag {
+    relaunch(["true"], strings)
+    relaunch(["true"], raw)
+    relaunch_blocking(["true"], strings, ["HUP"])
+    relaunch_blocking(["true"], raw, ["HUP"])
+  }
+}
+go(false)
+print "not replaced"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "not replaced\n"
+}
+
+test test_full_inference_overloaded_module_function_without_a_unique_member_is_rejected { |ctx|
+  let which_candidates = ["candidates", "name: Str", "name: Path"]
+  let environment_candidates = ["candidates", "environment: Map[Str]", "environment: Map[Bytes]"]
+  let cases = [
+    {name: "argument of no member", source: "proc located(command) [process] { process.which(command) }\nlet value = located(7)\n", expect: which_candidates},
+    {name: "list argument", source: "proc located(command) [process] { process.which(command) }\nlet value = located([\"sh\"])\n", expect: which_candidates},
+    {name: "definition no member accepts", source: "proc relaunch(environment) [process] { unix.exec_env(1, environment) }\n", expect: ["no standard API overload matches"]},
+    {name: "parameter every member types alike", source: "proc relaunch(environment, blocked) [process] { unix.exec_env(process.command_argv(\"true\", [\"true\"]), environment, block_signals: blocked) }\nlet strings: Map[Str, Str] = {A: \"1\"}\nlet value = relaunch(strings, 7)\n", expect: ["List[Str]"]},
+    {name: "dynamic argument", source: "proc located(command) [process] { process.which(command) }\nlet raw: Any = \"sh\"\nlet value = located(raw)\n", expect: which_candidates},
+    {name: "record argument", source: "proc relaunch(environment) [process] { unix.exec_env(process.command_argv(\"true\", [\"true\"]), environment) }\nlet value = relaunch({A: 1})\n", expect: environment_candidates},
+    {name: "map of another value type", source: "proc relaunch(environment) [process] { unix.exec_env(process.command_argv(\"true\", [\"true\"]), environment) }\nlet wrong: Map[Str, Int] = {A: 1}\nlet value = relaunch(wrong)\n", expect: environment_candidates},
+  ]
+  for {name, source, expect} in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, name
+    assert "err[check." in output.stderr, f"{name}: {output.stderr}"
+    for fragment in expect {
+      assert fragment in output.stderr, f"{name}: {fragment}: {output.stderr}"
+    }
+  }
+}
+
 test test_full_inference_slice_of_a_typed_value_is_a_generic_argument { |ctx|
   let output = test.run_xsh(
     ctx,

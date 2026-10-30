@@ -158,7 +158,7 @@ impl Checker {
             self.check_module_sig_args_arena(arena, source, rest, sig, span);
             sig
         } else {
-            self.check_module_overload_args_arena(arena, source, "fs", name, rest, &overloads, span)
+            self.check_module_overload_args_arena(arena, source, "fs", name, rest, &overloads, span).sig()
         };
         // A parameter whose label is part of the method's spelling had no
         // label as the function's second operand.

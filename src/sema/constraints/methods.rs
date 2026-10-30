@@ -174,6 +174,12 @@ impl TypeConstraints {
                 let arguments = entry.requirement.arguments.iter().map(|ty| this.resolve(ty)).collect::<Result<Vec<_>, _>>()?;
                 if receiver.contains_inference() || arguments.iter().any(crate::sema::types::Type::contains_inference) { continue; }
                 let api = crate::modules::api_spec();
+                if let crate::sema::schemes::MethodRequirementKind::Function(function) = entry.requirement.kind {
+                    let crate::modules::signature::FunctionSelection::Selected(_) = api.select_function_requirement(function, &entry.requirement.argument_slots, &arguments) else {
+                        return Err(MethodConstraintError::UnsupportedFunction { kind: entry.requirement.kind, arguments });
+                    };
+                    continue;
+                }
                 let crate::modules::signature::MethodFamilySelection::Selected(selected) = api.select_method_requirement(entry.requirement.kind, &receiver, &entry.requirement.argument_slots, &arguments) else {
                     return Err(MethodConstraintError::Unsupported { kind: entry.requirement.kind, receiver });
                 };
@@ -272,6 +278,7 @@ impl TypeConstraints {
             let entry = self.methods.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             match select_registered_method(self, &entry.requirement)? {
                 MethodSelection::Selected(method) => Ok(crate::sema::schemes::SealedMethodBinding::Selected(method)),
+                MethodSelection::SelectedFunction(function) => Ok(crate::sema::schemes::SealedMethodBinding::SelectedFunction(function)),
                 MethodSelection::Unresolved => {
                     let ordinal = generalization.methods.get(id).copied()
                         .ok_or(super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedMethodFamily))?;
@@ -291,6 +298,7 @@ impl TypeConstraints {
 
 enum MethodSelection {
     Selected(xsh_registry::signature::RegisteredMethodId),
+    SelectedFunction(xsh_registry::signature::RegisteredFunctionId),
     Unresolved,
     Dynamic,
     Recovery,
@@ -312,6 +320,13 @@ fn select_registered_method(
     }
     if receiver.contains_recovery() || arguments.iter().any(crate::sema::types::Type::contains_recovery) {
         return Ok(MethodSelection::Recovery);
+    }
+    if let crate::sema::schemes::MethodRequirementKind::Function(function) = requirement.kind {
+        return Ok(match crate::modules::api_spec().select_function_requirement(function, &requirement.argument_slots, &arguments) {
+            crate::modules::signature::FunctionSelection::Selected(selected) => MethodSelection::SelectedFunction(selected),
+            crate::modules::signature::FunctionSelection::Unsupported => MethodSelection::Unsupported,
+            crate::modules::signature::FunctionSelection::Ambiguous => MethodSelection::Ambiguous,
+        });
     }
     match crate::modules::api_spec().select_method_requirement(
         requirement.kind,
@@ -347,6 +362,7 @@ pub(crate) enum MethodConstraintError {
     Resolution(ConstraintResolutionError),
     Constraint(super::ConstraintConflict),
     Unsupported { kind: super::super::schemes::MethodRequirementKind, receiver: crate::sema::types::Type },
+    UnsupportedFunction { kind: super::super::schemes::MethodRequirementKind, arguments: Vec<crate::sema::types::Type> },
 }
 
 impl From<ConstraintResolutionError> for MethodConstraintError {
@@ -359,6 +375,10 @@ impl std::fmt::Display for MethodConstraintError {
             Self::Resolution(error) => write!(formatter, "method type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "method requires {}, found {}", error.expected, error.actual),
             Self::Unsupported { kind, receiver } => write!(formatter, "{kind} has no canonical result for {receiver}"),
+            Self::UnsupportedFunction { kind, arguments } => {
+                let arguments = arguments.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+                write!(formatter, "{kind} has no unique overload for ({arguments}); candidates: {}", kind.function_candidates())
+            }
         }
     }
 }

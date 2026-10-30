@@ -19,13 +19,7 @@ enum ResultHandlerContext<'a> { Projected, Relational(&'a Type) }
 pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
-/// Whether a checked argument can stand where a `Path` is required: a
-/// `Path`, or a recovery type whose own diagnostics apply. A string
-/// literal qualifies only by having taken the `Path` type from its expected
-/// type; a `Str` never does.
-pub(super) fn is_path_like_type(ty: &Type) -> bool {
-    matches!(ty.unvalidated(), Type::Path | Type::Unknown)
-}
+pub(super) use crate::modules::signature::is_path_like_type;
 
 /// Arena-native span helper for expression-or-run values.
 pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun) -> Span {

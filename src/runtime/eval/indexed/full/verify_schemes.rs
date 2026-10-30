@@ -538,6 +538,9 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             if let crate::sema::schemes::MethodRequirementKind::Named(named) = method.kind
                 && crate::modules::api_spec().named_method_name(named).is_none()
             { return Err(IrVerifyError::new("scheme method names no registered method")); }
+            if let crate::sema::schemes::MethodRequirementKind::Function(function) = method.kind
+                && crate::modules::api_spec().overloaded_function_name(function).is_none()
+            { return Err(IrVerifyError::new("scheme method names no overloaded registry function")); }
             let slots = mark_range(method.argument_slots, &store.scheme_method_slots, &mut method_slot_coverage, "scheme method argument slot range is invalid or overlaps")?;
             let arguments = mark_range(method.arguments, &store.scheme_method_arguments, &mut method_argument_coverage, "scheme method argument range is invalid or overlaps")?;
             if slots.len() != arguments.len() || slots.iter().copied().collect::<BTreeSet<_>>().len() != slots.len() {
@@ -1831,7 +1834,11 @@ fn verify_scheme_body_facts(
                 continue;
             }
             if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
-                if store.tags[instruction] != FullTag::ExprMethod || ordinal >= scope.methods.len || method_sites.insert(instruction, ordinal).is_some() {
+                let expected_tag = match bounded(scope.methods, &store.scheme_methods, "scheme method range is invalid")?.get(ordinal as usize).map(|method| method.kind) {
+                    Some(crate::sema::schemes::MethodRequirementKind::Function(_)) => FullTag::ExprModuleCall,
+                    _ => FullTag::ExprMethod,
+                };
+                if store.tags[instruction] != expected_tag || ordinal >= scope.methods.len || method_sites.insert(instruction, ordinal).is_some() {
                     return Err(IrVerifyError::new("body method has invalid or duplicated ownership"));
                 }
                 continue;
@@ -1996,7 +2003,7 @@ fn verify_scheme_body_facts(
             None => return Err(IrVerifyError::new("generic body has completion contributions without an owner group")),
         }
         requests.methods.extend(method_sites.keys()
-            .filter(|instruction| !store.registered_calls.contains_key(&(**instruction as u32)))
+            .filter(|instruction| store.tags[**instruction] == FullTag::ExprMethod && !store.registered_calls.contains_key(&(**instruction as u32)))
             .map(|&instruction| (decoder.owner, instruction)));
     }
     if covered.iter().any(|covered| !covered) || store.registered_calls.keys().any(|instruction| !registered_coverage.contains(instruction)) { return Err(IrVerifyError::new("generic body metadata contains unowned rows")); }
@@ -3202,7 +3209,11 @@ fn verify_body_expression(
         schema::ExprView::ModuleCall { op, call_plan, args, .. } => {
             let mut arguments = Vec::new();
             for argument in args { arguments.push(argument?.map(|argument| child(argument, budget)).transpose()?); }
-            if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan.map(Arc::as_ref) {
+            if let Some(&ordinal) = method_sites.get(&instruction) {
+                if call_plan.is_some() || store.registered_calls.contains_key(&(instruction as u32)) { return Err(IrVerifyError::new("generic function site has a selected registry plan")); }
+                methods::verify_function_body_site(store, scheme_scope, ordinal, op, &arguments, ty, budget)?;
+                ty.clone()
+            } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan.map(Arc::as_ref) {
                 let supplied = arguments.iter().map(Option::is_some).collect::<Vec<_>>();
                 call_plan.expect("the command plan was matched").verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
                 budget.charge(arguments.len() + plan.word_conversions.len() + plan.flag_slots.len())?;

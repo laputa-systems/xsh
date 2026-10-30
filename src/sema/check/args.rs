@@ -503,12 +503,12 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        _module: &str,
-        _name: &str,
+        module: &str,
+        name: &str,
         args: &[ArenaCallArg],
         overloads: &'a [ModuleFnSig],
         span: Span,
-    ) -> &'a ModuleFnSig {
+    ) -> ModuleOverloadChoice<'a> {
         let actuals = args
             .iter()
             .enumerate()
@@ -536,7 +536,7 @@ impl Checker {
                     DiagnosticCode::CheckAmbiguousOverload,
                 );
             }
-            return sig;
+            return ModuleOverloadChoice::Selected(sig);
         }
 
         let arity_matches = overloads
@@ -549,7 +549,7 @@ impl Checker {
                 "incorrect standard API arity",
                 DiagnosticCode::CheckArity,
             );
-            return &overloads[0];
+            return ModuleOverloadChoice::Selected(&overloads[0]);
         }
         if arity_matches
             .iter()
@@ -572,11 +572,22 @@ impl Checker {
                     DiagnosticCode::CheckNamedArg,
                 );
             }
-            return arity_matches[0];
+            return ModuleOverloadChoice::Selected(arity_matches[0]);
         }
 
-        if let [only] = arity_matches.as_slice()
-            && actuals.iter().any(Type::contains_inference)
+        let unresolved = actuals.iter().any(Type::contains_inference);
+        let compatible = if unresolved {
+            arity_matches
+                .iter()
+                .copied()
+                .filter(|sig| module_overload_may_match_arena(args, &actuals, sig))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let narrowed = if compatible.is_empty() { arity_matches.clone() } else { compatible.clone() };
+        if let [only] = narrowed.as_slice()
+            && unresolved
             && let Some(bindings) = bind_module_args_arena(args, only)
         {
             for (param_index, arg_index) in bindings.iter().enumerate() {
@@ -584,7 +595,7 @@ impl Checker {
                     self.expect_type(&only.params[param_index].ty, &actuals[arg_index], call_arg_span_arena(arena, &args[arg_index].kind));
                 }
             }
-            return only;
+            return ModuleOverloadChoice::Selected(only);
         }
 
         let mut dynamic_boundary = false;
@@ -597,7 +608,16 @@ impl Checker {
             }
         }
         if dynamic_boundary {
-            return arity_matches[0];
+            return ModuleOverloadChoice::Selected(arity_matches[0]);
+        }
+
+        if compatible.len() > 1 && self.retain_module_overload(module, name, args, overloads, &actuals, span) {
+            for (index, (arg, actual)) in args.iter().zip(&actuals).enumerate() {
+                if let Some(expected) = common_module_overload_expected_arena(args, overloads, index) {
+                    self.expect_type(&expected, actual, call_arg_span_arena(arena, &arg.kind));
+                }
+            }
+            return ModuleOverloadChoice::Retained(&overloads[0]);
         }
 
         self.error(
@@ -605,7 +625,7 @@ impl Checker {
             "no standard API overload matches argument types",
             DiagnosticCode::CheckTypeMismatch,
         );
-        arity_matches[0]
+        ModuleOverloadChoice::Selected(arity_matches[0])
     }
 
     pub(super) fn check_module_overload_with_checked_argument<'a>(
@@ -1566,6 +1586,23 @@ pub(super) fn module_overload_matches_arena(
     actuals: &[Type],
     sig: &ModuleFnSig,
 ) -> bool {
+    module_overload_fits_arena(args, actuals, sig, false)
+}
+
+fn module_overload_may_match_arena(
+    args: &[ArenaCallArg],
+    actuals: &[Type],
+    sig: &ModuleFnSig,
+) -> bool {
+    module_overload_fits_arena(args, actuals, sig, true)
+}
+
+fn module_overload_fits_arena(
+    args: &[ArenaCallArg],
+    actuals: &[Type],
+    sig: &ModuleFnSig,
+    unresolved_fits: bool,
+) -> bool {
     let Some(bindings) = bind_module_args_arena(args, sig) else {
         return false;
     };
@@ -1574,10 +1611,22 @@ pub(super) fn module_overload_matches_arena(
         .enumerate()
         .all(|(param_index, arg_index)| match arg_index {
             Some(arg_index) => {
-                module_arg_matches_param_arena(&actuals[*arg_index], &sig.params[param_index].ty)
+                unresolved_fits && actuals[*arg_index].contains_inference()
+                    || module_arg_matches_param_arena(&actuals[*arg_index], &sig.params[param_index].ty)
             }
             None => sig.params[param_index].defaulted,
         })
+}
+
+pub(super) enum ModuleOverloadChoice<'a> {
+    Selected(&'a ModuleFnSig),
+    Retained(&'a ModuleFnSig),
+}
+
+impl<'a> ModuleOverloadChoice<'a> {
+    pub(super) fn sig(&self) -> &'a ModuleFnSig {
+        match self { Self::Selected(sig) | Self::Retained(sig) => sig }
+    }
 }
 
 #[allow(dead_code)]
@@ -1637,7 +1686,7 @@ pub(super) fn bind_module_args_arena(
 
 #[allow(dead_code)]
 pub(super) fn module_arg_matches_param_arena(actual: &Type, expected: &Type) -> bool {
-    actual.matches_expected(expected) || (expected == &Type::Path && is_path_like_type(actual))
+    crate::modules::signature::module_argument_fits_parameter(actual, expected)
 }
 
 #[cfg(test)]

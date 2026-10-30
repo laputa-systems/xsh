@@ -18,6 +18,7 @@ pub struct ApiSpec {
     module_index: FxHashMap<&'static str, usize>,
     methods: Vec<MethodReceiverSig>,
     registered_method_locations: Vec<(usize, usize, usize)>,
+    registered_function_locations: Vec<(usize, usize, usize)>,
     /// Reverse map from a `RuntimeOp` to its `module.function` spelling, for
     /// `module.call`/`module.result` trace event names.
     op_names: FxHashMap<RuntimeOp, String>,
@@ -91,6 +92,11 @@ impl ApiSpec {
                 (0..named.overloads.len()).map(move |overload| (receiver, method, overload))
             })
         }).collect();
+        let registered_function_locations = modules.iter().enumerate().flat_map(|(module, entry)| {
+            entry.sig.functions.iter().enumerate().flat_map(move |(function, named)| {
+                (0..named.overloads.len()).map(move |overload| (module, function, overload))
+            })
+        }).collect();
         let module_index = modules
             .iter()
             .enumerate()
@@ -122,6 +128,7 @@ impl ApiSpec {
             module_index,
             methods,
             registered_method_locations,
+            registered_function_locations,
             op_names,
         }
     }
@@ -233,6 +240,84 @@ impl ApiSpec {
         registry::api_spec().named_method_name(id)
     }
 
+    pub(crate) fn registered_function(
+        &self,
+        id: registry::RegisteredFunctionId,
+    ) -> Option<(&'static str, &'static str, &ModuleFnSig)> {
+        let (module, function, overload) = *self.registered_function_locations.get(id.raw() as usize)?;
+        let module = self.modules.get(module)?;
+        let function = module.sig.functions.get(function)?;
+        Some((module.name, function.name, function.overloads.get(overload)?))
+    }
+
+    pub(crate) fn overloaded_function_id(&self, module: &str, name: &str) -> Option<registry::OverloadedFunctionId> {
+        registry::api_spec().overloaded_function_id(module, name)
+    }
+
+    pub(crate) fn overloaded_function_name(&self, id: registry::OverloadedFunctionId) -> Option<(&'static str, &'static str)> {
+        registry::api_spec().overloaded_function_name(id)
+    }
+
+    pub(crate) fn function_requirement_members(
+        &self,
+        id: registry::OverloadedFunctionId,
+    ) -> impl Iterator<Item = (registry::RegisteredFunctionId, &ModuleFnSig)> + '_ {
+        registry::api_spec().overloaded_function_member_ids(id).iter().copied().filter_map(|member| {
+            self.registered_function(member).map(|(_, _, signature)| (member, signature))
+        })
+    }
+
+    pub(crate) fn function_requirement_contract(&self, id: registry::OverloadedFunctionId) -> Option<FunctionRequirementContract<'_>> {
+        let mut members = self.function_requirement_members(id);
+        let (_, first) = members.next()?;
+        let coherent = first.binding == ImplBinding::Native
+            && first.arg_check == ApiArgCheck::Standard
+            && first.semantic_rule == SemanticRule::Standard
+            && !first.command
+            && !first.return_ty.contains_builtin_parameter()
+            && first.params.iter().all(|parameter| !parameter.ty.contains_builtin_parameter());
+        let uniform = members.all(|(_, member)| {
+            member.op == first.op && member.return_ty == first.return_ty && member.pure == first.pure
+                && member.effects == first.effects && member.command == first.command
+                && member.arg_check == first.arg_check && member.semantic_rule == first.semantic_rule
+                && member.binding == first.binding && member.discardable == first.discardable
+                && member.params.len() == first.params.len()
+                && member.params.iter().zip(&first.params).all(|(member, first)| {
+                    member.name == first.name && member.defaulted == first.defaulted && member.label == first.label
+                        && !member.ty.contains_builtin_parameter()
+                })
+        });
+        (coherent && uniform).then_some(FunctionRequirementContract {
+            op: first.op, return_ty: &first.return_ty, parameters: &first.params,
+        })
+    }
+
+    pub(crate) fn select_function_requirement(
+        &self,
+        id: registry::OverloadedFunctionId,
+        argument_slots: &[u32],
+        arguments: &[Type],
+    ) -> FunctionSelection {
+        if argument_slots.len() != arguments.len()
+            || arguments.iter().any(|argument| argument.contains_any() || argument.contains_recovery())
+        {
+            return FunctionSelection::Unsupported;
+        }
+        let mut selected = None;
+        for (member, signature) in self.function_requirement_members(id) {
+            let mut supplied = BTreeSet::new();
+            let fits = arguments.iter().zip(argument_slots).all(|(argument, &slot)| {
+                let slot = slot as usize;
+                signature.params.get(slot).is_some_and(|parameter| supplied.insert(slot) && module_argument_fits_parameter(argument, &parameter.ty))
+            });
+            if !fits || signature.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !supplied.contains(&slot)) {
+                continue;
+            }
+            if selected.replace(member).is_some() { return FunctionSelection::Ambiguous; }
+        }
+        selected.map_or(FunctionSelection::Unsupported, FunctionSelection::Selected)
+    }
+
     pub(crate) fn method_requirement_members<'a>(
         &'a self,
         kind: MethodRequirementKind,
@@ -247,6 +332,9 @@ impl ApiSpec {
     }
 
     pub(crate) fn method_requirement_result(&self, kind: MethodRequirementKind) -> Option<MethodFamilyResult> {
+        if let MethodRequirementKind::Function(function) = kind {
+            return self.function_requirement_contract(function).map(|contract| MethodFamilyResult::UniformGround(contract.return_ty.clone()));
+        }
         let mut members = self.method_requirement_members(kind);
         let (_, _, name, first) = members.next()?;
         let mut uniform = true;
@@ -277,6 +365,7 @@ impl ApiSpec {
                 let (_, actual) = self.selection_receiver(name, receiver_type);
                 crate::sema::builtin_templates::concrete_method_signature(signature, actual).map(|signature| signature.return_ty)
             }
+            MethodRequirementKind::Function(_) => None,
         }
     }
 
@@ -307,6 +396,9 @@ impl ApiSpec {
         argument_slots: &[u32],
         arguments: &[Type],
     ) -> MethodFamilySelection {
+        if matches!(kind, MethodRequirementKind::Function(_)) {
+            return MethodFamilySelection::Unsupported;
+        }
         if argument_slots.len() != arguments.len()
             || receiver_type.contains_any()
             || receiver_type.contains_recovery()
@@ -327,6 +419,7 @@ impl ApiSpec {
                     instantiated = concrete.params;
                     &instantiated
                 }
+                MethodRequirementKind::Function(_) => continue,
             };
             let mut supplied = BTreeSet::new();
             let mut fits = true;
@@ -369,6 +462,32 @@ pub(crate) enum MethodFamilySelection {
     Selected(registry::RegisteredMethodId),
     Unsupported,
     Ambiguous,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FunctionSelection {
+    Selected(registry::RegisteredFunctionId),
+    Unsupported,
+    Ambiguous,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FunctionRequirementContract<'a> {
+    pub(crate) op: RuntimeOp,
+    pub(crate) return_ty: &'a Type,
+    pub(crate) parameters: &'a [ParamSig],
+}
+
+/// Whether a checked argument can stand where a `Path` is required: a
+/// `Path`, or a recovery type whose own diagnostics apply. A string
+/// literal qualifies only by having taken the `Path` type from its expected
+/// type; a `Str` never does.
+pub(crate) fn is_path_like_type(ty: &Type) -> bool {
+    matches!(ty.unvalidated(), Type::Path | Type::Unknown)
+}
+
+pub(crate) fn module_argument_fits_parameter(actual: &Type, expected: &Type) -> bool {
+    actual.matches_expected(expected) || (expected == &Type::Path && is_path_like_type(actual))
 }
 
 #[derive(Clone, Debug)]

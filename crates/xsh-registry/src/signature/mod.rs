@@ -47,12 +47,21 @@ pub struct ApiSpec {
     registered_method_ids: Vec<BTreeMap<&'static str, Vec<RegisteredMethodId>>>,
     method_family_members: [Vec<RegisteredMethodId>; 5],
     named_methods: Vec<NamedMethod>,
+    registered_functions: Vec<RegisteredFunctionLocation>,
+    overloaded_functions: Vec<OverloadedFunction>,
 }
 
 #[derive(Clone, Debug)]
 struct NamedMethod {
     name: &'static str,
     members: Vec<RegisteredMethodId>,
+}
+
+#[derive(Clone, Debug)]
+struct OverloadedFunction {
+    module: &'static str,
+    name: &'static str,
+    members: Vec<RegisteredFunctionId>,
 }
 
 impl Clone for ApiSpec {
@@ -65,6 +74,8 @@ impl Clone for ApiSpec {
             registered_method_ids: self.registered_method_ids.clone(),
             method_family_members: self.method_family_members.clone(),
             named_methods: self.named_methods.clone(),
+            registered_functions: self.registered_functions.clone(),
+            overloaded_functions: self.overloaded_functions.clone(),
         }
     }
 }
@@ -79,6 +90,8 @@ impl std::fmt::Debug for ApiSpec {
             .field("registered_method_ids", &self.registered_method_ids)
             .field("method_family_members", &self.method_family_members)
             .field("named_methods", &self.named_methods)
+            .field("registered_functions", &self.registered_functions)
+            .field("overloaded_functions", &self.overloaded_functions)
             .finish()
     }
 }
@@ -87,6 +100,13 @@ impl std::fmt::Debug for ApiSpec {
 struct RegisteredMethodLocation {
     receiver: usize,
     method: usize,
+    overload: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RegisteredFunctionLocation {
+    module: usize,
+    function: usize,
     overload: usize,
 }
 
@@ -180,6 +200,34 @@ impl NamedMethodId {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
+pub struct OverloadedFunctionId(u16);
+
+impl OverloadedFunctionId {
+    pub const fn from_raw(raw: u16) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u16 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct RegisteredFunctionId(u32);
+
+impl RegisteredFunctionId {
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
 pub struct RegisteredMethodId(u32);
 
 impl RegisteredMethodId {
@@ -225,6 +273,21 @@ impl ApiSpec {
             }
         }
         let named_methods = by_name.into_iter().map(|(name, members)| NamedMethod { name, members }).collect();
+        let mut registered_functions = Vec::new();
+        let mut overloaded_functions = Vec::new();
+        for (module_index, module) in modules.iter().enumerate() {
+            for (function_index, function) in module.sig.functions.iter().enumerate() {
+                let mut members = Vec::new();
+                for overload in 0..function.overloads.len() {
+                    members.push(RegisteredFunctionId(u32::try_from(registered_functions.len()).expect("registered function count fits its identifier")));
+                    registered_functions.push(RegisteredFunctionLocation { module: module_index, function: function_index, overload });
+                }
+                if members.len() > 1 {
+                    overloaded_functions.push(OverloadedFunction { module: module.name, name: function.name, members });
+                }
+            }
+        }
+        overloaded_functions.sort_by_key(|function| (function.module, function.name));
         Self {
             modules,
             methods,
@@ -233,6 +296,8 @@ impl ApiSpec {
             registered_method_ids,
             method_family_members,
             named_methods,
+            registered_functions,
+            overloaded_functions,
         }
     }
 
@@ -295,6 +360,30 @@ impl ApiSpec {
 
     pub fn named_method_member_ids(&self, id: NamedMethodId) -> &[RegisteredMethodId] {
         self.named_methods.get(usize::from(id.raw())).map_or(&[], |method| method.members.as_slice())
+    }
+
+    pub fn overloaded_function_id(&self, module: &str, name: &str) -> Option<OverloadedFunctionId> {
+        let index = self.overloaded_functions.binary_search_by(|function| (function.module, function.name).cmp(&(module, name))).ok()?;
+        Some(OverloadedFunctionId(u16::try_from(index).expect("overloaded function count fits its identifier")))
+    }
+
+    pub fn overloaded_function_name(&self, id: OverloadedFunctionId) -> Option<(&'static str, &'static str)> {
+        self.overloaded_functions.get(usize::from(id.raw())).map(|function| (function.module, function.name))
+    }
+
+    pub fn overloaded_function_member_ids(&self, id: OverloadedFunctionId) -> &[RegisteredFunctionId] {
+        self.overloaded_functions.get(usize::from(id.raw())).map_or(&[], |function| function.members.as_slice())
+    }
+
+    pub fn registered_function(
+        &self,
+        id: RegisteredFunctionId,
+    ) -> Option<(&'static str, &'static str, usize, &ModuleFnSig)> {
+        let location = self.registered_functions.get(id.raw() as usize)?;
+        let module = self.modules.get(location.module)?;
+        let function = module.sig.functions.get(location.function)?;
+        let signature = function.overloads.get(location.overload)?;
+        Some((module.name, function.name, location.overload, signature))
     }
 
     /// Every embedded implementation module identity named by a binding.

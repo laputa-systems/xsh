@@ -163,6 +163,7 @@ pub(crate) struct CallableRequirements {
 pub(crate) enum MethodRequirementKind {
     Family(xsh_registry::signature::MethodFamilyId),
     Named(xsh_registry::signature::NamedMethodId),
+    Function(xsh_registry::signature::OverloadedFunctionId),
 }
 
 impl MethodRequirementKind {
@@ -170,11 +171,35 @@ impl MethodRequirementKind {
         match self {
             Self::Family(family) => xsh_registry::signature::api_spec().method_family_member_ids(family),
             Self::Named(named) => xsh_registry::signature::api_spec().named_method_member_ids(named),
+            Self::Function(_) => &[],
+        }
+    }
+
+    pub(crate) fn function_members(self) -> &'static [xsh_registry::signature::RegisteredFunctionId] {
+        match self {
+            Self::Function(function) => xsh_registry::signature::api_spec().overloaded_function_member_ids(function),
+            Self::Family(_) | Self::Named(_) => &[],
         }
     }
 
     pub(crate) fn admits(self, method: xsh_registry::signature::RegisteredMethodId) -> bool {
         self.members().contains(&method)
+    }
+
+    pub(crate) fn function_candidates(self) -> String {
+        let Self::Function(function) = self else { return String::new() };
+        let api = crate::modules::api_spec();
+        let name = api.overloaded_function_name(function).map_or("", |(_, name)| name);
+        api.function_requirement_members(function)
+            .map(|(_, signature)| {
+                let parameters = signature.params.iter().map(|parameter| format!("{}: {}", parameter.name, parameter.ty)).collect::<Vec<_>>().join(", ");
+                format!("{name}({parameters})")
+            })
+            .collect::<Vec<_>>().join(", ")
+    }
+
+    pub(crate) fn admits_function(self, function: xsh_registry::signature::RegisteredFunctionId) -> bool {
+        self.function_members().contains(&function)
     }
 }
 
@@ -185,6 +210,10 @@ impl std::fmt::Display for MethodRequirementKind {
             Self::Named(named) => formatter.write_str(
                 xsh_registry::signature::api_spec().named_method_name(*named).expect("a retained named method requirement names a registered method"),
             ),
+            Self::Function(function) => {
+                let (module, name) = xsh_registry::signature::api_spec().overloaded_function_name(*function).expect("a retained function requirement names a registered overloaded function");
+                write!(formatter, "{module}.{name}")
+            }
         }
     }
 }
@@ -284,6 +313,7 @@ pub(crate) enum SealedOperationBinding {
 #[repr(C, u8)]
 pub(crate) enum SealedMethodBinding {
     Selected(xsh_registry::signature::RegisteredMethodId),
+    SelectedFunction(xsh_registry::signature::RegisteredFunctionId),
     Forwarded(u32),
 }
 
@@ -1193,6 +1223,7 @@ impl CallInstantiation {
                 SealedMethodBinding::Forwarded(ordinal) => caller_methods.get(*ordinal as usize)
                     .is_none_or(|caller| caller.kind != method.kind),
                 SealedMethodBinding::Selected(id) => !method.kind.admits(*id),
+                SealedMethodBinding::SelectedFunction(id) => !method.kind.admits_function(*id),
             })
         { return Err(SchemeBuildError::UnresolvedMethodFamily); }
         if wrapper_bindings.len() != scope.requirements.wrappers.len()

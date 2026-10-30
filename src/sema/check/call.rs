@@ -2496,22 +2496,20 @@ impl Checker {
         if module == "process" && name == "command_argv" {
             return self.check_process_command_argv_call_arena(arena, source, args, span);
         }
-        let (sig, args_checked) = if overloads.len() == 1 {
-            (&overloads[0], executable_mode_checked)
-        } else {
-            let sig = if let Some(argument) = checked_argument {
-                let Some(sig) = self.check_module_overload_with_checked_argument(
-                    argument, overloads, span,
-                ) else {
-                    return Type::Unknown;
-                };
-                sig
-            } else {
-                self.check_module_overload_args_arena(
-                    arena, source, module, name, args, overloads, span,
-                )
+        let (sig, args_checked, retained) = if overloads.len() == 1 {
+            (&overloads[0], executable_mode_checked, false)
+        } else if let Some(argument) = checked_argument {
+            let Some(sig) = self.check_module_overload_with_checked_argument(
+                argument, overloads, span,
+            ) else {
+                return Type::Unknown;
             };
-            (sig, true)
+            (sig, true, false)
+        } else {
+            let choice = self.check_module_overload_args_arena(
+                arena, source, module, name, args, overloads, span,
+            );
+            (choice.sig(), true, matches!(choice, super::args::ModuleOverloadChoice::Retained(_)))
         };
         if matches!(sig.binding, crate::modules::signature::ImplBinding::Schema(_)) {
             self.error(span, "this intrinsic requires an explicit trailing schema operand", DiagnosticCode::CheckRequireTarget);
@@ -2610,7 +2608,7 @@ impl Checker {
             }
         }
         instance.resolve(&self.type_constraints);
-        if let Some(registered) = registered {
+        if let Some(registered) = registered.filter(|_| !retained) {
             if let Some(argument) = checked_argument {
                 self.publish_api_call_with_checked_argument(
                     span,

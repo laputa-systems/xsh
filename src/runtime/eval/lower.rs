@@ -5724,6 +5724,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else {
                         return self.block_scheme_lowering_expr(expression);
                     };
+                    if let crate::sema::schemes::MethodRequirementKind::Function(function) = requirement.kind {
+                        let api = crate::modules::api_spec();
+                        let (Some(contract), Some((_, function_name))) = (api.function_requirement_contract(function), api.overloaded_function_name(function)) else {
+                            return self.block_scheme_lowering_expr(expression);
+                        };
+                        if function_name != name.as_str() { return self.block_scheme_lowering_expr(expression); }
+                        if facts.expression_types().contains_key(&callee) { visited.insert(callee); }
+                        let arguments = self.lower_scheme_call_arguments(expression, args, None, slots, current_function, facts, visited, lowered_types, body)?;
+                        if arguments.len() != requirement.argument_slots.len() || arguments.iter().any(|argument| argument.splice) {
+                            return self.block_scheme_lowering_expr(expression);
+                        }
+                        let mut ordered = vec![None; contract.parameters.len()];
+                        for (argument, &slot) in arguments.into_iter().zip(&requirement.argument_slots) {
+                            if ordered.get_mut(slot as usize)?.replace(argument.lowered?).is_some() {
+                                return self.block_scheme_lowering_expr(expression);
+                            }
+                        }
+                        while ordered.last() == Some(&None) { ordered.pop(); }
+                        let lowered = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: contract.op, args: ordered, span });
+                        self.scratch.borrow_mut().scheme_methods.insert(lowered.index(), ordinal);
+                        return Some(self.publish_scheme_expression(lowered, ty, slots, lowered_types, body));
+                    }
                     if !crate::modules::api_spec().method_requirement_members(requirement.kind).all(|(_, _, family_name, _)| family_name == name.as_str()) {
                         return self.block_scheme_lowering_expr(expression);
                     }

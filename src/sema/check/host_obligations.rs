@@ -32,7 +32,18 @@ fn method_candidates(name: &str) -> Vec<HostMethod> {
 pub(in super::super) struct HostObligations {
     entries: Vec<HostObligation>,
     unresolved_error_result_receivers: Vec<UnresolvedErrorResultReceiver>,
+    module_overloads: Vec<PendingModuleOverload>,
     next_position: usize,
+}
+
+#[derive(Clone)]
+struct PendingModuleOverload {
+    owner: Option<super::super::EffectDeclarationId>,
+    span: Span,
+    function: xsh_registry::signature::OverloadedFunctionId,
+    slots: Vec<u32>,
+    arguments: Vec<Type>,
+    args: Vec<ArenaCallArg>,
 }
 
 #[derive(Clone)]
@@ -325,6 +336,89 @@ impl Checker {
             || self.result_constructors.get(&producer.span) != Some(&super::super::CheckedResultConstructor::Err)
         { return; }
         self.local_inference.host_obligations.unresolved_error_result_receivers.push(UnresolvedErrorResultReceiver { call, name: name.to_owned() });
+    }
+
+    pub(in super::super) fn retain_module_overload(
+        &mut self,
+        module: &str,
+        name: &str,
+        args: &[ArenaCallArg],
+        overloads: &[super::ModuleFnSig],
+        actuals: &[Type],
+        span: Span,
+    ) -> bool {
+        let api = api_spec();
+        if !self.collecting_local_constraints()
+            || actuals.iter().any(|ty| ty.contains_any() || ty.contains_recovery())
+        { return false; }
+        let Some(function) = api.overloaded_function_id(module, name) else { return false };
+        let members = api.function_requirement_members(function).collect::<Vec<_>>();
+        if members.len() != overloads.len()
+            || members.iter().zip(overloads).any(|((_, member), overload)| !std::ptr::eq(*member, overload))
+            || api.function_requirement_contract(function).is_none()
+        { return false; }
+        let Some(bindings) = super::super::args::bind_module_args_arena(args, &overloads[0]) else { return false };
+        let mut slots = vec![0u32; args.len()];
+        for (parameter, argument) in bindings.iter().enumerate() {
+            if let Some(argument) = *argument {
+                let Ok(parameter) = u32::try_from(parameter) else { return false };
+                slots[argument] = parameter;
+            }
+        }
+        self.local_inference.host_obligations.module_overloads.push(PendingModuleOverload {
+            owner: self.stream_origin_owner, span, function, slots, arguments: actuals.to_vec(), args: args.to_vec(),
+        });
+        true
+    }
+
+    pub(in super::super) fn close_module_overloads(&mut self, arena: &ArenaProgram, owner: Option<super::super::EffectDeclarationId>, body: Span) {
+        let pending = std::mem::take(&mut self.local_inference.host_obligations.module_overloads);
+        for overload in pending {
+            let span = overload.span;
+            if overload.owner != owner || owner.is_none() && !(span.source_id == body.source_id && body.start() <= span.start() && span.end() <= body.end()) {
+                self.local_inference.host_obligations.module_overloads.push(overload);
+                continue;
+            }
+            let kind = MethodRequirementKind::Function(overload.function);
+            let resolved = overload.arguments.iter().map(|argument| self.type_constraints.resolve(argument)).collect::<Result<Vec<_>, _>>();
+            let arguments = match resolved {
+                Ok(arguments) => arguments,
+                Err(error) => { self.reject_host_inference_resolution(error, span); continue; }
+            };
+            let api = api_spec();
+            if arguments.iter().any(Type::contains_inference) {
+                let contract = api.function_requirement_contract(overload.function).expect("a retained function overload keeps its coherent contract");
+                match owner {
+                    Some(owner) => {
+                        let requirement = crate::sema::schemes::MethodFamilyRequirement {
+                            kind, receiver: Type::Unit, argument_slots: overload.slots, arguments: overload.arguments, result: contract.return_ty.clone(),
+                        };
+                        if let Err(error) = self.type_constraints.register_method_family(self.constraint_scope_at(owner, span), requirement, Some(span), span) {
+                            self.error(span, &format!("function overload could not be retained: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        }
+                    }
+                    None => {
+                        self.error(span, &format!("no standard API overload is established for these arguments; candidates: {}", kind.function_candidates()), DiagnosticCode::CheckTypeMismatch);
+                        self.expr_types.insert(span, Type::Invalid);
+                    }
+                }
+                continue;
+            }
+            match api.select_function_requirement(overload.function, &overload.slots, &arguments) {
+                crate::modules::signature::FunctionSelection::Selected(member) => {
+                    let (_, _, signature) = api.registered_function(member).expect("a selected function overload stays registered");
+                    self.publish_api_call(arena, &overload.args, span, None, signature, signature);
+                }
+                crate::modules::signature::FunctionSelection::Unsupported => {
+                    self.error(span, &format!("no standard API overload matches argument types; candidates: {}", kind.function_candidates()), DiagnosticCode::CheckTypeMismatch);
+                    self.expr_types.insert(span, Type::Invalid);
+                }
+                crate::modules::signature::FunctionSelection::Ambiguous => {
+                    self.error(span, &format!("ambiguous standard API overload; candidates: {}", kind.function_candidates()), DiagnosticCode::CheckAmbiguousOverload);
+                    self.expr_types.insert(span, Type::Invalid);
+                }
+            }
+        }
     }
 
     pub(in super::super) fn validate_unresolved_error_result_receivers(&mut self) {

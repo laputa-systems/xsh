@@ -4166,6 +4166,66 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn function_requirements_authenticate_their_registry_members() {
+        use crate::sema::schemes::MethodRequirementKind;
+        use xsh_registry::signature::OverloadedFunctionId;
+        let program = prepare("proc located(command) [process] { match process.which(command) { Ok(_) => true\n Err(_) => false } }\nlet text = located(\"sh\")\nlet found = located(p\"/bin/sh\")\n");
+        FullVerifier::verify(&program).unwrap();
+        let api = crate::modules::api_spec();
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        assert_eq!(scheme.methods.len, 1);
+        let method_index = scheme.methods.start as usize;
+        let which = api.overloaded_function_id("process", "which").unwrap();
+        assert_eq!(program.store.scheme_methods[method_index].kind, MethodRequirementKind::Function(which));
+        let reject = |mut changed: FullProgram, label: &str| -> String {
+            changed.store.in_place.take();
+            assert!(changed.store.in_place.get().is_none());
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(!error.message.contains("unowned rows"), "{label}: {error:?}");
+            error.message.clone()
+        };
+        let mut out_of_table = program.clone();
+        out_of_table.store.scheme_methods[method_index].kind = MethodRequirementKind::Function(OverloadedFunctionId::from_raw(u16::MAX));
+        assert_eq!(reject(out_of_table, "function outside the registry table"), "scheme method names no overloaded registry function");
+        let exec_env = api.overloaded_function_id("unix", "exec_env").unwrap();
+        assert_ne!(exec_env, which);
+        let mut other_function = program.clone();
+        other_function.store.scheme_methods[method_index].kind = MethodRequirementKind::Function(exec_env);
+        reject(other_function, "another overloaded function");
+        let mut method_kind = program.clone();
+        method_kind.store.scheme_methods[method_index].kind = MethodRequirementKind::Named(api.named_method_id("byte_at").unwrap());
+        reject(method_kind, "a method name in place of the overloaded function");
+        let mut family_kind = program.clone();
+        family_kind.store.scheme_methods[method_index].kind = MethodRequirementKind::Family(xsh_registry::signature::MethodFamilyId::Length);
+        reject(family_kind, "a family in place of the overloaded function");
+        let calls = program.store.call_instantiations.iter().filter(|call| {
+            call.arguments.method_bindings.len == 1
+                && program.store.checked_call_targets.iter().any(|target| target.instruction == call.instruction && target.function.index() == owner)
+        }).collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        let selected = calls.iter().map(|call| match program.store.call_method_bindings[call.arguments.method_bindings.start as usize] {
+            super::super::super::schemes::FullMethodBinding::SelectedFunction(member) => member,
+            other => panic!("a ground call selects its function member: {other:?}"),
+        }).collect::<Vec<_>>();
+        assert_ne!(selected[0], selected[1]);
+        let members = api.function_requirement_members(which).map(|(member, _)| member).collect::<Vec<_>>();
+        assert!(members.iter().all(|member| selected.contains(member)));
+        let binding = calls[0].arguments.method_bindings.start as usize;
+        let mut swapped = program.clone();
+        swapped.store.call_method_bindings[binding] = super::super::super::schemes::FullMethodBinding::SelectedFunction(selected[1]);
+        assert!(reject(swapped, "the other member").contains("canonical input signature"));
+        let foreign = xsh_registry::signature::api_spec().overloaded_function_member_ids(exec_env)[0];
+        let mut foreign_member = program.clone();
+        foreign_member.store.call_method_bindings[binding] = super::super::super::schemes::FullMethodBinding::SelectedFunction(foreign);
+        assert!(reject(foreign_member, "a member of another function").contains("canonical input signature"));
+        let mut method_member = program.clone();
+        let byte_at = xsh_registry::signature::api_spec().named_method_member_ids(api.named_method_id("byte_at").unwrap())[0];
+        method_member.store.call_method_bindings[binding] = super::super::super::schemes::FullMethodBinding::Selected(byte_at);
+        assert!(reject(method_member, "a method member for a function requirement").contains("another operation kind"));
+    }
+
+    #[test]
     fn authored_path_method_returns_authenticate_their_header_and_actual_tail() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("pure written(location, other) -> Path { let _ = other.parent(); location.parent() }\npure foreign(location: Path) -> Path { location }\nlet relative: RelPath = p\"a/b\"\nlet _ = written(p\"/a/b\", relative)\n");
