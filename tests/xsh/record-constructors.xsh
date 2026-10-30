@@ -56,6 +56,22 @@ print $pair.second
 """
 }
 
+test test_record_constructor_reads_a_literal_map_field { |ctx|
+  let executed = test.run_script(
+    ctx,
+    r"""type Colors = {ind: Map[Str]}
+type Counts = {ok: Bool, by_name: Map[Int]}
+let colors = Colors(ind: {"di": "01;34", "ln": "01;36"})
+let counts = Counts(ok: true, by_name: {"a": 1})
+print $colors.ind.len()
+print (colors.ind.get("ln") ?? "-")
+print $counts.by_name.keys().len()
+""",
+  )?
+  assert executed.success, executed.stderr
+  assert executed.stdout == "2\n01;36\n1\n"
+}
+
 test test_record_constructors_reject_invalid_calls_and_defaults { |ctx|
   for source in [
     """type Config = {name: Str}
