@@ -136,6 +136,17 @@ class InventoryCheckerTests(unittest.TestCase):
                 "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
                 "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically",
                 "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality",
+                *(
+                    "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::" + name
+                    for name in (
+                        "exported_documents_are_the_lean_certified_bytes",
+                        "exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+                        "source_and_artifact_association_is_explicit",
+                        "wire_corruptions_are_rejected_by_the_decoder",
+                        "tampered_observations_are_rejected_against_the_scheduled_run",
+                        "mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+                    )
+                ),
             ],
             [case["test_id"] for case in coverage["finite_conformance"]["cases"]],
         )

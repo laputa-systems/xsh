@@ -3069,8 +3069,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_float_constant_equality_uses_ieee_values",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3100,8 +3100,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_float_runtime_equality_uses_ieee_values",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3131,8 +3131,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_compare_recursive_float_keys_semantically",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3162,8 +3162,8 @@
         "test_id": "tests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality",
         "evidence_class": "RUST_CONFORMANCE",
         "binary_sha256s": {
-          "xsht": "79412e0a565cd8ec54c96a74c2a0256dee85a739153d1fdc95c205723232ef89",
-          "xsh": "955f45dbc693f67adc73e04682159d907ff6748ea76c89df285a8c844d1774ca"
+          "xsht": "e9f317a94bbca78f1c753f559f6c4035ea013187a776f12774aecc1d5f510a6d",
+          "xsh": "594be389cdb3c89ad00c51c80c28d148b0297fb0420a8e7f6916ba75a4398831"
         },
         "profile": "verification",
         "target": "x86_64-unknown-linux-musl",
@@ -3185,6 +3185,240 @@
           "exit_code": 0,
           "stdout": "running 1 tests\ntests/xsh/float-equality.xsh::test_keyed_stages_use_ieee_float_equality ... ok 0ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n",
           "stderr": ""
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.exported_documents_are_the_lean_certified_bytes",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_documents_are_the_lean_certified_bytes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "   Compiling proc-macro2 v1.0.106\n   Compiling quote v1.0.46\n   Compiling unicode-ident v1.0.24\n   Compiling vte v0.15.0\n   Compiling vt100 v0.16.2\n   Compiling syn v2.0.118\n   Compiling laputa-ptytest v0.1.1\n   Compiling xsh v0.0.1 (/work)\n    Finished `verification` profile [optimized] target(s) in 7m 01s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.09s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.source_and_artifact_association_is_explicit",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::source_and_artifact_association_is_explicit ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.wire_corruptions_are_rejected_by_the_decoder",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::wire_corruptions_are_rejected_by_the_decoder ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.01s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.tampered_observations_are_rejected_against_the_scheduled_run",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::tampered_observations_are_rejected_against_the_scheduled_run ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
+        },
+        "status": "passed"
+      },
+      {
+        "name": "formal-bridge-arithmetic.mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+        "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+        "evidence_class": "RUST_CONFORMANCE",
+        "binary_sha256s": {
+          "cargo": "d2fd1878819fddb9a669b79ca8f22cb9d423c17435849dbb2eb7eab6c8d04e43",
+          "cargo-test:xsh:lib": "4ad258d4c233537cfffe04f72dd9d06ea7a5a3878e2086374851565c8f193a7f"
+        },
+        "profile": "verification",
+        "target": "x86_64-unknown-linux-musl",
+        "command": [
+          "cargo",
+          "test",
+          "--profile",
+          "verification",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--lib",
+          "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+          "--",
+          "--exact"
+        ],
+        "expected_result": {
+          "test_id": "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "filtered": 2886
+        },
+        "actual_result": {
+          "exit_code": 0,
+          "stdout": "\nrunning 1 test\ntest runtime::eval::indexed::full::formal_bridge::arithmetic::tests::mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2886 filtered out; finished in 0.00s\n\n",
+          "stderr": "    Finished `verification` profile [optimized] target(s) in 0.05s\n     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/43d3053b2593a3bf/out/xsh-43d3053b2593a3bf)\n"
         },
         "status": "passed"
       }
@@ -10387,7 +10621,7 @@
     }
   ],
   "source_identity": {
-    "commit": "65fcb0f428a39a91832c6e9c9188ab8322d2fcd0",
-    "tree": "6947bd3de2eb6ba81f5e0a19a22249f15345aea6"
+    "commit": "a08a0a1338616c80bea962d17fe74fb9ebda8d11",
+    "tree": "c2d969f9f87e1edd8e7268f87e59eba28574faf1"
   }
 }
