@@ -203,7 +203,7 @@ enum ConstraintAuthority<'a> {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum RowBindingPurpose { Static, ClosedRecordInput }
+enum RowBindingPurpose { Static, OpenRowExchange, ClosedRecordInput }
 
 struct CallInputContext {
     inputs: input_support::UnresolvedVariables,
@@ -3059,7 +3059,8 @@ impl TypeConstraints {
                     .map_err(Some)?
                     .min(self.row_level(right).map_err(Some)?);
                 let shared = self.fresh_row_inner(contribution, level, lacks, changes);
-                self.bind_row(
+                self.bind_row_for(
+                    RowBindingPurpose::OpenRowExchange,
                     left,
                     RowShape {
                         fields: right_only.clone(),
@@ -3069,7 +3070,8 @@ impl TypeConstraints {
                     depth,
                     changes,
                 )?;
-                self.bind_row(
+                self.bind_row_for(
+                    RowBindingPurpose::OpenRowExchange,
                     right,
                     RowShape {
                         fields: left_only.clone(),
