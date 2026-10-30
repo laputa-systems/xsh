@@ -8,6 +8,7 @@ const socket_calls = [
   "linux.accept(0)",
   "linux.sendto(0, b\"payload\")",
   "linux.recvfrom(0, 16)",
+  "unix.connect_stream(p\"/missing\", 1s)",
   "unix.read_fd(0, 16)",
   "unix.write_fd(0, b\"payload\")",
   "unix.notify_ready(0)",

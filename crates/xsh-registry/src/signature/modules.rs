@@ -2957,6 +2957,7 @@ fn unix_module() -> ModuleSig {
         ("signal_setup", sig(vec![param("signals", Type::List(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixSignalSetup)),
         ("take_signals", sig(Vec::new(), result(Type::List(Box::new(Type::Str))), false, RuntimeOp::UnixTakeSignals)),
         ("cpu_features", sig(Vec::new(), Type::List(Box::new(Type::Str)), false, RuntimeOp::UnixCpuFeatures)),
+        ("connect_stream", sig(vec![param("path", Type::Path), param("timeout", Type::Duration)], result(Type::Int), false, RuntimeOp::UnixConnectStream)),
         ("read_fd", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int)], result(Type::Bytes), false, RuntimeOp::UnixReadFd)),
         ("write_fd", sig(vec![param("fd", Type::Int), param("data", Type::Bytes)], result(Type::Int), false, RuntimeOp::UnixWriteFd)),
         ("seek_fd", sig(vec![param("fd", Type::Int), param("offset", Type::Int), default_param("whence", Type::Str)], result(Type::Int), false, RuntimeOp::UnixSeekFd)),

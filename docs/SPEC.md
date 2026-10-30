@@ -4720,7 +4720,7 @@ These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `link_up`, `link_down`,
 `set_ipv4_address`, `flush_ipv4_addresses`, `add_default_ipv4_route`,
 `del_default_ipv4_route`,
-and `unix.read_fd`, `write_fd`, `notify_ready`. The private configuration
+and `unix.connect_stream`, `read_fd`, `write_fd`, `notify_ready`. The private configuration
 helpers create `AF_INET` sockets. A runtime family or raw descriptor cannot
 prove that communication stays local, so generic socket and descriptor calls
 need both effects even when a particular caller uses a local descriptor. Dedicated
@@ -6660,6 +6660,12 @@ let text = notes.replace("DRAFT", with: "FINAL")
   no periodic wakeups. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
+- `unix.connect_stream(path, timeout)` connects a filesystem Unix stream socket
+  on Linux and macOS, within a finite `Duration`. It returns a nonblocking,
+  close-on-exec descriptor owned by the caller, who closes it with
+  `unix.close_fd`. The deadline covers connection establishment; use polling
+  and a separate remaining deadline for reads and writes. Shutdown interrupts
+  a pending connection and releases its descriptor.
 - Network primitives in `linux` move bytes between a script and the kernel;
   packet and message layouts stay in the script. `linux.socket` returns a
   close-on-exec descriptor number that `unix.read_fd`, `write_fd`, `poll_fd`,

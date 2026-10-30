@@ -119,6 +119,7 @@ pub enum RuntimeOp {
     RegexCapturesHostBytes,
     FloatFormatNumber,
     FloatAtan2,
+    UnixConnectStream,
     UnixReadFd,
     UnixWriteFd,
     UnixSeekFd,
