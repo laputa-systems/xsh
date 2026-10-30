@@ -48410,6 +48410,34 @@ assert bump("a", "b") == "ab"
     }
 
     #[test]
+    fn a_generic_loop_counter_advanced_by_a_slice_call_is_proved_by_the_scheme_body() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-loop-counter-slice-call.xsh", r#"
+proc drain(fd: Int, data) [process, net, error] {
+  var done = 0
+  while done < 3 {
+    let written = unix.write_fd(fd, data[1..])?
+    done += written
+  }
+  let marker = "wrong"
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "drain");
+            let decoder = function_view_decoder(&program.store, owner);
+            let assignment = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Assign { op: AssignOp::Add, .. }))).expect("the counter assignment");
+            let schema::StmtView::Assign { value, .. } = decoder.statement_view(assignment).unwrap() else { unreachable!() };
+            let text = function_instruction_indices(&program, "drain", FullTag::ExprStr).into_iter().find(|&instruction| {
+                matches!(decoder.expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong = program.clone();
+            wrong.store.tags[value.raw() as usize] = program.store.tags[text];
+            wrong.store.data[value.raw() as usize] = program.store.data[text];
+            FullVerifier::verify(&wrong).expect_err("a string cannot advance an integer counter");
+        });
+    }
+
+    #[test]
     fn a_byte_length_argument_is_an_int_and_a_forged_one_is_not() {
         run_with_large_stack(|| {
             let program = fixture("generic-byte-length-argument.xsh", r#"

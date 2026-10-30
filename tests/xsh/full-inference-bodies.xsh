@@ -1775,3 +1775,25 @@ proc main() [io] {
   )?
   assert output.stdout == "11\n2.5\nabcd\n2\n", output.stdout
 }
+
+test test_full_inference_loop_counter_advanced_by_a_generic_slice_call_runs { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc drain(items, take: Int) [io] {
+  var done = 0
+  while done < 4 {
+    let part = items[take..]
+    done += part.len()
+  }
+  print $done
+}
+proc main() [io] {
+  drain([1, 2, 3], 1)
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "4\n", output.stdout
+}

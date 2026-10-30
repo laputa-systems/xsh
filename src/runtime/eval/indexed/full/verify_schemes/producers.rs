@@ -3118,6 +3118,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn binding_slot(&mut self, owner: u32, binding: ProducerBinding, slot: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {
+        if super::super::driver_owner_index(owner).is_none() && matches!(self.store.functions[function_index(owner)?].contract, FullCallableContract::Scheme(_)) { return Ok(()); }
         let previous = self.slots.entry((owner, binding)).or_default();
         if previous.iter().any(|ty| **ty == *expected) { return Ok(()); }
         previous.push(Arc::clone(&expected));
