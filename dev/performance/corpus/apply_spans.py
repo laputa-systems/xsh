@@ -134,8 +134,10 @@ def main():
             raise SystemExit(f"site {site} has a different pinned source revision")
         if row["visibility"] != "private" or row["kind"] not in {"local", "parameter", "return"}:
             raise SystemExit(f"site {site} is not a private local or function type annotation")
-        if row["declaration_kind"] not in {"local", "pure"}:
-            raise SystemExit(f"site {site} is not a local or pure function annotation")
+        if row["declaration_kind"] not in {"local", "pure"} and not (
+            row["declaration_kind"] == "proc" and row["kind"] == "parameter"
+        ):
+            raise SystemExit(f"site {site} is not a private local, pure, or proc-parameter type annotation")
         if row["kind"] == "local" and row["initializer"] in {"map-typed", "require-target"}:
             raise SystemExit(f"site {site} carries a retained Map or .require() contract")
         by_file.setdefault((project, row["path"]), []).append(row)

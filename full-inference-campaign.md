@@ -11,9 +11,18 @@ count remains 4,588/4,725 after slice 36.
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
 - **Next slice:** `core/rm.xsh` (`generic match arm disagrees with its result`;
   minimal erased set `report_progress.opts` and `remove_target.opts`, both
-  `RmOptions`), then `core/nc.xsh` (function body termination), `core/fmt.xsh`
-  (index validation effect) and `core/traceroute.xsh` (generic module call
-  signature).
+  `RmOptions`), then the Laputa `check.map-key-type` witness
+  (`generation_runtime_artifacts.value`), then `core/nc.xsh` (function body
+  termination), `core/fmt.xsh` (index validation effect) and
+  `core/traceroute.xsh` (generic module call signature).
+- **G4 eligibility:** private `pure` and private `proc` parameters are in the
+  applied view; exported parameters, private `proc` returns, effect clauses, and
+  `Map`/`.require()` locals stay retained. The erasure measurements already
+  cover every site; only the view's eligible set changes, so regenerate the
+  view site list to add the 37 passing Laputa private sites. Laputa evidence is
+  `INFERENCE-ERASURE.md` at Laputa `d1fda6c`; the one private-proc residual is
+  the `check.map-key-type` witness
+  `pure f(value) { {node.name: node for node in value.nodes} }`.
 - **Parked:** none. `inference/record-override-known`, `inference/find-slice`
   and `inference/optional-argument` are merged; the older `inference/*` branches
   are patch-integrated into `master`.
@@ -112,6 +121,7 @@ Execution effects still require a launch grant covering this expanded scope.
 | Build migration support as source transformations only. | Preserve old statement/value meaning explicitly before changing omission defaults. Delete migration-only compiler paths at close; introduce no legacy runtime mode. |
 | Treat the cross-type overloads `byte_at` (`Str`, `Bytes`), `get` (`List`, `Map`) and `replace` (`Str`, `Regex`) on unresolved receivers as section 9 sealed requirements, not registry method families. | A caller must not train a callee, so a concrete call without a unique signature still fails; a generic helper retains the finite requirement and each use discharges it. Until implemented these sites are open work, not retained annotations. |
 | Keep historical and current cohorts separate. | The accepted 1,040 view uses `15243e97`, while current corpus scripts describe 877. Neither mutable tables nor fresh diagnostics replace frozen eligibility. |
+| Make private `proc` parameters eligible for the applied G4 view; keep exported parameters, private `proc` returns, effect clauses, and `Map`/`.require()` locals retained. | The Laputa practical root has 38 private parameter sites (12 pure, 26 proc): 37 erase alone and the 37-site joint passes. The one residual, `generation_runtime_artifacts.value`, is a real `check.map-key-type` gap. Exported parameters are API contracts (`write_generation_plan.path_value`, `compose.value`); `proc` returns select the plain value contract; effects and `Map`/`.require()` locals are intentional. Reversal: exported-API inference opens a new view and re-measures; never mix denominators. |
 | Complete parity and capability coverage before optimization. | Section 12's numerical budgets remain unchanged but become release gates only at P4. Correctness, memory safety, and egregious loop regressions are never deferred. |
 
 ### Delegated decisions

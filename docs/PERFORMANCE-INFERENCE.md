@@ -76,6 +76,14 @@ below is from that run.
 | `check.ambiguous-overload` on a parameter | 22 | Cross-type overloads on an unresolved receiver (see Retained annotations) are section 9 work. All 22 are of that kind. |
 | `compact.indexed-build` verification or lowering | 22 | Open implementation work; first reductions are in the log of `full-inference-campaign.md`. |
 
+Private `proc` parameters are in the applied view as of 2026-10-31; exported
+parameters, private `proc` returns, effect clauses, and `Map`/`.require()`
+locals remain retained. The counts in this section measure every site and are
+unchanged; only the view's eligible set changes. The Laputa practical root has
+38 private parameter sites (12 pure, 26 proc): 37 pass alone and jointly, and
+`generation_runtime_artifacts.value` is the `check.map-key-type` residual.
+Regenerate the view site list before quoting an applied-view count.
+
 Across every private parameter annotation in the 250 top-level `core/*.xsh`
 commands (4,731 sites), the same tool shows 4,225 (89.3%) erasable alone on
 2026-10-28 (4,141 before the latest verifier fixes). The 506 failures by first
@@ -284,12 +292,13 @@ bash dev/performance/corpus/check_views.sh \
 
 `SITE_IDS` is a comma-separated list of exact `project|path|kind|line|owner`
 selectors from the inventory. The scripts reject dirty or mismatched checkouts.
-`apply_spans.py` rejects exported, entry, Proc, Stream, Map-typed, and
-`.require()` target annotations. `check_views.sh` checks 12 XSH and three Laputa
-roots in both views, runs six exact behavior selectors in each, and compares
-the revealed signatures of six callables. Set `XSH_LAPUTA_CORPUS` to the
-isolated Laputa checkout. There is no implicit fallback to the canonical
-checkout.
+`apply_spans.py` rejects exported parameters, entry declarations, private proc
+returns, effect clauses, Stream declarations, Map-typed locals, and `.require()`
+target annotations; private proc parameters are eligible. `check_views.sh`
+checks 12 XSH and three Laputa roots in both views, runs six exact behavior
+selectors in each, and compares the revealed signatures of six callables. Set
+`XSH_LAPUTA_CORPUS` to the isolated Laputa checkout. There is no implicit
+fallback to the canonical checkout.
 
 `check.sh` is the behavior-only boundary for the utility roots, `wc`, `sort`,
 `awk`, and the Laputa plan and generation modules:
