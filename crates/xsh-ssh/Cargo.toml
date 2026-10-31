@@ -8,5 +8,7 @@ publish = false
 workspace = true
 
 [dependencies]
+data-encoding = "2.10"
+graviola = { path = "vendor/graviola" }
 oxish-graviola = { path = "vendor/oxish-graviola" }
 oxish-proto = { path = "vendor/oxish-proto" }

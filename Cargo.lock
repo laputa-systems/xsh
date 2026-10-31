@@ -2364,6 +2364,8 @@ dependencies = [
 name = "xsh-ssh"
 version = "0.0.1"
 dependencies = [
+ "data-encoding",
+ "graviola",
  "oxish-graviola",
  "oxish-proto",
 ]
