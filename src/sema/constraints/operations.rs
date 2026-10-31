@@ -606,6 +606,12 @@ impl TypeConstraints {
                                     let shape = super::RowShape { fields, tail: RowTail::Variable(tail) };
                                     this.bind_record_inner(*variable, &shape, span, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))?;
                                 }
+                            } else if let Type::Record(known) = resolved_result.unvalidated() {
+                                for (name, ty) in &fields {
+                                    if let Some(existing) = known.get(name) {
+                                        this.constrain_operation_type(existing, ty, span, changes)?;
+                                    }
+                                }
                             }
                             continue;
                         }

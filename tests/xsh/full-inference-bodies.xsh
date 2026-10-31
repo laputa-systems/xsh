@@ -1841,6 +1841,42 @@ proc main() [io] {
   assert output.stdout == "true\n4\n", output.stdout
 }
 
+test test_full_inference_open_record_override_result_constrains_known_fields { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""use lib.gnu
+
+type NameFile = {name: Str, label: Str, state: Str, symlink: Bool, dir_watched: Bool, dev: Int, ino: Int, offset: Int}
+type NameStep = {file: NameFile, last: Str, keep: Bool, failed: Bool, dir_removed: Bool}
+
+proc name_gone(label: Str, failure: Error) [process, env] -> Unit {
+  gnu.error(f"{gnu.quote(label)} has become inaccessible: {gnu.strerror(failure)}")
+}
+
+proc parent_missing(name) [fs] -> Bool {
+  match fs.stat(fp"{name}".parent(), follow_symlinks: true) {
+    Ok(_) => false
+    Err(failure) => gnu.errno(failure) == 2
+  }
+}
+
+proc gone_step(file, failure: Error, retrying: Bool, last: Str) [fs, process, env] -> NameStep {
+  if file.state == "tailing" {
+    name_gone(file.label, failure)
+  }
+
+  let was_tailed = file.state == "tailing" or file.state == "vanished"
+  let state = if was_tailed { "vanished" } else { "waiting" }
+
+  {file: {...file, state: state}, last: last, keep: retrying or was_tailed, failed: ! retrying, dir_removed: was_tailed and file.dir_watched and parent_missing(file.name)}
+}
+
+let f: NameFile = {name: "n", label: "l", state: "waiting", symlink: false, dir_watched: false, dev: 0, ino: 0, offset: 0}
+""",
+  )?
+  assert output.success, output.stderr
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,
