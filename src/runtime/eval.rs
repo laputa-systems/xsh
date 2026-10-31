@@ -3496,8 +3496,29 @@ struct OwnedFsCapability { owner_scope: u64, value: FsCapability }
 // Root payloads are larger than files; keep released capability slots compact.
 enum FsCapability { Root(Box<FsRootHandle>), Lock(std::fs::File) }
 
-#[derive(Clone, Copy)]
-enum OwnedHostResource { Process(u64), Net(u64), Capability(usize) }
+#[derive(Clone)]
+enum OwnedHostResource { Process(u64), Net(u64), Capability(usize), Ssh(String) }
+
+fn lowered_session_token(fields: &BTreeMap<Arc<str>, LoweredValue>) -> Option<String> {
+    if fields.len() != 1 {
+        return None;
+    }
+    match fields.get("token") {
+        Some(LoweredValue::Str(token)) => Some(token.to_string()),
+        Some(LoweredValue::StrView(token)) => Some(token.as_str().to_owned()),
+        _ => None,
+    }
+}
+
+fn runtime_session_token(fields: &RecordMap) -> Option<String> {
+    if fields.len() != 1 {
+        return None;
+    }
+    match fields.get("token") {
+        Some(Value::Str(token)) => Some(token.to_string()),
+        _ => None,
+    }
+}
 
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(Root),
@@ -6842,6 +6863,9 @@ impl Evaluator {
                 && let Some(FsCapability::Lock(file)) = self.take_fs_capability(index)
             { let _ = crate::modules::fs::unlock_file(&file, zero_span()); }
         }
+        for _ in crate::modules::ssh::take_scope(&self.resource_owner, scope) {
+            self.forget_owned_resource(scope, ResourceKind::Capability);
+        }
     }
 
     /// Cancels and reaps the non-detached process handles `scope_id` owns,
@@ -6934,6 +6958,7 @@ impl Evaluator {
             OwnedHostResource::Process(id) => self.process_handles.get(&id).map(|live| live.owner_scope),
             OwnedHostResource::Net(id) => self.net_jobs.get(&id).map(|live| live.owner_scope),
             OwnedHostResource::Capability(index) => self.fs_capabilities.get(index).and_then(Option::as_ref).map(|live| live.owner_scope),
+            OwnedHostResource::Ssh(ref token) => crate::modules::ssh::owner_scope(token, &self.resource_owner),
         };
         let Some(owner) = owner else { return; };
         if owner == target || !self.scope_descends_from(owner, target) { return; }
@@ -6941,6 +6966,7 @@ impl Evaluator {
             OwnedHostResource::Process(id) => { self.process_handles.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
             OwnedHostResource::Net(id) => { self.net_jobs.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
             OwnedHostResource::Capability(index) => { self.fs_capabilities[index].as_mut().expect("live owner checked").owner_scope = target; ResourceKind::Capability }
+            OwnedHostResource::Ssh(ref token) => { crate::modules::ssh::transfer(token, &self.resource_owner, target); ResourceKind::Capability }
         };
         self.forget_owned_resource(owner, kind);
         self.register_owned_resource(target, kind);
@@ -7040,6 +7066,9 @@ impl Evaluator {
                 for value in values.values() { self.collect_lowered_resources(value, worklist); }
             }
             LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
+                if let Some(token) = lowered_session_token(fields) {
+                    worklist.resources.push(OwnedHostResource::Ssh(token));
+                }
                 for value in fields.values() { self.collect_lowered_resources(value, worklist); }
             }
             LoweredValue::RecordVec(fields) => {
@@ -7070,6 +7099,11 @@ impl Evaluator {
                 }
                 Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                     self.collect_capability(handle.id, worklist);
+                }
+                Value::Record(fields) => {
+                    if let Some(token) = runtime_session_token(fields) {
+                        worklist.resources.push(OwnedHostResource::Ssh(token));
+                    }
                 }
                 Value::Stream(stream) => self.collect_stream_resources(stream, worklist),
                 _ => {}

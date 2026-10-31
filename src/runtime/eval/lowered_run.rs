@@ -11,6 +11,7 @@ use crate::modules::{
     diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
     crypto as crypto_module, group as group_module, hash as hash_module, json as json_module,
     linux as linux_module, mime as mime_module, net as net_module, patch as patch_module,
+    ssh as ssh_module,
     process as process_module, regex as regex_module, shlex, system, tui, unix as unix_module,
     user as user_module,
 };
@@ -71,6 +72,7 @@ mod module_linux;
 mod module_loading;
 mod module_net;
 mod module_process;
+mod module_ssh;
 #[cfg(feature = "native-tests")]
 mod module_test;
 mod module_unix;
@@ -6196,6 +6198,9 @@ impl Evaluator {
                 lowered_result_ok(LoweredValue::Unit)
             }
             callable; RuntimeOp::NetStart if values.len() == 1 => return self.eval_lowered_net_start_values(values, span),
+            callable; RuntimeOp::SshConnect if values.len() == 1 => return self.eval_lowered_ssh_connect_values(values, span),
+            callable; RuntimeOp::SshExec if values.len() == 3 => return self.eval_lowered_ssh_exec_values(values, span),
+            callable; RuntimeOp::SshClose | RuntimeOp::SshCloseIfOpen if values.len() == 1 => return self.eval_lowered_ssh_close_values(op, values, span),
             callable; RuntimeOp::NetRequest if values.len() == 1 => return self.eval_lowered_net_request_values(values, span),
             callable; RuntimeOp::NetRequestMany if values.len() == 1 => return self.eval_lowered_net_request_many_values(values, span),
             callable; RuntimeOp::NetDownloadMany if values.len() == 1 => return self.eval_lowered_net_download_many_values(values, span),

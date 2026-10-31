@@ -171,6 +171,10 @@ fn module_docs(module: &str) -> ApiDocs {
             "HTTP request, transfer, and connection-pool helpers.",
             "Network failures remain typed error data.",
         ),
+        "ssh" => (
+            "Native SSH connections and remote command execution.",
+            "Host trust is mandatory and pinned. Remote failures stay typed data; a session is an owned capability.",
+        ),
         "patch" => (
             "Rooted patch application.",
             "Patch paths are constrained to the supplied root.",
@@ -456,6 +460,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Verifies a detached RFC 8032 Ed25519 signature.",
             "Uses the PureEd25519 variant and passes message bytes unchanged, without text decoding or prehashing. public_key must be 32 bytes and signature must be 64 bytes. A valid signature returns Ok(true); a well-sized invalid signature returns Ok(false). Malformed lengths, invalid public-key encodings, and provider failures return Err with kinds crypto-ed25519-public-key-length, crypto-ed25519-signature-length, crypto-ed25519-public-key, and crypto-ed25519-provider respectively. The operation has no host effects.",
             &["crypto", "ed25519", "verification", "signature"],
+        )),
+        ("ssh", "connect") => Some((
+            "Connects and authenticates one pinned SSH host.",
+            "The host_key option is a mandatory SHA256 fingerprint. The key is an unencrypted Ed25519 OpenSSH key file. The returned session is an owned capability; close it or let its scope release it.",
+            &["ssh", "connect", "trust", "session"],
+        )),
+        ("ssh", "exec") => Some((
+            "Runs one remote command over an SSH session.",
+            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. Optional stdin_path, stdout_path, and stderr_path stream files; stdin carries bytes. Timeouts after submission report certainty submitted.",
+            &["ssh", "exec", "remote", "stream"],
+        )),
+        ("ssh", "close") => Some((
+            "Closes one SSH session capability.",
+            "Closing is idempotent only through scope release; an explicit second close fails.",
+            &["ssh", "session", "cleanup"],
         )),
         ("net", "validate_root_bundle") => Some((
             "Validate a PEM certificate bundle without changing trust.",

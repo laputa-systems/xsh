@@ -215,6 +215,10 @@ pub enum RuntimeOp {
     NetPool,
     NetClosePool,
     NetCloseAllPools,
+    SshConnect,
+    SshExec,
+    SshClose,
+    SshCloseIfOpen,
     EnvGet,
     EnvGetOr,
     /// `e"NAME" = value`; a statement form, not a callable API.

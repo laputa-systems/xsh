@@ -4,7 +4,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use xsh_ssh::{Certainty, ClientConfig, Connection, Error, ExecOptions, ExecStatus};
+use xsh_ssh::{Certainty, ClientConfig, Connection, Error, ExecOptions, ExecResult, ExecStatus};
 
 struct Fixture {
     host: String,
@@ -175,6 +175,22 @@ fn timeout_after_submission_is_certain() {
         }) => {}
         other => panic!("expected a submitted timeout, got {other:?}"),
     }
+}
+
+#[test]
+fn debug_does_not_expose_payloads() {
+    let options = ExecOptions {
+        stdin: Some(b"canary-payload".to_vec()),
+        ..ExecOptions::default()
+    };
+    assert!(!format!("{options:?}").contains("canary-payload"));
+    let result = ExecResult {
+        status: ExecStatus::Exited(0),
+        stdout: b"canary-payload".to_vec(),
+        stderr: Vec::new(),
+        certainty: Certainty::Submitted,
+    };
+    assert!(!format!("{result:?}").contains("canary-payload"));
 }
 
 #[test]

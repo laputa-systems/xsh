@@ -2264,6 +2264,7 @@ dependencies = [
  "diffy",
  "directories",
  "futures-rustls",
+ "getrandom 0.3.4",
  "graviola",
  "http",
  "ignore",
@@ -2294,6 +2295,7 @@ dependencies = [
  "xsh-net",
  "xsh-registry",
  "xsh-root",
+ "xsh-ssh",
 ]
 
 [[package]]

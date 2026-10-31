@@ -10,7 +10,7 @@ use crate::wire::{SshReader, Transport};
 pub const DEFAULT_MAX_OUTPUT: usize = 16 * 1024 * 1024;
 
 /// Options for one exec request.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExecOptions {
     /// Bytes to send on stdin before EOF.
     pub stdin: Option<Vec<u8>>,
@@ -30,6 +30,17 @@ impl Default for ExecOptions {
     }
 }
 
+impl std::fmt::Debug for ExecOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExecOptions")
+            .field("stdin_len", &self.stdin.as_ref().map(Vec::len))
+            .field("timeout", &self.timeout)
+            .field("max_output", &self.max_output)
+            .finish()
+    }
+}
+
 /// The remote process outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecStatus {
@@ -42,7 +53,7 @@ pub enum ExecStatus {
 }
 
 /// Captured output and the remote outcome.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ExecResult {
     /// The remote process outcome.
     pub status: ExecStatus,
@@ -52,6 +63,18 @@ pub struct ExecResult {
     pub stderr: Vec<u8>,
     /// The result is always submitted once a channel exists.
     pub certainty: Certainty,
+}
+
+impl std::fmt::Debug for ExecResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExecResult")
+            .field("status", &self.status)
+            .field("stdout_len", &self.stdout.len())
+            .field("stderr_len", &self.stderr.len())
+            .field("certainty", &self.certainty)
+            .finish()
+    }
 }
 
 /// Run one remote command with bounded captured output.

@@ -77,12 +77,15 @@ path = "src/lib.rs"
 doctest = false
 
 [features]
-default = ["native-tests", "net", "tools"]
+default = ["native-tests", "net", "ssh", "tools"]
 benchmark = []
 linux-priv-tests = []
 native-tests = ["xsh-registry/native-tests"]
 net = [
     "dep:xsh-net",
+]
+ssh = [
+    "dep:xsh-ssh",
 ]
 tools = []
 
@@ -120,6 +123,8 @@ smallvec = "1.15.2"
 tempfile = "3"
 unicode-width = "=0.2.2"
 xsh-net = { path = "crates/xsh-net", optional = true }
+xsh-ssh = { path = "crates/xsh-ssh", optional = true }
+getrandom = "0.3"
 xsh-archive = { path = "crates/xsh-archive" }
 xsh-registry = { path = "crates/xsh-registry" }
 xsh-root = { path = "crates/xsh-root" }

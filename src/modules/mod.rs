@@ -22,6 +22,7 @@ pub(crate) mod patch;
 pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod shlex;
+pub(crate) mod ssh;
 pub mod signature;
 pub(crate) mod system;
 pub(crate) mod text;

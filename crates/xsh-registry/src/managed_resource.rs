@@ -1,7 +1,14 @@
 //! The ownership and consuming operations of built-in host resources.
 
+use std::collections::BTreeMap;
+
 use crate::RuntimeOp;
 use crate::types::Type;
+
+/// The opaque capability record returned by `ssh.connect`.
+pub fn ssh_session_type() -> Type {
+    Type::Record(BTreeMap::from([("token".to_owned(), Type::Str)]))
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceKind {
@@ -116,6 +123,13 @@ resource_table! {
         scope_release: ResourceScopeRelease::Unlock,
         with_release: Some(RuntimeOp::FsUnlockIfHeld),
     }),
+    SshSession => (ssh_session_type(), ResourceRule {
+        kind: ResourceKind::Capability,
+        consuming: &[ResourceConsumption::Operation(RuntimeOp::SshClose)],
+        repeat: ResourceRepeat::Error,
+        scope_release: ResourceScopeRelease::CloseRoot,
+        with_release: Some(RuntimeOp::SshCloseIfOpen),
+    }),
 }
 
 impl ManagedResource {
@@ -154,10 +168,17 @@ mod tests {
     }
 
     #[test]
-    fn with_accepts_only_the_two_fallible_capabilities() {
+    fn with_accepts_only_fallible_capabilities() {
         let accepted: Vec<_> = ManagedResource::ALL.into_iter()
             .filter(|kind| kind.rule().with_release.is_some()).collect();
-        assert_eq!(accepted, [ManagedResource::FsRoot, ManagedResource::FsLock]);
+        assert_eq!(
+            accepted,
+            [
+                ManagedResource::FsRoot,
+                ManagedResource::FsLock,
+                ManagedResource::SshSession
+            ]
+        );
         assert_eq!(ManagedResource::for_with_type(&Type::FsLock), Some(ManagedResource::FsLock));
         assert_eq!(ManagedResource::for_with_type(&Type::ProcessHandle), None);
         assert_eq!(ManagedResource::FsRoot.release_op(), Some(RuntimeOp::FsCloseRootIfOpen));

@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type, linux_namespace_type};
+use crate::managed_resource::ssh_session_type;
 use crate::records::linux_system_v_semaphore_element_type;
 
 use super::methods::{bytes_copy_type, cli_token_type};
@@ -150,6 +151,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
             ModuleEntry {
                 name: "set",
                 sig: set_module(),
+            },
+            ModuleEntry {
+                name: "ssh",
+                sig: ssh_module(),
             },
             #[cfg(feature = "native-tests")]
             ModuleEntry {
@@ -1207,6 +1212,53 @@ fn net_module() -> ModuleSig {
                 result(Type::Unit),
                 false,
                 RuntimeOp::NetCloseAllPools,
+            ),
+        ),
+    ])
+}
+
+fn ssh_result_type() -> Type {
+    Type::Record(BTreeMap::from([
+        ("exit_code".to_owned(), Type::Int),
+        ("signal".to_owned(), Type::Str),
+        ("missing".to_owned(), Type::Bool),
+        ("stdout".to_owned(), Type::Bytes),
+        ("stderr".to_owned(), Type::Bytes),
+        ("certainty".to_owned(), Type::Str),
+    ]))
+}
+
+fn ssh_module() -> ModuleSig {
+    module_sig(vec![
+        (
+            "connect",
+            sig(
+                vec![param("options", Type::Record(BTreeMap::new()))],
+                result(ssh_session_type()),
+                false,
+                RuntimeOp::SshConnect,
+            ),
+        ),
+        (
+            "exec",
+            sig(
+                vec![
+                    param("session", ssh_session_type()),
+                    param("command", Type::Str),
+                    param("options", Type::Record(BTreeMap::new())),
+                ],
+                result(ssh_result_type()),
+                false,
+                RuntimeOp::SshExec,
+            ),
+        ),
+        (
+            "close",
+            sig(
+                vec![param("session", ssh_session_type())],
+                result(Type::Unit),
+                false,
+                RuntimeOp::SshClose,
             ),
         ),
     ])

@@ -28,6 +28,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.bare-blocks" => include_str!("../../../docs/snippets/api/bare-blocks.xsh"),
         "language.core.bindings" => include_str!("../../../docs/snippets/api/record-bindings.xsh"),
         "module.bytes" => include_str!("../../../docs/snippets/api/bytes-base64.xsh"),
+        "module.ssh" | "module.ssh.connect" | "module.ssh.exec" | "module.ssh.close" => {
+            include_str!("../../../docs/snippets/api/ssh-connect.xsh")
+        }
         "module.net.validate_root_bundle" => {
             include_str!("../../../docs/snippets/api/net-validate-root-bundle.xsh")
         }
