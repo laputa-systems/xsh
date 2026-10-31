@@ -3524,6 +3524,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 lowered_types.insert(value, SchemeType::Ground(Type::Unit));
                 Some(value)
             }
+            ArenaStmtKind::For { .. } | ArenaStmtKind::While { .. } | ArenaStmtKind::Loop { .. } | ArenaStmtKind::If { else_block: None, .. }
+                if facts.scheme().kind() == CallableKind::Proc => {
+                self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, body)?;
+                let value = push_build_row!(self, expr, BuildExprRow::Unit);
+                lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+                Some(value)
+            }
             ArenaStmtKind::Command(_) | ArenaStmtKind::Exit(_)
                 if matches!(self.program.arena.stmt(statement).kind, ArenaStmtKind::Exit(_))
                     || self.bodies.statement_positions.get(&statement) == Some(&crate::sema::check::StatementPosition::Statement) => {

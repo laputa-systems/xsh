@@ -2123,3 +2123,27 @@ main()
 """)?
   assert output.success, output.stderr
 }
+
+test test_full_inference_proc_branch_tails_may_be_loops { |ctx|
+  let output = test.run_xsh(ctx, r"""proc show(opts) {
+  if opts.json { print "json" } else { for line in ["a", "b"] { print $line } }
+}
+proc count(opts) {
+  if opts.quiet { print "quiet" } else { var n = 0
+    while n < 2 { n += 1 }
+    if n == 2 { print "two" } }
+}
+type Options = {json: Bool, quiet: Bool}
+proc main() {
+  let on: Options = {json: true, quiet: true}
+  let off: Options = {json: false, quiet: false}
+  show(on)
+  show(off)
+  count(on)
+  count(off)
+}
+main()
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "json\na\nb\nquiet\ntwo\n", output.stdout
+}
