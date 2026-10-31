@@ -2,7 +2,9 @@
 //! and `uptime`. Every failure is a host error that carries its errno.
 
 use crate::modules::RuntimeOp;
-use crate::modules::process::{Args, host_error, key, name_error};
+use crate::modules::process::{Args, host_error, key};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::modules::process::name_error;
 use crate::runtime::value::{FloatValue, RecordMap, RuntimeError, Value};
 use std::io;
 
@@ -35,6 +37,7 @@ fn load_average(args: &Args<'_>) -> Result<Value, RuntimeError> {
     ]))))
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const DEFAULT_UTMP: &str = "/var/run/utmp";
 
 /// Reads a utmp-format file. A trailing partial record is ignored, so a file
@@ -61,7 +64,6 @@ fn read_utmp(args: &Args<'_>) -> Result<Value, RuntimeError> {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn read_utmp(args: &Args<'_>) -> Result<Value, RuntimeError> {
-    let _ = (DEFAULT_UTMP, name_error, host_error);
     Err(
         RuntimeError::new("unsupported", "utmp records are only readable on Linux")
             .with_span(args.span()),

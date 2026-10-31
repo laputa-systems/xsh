@@ -209,18 +209,32 @@ fn set_resid(args: &Args<'_>, user: bool) -> Result<Value, RuntimeError> {
     let kind = if user { "unix-set-resuid" } else { "unix-set-resgid" };
     let span = args.span();
     // All-ones is the kernel's "leave unchanged" value.
-    let unchanged = u32::MAX;
-    let mut ids = [unchanged; 3];
+    let mut ids = [u32::MAX; 3];
     for (index, id) in ids.iter_mut().enumerate() {
         if let Some(value) = args.int_or_null(index)? {
             *id = identity(value, kind, span)?;
         }
     }
+    apply_resid(user, ids, kind, span)?;
+    Ok(Value::ok(Value::Unit))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn apply_resid(user: bool, ids: [u32; 3], kind: &str, span: Span) -> Result<(), RuntimeError> {
     let result = unsafe {
         if user { libc::setresuid(ids[0], ids[1], ids[2]) } else { libc::setresgid(ids[0], ids[1], ids[2]) }
     };
     if result == -1 {
         return Err(host_error(kind, io::Error::last_os_error(), span));
     }
-    Ok(Value::ok(Value::Unit))
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn apply_resid(_user: bool, _ids: [u32; 3], _kind: &str, span: Span) -> Result<(), RuntimeError> {
+    Err(RuntimeError::new(
+        "unsupported-platform",
+        "unix.set_resuid and unix.set_resgid are implemented on Linux",
+    )
+    .with_span(span))
 }

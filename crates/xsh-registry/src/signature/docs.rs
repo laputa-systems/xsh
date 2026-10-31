@@ -1779,7 +1779,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "set_resuid" | "set_resgid") => Some((
             "Sets the real, effective and saved user or group ID of the current process independently.",
-            "real, effective and saved are named arguments; null leaves that ID as it is, so an explicit ID is never confused with the kernel's unchanged sentinel. IDs must be in 0..4294967294. Supplementary groups are untouched; callers dropping privileges set groups and GID before UID. Permission failures remain host errors.",
+            "real, effective and saved are named arguments; null leaves that ID as it is, so an explicit ID is never confused with the kernel's unchanged sentinel. IDs must be in 0..4294967294. Supplementary groups are untouched; callers dropping privileges set groups and GID before UID. Permission failures remain host errors. Implemented on Linux; other platforms report unsupported-platform.",
             &["unix", "credentials", "privileged"],
         )),
         ("unix", "set_credentials") => Some((

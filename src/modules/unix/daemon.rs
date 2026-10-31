@@ -164,8 +164,11 @@ pub(crate) fn daemon_start(
         .map_err(|error| host(error, span))?;
     let mut command = command_from_invocation(invocation, span)?;
     let mut capture = SignalCapture::install(names, span)?;
-    let (reader, writer) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)
-        .map_err(|error| host(error.into(), span))?;
+    let (reader, writer) = rustix::pipe::pipe().map_err(|error| host(error.into(), span))?;
+    for end in [&reader, &writer] {
+        rio::fcntl_setfd(end, rio::FdFlags::CLOEXEC)
+            .map_err(|error| host(error.into(), span))?;
+    }
     let writer_fd = writer.as_raw_fd();
     command.env("NOTIFY_FD", writer_fd.to_string());
     let mask = signal_mask(&capture.signals);
