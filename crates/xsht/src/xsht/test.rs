@@ -1633,7 +1633,7 @@ fn clear_inherited_setgid(directory: &Path) -> std::io::Result<()> {
     }
     let mode = metadata.st_mode as u32 & 0o7777;
     if mode & SETGID != 0 {
-        set_native_directory_mode_at(CWD, directory.as_os_str(), Mode::from_raw_mode(mode & !SETGID))?;
+        set_native_directory_mode_at(CWD, directory.as_os_str(), Mode::from_raw_mode((mode & !SETGID) as _))?;
     }
     Ok(())
 }
@@ -1723,7 +1723,7 @@ fn restore_native_directory_access_at(
     if mode & OWNER_ACCESS == OWNER_ACCESS {
         return Ok(());
     }
-    set_native_directory_mode_at(parent, name, Mode::from_raw_mode(mode | OWNER_ACCESS))
+    set_native_directory_mode_at(parent, name, Mode::from_raw_mode((mode | OWNER_ACCESS) as _))
 }
 
 fn set_native_directory_mode_at(
