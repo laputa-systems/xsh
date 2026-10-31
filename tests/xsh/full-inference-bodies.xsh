@@ -1995,6 +1995,25 @@ print $pick(["a", "c", "b"])
   assert output.stdout == "1\n", output.stdout
 }
 
+test test_full_inference_generic_field_record_reaches_an_erased_record_parameter { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Opts = {timeout: Int}
+pure inner(fd: Int, target: Record, opts) -> Int {
+  if opts.timeout < 0 { return fd }
+  fd + 1
+}
+pure outer(port, opts: Opts) -> Int {
+  inner(1, {family: "inet", port: port}, opts)
+}
+print $outer(5, {timeout: 1})
+print $outer("p", {timeout: -1})
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n1\n", output.stdout
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,

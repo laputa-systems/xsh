@@ -4472,7 +4472,7 @@ fn verify_symbolic_call_arguments(
         };
         let actual = scheme_body_fact_type(store, caller_scheme, value.raw(), FullSchemeBodyFactKind::Expression)?.ok_or_else(|| IrVerifyError::new("generic call argument has no checked scheme fact"))?;
         let actual = decode_scheme_type(store, caller_scope, actual, budget, 0)?;
-        let direct = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
+        let direct = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected)) || expected.closed_ground_type().is_some_and(|expected| body_type_matches_ground(&actual, &expected));
         let known = !direct && applications::known_argument_assignment_matches(store, decoder.owner, caller_scope, &actual, &expected, budget)?;
         if !direct && !known { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
         let source = if known { SymbolicEvidenceSource::KnownArgument } else { SymbolicEvidenceSource::Argument };
