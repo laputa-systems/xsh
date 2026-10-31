@@ -3,7 +3,10 @@
 **Status:** resumed 2026-10-31. Bytes membership and nullable conditional
 argument fixes are on `master` (`5598b7010`, `682578bc5`). The ground proc
 completion repair passes the pinned Linux checker, loader, lowering, type-agreement
-and focused native checks. Full campaign qualification remains open. Slices 47-54
+and focused native checks. Pure UInt key failures now obey the instantiated
+return error contract on both routes; 154 focused pinned Linux native cases
+pass, including Result returns, ownership and tracebacks. Full campaign
+qualification remains open. Slices 47-54
 fixed the `tail`, `find`, `more`, `btop`, `wget`, `rm`,
 `nc`, `traceroute` and `fmt` joint erasures and the Laputa `check.map-key-type` joint
 erasure. The Laputa applied view is 38/38 private parameter sites (12 pure, 26
@@ -20,13 +23,14 @@ projection path`, and is not part of the applied view.
   Build `xsht` with `cargo build --profile verification --target
   x86_64-unknown-linux-musl -p xsh -p xsht` before measuring; `cargo dev build`
   builds only `xsh`.
-- **Next slice:** the verifier tail of the core-wide erasure (classes of one to
-  four sites each); measure it first with `inventory.sh` and `erase_sites.py`.
-  Open gap: a `pure` function whose return is not a `Result` still lets a
-  failed `UInt` key validation propagate as a catchable Schema error to its
-  caller's `try`, on both routes; making it fatal needs the call boundary to
-  convert it, because a generic body's fatality depends on the instantiated
-  return. Procs with a declared return are fatal without `error` (slice 55); a
+- **Next slice:** the unsupported parameter projection in the full Laputa joint
+  erasure, then the remaining core verifier tail. Use `inventory.sh` and
+  `erase_sites.py` for annotation and behavior checks, with performance deferred.
+  A pure call with no Result error contract now makes an uncaught checked key
+  failure fatal; local `try` and `retry` still capture it. The boundary uses the
+  instantiated return, including optional Result, and preserves the structured
+  error. Return-contract lookup failure also fails closed after cleanup.
+  Procs with a declared return are fatal without `error` (slice 55); a
   proc with an inferred return turns the failure into its `Err` completion on
   both routes (slice 56). Ground lowering handles that boundary by matching
   the key validation result and explicitly returning its `Err`; the verifier
@@ -733,3 +737,4 @@ prescribed decisions are the starting rules.
 - Treat unresolved mandatory work, deferred performance gates, or mismatched source acceptance as incomplete. No owner review is needed to decide that result.
 - 2026-10-31, slice 56 (ground key validation under a `ProcCompletion` boundary): a ground inferred-return proc with a `Map[UInt, _]` key rejected the generated `Try(Require(UInt))` because it had no `error` effect. The checker now records the key boundary, and ground lowering matches the validation result: success supplies the key, while failure explicitly returns `Err` as the proc completion. Other boundaries retain their existing lowering, and the verifier still requires `error` for uncaptured `Try`. The native regression covers seven index, membership, method, assignment, literal and comprehension sites, plus capture and retry controls. A forged explicit conversion with its schema and owner effect removed is rejected by the verifier. SPEC 6.6 describes the completion behavior.
 - 2026-10-31, slice 57 (membership with a non-integer needle in a generic container): `pure has_nul(data) { ...; b"\0" in head }` failed `UInt map index has no retained error boundary`. The scheme verifier's `may_require_uint_key_validation` treated every key that is not `UInt` or `Str` as possibly needing `UInt` validation against a type-parameter or generic-key `Map` receiver, while the checker only registers a key-validation wrapper when the key is `Int` or unresolved. It now asks the same question as the checker: the key must be `Int` or not yet closed. `core/diff.xsh` `has_nul.data` erases. Native test `test_full_inference_membership_of_a_non_integer_needle_needs_no_key_validation`.
+- 2026-10-31, pure call key-failure boundary: an uncaught UInt validation failure in a pure call is fatal when its instantiated return does not admit a Result error. Both indexed-frame exits use the existing Result-error contract authority; no IR format or verifier waiver changes. Local capture, optional Result, generic ground-key sites, proc completions, ownership and traceback controls pass. A focused Rust regression proves return-lookup failure preserves the original fatal primary and reports its secondary diagnostic. Independent review and six pinned Linux native selections pass (154 cases); performance remains deferred.

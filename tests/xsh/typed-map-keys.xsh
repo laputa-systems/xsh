@@ -318,3 +318,95 @@ proc main() [io, error] {
   assert captured.success, captured.stderr
   assert captured.stdout == "", captured.stdout
 }
+
+test test_typed_map_unsigned_key_failure_is_fatal_in_pure_non_result_calls { |ctx|
+  let caller = """
+proc main() [io, error] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  print (try { keyed(values, 1) } ?? "unexpected")
+  print (try { keyed(values, -1) } ?? "captured")
+}
+"""
+  for site in [
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values[key] }""",
+    """pure keyed(values, key: Int) { values[key] }""",
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(key) ?? "missing" }""",
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { if key in values { "one" } else { "missing" } }""",
+    """pure keyed(values, key: Int) { if key in values { "one" } else { "missing" } }""",
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { let copy: Map[UInt, Str] = {[key]: "one"}; copy.values()[0] }""",
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { let copy: Map[UInt, Str] = {item: "one" for item in [key]}; copy.values()[0] }""",
+  ] {
+    let output = test.run_script(ctx, f"{site}\n{caller}")?
+    assert ! output.success, site
+    assert "schema check failed" in output.stderr, f"{site}: {output.stderr}"
+    assert output.stdout == "one\n", f"{site}: {output.stdout}"
+  }
+  let generic = test.run_script(ctx, r"""pure keyed(values: Map[UInt, Int], key: Int, value) { let _ = values[key]; value }
+proc main() [io, error] {
+  let values: Map[UInt, Int] = {[1]: 4}
+  print (try { keyed(values, 1, "one") } ?? "unexpected")
+  print (try { keyed(values, -1, "one") } ?? "captured")
+}
+""")?
+  assert ! generic.success, generic.stderr
+  assert "schema check failed" in generic.stderr, generic.stderr
+  assert generic.stdout == "one\n", generic.stdout
+}
+
+test test_typed_map_pure_result_and_local_error_boundaries_remain_catchable { |ctx|
+  let output = test.run_script(ctx, r"""pure ground(values: Map[UInt, Result[Str]], key: Int) -> Result[Str] { values[key] }
+pure optional(values: Map[UInt, Result[Int]?], key: Int) -> Result[Int]? { values[key] }
+pure generic(values, key: Int) { values[key] }
+pure explicit(value: Int) -> Result[UInt] { value.require(UInt) }
+pure relay(values: Map[UInt, Int], key: Int, value) { let _ = values[key]; value }
+pure captured(values: Map[UInt, Str], key: Int) -> Str {
+  match try { values[key] } { Ok(value) => value; Err(_) => "caught" }
+}
+pure retried(values: Map[UInt, Str], key: Int) -> Str {
+  match retry [] { values[key] } { Ok(value) => value; Err(_) => "caught" }
+}
+proc main() [error] {
+  let results: Map[UInt, Result[Str]] = {[1]: Ok("one")}
+  let values: Map[UInt, Str] = {[1]: "one"}
+  let numbers: Map[UInt, Int] = {[1]: 4}
+  let optional_results: Map[UInt, Result[Int]?] = {[1]: Ok(7)}
+  assert optional(optional_results, 1) == Ok(7)
+  assert optional(optional_results, -1) != null
+  assert generic(optional_results, 1) == Ok(7)
+  assert generic(optional_results, -1) != null
+  assert explicit(1) == Ok(1)
+  match explicit(-1) { Ok(_) => assert false; Err(_) => {} }
+  assert relay(numbers, 1, Ok("one")) == Ok("one")
+  match relay(numbers, -1, Ok("one")) { Ok(_) => assert false; Err(_) => {} }
+  assert ground(results, 1) == Ok("one")
+  assert generic(results, 1) == Ok("one")
+  match ground(results, -1) { Ok(_) => assert false; Err(_) => {} }
+  match generic(results, -1) { Ok(_) => assert false; Err(_) => {} }
+  assert captured(values, 1) == "one"
+  assert captured(values, -1) == "caught"
+  assert retried(values, 1) == "one"
+  assert retried(values, -1) == "caught"
+}
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "", output.stdout
+}
+
+test test_pure_runtime_faults_remain_fatal_to_caller_try { |ctx|
+  for item in [
+    {source: r"""pure f(value: Int) -> Int { 10 / value }
+proc main() [io, error] { print (try { f(0) } ?? 99) }
+""", message: "division by zero"},
+    {source: r"""pure f(value: Int) -> Int { value + 1 }
+proc main() [io, error] { print (try { f(9223372036854775807) } ?? 99) }
+""", message: "integer overflow"},
+    {source: r"""pure f(values: Map[Str, Int]) -> Int { values["absent"] }
+proc main() [io, error] { print (try { f({}) } ?? 99) }
+""", message: "map has no key"},
+  ] {
+    let output = test.run_script(ctx, item.source)?
+    assert ! output.success, item.source
+    assert item.message in output.stderr, output.stderr
+    assert output.stdout == "", output.stdout
+  }
+}

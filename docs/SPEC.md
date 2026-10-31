@@ -2524,6 +2524,11 @@ not declare `error`, a key failure outside `try` and `retry` is fatal, as a
 `UInt` constraint violation is, and a caller's `try` does not capture it.
 In a `proc` whose return type is inferred, the failure is instead the proc's
 `Err` completion, and the proc gains no `error` effect from it.
+In a `pure` function whose actual return type does not admit a `Result` error,
+an uncaught key failure is fatal and a caller's `try` does not capture it. A
+`pure` function returning `Result`, including an optional `Result`, can return
+the failure as its `Err`; a `try` or `retry` inside the function can handle it
+before the function returns.
 
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same
 type. Either bound may be omitted. Negative bounds count from the end, and
