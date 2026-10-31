@@ -65,9 +65,12 @@ adapter needs libtest's JSON listing and a nonempty selection, so the
 none; run the suites with `cargo test -p PACKAGE --test NAME`. Three more
 stay with manual lanes: `core_compat_extra_privileged` and `linux_priv` need the
 privileged `cargo dev test linux` container, and `profile_parity` compares
-builds that exist only on aarch64 Linux and macOS. `split::` runs in its
-resource-limited container, and the `runtime::coverage` test and the
-external-corpus tests that the XSHT runs skip by name are manual.
+builds that exist only on aarch64 Linux and macOS. The `xsh-ssh` connect, exec,
+and stream harnesses need the `XINFRA` fixtures from `dev/fixtures.xsh`.
+`split::` runs in its resource-limited container, and the `runtime::coverage`
+test and the external-corpus tests that the XSHT runs skip by name are manual.
+`test-root-unit` is Linux-only because xsh-root's unit tests cover `openat2`;
+the macOS lane uses the security and mutation harnesses.
 
 A focused case that passes stores a record under the checkout's `.work/gate/`,
 bound to the source digest and the product digests and modes the run used. The

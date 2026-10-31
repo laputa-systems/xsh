@@ -570,21 +570,27 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
   let root_lib = ["-p", "xsh", "--lib"]
   let root_target = ["-p", "xsh", "--test", "integration"]
   match area {
-    Compile => [
-      rust_gate(ctx, profile, "test-core-unit", [@root_lib, "--", @skipping(["sema::", "syntax::", "modules::", "runtime::", "runner::", "trace::", "stdlib::", "loader::"])], debug: true)?,
-      rust_gate(ctx, profile, "test-core-integration", [@root_target, "--", @skipping(["runtime::", "sema::", "sema_bundle_view::", "stdlib_port::", "grammar::", "libxsh_api"])])?,
-      rust_gate(ctx, profile, "test-ambient-fs-policy", ["-p", "xsh", "--test", "ambient_fs_policy"], debug: true)?,
-      rust_gate(ctx, profile, "test-symbol-plateau", ["-p", "xsh", "--test", "symbol_plateau"])?,
-      rust_gate(ctx, profile, "test-core-compat-boundaries", ["-p", "xsh", "--test", "core_compat_boundaries"])?,
-      rust_gate(ctx, profile, "test-core-compat-extra", ["-p", "xsh", "--test", "core_compat_extra", "--", @skipping(["split::", "date_clock::test_date_set_valid"])])?,
-      rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?,
-      rust_gate(ctx, profile, "test-root-security", ["-p", "xsh-root", "--test", "security"], debug: true)?,
-      rust_gate(ctx, profile, "test-root-mutation", ["-p", "xsh-root", "--test", "mutation"], debug: true)?,
-      rust_gate(ctx, profile, "test-archive-create", ["-p", "xsh-archive", "--test", "create"], debug: true)?,
-      rust_gate(ctx, profile, "test-archive-extract", ["-p", "xsh-archive", "--test", "extract"], debug: true)?,
-      rust_gate(ctx, profile, "test-archive-files", ["-p", "xsh-archive", "--test", "files"], debug: true)?,
-      rust_gate(ctx, profile, "test-archive-reading", ["-p", "xsh-archive", "--test", "reading"], debug: true)?,
-    ]
+    Compile => {
+      var compile_gates = [
+        rust_gate(ctx, profile, "test-core-unit", [@root_lib, "--", @skipping(["sema::", "syntax::", "modules::", "runtime::", "runner::", "trace::", "stdlib::", "loader::"])], debug: true)?,
+        rust_gate(ctx, profile, "test-core-integration", [@root_target, "--", @skipping(["runtime::", "sema::", "sema_bundle_view::", "stdlib_port::", "grammar::", "libxsh_api"])])?,
+        rust_gate(ctx, profile, "test-ambient-fs-policy", ["-p", "xsh", "--test", "ambient_fs_policy"], debug: true)?,
+        rust_gate(ctx, profile, "test-symbol-plateau", ["-p", "xsh", "--test", "symbol_plateau"])?,
+        rust_gate(ctx, profile, "test-core-compat-boundaries", ["-p", "xsh", "--test", "core_compat_boundaries"])?,
+        rust_gate(ctx, profile, "test-core-compat-extra", ["-p", "xsh", "--test", "core_compat_extra", "--", @skipping(["split::", "date_clock::test_date_set_valid"])])?,
+        rust_gate(ctx, profile, "test-ssh-unit", ["-p", "xsh-ssh", "--lib"], debug: true)?,
+      ]
+      compile_gates += [rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?] when ctx.target.os == "linux"
+      compile_gates += [
+        rust_gate(ctx, profile, "test-root-security", ["-p", "xsh-root", "--test", "security"], debug: true)?,
+        rust_gate(ctx, profile, "test-root-mutation", ["-p", "xsh-root", "--test", "mutation"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-create", ["-p", "xsh-archive", "--test", "create"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-extract", ["-p", "xsh-archive", "--test", "extract"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-files", ["-p", "xsh-archive", "--test", "files"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-reading", ["-p", "xsh-archive", "--test", "reading"], debug: true)?,
+      ]
+      compile_gates
+    }
     Syntax => [rust_gate(ctx, profile, "test-syntax-unit", [@root_lib, "syntax::"], debug: true)?]
     Checker => [
       rust_gate(ctx, profile, "test-loader-unit", [@root_lib, "loader::"], debug: true)?,
@@ -615,6 +621,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
       rust_gate(ctx, profile, "test-xshi-unit", ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true)?,
       rust_gate(ctx, profile, "test-xshi-cli", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"])?,
       rust_gate(ctx, profile, "test-xshi-preparation", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "stdlib_preparation"])?,
+      rust_gate(ctx, profile, "test-xshi-stub", ["-p", "xshi", "--test", "stub_cli"], debug: true)?,
     ]
     Deser => collect {
       for entry in deser_harnesses {
