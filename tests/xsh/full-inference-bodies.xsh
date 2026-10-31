@@ -2094,3 +2094,32 @@ let found = lookup({values: counts})
 """)?
   assert !mismatch.success and "check.callable-mismatch" in mismatch.stderr, mismatch.stderr
 }
+
+test test_full_inference_null_tested_field_reads_keep_their_present_type { |ctx|
+  let output = test.run_xsh(ctx, r"""pure label(opts) -> Str {
+  if opts.name != null {
+    let name = opts.name
+    return name + "!"
+  }
+  "none"
+}
+proc open_dir(opts) -> Result[Unit] {
+  if opts.root != null {
+    let root = fs.open_root(opts.root)?
+    root.close()
+  }
+}
+type Named = {name: Str?}
+type Rooted = {root: Path?}
+proc main() {
+  let named: Named = {name: "x"}
+  let unnamed: Named = {name: null}
+  assert label(named) == "x!"
+  assert label(unnamed) == "none"
+  let none: Rooted = {root: null}
+  open_dir(none)?
+}
+main()
+""")?
+  assert output.success, output.stderr
+}

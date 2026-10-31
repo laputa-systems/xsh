@@ -5110,7 +5110,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             },
                         },
                     };
-                    if !matches!((&ty, &projected), (SchemeType::Parameter(view), SchemeType::Parameter(field)) if view != field) {
+                    if !matches!((&ty, &projected), (SchemeType::Parameter(view), SchemeType::Parameter(field)) if view != field)
+                        && !matches!((&ty, &projected), (SchemeType::Ground(_), SchemeType::Parameter(_)))
+                    {
                         ty = projected;
                     }
                 }
