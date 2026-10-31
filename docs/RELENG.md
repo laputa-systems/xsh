@@ -127,6 +127,8 @@ first.
 | 2026-10-29 | `e0f3028ce` | `xsh` | 25,945,608 |
 | 2026-10-29 | `e0f3028ce` | `xsht` | 37,090,696 |
 | 2026-10-29 | `e0f3028ce` | `xshi` | 43,952 |
+| 2026-10-30 | `de0ed2606` | `xsh` | 23,704,272 |
+| 2026-10-30 | `de0ed2606` | `xsht` | 32,515,056 |
 
 The performance campaign's binary-size gate allows each release product at
 most 5% growth over its baseline; this record is the current baseline for that

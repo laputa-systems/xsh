@@ -356,9 +356,11 @@ pub(crate) fn close(
     if !Arc::ptr_eq(&session.owner, owner) {
         return Err(RuntimeError::new("ssh-session", "session belongs to another evaluator").with_span(span));
     }
-    session.connection.try_lock().map_err(|_| {
-        RuntimeError::new("ssh-session-busy", "session is already in use").with_span(span)
-    })?;
+    if session.connection.try_lock().is_err() {
+        return Err(
+            RuntimeError::new("ssh-session-busy", "session is already in use").with_span(span),
+        );
+    }
     let session = registry.remove(&token).expect("live session");
     let scope = session.scope;
     Ok(Some(scope))
