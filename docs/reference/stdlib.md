@@ -518,6 +518,14 @@ POSIX-like shell word rendering helpers.
 - `shlex.join(argv: List[Str]) -> Str` — Renders argv values as a shell-safe command string.
 - `shlex.quote(value: Str) -> Str` — Renders one value as a shell-safe word.
 
+### `ssh`
+
+Native SSH connections and remote command execution.
+
+- `ssh.close(session: {token: Str}) -> Result[Unit, Error]` — Closes one SSH session capability.
+- `ssh.connect(options: Record) -> Result[{token: Str}, Error]` — Connects and authenticates one pinned SSH host.
+- `ssh.exec(session: {token: Str}, command: Str, options: Record) -> Result[{certainty: Str, exit_code: Int, missing: Bool, signal: Str, stderr: Bytes, stdout: Bytes}, Error]` — Runs one remote command over an SSH session.
+
 ### `system`
 
 Host system identity records.
