@@ -1475,8 +1475,9 @@ pub(super) fn verify_body(
                         if BodyTypeRef::Scheme(&claimed).validation().is_some() { return Err(IrVerifyError::new("generic map comprehension cannot establish a validation")); }
                         let (expected_key, item) = BodyTypeRef::Scheme(&claimed).map_parts().ok_or_else(|| IrVerifyError::new("generic map comprehension has no map contract"))?;
                         let expected_key = expected_key.materialize(budget)?;
-                        let domain = expected_key.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic map comprehension key domain is unresolved"))?;
-                        if !domain.is_map_key() { return Err(IrVerifyError::new("generic map comprehension key domain is invalid")); }
+                        if !super::scheme_map_key(&expected_key, scheme_scope) {
+                            return Err(IrVerifyError::new("generic map comprehension key domain has no MapKey requirement"));
+                        }
                         let item = item.materialize(budget)?;
                         let (inner, _) = comprehension_scope(store, types, scheme_scope, qualifiers, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut stream_iterations, completion_group, &mut completion_contributions, budget)?;
                         if !body_type_matches(&expression_type(types, key.raw() as usize, budget)?, &expected_key, budget)? { return Err(IrVerifyError::new("generic comprehension key disagrees with its map domain")); }

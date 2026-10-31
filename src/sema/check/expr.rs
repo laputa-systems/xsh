@@ -2015,7 +2015,9 @@ impl Checker {
                         expected_key,
                         crate::sema::constants::SchemaComponent::Key,
                     );
-                    if !key_ty.is_map_key() && !key_ty.is_recovery() {
+                    if !key_ty.is_recovery()
+                        && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
+                    {
                         self.error(
                             arena.arena.expr(key).span,
                             "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration",
@@ -2764,7 +2766,9 @@ impl Checker {
             _ => (None, None),
         };
         let key_ty = self.check_expr_arena(arena, source, key, expected_key);
-        if !key_ty.is_map_key() && !key_ty.is_recovery() {
+        if !key_ty.is_recovery()
+            && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
+        {
             self.error(
                 arena.arena.expr(key).span,
                 "Map comprehension keys require an ordered scalar key",

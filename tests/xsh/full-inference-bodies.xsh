@@ -1951,6 +1951,17 @@ let _ = remove({force: true})
   assert output.success, output.stderr
 }
 
+test test_full_inference_map_comprehension_key_from_an_unresolved_field { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure f(value) {
+  {node.name: node for node in value.nodes}
+}
+""",
+  )?
+  assert output.success, output.stderr
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,
