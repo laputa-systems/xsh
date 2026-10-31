@@ -2014,6 +2014,25 @@ print $outer("p", {timeout: -1})
   assert output.stdout == "2\n1\n", output.stdout
 }
 
+test test_full_inference_generic_field_record_reaches_a_registered_module_call { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc attempt(port, fd: Int) [process, net] -> Bool {
+  let address = {family: "inet", address: "127.0.0.1", port: port}
+  linux.connect(fd, address) is Err(_)
+}
+proc deliver(port, fd: Int) [process, net] -> Bool {
+  let address = {family: "inet", address: "127.0.0.1", port: port}
+  linux.sendto(fd, b"x", address) is Err(_)
+}
+print $attempt(80, -1)
+print $deliver(80, -1)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\ntrue\n", output.stdout
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,

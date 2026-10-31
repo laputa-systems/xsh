@@ -522,10 +522,20 @@ fn registered_call_parameters(
     Some(parameters)
 }
 
+fn admits_any_record(expected: &Type) -> bool {
+    match expected {
+        Type::ErasedRecord => true,
+        Type::Union(members) => members.iter().any(admits_any_record),
+        Type::Optional(inner) => admits_any_record(inner),
+        _ => false,
+    }
+}
+
 fn symbolic_type_matches(actual: &super::schemes::SchemeType, expected: &super::schemes::SchemeType) -> bool {
     if actual == expected { return true; }
     match (actual.closed_ground_type(), expected.closed_ground_type()) {
         (Some(actual), Some(expected)) => actual.matches_expected(&expected),
+        (None, Some(expected)) => matches!(actual, super::schemes::SchemeType::Record { .. }) && admits_any_record(&expected),
         _ => false,
     }
 }
