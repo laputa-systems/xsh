@@ -20,6 +20,11 @@ rebuilds the standard library (`-Z build-std=std`) with
 `dev/targets.xsh`: `x86-64-v3` for x86_64 and `neoverse-n2` without SVE for
 aarch64. Linux products link statically against musl with mold.
 
+Darwin products link through the system C compiler driver without ICF: Apple's
+`ld` has no ICF option, and the pinned `rust-lld` cannot read the macOS 27 SDK
+TAPI files. Darwin `dist` products are therefore larger than an ICF-capable link
+would produce. Revisit ICF when the pinned LLVM reads the installed SDK.
+
 ## Optimization level
 
 Products build at `opt-level = 2`. O3 made the shipped binaries about 5% larger

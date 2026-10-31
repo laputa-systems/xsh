@@ -64,6 +64,6 @@ export proc create() [fs, env, error] -> Result[Context, Error] {
     host_arch: host_arch,
     target: target,
     profile: if profile == "" { "dist" } else { profile },
-    darwin_deployment_target: env.get_or("DARWIN_DEPLOYMENT_TARGET", "26.0")?.trim(),
+    darwin_deployment_target: env.get_or("DARWIN_DEPLOYMENT_TARGET", "27.0")?.trim(),
   }
 }
