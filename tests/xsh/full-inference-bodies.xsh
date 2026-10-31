@@ -2147,3 +2147,17 @@ main()
   assert output.success, output.stderr
   assert output.stdout == "json\na\nb\nquiet\ntwo\n", output.stdout
 }
+
+test test_full_inference_membership_with_a_string_key_retains_no_validation { |ctx|
+  let output = test.run_xsh(ctx, r"""pure match_method(value, names) -> List[Str] {
+  return [value] when value in names
+
+  [name for name in names if name.starts_with(value)]
+}
+let names: List[Str] = ["alpha", "beta", "betamax"]
+assert match_method("alpha", names) == ["alpha"]
+assert match_method("bet", names) == ["beta", "betamax"]
+assert match_method("zeta", names).is_empty()
+""")?
+  assert output.success, output.stderr
+}

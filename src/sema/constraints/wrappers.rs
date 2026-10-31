@@ -1494,10 +1494,12 @@ impl TypeConstraints {
 
     pub(super) fn generalize_wrappers(&self, owners: &BTreeSet<super::CallableApplicationScope>, level: u32, generalization: &mut super::Generalization) -> Result<Vec<WrapperRequirement<crate::sema::schemes::SchemeType, crate::sema::schemes::SchemeEffectParameterId>>, SchemeOperationError> {
         let mut ids = self.wrappers.entries.iter().filter_map(|(&id, entry)| {
-            let retained_key_validation = if let WrapperRequirementKind::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation), .. } = &entry.requirement.kind {
-                self.operations.entries.get(operation).and_then(|entry| entry.operation.try_map(|ty| self.resolve(ty)).ok()).is_some_and(|operation| operation.key_operands().is_some_and(|(receiver, key)| crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key)))
-            } else { false };
-            ((!entry.selection.is_some() || retained_key_validation) && owners.contains(&entry.owner)).then_some(id)
+            let key_validation_need = if let WrapperRequirementKind::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(operation), .. } = &entry.requirement.kind {
+                self.operations.entries.get(operation).and_then(|entry| entry.operation.try_map(|ty| self.resolve(ty)).ok()).and_then(|operation| operation.key_operands().map(|(receiver, key)| crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key)))
+            } else { None };
+            let retained_key_validation = key_validation_need == Some(true);
+            let stale_key_validation = key_validation_need == Some(false);
+            ((!entry.selection.is_some() || retained_key_validation) && !stale_key_validation && owners.contains(&entry.owner)).then_some(id)
         }).collect::<BTreeSet<_>>();
         let referenced_groups = ids.iter().filter_map(|id| match &self.wrappers.entries[id].requirement.kind {
             WrapperRequirementKind::Field { boundary: WrapperBoundary::ProcCompletion { group: WrapperGroupRef::Source(group), .. }, .. } => Some((self.wrappers.entries[id].owner, *group)),
