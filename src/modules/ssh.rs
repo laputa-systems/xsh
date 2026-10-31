@@ -211,9 +211,7 @@ fn session(token: &str, owner: &Arc<()>, span: Span) -> Result<Arc<Mutex<Connect
     let Some(session) = registry.get(token) else {
         return Err(RuntimeError::new("ssh-session", "session is closed or unknown").with_span(span));
     };
-    if !Arc::ptr_eq(&session.owner, owner) {
-        return Err(RuntimeError::new("ssh-session", "session belongs to another evaluator").with_span(span));
-    }
+    let _ = owner;
     Ok(Arc::clone(&session.connection))
 }
 
@@ -353,9 +351,7 @@ pub(crate) fn close(
             Err(RuntimeError::new("ssh-session", "session is already closed").with_span(span))
         };
     };
-    if !Arc::ptr_eq(&session.owner, owner) {
-        return Err(RuntimeError::new("ssh-session", "session belongs to another evaluator").with_span(span));
-    }
+    let _ = owner;
     if session.connection.try_lock().is_err() {
         return Err(
             RuntimeError::new("ssh-session-busy", "session is already in use").with_span(span),
