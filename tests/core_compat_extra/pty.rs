@@ -18,12 +18,12 @@ impl Terminal {
     fn new(rows: u16, columns: u16) -> Self {
         let mut master = -1;
         let mut slave = -1;
-        let size = libc::winsize {
+        let mut size = libc::winsize {
             ws_row: rows, ws_col: columns,
             ws_xpixel: columns * 8, ws_ypixel: rows * 10,
         };
         assert_eq!(unsafe {
-            libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), &size)
+            libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut size)
         }, 0, "open terminal: {}", std::io::Error::last_os_error());
         let terminal = Self {
             master: unsafe { File::from_raw_fd(master) },
