@@ -1922,6 +1922,35 @@ proc main() [io] {
   assert output.stdout == " (END)\n", output.stdout
 }
 
+test test_full_inference_tail_match_value_keeps_the_declared_record_result { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Removal = {ok: Bool, removed: Bool, write_error: Error?}
+
+proc remove(opts) [fs] -> Removal {
+  let result: Removal = if true {
+    match fs.access("/tmp", write: true) {
+      Ok(writable) => {ok: true, removed: writable, write_error: null}
+      Err(failure) => {
+        if opts.force {
+          remove(opts)
+        } else {
+          {ok: false, removed: false, write_error: null}
+        }
+      }
+    }
+  } else {
+    {ok: true, removed: false, write_error: null}
+  }
+  result
+}
+
+let _ = remove({force: true})
+""",
+  )?
+  assert output.success, output.stderr
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,

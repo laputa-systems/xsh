@@ -1058,8 +1058,13 @@ pub(super) fn merge_checked_branches(
 ) -> Option<Type> {
     let candidate = match expectation? {
         TypeExpectation::Required(expected) => {
-            let joined = join_null_branches(previous, actual)?;
-            return joined.matches_expected(expected.result_ok().unwrap_or(expected)).then_some(joined);
+            let expected = expected.result_ok().unwrap_or(expected);
+            if let Some(joined) = join_null_branches(previous, actual)
+                && joined.matches_expected(expected)
+            {
+                return Some(joined);
+            }
+            return (actual.matches_expected(expected) && previous.matches_expected(actual)).then_some(actual.clone());
         }
         TypeExpectation::BranchCandidate(candidate) => candidate,
     };
