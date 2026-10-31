@@ -1,23 +1,18 @@
 # XSH: complete general inference across the language
 
-**Status:** paused 2026-10-31. The last accepted code revision is `e29bd8d3d`
-(the wrapper-pruning fix and its membership test, committed by the session
-checkpoint as `wip`); this pause commit follows it. Runs A and B are green on
-that tree, with `test-sema` re-run alone after the freeze (55 cases). The last
-core-wide erasure count is 4,588/4,725 after slice 36; slices 37-46 were not
-remeasured core-wide.
+**Status:** active 2026-10-31. The last accepted code revision is `19be14e97`
+(the open-record override result constraint and its native test); `master` is
+green on runs A and B. Slice 47 fixes the `core/tail.xsh` joint erasure; the
+last core-wide erasure count remains 4,588/4,725 after slice 36.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
-  Recheck the limiting stage on current `master`.
-- **Next slice:** rebase `inference/record-override-known` onto `master`, then
-  gate it with runs A and B and the `core/tail.xsh` joint erasure; if green,
-  integrate it and continue the `compact.indexed-build` class, then remeasure
-  the core-wide count.
-- **Parked:** `inference/record-override-known` (`aa8e322c2`) unifies known
-  result fields of an open-record override; unverified and not gated, retry
-  with the combined runs and the joint erasure. Other `inference/*` branches
-  are patch-integrated into `master`.
+- **Next slice:** reduce the remaining `compact.indexed-build` classes. Start
+  with the `core/find.xsh` joint failure (`generic call argument has no closed
+  checked type`); the minimal erased set is the `args` parameter of `parse_exec`,
+  `primary`, `and_expression`, `or_expression`, and `comma_expression`.
+- **Parked:** none. `inference/record-override-known` is merged; the older
+  `inference/*` branches are patch-integrated into `master`.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
@@ -686,6 +681,7 @@ prescribed decisions are the starting rules.
 - 2026-10-30, slices 43–44: a single reachable continuation carries inferred field guards through early return, and a symbolic argument to `Any` retains its own type (`4544b5057`); the verifier rejects an inverted guard. A slice result is known non-null even before its receiver is chosen, so an optional return constrains the slice to its payload (`7c5071827`); bytes, strings, lists, nullable inputs and incompatible receivers are tested, and the `printf` `character_constant` annotation now erases alone. The combined compiler passed the selected lowering, semantic, native, tooling, agreement and runtime gates. The combined B run exhausted its budget after reporting 13 passing lowering-coverage tests; that case passed alone. A full core-wide erasure count and the general nullable assignment relationship remain open.
 - 2026-10-30, slice 45: `process.command_argv` stdin keeps a sealed `Bytes` or `Path` requirement instead of defaulting an unannotated input to `Path` (`463ba878d`); calls using either domain run and other types fail. The verifier rejects forged conversion requirements, and `core/split.xsh` `run_filter(input)` now checks with that annotation erased alone. The selected lowering, semantic, native, tooling, agreement and runtime gates passed on the committed compiler; agreement passed separately after the combined run exhausted its budget during result collection. No core-wide erasure count was measured.
 - 2026-10-30, slice 46: a bare inferred value reaching a declared optional return (a branch tail, a block tail, or `return`) no longer binds to the optional type. The checker registers a known-arguments relationship (formal `T?`, argument the value) and the value stays free, so `pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }` accepts `row.values` of `Map[Str, Str]` and of `Map[Str, Str?]` while map values stay invariant, and `Map[Str, Int]` is rejected at the call. A tail `if` whose branch deferred returns the required optional type. Variables that are record-bound or unresolved slice results keep the payload rule of slices 36 and 43. The lowering (`optional_return_assignment_matches`) and the verifier (`known_argument_assignment_matches`, used for the return, block values, pattern branches and `if` fallbacks) accept a free value only when the scheme retains that relationship; native test `test_full_inference_optional_return_accepts_present_and_nullable_map_values`, verifier test `generic_optional_return_authenticates_its_assignment_relationship` (a forged formal or argument is rejected). Runs A and B green (`test-sema` passes alone; inside the combined run A it exceeds its time budget). The ls `ind_get(colors)` annotation now erases alone (`core/ls.xsh`; `xsht check` clean, `test-bb-ls` passes; `test_ls_gnu_option_and_environment_regressions` fails identically before and after, on terminal colour output). A first reading that it did not erase came from an `xsht` binary built before the change. No core-wide erasure count was measured.
+- 2026-10-31, slice 47 (open-record override result): an unannotated receiver overridden into a concrete result record left the result fields unconstrained, so the indexed verifier rejected `core/tail.xsh`'s `gone_step` with "record override result disagrees with its derived known fields" after the joint erasure of 63 parameter sites. The checker now constrains the known result fields against the receiver fields and the overrides; native test `test_full_inference_open_record_override_result_constrains_known_fields` reproduces the rejection on the previous master and passes with the constraint. The `core/tail.xsh` joint erasure passes. Runs A and B green: A (`test-lowering`, `test-sema`, the bodies and checker native files), B (`test-sema-unit`, `test-tooling-unit`, `test-type-agreement`, `test-runtime`, `lowering-coverage`). No core-wide erasure count was measured.
 
 ## For the owner afterwards
 
