@@ -48,11 +48,10 @@ suite (5 connect, 10 exec, 4 stream tests) and the eight native
 `tests/xsh/ssh-` tests all passed with the fixtures reached over an SSH tunnel.
 `scripts/check-ssh-crypto.sh` also passed inside a Linux Docker container.
 
-`cargo dev gate crates/xsh-ssh` now executes in the repaired Docker runtime.
-`check-compile` and `test-core-unit` pass. The full path closure is still red on
-pre-existing xsh tests outside the SSH crypto path (`test-core-integration`,
-`test-ambient-fs-policy`, and `test-core-compat-boundaries`); those failures are
-not crypto or environment failures.
+`cargo dev gate crates/xsh-ssh` passes its complete path closure on the macOS
+arm64 host: all 14 Change cases are current, including `test-ssh-unit`.
+`test-root-unit` is Linux-only because its unit tests cover Linux `openat2`;
+the macOS lane runs the root security and mutation harnesses instead.
 
 On this host a clean release build of `xsh` and `xsht` took 98.92 s; the `dist`
 profile took 303.22 s. Startup (`xsh --startup`) measured 0.02 s. Stripped
