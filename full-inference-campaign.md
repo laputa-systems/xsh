@@ -14,17 +14,23 @@ proc) and the 38-site joint, re-run at `fa09321d5` (`inventory.sh` over a clean
 Laputa `ed0f25c` export, then `erase_sites.py`); Laputa's `pm`, `system` and
 network roots still check with the current `xsht`. The full 57-site scope is
 56/57 alone with the exported `write_generation_plan.path_value` contract
-retained; the 56-site joint that includes exported parameters fails with
-`compact.indexed-build: generic expression is outside the supported parameter
-projection path`, and is not part of the applied view.
+retained. The 56-site joint that includes exported parameters now checks and
+lowers: generic managed scopes share the ordinary cleanup lowering and preserve
+symbolic result values. Both the unmodified frozen export and the joint erasure
+pass the same three generation behavior cases. Host checks pass 113 inference-body
+cases, five lifecycle controls and three forged-IR/effect checks. The pinned Linux
+integration passes 137 native cases across inference bodies, managed cleanup and
+hidden resources. This does not expand the applied view.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document; then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
   Build `xsht` with `cargo build --profile verification --target
   x86_64-unknown-linux-musl -p xsh -p xsht` before measuring; `cargo dev build`
   builds only `xsh`.
-- **Next slice:** the unsupported parameter projection in the full Laputa joint
-  erasure, then the remaining core verifier tail. Use `inventory.sh` and
+- **Next slice:** the remaining core verifier tail and generic managed scopes
+  with an all-returning body. A generic managed scope with an
+  all-returning body still fails checking with `Build(RecoveryType)`; conditional
+  early return and symbolic result values pass. Use `inventory.sh` and
   `erase_sites.py` for annotation and behavior checks, with performance deferred.
   A pure call with no Result error contract now makes an uncaught checked key
   failure fatal; local `try` and `retry` still capture it. The boundary uses the

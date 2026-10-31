@@ -2642,9 +2642,29 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
             }) { return Err(IrVerifyError::new("capture contributions disagree with its actual body")); }
             continue;
         }
-        let errors = proof.captured_error_types(&decoder, request.instruction)?;
+        let mut actual = request.transfers;
+        charged_capture_event_sort(&mut actual, &mut proof.budget)?;
+        let mut transfers = Vec::new();
+        let mut errors = Vec::new();
+        for group in actual.chunk_by(|left, right| left.0 == right.0) {
+            proof.budget.charge(group.len())?;
+            let mut closed = Vec::with_capacity(group.len());
+            for (_, contribution) in group {
+                let crate::sema::wrapper_operation::WrapperErrorContribution::Explicit(ty) = contribution else { break };
+                proof.budget.charge_scheme_clone(ty)?;
+                let Some(ty) = ty.closed_ground_type() else { break };
+                ensure_closed_type(&ty)?;
+                proof.budget.charge_clone(&ty)?;
+                closed.push(ty);
+            }
+            if closed.len() == group.len() && store.tags[group[0].0] == FullTag::ExprTry {
+                transfers.push(group[0].0);
+                errors.extend(closed);
+            }
+        }
+        for (_, error) in proof.derive_captured_error_events(&decoder, request.instruction, &transfers)? { errors.push(error); }
         if !errors.is_empty() {
-            let actual = proof.join_captured_errors(errors.as_ref())?;
+            let actual = proof.join_captured_errors(&errors)?;
             if !super::body_type_matches(&crate::sema::schemes::SchemeType::Ground(actual), &request.expected_error, &mut proof.budget)? {
                 return Err(IrVerifyError::new("generic captured error disagrees with its actual producer"));
             }

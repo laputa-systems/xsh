@@ -2388,3 +2388,38 @@ proc main() [io, error] {
   )?
   assert output.stdout == "3\n9\n", output.stdout
 }
+
+proc generic_managed_root(output_root: Path, marker, early: Bool) [fs, error] -> Result[Path] {
+  let _ = marker
+  with root = fs.tempdir_in(output_root.parent)? {
+    let temporary = root.host_path()?
+    if early { return Ok(temporary) }
+    root.write(p"note", "payload")
+    assert root.read_text(p"note")? == "payload"
+    temporary
+  }?
+}
+
+test test_full_inference_managed_resource_scope_releases_a_generic_call_resource { |ctx|
+  let parent = test.temp_dir(ctx, name: "generic-managed-root")?
+  let temporary = generic_managed_root(fp"{parent}/output", "marker", false)?
+  assert !temporary.exists()?
+  let early = generic_managed_root(fp"{parent}/output", 7, true)?
+  assert !early.exists()?
+}
+
+proc generic_managed_value(output_root: Path, value) [fs, error] {
+  with root = fs.tempdir_in(output_root.parent)? {
+    let _ = root.host_path()?
+    value
+  }?
+}
+
+test test_full_inference_managed_resource_scope_preserves_symbolic_results { |ctx|
+  let parent = test.temp_dir(ctx, name: "generic-managed-value")?
+  assert generic_managed_value(fp"{parent}/output", 7)? == 7
+  assert generic_managed_value(fp"{parent}/output", "seven")? == "seven"
+  let failure: Result[Int, Str] = Err("nested failure")
+  let nested = generic_managed_value(fp"{parent}/output", failure)?
+  match nested { Err(message) => assert message == "nested failure"; Ok(_) => assert false }
+}

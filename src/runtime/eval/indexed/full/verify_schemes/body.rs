@@ -2355,6 +2355,43 @@ pure make() -> Map[List[Int]] {
     }
 
     #[test]
+    fn generic_resource_scope_authenticates_its_release_argument() {
+        let mut program = prepare("proc choose(root: FsRoot, marker) [fs, error] -> Result[Int] { let _ = marker; with held = root { 1 }? }\n");
+        program.store.in_place.take();
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let resource = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::FsCloseRootIfOpen, mut args, .. } = decoder.expression_view(instruction).ok()? else { return None; };
+            Some(args.next().unwrap().unwrap().unwrap().raw() as usize)
+        }).unwrap();
+        let schema::ExprView::Param(original_slot) = decoder.expression_view(resource).unwrap() else { panic!("release reads its bound resource") };
+        assert_ne!(original_slot, 1);
+        let mut changed = program.clone();
+        let words = changed.store.data[resource].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = 1;
+        let error = FullVerifier::verify(&changed).expect_err("the release must name its acquired resource");
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
+    }
+
+    #[test]
+    fn generic_resource_scope_authenticates_captured_error_source() {
+        let mut program = prepare("proc choose(root: FsRoot, value, wrong: Result[Int, Str]) [fs, error] { let _ = wrong; with held = root { value }? }\n");
+        program.store.in_place.take();
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let source = decoder.instruction_range.clone().find_map(|instruction| {
+            let schema::ExprView::Try { value, .. } = decoder.expression_view(instruction).ok()? else { return None; };
+            let source = value.raw() as usize;
+            let schema::ExprView::Param(slot) = decoder.expression_view(source).ok()? else { return None; };
+            (slot >= 3).then_some(source)
+        }).unwrap();
+        let mut changed = program.clone();
+        let words = changed.store.data[source].range().bounds(changed.store.extra.len()).unwrap();
+        changed.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&changed).is_err(), "captured errors must come from the actual propagation source");
+    }
+
+    #[test]
     fn resource_scope_return_authenticates_cold_release_arguments() {
         let mut program = prepare("proc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
         program.store.in_place.take();
