@@ -1,19 +1,16 @@
 # XSH: complete general inference across the language
 
-**Status:** active 2026-10-31. The last accepted code revision is `abc9619e8`
-(the forwarded nullable argument fix and its native test); `master` is green on
-the A and B cases, with `test-sema` and `test-type-agreement` passing separately
-because the combined runs exceeded their budgets. Slices 47-49 fix the `tail`,
-`find`, `more`, `btop` and `wget` joint erasures; the last core-wide erasure
-count remains 4,588/4,725 after slice 36.
+**Status:** active 2026-10-31. The last accepted code revision is `2196ceb11`
+(the branch-merge wider-actual fix and its native test); `master` is green on
+the A and B cases in one combined run. Slices 47-50 fix the `tail`, `find`,
+`more`, `btop`, `wget` and `rm` joint erasures; the last core-wide erasure count
+remains 4,588/4,725 after slice 36.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
-- **Next slice:** `core/rm.xsh` (`generic match arm disagrees with its result`;
-  minimal erased set `report_progress.opts` and `remove_target.opts`, both
-  `RmOptions`), then the Laputa `check.map-key-type` witness
-  (`generation_runtime_artifacts.value`), then `core/nc.xsh` (function body
-  termination), `core/fmt.xsh` (index validation effect) and
+- **Next slice:** the Laputa `check.map-key-type` witness
+  (`generation_runtime_artifacts.value`, site 32), then `core/nc.xsh` (function
+  body termination), `core/fmt.xsh` (index validation effect) and
   `core/traceroute.xsh` (generic module call signature).
 - **G4 eligibility:** private `pure` and private `proc` parameters are in the
   applied view; exported parameters, private `proc` returns, effect clauses, and
@@ -23,9 +20,9 @@ count remains 4,588/4,725 after slice 36.
   `INFERENCE-ERASURE.md` at Laputa `d1fda6c`; the one private-proc residual is
   the `check.map-key-type` witness
   `pure f(value) { {node.name: node for node in value.nodes} }`.
-- **Parked:** none. `inference/record-override-known`, `inference/find-slice`
-  and `inference/optional-argument` are merged; the older `inference/*` branches
-  are patch-integrated into `master`.
+- **Parked:** none. `inference/record-override-known`, `inference/find-slice`,
+  `inference/optional-argument` and `inference/tail-match` are merged; the older
+  `inference/*` branches are patch-integrated into `master`.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
@@ -698,6 +695,7 @@ prescribed decisions are the starting rules.
 - 2026-10-31, slice 47 (open-record override result): an unannotated receiver overridden into a concrete result record left the result fields unconstrained, so the indexed verifier rejected `core/tail.xsh`'s `gone_step` with "record override result disagrees with its derived known fields" after the joint erasure of 63 parameter sites. The checker now constrains the known result fields against the receiver fields and the overrides; native test `test_full_inference_open_record_override_result_constrains_known_fields` reproduces the rejection on the previous master and passes with the constraint. The `core/tail.xsh` joint erasure passes. Runs A and B green: A (`test-lowering`, `test-sema`, the bodies and checker native files), B (`test-sema-unit`, `test-tooling-unit`, `test-type-agreement`, `test-runtime`, `lowering-coverage`). No core-wide erasure count was measured.
 - 2026-10-31, slice 48 (record argument with an empty collection field): a record literal passed to a generic callee with an empty list field (`comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: 0})` in `core/find.xsh`) failed IR verification with "generic call argument has no closed checked type", even though the callee parameter declared the record. The argument derivation could not type the empty list field from the literal, and the annotated-local fallback does not cover a record literal. The verifier now authenticates each field value and types the literal from the checked expected record, so an empty collection field takes the declared field contract. Native test `test_full_inference_record_argument_with_an_empty_list_field_reaches_a_generic_callee` reproduces the rejection on the previous tree and passes with the fallback. The `core/find.xsh` joint erasure of its 68 passing parameter sites passes with the verification `xsht`; the three single-site failures are the separate assign-target, local-inference and conversion classes. A and B green with `test-sema` (55 cases) and `test-type-agreement` (1 case) passing separately after the combined runs exceeded their budgets; the other cases pass in the combined runs. No core-wide erasure count was measured.
 - 2026-10-31, slice 49 (forwarded nullable argument): a nullable parameter passed through an unannotated generic callee with an `if let` guard (`prompt(next_name)` called from `page(next_name)` in `core/more.xsh`) failed IR verification with "generic call argument does not match its checked scheme fact". The checker retained a known-arguments relationship, but the verifier compared the bare type parameter with the optional formal and then rejected the callee binder evidence. The symbolic call now asks `known_argument_assignment_matches` for that relationship and passes a `KnownArgument` evidence source, which marks the callee binder instead of requiring equality with the optional substitution. Native test `test_full_inference_forwarded_nullable_argument_reaches_a_guarded_generic_parameter` reproduces the rejection on the previous tree, prints ` (END)` with the fix, and fails without it. The `core/more.xsh` (36 sites), `core/btop.xsh` (32) and `core/wget.xsh` (44) joint erasures pass with the verification `xsht`. A and B green with `test-sema` (55 cases) and `test-type-agreement` (1 case) passing separately after the combined runs exceeded their budgets; the other cases pass in the combined runs. No core-wide erasure count was measured.
+- 2026-10-31, slice 50 (branch merge wider actual): a tail match inside an `if` branch kept the first arm's narrower record type when the arms differed in an optional field (`write_error: null` against `Error?`), so the indexed verifier rejected the wider arm with "generic match arm disagrees with its result". `merge_checked_branches` now falls back to the actual type when it matches the declared expectation and the previous branch is assignable to it; this preserves the precise record and stream type instead of widening to the declaration, and `dev/targets.xsh` keeps its stream return provenance. Native test `test_full_inference_tail_match_value_keeps_the_declared_record_result` reproduces the rejection on the previous tree and passes with the fix. The `core/rm.xsh` joint erasure of its 22 passing parameter sites passes with the verification `xsht`. A and B green in one combined run: `test-lowering` 1,592; `test-sema` 55; native bodies 104; checker 106; `test-sema-unit` 934; `test-tooling-unit` 449; `test-type-agreement` 1; `test-runtime` 107; `lowering-coverage` 13. No core-wide erasure count was measured.
 
 ## For the owner afterwards
 
