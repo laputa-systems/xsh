@@ -4752,8 +4752,11 @@ fn verify_instantiated_call_arguments(
                 };
                 let actual = match derived {
                     Some(actual) => actual,
-                    None => annotated_local_argument_type(store, &decoder, value.raw() as usize, materialization)?
-                        .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,
+                    None => match annotated_local_argument_type(store, &decoder, value.raw() as usize, materialization)? {
+                        Some(actual) => actual,
+                        None => checked_record_argument_type(store, &decoder, value.raw() as usize, &expected, materialization)?
+                            .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,
+                    },
                 };
                 ensure_closed_type(&actual)?;
                 if !actual.matches_expected(&expected) {
@@ -5276,6 +5279,39 @@ fn checked_argument_type(
             },
         };
     }
+    Ok(Some(actual))
+}
+
+fn checked_record_argument_type(
+    store: &FullStore,
+    decoder: &FullDecoder<'_>,
+    instruction: usize,
+    expected: &Type,
+    materialization: &mut SchemeInstantiationBudget,
+) -> Result<Option<Type>, IrVerifyError> {
+    let Type::Record(expected_fields) = expected.unvalidated() else { return Ok(None) };
+    let schema::ExprView::Record(mut entries) = decoder.expression_view(instruction)? else { return Ok(None) };
+    let Ok(writers) = decoder.checked_record_field_writers(&mut entries, |_| Ok(Arc::new(Type::Any))) else { return Ok(None) };
+    let mut fields = BTreeMap::new();
+    for (name, writer) in writers {
+        let super::CheckedRecordFieldWriter::Value(value) = writer else { return Ok(None) };
+        let Some(expected_field) = expected_fields.get(&name) else { return Ok(None) };
+        match checked_argument_type(store, decoder, instruction, value, materialization, 0)? {
+            Some(CheckedArgumentType::Known(actual)) if actual.matches_expected(expected_field) => {}
+            Some(CheckedArgumentType::EmptyList(None)) if matches!(expected_field.unvalidated(), Type::List(_)) => {}
+            Some(CheckedArgumentType::EmptyList(Some(actual))) if actual.matches_expected(expected_field) => {}
+            Some(CheckedArgumentType::EmptyMap) if matches!(expected_field.unvalidated(), Type::Map(_, _)) => {}
+            Some(CheckedArgumentType::ListItems(items)) => {
+                let Some(actual) = merge_list_item_types(&items, materialization)? else { return Ok(None) };
+                if !actual.matches_expected(expected_field) { return Ok(None); }
+            }
+            _ => return Ok(None),
+        };
+        fields.insert(name, expected_field.clone());
+    }
+    if fields.len() != expected_fields.len() { return Ok(None); }
+    let actual = Type::Record(Arc::new(fields));
+    ensure_closed_type(&actual)?;
     Ok(Some(actual))
 }
 

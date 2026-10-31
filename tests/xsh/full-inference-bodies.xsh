@@ -1877,6 +1877,30 @@ let f: NameFile = {name: "n", label: "l", state: "waiting", symlink: false, dir_
   assert output.success, output.stderr
 }
 
+test test_full_inference_record_argument_with_an_empty_list_field_reaches_a_generic_callee { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""use lib.gnu
+
+type Parsed = {nodes: List[Int], root: Int, at: Int, opts: Int}
+
+proc comma_expression(args, parsed: Parsed) -> Result[Parsed, Error] {
+  Ok(parsed)
+}
+
+proc main(...operands: List[Bytes]) [process, error] {
+  let prepared = gnu.prepare_arguments(operands)
+  let {text: args, raw, ..} = prepared
+  let expression_args: List[Str] = args[0..]
+  let _ = comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: 0})?
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,
