@@ -172,3 +172,20 @@ print $mapped
   assert output.success, output.stderr
   assert output.stdout == "0\n0\n"
 }
+
+test test_full_inference_membership_of_a_non_integer_needle_needs_no_key_validation { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure has_nul(data) {
+  let head = if data.len() > 4096 { data[0..4096] } else { data }
+  b"\0" in head
+}
+pure has_label(container) { b"label" in container }
+assert has_nul(b"a\0b") and !has_nul(b"abc")
+assert has_label({[b"label"]: 1}) and !has_label({[b"other"]: 1})
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == ""
+  assert output.stderr == ""
+}

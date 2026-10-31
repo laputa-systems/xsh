@@ -241,16 +241,17 @@ pub(super) fn verify_record_override_site(
 pub(super) fn may_require_uint_key_validation(receiver: &SchemeType, key: &SchemeType) -> bool {
     let mut receiver = receiver;
     while let SchemeType::Validated(_, inner) = receiver { receiver = inner; }
+    let key_may_be_unvalidated_int = key.closed_ground_type().is_none_or(|key| matches!(key.unvalidated(), Type::Int));
     let required = match receiver {
         SchemeType::Map(required, _) => Some(required.as_ref()),
         SchemeType::Ground(ty) if matches!(ty.unvalidated(), Type::Map(..)) => {
             return key.closed_ground_type().is_none_or(|key| crate::sema::sealed_operation::may_require_uint_key_validation(ty, &key));
         }
-        SchemeType::Parameter(_) => return !matches!(key.closed_ground_type(), Some(Type::UInt | Type::Str)),
+        SchemeType::Parameter(_) => return key_may_be_unvalidated_int,
         _ => None,
     };
     let Some(required) = required else { return false; };
-    if required == key { return false; }
+    if required == key || !key_may_be_unvalidated_int { return false; }
     let required = required.closed_ground_type();
     let key = key.closed_ground_type();
     match (required, key) {
