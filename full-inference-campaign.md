@@ -1,30 +1,23 @@
 # XSH: complete general inference across the language
 
-**Status:** winding down 2026-10-31. The last accepted code revision is
-`732664cd1`; the in-flight `inference/nc-tail` loop-condition slice is being
-gated. Slices 47-51 fix the `tail`, `find`, `more`, `btop`, `wget`, `rm` and
-Laputa `check.map-key-type` joint erasures; the last core-wide erasure count
-remains 4,588/4,725 after slice 36.
+**Status:** paused 2026-10-31. The last accepted code revision is `732664cd1`
+(map comprehension key); this pause commit follows it. `master` is green on the
+A and B cases. Slices 47-51 fixed the `tail`, `find`, `more`, `btop`, `wget`,
+`rm` and Laputa `check.map-key-type` joint erasures. The Laputa applied view is
+38/38 private parameter sites (12 pure, 26 proc) and the 38-site joint; the full
+57-site scope is 56/57 with the exported `write_generation_plan.path_value`
+contract retained.
 
-- **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
+- **Resume:** read `AGENTS.md`, `TODO.md`, and this document; then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
-- **Next slice:** `core/nc.xsh` (`function 43 body does not terminate`; minimal
-  erased set `unix_address.socket_path` and `run_unix_listener.socket_path`,
-  both `Str`), then `core/fmt.xsh` (index validation effect) and
-  `core/traceroute.xsh` (generic module call signature).
-- **G4 eligibility:** private `pure` and private `proc` parameters are in the
-  applied view; exported parameters, private `proc` returns, effect clauses, and
-  `Map`/`.require()` locals stay retained. The erasure measurements already
-  cover every site; only the view's eligible set changes, so regenerate the
-  view site list to add all 38 Laputa private parameter sites. The Laputa
-  private scope is 38/38 single-site and joint; the full 57-site scope is 56/57,
-  with the exported `write_generation_plan.path_value` contract the only
-  single-site retention, and the five-site `compose.value` joint out of the
-  applied view. Laputa evidence is `INFERENCE-ERASURE.md` at Laputa `d1fda6c`.
-- **Parked:** none. `inference/record-override-known`, `inference/find-slice`,
-  `inference/optional-argument`, `inference/tail-match` and `inference/map-key`
-  are merged; the older `inference/*` branches are patch-integrated into
-  `master`.
+- **Next slice:** the `core/nc.xsh` `main argv` tag-category class
+  (`full IR instruction tag has the wrong category`; minimal erased `main.argv`),
+  then `core/fmt.xsh` and `core/traceroute.xsh`; regenerate the Laputa
+  applied-view site list with all 38 private sites.
+- **Parked:** `inference/nc-tail` (`297b82b7e`) fixes the generic loop-condition
+  return analysis but makes `dev/main.xsh` fail `full IR instruction tag has the
+  wrong category`; unmerged. Retry after the tag-category/decoder-state cause is
+  fixed. The older `inference/*` branches are patch-integrated.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
