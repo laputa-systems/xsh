@@ -18,7 +18,7 @@ test test_unix_exec_preserves_command_redirections_and_cwd { |ctx|
   let result = test.expect(ctx, r"""let root = Path(args[0])
 let command = process.command_argv("sh", ["sh", "-c", "cat; printf err >&2; test \"$PWD\" = \"$1\"", "sh", root.display()], cwd: root, stdin: fp"{root}/input", stdout: fp"{root}/output", stdout_append: true, stderr: fp"{root}/errors")
 unix.exec(command)?
-""", status: 0, args: [root])?
+""", status: 0, args: [root.resolve()?])?
   assert result.stdout == ""
   assert result.stderr == ""
   assert output.read_text()? == "prefixinput"
@@ -230,10 +230,16 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
     defer unix.close_fd(writer)
     assert unix.poll_fd(writer, ["writable"])? == ["writable"]
   }
-  assert "hangup" in unix.poll_fd(reader, ["readable"])?
+  if system.uname()?.sysname != "Darwin" {
+    assert "hangup" in unix.poll_fd(reader, ["readable"])?
+  }
   run sh -c "printf payload > \"$1\"" sh $fifo
   let ready = unix.poll_fd(reader, ["readable"])?
-  assert "readable" in ready and "hangup" in ready
+  if system.uname()?.sysname == "Darwin" {
+    assert "readable" in ready
+  } else {
+    assert "readable" in ready and "hangup" in ready
+  }
   unix.close_fd(reader)
   reader_open = false
   let error_reader = unix.open_fd(fifo, nonblock: true)?
@@ -244,7 +250,11 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   defer { if writer_open { unix.close_fd(100) } }
   unix.close_fd(error_reader)
   error_reader_open = false
-  assert "error" in unix.poll_fd(100, ["writable"])?
+  if system.uname()?.sysname == "Darwin" {
+    assert "writable" in unix.poll_fd(100, ["writable"])?
+  } else {
+    assert "error" in unix.poll_fd(100, ["writable"])?
+  }
   unix.close_fd(100)
   writer_open = false
 }
@@ -278,7 +288,9 @@ test test_unix_poll_fd_hangs_up_after_inherited_writer_closes { |ctx|
   defer unix.close_fd(gate_writer)
   let _ = unix.write_fd(gate_writer, b"release\n")?
   assert (wait child?).exited_with(0)
-  assert "hangup" in unix.poll_fd(reader, ["readable"])?
+  if system.uname()?.sysname != "Darwin" {
+    assert "hangup" in unix.poll_fd(reader, ["readable"])?
+  }
 }
 """, status: 0)?
   assert result.stdout == "" and result.stderr == ""
@@ -449,9 +461,9 @@ test test_unix_exec_inherits_unsearchable_working_directory { |ctx|
 let root = Path(args[0])
 root.chmod(0o000)
 let command = if args[1] == "explicit" {
-  process.command_argv(p"/bin/true", ["true"], cwd: root)
+  process.command_argv(p"/usr/bin/true", ["true"], cwd: root)
 } else {
-  process.command_argv(p"/bin/true", ["true"])
+  process.command_argv(p"/usr/bin/true", ["true"])
 }
 let environment: Map[Str, Str] = {}
 let result = if args[2] == "exec_env" {
@@ -498,7 +510,7 @@ cd root {
 }
 """, status: 0, args: [root, mode, operation])?
       let expected = if mode == "explicit" { inner } else { root }
-      assert result.stdout == f"{expected}\n"
+      assert result.stdout == f"{expected.resolve()?}\n"
     }
   }
 }
@@ -506,7 +518,7 @@ cd root {
 test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
   let root = test.temp_dir(ctx, name: "exec-env-validation")?
   let output = fp"{root}/must-not-exist"
-  let command = process.command_argv(p"/bin/true", ["true"], stdout: output)
+  let command = process.command_argv(p"/usr/bin/true", ["true"], stdout: output)
   let bad_key: Map[Str, Str] = {"BAD=KEY": "value"}
   let bad_value: Map[Str, Str] = {VALID: "bad\u{0}value"}
   let empty: Map[Str, Str] = {}

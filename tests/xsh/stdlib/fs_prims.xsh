@@ -109,8 +109,10 @@ test test_stat_names_fifo_socket_and_hard_link_identity { |ctx|
 
   fs.mkfifo(fp"{root}/fifo", 0o600)
   assert fs.stat(fp"{root}/fifo")?.kind == "fifo"
-  fs.mknod(fp"{root}/socket", "socket", 0o600)
-  assert fs.stat(fp"{root}/socket")?.kind == "socket"
+  if system.uname()?.sysname == "Linux" {
+    fs.mknod(fp"{root}/socket", "socket", 0o600)
+    assert fs.stat(fp"{root}/socket")?.kind == "socket"
+  }
 }
 
 test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
@@ -349,8 +351,13 @@ test test_mknod_device_nodes_need_privilege_and_carry_device_numbers { |ctx|
 test test_device_numbers_round_trip_extended_encodings {
   assert fs.dev_major(fs.makedev(1, 3)) == 1
   assert fs.dev_minor(fs.makedev(1, 3)) == 3
-  assert fs.dev_major(fs.makedev(1234, 567890)) == 1234
-  assert fs.dev_minor(fs.makedev(1234, 567890)) == 567890
+  if system.uname()?.sysname == "Linux" {
+    assert fs.dev_major(fs.makedev(1234, 567890)) == 1234
+    assert fs.dev_minor(fs.makedev(1234, 567890)) == 567890
+  } else {
+    assert fs.dev_major(fs.makedev(12, 567890)) == 12
+    assert fs.dev_minor(fs.makedev(12, 567890)) == 567890
+  }
 }
 
 test test_link_follows_a_source_symlink_only_when_asked { |ctx|
@@ -738,7 +745,10 @@ test test_copy_file_reflink_always_reports_the_kernel_errno_for_devices { |ctx|
   let target = fp"{root}/target"
   let crossing = fs.copy_file(/dev/null, target, reflink: "always")
   assert crossing is Err(_)
-  if let Err(failure) = crossing { assert failure.errno == 18 }
+  if let Err(failure) = crossing {
+    let expected = if system.uname()?.sysname == "Linux" { 18 } else { 45 }
+    assert failure.errno == expected
+  }
   assert ! target.exists()?
 }
 

@@ -333,7 +333,7 @@ test test_unix_exec_env_passes_bytes_values_through { |ctx|
 let environment: Map[Str, Bytes] = {"RAW": b"a\x80b"}
 unix.exec_env(command, environment)?
 """, status: 0)?
-  assert result.stdout.trim() == "61 80 62"
+  assert result.stdout.fields() == ["61", "80", "62"]
 }
 
 test test_unix_exec_env_blocks_the_named_signals { |ctx|

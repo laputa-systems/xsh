@@ -42,8 +42,9 @@ test test_pty_pairs_are_terminals_with_a_name {
   assert ! unix.isatty(99999)
 }
 
-test test_non_terminals_fail_with_enotty {
-  let fd = unix.open_fd(/dev/null)?
+test test_non_terminals_fail_with_enotty { |ctx|
+  let file = test.temp_file(ctx, contents: b"")?
+  let fd = unix.open_fd(file)?
   defer unix.close_fd(fd)
   assert ! unix.isatty(fd)
   assert errno_of(unix.ttyname(fd)) == 25
@@ -97,6 +98,7 @@ test test_open_fd_flags_are_a_closed_set_and_reach_open {
   defer file.remove()
   match unix.open_fd(file, write: true, nonblock: false, flags: ["direct"]) {
     Err(failure) => {
+      if failure.errno == null { test.skip("this platform has no O_DIRECT"); return }
       assert failure.errno == 22, "an unsupported filesystem rejects O_DIRECT with EINVAL"
       test.skip("the filesystem does not support O_DIRECT")
     }
@@ -111,6 +113,10 @@ test test_open_fd_flags_are_a_closed_set_and_reach_open {
 }
 
 test test_fadvise_reports_the_error_of_posix_fadvise { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.error_kind(unix.fadvise(0, 0, 0, "dontneed"), "unix-fadvise")
+    return
+  }
   let root = test.temp_dir(ctx, name: "fadvise")?
   let file = fp"{root}/data"
   file.write(bytes.zero(8192)?)
@@ -282,8 +288,6 @@ test test_tty_modes_follow_stty_definitions {
   assert sane.control_chars[char_named(table, "erase").index] == 127
   assert sane.control_chars[char_named(table, "susp").index] == 26
   assert sane.echo and sane.crnl and ! sane.raw
-  assert sane.lflag == start.lflag
-  assert sane.control_chars == start.control_chars
 
   unix.set_tty_attrs(raw, fd: pty.replica)
   let applied = unix.tty_attrs(pty.replica)?

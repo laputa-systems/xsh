@@ -27,7 +27,7 @@ cd / {
   unix.close_fd(saved)?
 }
 """)
-  let result = test.expect(ctx, r"""let root = Path(args[0])
+  let result = test.expect(ctx, r"""let root = Path(args[0]).resolve()?
 let worker = Path(args[1])
 let command = process.command_argv(applet.current_exe()?, ["xsh", worker.display(), "--", root.display(), f"{process.session_id()?}"], cwd: root)
 print "launch"
@@ -42,7 +42,13 @@ test test_signal_capture_retains_distinct_names_and_drains { |ctx|
   let result = test.expect(ctx, r"""unix.signal_setup(["SIGHUP", "term"])?
 process.kill(process.current_pid()?, signal: "HUP")?
 process.kill(process.current_pid()?, signal: "TERM")?
-assert unix.take_signals()? == ["HUP", "TERM"]
+var seen: List[Str] = []
+for _ in range(1000) {
+  seen = seen + unix.take_signals()?
+  break when seen.len() == 2
+  time.sleep(1ms)?
+}
+assert seen == ["HUP", "TERM"]
 assert unix.take_signals()? == []
 """, status: 0)?
   assert result.stderr == ""

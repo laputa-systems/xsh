@@ -1,6 +1,5 @@
 type Fixture = {root: FsRoot, dir: Path}
 
-const ELOOP = 40
 const EISDIR = 21
 const EEXIST = 17
 const EBUSY = 16
@@ -49,7 +48,8 @@ test test_write_atomic_regular_or_absent_names_what_it_refuses { |ctx|
   fp"{fixture.dir}/outside".write("outside")
   fp"{fixture.dir}/link".symlink(to: p"outside")
   fixture.root.mkdir(p"dir")
-  assert failure_errno(fixture.root.write_atomic(p"link", "new", replace: "regular_or_absent")) == ELOOP
+  let refused = failure_errno(fixture.root.write_atomic(p"link", "new", replace: "regular_or_absent"))
+  assert refused == 40 or refused == 62
   assert failure_errno(fixture.root.write_atomic(p"dir", "new", replace: "regular_or_absent")) == EISDIR
   assert fp"{fixture.dir}/outside".read_text()? == "outside"
   assert fixture.root.stat(p"link")?.kind == "symlink"

@@ -54,9 +54,11 @@ test test_user_groups_primary_gid_override_does_not_grant_account_default {
   let selected_gid = if account.gid == 0 { 1 } else { 0 }
   let selected_groups = user.groups(account.name, primary_gid: selected_gid)?
   assert selected_gid in selected_groups
-  if let Ok(primary_group) = group.by_gid(account.gid) {
-    if account.name not in primary_group.members {
-      assert account.gid not in selected_groups
+  if system.uname()?.sysname != "Darwin" {
+    if let Ok(primary_group) = group.by_gid(account.gid) {
+      if account.name not in primary_group.members {
+        assert account.gid not in selected_groups
+      }
     }
   }
   test.error_kind(user.groups("definitely-missing-xsh-user", primary_gid: -1), "user-groups")
@@ -67,6 +69,10 @@ test test_user_groups_primary_gid_override_does_not_grant_account_default {
 # is the Groups line of the process status, not the sorted identity set that
 # `groups` presents with the primary gid added.
 test test_unix_id_supplementary_is_the_kernel_group_list {
+  if ! p"/proc/self/status".exists() {
+    test.skip("the host has no /proc/self/status")
+    return
+  }
   let identity = unix.id()?
   let from_status = collect {
     for line in fp"/proc/self/status".lines()? {

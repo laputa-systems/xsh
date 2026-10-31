@@ -35,6 +35,10 @@ proc utmp_record(
 }
 
 test test_read_utmp_decodes_every_field { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("utmp records are decoded on Linux only")
+    return
+  }
   let root = test.temp_dir(ctx, name: "utmp")?
   let file = fp"{root}/utmp"
   let none = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -79,6 +83,10 @@ test test_read_utmp_decodes_every_field { |ctx|
 }
 
 test test_read_utmp_ignores_a_partial_trailing_record_and_names_failures { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("utmp records are decoded on Linux only")
+    return
+  }
   let root = test.temp_dir(ctx, name: "utmp-edge")?
   let junk = fp"{root}/junk"
   junk.write("hello")
@@ -108,6 +116,10 @@ test test_read_utmp_ignores_a_partial_trailing_record_and_names_failures { |ctx|
 }
 
 test test_read_utmp_default_file_is_read_or_reported_missing {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("utmp records are decoded on Linux only")
+    return
+  }
   match unix.read_utmp() {
     Ok(records) => assert records.len() >= 0
     Err(failure) => assert failure.errno == 2

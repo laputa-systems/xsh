@@ -5,7 +5,7 @@ env INHERITED="parent" REPLACED="old" {
   assert process.run(command)?.ok
 }
 """, status: 0)?
-  assert result.stdout.trim() == "parent|new| 61 80 62"
+  assert result.stdout.fields() == ["parent|new|", "61", "80", "62"]
 }
 
 test test_command_argv_byte_environment_rejects_invalid_names_and_nul { |ctx|

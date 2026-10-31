@@ -65,6 +65,10 @@ proc ifname(name: Str) [error] -> Result[Bytes] {
 }
 
 test test_net_constants_name_the_kernel_abi {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   assert c.AF_INET == 2 and c.AF_INET6 == 10 and c.AF_NETLINK == 16
   assert c.SOCK_STREAM == 1 and c.SOCK_DGRAM == 2 and c.SOCK_RAW == 3
@@ -76,6 +80,10 @@ test test_net_constants_name_the_kernel_abi {
 }
 
 test test_tcp_echo_over_loopback {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(server)
@@ -117,6 +125,10 @@ test test_tcp_echo_over_loopback {
 }
 
 test test_udp_exchange_reports_sender_truncation_and_ttl {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let receiver = loopback_udp()?
   defer unix.close_fd(receiver)
@@ -146,6 +158,10 @@ test test_udp_exchange_reports_sender_truncation_and_ttl {
 }
 
 test test_unix_datagram_size_distinguishes_empty_from_truncated_and_stream_eof {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let pid = process.current_pid()?
   let server = linux.socket(c.AF_UNIX, c.SOCK_DGRAM.bit_or(c.SOCK_NONBLOCK))?
@@ -192,6 +208,10 @@ test test_unix_datagram_size_distinguishes_empty_from_truncated_and_stream_eof {
 }
 
 test test_recvfrom_rejects_an_unknown_rights_policy {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let receiver = loopback_udp()?
   defer unix.close_fd(receiver)
@@ -200,6 +220,10 @@ test test_recvfrom_rejects_an_unknown_rights_policy {
 }
 
 test test_udp_error_queue_reports_the_icmp_origin {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let probe = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(probe)
@@ -232,6 +256,10 @@ test test_udp_error_queue_reports_the_icmp_origin {
 }
 
 test test_icmp_echo_over_a_datagram_socket {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   match linux.socket(c.AF_INET, c.SOCK_DGRAM, c.IPPROTO_ICMP) {
     Err(failure) => {
@@ -272,6 +300,10 @@ pure icmp_checksum(message: Bytes) -> Int {
 }
 
 test test_raw_icmp_socket_filters_and_checks_replies {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   match linux.socket(c.AF_INET, c.SOCK_RAW, c.IPPROTO_ICMP) {
     Err(failure) => {
@@ -304,6 +336,10 @@ test test_raw_icmp_socket_filters_and_checks_replies {
 }
 
 test test_socket_options_move_bytes_and_timeouts {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let fd = loopback_udp()?
   defer unix.close_fd(fd)
@@ -327,6 +363,10 @@ test test_socket_options_move_bytes_and_timeouts {
 }
 
 test test_failures_carry_the_kernel_errno {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let closed = loopback_udp()?
   let dead = linux.getsockname(closed)?
@@ -357,6 +397,10 @@ test test_failures_carry_the_kernel_errno {
 }
 
 test test_unix_sockets_use_paths_and_abstract_names {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let pid = process.current_pid()?
   # sun_path holds 107 bytes, which a test's scratch directory can exceed.
@@ -387,6 +431,10 @@ test test_unix_sockets_use_paths_and_abstract_names {
 }
 
 test test_netlink_link_dump_matches_network_dump {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let nl = linux.netlink_open(c.NETLINK_ROUTE)?
   defer unix.close_fd(nl)
@@ -407,6 +455,10 @@ test test_netlink_link_dump_matches_network_dump {
 }
 
 test test_netlink_address_and_route_dumps_match_network_dump {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let nl = linux.netlink_open(c.NETLINK_ROUTE)?
   defer unix.close_fd(nl)
@@ -428,6 +480,10 @@ test test_netlink_address_and_route_dumps_match_network_dump {
 }
 
 test test_netlink_error_replies_become_errno {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let nl = linux.netlink_open(c.NETLINK_ROUTE)?
   defer unix.close_fd(nl)
@@ -447,6 +503,10 @@ test test_netlink_error_replies_become_errno {
 }
 
 test test_netlink_acknowledgement_ends_a_request {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let nl = linux.netlink_open(c.NETLINK_ROUTE)?
   defer unix.close_fd(nl)
@@ -463,6 +523,10 @@ test test_netlink_acknowledgement_ends_a_request {
 }
 
 test test_sock_diag_finds_a_tcp_listener {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
   defer unix.close_fd(listener)
@@ -497,6 +561,10 @@ test test_sock_diag_finds_a_tcp_listener {
 }
 
 test test_generic_netlink_resolves_family_ids {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   assert linux.genl_family_id("nlctrl")? == 16
   assert errno_of(linux.genl_family_id("xsh-no-such")) == 2
@@ -518,6 +586,10 @@ test test_generic_netlink_resolves_family_ids {
 }
 
 test test_ioctl_reads_loopback_interface_state {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(fd)
@@ -545,6 +617,10 @@ test test_ioctl_reads_loopback_interface_state {
 }
 
 test test_ioctl_ethtool_passes_a_payload_pointer {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(fd)
@@ -557,6 +633,10 @@ test test_ioctl_ethtool_passes_a_payload_pointer {
 }
 
 test test_ioctl_is_guarded {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(fd)
@@ -581,6 +661,10 @@ proc descriptor_row(pid: Int, fd: Int) [process, error] -> Result[LinuxOpenFile]
 }
 
 test test_open_files_describes_each_socket_and_a_locked_file_by_its_own_type { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.open_files reads live Linux process descriptors")
     return
@@ -701,6 +785,10 @@ pure mask_prefix(mask: Str) -> Int {
 }
 
 test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.routes reads the live Linux routing table")
     return
@@ -734,6 +822,10 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
 }
 
 test test_interfaces_and_routes_agree_with_the_netlink_snapshot {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.interfaces and linux.routes read the live Linux network state")
     return
@@ -784,6 +876,10 @@ test test_interfaces_and_routes_agree_with_the_netlink_snapshot {
 }
 
 test test_netlink_dump_status_in_the_done_message_becomes_errno {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
   let c = linux.net_constants()
   let nl = linux.netlink_open(c.NETLINK_SOCK_DIAG)?
   defer unix.close_fd(nl)

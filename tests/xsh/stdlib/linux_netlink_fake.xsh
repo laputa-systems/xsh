@@ -39,6 +39,10 @@ proc install(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error]
 }
 
 test test_fixture_answers_family_lookups_and_requests { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the linux netlink fake requires Linux")
+    return
+  }
   let log = install(ctx, "requests", [
     {op: "genl_family", name: "nl80211", id: 28},
     {op: "genl_family", name: "absent", errno: 2},
@@ -75,6 +79,10 @@ test test_fixture_answers_family_lookups_and_requests { |ctx|
 }
 
 test test_unrecorded_requests_and_bad_fixture_lines_fail_loudly { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the linux netlink fake requires Linux")
+    return
+  }
   let _ = install(ctx, "unrecorded", [
     {op: "genl_family", name: "nl80211", id: 28},
     {op: "netlink_request", type: 28, cmd: 5, replies: []},
@@ -99,6 +107,10 @@ test test_unrecorded_requests_and_bad_fixture_lines_fail_loudly { |ctx|
 }
 
 test test_events_reach_only_sockets_that_joined_their_group { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the linux netlink fake requires Linux")
+    return
+  }
   let log = install(ctx, "events", [
     {op: "netlink_event", type: 28, flags: 0, payload: REPLY, group: 20},
     {op: "netlink_event", type: 28, flags: 2, payload: EVENT, group: 21},
@@ -141,6 +153,10 @@ test test_events_reach_only_sockets_that_joined_their_group { |ctx|
 }
 
 test test_descriptors_the_fake_did_not_open_take_the_real_path { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the linux netlink fake requires Linux")
+    return
+  }
   let _ = install(ctx, "real-path", [{op: "genl_family", name: "nl80211", id: 28}])?
   let c = linux.net_constants()
   # A real loopback socket still moves real datagrams while the fake is on.
@@ -165,6 +181,10 @@ match linux.recvfrom(nl, 16) {
 }
 
 test test_without_a_netlink_fixture_the_fake_leaves_netlink_real { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("the linux netlink fake requires Linux")
+    return
+  }
   guard system.uname()?.sysname == "Linux" else {
     test.skip("netlink is Linux-only")
     return
