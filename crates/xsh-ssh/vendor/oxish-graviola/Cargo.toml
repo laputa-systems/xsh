@@ -1,0 +1,18 @@
+[package]
+name = "oxish-graviola"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0 OR MIT"
+description = "graviola crypto provider for OxiSH"
+repository = "https://github.com/djc/oxish"
+readme = "../README.md"
+keywords = ["ssh", "protocol", "cryptography"]
+categories = ["network-programming", "cryptography"]
+
+[dependencies]
+graviola = { path = "../graviola", version = "=0.4.1" }
+proto = { package = "oxish-proto", version = "0.2", path = "../oxish-proto" }
+zeroize = "1"
+
+[lints]

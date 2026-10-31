@@ -1,0 +1,23 @@
+[package]
+name = "oxish-proto"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0 OR MIT"
+description = "SSH protocol message definitions for OxiSH"
+repository = "https://github.com/djc/oxish"
+readme = "../README.md"
+keywords = ["ssh", "protocol", "cryptography"]
+categories = ["network-programming", "cryptography"]
+
+[dependencies]
+data-encoding = "2.10"
+thiserror = "2.0.9"
+tracing = "0.1.41"
+zeroize = "1"
+
+[dev-dependencies]
+sha1 = "0.11"
+sha2 = "0.11"
+
+[lints]

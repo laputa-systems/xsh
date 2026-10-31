@@ -1,0 +1,12 @@
+[package]
+name = "xsh-ssh"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+oxish-graviola = { path = "vendor/oxish-graviola" }
+oxish-proto = { path = "vendor/oxish-proto" }
