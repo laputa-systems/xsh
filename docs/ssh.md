@@ -39,13 +39,20 @@ host keys, and non-Ed25519 authentication are deferred with explicit errors.
 
 ## Qualification (W6)
 
-The macOS arm64 lane passed the complete `xsh-ssh` suite, the seven native
+The macOS arm64 lane passed the complete `xsh-ssh` suite, the native
 `tests/xsh/ssh-` tests, the example against `xinfra-a`, and
-`scripts/check-ssh-crypto.sh`. The Linux x86_64 lane and
-`cargo dev gate crates/xsh-ssh` were not executed: the owner's
-`ubuntu@oracle` host is unavailable and the local OrbStack Docker runtime hangs
-on `docker run --rm alpine:3.23 true`. Both remain unqualified and do not block
-macOS local completion.
+`scripts/check-ssh-crypto.sh`.
+
+The Linux x86_64 lane passed on 2026-10-31 against Ubuntu 24.04: the `xsh-ssh`
+suite (5 connect, 10 exec, 4 stream tests) and the eight native
+`tests/xsh/ssh-` tests all passed with the fixtures reached over an SSH tunnel.
+`scripts/check-ssh-crypto.sh` also passed inside a Linux Docker container.
+
+`cargo dev gate crates/xsh-ssh` now executes in the repaired Docker runtime.
+`check-compile` and `test-core-unit` pass. The full path closure is still red on
+pre-existing xsh tests outside the SSH crypto path (`test-core-integration`,
+`test-ambient-fs-policy`, and `test-core-compat-boundaries`); those failures are
+not crypto or environment failures.
 
 On this host a clean release build of `xsh` and `xsht` took 98.92 s; the `dist`
 profile took 303.22 s. Startup (`xsh --startup`) measured 0.02 s. Stripped
