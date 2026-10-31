@@ -1,40 +1,25 @@
 # XSH: complete general inference across the language
 
-**Status:** winding down 2026-10-31. Slices 35 to 45 landed on `master`, including
-guarded operands, module-function overloads, open-record field exchange,
-pending Result guards, rest splices, and inferred record field guards.
-Erasure 4,588 of 4,725 parameter sites (97.1%) after slice 36, measured with a current `xsht`
-over a HEAD export; slice 37 erases its 7 named sites and was not remeasured core-wide.
-Classes are in [the inference evidence](docs/PERFORMANCE-INFERENCE.md) and the log.
-The older `campaign/full-inference-*` and `parked/winddown-20261024/*` branches predate
-2026-10-28 and are superseded, unreviewed history. Gate each slice
-with two combined runs under `flock -o .work/gate-host.lock`: A =
-`test-lowering test-sema native-tests/xsh/full-inference-bodies.xsh
-native-tests/xsh/checker-`; B = `test-sema-unit test-tooling-unit
-test-type-agreement test-runtime native-tests/xsh/lowering-coverage.xsh`. First
-command: `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
+**Status:** paused 2026-10-31. The last accepted code revision is `e29bd8d3d`
+(the wrapper-pruning fix and its membership test, committed by the session
+checkpoint as `wip`); this pause commit follows it. Runs A and B are green on
+that tree, with `test-sema` re-run alone after the freeze (55 cases). The last
+core-wide erasure count is 4,588/4,725 after slice 36; slices 37-46 were not
+remeasured core-wide.
 
-**Resume:** read `AGENTS.md`, `TODO.md`, and this document. The checkable G3
-status and the G4 measurements are in
-[the inference evidence](docs/PERFORMANCE-INFERENCE.md). Recheck the limiting
-stage on current `master` before choosing work, and rerun the affected checks
-after any change to a compiler input or contract.
-
-**Open items:**
-
-- G3: the metamorphic programs and the independent solver comparison exist
-  (see the slice 14 and 17 log lines). Nothing in G3 is open.
-- G3: the row-override wording is done (see the slice 15 log line); the
-  rejection itself remains a documented limit.
-- G4: erase annotations on the practical cohort with the open candidate classes
-  listed in the log (22 `ambiguous-overload` parameters, 22
-  `compact.indexed-build` failures, stream return provenance, two
-  `check.conversion` cases, and the `Set[Str]` generic-argument case).
-- G4: the `supports_generalized_body` whitelist is replaced by the result of
-  lowering the scheme body (done; see the slice 11 log line).
-- G4: the frozen views need a source-qualified compiler pair (see the evidence
-  page).
-- G5, G6, and the F0 completion-ownership item below.
+- **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
+  `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
+  Recheck the limiting stage on current `master`.
+- **Next slice:** rebase `inference/record-override-known` onto `master`, then
+  gate it with runs A and B and the `core/tail.xsh` joint erasure; if green,
+  integrate it and continue the `compact.indexed-build` class, then remeasure
+  the core-wide count.
+- **Parked:** `inference/record-override-known` (`aa8e322c2`) unifies known
+  result fields of an open-record override; unverified and not gated, retry
+  with the combined runs and the joint erasure. Other `inference/*` branches
+  are patch-integrated into `master`.
+- **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
+  `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
 Deliver these results in order:
 
