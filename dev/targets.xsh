@@ -205,12 +205,6 @@ export pure darwin_rustflags(target: Target, inherited: Str) -> Str {
 
   [
     @flags,
-    "-C",
-    "linker=rust-lld",
-    "-C",
-    "linker-flavor=ld64.lld",
-    "-C",
-    "link-arg=--icf=safe",
     "-Zlocation-detail=none",
     "-Zunstable-options",
     "-Cpanic=immediate-abort",
