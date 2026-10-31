@@ -36,6 +36,7 @@ pub(crate) fn fakeable(op: RuntimeOp) -> bool {
         op,
         RuntimeOp::LinuxNetlinkOpen
             | RuntimeOp::LinuxNetlinkRequest
+            | RuntimeOp::LinuxNetlinkRouteRequest
             | RuntimeOp::LinuxGenlFamilyId
             | RuntimeOp::LinuxRecvfrom
             | RuntimeOp::LinuxSetsockoptInt
@@ -64,6 +65,7 @@ fn operation_kind(op: RuntimeOp) -> Option<&'static str> {
         RuntimeOp::LinuxSetSocketTimeout => "linux-set-socket-timeout",
         RuntimeOp::LinuxNetlinkOpen => "linux-netlink-open",
         RuntimeOp::LinuxNetlinkRequest => "linux-netlink-request",
+        RuntimeOp::LinuxNetlinkRouteRequest => "linux-netlink-route-request",
         RuntimeOp::LinuxGenlFamilyId => "linux-genl-family-id",
         RuntimeOp::LinuxIoctl => "linux-ioctl",
         _ => return None,
@@ -209,6 +211,7 @@ pub(crate) fn call(
         RuntimeOp::LinuxIoctl => ioctl::ioctl(&args),
         RuntimeOp::LinuxNetlinkOpen
         | RuntimeOp::LinuxNetlinkRequest
+        | RuntimeOp::LinuxNetlinkRouteRequest
         | RuntimeOp::LinuxGenlFamilyId => netlink::call(op, &args),
         _ => sockets::call(op, &args),
     }

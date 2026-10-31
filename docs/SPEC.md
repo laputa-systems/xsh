@@ -6713,8 +6713,33 @@ let text = notes.replace("DRAFT", with: "FINAL")
   `NLMSG_ERROR` code, or a negative status carried by the closing `NLMSG_DONE`
   of a dump the kernel could not complete (a `sock_diag` dump for a protocol
   without a handler), is the errno. Under `test.linux_fake` with a
-  `netlink_fixture` they answer from recorded exchanges (§17). `linux.ioctl`
-  admits only the fixed-layout
+  `netlink_fixture` they answer from recorded exchanges (§17).
+  `linux.netlink_route_request(message_type, flags, payload, timeout_ms)` sends
+  one acknowledged request on a private `NETLINK_ROUTE` socket and returns the
+  kernel's `NLMSG_ERROR` as `{errno, request_type, sequence, port_id}`. The
+  call builds the header and owns `nlmsg_seq` (fresh for each call) and
+  `nlmsg_pid` (the socket's port id), always sets `NLM_F_REQUEST` and
+  `NLM_F_ACK`, and lets `flags` add only `NLM_F_REPLACE`, `NLM_F_EXCL`,
+  `NLM_F_CREATE`, and `NLM_F_APPEND`. A `message_type` below 16, a request over
+  16384 bytes, or a `timeout_ms` outside 1 to 60000 (which bounds the whole
+  exchange) is `invalid-argument`. The first reply datagram, at most 16404
+  bytes, must hold exactly one `NLMSG_ERROR` whose own header and echoed
+  request header carry the call's sequence, port id, and request type. A
+  refusal is data: `errno` is zero for an acknowledgement and otherwise the
+  positive error number the kernel refused with. Every other outcome is an
+  error: the operating-system error (`ETIMEDOUT` at the deadline) under kind
+  `linux-netlink-route-request`, or `linux-netlink-wrong-sequence`,
+  `linux-netlink-wrong-port`, `linux-netlink-multipart-reply` (a multipart
+  flag, `NLMSG_DONE`, or a second message), `linux-netlink-malformed-reply`
+  (a truncated or inconsistent header, a positive code, or a data message,
+  which is what a get request yields), and `linux-netlink-oversized-reply`.
+  Extended acknowledgement is never requested, so a reply carrying it is
+  malformed and its attributes are never returned. After an error that is not
+  a failure to send, the request may or may not have been applied, and the
+  caller observes again before it acts. The socket is closed on every path.
+  The call needs the `process` effect like the other dedicated netlink
+  operations, and a request that dumps belongs to `linux.network_dump`.
+  `linux.ioctl` admits only the fixed-layout
   interface, ARP, and ethtool requests named by `linux.net_constants()`, which
   also names every socket, option, netlink, and ioctl number. Interface
   configuration needs the kernel's usual capability; nothing in the runtime
@@ -6932,8 +6957,8 @@ name and descriptor number, including calls the function then refused.
 The `netlink_fixture` setting names a JSON Lines file of recorded netlink
 exchanges, which lets a script that talks to hardware the test host lacks (a
 wireless device, for `iw`) run unchanged against the fake. Under it,
-`linux.genl_family_id` and `linux.netlink_open` never reach the kernel, and
-`linux.netlink_request`, `linux.recvfrom`, `linux.setsockopt_int`, and
+`linux.genl_family_id`, `linux.netlink_open`, and `linux.netlink_route_request`
+never reach the kernel, and `linux.netlink_request`, `linux.recvfrom`, `linux.setsockopt_int`, and
 `linux.set_socket_timeout` are answered from the file for the descriptors
 `netlink_open` returned under the fake (each is an anonymous in-memory file,
 which `unix.close_fd` releases); any other descriptor takes the real path, and
@@ -6950,6 +6975,15 @@ that is not base64 text is reported with its line number. Each line has an
   `{type, flags, payload}` data messages (the DONE or acknowledgement framing
   is implied; `seq` is the request's), or `errno` to fail the request as a
   negative `NLMSG_ERROR` would.
+- `netlink_route_request`: request `type`, `flags` (as sent, including
+  `NLM_F_REQUEST` and `NLM_F_ACK`), and `payload`, each matched only when
+  present; response `datagrams`, the base64 reply datagrams of which
+  `linux.netlink_route_request` reads the first, or `errno` to fail the call
+  with that operating-system error. No socket is opened: the request carries
+  sequence 1 and port id 4242, so the reply validates only when it does too,
+  and a line without datagrams leaves the call waiting out its deadline
+  (`ETIMEDOUT`). The call log records `type`, `flags`, base64 `payload`,
+  `sequence`, and `port_id`.
 - `netlink_event`: `type`, `flags` (default 0), `payload`, and an optional
   multicast group id `group`. `recvfrom` on a fake socket returns the events in
   file order as whole netlink datagrams, skipping those of groups the socket
@@ -6959,7 +6993,8 @@ that is not base64 text is reported with its line number. Each line has an
   at that position, and after the last event a receive fails with `EAGAIN`.
 
 `payload` is base64 text. The call log records each netlink call by function
-name (`genl_family_id`, `netlink_open`, `netlink_request`, `recvfrom`,
+name (`genl_family_id`, `netlink_open`, `netlink_request`,
+`netlink_route_request`, `recvfrom`,
 `setsockopt`, `set_socket_timeout`) with the request's `type`, `flags`, and
 base64 `payload`, so a test asserts exactly which requests a script sent.
 

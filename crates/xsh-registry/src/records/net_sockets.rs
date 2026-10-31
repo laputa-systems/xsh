@@ -382,6 +382,15 @@ pub fn linux_netlink_message_type() -> Type {
     ])
 }
 
+pub fn linux_netlink_ack_type() -> Type {
+    record([
+        ("errno", Type::Int),
+        ("request_type", Type::Int),
+        ("sequence", Type::Int),
+        ("port_id", Type::Int),
+    ])
+}
+
 /// The address forms a script may pass in: a typed record or raw `sockaddr`
 /// bytes for families the record does not cover.
 pub fn linux_socket_address_argument_type() -> Type {

@@ -192,6 +192,7 @@ pub enum RuntimeOp {
     LinuxSetSocketTimeout,
     LinuxNetlinkOpen,
     LinuxNetlinkRequest,
+    LinuxNetlinkRouteRequest,
     LinuxGenlFamilyId,
     LinuxIoctl,
 

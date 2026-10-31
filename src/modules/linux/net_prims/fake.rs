@@ -23,6 +23,15 @@
 //! acknowledgement framing is added implicitly), or `errno` to fail the
 //! request as a negative NLMSG_ERROR would.
 //!
+//! `netlink_route_request` lines: request `type`, `flags` (as sent, with
+//! `NLM_F_REQUEST` and `NLM_F_ACK` added), and `payload` (exact bytes), each
+//! optional and matched only when present; response `datagrams`, the base64
+//! reply datagrams the kernel would send, of which the first is read, or
+//! `errno` to fail the call with that operating-system error. A line with no
+//! datagrams leaves the call waiting until its deadline, so it fails with
+//! `ETIMEDOUT`. The request is sent with sequence 1 from port id 4242, so a
+//! reply is valid only when it carries those numbers, and no socket is opened.
+//!
 //! `netlink_event` lines: `type`, `flags` (default 0), `payload`, and an
 //! optional multicast `group` id. The events of a file are delivered in order
 //! by `recvfrom` to a fake socket that joined their group (lines without a
@@ -36,9 +45,11 @@
 //! names a real socket on the real path.
 
 use super::address::SockAddr;
+use super::netlink::{acknowledgement_value, route_request_arguments};
 use super::{Args, ok, record};
 use crate::modules::RuntimeOp;
 use crate::modules::bytes::{base64_decode, base64_encode};
+use crate::modules::linux::real::{self, RouteRequestError};
 
 use crate::runtime::value::{RuntimeError, Value};
 use xsh::host::json::Value as JsonValue;
@@ -57,9 +68,12 @@ const NETLINK_ADD_MEMBERSHIP: i64 = 1;
 const NETLINK_DROP_MEMBERSHIP: i64 = 2;
 const MSG_TRUNC: i64 = 0x20;
 const MAX_RECEIVE: i64 = 64 * 1024 * 1024;
+const ROUTE_REQUEST_SEQUENCE: u32 = 1;
+const ROUTE_REQUEST_PORT_ID: u32 = 4242;
 
 const FAMILY_KEYS: &[&str] = &["op", "name", "id", "errno"];
 const REQUEST_KEYS: &[&str] = &["op", "protocol", "type", "flags", "cmd", "payload", "replies", "errno"];
+const ROUTE_REQUEST_KEYS: &[&str] = &["op", "type", "flags", "payload", "datagrams", "errno"];
 const EVENT_KEYS: &[&str] = &["op", "type", "flags", "payload", "group", "errno"];
 const REPLY_KEYS: &[&str] = &["type", "flags", "payload"];
 
@@ -140,6 +154,7 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
         let allowed = match op {
             "genl_family" => FAMILY_KEYS,
             "netlink_request" => REQUEST_KEYS,
+            "netlink_route_request" => ROUTE_REQUEST_KEYS,
             "netlink_event" => EVENT_KEYS,
             other => return Err(fault(path, line, format!("unknown op `{other}`"), args)),
         };
@@ -151,6 +166,16 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
             let binary = key == "payload";
             if binary && !(field).as_str().is_some_and(|text| base64_decode(text).is_ok()) {
                 return Err(fault(path, line, "`payload` must be base64 text", args));
+            }
+        }
+        if let Some(datagrams) = value.get("datagrams") {
+            let valid = datagrams.as_seq().is_some_and(|items| {
+                items
+                    .iter()
+                    .all(|item| item.as_str().is_some_and(|text| base64_decode(text).is_ok()))
+            });
+            if !valid {
+                return Err(fault(path, line, "`datagrams` must be a list of base64 text", args));
             }
         }
         if let Some(replies) = value.get("replies").and_then(|value| value.as_seq()) {
@@ -196,6 +221,7 @@ pub(super) fn call(
     match op {
         RuntimeOp::LinuxNetlinkOpen => Some(open(args, log)),
         RuntimeOp::LinuxGenlFamilyId => Some(family_id(args, fixture, log)),
+        RuntimeOp::LinuxNetlinkRouteRequest => Some(route_request(args, fixture, log)),
         RuntimeOp::LinuxNetlinkRequest
         | RuntimeOp::LinuxRecvfrom
         | RuntimeOp::LinuxSetsockoptInt
@@ -315,6 +341,59 @@ fn request(args: &Args<'_>, fd: i32, fixture: &Path, log: &mut Log<'_>) -> Resul
         }
     }
     ok(Value::List(messages))
+}
+
+fn route_request(args: &Args<'_>, fixture: &Path, log: &mut Log<'_>) -> Result<Value, RuntimeError> {
+    let (request, _) = route_request_arguments(args)?;
+    log(
+        "netlink_route_request",
+        &[
+            ("type", request.kind().to_string()),
+            ("flags", request.flags().to_string()),
+            ("payload", base64_encode(request.payload())),
+            ("sequence", ROUTE_REQUEST_SEQUENCE.to_string()),
+            ("port_id", ROUTE_REQUEST_PORT_ID.to_string()),
+        ],
+    )?;
+    let entry = load(fixture, args)?
+        .into_iter()
+        .find(|entry| {
+            entry.op() == "netlink_route_request"
+                && entry.uint("type").is_none_or(|value| value == u64::from(request.kind()))
+                && entry.uint("flags").is_none_or(|value| value == u64::from(request.flags()))
+                && entry.bytes("payload").is_none_or(|value| value == request.payload())
+        })
+        .ok_or_else(|| {
+            no_match(
+                fixture,
+                format!(
+                    "route-netlink request type {} flags {}",
+                    request.kind(),
+                    request.flags()
+                ),
+                args,
+            )
+        })?;
+    if let Some(errno) = entry.errno() {
+        return Err(os_error(args, errno));
+    }
+    let mut datagrams = (&entry.value)
+        .get("datagrams")
+        .and_then(|value| value.as_seq())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().and_then(|text| base64_decode(text).ok()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+        .into_iter();
+    let result = real::acknowledge(&request, ROUTE_REQUEST_SEQUENCE, ROUTE_REQUEST_PORT_ID, || {
+        datagrams
+            .next()
+            .ok_or_else(|| RouteRequestError::Io(io::Error::from_raw_os_error(libc::ETIMEDOUT)))
+    });
+    acknowledgement_value(args, result)
 }
 
 fn receive(args: &Args<'_>, fd: i32, fixture: &Path, log: &mut Log<'_>) -> Result<Value, RuntimeError> {

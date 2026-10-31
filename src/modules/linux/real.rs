@@ -167,6 +167,7 @@ mod mount;
 mod net;
 mod netlink;
 mod parity;
+mod route_request;
 
 pub(crate) use boot::{
     chroot, halt, hwclock, insmod, kill_all, mknod, pivot_root, poweroff, reboot_system,
@@ -187,6 +188,9 @@ pub(crate) use net::{
     set_ipv4_address,
 };
 pub(crate) use netlink::{interfaces, network_dump, routes};
+pub(crate) use route_request::{
+    Acknowledgement, RouteRequest, RouteRequestError, acknowledge, route_request,
+};
 pub(crate) use parity::{
     blkid, block_devices, depmod, fsck, modinfo, modinfo_path, open_files, partition_table,
     write_partition_table,

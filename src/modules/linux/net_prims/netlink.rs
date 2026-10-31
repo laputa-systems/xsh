@@ -1,11 +1,13 @@
-//! Netlink sockets: open, one request with its multipart reply, and
-//! generic-netlink family resolution. Message payloads are returned as bytes;
-//! decoding attributes and structures belongs to the script.
+//! Netlink sockets: open, one request with its multipart reply, one
+//! acknowledged route-netlink request, and generic-netlink family
+//! resolution. Message payloads are returned as bytes; decoding attributes
+//! and structures belongs to the script.
 
 use super::address::SockAddr;
 use super::sockets::borrow;
 use super::{Args, ok, record};
 use crate::modules::RuntimeOp;
+use crate::modules::linux::real::{self, Acknowledgement, RouteRequest, RouteRequestError};
 use crate::runtime::value::{RuntimeError, Value};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fd::{AsFd, BorrowedFd, IntoRawFd, OwnedFd};
@@ -46,6 +48,7 @@ pub(super) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
     match op {
         RuntimeOp::LinuxNetlinkOpen => open(args),
         RuntimeOp::LinuxNetlinkRequest => request(args),
+        RuntimeOp::LinuxNetlinkRouteRequest => route_request(args),
         RuntimeOp::LinuxGenlFamilyId => family_id(args),
         _ => unreachable!("netlink primitive expected"),
     }
@@ -241,6 +244,65 @@ fn receive_datagram(args: &Args<'_>, fd: BorrowedFd<'_>) -> Result<Vec<u8>, Runt
             Err(error) => return Err(args.os(error)),
         }
     }
+}
+
+const MAX_ROUTE_REQUEST_TIMEOUT_MS: i64 = 60_000;
+
+pub(super) fn route_request_arguments<'a>(
+    args: &Args<'a>,
+) -> Result<(RouteRequest<'a>, Duration), RuntimeError> {
+    let kind: u16 = args.int_in(0, "message_type")?;
+    let flags: u16 = args.int_in(1, "flags")?;
+    let payload = args.bytes(2)?;
+    let timeout = args.int(3)?;
+    if !(1..=MAX_ROUTE_REQUEST_TIMEOUT_MS).contains(&timeout) {
+        return Err(args.invalid(format!(
+            "timeout_ms must be between 1 and {MAX_ROUTE_REQUEST_TIMEOUT_MS}"
+        )));
+    }
+    let request = RouteRequest::new(kind, flags, payload).map_err(|message| args.invalid(message))?;
+    Ok((request, Duration::from_millis(timeout as u64)))
+}
+
+pub(super) fn acknowledgement_value(
+    args: &Args<'_>,
+    result: Result<Acknowledgement, RouteRequestError>,
+) -> Result<Value, RuntimeError> {
+    let protocol = |kind: &str, message: &str| {
+        RuntimeError::new(kind, message.to_string()).with_span(args.span)
+    };
+    match result {
+        Ok(acknowledgement) => ok(record([
+            ("errno", Value::Int(i64::from(acknowledgement.errno))),
+            ("request_type", Value::Int(i64::from(acknowledgement.request_type))),
+            ("sequence", Value::Int(i64::from(acknowledgement.sequence))),
+            ("port_id", Value::Int(i64::from(acknowledgement.port_id))),
+        ])),
+        Err(RouteRequestError::Io(error)) => Err(args.errno(error)),
+        Err(RouteRequestError::Malformed(message)) => {
+            Err(protocol("linux-netlink-malformed-reply", message))
+        }
+        Err(RouteRequestError::Multipart(message)) => {
+            Err(protocol("linux-netlink-multipart-reply", message))
+        }
+        Err(RouteRequestError::WrongSequence) => Err(protocol(
+            "linux-netlink-wrong-sequence",
+            "netlink reply does not carry this request's sequence number",
+        )),
+        Err(RouteRequestError::WrongPort) => Err(protocol(
+            "linux-netlink-wrong-port",
+            "netlink reply does not carry this socket's port id",
+        )),
+        Err(RouteRequestError::Oversized) => Err(protocol(
+            "linux-netlink-oversized-reply",
+            "netlink reply exceeds the acknowledgement size limit",
+        )),
+    }
+}
+
+fn route_request(args: &Args<'_>) -> Result<Value, RuntimeError> {
+    let (request, timeout) = route_request_arguments(args)?;
+    acknowledgement_value(args, real::route_request(&request, timeout))
 }
 
 fn family_id(args: &Args<'_>) -> Result<Value, RuntimeError> {

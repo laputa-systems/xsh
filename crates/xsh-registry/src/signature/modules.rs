@@ -2350,6 +2350,7 @@ fn linux_module() -> ModuleSig {
         ("set_socket_timeout", sig(vec![param("fd", Type::Int), param("option", Type::Int), param("timeout_ms", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxSetSocketTimeout)),
         ("netlink_open", sig(vec![param("protocol", Type::Int), default_param("groups", Type::Int)], result(Type::Int), false, RuntimeOp::LinuxNetlinkOpen)),
         ("netlink_request", sig(vec![param("fd", Type::Int), param("message_type", Type::Int), param("flags", Type::Int), param("payload", Type::Bytes), default_param("seq", Type::Int), default_param("timeout_ms", Type::Int)], result(Type::List(Box::new(crate::records::linux_netlink_message_type()))), false, RuntimeOp::LinuxNetlinkRequest)),
+        ("netlink_route_request", sig(vec![param("message_type", Type::Int), param("flags", Type::Int), param("payload", Type::Bytes), param("timeout_ms", Type::Int)], result(crate::records::linux_netlink_ack_type()), false, RuntimeOp::LinuxNetlinkRouteRequest)),
         ("genl_family_id", sig(vec![param("name", Type::Str)], result(Type::Int), false, RuntimeOp::LinuxGenlFamilyId)),
         ("ioctl", sig(vec![param("fd", Type::Int), param("request", Type::Int), param("input", Type::Bytes), param("out_len", Type::Int)], result(Type::Bytes), false, RuntimeOp::LinuxIoctl)),
 
@@ -4881,6 +4882,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         "LinuxNetlinkMessage" => (
             "Holds one netlink message with its header fields parsed.",
             "payload is every byte after the 16-byte header, so protocol structures and attributes stay with the script.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetlinkAck" => (
+            "Holds the kernel's acknowledgement of one route-netlink request.",
+            "errno is zero when the kernel applied the request and otherwise the positive error number it refused with, so a refusal is data; request_type, sequence, and port_id echo the request the kernel answered, as the call assigned them.",
             &["linux", "network", "netlink", "record"],
         ),
         "LinuxNetlinkAttribute" => (

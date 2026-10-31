@@ -522,6 +522,33 @@ test test_netlink_acknowledgement_ends_a_request {
   assert second[0].seq != first[0].seq
 }
 
+test test_netlink_route_request_returns_the_kernel_refusal_as_data {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
+  let c = linux.net_constants()
+  # ifinfomsg for an interface index that does not exist.
+  let missing = bytes.concat([bytes.zero(4)?, bytes.pack_le(999999, 4)?, bytes.zero(8)?])
+  let first = linux.netlink_route_request(c.RTM_GETLINK, 0, missing, 1000)?
+  assert first.errno == 19
+  assert first.request_type == c.RTM_GETLINK
+  assert first.sequence > 0 and first.port_id > 0
+  let second = linux.netlink_route_request(c.RTM_GETLINK, 0, missing, 1000)?
+  assert second.errno == 19
+  assert second.sequence != first.sequence
+}
+
+test test_netlink_route_request_rejects_a_reply_that_is_not_an_acknowledgement {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.socket and netlink require Linux")
+    return
+  }
+  let c = linux.net_constants()
+  let loopback = bytes.concat([bytes.zero(4)?, bytes.pack_le(1, 4)?, bytes.zero(8)?])
+  test.error_kind(linux.netlink_route_request(c.RTM_GETLINK, 0, loopback, 1000), "linux-netlink-malformed-reply")
+}
+
 test test_sock_diag_finds_a_tcp_listener {
   if system.uname()?.sysname != "Linux" {
     test.skip("linux.socket and netlink require Linux")

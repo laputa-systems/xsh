@@ -76,6 +76,7 @@ test test_dedicated_netlink_stays_process_only { |ctx|
   without net {
     let _ = linux.netlink_open(0)
     let _ = linux.netlink_request(0, 16, 1, b"")
+    let _ = linux.netlink_route_request(20, 0, b"", 1000)
     let _ = linux.genl_family_id("nlctrl")
     let _ = linux.network_dump()
   }

@@ -12,17 +12,23 @@ use std::os::fd::OwnedFd;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const NLMSG_HEADER_LEN: usize = 16;
+pub(super) const NLMSG_HEADER_LEN: usize = 16;
 const NLA_HEADER_LEN: usize = 4;
 const NLMSG_NOOP: u16 = 1;
-const NLMSG_ERROR: u16 = 2;
-const NLMSG_DONE: u16 = 3;
+pub(super) const NLMSG_ERROR: u16 = 2;
+pub(super) const NLMSG_DONE: u16 = 3;
 const NLMSG_OVERRUN: u16 = 4;
-const NLM_F_REQUEST: u16 = 0x0001;
-const NLM_F_MULTI: u16 = 0x0002;
-const NLM_F_ACK: u16 = 0x0004;
+pub(super) const RTM_BASE: u16 = 16;
+pub(super) const NLM_F_REQUEST: u16 = 0x0001;
+pub(super) const NLM_F_MULTI: u16 = 0x0002;
+pub(super) const NLM_F_ACK: u16 = 0x0004;
 const NLM_F_DUMP_INTR: u16 = 0x0010;
-const NLM_F_DUMP: u16 = 0x0300;
+pub(super) const NLM_F_REPLACE: u16 = 0x0100;
+pub(super) const NLM_F_EXCL: u16 = 0x0200;
+pub(super) const NLM_F_ACK_TLVS: u16 = 0x0200;
+pub(super) const NLM_F_CREATE: u16 = 0x0400;
+pub(super) const NLM_F_APPEND: u16 = 0x0800;
+pub(super) const NLM_F_DUMP: u16 = 0x0300;
 const RTM_NEWLINK: u16 = 16;
 const RTM_GETLINK: u16 = 18;
 const RTM_NEWADDR: u16 = 20;
@@ -183,35 +189,17 @@ impl DumpAccumulator {
                     ));
                 }
                 NLMSG_ERROR => {
-                    if payload.len() < 20 {
-                        return Err(DumpError::Malformed(
-                            "netlink error acknowledgment is truncated",
-                        ));
-                    }
-                    let error = read_i32(payload, 0)
-                        .ok_or(DumpError::Malformed("netlink error payload is truncated"))?;
-                    let request_type = read_u16(payload, 8)
-                        .ok_or(DumpError::Malformed("acknowledged request type is missing"))?;
-                    let request_sequence = read_u32(payload, 12).ok_or(DumpError::Malformed(
-                        "acknowledged request sequence is missing",
-                    ))?;
-                    let request_port = read_u32(payload, 16)
-                        .ok_or(DumpError::Malformed("acknowledged request port is missing"))?;
-                    if request_type != self.request_type
-                        || request_sequence != self.sequence
-                        || request_port != self.local_port
+                    let acknowledged = parse_error_payload(payload).map_err(DumpError::Malformed)?;
+                    if acknowledged.request_type != self.request_type
+                        || acknowledged.request_sequence != self.sequence
+                        || acknowledged.request_port != self.local_port
                     {
                         return Err(DumpError::Malformed(
                             "netlink acknowledgment does not match its request",
                         ));
                     }
-                    if error > 0 {
-                        return Err(DumpError::Malformed("netlink error code is positive"));
-                    }
-                    if error != 0 {
-                        let errno = error.checked_neg().ok_or(DumpError::Malformed(
-                            "netlink error code is outside the supported range",
-                        ))?;
+                    let errno = acknowledged.errno().map_err(DumpError::Malformed)?;
+                    if errno != 0 {
                         return Err(DumpError::Kernel(io::Error::from_raw_os_error(errno)));
                     }
                 }
@@ -265,6 +253,40 @@ impl DumpAccumulator {
         }
         Ok(())
     }
+}
+
+pub(super) struct ErrorPayload {
+    code: i32,
+    pub(super) request_type: u16,
+    pub(super) request_sequence: u32,
+    pub(super) request_port: u32,
+}
+
+impl ErrorPayload {
+    /// The positive errno the kernel reported, or zero for an acknowledgement.
+    pub(super) fn errno(&self) -> Result<i32, &'static str> {
+        if self.code > 0 {
+            return Err("netlink error code is positive");
+        }
+        self.code
+            .checked_neg()
+            .ok_or("netlink error code is outside the supported range")
+    }
+}
+
+/// Reads the error code and the echoed request header of an `NLMSG_ERROR`
+/// payload; whatever follows the header is not interpreted.
+pub(super) fn parse_error_payload(payload: &[u8]) -> Result<ErrorPayload, &'static str> {
+    if payload.len() < 20 {
+        return Err("netlink error acknowledgment is truncated");
+    }
+    Ok(ErrorPayload {
+        code: read_i32(payload, 0).ok_or("netlink error payload is truncated")?,
+        request_type: read_u16(payload, 8).ok_or("acknowledged request type is missing")?,
+        request_sequence: read_u32(payload, 12)
+            .ok_or("acknowledged request sequence is missing")?,
+        request_port: read_u32(payload, 16).ok_or("acknowledged request port is missing")?,
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -392,7 +414,7 @@ impl NetworkIssue {
 }
 
 #[derive(Debug)]
-enum DumpError {
+pub(super) enum DumpError {
     Malformed(&'static str),
     Limit(&'static str),
     Truncated(&'static str),
@@ -763,31 +785,30 @@ fn link_flag_names(flags: u32) -> Vec<&'static str> {
     .collect()
 }
 
-fn collect_snapshot(kinds: &[DumpKind]) -> Snapshot {
-    let socket = match socket_with(
+pub(super) fn open_route_socket() -> Result<(OwnedFd, u32), DumpError> {
+    let io_error = |error: rustix::io::Errno| DumpError::Io(io::Error::from(error));
+    let socket = socket_with(
         AddressFamily::NETLINK,
         SocketType::RAW,
         SocketFlags::CLOEXEC,
         None,
-    ) {
-        Ok(socket) => socket,
-        Err(error) => return Snapshot::failed(DumpError::Io(io::Error::from(error)), "socket"),
-    };
-    if let Err(error) = bind(&socket, &SocketAddrNetlink::new(0, 0)) {
-        return Snapshot::failed(DumpError::Io(io::Error::from(error)), "socket");
-    }
-    let local = match rustix::net::getsockname(&socket) {
-        Ok(local) => local,
-        Err(error) => return Snapshot::failed(DumpError::Io(io::Error::from(error)), "socket"),
-    };
-    let local = match SocketAddrNetlink::try_from(local) {
-        Ok(local) => local,
-        Err(error) => return Snapshot::failed(DumpError::Io(io::Error::from(error)), "socket"),
+    )
+    .map_err(io_error)?;
+    bind(&socket, &SocketAddrNetlink::new(0, 0)).map_err(io_error)?;
+    let local = rustix::net::getsockname(&socket).map_err(io_error)?;
+    let local = SocketAddrNetlink::try_from(local).map_err(io_error)?;
+    Ok((socket, local.pid()))
+}
+
+fn collect_snapshot(kinds: &[DumpKind]) -> Snapshot {
+    let (socket, local_port) = match open_route_socket() {
+        Ok(opened) => opened,
+        Err(error) => return Snapshot::failed(error, "socket"),
     };
     let mut snapshot = Snapshot::default();
     for (sequence, kind) in kinds.iter().copied().enumerate() {
         let sequence = u32::try_from(sequence + 1).expect("four netlink requests fit in u32");
-        match collect_dump(&socket, sequence, local.pid(), kind) {
+        match collect_dump(&socket, sequence, local_port, kind) {
             Ok(messages) => {
                 snapshot.successful_dumps += 1;
                 snapshot.add_messages(kind, &messages);
@@ -821,6 +842,77 @@ fn whole_microseconds(duration: Duration) -> Duration {
     Duration::from_micros(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX))
 }
 
+pub(super) fn remaining_time(deadline: Instant) -> Duration {
+    whole_microseconds(deadline.saturating_duration_since(Instant::now()))
+}
+
+pub(super) fn encode_request(
+    kind: u16,
+    flags: u16,
+    sequence: u32,
+    port: u32,
+    payload: &[u8],
+) -> Vec<u8> {
+    let length = u32::try_from(NLMSG_HEADER_LEN + payload.len())
+        .expect("netlink request length fits u32");
+    let mut request = Vec::with_capacity(NLMSG_HEADER_LEN + payload.len());
+    request.extend_from_slice(&length.to_ne_bytes());
+    request.extend_from_slice(&kind.to_ne_bytes());
+    request.extend_from_slice(&flags.to_ne_bytes());
+    request.extend_from_slice(&sequence.to_ne_bytes());
+    request.extend_from_slice(&port.to_ne_bytes());
+    request.extend_from_slice(payload);
+    request
+}
+
+pub(super) fn send_request(socket: &OwnedFd, request: &[u8]) -> Result<(), DumpError> {
+    let sent = sendto(
+        socket,
+        request,
+        SendFlags::empty(),
+        &SocketAddrNetlink::new(0, 0),
+    )
+    .map_err(|error| DumpError::Io(io::Error::from(error)))?;
+    if sent != request.len() {
+        return Err(DumpError::Io(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "netlink request was only partially sent",
+        )));
+    }
+    Ok(())
+}
+
+/// Receives one kernel datagram into `buffer` within `remaining`, which must
+/// be nonzero, and returns its length.
+pub(super) fn receive_datagram(
+    socket: &OwnedFd,
+    buffer: &mut [u8],
+    remaining: Duration,
+) -> Result<usize, DumpError> {
+    rustix::net::sockopt::set_socket_timeout(
+        socket,
+        rustix::net::sockopt::Timeout::Recv,
+        Some(remaining),
+    )
+    .map_err(|error| DumpError::Io(io::Error::from(error)))?;
+    let (received, datagram_len, sender) = recvfrom(socket, &mut *buffer, RecvFlags::TRUNC)
+        .map_err(|error| DumpError::Io(io::Error::from(error)))?;
+    if datagram_len > buffer.len() {
+        return Err(DumpError::Truncated(
+            "kernel netlink datagram was truncated",
+        ));
+    }
+    let sender = sender.ok_or(DumpError::Malformed("netlink sender address is missing"))?;
+    let sender = SocketAddrNetlink::try_from(sender)
+        .map_err(|_| DumpError::Malformed("netlink sender address has the wrong family"))?;
+    if sender.pid() != 0 || sender.groups() != 0 {
+        return Err(DumpError::Malformed(
+            "netlink response sender is not the kernel",
+        ));
+    }
+    Ok(received)
+}
+
 fn collect_dump_attempt(
     socket: &OwnedFd,
     sequence: u32,
@@ -837,30 +929,14 @@ fn collect_dump_attempt_recorded(
     kind: DumpKind,
     record: &mut impl FnMut(&[u8]),
 ) -> Result<Vec<NetlinkMessage>, DumpError> {
-    let mut request = Vec::with_capacity(NLMSG_HEADER_LEN + kind.payload_len());
-    request.extend_from_slice(
-        &u32::try_from(NLMSG_HEADER_LEN + kind.payload_len())
-            .expect("netlink request length fits u32")
-            .to_ne_bytes(),
+    let request = encode_request(
+        kind.request_type(),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP,
+        sequence,
+        local_port,
+        &[0_u8; 16][..kind.payload_len()],
     );
-    request.extend_from_slice(&kind.request_type().to_ne_bytes());
-    request.extend_from_slice(&(NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP).to_ne_bytes());
-    request.extend_from_slice(&sequence.to_ne_bytes());
-    request.extend_from_slice(&local_port.to_ne_bytes());
-    request.resize(NLMSG_HEADER_LEN + kind.payload_len(), 0);
-    let sent = sendto(
-        socket,
-        &request,
-        SendFlags::empty(),
-        &SocketAddrNetlink::new(0, 0),
-    )
-    .map_err(|error| DumpError::Io(io::Error::from(error)))?;
-    if sent != request.len() {
-        return Err(DumpError::Io(io::Error::new(
-            io::ErrorKind::WriteZero,
-            "netlink request was only partially sent",
-        )));
-    }
+    send_request(socket, &request)?;
 
     let deadline = Instant::now() + DUMP_DEADLINE;
     let mut accumulator = DumpAccumulator::new(
@@ -871,34 +947,14 @@ fn collect_dump_attempt_recorded(
     );
     let mut buffer = vec![0_u8; MAX_DATAGRAM_BYTES];
     while !accumulator.complete {
-        let remaining = whole_microseconds(deadline.saturating_duration_since(Instant::now()));
+        let remaining = remaining_time(deadline);
         if remaining.is_zero() {
             return Err(DumpError::Io(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "netlink dump exceeded its three-second deadline",
             )));
         }
-        rustix::net::sockopt::set_socket_timeout(
-            socket,
-            rustix::net::sockopt::Timeout::Recv,
-            Some(remaining),
-        )
-        .map_err(|error| DumpError::Io(io::Error::from(error)))?;
-        let (received, datagram_len, sender) = recvfrom(socket, &mut buffer[..], RecvFlags::TRUNC)
-            .map_err(|error| DumpError::Io(io::Error::from(error)))?;
-        if datagram_len > buffer.len() {
-            return Err(DumpError::Truncated(
-                "kernel netlink datagram was truncated",
-            ));
-        }
-        let sender = sender.ok_or(DumpError::Malformed("netlink sender address is missing"))?;
-        let sender = SocketAddrNetlink::try_from(sender)
-            .map_err(|_| DumpError::Malformed("netlink sender address has the wrong family"))?;
-        if sender.pid() != 0 || sender.groups() != 0 {
-            return Err(DumpError::Malformed(
-                "netlink response sender is not the kernel",
-            ));
-        }
+        let received = receive_datagram(socket, &mut buffer, remaining)?;
         accumulator.push_datagram(&buffer[..received])?;
         record(&buffer[..received]);
     }
@@ -1437,19 +1493,19 @@ fn align4(value: usize) -> Option<usize> {
     value.checked_add(3).map(|value| value & !3)
 }
 
-fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+pub(super) fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
     Some(u16::from_ne_bytes(
         bytes.get(offset..offset.checked_add(2)?)?.try_into().ok()?,
     ))
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+pub(super) fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
     Some(u32::from_ne_bytes(
         bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
     ))
 }
 
-fn read_i32(bytes: &[u8], offset: usize) -> Option<i32> {
+pub(super) fn read_i32(bytes: &[u8], offset: usize) -> Option<i32> {
     Some(i32::from_ne_bytes(
         bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
     ))
