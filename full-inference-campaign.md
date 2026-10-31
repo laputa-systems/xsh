@@ -1,18 +1,25 @@
 # XSH: complete general inference across the language
 
-**Status:** active 2026-10-31. The last accepted code revision is `19be14e97`
-(the open-record override result constraint and its native test); `master` is
-green on runs A and B. Slice 47 fixes the `core/tail.xsh` joint erasure; the
-last core-wide erasure count remains 4,588/4,725 after slice 36.
+**Status:** active 2026-10-31. The last accepted code revision is `db4cffc3b`
+(the record-argument field fallback and its native test); `master` is green on
+the A and B cases, with `test-sema` and `test-type-agreement` passing separately
+because the combined runs exceeded their budgets. Slices 47 and 48 fix the
+`core/tail.xsh` and `core/find.xsh` joint erasures; the last core-wide erasure
+count remains 4,588/4,725 after slice 36.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
-- **Next slice:** reduce the remaining `compact.indexed-build` classes. Start
-  with the `core/find.xsh` joint failure (`generic call argument has no closed
-  checked type`); the minimal erased set is the `args` parameter of `parse_exec`,
-  `primary`, `and_expression`, `or_expression`, and `comma_expression`.
-- **Parked:** none. `inference/record-override-known` is merged; the older
-  `inference/*` branches are patch-integrated into `master`.
+- **Next slice:** the `generic call argument does not match its checked scheme
+  fact` class in `core/more.xsh` (minimal erased set: `prompt.next_name` and
+  `page.next_name`, both `Str?`; a nullable parameter passed through a generic
+  callee with an `if let` guard), with `btop.xsh` and `wget.xsh` as the other
+  joint files. A verifier-only match fallback reaches `generic type binder
+  disagrees with the checked argument`, so the checker's scheme fact for the
+  forwarded nullable argument is the likely owner. The single-site `generic call
+  argument does not match its checked parameter slot` cases are a separate class.
+- **Parked:** none. `inference/record-override-known` and
+  `inference/find-slice` are merged; the older `inference/*` branches are
+  patch-integrated into `master`.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
@@ -682,6 +689,7 @@ prescribed decisions are the starting rules.
 - 2026-10-30, slice 45: `process.command_argv` stdin keeps a sealed `Bytes` or `Path` requirement instead of defaulting an unannotated input to `Path` (`463ba878d`); calls using either domain run and other types fail. The verifier rejects forged conversion requirements, and `core/split.xsh` `run_filter(input)` now checks with that annotation erased alone. The selected lowering, semantic, native, tooling, agreement and runtime gates passed on the committed compiler; agreement passed separately after the combined run exhausted its budget during result collection. No core-wide erasure count was measured.
 - 2026-10-30, slice 46: a bare inferred value reaching a declared optional return (a branch tail, a block tail, or `return`) no longer binds to the optional type. The checker registers a known-arguments relationship (formal `T?`, argument the value) and the value stays free, so `pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }` accepts `row.values` of `Map[Str, Str]` and of `Map[Str, Str?]` while map values stay invariant, and `Map[Str, Int]` is rejected at the call. A tail `if` whose branch deferred returns the required optional type. Variables that are record-bound or unresolved slice results keep the payload rule of slices 36 and 43. The lowering (`optional_return_assignment_matches`) and the verifier (`known_argument_assignment_matches`, used for the return, block values, pattern branches and `if` fallbacks) accept a free value only when the scheme retains that relationship; native test `test_full_inference_optional_return_accepts_present_and_nullable_map_values`, verifier test `generic_optional_return_authenticates_its_assignment_relationship` (a forged formal or argument is rejected). Runs A and B green (`test-sema` passes alone; inside the combined run A it exceeds its time budget). The ls `ind_get(colors)` annotation now erases alone (`core/ls.xsh`; `xsht check` clean, `test-bb-ls` passes; `test_ls_gnu_option_and_environment_regressions` fails identically before and after, on terminal colour output). A first reading that it did not erase came from an `xsht` binary built before the change. No core-wide erasure count was measured.
 - 2026-10-31, slice 47 (open-record override result): an unannotated receiver overridden into a concrete result record left the result fields unconstrained, so the indexed verifier rejected `core/tail.xsh`'s `gone_step` with "record override result disagrees with its derived known fields" after the joint erasure of 63 parameter sites. The checker now constrains the known result fields against the receiver fields and the overrides; native test `test_full_inference_open_record_override_result_constrains_known_fields` reproduces the rejection on the previous master and passes with the constraint. The `core/tail.xsh` joint erasure passes. Runs A and B green: A (`test-lowering`, `test-sema`, the bodies and checker native files), B (`test-sema-unit`, `test-tooling-unit`, `test-type-agreement`, `test-runtime`, `lowering-coverage`). No core-wide erasure count was measured.
+- 2026-10-31, slice 48 (record argument with an empty collection field): a record literal passed to a generic callee with an empty list field (`comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: 0})` in `core/find.xsh`) failed IR verification with "generic call argument has no closed checked type", even though the callee parameter declared the record. The argument derivation could not type the empty list field from the literal, and the annotated-local fallback does not cover a record literal. The verifier now authenticates each field value and types the literal from the checked expected record, so an empty collection field takes the declared field contract. Native test `test_full_inference_record_argument_with_an_empty_list_field_reaches_a_generic_callee` reproduces the rejection on the previous tree and passes with the fallback. The `core/find.xsh` joint erasure of its 68 passing parameter sites passes with the verification `xsht`; the three single-site failures are the separate assign-target, local-inference and conversion classes. A and B green with `test-sema` (55 cases) and `test-type-agreement` (1 case) passing separately after the combined runs exceeded their budgets; the other cases pass in the combined runs. No core-wide erasure count was measured.
 
 ## For the owner afterwards
 
