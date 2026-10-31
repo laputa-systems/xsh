@@ -222,7 +222,42 @@ impl Root {
         .map_err(io::Error::from)
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    pub fn make_node(
+        &self,
+        path: impl AsRef<Path>,
+        kind: NodeKind,
+        mode: u32,
+        major: u32,
+        minor: u32,
+    ) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
+        let target = self.target(path.as_ref())?;
+        let leaf = std::ffi::CString::new(target.leaf.as_bytes())
+            .map_err(|_| invalid("a rooted mutation path contains NUL"))?;
+        let fd = target.parent.fd().as_raw_fd();
+        let status = match kind {
+            NodeKind::Fifo => unsafe {
+                libc::mkfifoat(fd, leaf.as_ptr(), mode as libc::mode_t)
+            },
+            NodeKind::CharDevice | NodeKind::BlockDevice => {
+                let file_type = if kind == NodeKind::CharDevice {
+                    libc::S_IFCHR
+                } else {
+                    libc::S_IFBLK
+                };
+                let dev = rustix::fs::makedev(major, minor) as libc::dev_t;
+                unsafe { libc::mknodat(fd, leaf.as_ptr(), mode as libc::mode_t | file_type, dev) }
+            }
+        };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     pub fn make_node(
         &self,
         _path: impl AsRef<Path>,
