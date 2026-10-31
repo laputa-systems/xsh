@@ -67,7 +67,10 @@ pub(crate) fn groups(name: &str, primary_gid: Option<i64>, span: Span) -> Result
             return Ok(Value::List(groups.into_iter().map(|id| Value::Int(i64::from(id))).collect()));
         }
         let required = usize::try_from(count).ok().filter(|count| *count > groups.len())
-            .ok_or_else(|| RuntimeError::new("user-groups", "host group lookup failed without a larger required count").with_span(span))?;
+            .unwrap_or_else(|| groups.len().saturating_mul(2));
+        if required > 65_536 {
+            return Err(RuntimeError::new("user-groups", "host group list exceeds the supported size").with_span(span));
+        }
         groups.try_reserve_exact(required - groups.len())
             .map_err(|error| RuntimeError::new("user-groups", error.to_string()).with_span(span))?;
         groups.resize(required, 0);

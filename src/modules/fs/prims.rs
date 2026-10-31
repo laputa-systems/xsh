@@ -373,11 +373,17 @@ pub(crate) fn mknod(
     }
     let dev = rfs::makedev(major as u32, minor as u32);
     let shown = path.display().to_string();
-    // Only Linux exposes `mknodat` here. Elsewhere the host lacks the
-    // facility and the call fails with that errno, like any other missing one.
+    // Only Linux exposes `mknodat` here. macOS has `mknod` for FIFOs and
+    // device nodes but not regular files or sockets, so each kind takes the
+    // call the host supports.
     #[cfg(target_os = "linux")]
     let made = rfs::mknodat(CWD, &path, file_type, Mode::from_raw_mode(mode as _), dev);
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    let made: rustix::io::Result<()> = {
+        let _ = file_type;
+        macos_mknod(&path, kind, mode, dev)
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let made: rustix::io::Result<()> = {
         let _ = (file_type, dev, mode);
         Err(rustix::io::Errno::NOTSUP)
@@ -386,6 +392,35 @@ pub(crate) fn mknod(
         &shown,
         made.map_err(|error| RuntimeError::host("fs-mknod", &error).with_span(span)),
     )
+}
+
+#[cfg(target_os = "macos")]
+fn macos_mknod(path: &Path, kind: &str, mode: i64, dev: rfs::Dev) -> rustix::io::Result<()> {
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| rustix::io::Errno::INVAL)?;
+    let mode = mode as libc::mode_t;
+    let status = match kind {
+        "file" => {
+            let file = rfs::openat(
+                CWD,
+                path,
+                rfs::OFlags::CREATE | rfs::OFlags::EXCL | rfs::OFlags::WRONLY | rfs::OFlags::CLOEXEC,
+                Mode::from_raw_mode(mode as _),
+            )?;
+            drop(file);
+            return Ok(());
+        }
+        "fifo" => unsafe { libc::mkfifo(c_path.as_ptr(), mode) },
+        "char" => unsafe { libc::mknod(c_path.as_ptr(), mode | libc::S_IFCHR, dev as libc::dev_t) },
+        "block" => unsafe { libc::mknod(c_path.as_ptr(), mode | libc::S_IFBLK, dev as libc::dev_t) },
+        _ => return Err(rustix::io::Errno::NOTSUP),
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO);
+        Err(rustix::io::Errno::from_raw_os_error(errno))
+    }
 }
 
 pub(crate) fn makedev(major: i64, minor: i64) -> i64 {
@@ -482,10 +517,10 @@ pub(crate) fn rename_noreplace(
     span: Span,
 ) -> Result<(), RuntimeError> {
     let shown = format!("{} -> {}", source.display(), dest.display());
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     let result = rfs::renameat_with(CWD, &source, CWD, &dest, rfs::RenameFlags::NOREPLACE)
         .map_err(|error| RuntimeError::host("fs-rename", &error).with_span(span));
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let result = Err(RuntimeError::new(
         "fs-rename",
         "rename_noreplace is unsupported on this platform",

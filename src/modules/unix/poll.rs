@@ -86,6 +86,14 @@ pub(crate) fn step(
     // descriptor that is not open as an invalid-descriptor event.
     let borrowed: Vec<BorrowedFd<'_>> = interests.iter()
         .map(|interest| unsafe { BorrowedFd::borrow_raw(interest.fd) }).collect();
+    // Darwin's poll reports nothing for a zero-interest entry, including a
+    // closed descriptor, so ask the descriptor itself. An invalid entry is
+    // already ready, so the wait does not block past this call.
+    let invalid: Vec<usize> = interests.iter().enumerate()
+        .filter(|(_, interest)| interest.requested.is_empty())
+        .filter_map(|(index, _)| rustix::io::fcntl_getfd(borrowed[index]).is_err().then_some(index))
+        .collect();
+    let deadline = if invalid.is_empty() { deadline } else { Some(Instant::now()) };
     let mut descriptors: Vec<PollFd<'_>> = borrowed.iter().zip(interests)
         .map(|(fd, interest)| PollFd::new(fd, interest.requested)).collect();
     descriptors.push(PollFd::new(&wake, PollFlags::IN));
@@ -105,6 +113,13 @@ pub(crate) fn step(
     }
     let ready: Vec<(usize, PollFlags)> = descriptors.iter().enumerate()
         .filter_map(|(index, fd)| (!fd.revents().is_empty()).then_some((index, fd.revents()))).collect();
+    let mut ready = ready;
+    for index in invalid {
+        if !ready.iter().any(|(seen, _)| *seen == index) {
+            ready.push((index, PollFlags::NVAL));
+        }
+    }
+    ready.sort_by_key(|(index, _)| *index);
     if !ready.is_empty() {
         return Ok(PollStep::Ready(ready));
     }

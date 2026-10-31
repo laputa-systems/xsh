@@ -710,10 +710,16 @@ pub(crate) fn set_tty_attrs(
             }
         }
     }
-    #[cfg(any(target_os = "linux", target_os = "android"))]
     if let Some(Value::Int(line)) = record.get("line") {
         match u8::try_from(*line) {
-            Ok(line) => attrs.line_discipline = line,
+            Ok(line) => {
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    attrs.line_discipline = line;
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                let _ = line;
+            }
             Err(_) => {
                 return Ok(error_value(
                     "invalid-argument",
@@ -1792,6 +1798,11 @@ fn poll_fd_native(
     // SAFETY: the number is only addressed by value; the kernel reports a
     // descriptor that is not open as an invalid-descriptor event.
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+    // Darwin's poll reports nothing for a zero-interest entry, including a
+    // closed descriptor, so ask the descriptor itself.
+    if requested.is_empty() && rio::fcntl_getfd(borrowed).is_err() {
+        return Ok(vec!["invalid"]);
+    }
     loop {
         let timeout = deadline.map(|deadline| {
             let remaining = deadline.saturating_duration_since(Instant::now());

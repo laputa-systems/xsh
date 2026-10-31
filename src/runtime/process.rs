@@ -37,9 +37,8 @@ static CHILD_STATUS_AUTHORITY: OnceLock<Mutex<ChildStatusAuthority>> = OnceLock:
 static SIGPIPE_IGNORED: AtomicBool = AtomicBool::new(true);
 
 // std sets SIGPIPE to SIG_IGN before `main`, so the disposition the process
-// inherited can only be read from a constructor. Other platforms keep the
-// initial `true`, which is what std leaves behind.
-#[cfg(target_os = "linux")]
+// inherited can only be read from a constructor.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 extern "C" fn record_startup_sigpipe_disposition() {
     let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
     if unsafe { libc::sigaction(libc::SIGPIPE, std::ptr::null(), &mut current) } == 0 {
@@ -50,6 +49,11 @@ extern "C" fn record_startup_sigpipe_disposition() {
 #[cfg(target_os = "linux")]
 #[used]
 #[unsafe(link_section = ".init_array")]
+static RECORD_STARTUP_SIGPIPE_DISPOSITION: extern "C" fn() = record_startup_sigpipe_disposition;
+
+#[cfg(target_os = "macos")]
+#[used]
+#[unsafe(link_section = "__DATA,__mod_init_func")]
 static RECORD_STARTUP_SIGPIPE_DISPOSITION: extern "C" fn() = record_startup_sigpipe_disposition;
 
 pub(crate) fn sigpipe_ignored() -> bool {

@@ -1160,6 +1160,7 @@ fn unix_time_nanos() -> u128 {
         .unwrap_or(0)
 }
 
+#[derive(Clone)]
 struct MountSource {
     filesystem: String,
     mounted_on: PathBuf,
@@ -1519,22 +1520,30 @@ fn fs_mount_value(mount: FsMount, span: Span) -> Result<Value, RuntimeError> {
 
 pub(crate) fn mount_for(path: &Path, span: Span) -> Result<FsMount, RuntimeError> {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let Some(source) = mount_sources(span)?.into_iter().max_by_key(|mount| {
-        if target.starts_with(&mount.mounted_on) {
-            mount.mounted_on.components().count()
-        } else {
-            0
-        }
-    }) else {
+    let Some(source) = selected_mount(&target, mount_sources(span)?) else {
         return Err(RuntimeError::new("fs-mount", "mount not found").with_span(span));
     };
-    if !target.starts_with(&source.mounted_on) {
-        return Err(RuntimeError::new("fs-mount", "mount not found").with_span(span));
-    }
     // The caller named this mount, so a refusal is its answer, not a row to
     // leave out.
     let stats = statvfs(&source.mounted_on, "fs-mount", span)?;
     Ok(mount_record(source, &stats))
+}
+
+fn selected_mount(target: &Path, sources: Vec<MountSource>) -> Option<MountSource> {
+    // A macOS firmlink resolves to a different mount than the longest path
+    // prefix suggests: `/private/...` belongs to `/System/Volumes/Data`, not
+    // the sealed read-only `/`. The kernel names the mount that owns `target`.
+    #[cfg(target_os = "macos")]
+    if let Ok(stats) = rfs::statfs(target) {
+        let mounted_on = PathBuf::from(c_char_array_to_string(&stats.f_mntonname));
+        if let Some(found) = sources.iter().find(|mount| mount.mounted_on == mounted_on) {
+            return Some(found.clone());
+        }
+    }
+    sources
+        .into_iter()
+        .filter(|mount| target.starts_with(&mount.mounted_on))
+        .max_by_key(|mount| mount.mounted_on.components().count())
 }
 
 /// Whether a listing of every mount leaves out a mount whose `statvfs` failed
@@ -2249,7 +2258,7 @@ impl TempRoot {
 
     fn remove_directory(&self) -> std::io::Result<()> {
         let Some(parent) = self.named_parent()? else {
-            if rfs::fstat(&self.root).map_err(std::io::Error::from)?.st_nlink == 0 {
+            if self.temporary_root_unlinked()? {
                 return Ok(());
             }
             return Err(std::io::Error::other(
@@ -2258,6 +2267,40 @@ impl TempRoot {
         };
         empty_directory_tree(self.root.open_readable_dir(".")?)?;
         rfs::unlinkat(&parent, &self.name, AtFlags::REMOVEDIR).map_err(std::io::Error::from)
+    }
+
+    fn temporary_root_unlinked(&self) -> std::io::Result<bool> {
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(rfs::fstat(&self.root).map_err(std::io::Error::from)?.st_nlink == 0);
+        }
+        // APFS keeps the link count of an unlinked open directory, so ask the
+        // kernel for the descriptor's current path and test that name.
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsFd;
+            let mut path = [0u8; libc::PATH_MAX as usize];
+            let result = unsafe {
+                libc::fcntl(self.root.as_fd().as_raw_fd(), libc::F_GETPATH, path.as_mut_ptr())
+            };
+            if result == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            let status = unsafe { libc::stat(path.as_ptr().cast(), &mut stat) };
+            if status == 0 {
+                return Ok(false);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ENOENT) {
+                return Ok(true);
+            }
+            return Err(error);
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            Ok(false)
+        }
     }
 }
 

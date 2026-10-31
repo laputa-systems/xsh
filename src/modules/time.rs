@@ -172,6 +172,13 @@ fn strftime_piece(tm: &libc::tm, directive: &str) -> Result<String, String> {
     String::from_utf8(buffer[..count].to_vec()).map_err(|_| "formatted date is not UTF-8".into())
 }
 
+fn tm_offset(tm: &libc::tm) -> i64 {
+    #[cfg(target_pointer_width = "64")]
+    { tm.tm_gmtoff }
+    #[cfg(target_pointer_width = "32")]
+    { tm.tm_gmtoff as i64 }
+}
+
 // Bound both individual widths and total output before calling libc, since a
 // format comes from untrusted script input and strftime accepts field widths.
 pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, String> {
@@ -209,11 +216,14 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
             }
             ('s', 0) => seconds.to_string(),
             ('q', 0) => (tm.tm_mon / 3 + 1).to_string(),
+            ('z', 0) => {
+                let offset = tm_offset(&tm);
+                let sign = if offset < 0 { '-' } else { '+' };
+                let n = offset.abs();
+                std::format!("{sign}{:02}{:02}", n / 3600, n / 60 % 60)
+            }
             ('z', 1..=3) => {
-                #[cfg(target_pointer_width = "64")]
-                let offset = tm.tm_gmtoff;
-                #[cfg(target_pointer_width = "32")]
-                let offset = tm.tm_gmtoff as i64;
+                let offset = tm_offset(&tm);
                 let sign = if offset < 0 { '-' } else { '+' };
                 let n = offset.abs();
                 if colons == 1 { std::format!("{sign}{:02}:{:02}", n / 3600, n / 60 % 60) }
