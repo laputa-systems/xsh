@@ -1,10 +1,10 @@
 # XSH: complete general inference across the language
 
-**Status:** active 2026-10-31. The last accepted code revision is `732664cd1`
-(the map comprehension key fix and its native test); `master` is green on the A
-and B cases in one combined run. Slices 47-51 fix the `tail`, `find`, `more`,
-`btop`, `wget`, `rm` and Laputa `check.map-key-type` joint erasures; the last
-core-wide erasure count remains 4,588/4,725 after slice 36.
+**Status:** winding down 2026-10-31. The last accepted code revision is
+`732664cd1`; the in-flight `inference/nc-tail` loop-condition slice is being
+gated. Slices 47-51 fix the `tail`, `find`, `more`, `btop`, `wget`, `rm` and
+Laputa `check.map-key-type` joint erasures; the last core-wide erasure count
+remains 4,588/4,725 after slice 36.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
