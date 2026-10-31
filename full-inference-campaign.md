@@ -3,7 +3,7 @@
 **Status:** resumed 2026-10-31. The last accepted code revision is `ff6e8e13c`
 (registered module call record argument). `master` is green on the A and B
 cases. Slices 47-54 fixed the `tail`, `find`, `more`, `btop`, `wget`, `rm`,
-`nc` and `traceroute` joint erasures and the Laputa `check.map-key-type` joint
+`nc`, `traceroute` and `fmt` joint erasures and the Laputa `check.map-key-type` joint
 erasure. The Laputa applied view is 38/38 private parameter sites (12 pure, 26
 proc) and the 38-site joint, re-run at `fa09321d5` (`inventory.sh` over a clean
 Laputa `ed0f25c` export, then `erase_sites.py`); Laputa's `pm`, `system` and
@@ -18,21 +18,23 @@ projection path`, and is not part of the applied view.
   Build `xsht` with `cargo build --profile verification --target
   x86_64-unknown-linux-musl -p xsh -p xsht` before measuring; `cargo dev build`
   builds only `xsh`.
-- **Next slice:** `core/fmt.xsh` joint erasure. Minimal repro:
-  `proc emit(words) -> Int { words[0] }` fails IR verification with `index
-  validation error effect is not owned by its callable`; the same body with
-  `[error]` or declared `pure` verifies. `propagation_effect_is_permitted`
-  (`src/sema/check/types.rs`) lets an effect-inferring proc take the
-  `ErrorReturn` boundary, but the inferred effect set does not contain `error`.
-  Decide whether the boundary should be `Return` there or the effect inferred.
-  Then the remaining single-site failures in `nc` (`shuffled.ports`
-  assign-target, `lookup.opts`, `connect_bounded.target`, `bind_listener.port`).
-  The assign-target class needs a sealed `IndexStore` operation: reads of an
-  unresolved receiver use the deferred sealed `Index`, writes have none
-  (`assignment_target_type_arena`, `src/sema/check/stmt.rs`), and binding the
-  receiver to `List` from an `Int` key is unsound because `Map[Int]` is valid.
-  Decide before starting; it threads the constraint solver, scheme encoding,
-  verifier, lowering and evaluator.
+- **Next slice:** the verifier tail of the core-wide erasure (classes of one to
+  four sites each); measure it first with `inventory.sh` and `erase_sites.py`.
+  Open gap: `proc f(m: Map[UInt, Int], k: Int) -> Int { m[k] }` (concrete, no
+  effect clause) still fails verification with `executable operation requires
+  effect error outside its owner contract`; lowering emits the key-validation
+  `ExprTry` for a proc whose declared effects lack `error`.
+- **Decided 2026-10-31:** the key-validation boundary of an index takes
+  `ErrorReturn` only when the callable declares `error`
+  (`declared_error_effect_carries_index_failure`); an effect-inferring proc
+  takes the plain `Return` boundary like `pure`, so a failed `UInt` key
+  validation is fatal there and no callable gains `error` from an index.
+  `core/fmt.xsh` now erases 43/43 alone and jointly. The `nc` `shuffled.ports`
+  assign-target annotations (8 sites core-wide) are retained: erasing them
+  needs a sealed `IndexStore` operation through the solver, scheme encoding,
+  verifier, lowering and evaluator, which is not worth 8 of 4,725 sites.
+  Remaining `nc` single-site failures: `lookup.opts`, `connect_bounded.target`,
+  `bind_listener.port`.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 

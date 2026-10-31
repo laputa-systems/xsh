@@ -44,6 +44,10 @@ fn require_target_spelling(target: &Type) -> Option<String> {
 }
 
 impl Checker {
+    pub(super) fn declared_error_effect_carries_index_failure(&self) -> bool {
+        self.boundary.current_effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
+    }
+
     pub(super) fn propagation_effect_is_permitted(&self) -> bool {
         self.boundary.current_effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
             || self.defer_effect_diagnostics && !self.boundary.in_pure && self.boundary.current_effects.is_none()

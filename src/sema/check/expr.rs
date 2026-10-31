@@ -4442,7 +4442,7 @@ impl Checker {
                     }
                 } else {
                     let returned = if ty == Type::Unknown { self.fresh_wrapper_type(span) } else { ty };
-                    if self.propagation_effect_is_permitted() { WrapperBoundary::ErrorReturn(returned) } else { WrapperBoundary::Return(returned) }
+                    if self.declared_error_effect_carries_index_failure() { WrapperBoundary::ErrorReturn(returned) } else { WrapperBoundary::Return(returned) }
                 }
             }
             Some(super::ReturnContext::Producer) => WrapperBoundary::Producer,

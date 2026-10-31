@@ -2353,3 +2353,18 @@ assert match_method("zeta", names).is_empty()
 """)?
   assert output.success, output.stderr
 }
+
+test test_full_inference_proc_without_an_effect_clause_indexes_an_unannotated_parameter { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc first(words) -> Int { words[0] }
+proc main() [io] {
+  print $first([4, 5])
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "4\n", output.stdout
+}
