@@ -250,6 +250,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "process inspection intentionally reads /proc and platform process state",
     ),
     (
+        "src/modules/ssh.rs",
+        "ssh stream options open and create caller-supplied paths",
+    ),
+    (
         "src/modules/system.rs",
         "system helper intentionally inspects host system files",
     ),
