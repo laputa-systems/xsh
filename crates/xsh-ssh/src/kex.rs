@@ -6,6 +6,7 @@ use oxish_proto::key_exchange::encode_mpint;
 use oxish_proto::named::{EncryptionAlgorithm, KeyExchangeAlgorithm, Named, PublicKeyAlgorithm};
 use oxish_proto::{Encode, MessageType};
 
+use crate::channel::handle_global_request;
 use crate::error::Error;
 use crate::host_key::{HostKeyPin, verify as verify_host_key};
 use crate::wire::{Packet, SshReader, Transport};
@@ -184,7 +185,7 @@ fn first_common(client: &[&str], server: &[String], category: &'static str) -> R
         })
 }
 
-fn negotiate(server: &ServerKexInit) -> Result<Negotiated, Error> {
+fn negotiate(server: &ServerKexInit, require_strict: bool) -> Result<Negotiated, Error> {
     if server.first_kex_packet_follows {
         return Err(Error::Protocol {
             detail: "server sent a guessed key-exchange packet".to_owned(),
@@ -224,7 +225,7 @@ fn negotiate(server: &ServerKexInit) -> Result<Negotiated, Error> {
     let encryption_server_to_client = encryption(&s2c_name)?;
     let _mac = first_common(MAC_ALGORITHMS, &server.mac_client_to_server, "MAC")?;
     let strict = server.kex.iter().any(|name| name == STRICT_KEX_SERVER);
-    if !strict {
+    if require_strict && !strict {
         return Err(Error::StrictKexUnsupported);
     }
     Ok(Negotiated {
@@ -281,7 +282,7 @@ pub fn connect(
     let server_kexinit = recv_expected(transport, MessageType::KeyExchangeInit)?;
     exchange.prefixed(&server_kexinit.encoded_payload());
     let server = parse_kexinit(&server_kexinit.payload)?;
-    let negotiated = negotiate(&server)?;
+    let negotiated = negotiate(&server, true)?;
 
     let hash_algorithm = provider.hash(&negotiated.kex)?;
     let mut exchange_hash = exchange.hash(hash_algorithm);
@@ -346,4 +347,117 @@ pub fn connect(
         host_key_blob,
         strict: negotiated.strict,
     })
+}
+
+fn recv_kex_packet(
+    transport: &mut Transport,
+    expected: MessageType,
+    queued: &mut Vec<Packet>,
+) -> Result<Packet, Error> {
+    loop {
+        let packet = transport.recv()?;
+        if packet.message_type == expected {
+            return Ok(packet);
+        }
+        match packet.message_type {
+            MessageType::ChannelData
+            | MessageType::ChannelExtendedData
+            | MessageType::ChannelWindowAdjust
+            | MessageType::ChannelRequest
+            | MessageType::ChannelEof
+            | MessageType::ChannelClose => queued.push(packet),
+            MessageType::GlobalRequest => {
+                handle_global_request(transport, &packet.payload)?;
+            }
+            MessageType::Ignore | MessageType::Debug | MessageType::Unimplemented => {}
+            MessageType::Disconnect => {
+                return Err(Error::Submitted {
+                    detail: "server disconnected during rekey".to_owned(),
+                });
+            }
+            other => {
+                return Err(Error::Protocol {
+                    detail: format!("unexpected rekey message {other:?}"),
+                });
+            }
+        }
+    }
+}
+
+/// Complete a server-initiated rekey and return any channel packets received meanwhile.
+pub fn rekey(
+    transport: &mut Transport,
+    pin: &HostKeyPin,
+    provider: &dyn CryptoProvider,
+    session_id: &[u8],
+    strict_kex: bool,
+    server_kexinit: Packet,
+) -> Result<Vec<Packet>, Error> {
+    let mut exchange: HandshakeBuffer = transport.handshake_buffer();
+    let client_kexinit = kexinit_payload(provider)?;
+    exchange.prefixed(&client_kexinit);
+    exchange.prefixed(&server_kexinit.encoded_payload());
+    transport.send_raw(&client_kexinit)?;
+
+    let server = parse_kexinit(&server_kexinit.payload)?;
+    let mut negotiated = negotiate(&server, false)?;
+    negotiated.strict = strict_kex;
+    let hash_algorithm = provider.hash(&negotiated.kex)?;
+    let mut exchange_hash = exchange.hash(hash_algorithm);
+
+    let ephemeral = ClientEphemeral::new(&negotiated.kex)?;
+    let client_public = ephemeral.public_key().to_vec();
+    let mut init = Vec::new();
+    MessageType::KeyExchangeEcdhInit.encode(&mut init);
+    put_string(&mut init, &client_public);
+    transport.send_raw(&init)?;
+
+    let mut queued = Vec::new();
+    let reply = recv_kex_packet(transport, MessageType::KeyExchangeEcdhReply, &mut queued)?;
+    let mut reader = SshReader::new(&reply.payload);
+    let host_key_blob = reader.string()?.to_vec();
+    let server_public = reader.string()?.to_vec();
+    let signature_blob = reader.string()?.to_vec();
+    reader.finish()?;
+
+    exchange_hash.prefixed(&host_key_blob);
+    exchange_hash.prefixed(&client_public);
+    exchange_hash.prefixed(&server_public);
+    let shared = ephemeral.complete(&server_public)?;
+    let mut shared_secret = Vec::new();
+    encode_mpint(&shared, &mut shared_secret);
+    exchange_hash.update(&shared_secret);
+    let exchange_digest = exchange_hash.finish();
+
+    let actual = pin.fingerprint(&host_key_blob, provider)?;
+    if actual != pin.as_str() {
+        return Err(Error::HostKeyMismatch {
+            expected: pin.as_str().to_owned(),
+            actual,
+        });
+    }
+    verify_host_key(
+        &host_key_blob,
+        &signature_blob,
+        exchange_digest.as_ref(),
+        provider,
+        &negotiated.host_key,
+    )?;
+
+    let derivation = KeyDerivation {
+        hash: hash_algorithm,
+        shared_secret: SharedSecret::from(shared_secret),
+        exchange_hash: exchange_digest,
+        session_id: Digest::new(session_id),
+    };
+    let client_to_server =
+        KeySourceSide::client_to_server(&derivation, negotiated.encryption_client_to_server)?;
+    let server_to_client =
+        KeySourceSide::server_to_client(&derivation, negotiated.encryption_server_to_client)?;
+
+    transport.send_newkeys(negotiated.strict)?;
+    transport.install_sealer(&client_to_server, provider)?;
+    transport.recv_newkeys(negotiated.strict)?;
+    transport.install_opener(&server_to_client, provider)?;
+    Ok(queued)
 }

@@ -343,6 +343,7 @@ impl WriteState {
     /// Clear the outgoing buffer after writing its contents to the stream directly
     pub fn clear(&mut self) {
         self.buf.clear();
+        self.written = 0;
     }
 
     /// Reset the send sequence number to zero

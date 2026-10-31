@@ -3,6 +3,9 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+use rustix::event::{PollFd, PollFlags, poll};
+use rustix::time::Timespec;
+
 use oxish_proto::crypto::{CryptoProvider, HandshakeBuffer, KeySourceSide};
 use oxish_proto::key_exchange::NewKeys;
 use oxish_proto::{
@@ -217,6 +220,122 @@ impl Transport {
     /// The current read and write deadline.
     pub fn timeout(&self) -> Duration {
         self.timeout
+    }
+
+    /// Switch between blocking and nonblocking transport I/O.
+    pub fn set_nonblocking(&self, enabled: bool) -> Result<(), Error> {
+        self.stream
+            .set_nonblocking(enabled)
+            .map_err(|error| self.transport_error(error))
+    }
+
+    /// Wait for read or write readiness.
+    pub fn poll_ready(
+        &self,
+        write: bool,
+        timeout: Option<Duration>,
+    ) -> Result<PollFlags, Error> {
+        let mut events = PollFlags::IN;
+        if write {
+            events |= PollFlags::OUT;
+        }
+        let mut descriptors = [PollFd::new(&self.stream, events)];
+        let timespec = timeout.map(|duration| Timespec {
+            tv_sec: duration.as_secs() as _,
+            tv_nsec: duration.subsec_nanos() as _,
+        });
+        match poll(&mut descriptors, timespec.as_ref()) {
+            Ok(0) => Ok(PollFlags::empty()),
+            Ok(_) => Ok(descriptors[0].revents()),
+            Err(error) if error == rustix::io::Errno::INTR => Ok(PollFlags::empty()),
+            Err(error) => Err(Error::NotSubmitted {
+                detail: error.to_string(),
+            }),
+        }
+    }
+
+    /// Read available bytes into the packet buffer.
+    pub fn fill_nonblocking(&mut self) -> Result<bool, Error> {
+        let mut buffer = [0u8; 16_384];
+        match self.stream.read(&mut buffer) {
+            Ok(0) => Err(match self.certainty {
+                Certainty::NotSubmitted => Error::NotSubmitted {
+                    detail: "connection closed".to_owned(),
+                },
+                Certainty::Submitted => Error::Submitted {
+                    detail: "connection closed".to_owned(),
+                },
+            }),
+            Ok(read) => {
+                self.read.buf.extend_from_slice(&buffer[..read]);
+                Ok(true)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(error) => Err(self.transport_error(error)),
+        }
+    }
+
+    /// Decode one complete buffered packet, if any.
+    pub fn try_recv(&mut self) -> Result<Option<Packet>, Error> {
+        let polled = match self.read.poll_packet() {
+            Ok(completion) => completion,
+            Err(ProtoError::Incomplete(_)) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        match polled {
+            Completion::Incomplete(_) => Ok(None),
+            Completion::Complete((sequence, length)) => {
+                let packet: IncomingPacket<'_> = self.read.decode_packet(sequence, length)?;
+                let message_type = packet.message_type;
+                let payload = packet.payload().to_vec();
+                Ok(Some(Packet {
+                    message_type,
+                    payload,
+                }))
+            }
+        }
+    }
+
+    /// Encode a payload without flushing it.
+    pub fn encode_raw(&mut self, payload: &[u8]) -> Result<(), Error> {
+        self.write.encode(&RawPayload(payload))?;
+        Ok(())
+    }
+
+    /// Flush as much buffered output as the transport accepts.
+    pub fn flush_nonblocking(&mut self) -> Result<bool, Error> {
+        loop {
+            let buffered = self.write.buffered();
+            if buffered.is_empty() {
+                return Ok(true);
+            }
+            match self.stream.write(buffered) {
+                Ok(0) => {
+                    return Err(Error::Submitted {
+                        detail: "write returned zero".to_owned(),
+                    });
+                }
+                Ok(written) => {
+                    self.write
+                        .written(Ok(written))
+                        .map_err(|error| self.transport_error(error))?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(self.transport_error(error)),
+            }
+        }
+    }
+
+    /// Whether an encoded packet is still waiting to be written.
+    pub fn has_pending_output(&self) -> bool {
+        !self.write.buffered().is_empty()
+    }
+
+    /// Close both directions of the transport.
+    pub fn shutdown(&self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 
     /// Exchange and validate the SSH identification lines.

@@ -9,6 +9,7 @@ use crate::error::Error;
 use crate::exec::{self, ExecOptions, ExecResult};
 use crate::host_key::HostKeyPin;
 use crate::kex::{self, Established};
+use crate::stream::{self, StreamOptions};
 use crate::wire::Transport;
 use crate::DEFAULT_PROVIDER;
 
@@ -98,6 +99,32 @@ impl Connection {
     /// Run one remote command with bounded captured output.
     pub fn exec(&mut self, command: &str, options: &ExecOptions) -> Result<ExecResult, Error> {
         exec::exec(&mut self.transport, command, options)
+    }
+
+    /// Run one remote command with streaming stdin and independent output sinks.
+    pub fn exec_stream(
+        &mut self,
+        command: &str,
+        options: &StreamOptions,
+        stdin: Option<&mut dyn std::io::Read>,
+        stdout: &mut dyn std::io::Write,
+        stderr: &mut dyn std::io::Write,
+    ) -> Result<ExecResult, Error> {
+        let pin = self.config.host_key.clone();
+        let session_id = self.established.session_id.clone();
+        let strict_kex = self.established.strict;
+        stream::exec_stream(
+            &mut self.transport,
+            command,
+            options,
+            stdin,
+            stdout,
+            stderr,
+            &pin,
+            DEFAULT_PROVIDER,
+            session_id.as_ref(),
+            strict_kex,
+        )
     }
 
     /// The verified server fingerprint.

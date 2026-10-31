@@ -2368,6 +2368,8 @@ dependencies = [
  "graviola",
  "oxish-graviola",
  "oxish-proto",
+ "rustix",
+ "sha2",
  "tempfile",
 ]
 

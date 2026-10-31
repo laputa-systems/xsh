@@ -24,7 +24,8 @@ not vendored. No sibling checkout is needed to build or test xsh-ssh.
 The client needs the packet body and the key-derivation inputs, which the
 server-only API kept private. `oxish-proto` therefore makes four visibility-only
 changes: `IncomingPacket::payload()`, public `KeyDerivation` fields, public
-`KeySourceSide` direction constructors, and a public `encode_mpint`. No protocol
+`KeySourceSide` direction constructors, a public `encode_mpint`, and a
+`WriteState::clear()` that also resets the partially-written offset. No protocol
 or cryptographic behavior changes.
 
 ## Manifest normalization
