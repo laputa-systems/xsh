@@ -1,6 +1,6 @@
 # XSH: complete general inference across the language
 
-**Status:** resumed 2026-10-30. Slices 35 to 45 landed on `master`, including
+**Status:** winding down 2026-10-31. Slices 35 to 45 landed on `master`, including
 guarded operands, module-function overloads, open-record field exchange,
 pending Result guards, rest splices, and inferred record field guards.
 Erasure 4,588 of 4,725 parameter sites (97.1%) after slice 36, measured with a current `xsht`
