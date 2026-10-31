@@ -1,28 +1,30 @@
 # XSH: complete general inference across the language
 
-**Status:** active 2026-10-31. The last accepted code revision is `2196ceb11`
-(the branch-merge wider-actual fix and its native test); `master` is green on
-the A and B cases in one combined run. Slices 47-50 fix the `tail`, `find`,
-`more`, `btop`, `wget` and `rm` joint erasures; the last core-wide erasure count
-remains 4,588/4,725 after slice 36.
+**Status:** active 2026-10-31. The last accepted code revision is `732664cd1`
+(the map comprehension key fix and its native test); `master` is green on the A
+and B cases in one combined run. Slices 47-51 fix the `tail`, `find`, `more`,
+`btop`, `wget`, `rm` and Laputa `check.map-key-type` joint erasures; the last
+core-wide erasure count remains 4,588/4,725 after slice 36.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document, then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
-- **Next slice:** the Laputa `check.map-key-type` witness
-  (`generation_runtime_artifacts.value`, site 32), then `core/nc.xsh` (function
-  body termination), `core/fmt.xsh` (index validation effect) and
+- **Next slice:** `core/nc.xsh` (`function 43 body does not terminate`; minimal
+  erased set `unix_address.socket_path` and `run_unix_listener.socket_path`,
+  both `Str`), then `core/fmt.xsh` (index validation effect) and
   `core/traceroute.xsh` (generic module call signature).
 - **G4 eligibility:** private `pure` and private `proc` parameters are in the
   applied view; exported parameters, private `proc` returns, effect clauses, and
   `Map`/`.require()` locals stay retained. The erasure measurements already
   cover every site; only the view's eligible set changes, so regenerate the
-  view site list to add the 37 passing Laputa private sites. Laputa evidence is
-  `INFERENCE-ERASURE.md` at Laputa `d1fda6c`; the one private-proc residual is
-  the `check.map-key-type` witness
-  `pure f(value) { {node.name: node for node in value.nodes} }`.
+  view site list to add all 38 Laputa private parameter sites. The Laputa
+  private scope is 38/38 single-site and joint; the full 57-site scope is 56/57,
+  with the exported `write_generation_plan.path_value` contract the only
+  single-site retention, and the five-site `compose.value` joint out of the
+  applied view. Laputa evidence is `INFERENCE-ERASURE.md` at Laputa `d1fda6c`.
 - **Parked:** none. `inference/record-override-known`, `inference/find-slice`,
-  `inference/optional-argument` and `inference/tail-match` are merged; the older
-  `inference/*` branches are patch-integrated into `master`.
+  `inference/optional-argument`, `inference/tail-match` and `inference/map-key`
+  are merged; the older `inference/*` branches are patch-integrated into
+  `master`.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
@@ -696,6 +698,7 @@ prescribed decisions are the starting rules.
 - 2026-10-31, slice 48 (record argument with an empty collection field): a record literal passed to a generic callee with an empty list field (`comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: 0})` in `core/find.xsh`) failed IR verification with "generic call argument has no closed checked type", even though the callee parameter declared the record. The argument derivation could not type the empty list field from the literal, and the annotated-local fallback does not cover a record literal. The verifier now authenticates each field value and types the literal from the checked expected record, so an empty collection field takes the declared field contract. Native test `test_full_inference_record_argument_with_an_empty_list_field_reaches_a_generic_callee` reproduces the rejection on the previous tree and passes with the fallback. The `core/find.xsh` joint erasure of its 68 passing parameter sites passes with the verification `xsht`; the three single-site failures are the separate assign-target, local-inference and conversion classes. A and B green with `test-sema` (55 cases) and `test-type-agreement` (1 case) passing separately after the combined runs exceeded their budgets; the other cases pass in the combined runs. No core-wide erasure count was measured.
 - 2026-10-31, slice 49 (forwarded nullable argument): a nullable parameter passed through an unannotated generic callee with an `if let` guard (`prompt(next_name)` called from `page(next_name)` in `core/more.xsh`) failed IR verification with "generic call argument does not match its checked scheme fact". The checker retained a known-arguments relationship, but the verifier compared the bare type parameter with the optional formal and then rejected the callee binder evidence. The symbolic call now asks `known_argument_assignment_matches` for that relationship and passes a `KnownArgument` evidence source, which marks the callee binder instead of requiring equality with the optional substitution. Native test `test_full_inference_forwarded_nullable_argument_reaches_a_guarded_generic_parameter` reproduces the rejection on the previous tree, prints ` (END)` with the fix, and fails without it. The `core/more.xsh` (36 sites), `core/btop.xsh` (32) and `core/wget.xsh` (44) joint erasures pass with the verification `xsht`. A and B green with `test-sema` (55 cases) and `test-type-agreement` (1 case) passing separately after the combined runs exceeded their budgets; the other cases pass in the combined runs. No core-wide erasure count was measured.
 - 2026-10-31, slice 50 (branch merge wider actual): a tail match inside an `if` branch kept the first arm's narrower record type when the arms differed in an optional field (`write_error: null` against `Error?`), so the indexed verifier rejected the wider arm with "generic match arm disagrees with its result". `merge_checked_branches` now falls back to the actual type when it matches the declared expectation and the previous branch is assignable to it; this preserves the precise record and stream type instead of widening to the declaration, and `dev/targets.xsh` keeps its stream return provenance. Native test `test_full_inference_tail_match_value_keeps_the_declared_record_result` reproduces the rejection on the previous tree and passes with the fix. The `core/rm.xsh` joint erasure of its 22 passing parameter sites passes with the verification `xsht`. A and B green in one combined run: `test-lowering` 1,592; `test-sema` 55; native bodies 104; checker 106; `test-sema-unit` 934; `test-tooling-unit` 449; `test-type-agreement` 1; `test-runtime` 107; `lowering-coverage` 13. No core-wide erasure count was measured.
+- 2026-10-31, slice 51 (map comprehension key from an unresolved field): `pure f(value) { {node.name: node for node in value.nodes} }` was rejected as "Map comprehension keys require an ordered scalar key" before the item's `name` field could resolve the key. The checker now marks an unresolved key with `TypeConstraints::require_map_key` in the comprehension and record computed-key checks, and the verifier's generic body proof accepts a scheme type parameter that carries the MapKey requirement instead of requiring a closed ground key domain. Native test `test_full_inference_map_comprehension_key_from_an_unresolved_field` reproduces the rejection and passes. The Laputa practical private scope is 38/38 single-site and the 38-site joint passes; the full 57-site scope is 56/57, with the exported `write_generation_plan.path_value` `check.type-mismatch` the only single-site retention, and the five-site `compose.value` joint remains out of the applied view. A/B green in one combined run: `test-lowering` 1,592; `test-sema` 55; native bodies 105; checker 106; `test-sema-unit` 934; `test-tooling-unit` 449; `test-type-agreement` 1; `test-runtime` 107; `lowering-coverage` 13. No core-wide erasure count was measured.
 
 ## For the owner afterwards
 
