@@ -57,7 +57,7 @@ fn terminal_case_with_control(args: &[&std::ffi::OsStr], files: &[(&str, &[u8])]
         if name.ends_with('/') { fs::create_dir(directory.path().join(name)).unwrap(); }
         else { fs::write(directory.path().join(name), data).unwrap(); }
     }
-    let mut terminal = Terminal::new();
+    let terminal = Terminal::new();
     let mut command = applet("more", directory.path());
     command.args(args).stdin(Stdio::from(terminal.slave.try_clone().unwrap()))
         .stdout(Stdio::from(terminal.slave.try_clone().unwrap()));
@@ -71,11 +71,13 @@ fn terminal_case_with_control(args: &[&std::ffi::OsStr], files: &[(&str, &[u8])]
     }); }
     let mut child = Running::spawn(&mut command);
     drop(command);
+    let mut input_writer = terminal.master.try_clone().unwrap();
+    let reader = std::thread::spawn(move || terminal.read_all());
     std::thread::sleep(delay);
     if let Some(input) = stdin {
         assert!(child.0.try_wait().unwrap().is_none(), "more must wait for terminal stdin");
-        terminal.master.write_all(input).unwrap();
-        terminal.master.write_all(b"\x04").unwrap();
+        input_writer.write_all(input).unwrap();
+        input_writer.write_all(b"\x04").unwrap();
     } else {
         let deadline = Instant::now() + Duration::from_secs(2);
         while child.0.try_wait().unwrap().is_none() {
@@ -84,7 +86,7 @@ fn terminal_case_with_control(args: &[&std::ffi::OsStr], files: &[(&str, &[u8])]
         }
     }
     let mut output = child.finish();
-    output.stdout = terminal.read_all();
+    output.stdout = reader.join().expect("join more terminal reader");
     output
 }
 

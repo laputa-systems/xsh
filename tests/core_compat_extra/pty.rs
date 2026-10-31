@@ -99,6 +99,7 @@ fn terminal_bytes(mut master: File) -> Vec<u8> {
             Ok(count) => bytes.extend_from_slice(&buffer[..count]),
             Err(error) if error.raw_os_error() == Some(libc::EIO) => return bytes,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(error) => panic!("read terminal: {error}"),
         }
     }
@@ -124,9 +125,17 @@ fn terminal_run(mut command: Command, streams: [bool; 3], size: (u16, u16), inpu
         // Canonical input needs a completed line before its EOF character.
         master.write_all(b"\n\x04").unwrap();
     }
+    let stdout_reader = masters[1].take()
+        .map(|master| std::thread::spawn(move || terminal_bytes(master)));
+    let stderr_reader = masters[2].take()
+        .map(|master| std::thread::spawn(move || terminal_bytes(master)));
     let mut output = child.finish();
-    if let Some(master) = masters[1].take() { output.stdout = terminal_bytes(master); }
-    if let Some(master) = masters[2].take() { output.stderr = terminal_bytes(master); }
+    if let Some(reader) = stdout_reader {
+        output.stdout = reader.join().expect("join terminal stdout reader");
+    }
+    if let Some(reader) = stderr_reader {
+        output.stderr = reader.join().expect("join terminal stderr reader");
+    }
     output
 }
 
@@ -147,7 +156,9 @@ fn termios_snapshot(fd: libc::c_int) -> TermiosSnapshot {
         input: attrs.c_iflag,
         output: attrs.c_oflag,
         control: attrs.c_cflag,
-        local: attrs.c_lflag,
+        // PENDIN reports bytes waiting for line-discipline processing, not a
+        // terminal mode, and appears only while input is still unread.
+        local: attrs.c_lflag & !libc::PENDIN,
         speeds: (unsafe { libc::cfgetispeed(&attrs) }, unsafe { libc::cfgetospeed(&attrs) }),
         control_chars: attrs.c_cc.to_vec(),
     }
@@ -754,13 +765,18 @@ fn btop_replay_finite_completion_restores_terminal_attributes() {
     command.stdin(terminal.stdio()).stdout(terminal.stdio()).stderr(Stdio::piped());
     let child = Running::spawn(&mut command);
     drop(command);
+    let reader = {
+        let master = terminal.master.try_clone().unwrap();
+        std::thread::spawn(move || terminal_bytes(master))
+    };
     let result = child.finish();
-    let mut output = Vec::new();
-    append_terminal_output(&mut terminal.master.try_clone().unwrap(), &mut output);
+    let restored = termios_snapshot(terminal.slave.as_raw_fd());
+    drop(terminal.slave);
+    let output = reader.join().expect("join finite replay terminal reader");
 
     assert!(result.status.success(), "finite replay exited with {}: {}", result.status, String::from_utf8_lossy(&result.stderr));
     assert!(result.stderr.is_empty(), "unexpected btop error: {}", String::from_utf8_lossy(&result.stderr));
-    assert_eq!(termios_snapshot(terminal.slave.as_raw_fd()), original_attrs);
+    assert_eq!(restored, original_attrs);
     assert_btop_terminal_modes_close(&output);
     let mut screen = VirtualTerminal::new(24, 80);
     screen.feed(&output);
@@ -1237,7 +1253,7 @@ fn tty_case(streams: [bool; 3], size: (u16, u16), stdout: &[u8], stderr: &[u8]) 
         printf '%s is a tty\n' "$2"
         if test "$1" = 0; then
             printf 'terminal size: '
-            stty size
+            stty size 2>/dev/null
         fi
     else
         printf '%s is not a tty\n' "$2"
