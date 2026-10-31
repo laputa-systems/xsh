@@ -500,6 +500,9 @@ pub struct CheckedStreamStage {
     pub output: Type,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum GroundKeyValidationBoundary { Fatal, ProcCompletion }
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CheckedResultConstructor { Ok, Err }
 
@@ -520,7 +523,7 @@ pub struct CheckedControlFlowFacts {
     pub(crate) fallible_pipeline_stage_spans: BTreeSet<Span>,
     pub(crate) propagating_stage_callback_spans: BTreeSet<Span>,
     pub(crate) exhaustive_match_spans: BTreeSet<Span>,
-    pub(crate) fatal_key_validation_spans: BTreeSet<Span>,
+    pub(crate) key_validation_boundaries: BTreeMap<Span, GroundKeyValidationBoundary>,
 }
 
 impl CheckedControlFlowFacts {
@@ -544,8 +547,7 @@ impl CheckedControlFlowFacts {
             .append(&mut other.propagating_stage_callback_spans);
         self.exhaustive_match_spans
             .append(&mut other.exhaustive_match_spans);
-        self.fatal_key_validation_spans
-            .append(&mut other.fatal_key_validation_spans);
+        self.key_validation_boundaries.append(&mut other.key_validation_boundaries);
     }
 }
 
@@ -1958,7 +1960,7 @@ pub struct Checker {
     fallible_pipeline_stage_spans: BTreeSet<Span>,
     propagating_stage_callback_spans: BTreeSet<Span>,
     exhaustive_match_spans: BTreeSet<Span>,
-    fatal_key_validation_spans: BTreeSet<Span>,
+    key_validation_boundaries: BTreeMap<Span, GroundKeyValidationBoundary>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     resource_transfers: ResourceTransferFacts,
     same_scope_resource_assignments: rustc_hash::FxHashSet<crate::syntax::arena::StmtId>,
@@ -2256,7 +2258,7 @@ impl Checker {
                 fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
                 propagating_stage_callback_spans: self.propagating_stage_callback_spans,
                 exhaustive_match_spans: self.exhaustive_match_spans,
-                fatal_key_validation_spans: self.fatal_key_validation_spans,
+                key_validation_boundaries: self.key_validation_boundaries,
             },
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
@@ -2390,7 +2392,7 @@ impl Checker {
             fallible_pipeline_stage_spans: BTreeSet::new(),
             propagating_stage_callback_spans: BTreeSet::new(),
             exhaustive_match_spans: BTreeSet::new(),
-            fatal_key_validation_spans: BTreeSet::new(),
+            key_validation_boundaries: BTreeMap::new(),
             resource_scopes: BTreeMap::new(),
             resource_transfers: ResourceTransferFacts::default(),
             same_scope_resource_assignments: rustc_hash::FxHashSet::default(),

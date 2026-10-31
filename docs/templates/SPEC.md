@@ -2006,6 +2006,8 @@ map comprehension, an indexed assignment, a membership test, and a key
 argument of a map method. In a `proc` with a declared return type that does
 not declare `error`, a key failure outside `try` and `retry` is fatal, as a
 `UInt` constraint violation is, and a caller's `try` does not capture it.
+In a `proc` whose return type is inferred, the failure is instead the proc's
+`Err` completion, and the proc gains no `error` effect from it.
 
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same
 type. Either bound may be omitted. Negative bounds count from the end, and

@@ -165,7 +165,7 @@ struct Operation {
 enum ControlFact {
     NonnullFallback, PropagatingStatement, DiscardableBinding, PropagatingCondition, RedundantConditionPropagation,
     ExitingBlock, PathLiteral, OptionalBinding, Builtin(super::CheckedBuiltinCall), CardinalityPreserving, PropagatingError,
-    LatentStreamError, FallibleStage, PropagatingStageCallback, ExhaustiveMatch, FatalKeyValidation,
+    LatentStreamError, FallibleStage, PropagatingStageCallback, ExhaustiveMatch, KeyValidation(super::GroundKeyValidationBoundary),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1022,6 +1022,7 @@ impl Capture<'_> {
         let mut control = BTreeSet::new();
         for (kind, spans) in control_sets(checked) { if spans.contains(&span) { control.insert(kind); } }
         if let Some(&kind) = facts.builtin_calls.get(&span) { control.insert(ControlFact::Builtin(kind)); }
+        if let Some(&boundary) = facts.key_validation_boundaries.get(&span) { control.insert(ControlFact::KeyValidation(boundary)); }
         let selection = NodeSelection {
             local_storage: None,
             binary: None,
@@ -1109,7 +1110,7 @@ impl Capture<'_> {
         for span in spans.filter(|span| relevant(span)) {
             if !self.seen_spans.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
         }
-        for span in control_sets(checked).into_iter().flat_map(|(_, spans)| spans).chain(checked.checked_control_flow.result_constructors.keys()).chain(checked.checked_control_flow.builtin_calls.keys())
+        for span in control_sets(checked).into_iter().flat_map(|(_, spans)| spans).chain(checked.checked_control_flow.result_constructors.keys()).chain(checked.checked_control_flow.builtin_calls.keys()).chain(checked.checked_control_flow.key_validation_boundaries.keys())
             .filter(|span| relevant(span))
         {
             if !self.seen_spans.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
@@ -1128,7 +1129,7 @@ impl Capture<'_> {
     }
 }
 
-fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 15] {
+fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 14] {
     let facts = &checked.checked_control_flow;
     [
             (ControlFact::NonnullFallback, &checked.proven_nonnull_fallback_receivers),
@@ -1145,7 +1146,6 @@ fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 15] {
             (ControlFact::FallibleStage, &facts.fallible_pipeline_stage_spans),
             (ControlFact::PropagatingStageCallback, &facts.propagating_stage_callback_spans),
             (ControlFact::ExhaustiveMatch, &facts.exhaustive_match_spans),
-            (ControlFact::FatalKeyValidation, &facts.fatal_key_validation_spans),
         ]
 }
 

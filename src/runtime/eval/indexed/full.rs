@@ -48508,6 +48508,30 @@ proc drain(fd: Int, data) [process, net, error] {
     }
 
     #[test]
+    fn explicit_uint_conversion_cannot_hide_its_error_effect() {
+        run_with_large_stack(|| {
+            let program = fixture("explicit-uint-effect.xsh", "proc convert(value: Int) [error] -> Result[UInt] { Ok(value.require(UInt)?) }\n");
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "convert");
+            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground contract") };
+            let required = function_instruction_indices(&program, "convert", FullTag::ExprRequire)[0];
+            let mut forged = program.clone();
+            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
+            callable.effects = crate::sema::types::CallableEffects::finite([]);
+            let mut semantic = SemanticPoolBuilder::default();
+            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
+            let mut words = forged.store.payload(forged.store.data[required].range()).unwrap().to_vec();
+            assert_eq!(words[3], 1);
+            words[3] = 0;
+            words.remove(4);
+            let start = forged.store.extra.len() as u32;
+            forged.store.extra.extend_from_slice(&words);
+            forged.store.data[required] = IrData::new(start, words.len() as u32);
+            FullVerifier::verify(&forged).expect_err("a schemaless explicit UInt conversion still requires error");
+        });
+    }
+
+    #[test]
     fn a_byte_length_argument_is_an_int_and_a_forged_one_is_not() {
         run_with_large_stack(|| {
             let program = fixture("generic-byte-length-argument.xsh", r#"

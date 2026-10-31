@@ -268,3 +268,53 @@ proc main() [io, error] {
   assert propagated.success, propagated.stderr
   assert propagated.stdout == "one\ncaptured\n", propagated.stdout
 }
+
+test test_typed_map_unsigned_key_failure_is_the_completion_of_a_proc_with_an_inferred_return { |ctx|
+  let caller = """
+proc main() [io] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  for key in [1, -1] {
+    match keyed(values, key) {
+      Ok(_) => print "ok"
+      Err(error) => print f"err {error.message}"
+    }
+  }
+}
+"""
+  for site in [
+    """proc keyed(values: Map[UInt, Str], key: Int) { values[key] }""",
+    """proc keyed(values, key: Int) { values[key] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) { if key in values { "present" } else { "absent" } }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) { values.get(key) ?? "missing" }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) { var copy = values; copy[key] = "one"; copy[key] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) { let copy: Map[UInt, Str] = {[key]: "one"}; copy.values()[0] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) { let copy: Map[UInt, Str] = {item: "one" for item in [key]}; copy.values()[0] }""",
+  ] {
+    let output = test.run_script(ctx, f"{site}\n{caller}")?
+    assert output.success, f"{site}: {output.stderr}"
+    assert output.stdout == "ok\nerr schema check failed: expected UInt, found Int\n", f"{site}: {output.stdout}"
+  }
+
+  let captured = test.run_script(ctx, r"""proc captured(values: Map[UInt, Str], key: Int) {
+  match try { values[key] } {
+    Ok(value) => value
+    Err(_) => "caught"
+  }
+}
+proc retried(values: Map[UInt, Str], key: Int) {
+  match retry [] { values[key] } {
+    Ok(value) => value
+    Err(_) => "caught"
+  }
+}
+proc main() [io, error] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  assert captured(values, 1) == Ok("one")
+  assert captured(values, -1) == Ok("caught")
+  assert retried(values, 1) == Ok("one")
+  assert retried(values, -1) == Ok("caught")
+}
+""")?
+  assert captured.success, captured.stderr
+  assert captured.stdout == "", captured.stdout
+}

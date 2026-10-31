@@ -1,8 +1,10 @@
 # XSH: complete general inference across the language
 
-**Status:** resumed 2026-10-31. The last accepted code revision is `ff6e8e13c`
-(registered module call record argument). `master` is green on the A and B
-cases. Slices 47-54 fixed the `tail`, `find`, `more`, `btop`, `wget`, `rm`,
+**Status:** resumed 2026-10-31. Bytes membership and nullable conditional
+argument fixes are on `master` (`5598b7010`, `682578bc5`). The ground proc
+completion repair passes the pinned Linux checker, loader, lowering, type-agreement
+and focused native checks. Full campaign qualification remains open. Slices 47-54
+fixed the `tail`, `find`, `more`, `btop`, `wget`, `rm`,
 `nc`, `traceroute` and `fmt` joint erasures and the Laputa `check.map-key-type` joint
 erasure. The Laputa applied view is 38/38 private parameter sites (12 pure, 26
 proc) and the 38-site joint, re-run at `fa09321d5` (`inventory.sh` over a clean
@@ -24,16 +26,18 @@ projection path`, and is not part of the applied view.
   failed `UInt` key validation propagate as a catchable Schema error to its
   caller's `try`, on both routes; making it fatal needs the call boundary to
   convert it, because a generic body's fatality depends on the instantiated
-  return. A ground key site in a proc with an inferred return
-  (`proc g(m: Map[UInt, Int], k: Int) { let v = m[k] }`, the `ProcCompletion`
-  boundary) still fails verification: the generic route turns the failure into
-  the proc's `Err` completion, and the ground route emits a `Try` that needs
-  `error`. Procs with a declared return are fatal without `error` (slice 55).
+  return. Procs with a declared return are fatal without `error` (slice 55); a
+  proc with an inferred return turns the failure into its `Err` completion on
+  both routes (slice 56). Ground lowering handles that boundary by matching
+  the key validation result and explicitly returning its `Err`; the verifier
+  keeps requiring `error` for uncaptured `Try` operations.
+- **Performance:** the owner deferred all performance work and readiness checks; correctness work continues.
 - **Decided 2026-10-31:** the key-validation boundary of an index takes
   `ErrorReturn` only when the callable declares `error`
-  (`declared_error_effect_carries_index_failure`); an effect-inferring proc
-  takes the plain `Return` boundary like `pure`, so a failed `UInt` key
-  validation is fatal there and no callable gains `error` from an index.
+  (`declared_error_effect_carries_index_failure`). A proc with an inferred
+  return takes the `ProcCompletion` boundary; a proc with a declared return
+  and no declared `error` takes the fatal boundary. No callable gains `error`
+  from an index.
   `core/fmt.xsh` now erases 43/43 alone and jointly. The `nc` `shuffled.ports`
   assign-target annotations (8 sites core-wide) are retained: erasing them
   needs a sealed `IndexStore` operation through the solver, scheme encoding,
@@ -727,3 +731,5 @@ prescribed decisions are the starting rules.
 - Review purposeful remaining annotations, joint behavior coverage, and performance tradeoffs.
 - Integrate only reviewed commits from the named campaign branch within the execution grant; never copy an entire historical inference branch.
 - Treat unresolved mandatory work, deferred performance gates, or mismatched source acceptance as incomplete. No owner review is needed to decide that result.
+- 2026-10-31, slice 56 (ground key validation under a `ProcCompletion` boundary): a ground inferred-return proc with a `Map[UInt, _]` key rejected the generated `Try(Require(UInt))` because it had no `error` effect. The checker now records the key boundary, and ground lowering matches the validation result: success supplies the key, while failure explicitly returns `Err` as the proc completion. Other boundaries retain their existing lowering, and the verifier still requires `error` for uncaptured `Try`. The native regression covers seven index, membership, method, assignment, literal and comprehension sites, plus capture and retry controls. A forged explicit conversion with its schema and owner effect removed is rejected by the verifier. SPEC 6.6 describes the completion behavior.
+- 2026-10-31, slice 57 (membership with a non-integer needle in a generic container): `pure has_nul(data) { ...; b"\0" in head }` failed `UInt map index has no retained error boundary`. The scheme verifier's `may_require_uint_key_validation` treated every key that is not `UInt` or `Str` as possibly needing `UInt` validation against a type-parameter or generic-key `Map` receiver, while the checker only registers a key-validation wrapper when the key is `Int` or unresolved. It now asks the same question as the checker: the key must be `Int` or not yet closed. `core/diff.xsh` `has_nul.data` erases. Native test `test_full_inference_membership_of_a_non_integer_needle_needs_no_key_validation`.

@@ -388,7 +388,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             let key = key.map(|key| {
                 if uint_key {
-                    self.require_uint_key(key, key_span.unwrap_or(span))
+                    self.require_ground_uint_key(key, key_span.unwrap_or(span), slots)
                 } else {
                     key
                 }
@@ -780,7 +780,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let lowered = self.lower_expr(index, slots, current_function, item_slot)?;
                 let lowered = if matches!(self.assign_target_checked_type(base, span, slots), Some(Type::Map(key, _)) if *key == Type::UInt)
                 {
-                    self.require_uint_key(lowered, self.program.arena.expr(index).span)
+                    self.require_ground_uint_key(lowered, self.program.arena.expr(index).span, slots)
                 } else {
                     lowered
                 };

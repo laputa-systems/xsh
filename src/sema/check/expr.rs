@@ -4465,7 +4465,9 @@ impl Checker {
 
     pub(super) fn record_uint_key_site(&mut self, key_span: Span) {
         if self.key_validation_failure_is_fatal() {
-            self.fatal_key_validation_spans.insert(key_span);
+            self.key_validation_boundaries.insert(key_span, super::GroundKeyValidationBoundary::Fatal);
+        } else if self.boundary.retry_attempt_depth == 0 && self.inferred_return_proc_owner().is_some() {
+            self.key_validation_boundaries.insert(key_span, super::GroundKeyValidationBoundary::ProcCompletion);
         }
     }
 

@@ -1,6 +1,6 @@
 use super::{
     Arc, ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaProgram,
-    ArenaTypeExprTag, AstArena, BindingTargetId, BuildExprId, BuildExprRow, CompactDeclOutput,
+    ArenaTypeExprTag, AstArena, BindingTargetId, BuildExprId, BuildExprRow, BuildPatternRow, BuildStmtRow, CompactDeclOutput,
     CompactLowerConstructProbe, ExprId, LoweredReturnKind,
     LoweredType, LoweredTypeCheck, LoweredValueCheck, Name, SlotScope, Span, Symbol, Type, TypeExprId, api_spec,
     compact_checked_type_is_concrete, concrete_checked_fact, lowered_method_name,
@@ -431,7 +431,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     pub(super) fn require_uint_key(&mut self, value: BuildExprId, span: Span) -> BuildExprId {
-        if self.bodies.checked_control_flow.fatal_key_validation_spans.contains(&span) {
+        if self.bodies.checked_control_flow.key_validation_boundaries.get(&span) == Some(&crate::sema::check::GroundKeyValidationBoundary::Fatal) {
             return self.checked_unsigned_value(value, &Type::UInt, span);
         }
         let check = LoweredTypeCheck {
@@ -448,6 +448,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 span
             }
         )
+    }
+
+    pub(super) fn require_ground_uint_key(&mut self, value: BuildExprId, span: Span, slots: &mut super::SlotScope) -> BuildExprId {
+        if self.bodies.checked_control_flow.key_validation_boundaries.get(&span) != Some(&crate::sema::check::GroundKeyValidationBoundary::ProcCompletion) {
+            return self.require_uint_key(value, span);
+        }
+        let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
+        let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span, unknown_fields: crate::syntax::arena::UnknownFields::Preserve });
+        let success_slot = slots.reserve("map key");
+        let error_slot = slots.reserve("map key error");
+        let success_pattern = push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot: Some(success_slot), unit_only: false });
+        let error_pattern = push_build_row!(self, pattern, BuildPatternRow::ResultErr { slot: Some(error_slot), unit_only: false });
+        let success = push_build_row!(self, expr, BuildExprRow::Param(success_slot));
+        let error = push_build_row!(self, expr, BuildExprRow::Param(error_slot));
+        let failure = push_build_row!(self, expr, BuildExprRow::Err { value: error, cause: None });
+        let returned = push_build_row!(self, stmt, BuildStmtRow::Return { value: failure });
+        let failure = push_build_row!(self, expr, BuildExprRow::ValueBlock { body: vec![returned], span });
+        push_build_row!(self, expr, BuildExprRow::MatchExpr { value: checked, arms: vec![(success_pattern, None, success), (error_pattern, None, failure)], span })
     }
 
     pub(super) fn lower_binding_expr_value(

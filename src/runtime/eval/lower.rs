@@ -8846,7 +8846,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let key = self.lower_expr(key, slots, current_function, item_slot)?;
                 let key = if matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key_ty, _)) if **key_ty == Type::UInt)
                 {
-                    self.require_uint_key(key, key_span)
+                    self.require_ground_uint_key(key, key_span, slots)
                 } else {
                     key
                 };
@@ -9003,7 +9003,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     && matches!(self.checked_expr_type(right), Some(Type::Map(key, _)) if *key == Type::UInt);
                 let lowered_left = self.lower_expr(left, slots, current_function, item_slot)?;
                 let lowered_left = if uint_key {
-                    self.require_uint_key(lowered_left, self.program.arena.expr(left).span)
+                    self.require_ground_uint_key(lowered_left, self.program.arena.expr(left).span, slots)
                 } else {
                     lowered_left
                 };
@@ -9362,7 +9362,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let lowered_index = self.lower_expr(index, slots, current_function, item_slot)?;
                 let lowered_index = if uint_key {
-                    self.require_uint_key(lowered_index, self.program.arena.expr(index).span)
+                    self.require_ground_uint_key(lowered_index, self.program.arena.expr(index).span, slots)
                 } else {
                     lowered_index
                 };
