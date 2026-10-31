@@ -263,7 +263,6 @@ pub(super) struct ErrorPayload {
 }
 
 impl ErrorPayload {
-    /// The positive errno the kernel reported, or zero for an acknowledgement.
     pub(super) fn errno(&self) -> Result<i32, &'static str> {
         if self.code > 0 {
             return Err("netlink error code is positive");
@@ -274,8 +273,6 @@ impl ErrorPayload {
     }
 }
 
-/// Reads the error code and the echoed request header of an `NLMSG_ERROR`
-/// payload; whatever follows the header is not interpreted.
 pub(super) fn parse_error_payload(payload: &[u8]) -> Result<ErrorPayload, &'static str> {
     if payload.len() < 20 {
         return Err("netlink error acknowledgment is truncated");
@@ -882,8 +879,6 @@ pub(super) fn send_request(socket: &OwnedFd, request: &[u8]) -> Result<(), DumpE
     Ok(())
 }
 
-/// Receives one kernel datagram into `buffer` within `remaining`, which must
-/// be nonzero, and returns its length.
 pub(super) fn receive_datagram(
     socket: &OwnedFd,
     buffer: &mut [u8],

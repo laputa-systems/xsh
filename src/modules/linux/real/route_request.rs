@@ -17,7 +17,6 @@ const CALLER_FLAGS: u16 =
 
 static NEXT_SEQUENCE: AtomicU32 = AtomicU32::new(1);
 
-/// One route-netlink request whose header the caller does not control.
 #[derive(Debug)]
 pub(crate) struct RouteRequest<'a> {
     kind: u16,
@@ -70,7 +69,6 @@ impl<'a> RouteRequest<'a> {
     }
 }
 
-/// The kernel's `NLMSG_ERROR` answer to one request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Acknowledgement {
     pub(crate) errno: i32,
@@ -109,9 +107,6 @@ fn next_sequence() -> u32 {
     NEXT_SEQUENCE.fetch_add(1, Ordering::Relaxed).max(1)
 }
 
-/// Sends `request` on a fresh route-netlink socket and returns the kernel's
-/// acknowledgement. The socket is closed on every path, and `timeout` bounds
-/// the whole exchange.
 pub(crate) fn route_request(
     request: &RouteRequest<'_>,
     timeout: Duration,
@@ -147,8 +142,6 @@ fn receive_before(
     }
 }
 
-/// Reads one reply datagram from `next` and validates it as the
-/// acknowledgement of `request` sent with `sequence` from `port_id`.
 pub(crate) fn acknowledge(
     request: &RouteRequest<'_>,
     sequence: u32,
