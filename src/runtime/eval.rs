@@ -7072,6 +7072,12 @@ impl Evaluator {
                 for value in fields.values() { self.collect_lowered_resources(value, worklist); }
             }
             LoweredValue::RecordVec(fields) => {
+                if fields.len() == 1
+                    && fields[0].0.as_str() == "token"
+                    && let LoweredValue::Str(token) = &fields[0].1
+                {
+                    worklist.resources.push(OwnedHostResource::Ssh(token.to_string()));
+                }
                 for (_, value) in fields.iter() { self.collect_lowered_resources(value, worklist); }
             }
             LoweredValue::Tag(tag) => {
@@ -7103,6 +7109,11 @@ impl Evaluator {
                 Value::Record(fields) => {
                     if let Some(token) = runtime_session_token(fields) {
                         worklist.resources.push(OwnedHostResource::Ssh(token));
+                    }
+                }
+                Value::Tag { fields, .. } if fields.len() == 1 => {
+                    if let Value::Str(token) = &fields[0] {
+                        worklist.resources.push(OwnedHostResource::Ssh(token.to_string()));
                     }
                 }
                 Value::Stream(stream) => self.collect_stream_resources(stream, worklist),

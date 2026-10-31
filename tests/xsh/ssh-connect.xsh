@@ -1,5 +1,7 @@
 ##! Connect, pin, and scope cleanup for the native SSH module.
 
+type Session = {token: Str}
+
 type Fixture = {
   host: Str,
   port: Int,
@@ -45,6 +47,31 @@ test ssh_pinned_connect_succeeds {
   with session = ssh.connect(options)? {
     assert session.token != ""
   }
+}
+
+proc open_session(options: Record) -> Result[Session, Error] {
+  ssh.connect(options)
+}
+
+test ssh_session_survives_a_proc_return {
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  let session = open_session(options)?
+  assert ssh.exec(session, "true", {})?.exit_code == 0
+  let _ = ssh.close(session)
 }
 
 test ssh_changed_pin_is_rejected {
