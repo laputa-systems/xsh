@@ -5,9 +5,13 @@
 cases. Slices 47-54 fixed the `tail`, `find`, `more`, `btop`, `wget`, `rm`,
 `nc` and `traceroute` joint erasures and the Laputa `check.map-key-type` joint
 erasure. The Laputa applied view is 38/38 private parameter sites (12 pure, 26
-proc) and the 38-site joint at the `ef91a48ef` compiler; Laputa's `pm`, `system`
-and network roots still check with the current `xsht`. The full 57-site scope is
-56/57 with the exported `write_generation_plan.path_value` contract retained.
+proc) and the 38-site joint, re-run at `fa09321d5` (`inventory.sh` over a clean
+Laputa `ed0f25c` export, then `erase_sites.py`); Laputa's `pm`, `system` and
+network roots still check with the current `xsht`. The full 57-site scope is
+56/57 alone with the exported `write_generation_plan.path_value` contract
+retained; the 56-site joint that includes exported parameters fails with
+`compact.indexed-build: generic expression is outside the supported parameter
+projection path`, and is not part of the applied view.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document; then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
@@ -22,8 +26,13 @@ and network roots still check with the current `xsht`. The full 57-site scope is
   `ErrorReturn` boundary, but the inferred effect set does not contain `error`.
   Decide whether the boundary should be `Return` there or the effect inferred.
   Then the remaining single-site failures in `nc` (`shuffled.ports`
-  assign-target, `lookup.opts`, `connect_bounded.target`, `bind_listener.port`),
-  and the Laputa applied-view re-run at the final compiler.
+  assign-target, `lookup.opts`, `connect_bounded.target`, `bind_listener.port`).
+  The assign-target class needs a sealed `IndexStore` operation: reads of an
+  unresolved receiver use the deferred sealed `Index`, writes have none
+  (`assignment_target_type_arena`, `src/sema/check/stmt.rs`), and binding the
+  receiver to `List` from an `Int` key is unsound because `Map[Int]` is valid.
+  Decide before starting; it threads the constraint solver, scheme encoding,
+  verifier, lowering and evaluator.
 - **Retained, not this campaign:** `deser-*`, `finish-lint`, `perf-*`,
   `requalify-57a-ef7`, `lean-g1c` (`88caa3edb`), `xinit-optional-condition`.
 
