@@ -1901,6 +1901,27 @@ proc main(...operands: List[Bytes]) [process, error] {
   )?
 }
 
+test test_full_inference_forwarded_nullable_argument_reaches_a_guarded_generic_parameter { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure prompt(next_name) -> Str {
+  if let following = next_name { f" (Next file: {following})" } else { " (END)" }
+}
+pure page(next_name) -> Str {
+  prompt(next_name)
+}
+proc main() [io] {
+  let n: Str? = null
+  print $page(n)
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == " (END)\n", output.stdout
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,

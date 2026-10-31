@@ -4472,9 +4472,11 @@ fn verify_symbolic_call_arguments(
         };
         let actual = scheme_body_fact_type(store, caller_scheme, value.raw(), FullSchemeBodyFactKind::Expression)?.ok_or_else(|| IrVerifyError::new("generic call argument has no checked scheme fact"))?;
         let actual = decode_scheme_type(store, caller_scope, actual, budget, 0)?;
-        let matches = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
-        if !matches { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
-        verify_symbolic_argument_evidence(&parameter_type, &actual, callee_scope, substitution, SymbolicEvidenceSource::Argument, &mut binder_evidence, budget, 0)?;
+        let direct = actual == expected || matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual.matches_expected(&expected));
+        let known = !direct && applications::known_argument_assignment_matches(store, decoder.owner, caller_scope, &actual, &expected, budget)?;
+        if !direct && !known { return Err(IrVerifyError::new("generic call argument does not match its checked scheme fact")); }
+        let source = if known { SymbolicEvidenceSource::KnownArgument } else { SymbolicEvidenceSource::Argument };
+        verify_symbolic_argument_evidence(&parameter_type, &actual, callee_scope, substitution, source, &mut binder_evidence, budget, 0)?;
         row_evidence.extend(scheme_type_binders(store, parameter.ty, budget)?.1);
     }
     extend_symbolic_iteration_evidence(store, callee_scope, caller_scope, substitution, &mut binder_evidence, budget)?;
@@ -4541,6 +4543,7 @@ fn extend_symbolic_iteration_evidence(
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum SymbolicEvidenceSource {
     Argument,
+    KnownArgument,
     Iteration,
     Projection,
 }
@@ -4559,6 +4562,10 @@ fn verify_symbolic_argument_evidence(
     budget.charge(1)?;
     if let SchemeType::Parameter(id) = parameter {
         let binder = *scope.type_binders.get(&id.0).ok_or_else(|| IrVerifyError::new("scheme type parameter is out of scope"))?;
+        if source == SymbolicEvidenceSource::KnownArgument {
+            evidence.insert(binder);
+            return Ok(());
+        }
         if !body_types_equal(actual, &substitution.types[binder]) {
             if source == SymbolicEvidenceSource::Projection { return Ok(()); }
             if source == SymbolicEvidenceSource::Iteration && !scheme_type_contains_any(&substitution.types[binder], budget)? && body_type_matches(actual, &substitution.types[binder], budget)? { return Ok(()); }
