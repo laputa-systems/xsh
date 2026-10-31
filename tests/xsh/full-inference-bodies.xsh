@@ -1962,6 +1962,39 @@ test test_full_inference_map_comprehension_key_from_an_unresolved_field { |ctx|
   assert output.success, output.stderr
 }
 
+test test_full_inference_generic_proc_loop_tail_keeps_its_condition { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc f(socket_path) [io] {
+  if true { exit 0 }
+  while true {
+    print $socket_path
+  }
+}
+let _ = f("a")
+""",
+  )?
+  assert output.success, output.stderr
+}
+
+test test_full_inference_boolean_chain_loop_condition_is_not_read_as_an_expression { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc pick(names: List[Str]) -> Int {
+  var n = 0
+  for name in names {
+    continue when name != "a" or name == "b"
+    n += 1
+  }
+  n
+}
+print $pick(["a", "c", "b"])
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n", output.stdout
+}
+
 test test_full_inference_record_argument_with_a_computed_field_reaches_a_generic_callee { |ctx|
   let output = test.expect(
     ctx,

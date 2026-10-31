@@ -17129,6 +17129,45 @@ fn indexed_condition_bool_literal(
     }
 }
 
+fn indexed_condition_bool_literal_with_decoder(
+    store: &FullStore,
+    decoder: Option<&FullDecoder<'_>>,
+    instruction: usize,
+) -> Result<Option<bool>, IrVerifyError> {
+    let Some(decoder) = decoder else {
+        return indexed_condition_bool_literal(store, instruction as u32);
+    };
+    let mut current = instruction;
+    for _ in 0..8 {
+        if let Some(value) = indexed_condition_bool_literal(store, current as u32)? {
+            return Ok(Some(value));
+        }
+        if store.tags[current].kind() != schema::InstructionKind::Expr {
+            return Ok(None);
+        }
+        match decoder.expression_view(current)? {
+            schema::ExprView::ValueBlock { mut body, .. } => {
+                let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? else {
+                    return Ok(None);
+                };
+                current = tail;
+            }
+            schema::ExprView::Param(slot) => {
+                let (has_local_write, initializer) = decoder.local_immutable_let_initializer(slot)?;
+                if !has_local_write {
+                    return Ok(None);
+                }
+                let Some(initializer) = initializer else {
+                    return Ok(None);
+                };
+                current = initializer;
+            }
+            _ => return Ok(None),
+        }
+    }
+    Ok(None)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum IndexedCardinality {
     Empty,
@@ -18848,7 +18887,7 @@ fn indexed_stmt_can_return_with_decoder(
                         // alternatives can produce a value for the if.
                         chain_consumed = true;
                     } else {
-                        match indexed_condition_bool_literal(store, condition)? {
+                        match indexed_condition_bool_literal_with_decoder(store, decoder, condition as usize)? {
                         Some(false) => {}
                         Some(true) => {
                             chain_can_return &= indexed_block_can_return_with_decoder(
@@ -19035,7 +19074,7 @@ fn indexed_stmt_can_return_with_decoder(
             if store.blocks.get(body.index()).is_none() {
                 return Err(IrVerifyError::new("return-analysis while body is out of bounds"));
             }
-            indexed_condition_bool_literal(store, condition)? == Some(true)
+            indexed_condition_bool_literal_with_decoder(store, decoder, condition as usize)? == Some(true)
                 && !indexed_loop_has_reachable_break(decoder, instruction)?
         }
         FullTag::StmtLoop => {
