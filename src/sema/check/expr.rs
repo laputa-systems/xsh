@@ -2008,6 +2008,7 @@ impl Checker {
         for field in arena.arena.record_fields(range) {
             let (key_ty, actual, span) = match field.kind {
                 ArenaRecordFieldKind::Computed { key, value, span } => {
+                    self.record_uint_key_site(arena.arena.expr(key).span);
                     let key_ty = self.check_schema_child_expr_arena(
                         arena,
                         source,
@@ -2765,6 +2766,7 @@ impl Checker {
             Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())),
             _ => (None, None),
         };
+        self.record_uint_key_site(arena.arena.expr(key).span);
         let key_ty = self.check_expr_arena(arena, source, key, expected_key);
         if !key_ty.is_recovery()
             && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
@@ -3654,6 +3656,7 @@ impl Checker {
                         (left_ty, right_ty.into_unvalidated())
                     };
                 let Ok(left_ty) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
+                if matches!(right_ty.unvalidated(), Type::Inference(_) | Type::Map(_, _)) { self.record_uint_key_site(left_span); }
                 if matches!(right_ty.unvalidated(), Type::Inference(_)) {
                     let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
                     let owner = self.constraint_scope();
@@ -4428,11 +4431,7 @@ impl Checker {
         if self.boundary.retry_attempt_depth > 0 { return WrapperBoundary::Captured; }
         match self.boundary.current_return.clone() {
             Some(super::ReturnContext::Function(ty)) => {
-                let inferred_proc_owner = self.boundary.effect_owner.filter(|owner| {
-                    self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner))
-                        .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
-                });
-                if let Some(owner) = inferred_proc_owner {
+                if let Some(owner) = self.inferred_return_proc_owner() {
                     match self.type_constraints.ensure_proc_completion_group(owner, owner.body, self.callable_solver_level()) {
                         Ok((group, returned)) => WrapperBoundary::ProcCompletion { returned, group: WrapperGroupRef::Source(group) },
                         Err(error) => {
@@ -4447,6 +4446,26 @@ impl Checker {
             }
             Some(super::ReturnContext::Producer) => WrapperBoundary::Producer,
             None => WrapperBoundary::TopLevel,
+        }
+    }
+
+    fn inferred_return_proc_owner(&self) -> Option<super::EffectDeclarationId> {
+        self.boundary.effect_owner.filter(|owner| {
+            self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner))
+                .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
+        })
+    }
+
+    fn key_validation_failure_is_fatal(&self) -> bool {
+        if self.boundary.retry_attempt_depth > 0 || self.boundary.in_pure { return false; }
+        matches!(self.boundary.current_return, Some(super::ReturnContext::Function(_)))
+            && self.inferred_return_proc_owner().is_none()
+            && !self.declared_error_effect_carries_index_failure()
+    }
+
+    pub(super) fn record_uint_key_site(&mut self, key_span: Span) {
+        if self.key_validation_failure_is_fatal() {
+            self.fatal_key_validation_spans.insert(key_span);
         }
     }
 
@@ -4514,6 +4533,7 @@ impl Checker {
                 .map_or(crate::sema::sealed_operation::IndexSyntax::Ordinary, crate::sema::sealed_operation::IndexSyntax::NegativeLiteral);
             let constant_key = crate::sema::projection::constant_string_key(&arena.arena, &self.prepared_constants, index);
             self.from_end_indexes.remove(&span);
+            if matches!(base_ty.unvalidated(), Type::Inference(_) | Type::Map(_, _)) { self.record_uint_key_site(index_span); }
             let result = self.check_sealed_postfix_operation(span, DiagnosticCode::CheckIndexType, |result| crate::sema::sealed_operation::SealedOperation::Index { receiver: base_ty, key, result, syntax, constant_key, span });
             let owner = self.constraint_scope();
             let validation = self.type_constraints.source_sealed_operation(owner, span).and_then(|operation| match operation {
@@ -4541,6 +4561,7 @@ impl Checker {
                     None,
                 );
                 self.expect_type(&key, &index_ty, index_span);
+                if key.unvalidated() == &Type::UInt { self.record_uint_key_site(index_span); }
                 if crate::sema::sealed_operation::requires_uint_key_validation(&Type::Map(key.clone(), item.clone()), &index_ty) {
                     let operation_owner = self.constraint_scope();
                     let operation = crate::sema::sealed_operation::SealedOperation::Index {

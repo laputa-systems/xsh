@@ -1429,7 +1429,7 @@ enum PreparedGuardCallBinding { Null, NonNull(PreparedInvocationBindings), Optio
 pub(in crate::runtime::eval) enum PreparedIndexLiteral { FromEnd(usize), MapKey { key: i64, check: PreparedIndexKeyCheck } }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(in crate::runtime::eval) enum PreparedIndexKeyCheck { Ordinary, UInt }
+pub(in crate::runtime::eval) enum PreparedIndexKeyCheck { Ordinary, UInt, FatalUInt }
 
 #[derive(Clone, Copy)]
 enum PreparedIndexReceiver { List, SignedMap, UnsignedMap, Keyed }
@@ -1479,7 +1479,7 @@ impl FullStore {
         Ok(Some((id, None, schemes::FullRequirementRanges { effect_predicates: scheme.effect_predicates, applications: scheme.applications, operations: scheme.operations, methods: scheme.methods, wrappers: scheme.wrappers, guard_calls: scheme.guard_calls })))
     }
 
-    fn sealed_operation_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullSealedOperation>, IrVerifyError> {
+    fn sealed_operation_ordinal(&self, owner: u32, instruction: u32) -> Result<Option<u32>, IrVerifyError> {
         let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Ok(None); };
         let FullCallableContract::Scheme(id) = self.functions[function.index()].contract else { return Ok(None); };
         let scheme = self.scheme(id)?;
@@ -1488,6 +1488,11 @@ impl FullStore {
         let Ok(index) = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)) else { return Ok(None); };
         if facts[index].function != function { return Err(IrVerifyError::new("operation body fact belongs to another function")); }
         let schemes::FullSchemeBodyFactValue::Operation(ordinal) = facts[index].value else { return Err(IrVerifyError::new("operation body fact has no requirement")); };
+        Ok(Some(ordinal))
+    }
+
+    fn sealed_operation_site(&self, owner: u32, instruction: u32) -> Result<Option<schemes::FullSealedOperation>, IrVerifyError> {
+        let Some(ordinal) = self.sealed_operation_ordinal(owner, instruction)? else { return Ok(None); };
         let (_, _, pack) = self.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("operation has no prepared owner"))?;
         let range = pack.operations.bounds(self.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("operation range is invalid"))?;
         self.scheme_operations[range].get(ordinal as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("operation ordinal is out of bounds"))
@@ -1572,12 +1577,32 @@ impl FullProgram {
     fn membership_key_check(&self, owner: u32, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Err(IrVerifyError::new("membership check has no function owner")); };
         let FullCallableContract::Scheme(id) = self.store.functions[function.index()].contract else { return Err(IrVerifyError::new("membership check has no scoped contract")); };
-        let invocation = self.invocation_at(owner, instruction, invocation)?;
+        let scoped = self.invocation_at(owner, instruction, invocation)?;
         let (actual, _, pack) = self.store.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("membership check has no prepared owner"))?;
         if actual != id { return Err(IrVerifyError::new("membership check belongs to another callable")); }
         let operations = pack.operations.bounds(self.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
         let Some(schemes::FullSealedOperation::Membership { container, .. }) = self.store.scheme_operations[operations].get(ordinal as usize) else { return Err(IrVerifyError::new("membership check names another operation")); };
-        self.invocation_membership_key_check(*container, invocation)
+        let check = self.invocation_membership_key_check(*container, scoped)?;
+        self.key_check_at_boundary(check, owner, instruction, ordinal)
+    }
+
+    fn key_check_at_boundary(&self, check: PreparedIndexKeyCheck, owner: u32, instruction: u32, operation: u32) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        if check != PreparedIndexKeyCheck::UInt { return Ok(check); }
+        let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Err(IrVerifyError::new("key validation has no function owner")); };
+        let (_, _, pack) = self.store.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("key validation has no prepared owner"))?;
+        let wrappers = pack.wrappers.bounds(self.store.scheme_wrappers.len()).ok_or_else(|| IrVerifyError::new("key validation wrapper range is invalid"))?;
+        let Some(detail) = self.store.scheme_wrappers[wrappers].iter().find_map(|wrapper| match *wrapper {
+            schemes::FullWrapper::KeyValidation { operation: actual, detail } if actual == operation => Some(detail),
+            _ => None,
+        }) else { return Ok(check); };
+        let boundary = self.store.wrapper_key_validations.get(detail as usize).ok_or_else(|| IrVerifyError::new("key validation boundary is out of bounds"))?.boundary;
+        let pure = self.store.function_metadata[function.index()].callable_kind == CallableKind::Pure;
+        let propagates = match boundary {
+            schemes::FullWrapperBoundary::Captured | schemes::FullWrapperBoundary::ErrorReturn(_) | schemes::FullWrapperBoundary::ProcCompletion { .. }
+            | schemes::FullWrapperBoundary::Producer | schemes::FullWrapperBoundary::TopLevel => true,
+            schemes::FullWrapperBoundary::Return(_) => pure,
+        };
+        Ok(if propagates { PreparedIndexKeyCheck::UInt } else { PreparedIndexKeyCheck::FatalUInt })
     }
 
     fn invocation_membership_key_check(&self, mut container: schemes::SchemeTypeId, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
@@ -1630,7 +1655,8 @@ impl FullProgram {
 
     fn index_key_check(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         let Some((receiver, _)) = self.index_contract(owner, instruction, invocation)? else { return Ok(PreparedIndexKeyCheck::Ordinary); };
-        Ok(receiver.key_check())
+        let operation = self.store.sealed_operation_ordinal(owner, instruction)?.ok_or_else(|| IrVerifyError::new("index key check has no sealed operation"))?;
+        self.key_check_at_boundary(receiver.key_check(), owner, instruction, operation)
     }
 
     fn index_literal_mode(&self, owner: u32, instruction: u32, distance: crate::runtime::eval::EndDistance, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexLiteral, IrVerifyError> {
@@ -1640,9 +1666,10 @@ impl FullProgram {
         if expected.get() as usize != distance.get() { return Err(IrVerifyError::new("literal index distance disagrees with its operation")); }
         match receiver {
             PreparedIndexReceiver::List => Ok(PreparedIndexLiteral::FromEnd(distance.get())),
-            PreparedIndexReceiver::SignedMap | PreparedIndexReceiver::UnsignedMap => Ok(PreparedIndexLiteral::MapKey {
-                key: -(distance.get() as i64), check: receiver.key_check(),
-            }),
+            PreparedIndexReceiver::SignedMap | PreparedIndexReceiver::UnsignedMap => {
+                let operation = self.store.sealed_operation_ordinal(owner, instruction)?.ok_or_else(|| IrVerifyError::new("literal index has no sealed operation"))?;
+                Ok(PreparedIndexLiteral::MapKey { key: -(distance.get() as i64), check: self.key_check_at_boundary(receiver.key_check(), owner, instruction, operation)? })
+            }
             _ => Err(IrVerifyError::new("literal index receiver has no prepared List or integer Map contract")),
         }
     }

@@ -625,6 +625,13 @@ impl Checker {
         {
             return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), name, args, span, expected);
         }
+        if crate::sema::builtin_templates::registered_uint_map_key(Some(receiver_ty.unvalidated())) {
+            for arg in args {
+                if let crate::syntax::arena::ArenaCallArgKind::Positional(value) | crate::syntax::arena::ArenaCallArgKind::Named { value, .. } = arg.kind {
+                    self.record_uint_key_site(arena.arena.expr(value).span);
+                }
+            }
+        }
         let selection = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
         let (method, checked_values) = match selection {
             MethodSelection::BeforeArguments(method) => (method, None),

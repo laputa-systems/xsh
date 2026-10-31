@@ -428,11 +428,15 @@ pub(super) fn finish_checked_value(
 ) -> Result<CheckedValueOutcome, RuntimeError> {
     match check {
         IndexedValueCheck::MembershipKey(ordinal) => {
-            if execution.membership_key_check(instruction, *ordinal, invocation).map_err(|error| indexed_error(error, span))? == crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt {
-                let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
-                return Ok(CheckedValueOutcome::Propagate(crate::runtime::eval::require::require_value(evaluator, value, &check, span)));
+            let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
+            match execution.membership_key_check(instruction, *ordinal, invocation).map_err(|error| indexed_error(error, span))? {
+                crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt => Ok(CheckedValueOutcome::Propagate(crate::runtime::eval::require::require_value(evaluator, value, &check, span))),
+                crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::FatalUInt => {
+                    super::checked_storage_value(evaluator, &value, &check, span)?;
+                    Ok(CheckedValueOutcome::Value(value))
+                }
+                crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::Ordinary => Ok(CheckedValueOutcome::Value(value)),
             }
-            Ok(CheckedValueOutcome::Value(value))
         }
         IndexedValueCheck::RecordConstructor => Ok(CheckedValueOutcome::Value(value)),
         IndexedValueCheck::Ground(check) => {

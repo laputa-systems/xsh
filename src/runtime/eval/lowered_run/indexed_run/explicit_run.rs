@@ -8035,7 +8035,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::IndexValue { base, check, span, next } => match value {
                 FrameValue::Value(value) => {
-                    if check == PreparedIndexKeyCheck::UInt && !crate::runtime::eval::type_view::value_matches_runtime_type(crate::runtime::eval::ValueView::Lowered(&value), &crate::sema::types::Type::UInt) {
+                    if check == PreparedIndexKeyCheck::FatalUInt {
+                        super::super::checked_storage_value(self.evaluator, &value, &LoweredTypeCheck { ty: crate::sema::types::Type::UInt, name: Arc::from("UInt"), schema: None }, span)?;
+                        let value = super::lowered_index_value(base, value, span)?;
+                        self.push_value(index, FrameValue::Value(value), *next);
+                    } else if check == PreparedIndexKeyCheck::UInt && !crate::runtime::eval::type_view::value_matches_runtime_type(crate::runtime::eval::ValueView::Lowered(&value), &crate::sema::types::Type::UInt) {
                         let value = crate::runtime::eval::require::require_value(self.evaluator, value, &LoweredTypeCheck { ty: crate::sema::types::Type::UInt, name: Arc::from("UInt"), schema: None }, span);
                         let next = FrameContinuation::IndexValue { base, check: PreparedIndexKeyCheck::Ordinary, span, next };
                         self.push_value(index, FrameValue::Value(value), FrameContinuation::Try { span, next: Box::new(next) });

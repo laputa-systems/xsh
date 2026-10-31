@@ -165,7 +165,7 @@ struct Operation {
 enum ControlFact {
     NonnullFallback, PropagatingStatement, DiscardableBinding, PropagatingCondition, RedundantConditionPropagation,
     ExitingBlock, PathLiteral, OptionalBinding, Builtin(super::CheckedBuiltinCall), CardinalityPreserving, PropagatingError,
-    LatentStreamError, FallibleStage, PropagatingStageCallback, ExhaustiveMatch,
+    LatentStreamError, FallibleStage, PropagatingStageCallback, ExhaustiveMatch, FatalKeyValidation,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1128,7 +1128,7 @@ impl Capture<'_> {
     }
 }
 
-fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 14] {
+fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 15] {
     let facts = &checked.checked_control_flow;
     [
             (ControlFact::NonnullFallback, &checked.proven_nonnull_fallback_receivers),
@@ -1145,6 +1145,7 @@ fn control_sets(checked: &CheckOutput) -> [(ControlFact, &BTreeSet<Span>); 14] {
             (ControlFact::FallibleStage, &facts.fallible_pipeline_stage_spans),
             (ControlFact::PropagatingStageCallback, &facts.propagating_stage_callback_spans),
             (ControlFact::ExhaustiveMatch, &facts.exhaustive_match_spans),
+            (ControlFact::FatalKeyValidation, &facts.fatal_key_validation_spans),
         ]
 }
 

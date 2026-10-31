@@ -6075,6 +6075,7 @@ impl Checker {
                     Type::Map(key_ty, item_ty) => {
                         let index_span = arena.arena.expr(*index).span;
                         self.expect_type(&key_ty, &index_ty, index_span);
+                        if key_ty.unvalidated() == &Type::UInt { self.record_uint_key_site(index_span); }
                         item_ty.as_ref().clone()
                     }
                     Type::List(item_ty) => {

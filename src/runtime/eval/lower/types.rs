@@ -431,6 +431,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     pub(super) fn require_uint_key(&mut self, value: BuildExprId, span: Span) -> BuildExprId {
+        if self.bodies.checked_control_flow.fatal_key_validation_spans.contains(&span) {
+            return self.checked_unsigned_value(value, &Type::UInt, span);
+        }
         let check = LoweredTypeCheck {
             ty: Type::UInt,
             name: Arc::from("UInt"),

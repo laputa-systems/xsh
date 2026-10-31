@@ -520,6 +520,7 @@ pub struct CheckedControlFlowFacts {
     pub(crate) fallible_pipeline_stage_spans: BTreeSet<Span>,
     pub(crate) propagating_stage_callback_spans: BTreeSet<Span>,
     pub(crate) exhaustive_match_spans: BTreeSet<Span>,
+    pub(crate) fatal_key_validation_spans: BTreeSet<Span>,
 }
 
 impl CheckedControlFlowFacts {
@@ -543,6 +544,8 @@ impl CheckedControlFlowFacts {
             .append(&mut other.propagating_stage_callback_spans);
         self.exhaustive_match_spans
             .append(&mut other.exhaustive_match_spans);
+        self.fatal_key_validation_spans
+            .append(&mut other.fatal_key_validation_spans);
     }
 }
 
@@ -1955,6 +1958,7 @@ pub struct Checker {
     fallible_pipeline_stage_spans: BTreeSet<Span>,
     propagating_stage_callback_spans: BTreeSet<Span>,
     exhaustive_match_spans: BTreeSet<Span>,
+    fatal_key_validation_spans: BTreeSet<Span>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     resource_transfers: ResourceTransferFacts,
     same_scope_resource_assignments: rustc_hash::FxHashSet<crate::syntax::arena::StmtId>,
@@ -2252,6 +2256,7 @@ impl Checker {
                 fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
                 propagating_stage_callback_spans: self.propagating_stage_callback_spans,
                 exhaustive_match_spans: self.exhaustive_match_spans,
+                fatal_key_validation_spans: self.fatal_key_validation_spans,
             },
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
@@ -2385,6 +2390,7 @@ impl Checker {
             fallible_pipeline_stage_spans: BTreeSet::new(),
             propagating_stage_callback_spans: BTreeSet::new(),
             exhaustive_match_spans: BTreeSet::new(),
+            fatal_key_validation_spans: BTreeSet::new(),
             resource_scopes: BTreeMap::new(),
             resource_transfers: ResourceTransferFacts::default(),
             same_scope_resource_assignments: rustc_hash::FxHashSet::default(),

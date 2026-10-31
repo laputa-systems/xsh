@@ -20,10 +20,15 @@ projection path`, and is not part of the applied view.
   builds only `xsh`.
 - **Next slice:** the verifier tail of the core-wide erasure (classes of one to
   four sites each); measure it first with `inventory.sh` and `erase_sites.py`.
-  Open gap: `proc f(m: Map[UInt, Int], k: Int) -> Int { m[k] }` (concrete, no
-  effect clause) still fails verification with `executable operation requires
-  effect error outside its owner contract`; lowering emits the key-validation
-  `ExprTry` for a proc whose declared effects lack `error`.
+  Open gap: a `pure` function whose return is not a `Result` still lets a
+  failed `UInt` key validation propagate as a catchable Schema error to its
+  caller's `try`, on both routes; making it fatal needs the call boundary to
+  convert it, because a generic body's fatality depends on the instantiated
+  return. A ground key site in a proc with an inferred return
+  (`proc g(m: Map[UInt, Int], k: Int) { let v = m[k] }`, the `ProcCompletion`
+  boundary) still fails verification: the generic route turns the failure into
+  the proc's `Err` completion, and the ground route emits a `Try` that needs
+  `error`. Procs with a declared return are fatal without `error` (slice 55).
 - **Decided 2026-10-31:** the key-validation boundary of an index takes
   `ErrorReturn` only when the callable declares `error`
   (`declared_error_effect_carries_index_failure`); an effect-inferring proc
@@ -713,6 +718,8 @@ prescribed decisions are the starting rules.
 - 2026-10-31, slice 53 (record argument to an erased record parameter): `inner(1, {family: "inet", port: port}, opts)` with `target: Record` on a generic callee failed "generic call argument does not match its checked scheme fact"; the call-argument check compared only closed ground types. It now also applies the body rule that a record row satisfies an erased record. `db9bae510`; the joint erasure of the 81 passing `core/nc.xsh` parameter sites checks.
 - 2026-10-31, slice 54 (record argument at a registered module call): the same literal passed to `linux.connect` or `linux.sendto` (`Union[Record, Bytes]`, optional) failed "generic module call disagrees with its selected registry signature"; the symbolic template match now admits a record row for a parameter that admits any record (erased record, union member, optional). `ff6e8e13c`; the three `core/traceroute.xsh` single-site failures pass and its 106-site joint checks. `xsht check core` reports no error with the new compiler. Gate runs: the bundled cases time out under host load (`test-lowering`, `test-type-agreement`, `test-sema` take turns exceeding the budget when other jobs run); each passes alone: `test-lowering` 1,592, `test-sema` 55, `test-sema-unit` 934, `test-type-agreement` 1, `lowering-coverage` 13, the bodies native file 109. Parked: `core/fmt.xsh` (see Status).
 - 2026-10-31, core-wide re-measure after slice 54: on the 310ec48ab `core/*.xsh` snapshot with 4,725 parameter sites, the current `xsht` erases 4,523 alone (95.7%); the release `xsht` built 2026-10-30 (slice 44) erases 4,502 on the same inputs and flags, so slices 45-54 add 21 and regress none. The 97.0% line of slice 34 used another snapshot (the migrated `core/tar.xsh`) and is not comparable. About 28 failures are parse or lex errors where the erased span breaks the surrounding text (`parse.expected-token` 9, `parse.expected-terminator` 7, `parse.fmt-interpolation-trailing` 5, and others); they appear in both runs and belong to the inventory spans, not the compiler. The remaining checker classes: `check.type-mismatch` 88 (mostly optional contracts), `check.assign-target` 8 (an indexed assignment on an unresolved receiver, for example `out[at] = out[pick]` in `nc` `shuffled`), `check.conversion` 6, `check.inferred-variant` 6, `check.pattern-type` 5, then a tail of verifier classes of one to four sites each.
+
+- 2026-10-31, slice 55 (`UInt` key validation in a proc without `error`): every ground `Map[UInt]` key site (index, map literal, comprehension, indexed assignment, membership, map method key) lowered to `Require` plus `Try`, so any proc without `error` failed verification (`executable operation requires effect error outside its owner contract`), including a constant `{[1]: 7}` in `proc main() [io]`; the generic route passed verification but propagated a catchable Schema error out of such a proc. The checker now records the ground key sites in a proc with a declared return and without `error`, outside `try`/`retry` (`fatal_key_validation_spans`), and lowering emits the fatal `UInt` value check there; on the generic route the prepared index and membership key check reads the authenticated key-validation wrapper boundary and fails fatally (`PreparedIndexKeyCheck::FatalUInt`) for the `Return` boundary of a proc; a `ProcCompletion` boundary keeps the failure as the proc's `Err` completion. Both routes report `value violates UInt constraint in UInt`. `pure` is unchanged (see Status). SPEC updated; native test `test_typed_map_unsigned_key_failure_is_fatal_in_a_proc_without_error`.
 
 ## For the owner afterwards
 

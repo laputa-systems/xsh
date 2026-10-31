@@ -2001,7 +2001,11 @@ a function returning `Result`, the function's error type must admit `Error`.
 A caller-side `try` does not widen the called function's `Result` error type.
 Handle the index inside the function or pass a `UInt` key when it is already
 validated. With a `UInt` key, a stored `Result` error remains ordinary result
-data.
+data. The same validation applies to a `Map[UInt, V]` key in a map literal, a
+map comprehension, an indexed assignment, a membership test, and a key
+argument of a map method. In a `proc` with a declared return type that does
+not declare `error`, a key failure outside `try` and `retry` is fatal, as a
+`UInt` constraint violation is, and a caller's `try` does not capture it.
 
 `value[start..end]` slices a `List[T]`, `Str`, or `Bytes` and returns the same
 type. Either bound may be omitted. Negative bounds count from the end, and

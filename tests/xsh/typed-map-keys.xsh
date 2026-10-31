@@ -240,3 +240,31 @@ const values: Map[Key, Str] = {[-1]: "bad"}
     }
   }
 }
+
+test test_typed_map_unsigned_key_failure_is_fatal_in_a_proc_without_error { |ctx|
+  let caller = """
+proc main() [io, error] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  print (try { keyed(values, 1) } ?? "unexpected")
+  print (try { keyed(values, -1) } ?? "captured")
+}
+"""
+  for site in [
+    """proc keyed(values: Map[UInt, Str], key: Int) [io] -> Str { values[key] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) -> Str { values[key] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) [io] -> Str { values.get(key) ?? "missing" }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) [io] -> Str { if key in values { "present" } else { "absent" } }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) [io] -> Str { var copy = values; copy[key] = "set"; copy[key] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) [io] -> Str { let copy: Map[UInt, Str] = {[key]: "literal"}; copy.values()[0] }""",
+    """proc keyed(values: Map[UInt, Str], key: Int) [io] -> Str { let copy: Map[UInt, Str] = {item: "built" for item in [key]}; copy.values()[0] }""",
+  ] {
+    let output = test.run_script(ctx, f"{site}\n{caller}")?
+    assert ! output.success, site
+    assert "violates UInt constraint" in output.stderr, f"{site}: {output.stderr}"
+    assert ! ("captured" in output.stdout), f"{site}: {output.stdout}"
+    assert ! ("unexpected" in output.stdout), f"{site}: {output.stdout}"
+  }
+  let propagated = test.run_script(ctx, """proc keyed(values: Map[UInt, Str], key: Int) [io, error] -> Str { values[key] }""" + caller)?
+  assert propagated.success, propagated.stderr
+  assert propagated.stdout == "one\ncaptured\n", propagated.stdout
+}
