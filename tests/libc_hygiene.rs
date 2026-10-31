@@ -100,6 +100,10 @@ const ALLOW: &[(&str, &str)] = &[
         "STDERR_FILENO",
         "integer fd constant — rustix stdio::stderr() returns a BorrowedFd",
     ),
+    (
+        "mknod",
+        "rustix mknodat is not built for Apple targets — macOS device nodes use the platform mknod",
+    ),
 ];
 
 // ─────────────────────────── target discovery ──────────────────────────────

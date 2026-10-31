@@ -2286,16 +2286,13 @@ impl TempRoot {
             if result == -1 {
                 return Err(std::io::Error::last_os_error());
             }
-            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-            let status = unsafe { libc::stat(path.as_ptr().cast(), &mut stat) };
-            if status == 0 {
-                return Ok(false);
+            let name = std::ffi::CStr::from_bytes_until_nul(&path)
+                .map_err(|_| std::io::Error::other("descriptor path was not NUL-terminated"))?;
+            match rfs::stat(name) {
+                Ok(_) => return Ok(false),
+                Err(rustix::io::Errno::NOENT) => return Ok(true),
+                Err(error) => return Err(std::io::Error::from(error)),
             }
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::ENOENT) {
-                return Ok(true);
-            }
-            return Err(error);
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
