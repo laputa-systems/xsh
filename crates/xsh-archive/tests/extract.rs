@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use support::specs::*;
-use support::{budget, budget_with, tar_with};
+use support::{budget, budget_with};
 use xsh_archive::{
     Archive, Budget, Codec, Collision, Compression, Encode, Encoder, ErrorKind, Format, Limits,
     Links, Modes, Policy, Source, Special, extract,
@@ -368,8 +368,11 @@ fn strip_components_and_member_filters_apply_to_names_and_hard_link_targets() {
     );
 }
 
+// APFS rejects file names that are not valid UTF-8.
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn non_utf8_names_survive_extraction_byte_for_byte() {
+    use support::tar_with;
     let sandbox = Sandbox::new();
     let bytes = tar_with(&[(b"caf\xe9/na\xefve", b"data")]);
     run(bytes, &sandbox.path("dest"), &Policy::default()).unwrap();

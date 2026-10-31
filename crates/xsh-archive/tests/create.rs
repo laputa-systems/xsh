@@ -107,7 +107,7 @@ fn named_entries_keep_their_relative_names_and_directories_recurse() {
 }
 
 #[test]
-fn long_names_long_links_and_non_utf8_names_survive() {
+fn long_names_and_long_links_survive() {
     let base = sandbox();
     let src = base.path().join("src");
     let long_dir = "d".repeat(120);
@@ -116,6 +116,26 @@ fn long_names_long_links_and_non_utf8_names_survive() {
     fs::write(src.join(&long_name), "long").unwrap();
     let long_target = "t".repeat(150);
     symlink(&long_target, src.join("longlink")).unwrap();
+
+    for format in [Format::Tar, Format::Cpio] {
+        let dest = base.path().join(format!("long.{}", format.name()));
+        create(&dest, &src, &entries(&["."]), &options(format), &budget()).unwrap();
+        let bytes = fs::read(&dest).unwrap();
+        let mut archive = open(bytes, format, Compression::Plain).unwrap();
+        let listing = list(&mut archive).unwrap();
+        let by_name = |name: &[u8]| listing.entries.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{format:?}: {}", String::from_utf8_lossy(name)));
+        assert_eq!(by_name(long_name.as_bytes()).size, Some(4), "{format:?}");
+        assert_eq!(by_name(b"longlink").link.as_deref(), Some(long_target.as_bytes()), "{format:?}");
+    }
+}
+
+// APFS rejects file names and symlink targets that are not valid UTF-8.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn non_utf8_names_and_link_targets_survive() {
+    let base = sandbox();
+    let src = base.path().join("src");
+    fs::create_dir_all(&src).unwrap();
     let raw_name = {
         use std::os::unix::ffi::OsStrExt;
         std::ffi::OsStr::from_bytes(b"caf\xe9").to_os_string()
@@ -133,8 +153,6 @@ fn long_names_long_links_and_non_utf8_names_survive() {
         let mut archive = open(bytes, format, Compression::Plain).unwrap();
         let listing = list(&mut archive).unwrap();
         let by_name = |name: &[u8]| listing.entries.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{format:?}: {}", String::from_utf8_lossy(name)));
-        assert_eq!(by_name(long_name.as_bytes()).size, Some(4), "{format:?}");
-        assert_eq!(by_name(b"longlink").link.as_deref(), Some(long_target.as_bytes()), "{format:?}");
         assert_eq!(by_name(b"oddlink").link.as_deref(), Some(&b"t\xffarget"[..]), "{format:?}");
         by_name(b"caf\xe9");
     }

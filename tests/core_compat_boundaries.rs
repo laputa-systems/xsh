@@ -224,7 +224,9 @@ fn test_cat_rw_self_succeeds() {
     assert_eq!(std::fs::read(combined).unwrap(), b"helloworld");
 }
 
-// origin: uutils test_cat::test_cat_rw_self_conflict_fails
+// GNU cat detects this through /proc fdinfo; the macOS reference cat has no
+// equivalent check.
+#[cfg(target_os = "linux")]
 #[test]
 fn test_cat_rw_self_conflict_fails() {
     let directory = tempfile::tempdir().unwrap();

@@ -148,6 +148,9 @@ fn xsh_byte_main_context_is_shared_by_imported_argument_readers() {
     assert!(output.stderr.is_empty());
 }
 
+// APFS rejects file names that are not valid UTF-8, so this fixture can only
+// exist on a filesystem that keeps raw path bytes.
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn xsh_byte_main_opens_non_utf8_path_without_display_conversion() {
     let root = tempfile::tempdir().expect("create raw path script directory");
