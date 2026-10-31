@@ -2,6 +2,15 @@ use std::fmt;
 
 use oxish_proto::{ProtoError, crypto::CryptoError};
 
+/// Whether a request may have reached the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Certainty {
+    /// The request was never submitted; retrying is safe.
+    NotSubmitted,
+    /// The request may have reached the server; retrying is unsafe.
+    Submitted,
+}
+
 /// A failure to establish or use an SSH connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -31,18 +40,43 @@ pub enum Error {
     },
     /// The server did not negotiate strict key exchange.
     StrictKexUnsupported,
+    /// The private key file could not be used.
+    KeyFile {
+        /// Why the key was rejected.
+        detail: String,
+    },
+    /// The private key file is encrypted.
+    EncryptedKey,
+    /// The server rejected authentication.
+    Authentication {
+        /// The server's failure detail.
+        detail: String,
+    },
+    /// A channel operation failed.
+    Channel {
+        /// Why the channel operation failed.
+        detail: String,
+    },
+    /// A request was never submitted and the transport failed.
+    NotSubmitted {
+        /// The underlying failure.
+        detail: String,
+    },
+    /// A request may have reached the server and the transport failed.
+    Submitted {
+        /// The underlying failure.
+        detail: String,
+    },
     /// The peer violated the SSH protocol.
     Protocol {
         /// Why the protocol state was rejected.
         detail: String,
     },
-    /// The connection ended before the operation completed.
-    Io {
-        /// The underlying failure.
-        detail: String,
-    },
     /// The operation exceeded its deadline.
-    Timeout,
+    Timeout {
+        /// Whether the request may have reached the server.
+        certainty: Certainty,
+    },
 }
 
 impl fmt::Display for Error {
@@ -57,9 +91,23 @@ impl fmt::Display for Error {
                 write!(formatter, "no supported {category} algorithm: {name}")
             }
             Self::StrictKexUnsupported => write!(formatter, "server does not support strict key exchange"),
+            Self::KeyFile { detail } => write!(formatter, "SSH key file: {detail}"),
+            Self::EncryptedKey => write!(formatter, "encrypted SSH keys are unsupported"),
+            Self::Authentication { detail } => write!(formatter, "authentication failed: {detail}"),
+            Self::Channel { detail } => write!(formatter, "SSH channel failed: {detail}"),
+            Self::NotSubmitted { detail } => {
+                write!(formatter, "SSH transport failed before submission: {detail}")
+            }
+            Self::Submitted { detail } => {
+                write!(formatter, "SSH transport failed after submission: {detail}")
+            }
             Self::Protocol { detail } => write!(formatter, "SSH protocol error: {detail}"),
-            Self::Io { detail } => write!(formatter, "SSH I/O error: {detail}"),
-            Self::Timeout => write!(formatter, "SSH operation timed out"),
+            Self::Timeout {
+                certainty: Certainty::NotSubmitted,
+            } => write!(formatter, "SSH operation timed out before submission"),
+            Self::Timeout {
+                certainty: Certainty::Submitted,
+            } => write!(formatter, "SSH operation timed out after submission"),
         }
     }
 }
@@ -68,11 +116,8 @@ impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        match error.kind() {
-            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => Self::Timeout,
-            _ => Self::Io {
-                detail: error.to_string(),
-            },
+        Self::NotSubmitted {
+            detail: error.to_string(),
         }
     }
 }
@@ -89,6 +134,32 @@ impl From<CryptoError> for Error {
     fn from(error: CryptoError) -> Self {
         Self::HostKey {
             detail: error.to_string(),
+        }
+    }
+}
+
+impl Error {
+    /// Attach execution certainty to a transport failure.
+    pub fn with_certainty(self, certainty: Certainty) -> Self {
+        match certainty {
+            Certainty::NotSubmitted => match self {
+                Self::NotSubmitted { detail } | Self::Submitted { detail } => {
+                    Self::NotSubmitted { detail }
+                }
+                Self::Timeout { .. } => Self::NotSubmitted {
+                    detail: "timed out".to_owned(),
+                },
+                other => other,
+            },
+            Certainty::Submitted => match self {
+                Self::NotSubmitted { detail } | Self::Submitted { detail } => {
+                    Self::Submitted { detail }
+                }
+                Self::Timeout { .. } => Self::Submitted {
+                    detail: "timed out".to_owned(),
+                },
+                other => other,
+            },
         }
     }
 }

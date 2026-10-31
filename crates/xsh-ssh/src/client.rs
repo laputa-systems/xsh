@@ -1,9 +1,12 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use oxish_proto::crypto::CryptoProvider;
 
+use crate::auth;
 use crate::error::Error;
+use crate::exec::{self, ExecOptions, ExecResult};
 use crate::host_key::HostKeyPin;
 use crate::kex::{self, Established};
 use crate::wire::Transport;
@@ -49,6 +52,7 @@ impl ClientConfig {
 
 /// An authenticated SSH connection.
 pub struct Connection {
+    config: ClientConfig,
     transport: Transport,
     established: Established,
 }
@@ -69,9 +73,31 @@ impl Connection {
         transport.exchange_identifications("xsh_0.0.1")?;
         let established = kex::connect(&mut transport, &config.host_key, provider)?;
         Ok(Self {
+            config: config.clone(),
             transport,
             established,
         })
+    }
+
+    /// Authenticate the configured user with the configured Ed25519 key.
+    pub fn authenticate(&mut self) -> Result<(), Error> {
+        self.authenticate_with(DEFAULT_PROVIDER)
+    }
+
+    /// Authenticate with an explicit cryptographic provider.
+    pub fn authenticate_with(&mut self, provider: &dyn CryptoProvider) -> Result<(), Error> {
+        auth::authenticate(
+            &mut self.transport,
+            &self.config.user,
+            &self.config.key,
+            self.established.session_id.as_ref(),
+            provider,
+        )
+    }
+
+    /// Run one remote command with bounded captured output.
+    pub fn exec(&mut self, command: &str, options: &ExecOptions) -> Result<ExecResult, Error> {
+        exec::exec(&mut self.transport, command, options)
     }
 
     /// The verified server fingerprint.
@@ -97,5 +123,17 @@ impl Connection {
     /// The underlying transport, for the authentication and channel layers.
     pub fn transport(&mut self) -> &mut Transport {
         &mut self.transport
+    }
+}
+
+impl fmt::Debug for Connection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Connection")
+            .field("host", &self.config.host)
+            .field("port", &self.config.port)
+            .field("user", &self.config.user)
+            .field("fingerprint", &self.established.fingerprint)
+            .finish_non_exhaustive()
     }
 }

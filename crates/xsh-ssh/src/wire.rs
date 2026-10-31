@@ -9,7 +9,13 @@ use oxish_proto::{
     Completion, Encode, IncomingPacket, MessageType, ProtoError, ReadState, WriteState,
 };
 
-use crate::error::Error;
+use crate::error::{Certainty, Error};
+
+/// Append an SSH `string`.
+pub(crate) fn put_string(buffer: &mut Vec<u8>, value: &[u8]) {
+    buffer.extend_from_slice(&(value.len() as u32).to_be_bytes());
+    buffer.extend_from_slice(value);
+}
 
 /// One decrypted SSH packet.
 pub struct Packet {
@@ -145,6 +151,8 @@ pub struct Transport {
     write: WriteState,
     client_identification: Vec<u8>,
     server_identification: Vec<u8>,
+    certainty: Certainty,
+    timeout: Duration,
 }
 
 impl Transport {
@@ -169,8 +177,13 @@ impl Transport {
         }
 
         let stream = stream.ok_or_else(|| match last_error {
-            Some(error) => Error::from(error),
-            None => Error::Io {
+            Some(error) if error.kind() == std::io::ErrorKind::TimedOut => Error::Timeout {
+                certainty: Certainty::NotSubmitted,
+            },
+            Some(error) => Error::NotSubmitted {
+                detail: error.to_string(),
+            },
+            None => Error::NotSubmitted {
                 detail: format!("no address resolved for {host}:{port}"),
             },
         })?;
@@ -183,20 +196,46 @@ impl Transport {
             write: WriteState::new(provider.secure_random()),
             client_identification: Vec::new(),
             server_identification: Vec::new(),
+            certainty: Certainty::NotSubmitted,
+            timeout,
         })
+    }
+
+    /// Record that a mutation request has been submitted.
+    pub fn mark_submitted(&mut self) {
+        self.certainty = Certainty::Submitted;
+    }
+
+    /// Change the read and write deadline.
+    pub fn set_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        self.stream.set_read_timeout(Some(timeout))?;
+        self.stream.set_write_timeout(Some(timeout))?;
+        self.timeout = timeout;
+        Ok(())
+    }
+
+    /// The current read and write deadline.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
     }
 
     /// Exchange and validate the SSH identification lines.
     pub fn exchange_identifications(&mut self, software: &str) -> Result<(), Error> {
         let client = format!("SSH-2.0-{software}");
-        self.stream.write_all(client.as_bytes())?;
-        self.stream.write_all(b"\r\n")?;
+        self.stream
+            .write_all(client.as_bytes())
+            .map_err(|error| self.transport_error(error))?;
+        self.stream
+            .write_all(b"\r\n")
+            .map_err(|error| self.transport_error(error))?;
         self.client_identification = client.into_bytes();
 
         let mut line = Vec::with_capacity(128);
         while !line.ends_with(b"\r\n") {
             let mut byte = [0u8; 1];
-            self.stream.read_exact(&mut byte)?;
+            self.stream
+                .read_exact(&mut byte)
+                .map_err(|error| self.transport_error(error))?;
             line.push(byte[0]);
             if line.len() > 255 + 2 {
                 return Err(Error::Protocol {
@@ -276,10 +315,15 @@ impl Transport {
     fn read_more(&mut self, needed: Option<usize>) -> Result<(), Error> {
         let mut buffer = [0u8; 16_384];
         let wanted = needed.unwrap_or(buffer.len()).clamp(1, buffer.len());
-        let read = self.stream.read(&mut buffer[..wanted])?;
+        let read = self
+            .stream
+            .read(&mut buffer[..wanted])
+            .map_err(|error| self.transport_error(error))?;
         if read == 0 {
-            return Err(Error::Protocol {
-                detail: "connection closed".to_owned(),
+            let detail = "connection closed".to_owned();
+            return Err(match self.certainty {
+                Certainty::NotSubmitted => Error::NotSubmitted { detail },
+                Certainty::Submitted => Error::Submitted { detail },
             });
         }
         self.read.buf.extend_from_slice(&buffer[..read]);
@@ -335,9 +379,27 @@ impl Transport {
         if buffered.is_empty() {
             return Ok(());
         }
-        self.stream.write_all(&buffered)?;
+        self.stream
+            .write_all(&buffered)
+            .map_err(|error| self.transport_error(error))?;
         self.write.clear();
         Ok(())
+    }
+
+    fn transport_error(&self, error: std::io::Error) -> Error {
+        match error.kind() {
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => Error::Timeout {
+                certainty: self.certainty,
+            },
+            _ => match self.certainty {
+                Certainty::NotSubmitted => Error::NotSubmitted {
+                    detail: error.to_string(),
+                },
+                Certainty::Submitted => Error::Submitted {
+                    detail: error.to_string(),
+                },
+            },
+        }
     }
 
 }
