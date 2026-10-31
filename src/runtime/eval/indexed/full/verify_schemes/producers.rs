@@ -2952,6 +2952,7 @@ impl<'a> ProducerProof<'a> {
                 .collect::<Result<Vec<_>, _>>()?;
             self.budget.charge(arms.len())?;
             let mut joined: Option<Type> = None;
+            let mut conditional = ConditionalProducerType::new();
             let mut empty_arms = 0usize;
             for arm in arms {
                 let arm = match decoder.expression_view(arm)? {
@@ -2964,17 +2965,22 @@ impl<'a> ProducerProof<'a> {
                     None => self.derived_argument_type(owner, arm)?,
                 };
                 let Some(arm_type) = arm_type else { return Ok(None) };
-                match &joined {
-                    None => joined = Some(arm_type),
-                    Some(previous) if *previous == arm_type => {}
-                    Some(_) => return Ok(None),
+                if arm_type != Type::Null {
+                    match &joined {
+                        None => joined = Some(arm_type.clone()),
+                        Some(previous) if *previous == arm_type => {}
+                        Some(_) => return Ok(None),
+                    }
                 }
+                conditional.observe(Some(Arc::new(arm_type)));
             }
+            let (joined, unknown) = conditional.finish(&mut self.budget)?;
+            if unknown { return Ok(None); }
             let Some(joined) = joined else { return Ok(None) };
-            if empty_arms > 0 && !matches!(joined, Type::List(_)) { return Ok(None); }
+            if empty_arms > 0 && !matches!(joined.as_ref(), Type::List(_)) { return Ok(None); }
             self.budget.charge_clone(&joined)?;
-            self.expression(owner, instruction, Arc::new(joined.clone()), false);
-            return Ok(Some(joined));
+            self.expression(owner, instruction, Arc::clone(&joined), false);
+            return Ok(Some(Arc::unwrap_or_clone(joined)));
         }
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
             op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..

@@ -2368,3 +2368,23 @@ proc main() [io] {
   )?
   assert output.stdout == "4\n", output.stdout
 }
+
+test test_full_inference_nullable_conditional_method_argument_reaches_a_generic_callee { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Settings = {pad: Int}
+proc fmt(source: Str, settings, implicit: Int?) [error] -> Int { implicit ?? settings.pad }
+proc caller(settings: Settings, n: Int, text: Str) [error] -> Int {
+  fmt("a", settings, if n > 0 { text.byte_len() } else { null })
+}
+proc main() [io, error] {
+  print $caller({pad: 9}, 1, "abc")
+  print $caller({pad: 9}, 0, "abc")
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "3\n9\n", output.stdout
+}
