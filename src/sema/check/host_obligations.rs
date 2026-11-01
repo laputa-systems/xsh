@@ -460,6 +460,7 @@ impl Checker {
         call_source: HostCallSource,
         base: crate::syntax::arena::ExprId,
         receiver: Type,
+        receiver_domain: Option<MethodReceiver>,
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
@@ -467,7 +468,9 @@ impl Checker {
     ) -> Type {
         let receiver_schema = self.schema_expectation_for_expr(arena, base);
         let continuation = self.reserve_host_call_continuation(call_source.clone(), name, receiver_schema);
-        let candidates = method_candidates(name);
+        let candidates = method_candidates(name).into_iter()
+            .filter(|candidate| receiver_domain.is_none_or(|domain| candidate.receiver == domain))
+            .collect::<Vec<_>>();
         let registered = !candidates.is_empty();
         let signatures = candidates.iter().map(|method| method.signature.clone()).collect::<Vec<_>>();
         let contexts = super::method_argument_contexts(arena, args, &signatures, continuation.receiver_schema.as_ref());

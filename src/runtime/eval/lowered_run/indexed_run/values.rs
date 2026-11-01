@@ -310,9 +310,13 @@ impl Evaluator {
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let (domain, name, signature) = crate::modules::api_spec().registered_method(method)
             .ok_or_else(|| RuntimeError::new("invalid-method", "verified method identity is not registered").with_span(span))?;
-        if domain == crate::modules::MethodReceiver::Path && name == "write" {
-            if signature.sig.op != crate::runtime::eval::RuntimeOp::FsWrite || signature.sig.params.len() != values.len() {
-                return Err(RuntimeError::new("invalid-method", "verified Path.write identity has an invalid operation layout").with_span(span));
+        if !signature.sig.pure
+            && matches!(domain, crate::modules::MethodReceiver::Path | crate::modules::MethodReceiver::RelPath | crate::modules::MethodReceiver::FsRoot)
+        {
+            if values.len() > signature.sig.params.len()
+                || signature.sig.params[values.len()..].iter().any(|parameter| !parameter.defaulted)
+            {
+                return Err(RuntimeError::new("invalid-method", "verified filesystem method identity has an invalid operation layout").with_span(span));
             }
             let mut arguments = Vec::with_capacity(values.len() + 1);
             arguments.push(Some(receiver));

@@ -107,7 +107,7 @@ impl Checker {
             Err(error) => return self.reject_host_inference_resolution(error, span),
         };
         if matches!(base_ty, Type::Inference(_)) {
-            return self.check_inferred_host_method(arena, source, call_source, base, base_ty, name, args, span, expected);
+            return self.check_inferred_host_method(arena, source, call_source, base, base_ty, None, name, args, span, expected);
         }
         if (name == "contains" && matches!(base_ty, Type::Str | Type::Bytes | Type::List(_)))
             || (name == "has"
@@ -615,15 +615,18 @@ impl Checker {
             return Type::Unknown;
         };
         let family = overloads.first().and_then(|method| api_spec().method_family_id(receiver, name, method));
+        let retained_overloads = family.is_some_and(|family| overloads.iter().all(|method| api_spec().method_family_id(receiver, name, method) == Some(family)))
+            || overloads.iter().all(|method| method.sig.arg_check == ApiArgCheck::Standard)
+                && api_spec().named_method_id(name).is_some_and(|named| api_spec().method_requirement_result(crate::sema::schemes::MethodRequirementKind::Named(named)).is_some());
         if self.stream_origin_owner.is_some()
             && overloads.len() > 1
-            && family.is_some_and(|family| overloads.iter().all(|method| api_spec().method_family_id(receiver, name, method) == Some(family)))
+            && retained_overloads
             && let HostCallSource::Expression(call) = call_source.clone()
             && let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = arena.arena.expr(call).kind
             && let crate::syntax::arena::ArenaExprKind::Field { base, .. }
                 | crate::syntax::arena::ArenaExprKind::NullSafeField { base, .. } = arena.arena.expr(callee).kind
         {
-            return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), name, args, span, expected);
+            return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), Some(receiver), name, args, span, expected);
         }
         let selection = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
         let (method, checked_values) = match selection {
