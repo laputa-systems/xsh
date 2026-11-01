@@ -3367,17 +3367,20 @@ fn verify_body_expression(
                 }
                 SchemeType::Ground(plan.signature.return_ty.clone())
             } else if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
-                let mut verified_arguments = arguments.clone();
+                let mut verified_arguments = vec![None; arguments.len()];
                 for (slot, actual) in arguments.iter().enumerate() {
                     let Some(actual @ SchemeType::Parameter(_)) = actual else { continue; };
                     let Some(parameter) = plan.signature.params.get(slot) else { continue; };
                     if !matches!(parameter.ty, Type::Optional(_)) || parameter.ty.has_unsigned_constraint()
+                        || parameter.ty.contains_any() || parameter.ty.contains_recovery()
+                        || parameter.ty.contains_inference() || parameter.ty.contains_builtin_parameter() || parameter.ty.contains_scheme_callable()
                         || plan.argument_checks.get(slot) != Some(&None) { continue; }
                     if applications::known_argument_assignment_matches_ground(store, decoder.owner, scheme_scope, actual, &parameter.ty, budget)? {
+                        budget.charge_clone(&parameter.ty)?;
                         verified_arguments[slot] = Some(SchemeType::Ground(parameter.ty.clone()));
                     }
                 }
-                let references = verified_arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
+                let references = arguments.iter().zip(&verified_arguments).map(|(actual, verified)| verified.as_ref().or(actual.as_ref())).collect::<Vec<_>>();
                 let wire_types = if op == crate::modules::RuntimeOp::JsonEncode {
                     if let Some(Some(actual)) = arguments.first() {
                         budget.charge_scheme_clone(actual)?;
