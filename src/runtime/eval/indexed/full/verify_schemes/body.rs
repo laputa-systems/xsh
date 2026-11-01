@@ -8514,7 +8514,7 @@ observe()?
     fn nested_guard_identity_reads_reject_same_type_bindings_and_intervening_writers() {
         let mut program = prepare(r#"
 pure selected(value, replacement, marker) -> Str {
-    let _ = value == replacement
+    let _ = [value, replacement]
     var working = value
     var unrelated = value
     let stale = working
