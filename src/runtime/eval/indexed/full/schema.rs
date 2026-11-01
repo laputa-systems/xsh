@@ -1048,7 +1048,7 @@ instruction_schema! {
             needle: BuildExprId,
             span: Span,
         } => ExprStrPredicate = 63 [0; Scheduled; FrameApply];
-        TargetVariant { variant: Name, families: Vec<Name> } => ExprTargetVariant = 64 [0; Scheduled; FrameApply];
+        TargetVariant { variant: Name, families: Vec<Name> } => ExprTargetVariant = 160 [0; Scheduled; FrameApply];
         Require {
             value: BuildExprId,
             check: LoweredTypeCheck,

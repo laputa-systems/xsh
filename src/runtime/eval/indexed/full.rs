@@ -38234,6 +38234,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprStrByteLen
             ExprStrByteAt
             ExprStrPredicate
+            ExprTargetVariant
             ExprRequire
             ExprCheckedValue
             ExprRunCapture
@@ -38326,7 +38327,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
         let dead_ordinals = [50, 64, 95, 96, 97, 98, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 153);
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 154);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -38334,6 +38335,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             let ordinal = match name {
                 "ExprUInt" => 158,
                 "ExprCodecSchema" => 159,
+                "ExprTargetVariant" => 160,
                 _ => existing_ordinals.next().expect("existing tag has an ordinal"),
             };
             assert_eq!(*tag as usize, ordinal);
