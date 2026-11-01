@@ -1507,7 +1507,7 @@ pub(super) fn verify_body(
                             if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
                             pending.push(Obligation::Expression(value.raw() as usize, inner));
                         }
-                        if !body_type_matches(&expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
+                        if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
                         pending.push(Obligation::Expression(else_value.raw() as usize, scope));
                     }
                     schema::ExprView::MatchExpr { value, arms, .. } => {
@@ -3866,6 +3866,32 @@ pure ordered(files: List[File], other: File) -> List[File] {
         wrong_argument.store.scheme_types[argument.index()].tag = FullSchemeTypeTag::Ground;
         wrong_argument.store.scheme_types[argument.index()].first = ground.first;
         reject(wrong_argument, "returned operand");
+    }
+
+    #[test]
+    fn generic_pattern_fallback_authenticates_its_assignment_relationship() {
+        prepare("type Row = {current: Str?, label: Str?}\npure update(row: Row, marker) -> Row { let _ = marker; if let current = row.current { {...row, label: current} } else { {...row, label: null} } }");
+        let mut program = prepare("pure choose(value, wrong, flag: Bool) -> Str? { let _ = wrong; if let true = flag { null } else { value } }");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let (_, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let value = program.store.scheme_types[program.store.scheme_params[parameters.start].ty.index()];
+        let wrong = program.store.scheme_types[program.store.scheme_params[parameters.start + 1].ty.index()];
+        let argument = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| {
+            let super::super::super::schemes::FullSchemeApplication::KnownArguments { arguments, .. } = program.store.scheme_applications[index] else { return None; };
+            arguments.bounds(program.store.scheme_application_arguments.len()).unwrap().find_map(|index| {
+                let argument = program.store.scheme_application_arguments[index].ty;
+                (program.store.scheme_types[argument.index()] == value).then_some(argument)
+            })
+        }).unwrap();
+        assert_eq!(value.tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(wrong.tag, FullSchemeTypeTag::Parameter);
+        let argument = &mut program.store.scheme_types[argument.index()];
+        argument.first = wrong.first;
+        program.store.in_place.take();
+        assert_eq!(FullVerifier::verify(&program).unwrap_err().message, "generic pattern fallback value disagrees with its result");
     }
 
     #[test]

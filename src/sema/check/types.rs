@@ -1092,7 +1092,13 @@ pub(super) fn merge_checked_branches(
             {
                 return Some(joined);
             }
-            return (actual.matches_expected(expected) && previous.matches_expected(actual)).then_some(actual.clone());
+            return if actual.matches_expected(expected) && previous.matches_expected(actual) {
+                Some(actual.clone())
+            } else if actual.matches_expected(expected) && previous.matches_expected(expected) {
+                Some(expected.clone())
+            } else {
+                None
+            };
         }
         TypeExpectation::BranchCandidate(candidate) => candidate,
     };

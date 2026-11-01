@@ -2705,3 +2705,21 @@ proc main(...args: List[Str]) [io, error] {
   let bad = test.expect(ctx, program, status: 3, args: ["negative"])?
   assert bad.stdout == "2 3\n", bad.stdout
 }
+
+test test_full_inference_pattern_fallback_keeps_nullable_record_fields { |ctx|
+  let output = test.expect(ctx, r"""type Row = {current: Str?, label: Str?}
+pure update(row: Row, marker) -> Row {
+  let _ = marker
+  if let current = row.current {
+    {...row, label: current}
+  } else {
+    {...row, label: null}
+  }
+}
+let absent: Row = {current: null, label: "old"}
+let present: Row = {current: "new", label: null}
+assert update(absent, 1).label == null
+assert update(present, "marker").label == "new"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
