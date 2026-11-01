@@ -223,7 +223,7 @@ test test_process_argv_words_parses_quotes_and_escapes {
  lines  """)? == ["spaced", "out", "lines"]
 
   # Input with no words at all.
-  let no_words = []
+  let no_words: List[Str] = []
   assert process.argv_words("")? == no_words
   assert process.argv_words(""" 	\r
  """)? == no_words
