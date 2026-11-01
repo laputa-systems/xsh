@@ -112,7 +112,7 @@ out of scope.
 - **Where:** `crates/xsht/src/lint.rs`, `crates/xsht/src/cli`
 - **Problem:** Each lint candidate probe parses, loads, and checks the unchanged import graph again. Large fix runs repeat the same work for every candidate.
 - **Recommendation:** Measure shared checking, grouped candidates, and clean-corpus probe skipping. Keep the smallest design that preserves diagnostics and fix safety.
-- **Unmet:** Nothing for timing: guarded CPU timing ran on 2026-11-01 (see the campaign log), and the merged batching changes lint CPU by 0.98 to 1.00 of the baseline on three workloads, inside the spread, and grows release `xsht` by 86,080 bytes. No speedup is qualified; the owner decides whether the candidate stays.
+- **Unmet:** The batched-probe candidate (`97e361171`, merge `6300eb05b`) was reverted on 2026-11-01: guarded CPU timing put lint at 0.98 to 1.00 of the baseline on three workloads, inside the spread, for about 700 lines and 86,080 bytes of release `xsht`. Any further attempt must first show where per-candidate time goes on the current tree.
 - **Fix with:** make-it-fast
 - **Effort:** M
 

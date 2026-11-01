@@ -534,24 +534,13 @@ impl<'a> Linter<'a> {
             return;
         }
         let deletion_span = Span::new(ty_span.source_id, deletion_start, deletion_end);
-        if matches!(
-            &annotation_ty,
-            Type::List(inner) if inner.as_ref() == &Type::Any
-        ) {
-            self.queue_local_annotation_proof(
-                deletion_span,
-                binding_span,
-                Diagnostic::new(Severity::Warning, "needless type annotation")
-                    .with_code(DiagnosticCode::LintNeedlessAnnotation)
-                    .with_label(Label::secondary(
-                        ty_span,
-                        "this type annotation is redundant with the initializer",
-                    ))
-                    .with_fix_hint(FixHint::deletion(
-                        deletion_span,
-                        "remove needless annotation",
-                    )),
-            );
+        // A dynamic collection's checked initializer type can equal the
+        // annotation even though later uses require the erased element type.
+        // Confirm that removing `List[Any]` preserves the checked local and
+        // expression types before offering the fix.
+        if matches!(&annotation_ty, Type::List(inner) if inner.as_ref() == &Type::Any)
+            && !self.local_annotation_removal_preserves_contract(deletion_span, binding_span)
+        {
             return;
         }
         self.diagnostics.push(
@@ -604,9 +593,10 @@ impl<'a> Linter<'a> {
         if deletion.start() >= deletion.end() || self.source[deletion.range()].contains('#') {
             return true;
         }
-        self.queue_local_annotation_proof(
-            deletion,
-            binding_span,
+        if !self.local_annotation_removal_preserves_contract(deletion, binding_span) {
+            return true;
+        }
+        self.diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
                 "local type is determined by consistent checked constraints",
