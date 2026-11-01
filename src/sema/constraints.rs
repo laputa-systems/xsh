@@ -640,6 +640,7 @@ struct GuardCallSource {
     site: super::schemes::InstantiationSite<Span>,
     callee: Arc<CallableScheme>,
     target: super::guarded_requirements::GuardCallTarget,
+    open_root: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -1087,12 +1088,13 @@ impl TypeConstraints {
             .collect::<Result<Vec<_>, _>>()?;
         for (&site, evidence) in calls {
             for (callee, instance) in evidence.instances() {
+                let open_root = self.call_root_is_open(callee, instance)?;
                 for (template, &id) in callee.requirements().guards.iter().zip(&instance.guards) {
-                    if generalization.guard_call_sources.insert(id, GuardCallSource { site: site.into(), callee: Arc::clone(callee), target: super::guarded_requirements::GuardCallTarget::Scope(template.scope) }).is_some() { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedGuardScope)); }
+                    if generalization.guard_call_sources.insert(id, GuardCallSource { site: site.into(), callee: Arc::clone(callee), target: super::guarded_requirements::GuardCallTarget::Scope(template.scope), open_root }).is_some() { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedGuardScope)); }
                 }
                 for (ordinal, &id) in instance.guard_calls.iter().enumerate() {
                     let ordinal = super::guarded_requirements::GuardCallId::from_index(ordinal).map_err(SchemeOperationError::Build)?;
-                    if generalization.guard_call_sources.insert(id, GuardCallSource { site: site.into(), callee: Arc::clone(callee), target: super::guarded_requirements::GuardCallTarget::Call(ordinal) }).is_some() { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedGuardScope)); }
+                    if generalization.guard_call_sources.insert(id, GuardCallSource { site: site.into(), callee: Arc::clone(callee), target: super::guarded_requirements::GuardCallTarget::Call(ordinal), open_root }).is_some() { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedGuardScope)); }
                 }
             }
         }
@@ -1313,7 +1315,7 @@ impl TypeConstraints {
             &ground_scope
         } else { &*generalization };
         CallInstantiation::with_method_bindings(
-            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?, self.resolved_guard_packets(callable.requirements(), instantiated, Some(forwarding_scope))?,
+            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?, self.resolved_guard_packets(callable.requirements(), instantiated, Some((forwarding_scope, self.call_root_is_open(callable, instantiated)?)))?,
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
             caller_applications, caller_operations, caller_methods, caller_guard_calls, caller_wrappers, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
         .map_err(SchemeOperationError::Build)
@@ -1795,6 +1797,24 @@ impl TypeConstraints {
         let evidence = self.resolve_requirement_instantiation(crate::sema::schemes::SchemeBindingScope { types: callable.type_parameters(), rows: callable.row_parameters(), requirements: callable.requirements() }, &instantiated.requirements)?;
         if callable.is_quantified() { self.counters.successful_generic_call_resolutions.fetch_add(1, Ordering::Relaxed); }
         Ok(evidence)
+    }
+
+    fn call_root_is_open(&self, callable: &CallableScheme, instantiated: &InstantiatedRequirements) -> Result<bool, SchemeOperationError> {
+        for id in callable.type_parameters() {
+            let ty = instantiated.type_arguments.get(id).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundTypeParameter))?;
+            if self.resolve(ty)?.contains_inference() { return Ok(true); }
+        }
+        for parameter in callable.row_parameters() {
+            let id = *instantiated.row_arguments.get(&parameter.id).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundRowParameter))?;
+            let row = self.resolve_row(&RowShape { fields: BTreeMap::new(), tail: RowTail::Variable(id) })?;
+            if row.tail != RowTail::Closed || row.fields.values().any(Type::contains_inference) { return Ok(true); }
+        }
+        for id in &callable.requirements().effect_parameters {
+            let variable = *instantiated.effect_arguments.get(id).ok_or(SchemeOperationError::Build(SchemeBuildError::UnboundEffectParameter))?;
+            let contract = self.resolve_effect(&super::effects::EffectContract::variable(variable))?;
+            if contract.substitute(|_| Err::<super::effects::EffectContract<SchemeEffectParameterId>, _>(SchemeOperationError::Build(SchemeBuildError::UnresolvedEffects))).is_err() { return Ok(true); }
+        }
+        Ok(false)
     }
 
     fn resolve_requirement_instantiation(

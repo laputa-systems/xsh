@@ -3397,6 +3397,10 @@ including `null`. Argument labels, defaults, schemas, effects, and validation
 of `Any` keep their ordinary contracts.
 Under a non-null guard the requirement belongs to that guard, so a call that
 cannot select the guard does not check it.
+A call from a generic caller whose callee type arguments stay generic forwards
+its guards to the caller's own callers even when a guard's source is already
+known, such as an annotated optional or `null`; those callers check or skip the
+guard from the sources they supply.
 A copied record may be updated from a field narrowed by a non-null guard;
 the update retains the field’s present type without widening stored containers.
 A `null` argument copied into a local that the body later replaces takes the

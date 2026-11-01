@@ -718,6 +718,9 @@ verification follows this bounded chain to classify the actual source and prove
 the complete live pack or exact Null absence. Prepared residual packets retain
 the caller, lexical scope, call ordinal, and physical source alongside the final
 callee and guard. Forwarding checks both origins before transferring a packet.
+A call whose root substitution is not closed forwards every guard binding,
+whether its source is pending, live, or Null; only a closed root admits a
+concrete live pack or Null.
 Computed result evidence follows the same authenticated residual call chain.
 After the final guard's output and local bindings pass validation, its required
 binders are projected backward through those exact call type and row arguments.

@@ -49,3 +49,51 @@ assert render_row(missing_row) == "absent"
 let invalid = render({value: 7})
 """, status: 2, stderr: ["[check.callable-mismatch]"])?
 }
+
+test test_guards_with_a_known_source_stay_forwarded_through_generic_callers { |ctx|
+  let good = test.expect(ctx, r"""pure inner(name, compress) -> Str {
+  if let program = compress { f"{name}:{program}" } else { "plain" }
+}
+pure checked(name, compress) -> Str {
+  if compress != null { f"{name}:{compress}" } else { "plain" }
+}
+pure absent(name) -> Str { inner(name, null) }
+pure present(name) -> Str { inner(name, "gz") }
+pure relay(name, compress: Str?) -> Str { inner(name, compress) }
+pure relay_twice(name, compress: Str?) -> Str { relay(name, compress) }
+pure checked_relay(name, compress: Str?) -> Str { checked(name, compress) }
+let none: Str? = null
+let some: Str? = "xz"
+assert absent({a: 1}) == "plain"
+assert absent("a") == "plain"
+assert present("a") == "a:gz"
+assert present(3) == "3:gz"
+assert relay("a", "gz") == "a:gz"
+assert relay("a", none) == "plain"
+assert relay_twice(1, some) == "1:xz"
+assert relay_twice(1, null) == "plain"
+assert checked_relay("a", "gz") == "a:gz"
+assert checked_relay("a", null) == "plain"
+""", status: 0)?
+  assert good.stderr == "", good.stderr
+  let rejected = [
+    "present({a: 1})",
+    "relay({a: 1}, \"gz\")",
+    "relay_twice({a: 1}, null)",
+    "checked_relay({a: 1}, \"gz\")",
+  ]
+  for call in rejected {
+    test.expect(ctx, f"""pure inner(name, compress) -> Str {{
+  if let program = compress {{ f"{{name}}:{{program}}" }} else {{ "plain" }}
+}}
+pure checked(name, compress) -> Str {{
+  if compress != null {{ f"{{name}}:{{compress}}" }} else {{ "plain" }}
+}}
+pure present(name) -> Str {{ inner(name, "gz") }}
+pure relay(name, compress: Str?) -> Str {{ inner(name, compress) }}
+pure relay_twice(name, compress: Str?) -> Str {{ relay(name, compress) }}
+pure checked_relay(name, compress: Str?) -> Str {{ checked(name, compress) }}
+let invalid = {call}
+""", status: 2, stderr: ["[check.callable-mismatch]"])?
+  }
+}

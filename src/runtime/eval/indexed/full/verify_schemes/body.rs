@@ -9109,6 +9109,37 @@ observe()?
     }
 
     #[test]
+    fn known_guard_sources_under_a_symbolic_root_must_remain_forwarded() {
+        let mut program = prepare(r#"
+pure render(name, suffix) -> Str { if suffix != null { f"{name}:{suffix}" } else { f"{name}" } }
+pure live(name, suffix: Str?) -> Str { render(name, suffix) }
+pure absent(name) -> Str { render(name, null) }
+proc observe() -> Result[Unit] {
+    assert live("a", "gz") == "a:gz"
+    assert live("a", null) == "a"
+    assert absent("a") == "a"
+    Ok()
+}
+observe()?
+"#);
+        use super::super::super::guard_schemes::FullGuardBinding;
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        for name in ["live", "absent"] {
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let range = program.store.function_instruction_range(owner).unwrap();
+            let call = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 1).unwrap();
+            let binding = call.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap().start;
+            assert!(matches!(program.store.call_guard_bindings[binding], FullGuardBinding::Call(_)), "{name}");
+            let mut concrete = program.clone();
+            assert!(concrete.store.in_place.get().is_none());
+            concrete.store.call_guard_bindings[binding] = FullGuardBinding::Null;
+            let error = FullVerifier::verify(&concrete).expect_err(name);
+            assert_eq!(error.message, "guard call origin disagrees with its actual target binding", "{name}: {error:?}");
+        }
+    }
+
+    #[test]
     fn forwarded_runtime_guard_packets_retain_caller_and_callsite_provenance() {
         let program = prepare(r#"
 pure render(value) -> Str { if value == null { "" } else { f"{value}" } }

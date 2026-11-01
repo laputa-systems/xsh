@@ -410,17 +410,19 @@ impl TypeConstraints {
 
     pub(super) fn resolved_guard_bindings(
         &self, templates: &[std::sync::Arc<crate::sema::guarded_requirements::GuardRequirements>], ids: &[WrapperOperationId],
-        forwarding: Option<&super::Generalization>,
+        forwarding: Option<(&super::Generalization, bool)>,
     ) -> Result<Vec<crate::sema::guarded_requirements::GuardBinding>, SchemeOperationError> {
         use crate::sema::guarded_requirements::GuardBinding;
         if templates.len() != ids.len() { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)); }
         templates.iter().zip(ids).map(|(template, id)| {
             let instance = self.wrappers.guard_instances.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if instance.template != *template { return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)); }
+            let forwarded = || forwarding.and_then(|(scope, _)| scope.guard_calls.get(id)).copied().map(GuardBinding::Call)
+                .ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope));
+            if forwarding.is_some_and(|(_, open_root)| open_root) { return forwarded(); }
             match &instance.state {
                 GuardInstanceState::Null(_) => Ok(GuardBinding::Null),
-                GuardInstanceState::Pending(_) => forwarding.and_then(|scope| scope.guard_calls.get(id)).copied().map(GuardBinding::Call)
-                    .ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)),
+                GuardInstanceState::Pending(_) => forwarded(),
                 GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) => {
                     let bindings = self.resolve_requirement_instantiation(crate::sema::schemes::SchemeBindingScope { types: &template.type_parameters, rows: &template.row_parameters, requirements: &template.requirements }, pack)?;
                     Ok(match instance.state {
@@ -433,7 +435,7 @@ impl TypeConstraints {
         }).collect()
     }
 
-    pub(super) fn resolved_guard_packets(&self, requirements: &crate::sema::schemes::CallableRequirements, instance: &super::InstantiatedRequirements, forwarding: Option<&super::Generalization>) -> Result<crate::sema::guarded_requirements::GuardBindings, SchemeOperationError> {
+    pub(super) fn resolved_guard_packets(&self, requirements: &crate::sema::schemes::CallableRequirements, instance: &super::InstantiatedRequirements, forwarding: Option<(&super::Generalization, bool)>) -> Result<crate::sema::guarded_requirements::GuardBindings, SchemeOperationError> {
         let templates = requirements.guard_calls.iter().map(|call| std::sync::Arc::clone(&call.template)).collect::<Vec<_>>();
         Ok(crate::sema::guarded_requirements::GuardBindings {
             scopes: self.resolved_guard_bindings(&requirements.guards, &instance.guards, forwarding)?,
@@ -1373,8 +1375,13 @@ impl TypeConstraints {
         for owner in owners {
             for &id in self.wrappers.guard_owners.get(owner).into_iter().flatten() {
                 let Some(instance) = self.wrappers.guard_instances.get(&id) else { continue; };
-                let GuardInstanceState::Pending(inherited) = &instance.state else { continue; };
-                let source = generalization.guard_call_sources.get(&id).cloned().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;
+                let source = match generalization.guard_call_sources.get(&id) {
+                    Some(source) => source.clone(),
+                    None if matches!(instance.state, GuardInstanceState::Pending(_)) => return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope)),
+                    None => continue,
+                };
+                if !source.open_root && !matches!(instance.state, GuardInstanceState::Pending(_)) { continue; }
+                let inherited = self.guard_instance_inherited(instance)?;
                 let ordinal = GuardCallId::from_index(requirements.len()).map_err(SchemeOperationError::Build)?;
                 if generalization.guard_calls.insert(id, ordinal).is_some() { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                 let type_arguments = inherited.type_arguments.iter().map(|(&id, ty)| self.generalize_type(ty, level, generalization, 0).map(|ty| (id, ty))).collect::<Result<_, _>>()?;
@@ -1391,6 +1398,21 @@ impl TypeConstraints {
             }
         }
         Ok(requirements)
+    }
+
+    fn guard_instance_inherited(&self, instance: &GuardInstance) -> Result<std::sync::Arc<super::InstantiatedRequirements>, SchemeOperationError> {
+        match &instance.state {
+            GuardInstanceState::Pending(inherited) | GuardInstanceState::Null(inherited) => Ok(std::sync::Arc::clone(inherited)),
+            GuardInstanceState::NonNull(pack) | GuardInstanceState::Optional(pack) => {
+                let free = instance.template.free_parameters().map_err(SchemeOperationError::Build)?;
+                Ok(std::sync::Arc::new(super::InstantiatedRequirements {
+                    type_arguments: free.types.into_iter().map(|id| pack.type_arguments.get(&id).cloned().map(|ty| (id, ty)).ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundTypeParameter))).collect::<Result<_, _>>()?,
+                    row_arguments: free.rows.into_iter().map(|id| pack.row_arguments.get(&id).copied().map(|row| (id, row)).ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundRowParameter))).collect::<Result<_, _>>()?,
+                    effect_arguments: free.effects.into_iter().map(|id| pack.effect_arguments.get(&id).copied().map(|effect| (id, effect)).ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnboundEffectParameter))).collect::<Result<_, _>>()?,
+                    ..super::InstantiatedRequirements::default()
+                }))
+            }
+        }
     }
 
     pub(super) fn generalize_guard_effect_outputs(&self, owners: &BTreeSet<CallableApplicationScope>, level: u32, generalization: &mut super::Generalization) -> Result<(), SchemeOperationError> {
