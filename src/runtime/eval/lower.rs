@@ -5607,7 +5607,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::PatternCondition { .. } => self.lower_scheme_pattern_condition(expression, slots, current_function, facts, visited, lowered_types)?.0,
             ArenaExprKind::Collect { block } => self.lower_collect_in_domain(expression, block, span, slots, Some(current_function), None,
                 &mut control::CollectLoweringDomain::Generalized { facts, visited, types: lowered_types })?,
-            ArenaExprKind::ValueBlock(block) => self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types)?,
+            ArenaExprKind::ValueBlock(block) => self.lower_scheme_branch_value_block(block, &ty, slots, current_function, facts, visited, lowered_types)?,
             ArenaExprKind::Loop { block } => {
                 let body = self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?;
                 push_build_row!(self, expr, BuildExprRow::Loop { body, span })

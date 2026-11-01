@@ -4480,6 +4480,39 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn generic_pattern_value_requires_its_noncompleting_branch() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare("proc validate(names) [process, error] { for name in names { let signal = if let Ok(signal) = process.signal(name) { signal } else { exit 125 }; let _: Int = signal.number } }\nvalidate([\"TERM\"])");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "validate").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let conditional = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::PatternIf { .. }))).unwrap();
+        let schema::ExprView::PatternIf { mut branches, else_value, .. } = decoder.expression_view(conditional).unwrap() else { unreachable!() };
+        let (condition, present, _) = branches.next().unwrap().unwrap();
+        let abort = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Abort { .. }))).unwrap();
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); changed };
+        FullVerifier::verify(&cold()).unwrap();
+        let mut completing = cold();
+        completing.store.tags[abort] = FullTag::ExprUnit;
+        assert!(FullVerifier::verify(&completing).is_err());
+        let condition_fact = program.store.scheme_body_facts.iter().find(|fact| fact.instruction == condition.raw() && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))).unwrap().value;
+        let mut wrong_result = cold();
+        let fact = wrong_result.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction == else_value.raw() && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))).unwrap();
+        fact.value = condition_fact;
+        assert!(FullVerifier::verify(&wrong_result).is_err());
+        let mut value = present.raw() as usize;
+        while let Ok(schema::ExprView::ValueBlock { body, .. }) = decoder.expression_view(value) {
+            let tail = body.map(|statement| statement.unwrap().raw() as usize).last().unwrap();
+            let schema::StmtView::Value { value: next } = decoder.statement_view(tail).unwrap() else { unreachable!() };
+            value = next.raw() as usize;
+        }
+        assert!(matches!(decoder.expression_view(value), Ok(schema::ExprView::Param(_))));
+        let mut wrong_owner = cold();
+        let words = wrong_owner.store.data[value].range().bounds(wrong_owner.store.extra.len()).unwrap();
+        wrong_owner.store.extra[words.start] = 0;
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+    }
+
+    #[test]
     fn generic_record_get_authenticates_projection_and_registry() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("type Info = {arch: Str, count: Int}\npure choose(row: Info, marker, wrong: Str) -> Result[Str] { let _ = marker; let _ = wrong; let _ = row.get(\"count\"); row.get(\"arch\")? }\nlet result = choose({arch: \"arm\", count: 4}, 1, \"wrong\")");

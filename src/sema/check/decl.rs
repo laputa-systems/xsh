@@ -329,6 +329,21 @@ impl Checker {
             is_diverging_block.then(|| Some((right, body_types.get(&expression)?.clone()))).flatten()
         }).collect::<Vec<_>>();
         for (handler, joined) in diverging_handlers { body_types.insert(handler, joined); }
+        let diverging_branches = body_types.keys().copied().filter_map(|expression| {
+            let crate::syntax::arena::ArenaExprKind::If { branches, else_value } = program.arena.expr(expression).kind else { return None };
+            let joined = body_types.get(&expression)?.clone();
+            if joined.contains_recovery() { return None; }
+            let values = program.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain(std::iter::once(else_value));
+            Some(values.filter_map(|value| {
+                let crate::syntax::arena::ArenaExprKind::ValueBlock(block) = program.arena.expr(value).kind else { return None };
+                let tail = program.arena.stmt_ids(program.arena.block(block).statements).last().map(|statement| program.arena.core_stmt_id(statement))?;
+                if body_types.get(&value) != Some(&Type::Unknown)
+                    || !matches!(program.arena.stmt(tail).kind, crate::syntax::arena::ArenaStmtKind::Return(Some(crate::syntax::arena::ArenaExprOrRun::Expr(_))) | crate::syntax::arena::ArenaStmtKind::Exit(_))
+                    || self.stream_expr_may_complete(program, value) { return None; }
+                Some((value, joined.clone()))
+            }).collect::<Vec<_>>())
+        }).flatten().collect::<Vec<_>>();
+        for (branch, joined) in diverging_branches { body_types.insert(branch, joined); }
         let branch_joins = program.arena.source_rows().expr_ids(body_span.source_id).filter_map(|expression| {
             let span = program.arena.expr(expression).span;
             if span.start() < body_span.start() || span.end() > body_span.end() { return None; }
