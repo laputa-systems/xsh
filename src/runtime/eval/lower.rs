@@ -3855,7 +3855,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             _ => return None,
                         });
                     }
-                    if !path.is_empty() { assignment_type = Some(target_type.clone()); }
+                    if !path.is_empty() || facts.store_value_site(expression).is_some() { assignment_type = Some(target_type.clone()); }
                     let check = target_type.closed_ground_type().filter(Type::has_unsigned_constraint)
                         .map(|ty| LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None });
                     if op != AssignOp::Set && path.is_empty()
@@ -3874,12 +3874,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         drop(scratch);
                         BuildStmtRow::Assign { slot, op: AssignOp::Set, value, check, span: node.span }
                     } else {
-                    if !path.is_empty() {
-                        if op != AssignOp::Set && let Some(ordinal) = facts.compound_site(expression) {
-                            path.push(super::LoweredAssignStep::CompoundOperation(ordinal));
-                        } else if op == AssignOp::Set && let Some(ordinal) = facts.store_value_site(expression) {
-                            path.push(super::LoweredAssignStep::StoreValue(ordinal));
-                        }
+                    if !path.is_empty() && op != AssignOp::Set && let Some(ordinal) = facts.compound_site(expression) {
+                        path.push(super::LoweredAssignStep::CompoundOperation(ordinal));
+                    } else if op == AssignOp::Set && let Some(ordinal) = facts.store_value_site(expression) {
+                        path.push(super::LoweredAssignStep::StoreValue(ordinal));
                     }
                     let value = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?;
                     if path.is_empty() { BuildStmtRow::Assign { slot, op, value, check, span: node.span } }

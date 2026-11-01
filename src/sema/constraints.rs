@@ -2221,6 +2221,17 @@ impl TypeConstraints {
         actual: &Type,
         contribution: Span,
     ) -> Result<(), ConstraintConflict> {
+        self.constrain_checked_call_argument_with_storage_bounds(instance, expected, actual, &[], contribution)
+    }
+
+    pub(crate) fn constrain_checked_call_argument_with_storage_bounds(
+        &mut self,
+        instance: &InstantiatedScheme,
+        expected: &Type,
+        actual: &Type,
+        argument_bounds: &[Type],
+        contribution: Span,
+    ) -> Result<(), ConstraintConflict> {
         let conflict = |error| ConstraintConflict {
             expected: expected.clone(), actual: actual.clone(), initializer: None,
             established: None, contribution, resolution_error: Some(error),
@@ -2234,13 +2245,22 @@ impl TypeConstraints {
                 constraints.constrain(&optional, &actual, contribution)
             });
         }
-        if actual == Type::Null && self.known_nullable_argument_source(instance, expected).map_err(conflict)? {
+        if actual == Type::Null {
+            let witness = self.nullable_store_witness(instance, expected, argument_bounds).map_err(conflict)?;
+            let nullable_source = self.known_nullable_argument_source(instance, expected).map_err(conflict)?;
             let owned = instance.type_arguments.values().filter_map(|ty| match ty { Type::Inference(id) => Some(*id), _ => None }).collect::<FxHashSet<_>>();
             let resolved = self.resolve(expected).map_err(conflict)?;
             let variables = self.variable_ids(&resolved).map_err(conflict)?;
-            if !variables.is_empty() && variables.iter().all(|id| owned.contains(id)
+            if (witness.is_some() || nullable_source) && !variables.is_empty() && variables.iter().all(|id| owned.contains(id)
                 && matches!(self.variables.get(id), Some(Variable::Representative(variable)) if variable.rank == 0))
-            { return self.constrain_context(&resolved, &actual, contribution); }
+            {
+                let witness = witness.unwrap_or(actual);
+                return if witness.contains_inference() {
+                    self.constrain(&resolved, &witness, contribution)
+                } else {
+                    self.constrain_context(&resolved, &witness, contribution)
+                };
+            }
         }
         let exact_null_argument = has_anchor(&actual, AnchorEvidence::CheckedNullArgument).map_err(conflict)?;
         if matches!(actual, Type::Record(_)) && (actual.contains_any() || exact_null_argument) {
@@ -7704,6 +7724,32 @@ mod tests {
             constraints.generalize_types(&[variable], 0),
             Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedType))
         ));
+    }
+
+    #[test]
+    fn copied_storage_null_witness_uses_all_owned_replacement_bounds() {
+        let mut constraints = TypeConstraints::default();
+        let storage = constraints.fresh_at_level(span(1), 1);
+        let first = constraints.fresh_at_level(span(2), 1);
+        let second = constraints.fresh_at_level(span(3), 1);
+        let operation = |constraints: &mut TypeConstraints, replacement: Type, source| {
+            constraints.register_sealed_operation(CallableApplicationScope::Invocation, super::super::sealed_operation::SealedOperation::StoreValue {
+                storage: storage.clone(), replacement, span: source,
+            }).unwrap()
+        };
+        let first_op = operation(&mut constraints, first.clone(), span(4));
+        let second_op = operation(&mut constraints, second.clone(), span(5));
+        let instance = InstantiatedScheme {
+            params: vec![storage.clone(), first.clone(), second.clone()], return_type: storage.clone(), requirements: InstantiatedRequirements {
+                type_arguments: [(super::super::schemes::SchemeTypeParameterId(0), storage.clone()), (super::super::schemes::SchemeTypeParameterId(1), first.clone()), (super::super::schemes::SchemeTypeParameterId(2), second.clone())].into(),
+                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations: vec![first_op, second_op], methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new(), guard_calls: Vec::new(),
+            },
+        };
+        constraints.constrain(&first, &Type::UInt, span(6)).unwrap();
+        constraints.constrain(&second, &Type::Int, span(7)).unwrap();
+        constraints.constrain_checked_call_argument(&instance, &storage, &Type::Null, span(8)).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&storage).unwrap(), Type::Optional(Box::new(Type::Int)));
     }
 
     #[test]

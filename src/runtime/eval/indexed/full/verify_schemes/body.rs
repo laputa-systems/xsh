@@ -1611,7 +1611,7 @@ pub(super) fn verify_body(
                                     continue;
                                 }
                                 if let super::super::decode::AssignStepView::StoreValue(ordinal) = step {
-                                    if path.len() != 0 || selector_count == 0 || op != AssignOp::Set || store_value_operation.replace(ordinal).is_some() {
+                                    if path.len() != 0 || op != AssignOp::Set || store_value_operation.replace(ordinal).is_some() {
                                         return Err(IrVerifyError::new("generic assignment has an invalid storage operation"));
                                     }
                                     continue;
@@ -6624,11 +6624,32 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let facts = program.store.schemes[scheme.index()].body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
         let locals = program.store.scheme_body_facts[facts].iter().filter(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).map(|fact| match decoder.statement_view(fact.instruction as usize).unwrap() { schema::StmtView::Let { slot, .. } => slot, _ => panic!("the mutable locals have simple declarations") }).collect::<Vec<_>>();
         assert_eq!(locals.len(), 2);
-        let assignment = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. }) if slot == locals[1])).unwrap();
+        let assignment = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. } | schema::StmtView::AssignPath { slot, .. }) if slot == locals[1])).unwrap();
         let mut changed = program.clone();
         let words = changed.store.data[assignment].range().bounds(changed.store.extra.len()).unwrap();
         changed.store.extra[words.start] = locals[0] as u32;
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment does not target a mutable declaration");
+    }
+
+    #[test]
+    fn generic_root_writes_authenticate_storage_and_replacement() {
+        let program = prepare("pure replace(value, spare) { var copy = value; copy = spare; copy }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (instruction, path, value) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::AssignPath { path, value, .. }) => Some((instruction, path.block_identity_for_test(), value.raw() as usize)), _ => None,
+        }).unwrap();
+        let words = program.store.blocks[path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        assert_eq!(&program.store.extra[words.start..words.start + 2], &[1, 4]);
+        let mut missing = program.clone();
+        missing.store.extra[words.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
+        let mut immutable = program.clone();
+        let statement = immutable.store.data[instruction].range().bounds(immutable.store.extra.len()).unwrap();
+        immutable.store.extra[statement.start] = 0;
+        assert_eq!(FullVerifier::verify(&immutable).unwrap_err().message, "generic assignment does not target a mutable declaration");
+        let changed = retarget_comprehension_operand(&program, owner, scheme, value, 1, 0);
+        assert!(FullVerifier::verify(&changed).is_err());
     }
 
     #[test]

@@ -43,6 +43,8 @@ enum CallArgumentAuthority<'a> {
     KnownCallable {
         instance: Option<&'a crate::sema::constraints::InstantiatedScheme>,
         deferred: &'a std::cell::Cell<bool>,
+        pending_storage: Option<&'a std::cell::RefCell<Vec<(Type, Type, Span)>>>,
+        storage_bounds: Option<&'a [Type]>,
     },
 }
 
@@ -244,6 +246,7 @@ impl Checker {
             }
         }
         let deferred = std::cell::Cell::new(false);
+        let pending_storage = std::cell::RefCell::new(Vec::new());
         self.check_function_call_arguments_with_authority_arena(
             arena,
             source,
@@ -251,8 +254,32 @@ impl Checker {
             &contract.params,
             span,
             checked_argument,
-            CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred },
+            CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: Some(&pending_storage), storage_bounds: None },
         );
+        let mut groups: Vec<(Type, Vec<(Type, Type, Span)>)> = Vec::new();
+        for (expected, actual, argument_span) in pending_storage.into_inner() {
+            let identity = self.type_constraints.resolve(&expected).unwrap_or_else(|_| expected.clone());
+            if let Some((_, arguments)) = groups.iter_mut().find(|(root, _)| *root == identity) {
+                arguments.push((expected, actual, argument_span));
+            } else {
+                groups.push((identity, vec![(expected, actual, argument_span)]));
+            }
+        }
+        groups.sort_by_key(|(_, arguments)| arguments.iter().any(|(_, actual, _)| matches!(self.type_constraints.resolve(actual), Ok(Type::Null | Type::Optional(_)))));
+        for (_, mut arguments) in groups {
+            arguments.sort_by_key(|(_, actual, _)| match self.type_constraints.resolve(actual) { Ok(Type::Null) => 0, Ok(Type::Optional(_)) => 1, _ => 2 });
+            let bounds = arguments.iter().filter_map(|(_, actual, _)| match self.type_constraints.resolve(actual) {
+                Ok(Type::Null) => None,
+                Ok(actual) => Some(actual),
+                Err(_) => Some(actual.clone()),
+            }).collect::<Vec<_>>();
+            for (expected, actual, argument_span) in arguments {
+                self.expect_function_call_argument(
+                    CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: None, storage_bounds: Some(&bounds) },
+                    &expected, &actual, argument_span,
+                );
+            }
+        }
         if deferred.get() { self.retain_known_call_arguments(arena, args, contract, span, checked_argument, owner); }
         let argument_error = self.diagnostics[diagnostics_before_arguments..]
             .iter()
@@ -410,6 +437,21 @@ impl Checker {
         actual: &Type,
         span: Span,
     ) {
+        if let CallArgumentAuthority::KnownCallable { instance: Some(instance), pending_storage: Some(pending), .. } = authority
+            && matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))
+        {
+            match self.type_constraints.has_store_value_requirement(instance, expected) {
+                Ok(true) => { pending.borrow_mut().push((expected.clone(), actual.clone(), span)); return; }
+                Ok(false) => {}
+                Err(error) => {
+                    self.report_inferred_type_conflict(crate::sema::constraints::ConstraintConflict {
+                        expected: expected.clone(), actual: actual.clone(), initializer: None,
+                        established: None, contribution: span, resolution_error: Some(error),
+                    });
+                    return;
+                }
+            }
+        }
         let pending_method_result = if matches!(actual, Type::Inference(_)) {
             match self.type_constraints.unresolved_method_result(actual) {
                 Ok(pending) => pending,
@@ -438,9 +480,15 @@ impl Checker {
                     return;
                 }
             };
+            let storage_bounds = match authority { CallArgumentAuthority::KnownCallable { storage_bounds: Some(bounds), .. } => bounds, _ => &[] };
             if let Some(authority) = authority.instance().filter(|instance|
                 exact_null || actual.contains_any() || !instance.wrappers.is_empty() || !instance.applications.is_empty()) {
-                if let Err(conflict) = self.type_constraints.constrain_checked_call_argument(authority, expected, actual, span) {
+                let result = if storage_bounds.is_empty() {
+                    self.type_constraints.constrain_checked_call_argument(authority, expected, actual, span)
+                } else {
+                    self.type_constraints.constrain_checked_call_argument_with_storage_bounds(authority, expected, actual, storage_bounds, span)
+                };
+                if let Err(conflict) = result {
                     if conflict.resolution_error.is_some() || !actual.contains_any() {
                         self.report_inferred_type_conflict(conflict);
                     } else {

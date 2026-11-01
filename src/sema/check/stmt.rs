@@ -5870,8 +5870,7 @@ impl Checker {
             span,
         );
         if op == AssignOp::Set {
-            let deferred_storage = !matches!(arena.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(_))
-                && matches!(self.type_constraints.resolve(&target_ty), Ok(Type::Inference(_)));
+            let deferred_storage = matches!(self.type_constraints.resolve(&target_ty), Ok(Type::Inference(_)));
             let actual = self.check_expr_or_run_arena(arena, source, value, if deferred_storage { None } else { Some(&target_ty) });
             let value_span = expr_or_run_span_arena(arena, value);
             if !actual.can_escape_context_scope()

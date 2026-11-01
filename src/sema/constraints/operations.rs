@@ -764,6 +764,67 @@ impl TypeConstraints {
         Ok(indexes)
     }
 
+    pub(crate) fn has_store_value_requirement(
+        &self, instance: &super::InstantiatedScheme, expected: &Type,
+    ) -> Result<bool, super::ConstraintResolutionError> {
+        let expected = self.resolve(expected)?;
+        for id in &instance.operations {
+            let entry = self.operations.entries.get(id).ok_or(super::ConstraintResolutionError::ForeignVariable)?;
+            if let SealedOperation::StoreValue { storage, .. } = &entry.operation
+                && self.resolve(storage)? == expected { return Ok(true); }
+        }
+        Ok(false)
+    }
+
+    pub(super) fn nullable_store_witness(
+        &self,
+        instance: &super::InstantiatedScheme,
+        expected: &Type,
+        argument_bounds: &[Type],
+    ) -> Result<Option<Type>, super::ConstraintResolutionError> {
+        let expected = self.resolve(expected)?;
+        let mut candidate: Option<Type> = None;
+        let mut incomparable = false;
+        let mut replacements = Vec::new();
+        let mut sources = argument_bounds.to_vec();
+        for id in &instance.operations {
+            let entry = self.operations.entries.get(id).ok_or(super::ConstraintResolutionError::ForeignVariable)?;
+            let SealedOperation::StoreValue { storage, replacement, .. } = &entry.operation else { continue };
+            if self.resolve(storage)? == expected { sources.push(replacement.clone()); }
+        }
+        for replacement in sources {
+            let replacement = self.resolve(&replacement)?;
+            if replacement.contains_recovery() || replacement.contains_any() || !self.variable_ids(&expected)?.is_disjoint(&self.variable_ids(&replacement)?) { return Ok(None); }
+            if replacement == Type::Null { continue; }
+            replacements.push(replacement.clone());
+            let replacement = if matches!(replacement, Type::Optional(_)) { replacement } else { Type::Optional(Box::new(replacement)) };
+            candidate = Some(match candidate {
+                None => replacement,
+                Some(current) if replacement.matches_stored(&current) => current,
+                Some(current) if current.matches_stored(&replacement) => replacement,
+                Some(current) if matches!((&current, &replacement), (Type::Optional(left), Type::Optional(right)) if matches!((left.as_ref(), right.as_ref()), (Type::Int, Type::UInt) | (Type::UInt, Type::Int))) => Type::Optional(Box::new(Type::Int)),
+                Some(current) if matches!((&current, &replacement), (Type::Optional(left), Type::Optional(right)) if right.matches_expected(left) && !left.matches_expected(right)) => current,
+                Some(current) if matches!((&current, &replacement), (Type::Optional(left), Type::Optional(right)) if left.matches_expected(right) && !right.matches_expected(left)) => replacement,
+                Some(current) => { incomparable = true; current },
+            });
+        }
+        if let Some(mut selected) = candidate {
+            let bounds = self.known_nullable_argument_bounds(instance, &expected)?;
+            for upper in &bounds {
+                if upper.contains_inference() || upper.contains_recovery() || upper.contains_any() { continue; }
+                if incomparable || !selected.matches_expected(upper) {
+                    if replacements.iter().any(|replacement| !replacement.contains_inference() && !replacement.matches_expected(upper)) { return Ok(None); }
+                    selected = upper.clone();
+                    incomparable = false;
+                }
+            }
+            if incomparable { return Ok(None); }
+            if bounds.iter().any(|upper| !upper.contains_inference() && !upper.contains_recovery() && !upper.contains_any() && !selected.matches_expected(upper)) { return Ok(None); }
+            return Ok(Some(selected));
+        }
+        Ok(None)
+    }
+
     pub(crate) fn complete_fresh_map_stores(
         &mut self,
         owner: super::CallableApplicationScope,

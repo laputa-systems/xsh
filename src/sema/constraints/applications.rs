@@ -821,12 +821,13 @@ impl CallableApplications {
 }
 
 impl TypeConstraints {
-    pub(super) fn known_nullable_argument_source(
+    pub(super) fn known_nullable_argument_bounds(
         &self,
         instance: &super::InstantiatedScheme,
         expected: &Type,
-    ) -> Result<bool, ConstraintResolutionError> {
+    ) -> Result<Vec<Type>, ConstraintResolutionError> {
         let expected = self.resolve(expected)?;
+        let mut bounds = Vec::new();
         for id in &instance.applications {
             let application = &self.applications.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?.application;
             let CallableApplication::KnownArguments(application) = application else { continue; };
@@ -840,10 +841,17 @@ impl TypeConstraints {
                     let Type::List(item) = &parameter.ty else { return Err(ConstraintResolutionError::ForeignVariable); };
                     item.as_ref()
                 } else { &parameter.ty };
-                if matches!(self.resolve(required)?, Type::Optional(_)) && self.resolve(&argument.ty)? == expected { return Ok(true); }
+                let required = self.resolve(required)?;
+                if matches!(required, Type::Optional(_)) && self.resolve(&argument.ty)? == expected { bounds.push(required); }
             }
         }
-        Ok(false)
+        Ok(bounds)
+    }
+
+    pub(super) fn known_nullable_argument_source(
+        &self, instance: &super::InstantiatedScheme, expected: &Type,
+    ) -> Result<bool, ConstraintResolutionError> {
+        Ok(!self.known_nullable_argument_bounds(instance, expected)?.is_empty())
     }
 
     pub(crate) fn callable_application_reference(&self, id: CallableApplicationId) -> Result<CallableApplicationReference, CallableApplicationError> {
