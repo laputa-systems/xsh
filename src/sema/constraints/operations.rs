@@ -513,9 +513,14 @@ impl TypeConstraints {
         for entry in self.operations.entries.values() {
             let SealedOperation::Index { receiver, key, result, span, .. } = &entry.operation else { continue; };
             let Type::Inference(source) = self.resolve(receiver)? else { continue; };
-            let Some(iteration) = self.iteration_requirement(source)? else { continue; };
-            let Type::Inference(item) = self.resolve(&iteration.item)? else { continue; };
-            evidence.entry((entry.owner, item)).or_default().push((receiver.clone(), key.clone(), result.clone(), *span));
+            let iterated = std::iter::once(Type::Inference(source))
+                .chain(self.linked_slices(entry.owner, receiver)?.into_iter().map(|(_, slice, _)| slice));
+            for iterated in iterated {
+                let Type::Inference(iterated) = self.resolve(&iterated)? else { continue; };
+                let Some(iteration) = self.iteration_requirement(iterated)? else { continue; };
+                let Type::Inference(item) = self.resolve(&iteration.item)? else { continue; };
+                evidence.entry((entry.owner, item)).or_default().push((receiver.clone(), key.clone(), result.clone(), *span));
+            }
         }
         Ok(evidence)
     }

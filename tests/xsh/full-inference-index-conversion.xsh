@@ -50,3 +50,32 @@ assert paths(["one"])?.len() == 1
     assert result.stderr == "", result.stderr
   }
 }
+
+test test_index_and_slice_iteration_constrain_conversion { |ctx|
+  for declaration in [
+    r"""pure tail_paths(values: List[Bytes]) -> Result[List[Path]] {
+  let _ = bytes_count(values[0])
+  [item as Path for item in values[1..]]
+}""",
+    r"""pure tail_paths(values) -> Result[List[Path]] {
+  let _ = bytes_count(values[0])
+  [item as Path for item in values[1..]]
+}""",
+  ] {
+    let result = test.expect(ctx, r"""pure bytes_count(value: Bytes) -> Int { value.len() }
+""" + declaration + r"""
+assert tail_paths([b"one", b"two"])?.len() == 1
+let nonempty: NonEmpty[Bytes] = [b"three", b"four", b"five"]
+assert tail_paths(nonempty)?.len() == 2
+""", status: 0)?
+    assert result.stderr == "", result.stderr
+  }
+}
+
+test test_slice_iteration_conversion_needs_an_element_anchor { |ctx|
+  test.expect(ctx, r"""pure tail_paths(values) -> Result[List[Path]] {
+  [item as Path for item in values[1..]]
+}
+let _ = tail_paths([b"one", b"two"])
+""", status: 2, stderr: ["[check.conversion]"])?
+}
