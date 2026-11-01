@@ -7677,13 +7677,7 @@ impl Checker {
                         DiagnosticCode::CheckIfValueElse,
                     );
                 }
-                if self.local_inference.deferred_optional_assignments != deferred_before
-                    && let Some(super::types::TypeExpectation::Required(expected)) = expectation
-                    && matches!(expected, Type::Optional(_))
-                {
-                    return expected.clone();
-                }
-                inferred.unwrap_or(Type::Unknown)
+                self.finish_branch_type(expectation, inferred, deferred_before)
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.check_tail_match_arena(arena, source, value, arms, expectation, purpose)
@@ -7747,6 +7741,7 @@ impl Checker {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
         let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
+        let deferred_before = self.local_inference.deferred_optional_assignments;
         let mut inferred: Option<Type> = None;
         let mut inferred_from_empty_list = true;
         let initial_stream_state = self.stream_mutable_state();
@@ -7840,7 +7835,7 @@ impl Checker {
         if all_arms_return {
             Type::Unknown
         } else {
-            inferred.unwrap_or(Type::Unknown)
+            self.finish_branch_type(expectation, inferred, deferred_before)
         }
     }
 

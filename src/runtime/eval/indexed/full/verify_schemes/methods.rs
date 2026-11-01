@@ -57,6 +57,28 @@ pub(super) fn authenticates_result_evidence(
     Ok(true)
 }
 
+pub(super) fn receiver_from_argument_evidence(
+    store: &FullStore,
+    scope: &SchemeScope,
+    encoded: FullSchemeMethod,
+    substitution: &ApplicationSubstitution<'_>,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<Option<Type>, IrVerifyError> {
+    let requirement = decode(store, scope, encoded, substitution, budget)?;
+    validate_requirement_for_binding(&requirement, budget)?;
+    let MethodSelection::Selected(selected) = select(&requirement, budget)? else { return Ok(None); };
+    let (_, _, signature) = crate::modules::api_spec().registered_method(selected)
+        .ok_or_else(|| IrVerifyError::new("method receiver evidence has no registered member"))?;
+    for argument in &requirement.arguments { budget.charge_scheme_clone(argument)?; }
+    let Some(receiver) = crate::sema::builtin_templates::method_receiver_from_arguments(signature, &requirement.argument_slots, &requirement.arguments) else { return Ok(None); };
+    budget.charge_scheme_clone(&receiver)?;
+    let receiver = receiver.closed_ground_type().ok_or_else(|| IrVerifyError::new("method receiver evidence has no closed argument-derived domain"))?;
+    if requirement.receiver.closed_ground_type().as_ref() != Some(&receiver) {
+        return Ok(None);
+    }
+    Ok(Some(receiver))
+}
+
 pub(super) fn owns_selected_result(
     store: &FullStore,
     scope: &SchemeScope,

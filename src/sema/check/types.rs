@@ -44,6 +44,21 @@ fn require_target_spelling(target: &Type) -> Option<String> {
 }
 
 impl Checker {
+    pub(super) fn finish_branch_type(
+        &self,
+        expectation: Option<TypeExpectation<'_>>,
+        inferred: Option<Type>,
+        deferred_before: usize,
+    ) -> Type {
+        if self.local_inference.deferred_optional_assignments != deferred_before
+            && let Some(TypeExpectation::Required(expected)) = expectation
+            && matches!(expected, Type::Optional(_))
+        {
+            return expected.clone();
+        }
+        inferred.unwrap_or(Type::Unknown)
+    }
+
     pub(super) fn declared_error_effect_carries_index_failure(&self) -> bool {
         self.boundary.current_effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
     }

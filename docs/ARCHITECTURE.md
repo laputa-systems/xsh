@@ -113,12 +113,28 @@ declaration, projects each field or collection domain, and proves every selector
 and replacement. Compound replacements preserve the storage domain; an unsigned
 check cannot substitute for proving the actual operand and target.
 
+An unresolved collection selector retains an `IndexStore` requirement restricted
+to List and Map. A separate `StoreValue` requirement relates replacement and
+storage without choosing the storage type from the right side. Their source
+roles keep selector and replacement obligations distinct from reads and compound
+operators at the same source span. Cold verification derives the selected type
+from the mutable path and authenticates its assignment fact. Preparation selects
+any required unsigned storage check before execution can commit the update.
+Fresh map storage holes may close from writes only after excluding support from
+parameters, recursive peers, and captures.
+
 Generic body verification uses an explicit obligation stack and an arena of
 lexical frames linked by parent indices. Child obligations finish before a
 parent continuation can publish later bindings. The existing indexed return
 analysis supplies reachable loop exits, including bare `Unit` exits, even
 when ordinary producer demand is absent. Preparation retains no frontend tree
 for execution and performs no runtime type solving.
+
+Retained method arguments may establish a receiver type through the selected
+registered signature. The verifier reconstructs the receiver from independently
+proved arguments and requires exact agreement. Missing template domains and
+conversion checks supply no receiver evidence. An authenticated registered `Any`
+result stays opaque; using it as a concrete value still requires validation.
 
 Named record constructors in generic bodies reuse ordinary lowering's checked
 instance identity, field order, and defaults. Supplied source entries evaluate

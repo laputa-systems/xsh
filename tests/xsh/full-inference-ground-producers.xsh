@@ -65,3 +65,72 @@ for file in ordered(files) { print width(file.raw) }
   assert output.success, output.stderr
   assert output.stdout == "1\n3\n4\n", output.stdout
 }
+
+test test_match_arm_preserves_an_optional_assignment_requirement { |ctx|
+  let output = test.run_xsh(ctx, r"""pure mode(rest) -> Str? {
+  match rest[0] {
+    "a" => rest[0]
+    else => null
+  }
+}
+pure reversed(rest) -> Str? {
+  match rest[0] {
+    "a" => { let selected: Str? = rest[0]; selected }
+    else => null
+  }
+}
+print (mode(["a"]) ?? "none")
+print (mode(["b"]) ?? "none")
+print (reversed(["a"]) ?? "none")
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "a\nnone\na\n", output.stdout
+}
+
+test test_empty_argument_uses_the_selected_method_argument_domain { |ctx|
+  let output = test.run_xsh(ctx, r"""pure visit(n: Int, xs) -> Int {
+  return 0 when n in xs
+  let next = xs.push(n)
+  visit(n, next) + 1
+}
+pure start() -> Int {
+  let xs = []
+  visit(1, xs)
+}
+pure forwarded(marker) -> Int {
+  let _ = marker
+  let xs = []
+  visit(1, xs)
+}
+print start()
+assert forwarded(1) == 1
+assert forwarded("other") == 1
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n", output.stdout
+  let rejected = test.run_xsh(ctx, "pure size(items) { items.len() }\nlet _ = size([])\n")?
+  assert ! rejected.success, rejected.stdout
+  assert "[check.local-inference]" in rejected.stderr, rejected.stderr
+}
+
+test test_registered_dynamic_results_preserve_their_json_boundary { |ctx|
+  let output = test.run_xsh(ctx, r"""proc render(marker, text: Str) -> Result[Str] {
+  let _ = marker
+  let _ = json.decode(text)?
+  "ok"
+}
+print render(1, "{}")?
+print render("again", "[]")?
+assert render(true, "{") is Err(_)
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "ok\nok\n", output.stdout
+  let rejected = test.run_xsh(ctx, r"""proc render(marker) -> Result[Str] {
+  let _ = marker
+  let decoded = json.decode("{}")?
+  decoded.name
+}
+""")?
+  assert ! rejected.success, rejected.stdout
+  assert "[check.dynamic-boundary]" in rejected.stderr, rejected.stderr
+}

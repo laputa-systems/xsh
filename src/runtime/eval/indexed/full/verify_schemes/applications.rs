@@ -463,6 +463,33 @@ pub(super) fn extend_call_binder_evidence(
         outputs.push(output);
         if missing == 0 { ready.push(ordinal); }
     }
+    if let ApplicationSubstitution::Ground(ground) = substitution {
+        for method in bounded(scope.owned_requirements(scheme)?.methods, &store.scheme_methods, "scheme method range is invalid")? {
+            budget.charge(1)?;
+            let Some(receiver) = super::methods::receiver_from_argument_evidence(store, scope, *method, &substitution, budget)? else { continue; };
+            let mut projected = SchemeBinderEvidence::default();
+            verify_scheme_argument_evidence(store, scope, method.receiver, &receiver, ground, &mut projected, budget, 0)?;
+            let output = projected.types.into_iter().map(|binder| (false, binder)).chain(projected.rows.into_iter().map(|binder| (true, binder))).collect::<BTreeSet<_>>();
+            if output.is_empty() { continue; }
+            let ordinal = outputs.len();
+            let mut inputs = BTreeSet::new();
+            for argument in bounded(method.arguments, &store.scheme_method_arguments, "scheme method argument range is invalid")? {
+                let (types, rows) = scheme_type_binders(store, *argument, budget)?;
+                inputs.extend(types.into_iter().map(|id| (false, id)));
+                inputs.extend(rows.into_iter().map(|id| (true, id)));
+            }
+            let mut missing = 0;
+            for key @ (row, binder) in inputs {
+                budget.charge(1)?;
+                if if row { evidence.rows.contains(&binder) } else { evidence.types.contains(&binder) } { continue; }
+                watchers.entry(key).or_default().push(ordinal);
+                missing += 1;
+            }
+            remaining.push(missing);
+            outputs.push(output);
+            if missing == 0 { ready.push(ordinal); }
+        }
+    }
     for operation in bounded(scope.owned_requirements(scheme)?.operations, &store.scheme_operations, "scheme operation range is invalid")?.iter().filter(|operation| selected_sources || !matches!(operation, super::super::schemes::FullSealedOperation::Binary { .. })) {
         budget.charge(1)?;
         let ordinal = outputs.len();
@@ -681,6 +708,71 @@ mod tests {
             let mut evidence = initial();
             extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Identity, &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
             assert_eq!(evidence.types, BTreeSet::from([0, 1]));
+        });
+    }
+
+    #[test]
+    fn prepared_method_receivers_require_independent_argument_evidence() {
+        use crate::sema::schemes::{MethodFamilyRequirement, MethodRequirementKind};
+        SymbolOwner::new().with_current(|| {
+            let parameters = (10..13).map(SchemeTypeParameterId).collect::<Vec<_>>();
+            let receiver = SchemeType::Parameter(parameters[0]);
+            let item = SchemeType::Parameter(parameters[1]);
+            let result = SchemeType::Parameter(parameters[2]);
+            let method = MethodFamilyRequirement {
+                kind: MethodRequirementKind::Named(crate::modules::api_spec().named_method_id("push").unwrap()),
+                receiver, arguments: vec![item.clone()], argument_slots: vec![0], result: result.clone(),
+            };
+            let callable = CallableScheme::new(parameters, Vec::new(), vec![SchemeParameter {
+                name: Name::intern("item"), ty: item, schema_expectation: None, defaulted: false, rest: false,
+            }], result, None, false, CallableRequirements { methods: vec![method], ..CallableRequirements::default() }).unwrap();
+            let scheme = TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap();
+            let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
+            let id = builder.intern_scheme(&scheme).unwrap();
+            let scheme = *builder.store.scheme(id).unwrap();
+            let substitution = |item| CallSubstitution {
+                owner: None, types: vec![Type::List(Box::new(item)), Type::Int, Type::List(Box::new(Type::Int))],
+                rows: Vec::new(), effects: Vec::new(), origin: Default::default(),
+            };
+            let good = substitution(Type::Int);
+            let mut evidence = SchemeBinderEvidence { types: BTreeSet::from([1]), rows: BTreeSet::new() };
+            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&good), &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            assert_eq!(evidence.types, BTreeSet::from([0, 1, 2]));
+            let mut circular = SchemeBinderEvidence::default();
+            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&good), &mut circular, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            assert!(circular.types.is_empty());
+            let mut forged = SchemeBinderEvidence { types: BTreeSet::from([1]), rows: BTreeSet::new() };
+            assert!(extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution(Type::UInt)), &mut forged, &mut SchemeInstantiationBudget::new(&builder.store)).is_err());
+        });
+    }
+
+    #[test]
+    fn prepared_checked_map_keys_do_not_supply_exact_receiver_evidence() {
+        use crate::sema::schemes::{MethodFamilyRequirement, MethodRequirementKind};
+        SymbolOwner::new().with_current(|| {
+            let parameters = (10..12).map(SchemeTypeParameterId).collect::<Vec<_>>();
+            let receiver = SchemeType::Parameter(parameters[0]);
+            let result = SchemeType::Parameter(parameters[1]);
+            let method = MethodFamilyRequirement {
+                kind: MethodRequirementKind::Named(crate::modules::api_spec().named_method_id("push").unwrap()),
+                receiver: receiver.clone(), arguments: vec![SchemeType::Ground(Type::Int), SchemeType::Ground(Type::Int)],
+                argument_slots: vec![0, 1], result: result.clone(),
+            };
+            let callable = CallableScheme::new(parameters, Vec::new(), vec![SchemeParameter {
+                name: Name::intern("map"), ty: receiver, schema_expectation: None, defaulted: false, rest: false,
+            }], result, None, false, CallableRequirements { methods: vec![method], ..CallableRequirements::default() }).unwrap();
+            let scheme = TypeScheme::with_callable(CallableKind::Pure, Arc::new(callable), CheckedEffects::finite(Vec::new()), true).unwrap();
+            let mut builder = super::super::super::FullBuilder::new(SourceId::new(0));
+            let id = builder.intern_scheme(&scheme).unwrap();
+            let scheme = *builder.store.scheme(id).unwrap();
+            let map = Type::Map(Box::new(Type::UInt), Box::new(Type::List(Box::new(Type::Int))));
+            let substitution = CallSubstitution { owner: None, types: vec![map.clone(), map], rows: Vec::new(), effects: Vec::new(), origin: Default::default() };
+            let mut independent = SchemeBinderEvidence { types: BTreeSet::from([0]), rows: BTreeSet::new() };
+            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut independent, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            assert_eq!(independent.types, BTreeSet::from([0, 1]));
+            let mut unsupported = SchemeBinderEvidence::default();
+            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut unsupported, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            assert!(unsupported.types.is_empty());
         });
     }
 

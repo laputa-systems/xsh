@@ -562,6 +562,25 @@ fn bind_symbolic_template(
     }
 }
 
+pub(crate) fn method_receiver_from_arguments(
+    signature: &crate::modules::signature::MethodSig,
+    slots: &[u32],
+    arguments: &[super::schemes::SchemeType],
+) -> Option<super::schemes::SchemeType> {
+    if slots.len() != arguments.len() { return None; }
+    let mut parameters = BTreeMap::new();
+    let mut supplied = std::collections::BTreeSet::new();
+    for (&slot, actual) in slots.iter().zip(arguments) {
+        if !supplied.insert(slot) { return None; }
+        let template = &signature.sig.params.get(slot as usize)?.ty;
+        if !bind_symbolic_template(template, actual, &mut parameters, 0) { return None; }
+        let expected = symbolic_template_type(template, &parameters, 0)?;
+        if actual != &expected && !matches!((actual.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected) { return None; }
+    }
+    if signature.sig.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !supplied.contains(&(slot as u32))) { return None; }
+    symbolic_template_type(signature.receiver_ty.as_ref()?, &parameters, 0)
+}
+
 fn symbolic_template_type(
     template: &Type,
     parameters: &BTreeMap<BuiltinTypeParameter, super::schemes::SchemeType>,
@@ -580,7 +599,7 @@ fn symbolic_template_type(
         Type::Result(ok, error) => S::Result(child(ok)?, child(error)?),
         Type::Validated(validated) => S::Validated(validated.validation(), child(validated.base())?),
         Type::Record(fields) => S::Record { fields: fields.iter().map(|(&name, ty)| Some((name, *child(ty)?))).collect::<Option<_>>()?, tail: SchemeRowTail::Closed },
-        Type::Any | Type::Unknown | Type::Invalid | Type::Inference(_) => return None,
+        Type::Unknown | Type::Invalid | Type::Inference(_) => return None,
         _ => S::Ground(template.clone()),
     })
 }
@@ -593,6 +612,40 @@ mod tests {
 
     fn span() -> Span {
         Span::at(SourceId::new(0), 0)
+    }
+
+    #[test]
+    fn argument_derived_receivers_require_every_invariant_template_domain() {
+        use crate::sema::schemes::SchemeType;
+        let list = &api_spec().method_overloads(MethodReceiver::List, "push").unwrap()[0];
+        for item in [Type::Int, Type::UInt, Type::Str] {
+            let arguments = [SchemeType::Ground(item.clone())];
+            assert_eq!(method_receiver_from_arguments(list, &[0], &arguments).unwrap().closed_ground_type(), Some(Type::List(Box::new(item))));
+        }
+        assert!(method_receiver_from_arguments(list, &[], &[]).is_none());
+        let map = &api_spec().method_overloads(MethodReceiver::Map, "get").unwrap()[0];
+        assert!(method_receiver_from_arguments(map, &[0], &[SchemeType::Ground(Type::Str)]).is_none());
+        let map_push = &api_spec().method_overloads(MethodReceiver::Map, "push").unwrap()[0];
+        assert_eq!(method_receiver_from_arguments(map_push, &[0, 1], &[SchemeType::Ground(Type::Str), SchemeType::Ground(Type::UInt)]).unwrap().closed_ground_type(), Some(Type::Map(Box::new(Type::Str), Box::new(Type::List(Box::new(Type::UInt))))));
+        assert!(method_receiver_from_arguments(map_push, &[0, 0], &[SchemeType::Ground(Type::Str), SchemeType::Ground(Type::UInt)]).is_none());
+    }
+
+    #[test]
+    fn registered_dynamic_results_authenticate_the_fixed_erased_domain() {
+        use crate::sema::schemes::{RegisteredCallPlan, SchemeType};
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let signature = &api_spec().module_overloads("json", "decode").unwrap()[0];
+            let plan = RegisteredCallPlan { receiver: None, name: "decode".into(), signature,
+                argument_slots: std::sync::Arc::from([0]), argument_checks: std::sync::Arc::from([None]) };
+            let input = SchemeType::Ground(Type::Str);
+            let result = SchemeType::Result(Box::new(SchemeType::Ground(Type::Any)), Box::new(SchemeType::Ground(Type::Error)));
+            assert!(verify_registered_call(&plan, None, &[Some(&input)], &result, &|_| false));
+            for ty in [Type::Str, Type::Unknown, Type::Invalid] {
+                let forged = SchemeType::Result(Box::new(SchemeType::Ground(ty)), Box::new(SchemeType::Ground(Type::Error)));
+                assert!(!verify_registered_call(&plan, None, &[Some(&input)], &forged, &|_| false));
+            }
+            assert!(!verify_registered_call(&plan, None, &[Some(&SchemeType::Ground(Type::Any))], &result, &|_| false));
+        });
     }
 
     #[test]

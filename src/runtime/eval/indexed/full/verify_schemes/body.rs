@@ -1518,7 +1518,8 @@ pub(super) fn verify_body(
                         if let Some(ordinal) = wrapper_sites.get(&instruction) { wrappers::verify_handler_site(store, decoder, scheme_scope, *ordinal, &subject, &claimed, &arms, types, budget)?; }
                         for (arm, (pattern, guard, value)) in arms.into_iter().enumerate() {
                             let inner = pattern_scope(decoder, pattern, &subject, &scope, &mut scopes, slot_count, &mut writers, budget)?;
-                            if !(arm == 1 && wrapper_sites.contains_key(&instruction)) && !body_type_matches(&expression_type(types, value as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
+                            let actual = expression_type(types, value as usize, budget)?;
+                            if !(arm == 1 && wrapper_sites.contains_key(&instruction)) && !body_assignment_matches(store, decoder.owner, scheme_scope, &actual, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
                             pending.push(Obligation::Expression(value as usize, inner));
                             if let Some(guard) = guard {
                                 condition(types, guard as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
@@ -3800,6 +3801,30 @@ pure ordered(files: List[File], other: File) -> List[File] {
         let mut forged = program;
         forged.store.scheme_callable_parameters[parameters.start as usize].ty = argument;
         assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
+    fn generic_match_return_authenticates_its_assignment_relationship() {
+        let mut program = prepare("pure mode(rest, other) -> Str? { let _ = other; match rest[0] { \"a\" => rest[0]; else => null } }");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let (_, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let arguments = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| match program.store.scheme_applications[index] {
+            super::super::super::schemes::FullSchemeApplication::KnownArguments { arguments, .. } => Some(arguments),
+            _ => None,
+        }).unwrap();
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let other = program.store.scheme_params[parameters.start + 1].ty;
+        let argument = program.store.scheme_application_arguments[arguments.start as usize].ty;
+        let other = program.store.scheme_types[other.index()];
+        let mut forged = program;
+        let argument = &mut forged.store.scheme_types[argument.index()];
+        assert_eq!(argument.tag, FullSchemeTypeTag::Parameter);
+        assert_eq!(other.tag, FullSchemeTypeTag::Parameter);
+        argument.first = other.first;
+        forged.store.in_place.take();
+        assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic match arm disagrees with its result");
     }
 
     #[test]
