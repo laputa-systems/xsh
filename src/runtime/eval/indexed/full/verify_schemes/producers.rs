@@ -3022,10 +3022,17 @@ impl<'a> ProducerProof<'a> {
             self.expression(owner, instruction, Arc::new(base_type.clone()), false);
             return Ok(Some(base_type));
         }
-        if let schema::ExprView::IfExpr { branches, else_value, .. } = decoder.expression_view(instruction)? {
-            let arms = branches.map(|branch| branch.map(|(_, value)| value.raw() as usize))
-                .chain(std::iter::once(Ok(else_value.raw() as usize)))
-                .collect::<Result<Vec<_>, _>>()?;
+        let conditional_arms = match decoder.expression_view(instruction)? {
+            schema::ExprView::IfExpr { branches, else_value, .. } => Some(
+                branches.map(|branch| branch.map(|(_, value)| value.raw() as usize))
+                    .chain(std::iter::once(Ok(else_value.raw() as usize)))
+                    .collect::<Result<Vec<_>, _>>()?),
+            schema::ExprView::MatchExpr { arms, .. } => Some(
+                arms.map(|arm| arm.map(|(_, _, value)| value.raw() as usize))
+                    .collect::<Result<Vec<_>, _>>()?),
+            _ => None,
+        };
+        if let Some(arms) = conditional_arms {
             self.budget.charge(arms.len())?;
             let mut joined: Option<Type> = None;
             let mut conditional = ConditionalProducerType::new();
@@ -3060,7 +3067,7 @@ impl<'a> ProducerProof<'a> {
         }
         if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Binary {
             op: super::super::BinaryOp::Add | super::super::BinaryOp::Sub | super::super::BinaryOp::Mul | super::super::BinaryOp::Div | super::super::BinaryOp::Rem, ..
-        } | schema::ExprView::ListComp { .. } | schema::ExprView::Record(_) | schema::ExprView::StrByteLen { .. } | schema::ExprView::StrPredicate { .. }) {
+        } | schema::ExprView::ListComp { .. } | schema::ExprView::Record(_) | schema::ExprView::StrByteLen { .. } | schema::ExprView::StrByteAt { .. } | schema::ExprView::StrPredicate { .. }) {
             let Some((slot, _)) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(None) };
             let binding = self.binding(owner, instruction, slot)?;
             self.budget.charge(1)?;

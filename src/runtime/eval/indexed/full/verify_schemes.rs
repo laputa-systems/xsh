@@ -4929,7 +4929,7 @@ fn verify_instantiated_call_arguments(
                     Some(actual) => actual,
                     None => match annotated_local_argument_type(store, &decoder, value.raw() as usize, materialization)? {
                         Some(actual) => actual,
-                        None => checked_record_argument_type(store, &decoder, value.raw() as usize, &expected, materialization)?
+                        None => checked_record_argument_type(store, &decoder, value.raw() as usize, &expected, materialization, &mut |field| producer_proof.derived_argument_type(decoder.owner, field))?
                             .ok_or_else(|| IrVerifyError::new("generic call argument has no closed checked type"))?,
                     },
                 };
@@ -5467,6 +5467,7 @@ fn checked_record_argument_type(
     instruction: usize,
     expected: &Type,
     materialization: &mut SchemeInstantiationBudget,
+    derive_field: &mut dyn FnMut(usize) -> Result<Option<Type>, IrVerifyError>,
 ) -> Result<Option<Type>, IrVerifyError> {
     let Type::Record(expected_fields) = expected.unvalidated() else { return Ok(None) };
     let schema::ExprView::Record(mut entries) = decoder.expression_view(instruction)? else { return Ok(None) };
@@ -5484,6 +5485,10 @@ fn checked_record_argument_type(
                 let Some(actual) = merge_list_item_types(&items, materialization)? else { return Ok(None) };
                 if !actual.matches_expected(expected_field) { return Ok(None); }
             }
+            None => match derive_field(value)? {
+                Some(actual) if actual.matches_expected(expected_field) => {}
+                _ => return Ok(None),
+            },
             _ => return Ok(None),
         };
         fields.insert(name, expected_field.clone());

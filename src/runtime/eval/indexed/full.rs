@@ -24731,6 +24731,34 @@ assert read(Err("absent"), "replacement") == 0
     }
 
     #[test]
+    fn generic_arguments_authenticate_optional_fallback_arms() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-optional-fallback-argument.xsh", r#"
+pure forward(value) { value }
+pure read(data: Bytes, text: Str) -> Int {
+    let _ = text
+    forward(data.byte_at(0) ?? 0)
+}
+assert read(b"A", "ignored") == 65
+assert read(b"", "ignored") == 0
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let params = function_instruction_indices(&program, "read", FullTag::ExprParam);
+            let decoder = function_view_decoder(&program.store, scheme_fixture_root_function(&program, "read"));
+            let fallback_slots = params.iter().copied().filter_map(|param| {
+                let schema::ExprView::Param(slot) = decoder.expression_view(param).unwrap() else { unreachable!() };
+                (slot >= 2).then_some(param)
+            }).collect::<Vec<_>>();
+            assert_eq!(fallback_slots.len(), 1);
+            let binding = program.store.data[fallback_slots[0]].range().bounds(program.store.extra.len()).unwrap();
+            let mut foreign_binding = (*program).clone();
+            foreign_binding.store.extra[binding.start] = 1;
+            let error = FullVerifier::verify(&foreign_binding).unwrap_err();
+            assert_eq!(error.message, "generic call argument has no closed checked type");
+        });
+    }
+
+    #[test]
     fn generic_arguments_authenticate_mutable_cursor_writers() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-mutable-cursor-argument.xsh", r#"
