@@ -356,6 +356,7 @@ mod recursive_components;
 mod expected;
 #[path = "check/expr.rs"]
 mod expr;
+mod equality_context;
 mod record_require;
 pub use expected::RequirementTarget;
 pub use record_require::RecordRequireMigration;

@@ -29,6 +29,7 @@ pub(crate) use wrapper_constraints::{WrapperConstraintError, WrapperOperationId}
 pub(crate) use application_constraints::{CallableApplicationError, CallableApplicationId, CallableApplicationScope, CallableApplicationReference};
 #[path = "constraints/input_support.rs"]
 mod input_support;
+mod equality_context;
 #[path = "constraints/constructor_defaults.rs"]
 mod constructor_defaults;
 #[path = "constraints/map_key.rs"]

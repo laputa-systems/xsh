@@ -1208,6 +1208,13 @@ purity: every owner still proves the operation's actual effects and invocation
 permission. Equality reads resolved operands from the same constraint problem
 before applying the ordinary compatibility rules; this does not change invariant
 storage writes or nominal error identity.
+An equality counterpart can supply closed context for phantom `Ok` or `Err`
+constructor holes. The checked constructor, creation span, and lexical guard
+authenticate each hole; input-supported roots remain excluded. Context projects
+only into those fresh holes, while operand compatibility remains a separate
+requirement.
+Immutable alias provenance stays within its callable, or within one source file
+at file scope; nested tests and callable captures do not inherit file aliases.
 
 Each invocation retains the checked application layouts selected by its canonical
 call substitution. Forwarded entries share the caller's actual layout instead of

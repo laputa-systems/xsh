@@ -247,7 +247,7 @@ struct ScopeChecker<'a> {
     globals: FxHashMap<(Option<Name>, Name), BindingId>,
     zero_variants: FxHashSet<(Option<Name>, Name)>,
     callable: Option<FunctionDefId>,
-    immutable_definitions: FxHashMap<BindingId, (FunctionDefId, StmtId)>,
+    immutable_definitions: FxHashMap<BindingId, (Option<FunctionDefId>, StmtId)>,
     assignment_owner: Option<(SourceId, ArenaRange)>,
     assignment_capture: bool,
     assignment_raw_blocks: Vec<BlockId>,
@@ -508,8 +508,9 @@ impl ScopeChecker<'_> {
                 );
                 if matches!(node.kind, ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(_), .. })
                     && matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
-                    && let (Some(owner), Some(binding)) = (self.callable, self.facts.target(target))
-                { self.immutable_definitions.insert(binding, (owner, statement)); }
+                    && (self.callable.is_some() || self.scopes.len() == 1)
+                    && let Some(binding) = self.facts.target(target)
+                { self.immutable_definitions.insert(binding, (self.callable, statement)); }
             }
             ArenaStmtKind::Guard { target, .. } => {
                 self.stmt_children(statement);
@@ -635,7 +636,8 @@ impl ScopeChecker<'_> {
                     self.facts.expressions.insert(expression, id);
                     self.facts.value_sites.insert((node.span, name), id);
                     if let Some(&(owner, statement)) = self.immutable_definitions.get(&id)
-                        && self.callable == Some(owner)
+                        && self.callable == owner && (owner.is_some() || self.scopes.len() == 1
+                            && self.program.arena.stmt(statement).span.source_id == node.span.source_id)
                     { self.facts.immutable_value_sources.insert(expression, statement); }
                 }
             }
@@ -844,6 +846,29 @@ mod tests {
             let mut forged = bindings.clone();
             forged.immutable_value_sources.insert(reads[0], bindings.immutable_value_sources[&reads[1]]);
             assert!(forged.immutable_value_source(&parsed.arena, reads[0]).is_none());
+        });
+    }
+
+    #[test]
+    fn file_immutable_sources_exclude_nested_tests_and_callable_captures() {
+        let source = "let values = [1]\nlet alias = values\ntest nested { |ctx| let copy = values; assert copy == [1] }\npure captured() { let copy = values; copy }\nlet nested = { let copy = values; copy }\nvar mutable = [1]\nlet copy = mutable\nlet _ = alias\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let bindings = ResolvedBindings::collect(&parsed.arena);
+            let mut reads = bindings.expressions.keys().copied().filter(|&id|
+                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "values")
+            ).collect::<Vec<_>>();
+            reads.sort_by_key(|&id| parsed.arena.arena.expr(id).span);
+            assert_eq!(reads.len(), 4);
+            assert!(bindings.immutable_value_source(&parsed.arena, reads[0]).is_some());
+            assert!(bindings.immutable_value_source(&parsed.arena, reads[1]).is_none());
+            assert!(bindings.immutable_value_source(&parsed.arena, reads[2]).is_none());
+            assert!(bindings.immutable_value_source(&parsed.arena, reads[3]).is_none());
+            let mutable = bindings.expressions.keys().copied().find(|&id|
+                matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(name) if name == "mutable")
+            ).unwrap();
+            assert!(bindings.immutable_value_source(&parsed.arena, mutable).is_none());
         });
     }
 
