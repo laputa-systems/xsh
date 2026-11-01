@@ -43,7 +43,7 @@ Keep inference changes in XSH and isolated Laputa source views. Registry and
 h12tiny migration is integrated. The separately authorized
 [Asterinas campaign](../laputa/docs/CAMPAIGN-ASTERINAS-COMPATIBILITY.md) owns its
 local kernel execution boundary. Do not change live systems, CI, toolchain pins,
-or releases. Git pushes remain unauthorized. New syntax, persistent cache
+or releases. Git pushes remain unauthorized. New syntax, production dependencies, persistent cache
 formats, higher-rank inference, user traits, new runtimes, and Lean expansion
 remain excluded.
 
