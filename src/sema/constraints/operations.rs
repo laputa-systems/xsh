@@ -822,15 +822,19 @@ impl TypeConstraints {
         argument_bounds: &[Type],
     ) -> Result<Option<Type>, super::ConstraintResolutionError> {
         let expected = self.resolve(expected)?;
-        let mut candidate: Option<Type> = None;
-        let mut incomparable = false;
-        let mut replacements = Vec::new();
         let mut sources = argument_bounds.to_vec();
         for id in &instance.operations {
             let entry = self.operations.entries.get(id).ok_or(super::ConstraintResolutionError::ForeignVariable)?;
             let SealedOperation::StoreValue { storage, replacement, .. } = &entry.operation else { continue };
             if self.resolve(storage)? == expected { sources.push(replacement.clone()); }
         }
+        self.nullable_storage_witness(&expected, sources, self.known_nullable_argument_bounds(instance, &expected)?)
+    }
+
+    fn nullable_storage_witness(&self, expected: &Type, sources: Vec<Type>, bounds: Vec<Type>) -> Result<Option<Type>, ConstraintResolutionError> {
+        let mut candidate: Option<Type> = None;
+        let mut incomparable = false;
+        let mut replacements = Vec::new();
         for replacement in sources {
             let replacement = self.resolve(&replacement)?;
             if replacement.contains_recovery() || replacement.contains_any() || !self.variable_ids(&expected)?.is_disjoint(&self.variable_ids(&replacement)?) { return Ok(None); }
@@ -848,7 +852,6 @@ impl TypeConstraints {
             });
         }
         if let Some(mut selected) = candidate {
-            let bounds = self.known_nullable_argument_bounds(instance, &expected)?;
             for upper in &bounds {
                 if upper.contains_inference() || upper.contains_recovery() || upper.contains_any() { continue; }
                 if incomparable || !selected.matches_expected(upper) {
@@ -862,6 +865,130 @@ impl TypeConstraints {
             return Ok(Some(selected));
         }
         Ok(None)
+    }
+
+    pub(crate) fn complete_cyclic_storage_arguments(
+        &mut self,
+        instance: &super::InstantiatedScheme,
+        arguments: &[(Type, Type, Span)],
+    ) -> Result<(), SealedOperationError> {
+        if arguments.is_empty() { return Ok(()); }
+        self.commit_constraint_transaction(|this| {
+            let owned = instance.type_arguments.values().filter_map(|ty| match ty {
+                Type::Inference(id) => Some(*id),
+                _ => None,
+            }).collect::<BTreeSet<_>>();
+            let mut roots = BTreeMap::new();
+            for (expected, _, _) in arguments {
+                if let Type::Inference(id) = this.resolve(expected)?
+                    && owned.contains(&id)
+                    && matches!(this.variables.get(&id), Some(Variable::Representative(variable)) if variable.rank == 0)
+                {
+                    let next = roots.len();
+                    roots.entry(id).or_insert(next);
+                }
+            }
+            let mut edges = vec![BTreeSet::new(); roots.len()];
+            let mut reverse = edges.clone();
+            let mut stores = Vec::new();
+            for id in &instance.operations {
+                let entry = this.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                let SealedOperation::StoreValue { storage, replacement, .. } = &entry.operation else { continue };
+                let Type::Inference(storage) = this.resolve(storage)? else { continue };
+                let Some(&target) = roots.get(&storage) else { continue };
+                let replacement = this.resolve(replacement)?;
+                if let Type::Inference(source) = &replacement
+                    && let Some(&source) = roots.get(source)
+                {
+                    edges[target].insert(source);
+                    reverse[source].insert(target);
+                }
+                stores.push((target, replacement));
+            }
+            let mut visited = BTreeSet::new();
+            let mut order = Vec::new();
+            for root in 0..edges.len() {
+                let mut pending = vec![(root, false)];
+                while let Some((node, exiting)) = pending.pop() {
+                    if exiting { order.push(node); continue; }
+                    if !visited.insert(node) { continue; }
+                    pending.push((node, true));
+                    pending.extend(edges[node].iter().map(|&next| (next, false)));
+                }
+            }
+            visited.clear();
+            let mut components = Vec::new();
+            for root in order.into_iter().rev() {
+                let mut component = BTreeSet::new();
+                let mut pending = vec![root];
+                while let Some(node) = pending.pop() {
+                    if !visited.insert(node) { continue; }
+                    component.insert(node);
+                    pending.extend(reverse[node].iter().copied());
+                }
+                if !component.is_empty() { components.push(component); }
+            }
+            let mut needed = BTreeSet::new();
+            let mut pending = Vec::new();
+            for component in &components {
+                if component.len() == 1 && !edges[*component.first().unwrap()].contains(component.first().unwrap()) { continue; }
+                for (expected, actual, _) in arguments {
+                    if matches!(this.resolve(expected)?, Type::Inference(id) if roots.get(&id).is_some_and(|node| component.contains(node)))
+                        && matches!(this.resolve(actual)?, Type::Null | Type::Optional(_))
+                    {
+                        pending.extend(component.iter().copied());
+                        break;
+                    }
+                }
+            }
+            while let Some(node) = pending.pop() {
+                if needed.insert(node) { pending.extend(edges[node].iter().copied()); }
+            }
+            let mut completed = false;
+            for component in components.into_iter().rev() {
+                if component.is_disjoint(&needed) { continue; }
+                let members = roots.iter().filter_map(|(&id, node)| component.contains(node).then_some(id)).collect::<BTreeSet<_>>();
+                let mut sources = Vec::new();
+                let mut contribution = None;
+                for (expected, actual, span) in arguments {
+                    if matches!(this.resolve(expected)?, Type::Inference(id) if members.contains(&id)) {
+                        sources.push(this.resolve(actual)?);
+                        contribution = Some(*span);
+                    }
+                }
+                if sources.iter().any(|ty| ty.contains_inference() || ty.contains_recovery() || ty.contains_any()) { continue; }
+                if !sources.iter().any(|ty| matches!(ty, Type::Null | Type::Optional(_))) {
+                    for member in members {
+                        for (expected, actual, span) in arguments {
+                            if this.resolve(expected)? == Type::Inference(member) {
+                                this.constrain_context(expected, actual, *span).map_err(SealedOperationError::Constraint)?;
+                                break;
+                            }
+                        }
+                    }
+                    completed = true;
+                    continue;
+                }
+                for (target, replacement) in &stores {
+                    if component.contains(target) && !matches!(replacement, Type::Inference(id) if members.contains(id)) {
+                        sources.push(this.resolve(replacement)?);
+                    }
+                }
+                if sources.iter().any(|ty| ty.contains_inference() || ty.contains_recovery() || ty.contains_any()) { continue; }
+                let mut bounds = Vec::new();
+                for &member in &members {
+                    bounds.extend(this.known_nullable_argument_bounds(instance, &Type::Inference(member))?);
+                }
+                let witness = if sources.iter().all(|ty| *ty == Type::Null) { Some(Type::Null) }
+                    else { this.nullable_storage_witness(&Type::Inference(*members.first().unwrap()), sources, bounds)? };
+                let Some(witness) = witness else { continue };
+                for member in members {
+                    this.constrain_context(&Type::Inference(member), &witness, contribution.unwrap()).map_err(SealedOperationError::Constraint)?;
+                }
+                completed = true;
+            }
+            if completed { this.solve_sealed_operations() } else { Ok(()) }
+        })
     }
 
     pub(crate) fn complete_fresh_map_stores(

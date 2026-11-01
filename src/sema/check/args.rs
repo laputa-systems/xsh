@@ -256,8 +256,18 @@ impl Checker {
             checked_argument,
             CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: Some(&pending_storage), storage_bounds: None },
         );
+        let mut pending_storage = pending_storage.into_inner();
+        if let Some((_, instance)) = &contract.instantiation
+            && let Err(error) = self.type_constraints.complete_cyclic_storage_arguments(instance, &pending_storage)
+        {
+            match error {
+                crate::sema::constraints::SealedOperationError::Constraint(conflict) => self.report_inferred_type_conflict(conflict),
+                error => self.error(span, &format!("copied storage arguments cannot be completed: {error}"), DiagnosticCode::CheckTypeMismatch),
+            }
+            pending_storage.clear();
+        }
         let mut groups: Vec<(Type, Vec<(Type, Type, Span)>)> = Vec::new();
-        for (expected, actual, argument_span) in pending_storage.into_inner() {
+        for (expected, actual, argument_span) in pending_storage {
             let identity = self.type_constraints.resolve(&expected).unwrap_or_else(|_| expected.clone());
             if let Some((_, arguments)) = groups.iter_mut().find(|(root, _)| *root == identity) {
                 arguments.push((expected, actual, argument_span));

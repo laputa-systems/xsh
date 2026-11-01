@@ -7727,6 +7727,78 @@ mod tests {
     }
 
     #[test]
+    fn cyclic_storage_arguments_complete_simultaneously_and_rollback() {
+        for actuals in [[Type::Null, Type::Null], [Type::Null, Type::Str], [Type::Str, Type::Null],
+            [Type::Optional(Box::new(Type::Str)), Type::Str], [Type::Str, Type::Optional(Box::new(Type::Str))]] {
+            let mut constraints = TypeConstraints::default();
+            let first = constraints.fresh_at_level(span(1), 1);
+            let second = constraints.fresh_at_level(span(2), 1);
+            let mut operations = Vec::new();
+            for (storage, replacement) in [(&first, &second), (&second, &first)] {
+                operations.push(constraints.register_sealed_operation(CallableApplicationScope::Invocation, super::super::sealed_operation::SealedOperation::StoreValue {
+                    storage: storage.clone(), replacement: replacement.clone(), span: span(3),
+                }).unwrap());
+            }
+            let instance = InstantiatedScheme {
+                params: vec![first.clone(), second.clone()], return_type: first.clone(), requirements: InstantiatedRequirements {
+                    type_arguments: [(SchemeTypeParameterId(0), first.clone()), (SchemeTypeParameterId(1), second.clone())].into(),
+                    row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations,
+                    methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new(), guard_calls: Vec::new(),
+                },
+            };
+            let arguments = [(first.clone(), actuals[0].clone(), span(4)), (second.clone(), actuals[1].clone(), span(5))];
+            let before = constraints.clone();
+            let rejected = constraints.commit_constraint_transaction(|this| {
+                this.complete_cyclic_storage_arguments(&instance, &arguments)?;
+                this.constrain(&first, &Type::Bool, span(6)).map_err(SealedOperationError::Constraint)
+            });
+            assert!(rejected.is_err());
+            assert_eq!(constraints.operations, before.operations);
+            assert_eq!(constraints.resolve(&first).unwrap(), first);
+            assert_eq!(constraints.resolve(&second).unwrap(), second);
+            constraints.complete_cyclic_storage_arguments(&instance, &arguments).unwrap();
+            let expected = if actuals.iter().all(|ty| *ty == Type::Null) { Type::Null } else { Type::Optional(Box::new(Type::Str)) };
+            assert_eq!(constraints.resolve(&first).unwrap(), expected);
+            assert_eq!(constraints.resolve(&second).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn cyclic_storage_keeps_the_unsigned_feeder_anchor_and_rolls_back_all_roots() {
+        let mut constraints = TypeConstraints::default();
+        let first = constraints.fresh_at_level(span(1), 1);
+        let second = constraints.fresh_at_level(span(2), 1);
+        let feeder = constraints.fresh_at_level(span(3), 1);
+        let mut operations = Vec::new();
+        for (storage, replacement) in [(&first, &second), (&second, &first), (&second, &feeder), (&feeder, &Type::Int)] {
+            operations.push(constraints.register_sealed_operation(CallableApplicationScope::Invocation, super::super::sealed_operation::SealedOperation::StoreValue {
+                storage: storage.clone(), replacement: replacement.clone(), span: span(4),
+            }).unwrap());
+        }
+        let roots = [first.clone(), second.clone(), feeder.clone()];
+        let instance = InstantiatedScheme {
+            params: roots.to_vec(), return_type: first.clone(), requirements: InstantiatedRequirements {
+                type_arguments: roots.iter().enumerate().map(|(index, ty)| (SchemeTypeParameterId(index as u32), ty.clone())).collect(),
+                row_arguments: BTreeMap::new(), effect_arguments: BTreeMap::new(), applications: Vec::new(), operations,
+                methods: Vec::new(), wrappers: Vec::new(), guards: Vec::new(), guard_calls: Vec::new(),
+            },
+        };
+        let arguments = [(first.clone(), Type::Null, span(5)), (second.clone(), Type::Null, span(6)), (feeder.clone(), Type::UInt, span(7))];
+        let before = constraints.clone();
+        let rejected = constraints.commit_constraint_transaction(|this| {
+            this.complete_cyclic_storage_arguments(&instance, &arguments)?;
+            this.constrain(&feeder, &Type::Bool, span(8)).map_err(SealedOperationError::Constraint)
+        });
+        assert!(rejected.is_err());
+        assert_eq!(constraints.operations, before.operations);
+        for root in &roots { assert_eq!(constraints.resolve(root).unwrap(), *root); }
+        constraints.complete_cyclic_storage_arguments(&instance, &arguments).unwrap();
+        assert_eq!(constraints.resolve(&first).unwrap(), Type::Optional(Box::new(Type::UInt)));
+        assert_eq!(constraints.resolve(&second).unwrap(), Type::Optional(Box::new(Type::UInt)));
+        assert_eq!(constraints.resolve(&feeder).unwrap(), Type::UInt);
+    }
+
+    #[test]
     fn copied_storage_null_witness_uses_all_owned_replacement_bounds() {
         let mut constraints = TypeConstraints::default();
         let storage = constraints.fresh_at_level(span(1), 1);

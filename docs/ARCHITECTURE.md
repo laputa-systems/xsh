@@ -123,6 +123,13 @@ any required unsigned storage check before execution can commit the update.
 Fresh map storage holes may close from writes only after excluding support from
 parameters, recursive peers, and captures.
 
+Calls collect copied-storage arguments before choosing nullable storage bounds.
+Cyclic storage requirements complete their owned input variables together from
+the whole cycle's actual arguments and external writes. Dependency cycles finish
+before their consumers, and a rejected witness rolls back the whole completion.
+An all-null cycle retains `Null`; a nullable witness preserves invariant payload
+containers and every selected storage check.
+
 Generic body verification uses an explicit obligation stack and an arena of
 lexical frames linked by parent indices. Child obligations finish before a
 parent continuation can publish later bindings. The existing indexed return

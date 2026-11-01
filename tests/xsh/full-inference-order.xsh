@@ -269,3 +269,106 @@ assert left == [1] and right == []
 """, status: 0)?
   assert output.stderr == "", output.stderr
 }
+
+test test_cyclic_copied_storage_combines_call_inputs { |ctx|
+  let output = test.expect(ctx, r"""pure replace(first, second) {
+  var left = first
+  left = second
+  var right = second
+  right = first
+  {left, right}
+}
+let missing = replace(null, null)
+let left: Null = missing.left
+let right: Null = missing.right
+assert left == null and right == null
+let forward = replace(null, {name: "present"})
+let reverse = replace({name: "present"}, null)
+assert forward.left == {name: "present"} and forward.right == null
+assert reverse.left == null and reverse.right == {name: "present"}
+type Item = {name: Str}
+let absent: Item? = null
+let typed = replace(absent, {name: "typed"})
+let typed_reverse = replace({name: "typed"}, absent)
+assert typed.left == {name: "typed"} and typed.right == null
+assert typed_reverse.left == null and typed_reverse.right == {name: "typed"}
+pure relay(first, second) { replace(first, second) }
+assert relay(null, {name: "forwarded"}).left == {name: "forwarded"}
+pure rotate(first, second, third) {
+  var left = first; left = second
+  var middle = second; middle = third
+  var right = third; right = first
+  {left, middle, right}
+}
+let rotated = rotate(null, {name: "middle"}, null)
+assert rotated.left == {name: "middle"} and rotated.middle == null and rotated.right == null
+let lists = rotate(null, [1], [2])
+assert lists.left == [1] and lists.middle == [2] and lists.right == null
+let first_map: Map[Str, Int] = {first: 1}
+let second_map: Map[Str, Int] = {second: 2}
+let maps = rotate(null, first_map, second_map)
+assert maps.left == first_map and maps.middle == second_map and maps.right == null
+let sets = rotate(null, {1, 2}, {3, 4})
+assert sets.left == {1, 2} and sets.middle == {3, 4} and sets.right == null
+pure linked(first, second, third, fourth) {
+  var a = first; a = second
+  var b = second; b = first; b = third
+  var c = third; c = fourth
+  var d = fourth; d = third
+  {a, b, c, d}
+}
+let dependent = linked(null, null, null, {name: "external"})
+assert dependent.a == null and dependent.b == null and dependent.c == {name: "external"} and dependent.d == null
+pure fed(first, second, third, replacement) {
+  var a = first; a = second
+  var b = second; b = first; b = third
+  var c = third; c = replacement
+  {a, b, c}
+}
+let feeder = fed(null, null, null, {name: "external"})
+assert feeder.a == null and feeder.b == null and feeder.c == {name: "external"}
+let present_feeder = fed(null, null, {name: "initial"}, {name: "external"})
+assert present_feeder.b == {name: "initial"} and present_feeder.c == {name: "external"}
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+  let invalid = test.run_xsh(ctx, r"""pure replace(first, second) {
+  var left = first; left = second
+  var right = second; right = first
+  {left, right}
+}
+let _ = replace([1], ["wrong"])
+""")?
+  assert ! invalid.success, invalid.stdout
+  for inputs in [
+    "let integers: List[Int] = [1]\nlet nullable: List[Int?] = [null]\nlet _ = rotate(null, integers, nullable)\n",
+    "let integers: Map[Str, Int] = {name: 1}\nlet nullable: Map[Str, Int?] = {name: null}\nlet _ = rotate(null, integers, nullable)\n",
+    "let signed: Set[Int] = {1, 2}\nlet unsigned: Set[UInt] = {3, 4}\nlet _ = rotate(null, signed, unsigned)\n",
+    "let dynamic: Any = 3\nlet _ = rotate(null, dynamic, null)\n",
+  ] {
+    let containers = test.run_xsh(ctx, r"""pure rotate(first, second, third) {
+  var left = first; left = second
+  var middle = second; middle = third
+  var right = third; right = first
+  {left, middle, right}
+}
+""" + inputs)?
+    assert ! containers.success, containers.stdout
+  }
+  let checked = r"""proc fed(first, second, third, replacement: Int) [error] {
+  var a = first; a = second
+  var b = second; b = first; b = third
+  var c = third; c = replacement
+  {a, b, c}
+}
+proc main(...args: List[Str]) [io, error] {
+  let original: UInt = 3
+  let valid = fed(null, null, original, 2)?
+  print ${valid.c} $original
+  if args.len() > 0 { let _ = fed(null, null, original, -1)? }
+}
+"""
+  let good = test.expect(ctx, checked, status: 0, args: [])?
+  assert good.stdout == "2 3\n", good.stdout
+  let bad = test.expect(ctx, checked, status: 3, args: ["negative"])?
+  assert bad.stdout == "2 3\n", bad.stdout
+}
