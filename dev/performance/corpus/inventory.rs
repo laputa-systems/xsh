@@ -117,7 +117,6 @@ fn effect_clause_span(
     let mut depth = 0usize;
     let mut parameters_closed = false;
     let mut opening = None;
-    let mut clause = None;
     for index in 0..table.len() {
         let tag = table.tag_at(index)?;
         if matches!(tag, TokenTag::Comment | TokenTag::Newline) {
@@ -134,7 +133,7 @@ fn effect_clause_span(
                 TokenTag::RBracket => {
                     depth = depth.checked_sub(1)?;
                     if depth == 0 {
-                        clause = Some(Span::new(
+                        return Some(Span::new(
                             statement.source_id,
                             base + opening.take()?,
                             base + table.end_at(index, signature)?,
@@ -154,7 +153,7 @@ fn effect_clause_span(
             _ => {}
         }
     }
-    clause
+    None
 }
 
 fn add_type_site(
@@ -496,5 +495,27 @@ fn main() {
             site.annotation,
             site.edit,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_clause_preserves_nested_return_type_arguments() {
+        for source in [
+            "proc selected(items: List[Str]) [error] -> Result[List[Str]] { Ok(items) }",
+            "proc selected(items: List[Str]) [fs, error] -> List[List[Str]] { [items] }",
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let program = parsed.arena;
+            let statement = program.arena.stmt(program.arena.stmt_ids(program.statements).next().unwrap());
+            let ArenaStmtKind::ProcDef(definition) = statement.kind else { panic!("procedure fixture") };
+            let span = effect_clause_span(&program.arena, program.arena.function_def(definition), statement.span, source).unwrap();
+            let expected = if source.contains("[fs, error]") { "[fs, error]" } else { "[error]" };
+            assert_eq!(&source[span.start()..span.end()], expected);
+        }
     }
 }
