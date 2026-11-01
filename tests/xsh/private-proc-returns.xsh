@@ -262,3 +262,25 @@ print ${missing is Err(PortError.Missing)} ${port is Err(_)} ${family?} ${classi
   assert output.stdout == """true true ok true
 """
 }
+
+test test_inferred_proc_returns_preserve_explicit_opaque_record_contracts { |ctx|
+  let output = test.expect(ctx, r"""type Item = {name: Str}
+type Payload = {items: List[Record]}
+proc make() {
+  let items: List[Record] = [{name: "one"}]
+  {items}
+}
+proc keep(value: Record) { value }
+let payload: Payload = make()?
+let row = keep(payload.items[0])?
+assert row.require(Item)?.name == "one"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+  for source in [
+    "proc unchecked(value: Any) { value }\n",
+    "proc unchecked() { let values: List[Any] = [1]; {values} }\n",
+  ] {
+    let rejected = test.expect(ctx, source, status: 2)?
+    assert "err[check.infer-return]" in rejected.stderr, rejected.stderr
+  }
+}

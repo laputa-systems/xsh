@@ -983,7 +983,6 @@ pub(super) fn proc_may_return_value(
 fn return_type_is_concrete(ty: &Type) -> bool {
     match ty {
         Type::Any
-        | Type::ErasedRecord
         | Type::Unknown
         | Type::Invalid
         | Type::Function(_)

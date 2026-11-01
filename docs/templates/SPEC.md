@@ -3667,6 +3667,14 @@ component publishes no member scheme.
   return type (`check.required-return`). Empty collections, error-only bodies, and
   dynamic shapes cannot be inferred (`check.infer-return`).
 
+A checked module contract can determine an inferred return type, including
+explicitly opaque `Record` exports. An unchecked dynamic module, or a module
+contract containing `Any`, still requires a return annotation.
+
+An explicitly checked `Record` type can determine an inferred return, including
+inside containers and records. Its fields remain opaque and need validation
+before typed access. This does not make an `Any` return inferable.
+
 An inferred proc can quantify body-owned type and row variables when its checked
 effect contract is finite. `proc wrap(value) { value }` has the relation
 `forall T. T -> Result[T]`, independent of its callers. Its plain symbolic tail
