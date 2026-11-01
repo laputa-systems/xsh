@@ -1736,6 +1736,9 @@ impl<'a> Parser<'a> {
                         span,
                         bare_ident: None,
                     })
+                } else if self.current_tag() == TokenTag::Dot {
+                    self.diagnostic_here("expected field name after `.`", DiagnosticCode::ParseExpectedIdent);
+                    None
                 } else {
                     Some(ArenaOnlyExpr {
                         id: item_id,

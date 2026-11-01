@@ -97,6 +97,12 @@ test test_keywords_and_hyphenated_names_are_not_binding_names { |ctx|
   expect_rejected(ctx, "while let [.. a-b] = xs { }\n", "parse.expected-ident")
 }
 
+test test_item_dot_is_not_followed_by_a_second_dot { |ctx|
+  for source in ["let part = xs |> map { ..name }\n", "if ready { ..gnu.error(\"x\") }\n"] {
+    expect_rejected(ctx, source, "parse.expected-ident")
+  }
+}
+
 test test_spaced_calls_at_statement_heads_are_command_arguments { |ctx|
   for source in ["f (1, 2)\n", "f.field (1, 2)\n"] {
     expect_rejected(ctx, source, "parse.expected-token")
