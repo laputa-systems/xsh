@@ -13,27 +13,31 @@ pub(crate) struct ConstructorArgumentCheckpoint {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct ConstructorErrorDefault {
+enum ConstructorHoleKind { Success, Error }
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ConstructorHole {
     variable: TypeVariableId,
     source: Span,
     constructor_owned: bool,
+    kind: ConstructorHoleKind,
 }
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct ConstructorErrorDefaults {
-    pending: BTreeMap<CallableApplicationScope, BTreeMap<u64, ConstructorErrorDefault>>,
+pub(super) struct ConstructorDefaults {
+    pending: BTreeMap<CallableApplicationScope, BTreeMap<u64, ConstructorHole>>,
     arguments: Vec<ConstructorArgumentCheckpoint>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) enum ConstructorDefaultChange {
     Registered(CallableApplicationScope, u64),
-    Removed(CallableApplicationScope, u64, ConstructorErrorDefault),
+    Removed(CallableApplicationScope, u64, ConstructorHole),
     ArgumentsStarted,
     ArgumentsFinished(ConstructorArgumentCheckpoint),
 }
 
-impl ConstructorErrorDefaults {
+impl ConstructorDefaults {
     pub(super) fn rollback(&mut self, change: ConstructorDefaultChange) {
         match change {
             ConstructorDefaultChange::Registered(owner, id) => { self.remove(owner, id); }
@@ -43,7 +47,7 @@ impl ConstructorErrorDefaults {
         }
     }
 
-    fn remove(&mut self, owner: CallableApplicationScope, id: u64) -> ConstructorErrorDefault {
+    fn remove(&mut self, owner: CallableApplicationScope, id: u64) -> ConstructorHole {
         let entries = self.pending.get_mut(&owner).expect("constructor default owns its scope");
         let value = entries.remove(&id).expect("constructor default owns its identity");
         if entries.is_empty() { self.pending.remove(&owner); }
@@ -53,14 +57,14 @@ impl ConstructorErrorDefaults {
     #[cfg(test)]
     pub(super) fn retained_bytes(&self) -> usize {
         self.arguments.capacity() * std::mem::size_of::<ConstructorArgumentCheckpoint>()
-            + self.pending.len() * std::mem::size_of::<(CallableApplicationScope, BTreeMap<u64, ConstructorErrorDefault>)>()
-            + self.pending.values().map(|entries| entries.len() * std::mem::size_of::<(u64, ConstructorErrorDefault)>()).sum::<usize>()
+            + self.pending.len() * std::mem::size_of::<(CallableApplicationScope, BTreeMap<u64, ConstructorHole>)>()
+            + self.pending.values().map(|entries| entries.len() * std::mem::size_of::<(u64, ConstructorHole)>()).sum::<usize>()
     }
 }
 
 impl TypeConstraints {
-    fn fresh_constructor_error(&self, owner: CallableApplicationScope, error: &Type) -> Result<bool, ConstraintResolutionError> {
-        let Type::Inference(variable) = self.resolve(error)? else { return Ok(false) };
+    fn constructor_hole_is_owned(&self, owner: CallableApplicationScope, hole: &Type) -> Result<bool, ConstraintResolutionError> {
+        let Type::Inference(variable) = self.resolve(hole)? else { return Ok(false) };
         let Some(entries) = self.constructor_defaults.pending.get(&owner) else { return Ok(false) };
         let owns = |variable| entries.values().any(|entry| entry.variable == variable && entry.constructor_owned);
         let Some(Variable::Representative(value)) = self.variables.get(&variable) else { return Ok(false) };
@@ -73,29 +77,34 @@ impl TypeConstraints {
         Ok(true)
     }
 
-    pub(super) fn constrain_store_constructor_errors(&mut self, owner: CallableApplicationScope, storage: &Type, replacement: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
-        if !self.has_constructor_error_defaults(owner) { return Ok(()); }
+    pub(super) fn constrain_store_constructor_holes(&mut self, owner: CallableApplicationScope, storage: &Type, replacement: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
+        if !self.has_constructor_holes(owner) { return Ok(()); }
         let mut pending = vec![(storage.clone(), replacement.clone(), 0)];
         while let Some((storage, replacement, depth)) = pending.pop() {
             if depth > super::MAX_TYPE_DEPTH { return Err(ConstraintResolutionError::TypeDepth.into()); }
             self.counters.occurs_visits.fetch_add(1, Ordering::Relaxed);
             let storage = self.resolve_with_changes(&storage, 0, changes)?;
             let mut replacement = self.resolve_with_changes(&replacement, 0, changes)?;
-            if let Type::Result(_, error) = &storage
-                && self.fresh_constructor_error(owner, error)?
-            {
-                if let Type::Inference(variable) = replacement {
-                    let level = self.type_level(variable)?;
-                    let payload = self.fresh_type_with_changes(span, level, changes);
-                    let error = self.fresh_type_with_changes(span, level, changes);
-                    let shape = Type::Result(Box::new(payload), Box::new(error));
-                    self.constrain_operation_type(&Type::Inference(variable), &shape, span, changes)?;
-                    replacement = self.resolve_with_changes(&replacement, 0, changes)?;
-                }
-                if let Type::Result(_, replacement_error) = &replacement
-                    && !replacement_error.contains_any() && !replacement_error.contains_recovery()
-                {
-                    self.constrain_operation_type(error, replacement_error, span, changes)?;
+            if let Type::Result(success, error) = &storage {
+                let success_owned = self.constructor_hole_is_owned(owner, success)?;
+                let error_owned = self.constructor_hole_is_owned(owner, error)?;
+                if success_owned || error_owned {
+                    if let Type::Inference(variable) = replacement {
+                        let level = self.type_level(variable)?;
+                        let replacement_success = self.fresh_type_with_changes(span, level, changes);
+                        let replacement_error = self.fresh_type_with_changes(span, level, changes);
+                        let shape = Type::Result(Box::new(replacement_success), Box::new(replacement_error));
+                        self.constrain_operation_type(&Type::Inference(variable), &shape, span, changes)?;
+                        replacement = self.resolve_with_changes(&replacement, 0, changes)?;
+                    }
+                    if let Type::Result(replacement_success, replacement_error) = &replacement {
+                        if success_owned && !replacement_success.contains_any() && !replacement_success.contains_recovery() {
+                            self.constrain_operation_type(success, replacement_success, span, changes)?;
+                        }
+                        if error_owned && !replacement_error.contains_any() && !replacement_error.contains_recovery() {
+                            self.constrain_operation_type(error, replacement_error, span, changes)?;
+                        }
+                    }
                 }
             }
             match (storage, replacement) {
@@ -119,13 +128,22 @@ impl TypeConstraints {
     }
 
     pub(crate) fn record_constructor_error_default(&mut self, owner: CallableApplicationScope, error: &Type, source: Span) -> Result<(), ConstraintResolutionError> {
-        let Type::Inference(variable) = self.resolve(error)? else { return Ok(()) };
+        self.record_constructor_hole(owner, error, source, ConstructorHoleKind::Error)
+    }
+
+    pub(crate) fn record_constructor_success_hole(&mut self, owner: CallableApplicationScope, success: &Type, source: Span) -> Result<(), ConstraintResolutionError> {
+        self.record_constructor_hole(owner, success, source, ConstructorHoleKind::Success)
+    }
+
+    fn record_constructor_hole(&mut self, owner: CallableApplicationScope, ty: &Type, source: Span, kind: ConstructorHoleKind) -> Result<(), ConstraintResolutionError> {
+        let Type::Inference(variable) = self.resolve(ty)? else { return Ok(()) };
         let variable = self.representative_root(variable)?;
         let Some(Variable::Representative(value)) = self.variables.get(&variable) else { return Ok(()) };
         if value.binding.is_some() { return Ok(()) }
         let constructor_owned = value.rank == 0 && value.origin == source && !value.annotation;
+        if matches!(kind, ConstructorHoleKind::Success) && !constructor_owned { return Ok(()) }
         let id = NEXT_CONSTRUCTOR_DEFAULT.fetch_add(1, Ordering::Relaxed);
-        self.constructor_defaults.pending.entry(owner).or_default().insert(id, ConstructorErrorDefault { variable, source, constructor_owned });
+        self.constructor_defaults.pending.entry(owner).or_default().insert(id, ConstructorHole { variable, source, constructor_owned, kind });
         if let Some(changes) = &mut self.trial_changes { changes.push(ConstraintChange::ConstructorDefault(ConstructorDefaultChange::Registered(owner, id))); }
         Ok(())
     }
@@ -146,38 +164,38 @@ impl TypeConstraints {
 
     pub(crate) fn reject_constructor_arguments(&mut self, checkpoint: ConstructorArgumentCheckpoint) -> Result<(), ConstraintResolutionError> {
         self.end_constructor_arguments(checkpoint)?;
-        self.reject_constructor_error_defaults_since(checkpoint);
+        self.reject_constructor_holes_since(checkpoint);
         Ok(())
     }
 
-    fn reject_constructor_error_defaults_since(&mut self, checkpoint: ConstructorArgumentCheckpoint) {
+    fn reject_constructor_holes_since(&mut self, checkpoint: ConstructorArgumentCheckpoint) {
         let entries = self.constructor_defaults.pending.get(&checkpoint.owner).into_iter().flat_map(|entries| entries.range(checkpoint.first..).map(|(&id, _)| id)).collect::<Vec<_>>();
-        for id in entries { self.remove_constructor_error_default(checkpoint.owner, id); }
+        for id in entries { self.remove_constructor_hole(checkpoint.owner, id); }
     }
 
     pub(crate) fn finish_constructor_arguments(&mut self, checkpoint: ConstructorArgumentCheckpoint) -> Result<(), SchemeOperationError> {
         self.end_constructor_arguments(checkpoint)?;
         if checkpoint.owner == CallableApplicationScope::Invocation && self.constructor_defaults.arguments.is_empty()
-            && let Err(error) = self.complete_constructor_error_defaults_since(checkpoint.owner, checkpoint.first, &BTreeSet::new(), &[])
+            && let Err(error) = self.complete_constructor_holes_since(checkpoint.owner, checkpoint.first, &BTreeSet::new(), &[])
         {
-            self.reject_constructor_error_defaults_since(checkpoint);
+            self.reject_constructor_holes_since(checkpoint);
             return Err(error);
         }
         Ok(())
     }
 
-    pub(crate) fn has_constructor_error_defaults(&self, owner: CallableApplicationScope) -> bool { self.constructor_defaults.pending.contains_key(&owner) }
+    pub(crate) fn has_constructor_holes(&self, owner: CallableApplicationScope) -> bool { self.constructor_defaults.pending.contains_key(&owner) }
 
-    pub(crate) fn complete_constructor_error_defaults(&mut self, owner: CallableApplicationScope, component: &BTreeSet<EffectDeclarationId>, inputs: &[Type]) -> Result<(), SchemeOperationError> {
-        self.complete_constructor_error_defaults_since(owner, 0, component, inputs)
+    pub(crate) fn complete_constructor_holes(&mut self, owner: CallableApplicationScope, component: &BTreeSet<EffectDeclarationId>, inputs: &[Type]) -> Result<(), SchemeOperationError> {
+        self.complete_constructor_holes_since(owner, 0, component, inputs)
     }
 
-    fn remove_constructor_error_default(&mut self, owner: CallableApplicationScope, id: u64) {
+    fn remove_constructor_hole(&mut self, owner: CallableApplicationScope, id: u64) {
         let value = self.constructor_defaults.remove(owner, id);
         if let Some(changes) = &mut self.trial_changes { changes.push(ConstraintChange::ConstructorDefault(ConstructorDefaultChange::Removed(owner, id, value))); }
     }
 
-    fn complete_constructor_error_defaults_since(&mut self, owner: CallableApplicationScope, first: u64, component: &BTreeSet<EffectDeclarationId>, inputs: &[Type]) -> Result<(), SchemeOperationError> {
+    fn complete_constructor_holes_since(&mut self, owner: CallableApplicationScope, first: u64, component: &BTreeSet<EffectDeclarationId>, inputs: &[Type]) -> Result<(), SchemeOperationError> {
         let entries = self.constructor_defaults.pending.get(&owner).into_iter().flat_map(|entries| entries.range(first..).map(|(&id, &entry)| (id, entry))).collect::<Vec<_>>();
         if entries.is_empty() { return Ok(()) }
         self.commit_constraint_transaction(|constraints| {
@@ -189,13 +207,15 @@ impl TypeConstraints {
             };
             for (id, entry) in entries {
                 constraints.counters.occurs_visits.fetch_add(1, Ordering::Relaxed);
-                if let Type::Inference(variable) = constraints.resolve(&Type::Inference(entry.variable))? {
+                if matches!(entry.kind, ConstructorHoleKind::Error)
+                    && let Type::Inference(variable) = constraints.resolve(&Type::Inference(entry.variable))?
+                {
                     let root = constraints.representative_root(variable)?;
                     if !supported.contains_type(root) && matches!(constraints.variables.get(&root), Some(Variable::Representative(value)) if value.binding.is_none()) {
                         constraints.constrain(&Type::Inference(root), &Type::Error, entry.source).map_err(SchemeOperationError::Constraint)?;
                     }
                 }
-                constraints.remove_constructor_error_default(owner, id);
+                constraints.remove_constructor_hole(owner, id);
             }
             constraints.solve_callable_applications().map_err(SchemeOperationError::Application)
         })
@@ -209,6 +229,18 @@ mod tests {
 
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
     fn owner() -> EffectDeclarationId { EffectDeclarationId { namespace: None, body: span() } }
+
+    #[test]
+    fn missing_success_has_no_implicit_default() {
+        let mut constraints = TypeConstraints::default();
+        let scope = CallableApplicationScope::Invocation;
+        let checkpoint = constraints.begin_constructor_arguments(scope);
+        let success = constraints.fresh(span());
+        constraints.record_constructor_success_hole(scope, &success, span()).unwrap();
+        constraints.finish_constructor_arguments(checkpoint).unwrap();
+        assert_eq!(constraints.resolve(&success).unwrap(), success);
+        assert!(!constraints.has_constructor_holes(scope));
+    }
 
     #[test]
     fn constructor_storage_context_preserves_foreign_error_cells() {
@@ -277,7 +309,7 @@ mod tests {
         constraints.finish_constructor_arguments(outer).unwrap();
         assert_eq!(constraints.resolve(&actual).unwrap(), Type::Str);
         assert_eq!(constraints.resolve(&phantom).unwrap(), Type::Error);
-        assert!(!constraints.has_constructor_error_defaults(scope));
+        assert!(!constraints.has_constructor_holes(scope));
 
         let scope = CallableApplicationScope::Declaration(owner());
         let input = constraints.fresh(span());
@@ -287,7 +319,7 @@ mod tests {
         let phantom = constraints.fresh(span());
         constraints.record_constructor_error_default(scope, &phantom, span()).unwrap();
         let inputs = [Type::Result(Box::new(Type::Int), Box::new(input.clone()))];
-        constraints.complete_constructor_error_defaults(scope, &BTreeSet::from([owner()]), &inputs).unwrap();
+        constraints.complete_constructor_holes(scope, &BTreeSet::from([owner()]), &inputs).unwrap();
         assert!(matches!(constraints.resolve(&alias).unwrap(), Type::Inference(_)));
         assert_eq!(constraints.resolve(&phantom).unwrap(), Type::Error);
         constraints.constrain(&input, &Type::Str, span()).unwrap();
@@ -306,13 +338,13 @@ mod tests {
             candidate.constrain(&pending, &Type::Error, span())
         }), Ok(true));
         assert_eq!(constraints.resolve(&pending).unwrap(), pending);
-        assert!(constraints.has_constructor_error_defaults(scope));
+        assert!(constraints.has_constructor_holes(scope));
         let mut clone = constraints.clone();
         clone.finish_constructor_arguments(checkpoint).unwrap();
         assert_eq!(clone.resolve(&pending).unwrap(), Type::Error);
         assert_eq!(constraints.resolve(&pending).unwrap(), pending);
         constraints.reject_constructor_arguments(checkpoint).unwrap();
-        assert!(!constraints.has_constructor_error_defaults(scope));
+        assert!(!constraints.has_constructor_holes(scope));
         assert_eq!(constraints.resolve(&pending).unwrap(), pending);
 
         let foreign = TypeConstraints::default().fresh(span());
@@ -325,8 +357,8 @@ mod tests {
 
         let scope = CallableApplicationScope::Declaration(owner());
         constraints.record_constructor_error_default(scope, &pending, span()).unwrap();
-        assert!(matches!(constraints.complete_constructor_error_defaults(scope, &BTreeSet::new(), &[]), Err(SchemeOperationError::Resolution(ConstraintResolutionError::ForeignVariable))));
-        assert!(constraints.has_constructor_error_defaults(scope));
+        assert!(matches!(constraints.complete_constructor_holes(scope, &BTreeSet::new(), &[]), Err(SchemeOperationError::Resolution(ConstraintResolutionError::ForeignVariable))));
+        assert!(constraints.has_constructor_holes(scope));
         assert_eq!(constraints.resolve(&pending).unwrap(), pending);
     }
 
@@ -342,7 +374,7 @@ mod tests {
         assert!(constraints.finish_constructor_arguments(checkpoint).is_err());
         assert_eq!(constraints.resolve(&first).unwrap(), first);
         assert_eq!(constraints.resolve(&constrained).unwrap(), constrained);
-        assert!(!constraints.has_constructor_error_defaults(scope));
+        assert!(!constraints.has_constructor_holes(scope));
         let checkpoint = constraints.begin_constructor_arguments(scope);
         constraints.record_constructor_error_default(scope, &first, span()).unwrap();
         constraints.finish_constructor_arguments(checkpoint).unwrap();

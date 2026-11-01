@@ -396,7 +396,7 @@ impl Checker {
             }
         }
         let constructor_owner = crate::sema::constraints::CallableApplicationScope::Declaration(declaration.effect_declaration());
-        if self.type_constraints.has_constructor_error_defaults(constructor_owner) {
+        if self.type_constraints.has_constructor_holes(constructor_owner) {
             let mut inputs = types.clone();
             for &owner in component {
                 if owner == declaration.effect_declaration() { continue; }
@@ -409,7 +409,7 @@ impl Checker {
                 self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
                     .map(|binding| binding.ty.clone())
             }));
-            if let Err(error) = self.type_constraints.complete_constructor_error_defaults(constructor_owner, component, &inputs) {
+            if let Err(error) = self.type_constraints.complete_constructor_holes(constructor_owner, component, &inputs) {
                 self.error(body_span, &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
                 return None;
             }

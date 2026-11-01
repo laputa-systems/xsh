@@ -3398,6 +3398,10 @@ of `Any` keep their ordinary contracts.
 A copied record may be updated from a field narrowed by a non-null guard;
 the update retains the field’s present type without widening stored containers.
 
+Within a generic call, an absent `Ok` error or `Err` success component can take
+context from a compatible replacement assigned to the same local. Written
+result domains remain fixed.
+
 Returning an inferred value from a declared optional return type retains the
 same requirement. `pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }`
 accepts a `row.values` of `Map[Str, Str]` and of `Map[Str, Str?]`; map values

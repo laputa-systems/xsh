@@ -1961,6 +1961,11 @@ impl Checker {
                     }
                     _ => Type::Unknown,
                 };
+                let owner = self.constraint_scope();
+                if let Err(error) = self.type_constraints.record_constructor_success_hole(owner, &success, span) {
+                    self.error(span, &format!("constructor success context cannot be retained: {error:?}"), DiagnosticCode::CheckLocalInference);
+                    return Type::Invalid;
+                }
                 Type::Result(Box::new(success), Box::new(outer))
             }
             "Error" => {

@@ -725,7 +725,7 @@ pub struct TypeConstraints {
     operations: operation_constraints::SealedOperations,
     methods: method_constraints::SealedMethods,
     wrappers: wrapper_constraints::WrapperOperations,
-    constructor_defaults: constructor_defaults::ConstructorErrorDefaults,
+    constructor_defaults: constructor_defaults::ConstructorDefaults,
     counters: ConstraintCounterStorage,
     trial_changes: Option<Vec<ConstraintChange>>,
 }
@@ -740,7 +740,7 @@ impl Default for TypeConstraints {
             operations: operation_constraints::SealedOperations::default(),
             methods: method_constraints::SealedMethods::default(),
             wrappers: wrapper_constraints::WrapperOperations::default(),
-            constructor_defaults: constructor_defaults::ConstructorErrorDefaults::default(),
+            constructor_defaults: constructor_defaults::ConstructorDefaults::default(),
             counters: ConstraintCounterStorage::for_current_work_scope(),
             trial_changes: None,
         }

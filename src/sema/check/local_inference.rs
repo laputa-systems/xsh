@@ -242,7 +242,7 @@ impl Checker {
     pub(super) fn resolve_checked_types(&mut self) {
         let first_new = self.diagnostics.len();
         self.complete_fresh_map_stores(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[], Span::at(crate::source::SourceId::new(0), 0));
-        if let Err(error) = self.type_constraints.complete_constructor_error_defaults(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[]) {
+        if let Err(error) = self.type_constraints.complete_constructor_holes(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[]) {
             self.error(Span::at(crate::source::SourceId::new(0), 0), &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
         let mut reported = self

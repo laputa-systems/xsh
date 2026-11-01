@@ -4325,3 +4325,34 @@ assert use_members("x", []) == "x:0"
         assert!(FullVerifier::verify(&changed).is_err());
     });
 }
+
+#[test]
+fn result_storage_constructor_context_preserves_physical_payloads() {
+    on_large_stack(|| {
+        let mut program = fixture(r#"
+error Failure = Missing
+pure same(left, right) { var selected = left; selected = right; selected }
+pure from_ok(value, number: Int) { same(Ok(number), value) }
+pure from_err(value, failure: Str) { same(Err(failure), value) }
+let error: Result[Int, Failure] = Err(Failure.Missing())
+let success: Result[Int, Str] = Ok(7)
+let first: Result[Int, Failure] = from_ok(error, 9)
+let second: Result[Int, Str] = from_err(success, "failure")
+assert first == error
+assert second == success
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let owner = function(&program, "from_err");
+        let constructor = program.store.function_instruction_range(owner).unwrap()
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprErr).unwrap();
+        let words = program.store.data[constructor].range();
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.tags[constructor] = FullTag::ExprOk;
+        forged.store.data[constructor] = IrData::new(words.start, 1);
+        let error = FullVerifier::verify(&forged).expect_err("constructor context cannot certify a payload of another type");
+        assert_eq!(error.message, "generic success payload disagrees with its checked contract");
+    });
+}

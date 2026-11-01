@@ -798,7 +798,7 @@ impl TypeConstraints {
                         continue;
                     }
                     SealedOperation::StoreValue { storage, replacement, span } => {
-                        this.constrain_store_constructor_errors(owner, &storage, &replacement, span, changes).map_err(|error| match error {
+                        this.constrain_store_constructor_holes(owner, &storage, &replacement, span, changes).map_err(|error| match error {
                             SealedOperationError::Constraint(conflict) => SealedOperationError::StorageConstraint(conflict),
                             error => error,
                         })?;
