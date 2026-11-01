@@ -4432,6 +4432,22 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn generic_chained_host_call_authenticates_its_receiver() {
+        let program = prepare("pure lines(text, marker) -> List[Str] { let _ = marker; text.lines().extend([\"sentinel\"]) }\nlet _ = lines(\"x\", 1)");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "lines").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let call = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "lines", .. }))).unwrap();
+        let schema::ExprView::Method { receiver, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let receiver = receiver.raw() as usize;
+        let mut cold = program.clone();
+        cold.store.in_place.take();
+        FullVerifier::verify(&cold).unwrap();
+        let words = cold.store.data[receiver].range().bounds(cold.store.extra.len()).unwrap();
+        cold.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&cold).is_err());
+    }
+
+    #[test]
     fn generic_record_get_authenticates_projection_and_registry() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("type Info = {arch: Str, count: Int}\npure choose(row: Info, marker, wrong: Str) -> Result[Str] { let _ = marker; let _ = wrong; let _ = row.get(\"count\"); row.get(\"arch\")? }\nlet result = choose({arch: \"arm\", count: 4}, 1, \"wrong\")");

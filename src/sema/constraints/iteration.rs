@@ -63,7 +63,7 @@ impl TypeConstraints {
         }
     }
 
-    pub(super) fn iteration_requirement(&self, id: TypeVariableId) -> Result<Option<IterationRequirement<Type>>, ConstraintResolutionError> {
+    pub(crate) fn iteration_requirement(&self, id: TypeVariableId) -> Result<Option<IterationRequirement<Type>>, ConstraintResolutionError> {
         let root = self.representative_root(id)?;
         let Some(Variable::Representative(variable)) = self.variables.get(&root) else { unreachable!() };
         Ok(variable.iteration.as_deref().cloned())

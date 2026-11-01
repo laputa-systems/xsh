@@ -161,6 +161,39 @@ impl HostObligation {
 }
 
 impl HostMethodCandidates {
+    fn defers_selected_result(&self, name: &str) -> bool {
+        self.method_requirement(name).is_some_and(|(kind, _, _, _)| {
+            matches!(kind, MethodRequirementKind::Family(_))
+                && matches!(api_spec().method_requirement_result(kind), Some(crate::modules::signature::MethodFamilyResult::SelectedSignature))
+        })
+    }
+
+    fn narrow_chained_receivers(&mut self, constraints: &mut TypeConstraints, name: &str, downstream: &[(String, HostMethodCandidates)]) -> Result<(), ConstraintResolutionError> {
+        if downstream.is_empty() || self.defers_selected_result(name)
+            || self.candidates.iter().any(|candidate| self.candidates.iter().filter(|other| other.receiver == candidate.receiver).count() > 1)
+        { return Ok(()); }
+        let mut retained = Vec::new();
+        for candidate in std::mem::take(&mut self.candidates) {
+            let mut supported = true;
+            for (name, next) in downstream {
+                let mut compatible = false;
+                for next_candidate in &next.candidates {
+                    let include_result = !next.defers_selected_result(name)
+                        && next.candidates.iter().filter(|other| other.receiver == next_candidate.receiver).count() == 1;
+                    if constraints.trial(|constraints| {
+                        self.constrain_candidate(candidate, constraints, true)?;
+                        next.constrain_candidate(*next_candidate, constraints, include_result)?;
+                        Ok(())
+                    })? { compatible = true; break; }
+                }
+                if !compatible { supported = false; break; }
+            }
+            if supported { retained.push(candidate); }
+        }
+        self.candidates = retained;
+        Ok(())
+    }
+
     fn dependencies(&self, constraints: &TypeConstraints) -> Result<BTreeSet<Span>, ConstraintResolutionError> {
         std::iter::once(&self.receiver)
             .chain(std::iter::once(&self.result))
@@ -723,9 +756,39 @@ impl Checker {
         while let Some(index) = queue.pop_front() {
             queued.remove(&index);
             if pending[index].candidates.selected.is_some() { continue; }
-            let obligation = &mut pending[index];
-            let dependencies = obligation.dependencies(arena, &self.type_constraints)?;
-            if obligation.candidates.select(&mut self.type_constraints, &obligation.continuation.name)? {
+            let dependencies = pending[index].dependencies(arena, &self.type_constraints)?;
+            let name = pending[index].continuation.name.clone();
+            let mut selected = pending[index].candidates.select(&mut self.type_constraints, &name)?;
+            if !selected {
+                let result = self.type_constraints.resolve(&pending[index].candidates.result)?;
+                let mut downstream = Vec::new();
+                if let Type::Inference(variable) = result {
+                    let item = self.type_constraints.iteration_requirement(variable)?
+                        .map(|requirement| self.type_constraints.resolve(&requirement.item)).transpose()?;
+                    let owner = pending[index].continuation.owner;
+                    let mut linked = BTreeSet::new();
+                    for dependency in self.type_constraints.unresolved(&Type::Inference(variable))?.into_iter()
+                        .chain(item.as_ref().map(|item| self.type_constraints.unresolved(item)).transpose()?.into_iter().flatten()) {
+                        if let Some(dependents) = watchers.get(&dependency) { linked.extend(dependents.iter().copied()); }
+                    }
+                    for other_index in linked {
+                        let other = &pending[other_index];
+                        let receiver = self.type_constraints.resolve(&other.candidates.receiver)?;
+                        if other_index != index && other.candidates.selected.is_none() && owner.is_some()
+                            && other.continuation.owner == owner
+                            && self.constraint_scope_at(owner.unwrap(), pending[index].candidates.span) == self.constraint_scope_at(owner.unwrap(), other.candidates.span)
+                            && (receiver == Type::Inference(variable) || item.as_ref() == Some(&receiver)) {
+                            downstream.push((other.continuation.name.clone(), other.candidates.clone()));
+                        }
+                    }
+                }
+                if !downstream.is_empty() {
+                    let obligation = &mut pending[index];
+                    obligation.candidates.narrow_chained_receivers(&mut self.type_constraints, &name, &downstream)?;
+                    selected = obligation.candidates.select(&mut self.type_constraints, &name)?;
+                }
+            }
+            if selected {
                 for dependency in dependencies {
                     if let Some(dependents) = watchers.remove(&dependency) {
                         for dependent in dependents {
