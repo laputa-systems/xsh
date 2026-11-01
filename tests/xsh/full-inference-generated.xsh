@@ -74,7 +74,6 @@ proc combine(left: Int, right: Int) [io] -> Result[Int] {
       let order = if reverse { "right\nleft\n" } else { "left\nright\n" }
       let value = seed * 10 + 2
       assert output.stdout == order + f"body\ncleanup\n{value}\n", output.stdout
-
     }
   }
   for signature in ["proc combine(left: Int, right: Int) [io] -> Result[Int]", "proc combine(left, right)"] {
@@ -92,5 +91,34 @@ match combine(left: 0, right: 2) {
     let failed = test.run_xsh(ctx, failing)?
     assert failed.success, failed.stderr
     assert failed.stdout == "body\ncleanup\nbad input\n", failed.stdout
+  }
+}
+
+
+test test_generated_alpha_names_and_grounded_type_shapes { |ctx|
+  let shapes = [
+    {parameter: "Int", result: "Int", input: "6", expression: " + 1", expected: "7\n", wrong: "false"},
+    {parameter: "Str", result: "Str", input: "\"row\"", expression: " + \"!\"", expected: "row!\n", wrong: "6"},
+    {parameter: "Bool", result: "Bool", input: "true", expression: " == false", expected: "false\n", wrong: "6"},
+    {parameter: "List[Int]", result: "Int", input: "[6, 8]", expression: "[0] + 1", expected: "7\n", wrong: "[false]"},
+  ]
+  for seed in [2, 5, 9] {
+    for shape in shapes {
+      for explicit in [true, false] {
+        let name = f"transform_{seed}"
+        let argument = f"input_{seed}"
+        let parameter = if explicit { argument + ": " + shape.parameter } else { argument }
+        let result = if explicit { " -> " + shape.result } else { "" }
+        let definition = "pure " + name + "(" + parameter + ")" + result + " { " + argument + shape.expression + " }\n"
+        let source = definition + r"""print ${""" + name + "(" + shape.input + ")}\n"
+        let output = test.run_xsh(ctx, source)?
+        assert output.success, f"seed {seed}, {shape.parameter}, explicit {explicit}: {output.stderr}"
+        assert output.stdout == shape.expected, output.stdout
+        let mutant = definition + r"""print ${""" + name + "(" + shape.wrong + ")}\n"
+        let rejected = test.run_xsh(ctx, mutant)?
+        assert rejected.status == 2, rejected.stderr
+        assert "[check.type-mismatch]" in rejected.stderr or "[check.operator-type]" in rejected.stderr, rejected.stderr
+      }
+    }
   }
 }
