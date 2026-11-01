@@ -3780,9 +3780,16 @@ impl Checker {
         if let ArenaExprKind::PatternCondition { value, arms } = arena.arena.expr(condition).kind {
             let subject = self.proof_subject_arena(arena, value);
             let anonymous = subject.is_none();
-            let ty = subject.map(|(_, _, ty, _)| ty)
-                .or_else(|| self.expr_types.get(&arena.arena.expr(value).span).cloned())
+            let checked = self
+                .expr_types
+                .get(&arena.arena.expr(value).span)
+                .cloned()
                 .unwrap_or(Type::Unknown);
+            let checked_inference = matches!(self.type_constraints.resolve(&checked).unwrap_or_else(|_| checked.clone()), Type::Inference(_));
+            let ty = match subject {
+                Some((_, _, ty, _)) if checked_inference => ty,
+                _ => checked,
+            };
             let ty = if matches!(ty.unvalidated(), Type::Inference(_)) {
                 self.type_constraints.resolve(&ty).unwrap_or(ty)
             } else { ty };
