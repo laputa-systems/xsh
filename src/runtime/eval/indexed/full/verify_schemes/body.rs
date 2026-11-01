@@ -4448,6 +4448,22 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn generic_chained_slice_authenticates_its_item_producer() {
+        let program = prepare("pure convert(content: Bytes) -> Bytes { content }\npure render(data, marker) -> List[Bytes] { let _ = marker; [convert(item[0..1]) for item in data.lines()] }\nlet _ = render(b\"abc\", 1)");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "render").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let slice = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Slice { .. }))).unwrap();
+        let schema::ExprView::Slice { base, .. } = decoder.expression_view(slice).unwrap() else { unreachable!() };
+        let base = base.raw() as usize;
+        let mut cold = program.clone();
+        cold.store.in_place.take();
+        FullVerifier::verify(&cold).unwrap();
+        let words = cold.store.data[base].range().bounds(cold.store.extra.len()).unwrap();
+        cold.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&cold).is_err());
+    }
+
+    #[test]
     fn generic_record_get_authenticates_projection_and_registry() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("type Info = {arch: Str, count: Int}\npure choose(row: Info, marker, wrong: Str) -> Result[Str] { let _ = marker; let _ = wrong; let _ = row.get(\"count\"); row.get(\"arch\")? }\nlet result = choose({arch: \"arm\", count: 4}, 1, \"wrong\")");

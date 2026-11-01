@@ -80,3 +80,38 @@ let _ = lines(b"x")
   assert result.success == false
   assert "err[check." in result.stderr, result.stderr
 }
+
+test test_lines_iteration_uses_checked_slice { |ctx|
+  for declaration in [
+    r"""pure render(data: Bytes) -> List[Bytes] { [convert(item[0..1]) for item in data.lines()] }""",
+    r"""pure render(data) -> List[Bytes] { [convert(item[0..1]) for item in data.lines()] }""",
+  ] {
+    let result = test.expect(ctx, r"""pure convert(content: Bytes) -> Bytes { content }
+""" + declaration + r"""
+assert render(b"abc\ndef") == [b"a", b"d"]
+""", status: 0)?
+    assert result.stderr == "", result.stderr
+  }
+}
+
+test test_lines_receiver_uses_checked_slice { |ctx|
+  for declaration in [
+    r"""pure render(data: Bytes) -> List[Bytes] { [convert(data[0..1]) for item in data.lines()] }""",
+    r"""pure render(data) -> List[Bytes] { [convert(data[0..1]) for item in data.lines()] }""",
+  ] {
+    let result = test.expect(ctx, r"""pure convert(content: Bytes) -> Bytes { content }
+""" + declaration + r"""
+assert render(b"abc\ndef") == [b"a", b"a"]
+""", status: 0)?
+    assert result.stderr == "", result.stderr
+  }
+}
+
+test test_checked_slice_rejects_another_receiver { |ctx|
+  let result = test.run_xsh(ctx, r"""pure convert(content: Bytes) -> Bytes { content }
+pure render(data) -> List[Bytes] { [convert(data[0..1]) for item in data.lines()] }
+let _ = render("text")
+""")?
+  assert result.success == false
+  assert "err[check." in result.stderr, result.stderr
+}

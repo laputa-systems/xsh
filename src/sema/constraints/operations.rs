@@ -153,6 +153,23 @@ mod tests {
     }
 
     #[test]
+    fn linked_slices_respect_their_owning_guard() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        let outer = super::super::CallableApplicationScope::Invocation;
+        let source = constraints.fresh(span);
+        let view = constraints.fresh(span);
+        let guard = constraints.register_non_null_guard(outer, source, view, span, span).unwrap();
+        let guard = super::super::CallableApplicationScope::Guard(guard);
+        for (owner, result) in [(outer, Type::Bytes), (guard, Type::Str)] {
+            constraints.register_sealed_operation(owner, SealedOperation::Slice { receiver: receiver.clone(), result, bounds: crate::sema::sealed_operation::SliceBounds::Unbounded, span }).unwrap();
+        }
+        assert_eq!(constraints.linked_slices(outer, &receiver).unwrap(), vec![(receiver.clone(), Type::Bytes, span)]);
+        assert_eq!(constraints.linked_slices(guard, &receiver).unwrap(), vec![(receiver.clone(), Type::Str, span)]);
+    }
+
+    #[test]
     fn sealed_postfix_operations_preserve_input_ambiguity_and_atomic_rollback() {
         let span = Span::at(crate::source::SourceId::new(0), 0);
         let owner = super::super::CallableApplicationScope::Invocation;
@@ -442,6 +459,19 @@ impl SealedOperations {
 }
 
 impl TypeConstraints {
+    pub(crate) fn linked_slices(&self, owner: super::CallableApplicationScope, receiver: &Type) -> Result<Vec<(Type, Type, Span)>, ConstraintResolutionError> {
+        let Type::Inference(variable) = self.resolve(receiver)? else { return Ok(Vec::new()); };
+        let root = self.representative_root(variable)?;
+        let mut slices = Vec::new();
+        for id in self.operations.watchers.get(&ApplicationDependency::Type(root)).into_iter().flatten() {
+            let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if entry.owner != owner { continue; }
+            let SealedOperation::Slice { receiver: source, result, span, .. } = &entry.operation else { continue; };
+            if self.resolve(source)? == Type::Inference(variable) { slices.push((source.clone(), result.clone(), *span)); }
+        }
+        Ok(slices)
+    }
+
     pub(super) fn is_unresolved_slice_result(&self, variable: super::TypeVariableId) -> Result<bool, ConstraintResolutionError> {
         let root = self.representative_root(variable)?;
         let Some(Variable::Representative(actual)) = self.variables.get(&root) else { unreachable!() };

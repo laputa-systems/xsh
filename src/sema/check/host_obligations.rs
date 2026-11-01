@@ -168,13 +168,28 @@ impl HostMethodCandidates {
         })
     }
 
-    fn narrow_chained_receivers(&mut self, constraints: &mut TypeConstraints, name: &str, downstream: &[(String, HostMethodCandidates)]) -> Result<(), ConstraintResolutionError> {
-        if downstream.is_empty() || self.defers_selected_result(name)
+    fn narrow_chained_receivers(&mut self, constraints: &mut TypeConstraints, name: &str, downstream: &[(String, HostMethodCandidates)], slices: &[(Type, Type, Span)]) -> Result<(), ConstraintResolutionError> {
+        if downstream.is_empty() && slices.is_empty() || self.defers_selected_result(name)
             || self.candidates.iter().any(|candidate| self.candidates.iter().filter(|other| other.receiver == candidate.receiver).count() > 1)
         { return Ok(()); }
         let mut retained = Vec::new();
         for candidate in std::mem::take(&mut self.candidates) {
             let mut supported = true;
+            if !slices.is_empty() {
+                supported = constraints.trial(|constraints| {
+                    self.constrain_candidate(candidate, constraints, true)?;
+                    for (receiver, result, span) in slices {
+                        let receiver = constraints.resolve(receiver).map_err(|error| ConstraintConflict { expected: receiver.clone(), actual: receiver.clone(), contribution: *span, initializer: None, established: None, resolution_error: Some(error) })?;
+                        if matches!(receiver, Type::Inference(_)) { continue; }
+                        let Some((_, selected)) = crate::sema::sealed_operation::slice_selection(&receiver) else {
+                            return Err(ConstraintConflict { expected: result.clone(), actual: receiver, contribution: *span, initializer: None, established: None, resolution_error: None });
+                        };
+                        constraints.constrain(result, &selected, *span)?;
+                    }
+                    Ok(())
+                })?;
+            }
+            if !supported { continue; }
             for (name, next) in downstream {
                 let mut compatible = false;
                 for next_candidate in &next.candidates {
@@ -762,10 +777,17 @@ impl Checker {
             if !selected {
                 let result = self.type_constraints.resolve(&pending[index].candidates.result)?;
                 let mut downstream = Vec::new();
+                let mut slices = Vec::new();
                 if let Type::Inference(variable) = result {
                     let item = self.type_constraints.iteration_requirement(variable)?
                         .map(|requirement| self.type_constraints.resolve(&requirement.item)).transpose()?;
                     let owner = pending[index].continuation.owner;
+                    if let Some(owner) = owner {
+                        let scope = self.constraint_scope_at(owner, pending[index].candidates.span);
+                        slices.extend(self.type_constraints.linked_slices(scope, &Type::Inference(variable))?);
+                        slices.extend(self.type_constraints.linked_slices(scope, &pending[index].candidates.receiver)?);
+                        if let Some(item) = &item { slices.extend(self.type_constraints.linked_slices(scope, item)?); }
+                    }
                     let mut linked = BTreeSet::new();
                     for dependency in self.type_constraints.unresolved(&Type::Inference(variable))?.into_iter()
                         .chain(item.as_ref().map(|item| self.type_constraints.unresolved(item)).transpose()?.into_iter().flatten()) {
@@ -782,9 +804,9 @@ impl Checker {
                         }
                     }
                 }
-                if !downstream.is_empty() {
+                if !downstream.is_empty() || !slices.is_empty() {
                     let obligation = &mut pending[index];
-                    obligation.candidates.narrow_chained_receivers(&mut self.type_constraints, &name, &downstream)?;
+                    obligation.candidates.narrow_chained_receivers(&mut self.type_constraints, &name, &downstream, &slices)?;
                     selected = obligation.candidates.select(&mut self.type_constraints, &name)?;
                 }
             }
