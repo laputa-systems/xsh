@@ -39416,9 +39416,10 @@ proc read(token, file: Path, spare: Str) [fs] {
 
             let mut forged_type = program.clone();
             let boolean = SemanticPoolBuilder::default().intern_type(&mut forged_type.store.semantic, &Type::Bool).unwrap();
-            let fact = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == field).unwrap();
-            assert_eq!(program.store.scheme_types[fact.ty().unwrap().index()].tag, schema::FullSchemeTypeTag::Ground);
-            forged_type.store.scheme_types[fact.ty().unwrap().index()].first = boolean.raw();
+            let operation = program.store.sealed_operation_site(IrFunctionId::new(append).unwrap().raw(), field as u32).unwrap().unwrap();
+            let schemes::FullSealedOperation::Field { result, .. } = operation else { unreachable!() };
+            assert_eq!(program.store.scheme_types[result.index()].tag, schema::FullSchemeTypeTag::Ground);
+            forged_type.store.scheme_types[result.index()].first = boolean.raw();
             assert!(FullVerifier::verify(&forged_type).is_err());
         });
     }
