@@ -58948,6 +58948,30 @@ assert nonnull(7)
     }
 
     #[test]
+    fn inferred_record_updates_to_erased_consumers_execute_after_frontend_disposal() {
+        let mut program = fixture("record-update-erased.xsh", r#"
+pure accept(value: Record) -> Bool { true }
+pure apply(wanted) -> Int {
+    let input = if wanted.ispeed == wanted.ospeed { 0 } else { wanted.ispeed }
+    if accept({...wanted, ispeed: input}) { input } else { -1 }
+}
+assert apply({ispeed: 7, ospeed: 7, label: "same"}) == 0
+assert apply({ispeed: 7, ospeed: 8, label: "different"}) == 7
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let program = Arc::new(program);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn guarded_native_arguments_execute_after_frontend_disposal() {
         let mut program = fixture("guarded-native-argument.xsh", r#"
 proc move(marker, source: Path, destination: Path, enabled: Bool) -> Bool {

@@ -2956,7 +2956,7 @@ impl TypeConstraints {
         depth: usize,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
-        self.unify_rows_with_input_context(expected, actual, contribution, depth, None, changes)
+        self.unify_rows_with_input_context(expected, actual, contribution, depth, None, false, changes)
     }
 
     fn unify_rows_with_input_context(
@@ -2966,6 +2966,7 @@ impl TypeConstraints {
         contribution: Span,
         depth: usize,
         input_context: Option<&CallInputContext>,
+        stored: bool,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
         if depth > MAX_TYPE_DEPTH {
@@ -3003,6 +3004,7 @@ impl TypeConstraints {
                     input_context.is_some(),
                     input_context,
                     depth + 1,
+                    stored,
                     changes,
                 )?;
             } else {
@@ -3773,6 +3775,7 @@ impl TypeConstraints {
                         !matches!(authority, ConstraintAuthority::Inference),
                         match authority { ConstraintAuthority::CallInputContext(context) => Some(context), _ => None },
                         0,
+                        false,
                         changes,
                     )
                 }
@@ -3889,7 +3892,7 @@ impl TypeConstraints {
         depth: usize,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
-        self.constrain_inner_with_input_context(expected, actual, contribution, annotation, None, depth, changes)
+        self.constrain_inner_with_input_context(expected, actual, contribution, annotation, None, depth, false, changes)
     }
 
     fn constrain_inner_with_input_context(
@@ -3900,10 +3903,11 @@ impl TypeConstraints {
         annotation: bool,
         input_context: Option<&CallInputContext>,
         depth: usize,
+        stored: bool,
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
-        let mut pending = vec![(expected.clone(), actual.clone(), depth)];
-        'pairs: while let Some((expected, actual, depth)) = pending.pop() {
+        let mut pending = vec![(expected.clone(), actual.clone(), depth, stored)];
+        'pairs: while let Some((expected, actual, depth, stored)) = pending.pop() {
             if depth > MAX_TYPE_DEPTH {
                 return Err((
                     expected,
@@ -3934,7 +3938,7 @@ impl TypeConstraints {
                     if self.record_binding(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_some()
                         || self.is_unresolved_slice_result(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))? =>
                 {
-                    pending.push((payload.as_ref().clone(), actual.clone(), depth + 1));
+                    pending.push((payload.as_ref().clone(), actual.clone(), depth + 1, stored));
                     continue;
                 }
                 (Type::Inference(id), Type::Record(fields))
@@ -3953,6 +3957,7 @@ impl TypeConstraints {
                         contribution,
                         depth,
                         input_context,
+                        stored,
                         changes,
                     )?;
                     continue;
@@ -3973,6 +3978,7 @@ impl TypeConstraints {
                         contribution,
                         depth,
                         input_context,
+                        stored,
                         changes,
                     )?;
                     continue;
@@ -4028,11 +4034,18 @@ impl TypeConstraints {
                             contribution,
                             depth,
                             input_context,
+                            stored,
                             changes,
                         )?;
                     }
                 }
                 _ => {}
+            }
+            if let (Type::ErasedRecord, Type::Inference(id)) = (&expected, &actual)
+                && self.record_binding(*id).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_some()
+            {
+                if stored { return Err((expected, actual, None)); }
+                continue;
             }
             for (variable, value) in [(&expected, &actual), (&actual, &expected)] {
                 if let Type::Inference(id) = variable
@@ -4081,14 +4094,14 @@ impl TypeConstraints {
                 && self.record_binding(*id).ok().flatten().is_some()
                 && !matches!(value, Type::Inference(_))
             {
-                pending.push((expected, actual, depth));
+                pending.push((expected, actual, depth, stored));
                 continue 'pairs;
             }
             if let (value, Type::Inference(id)) = (&expected, &actual)
                 && self.record_binding(*id).ok().flatten().is_some()
                 && !matches!(value, Type::Inference(_))
             {
-                pending.push((expected, actual, depth));
+                pending.push((expected, actual, depth, stored));
                 continue 'pairs;
             }
             #[cfg(test)]
@@ -4173,43 +4186,47 @@ impl TypeConstraints {
                 | (Type::List(left), Type::List(right))
                 | (Type::Stream(left), Type::Stream(right))
                 | (Type::Set(left), Type::Set(right)) => {
-                    pending.push(((**left).clone(), (**right).clone(), depth + 1))
+                    pending.push(((**left).clone(), (**right).clone(), depth + 1, true))
                 }
                 (Type::Map(left_key, left_value), Type::Map(right_key, right_value)) => {
                     pending.push((
                         (**left_value).clone(),
                         (**right_value).clone(),
                         depth + 1,
+                        true,
                     ));
                     pending.push((
                         (**left_key).clone(),
                         (**right_key).clone(),
                         depth + 1,
+                        true,
                     ));
                 }
                 (Type::Optional(left), right) => {
-                    pending.push(((**left).clone(), right.clone(), depth + 1));
+                    pending.push(((**left).clone(), right.clone(), depth + 1, stored));
                 }
                 (Type::Validated(left), Type::Validated(right))
                     if right.validation().implies(left.validation()) =>
                 {
-                    pending.push((left.base().clone(), right.base().clone(), depth + 1))
+                    pending.push((left.base().clone(), right.base().clone(), depth + 1, stored))
                 }
                 (left, Type::Validated(right))
                     if std::mem::discriminant(left) == std::mem::discriminant(right.base()) =>
                 {
-                    pending.push((left.clone(), right.base().clone(), depth + 1))
+                    pending.push((left.clone(), right.base().clone(), depth + 1, stored))
                 }
                 (Type::Result(left_ok, left_error), Type::Result(right_ok, right_error)) => {
                     pending.push((
                         (**left_error).clone(),
                         (**right_error).clone(),
                         depth + 1,
+                        stored,
                     ));
                     pending.push((
                         (**left_ok).clone(),
                         (**right_ok).clone(),
                         depth + 1,
+                        stored,
                     ));
                 }
                 (Type::Callable(left), Type::Callable(right))
@@ -4223,9 +4240,9 @@ impl TypeConstraints {
                         return Err((expected, actual, None));
                     }
                     for (left, right) in left.sig.params.iter().zip(&right.sig.params) {
-                        self.constrain_inner_with_input_context(&left.ty, &right.ty, contribution, annotation, input_context, depth + 1, changes)?;
+                        self.constrain_inner_with_input_context(&left.ty, &right.ty, contribution, annotation, input_context, depth + 1, true, changes)?;
                     }
-                    self.constrain_inner_with_input_context(&left.sig.return_ty, &right.sig.return_ty, contribution, annotation, input_context, depth + 1, changes)?;
+                    self.constrain_inner_with_input_context(&left.sig.return_ty, &right.sig.return_ty, contribution, annotation, input_context, depth + 1, stored, changes)?;
                     let mut expected_signature = left.sig.clone();
                     self.resolve_callable_depth_inner(&mut expected_signature, depth + 1, &mut ResolutionAccess::Journal(changes))
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
@@ -4256,6 +4273,7 @@ impl TypeConstraints {
                             expected_field.clone(),
                             actual_field.clone(),
                             depth + 1,
+                            stored,
                         ));
                     }
                 }
@@ -7264,6 +7282,78 @@ mod tests {
                 .constrain(&Type::ErasedRecord, &record, span(4))
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn erased_record_context_accepts_an_open_record_without_erasing_it() {
+        let mut constraints = TypeConstraints::default();
+        let record = constraints.fresh(span(1));
+        constraints.require_record_head(&record, 0, span(2)).unwrap();
+        constraints.constrain_context(&Type::ErasedRecord, &record, span(3)).unwrap();
+        assert!(constraints.record_binding(variable_id(&record)).unwrap().is_some());
+        assert!(constraints.constrain_context(&record, &Type::ErasedRecord, span(4)).is_err());
+    }
+
+    #[test]
+    fn erased_record_context_cannot_erase_open_rows_inside_invariant_containers() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let field = crate::symbol::Name::intern("value");
+            let concrete = Type::Record(Arc::new(BTreeMap::from([(field, Type::Int)])));
+            for kind in 0..6 {
+                let mut constraints = TypeConstraints::default();
+                let row = constraints.fresh(span(1));
+                constraints.require_record_head(&row, 0, span(2)).unwrap();
+                let wrap = |ty| match kind {
+                    0 => Type::List(Box::new(ty)),
+                    1 => Type::Map(Box::new(Type::Str), Box::new(ty)),
+                    2 => Type::Set(Box::new(ty)),
+                    3 => Type::Stream(Box::new(ty)),
+                    4 => Type::Optional(Box::new(ty)),
+                    _ => Type::List(Box::new(Type::Record(Arc::new(BTreeMap::from([(field, ty)]))))),
+                };
+                let expected = wrap(Type::ErasedRecord);
+                let actual = wrap(row.clone());
+                let unresolved = constraints.constrain_context(&expected, &actual, span(3));
+                assert!(constraints.constrain_context(&actual, &expected, span(3)).is_err());
+                constraints.constrain(&row, &concrete, span(4)).unwrap();
+                assert!(constraints.constrain_context(&expected, &actual, span(5)).is_err());
+                assert!(constraints.constrain_context(&actual, &expected, span(5)).is_err());
+                assert!(unresolved.is_err(), "invariant container accepted an unresolved row: kind={kind}");
+            }
+        });
+    }
+
+    #[test]
+    fn invariant_record_context_preserves_the_boundary_through_open_rows() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let field = crate::symbol::Name::intern("value");
+            let mut constraints = TypeConstraints::default();
+            let outer = constraints.fresh(span(1));
+            let inner = constraints.project_record_field(&outer, field, 0, span(2)).unwrap();
+            constraints.require_record_head(&inner, 0, span(3)).unwrap();
+            let expected = Type::List(Box::new(Type::Record(Arc::new(BTreeMap::from([(field, Type::ErasedRecord)])))));
+            let actual = Type::List(Box::new(outer));
+            assert!(constraints.constrain_context(&expected, &actual, span(4)).is_err());
+        });
+    }
+
+    #[test]
+    fn erased_record_context_preserves_direction_through_value_wrappers() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let field = crate::symbol::Name::intern("value");
+            for kind in 0..3 {
+                let mut constraints = TypeConstraints::default();
+                let row = constraints.fresh(span(1));
+                constraints.require_record_head(&row, 0, span(2)).unwrap();
+                let (expected, actual) = match kind {
+                    0 => (Type::Optional(Box::new(Type::ErasedRecord)), row.clone()),
+                    1 => (Type::Result(Box::new(Type::ErasedRecord), Box::new(Type::Str)), Type::Result(Box::new(row.clone()), Box::new(Type::Str))),
+                    _ => (Type::Record(Arc::new(BTreeMap::from([(field, Type::ErasedRecord)]))), Type::Record(Arc::new(BTreeMap::from([(field, row.clone())])))),
+                };
+                constraints.constrain_context(&expected, &actual, span(3)).unwrap();
+                assert!(constraints.record_binding(variable_id(&row)).unwrap().is_some());
+            }
+        });
     }
 
     #[test]

@@ -5558,6 +5558,26 @@ test verify_completion_cleanup {
     }
 
     #[test]
+    fn erased_record_update_rejects_a_nonrecord_spread_producer() {
+        let mut program = prepare("pure accept(value: Record) -> Bool { true }\npure apply(wanted, wrong: Int) -> Int { let _ = wrong; let input = wanted.ispeed; if accept({...wanted, ispeed: input}) { input } else { -1 } }\nassert apply({ispeed: 7, label: \"kept\"}, 3) == 7\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "apply").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let spread = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut fields)) => decoder.checked_record_entries(&mut fields).unwrap().into_iter().find_map(|entry| match entry {
+                super::super::super::CheckedRecordEntry::Spread(value) => Some(value),
+                _ => None,
+            }),
+            _ => None,
+        }).unwrap();
+        assert!(matches!(decoder.expression_view(spread), Ok(schema::ExprView::Param(slot)) if slot != 1), "{:?}", program.store.tags[spread]);
+        let words = program.store.data[spread].range().bounds(program.store.extra.len()).unwrap();
+        program.store.extra[words.start] = 1;
+        assert!(FullVerifier::verify(&program).is_err());
+    }
+
+    #[test]
     fn guarded_native_argument_rejects_a_foreign_optional_producer() {
         let mut program = prepare("proc move(marker, source: Path, value: Path?, other: Path?) -> Result[Unit] { let _ = marker; let _ = other; var saved = value; if saved != null { source.rename(to: saved, overwrite: true)? } }\nmove(1, p\"/source\", p\"/dest\", null)\n");
         program.store.in_place.take();
