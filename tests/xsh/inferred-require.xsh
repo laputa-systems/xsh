@@ -2,6 +2,77 @@ type RequirementManifest = {name: Str, jobs: UInt}
 
 type RequirementEnvelope = {manifest: RequirementManifest}
 
+test test_required_module_contracts_ground_inferred_returns { |ctx|
+  let root = test.temp_dir(ctx, name: "inferred-module-contract")?
+  let good = fp"{root}/good.xsh"
+  let bad_name = fp"{root}/bad-name.xsh"
+  let bad_callable = fp"{root}/bad-callable.xsh"
+  good.write(r"""##! A module with a fixed export contract.
+## The module name.
+export let name: Str = "demo"
+## Opaque record data checked by its consumer.
+export let rows: List[Record] = [{kind: "ready"}]
+## Renders a label.
+export pure render(value: Str) -> Str { "demo-" + value }
+""")?
+  bad_name.write(r"""##! A module with an incompatible value export.
+## The incompatible name.
+export let name: Int = 1
+## Empty data.
+export let rows: List[Record] = []
+## Renders a label.
+export pure render(value: Str) -> Str { value }
+""")?
+  bad_callable.write(r"""##! A module with an incompatible callable export.
+## The module name.
+export let name: Str = "demo"
+## Empty data.
+export let rows: List[Record] = []
+## The incompatible rendering result.
+export pure render(value: Str) -> Int { value.byte_len() }
+""")?
+  let source = r"""type Info = module {
+  export let name: Str
+  export let rows: List[Record]
+  export pure render(value: Str) -> Str
+}
+type Row = {kind: Str}
+proc load(target: Path, marker) {
+  let _ = marker
+  module.load(target)?.require(Info).context("load", target.display())?
+}
+proc local(target: Path) {
+  let checked: Info = module.load(target)?.require(Info)?
+  checked
+}
+let target = Path(args[0])
+let loaded = load(target, 1)?
+assert loaded.name == "demo"
+assert loaded.render("label") == "demo-label"
+assert loaded.rows[0].require(Row)?.kind == "ready"
+assert load(target, "independent")?.name == "demo"
+assert local(target)?.name == "demo"
+assert load(Path(args[1]), false) is Err(is MismatchedExport)
+assert load(Path(args[2]), "wrong signature") is Err(is MismatchedExport)
+print "module contracts preserved"
+"""
+  let annotated = source
+    .replace("proc load(target: Path, marker) {", with: "proc load(target: Path, marker) -> Result[Info] {")
+    .replace("proc local(target: Path) {", with: "proc local(target: Path) -> Result[Info] {")
+  for program in [annotated, source] {
+    let output = test.expect(ctx, program, status: 0, args: [good, bad_name, bad_callable])?
+    assert output.stdout == "module contracts preserved\n", output.stdout
+  }
+  for source in [
+    "proc unchecked(target: Path) { module.load(target)? }\n",
+    "type Opaque = module { export let value: Any }\nproc unchecked(target: Path) { module.load(target)?.require(Opaque)? }\n",
+  ] {
+    let rejected = test.run_xsh(ctx, source)?
+    assert ! rejected.success, rejected.stdout
+    assert "[check.infer-return]" in rejected.stderr, rejected.stderr
+  }
+}
+
 test test_require_tail_propagation_consumes_success_unit {
   assert 1 == 1
 }
