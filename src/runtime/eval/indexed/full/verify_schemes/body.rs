@@ -5558,6 +5558,22 @@ test verify_completion_cleanup {
     }
 
     #[test]
+    fn guarded_native_argument_rejects_a_foreign_optional_producer() {
+        let mut program = prepare("proc move(marker, source: Path, value: Path?, other: Path?) -> Result[Unit] { let _ = marker; let _ = other; var saved = value; if saved != null { source.rename(to: saved, overwrite: true)? } }\nmove(1, p\"/source\", p\"/dest\", null)\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::FsRename, .. }))).unwrap();
+        let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        let argument = args.nth(1).unwrap().unwrap().unwrap().raw() as usize;
+        assert!(matches!(decoder.expression_view(argument), Ok(schema::ExprView::Param(_))));
+        let words = program.store.data[argument].range().bounds(program.store.extra.len()).unwrap();
+        program.store.extra[words.start] = 3;
+        assert!(FullVerifier::verify(&program).is_err());
+    }
+
+    #[test]
     fn mutable_optional_guard_native_fixture_retains_its_original_slots() {
         let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime/generic-guard-original-slot.xsh")).unwrap();
         verify_optional_guard_test_source(&source, "verify_guard_original_slot");

@@ -167,3 +167,25 @@ let values: Map[UInt, Str] = {[0]: "zero"}
 let _ = read(values, {key: "not an integer"})
 """, status: 2, stderr: ["[check.index-type]"])?
 }
+
+test test_inferred_callable_passes_guarded_mutable_optional_to_native { |ctx|
+  let root = test.temp_dir(ctx, name: "inferred-guarded-rename")?
+  let output = test.expect(ctx, r"""proc move(marker, source: Path, destination: Path, enabled: Bool) -> Result[Unit] {
+  let _ = marker
+  var saved = null
+  if enabled { saved = destination }
+  if saved != null { source.rename(to: saved, overwrite: true)? }
+}
+proc main(...argv: List[Str]) [fs, error] {
+  let root = Path(argv[0])
+  let source = fp"{root}/source"
+  let destination = fp"{root}/destination"
+  source.write("data")?
+  move(1, source, destination, false)?
+  assert source.exists()?
+  move("marker", source, destination, true)?
+  assert destination.read_text()? == "data"
+}
+""", status: 0, args: [f"{root}"], env: {})?
+  assert output.stderr == "", output.stderr
+}

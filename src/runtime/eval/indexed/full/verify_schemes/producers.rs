@@ -5259,14 +5259,24 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn optional_read_is_narrowed(&mut self, decoder: &FullDecoder<'a>, instruction: usize, actual: &Type) -> Result<bool, IrVerifyError> {
+    fn optional_read_is_narrowed(&mut self, decoder: &FullDecoder<'a>, mut instruction: usize, actual: &Type) -> Result<bool, IrVerifyError> {
         let Type::Optional(payload) = actual.unvalidated() else { return Ok(false) };
-        let Some(target) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(false) };
-        let binding = self.binding(decoder.owner, instruction, target.0)?;
-        if target.1.is_empty()
-            && self.index.owners[&decoder.owner].optional_binding_read_is_narrowed(decoder, instruction, target.0, binding, &mut |amount| self.budget.charge(amount))?
-        { return Ok(true); }
-        self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, decoder.producer_prefix.as_ref(), None, &mut |amount| self.budget.charge(amount))
+        for _ in decoder.instruction_range.clone() {
+            self.budget.charge(1)?;
+            if !matches!(self.store.tags[instruction], FullTag::ExprParam | FullTag::ExprField) { return Ok(false); }
+            let Some(target) = decoder.checked_binding_path(instruction, &mut |amount| self.budget.charge(amount))? else { return Ok(false) };
+            let binding = self.binding(decoder.owner, instruction, target.0)?;
+            if target.1.is_empty()
+                && self.index.owners[&decoder.owner].optional_binding_read_is_narrowed(decoder, instruction, target.0, binding, &mut |amount| self.budget.charge(amount))?
+            { return Ok(true); }
+            if self.index.owners[&decoder.owner].optional_path_read_is_narrowed(decoder, instruction, &target, payload, binding, decoder.producer_prefix.as_ref(), None, &mut |amount| self.budget.charge(amount))?
+            { return Ok(true); }
+            if !target.1.is_empty() { return Ok(false); }
+            let Some(prefix) = &decoder.producer_prefix else { return Ok(false) };
+            let Some(source) = prefix.snapshot_value_initializer(decoder, instruction, target.0)? else { return Ok(false) };
+            instruction = source;
+        }
+        Err(IrVerifyError::new("optional read has a cyclic snapshot path"))
     }
 
     fn is_conditional_record_source(&mut self, decoder: &FullDecoder<'a>, mut instruction: usize) -> Result<bool, IrVerifyError> {
@@ -6995,6 +7005,7 @@ impl<'a> ProducerProof<'a> {
                                 && !NativeParameterDomain::declared(&original.params[position].ty).accepts(&parameter.ty, actual)
                                 && !self.contextual_list_argument(decoder, argument, &parameter.ty)?
                                 && !self.relative_path_literal_argument(decoder, argument, &parameter.ty)?
+                                && !self.guarded_optional_argument(decoder, argument, actual, &parameter.ty)?
                             {
                                 fits = false;
                                 break;
@@ -7032,7 +7043,7 @@ impl<'a> ProducerProof<'a> {
             match arguments.get(position).copied().flatten() {
                 Some(argument) => {
                     self.contextual_argument(decoder, argument, &parameter)?;
-                    let (actual, fact) = if parameter == Type::Any { (None, None) } else {
+                    let (actual, mut fact) = if parameter == Type::Any { (None, None) } else {
                         match actual {
                             Some(actual) => actual.into_parts(),
                             None => self.operand_context(decoder, argument)?.into_parts(),
@@ -7046,6 +7057,9 @@ impl<'a> ProducerProof<'a> {
                             actual
                         } else if self.contextual_list_argument(decoder, argument, &parameter)? {
                             Arc::new(parameter)
+                        } else if self.guarded_optional_argument(decoder, argument, &actual, &parameter)? {
+                            fact = None;
+                            Arc::new(parameter)
                         } else {
                             return Err(IrVerifyError::new("ground native argument disagrees with its operation contract"));
                         }
@@ -7057,6 +7071,12 @@ impl<'a> ProducerProof<'a> {
             }
         }
         Ok(())
+    }
+
+    fn guarded_optional_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, actual: &Type, expected: &Type) -> Result<bool, IrVerifyError> {
+        let Type::Optional(payload) = actual.unvalidated() else { return Ok(false) };
+        if !payload.matches_expected(expected) { return Ok(false); }
+        self.optional_read_is_narrowed(decoder, argument, actual)
     }
 
     fn checked_match_binding(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<(ProducerBinding, usize)>, IrVerifyError> {

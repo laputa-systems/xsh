@@ -58948,6 +58948,32 @@ assert nonnull(7)
     }
 
     #[test]
+    fn guarded_native_arguments_execute_after_frontend_disposal() {
+        let mut program = fixture("guarded-native-argument.xsh", r#"
+proc move(marker, source: Path, destination: Path, enabled: Bool) -> Bool {
+    let _ = marker
+    var saved = null
+    if enabled { saved = destination }
+    if saved != null { return source.rename(to: saved, overwrite: true) is Err(_) }
+    false
+}
+assert ! move(1, p"/dev/null/child", p"/dev/null/destination", false)
+assert move("marker", p"/dev/null/child", p"/dev/null/destination", true)
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let program = Arc::new(program);
+        for force_frames in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for step in 0..program.driver_step_count().unwrap() {
+                evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn late_byte_at_receivers_preserve_optional_results_after_frontend_disposal() {
         let program = Arc::new(fixture("late-byte-at-results.xsh", r#"
 pure bytes_length(raw: Bytes) -> Int { raw.len() }
