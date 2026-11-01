@@ -22022,9 +22022,15 @@ lowered_value_schema! {
 /// payload from the start, before the fields are verified one by one.
 fn verify_node_metadata(
     decoder: &FullDecoder<'_>,
+    instruction: usize,
     tag: FullTag,
     payload: FullCursor<'_>,
 ) -> Result<(), IrVerifyError> {
+    if tag == FullTag::ExprTargetVariant
+        && !matches!(decoder.store.sealed_operation_site(decoder.owner, instruction as u32)?, Some(schemes::FullSealedOperation::TargetVariant { .. }))
+    {
+        return Err(IrVerifyError::new("target variant has no owned requirement"));
+    }
     if tag == FullTag::ExprModuleCall {
         let mut metadata = payload;
         let op = RuntimeOp::decode(decoder, &mut metadata)?;
@@ -23937,6 +23943,48 @@ assert forward({value: 7}, "kept") == 0
             missing_guard.store.param_cold[cold].validation = IR_NONE;
             let error = FullVerifier::verify(&missing_guard).unwrap_err();
             assert!(error.message.contains("unsigned parameter is missing its runtime validation"), "{error:?}");
+        });
+    }
+
+    #[test]
+    fn target_variant_producer_requires_a_generic_owner_even_as_any() {
+        run_with_large_stack(|| {
+            let program = fixture("target-variant-ground-forgery.xsh", r#"
+enum Action { Add, Remove }
+pure selected(event) -> Bool { event.action == .Add }
+pure discard(value: Any) -> Unit {}
+assert selected({action: Add})
+discard("ok")
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let producer = function_instruction_indices(&program, "selected", FullTag::ExprTargetVariant)[0];
+            let decoder = stage_view_decoder(&program.store);
+            let (driver, literal) = (0..program.store.driver_steps.len()).find_map(|driver| {
+                program.store.driver_instruction_range(driver).unwrap().find(|&instruction| match decoder.expression_view(instruction) {
+                    Ok(schema::ExprView::Str("ok")) => true,
+                    Ok(schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Str(value), _))) => value.as_ref() == "ok",
+                    _ => false,
+                }).map(|literal| (driver, literal))
+            }).unwrap();
+            let mut forged = program.clone();
+            forged.store.in_place.take();
+            let mut payload = program.store.payload(program.store.data[producer].range()).unwrap().to_vec();
+            let original = IrBlockId::from_raw(payload[1]).unwrap();
+            let mut block = program.store.blocks[original.index()];
+            let block_words = program.store.payload(block.instructions).unwrap();
+            let start = u32::try_from(forged.store.extra.len()).unwrap();
+            forged.store.extra.extend_from_slice(block_words);
+            block.instructions = IrRange::new(start, u32::try_from(block_words.len()).unwrap());
+            block.owner = driver_owner(driver).unwrap();
+            let new_block = IrBlockId::new(forged.store.blocks.len()).unwrap();
+            forged.store.blocks.push(block);
+            payload[1] = new_block.raw();
+            let start = u32::try_from(forged.store.extra.len()).unwrap();
+            forged.store.extra.extend_from_slice(&payload);
+            forged.store.tags[literal] = FullTag::ExprTargetVariant;
+            forged.store.data[literal] = IrData::new(start, u32::try_from(payload.len()).unwrap());
+            let error = FullVerifier::verify(&forged).expect_err("an Any argument cannot produce a target variant without its owned requirement");
+            assert_eq!(error.message, "target variant has no owned requirement");
         });
     }
 

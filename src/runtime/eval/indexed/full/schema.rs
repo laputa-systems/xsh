@@ -767,7 +767,7 @@ macro_rules! instruction_schema {
                     input: &mut FullCursor<'_>,
                 ) -> Result<(), IrVerifyError> {
                     let (instruction, tag, mut payload) = decoder.instruction(input)?;
-                    verify_node_metadata(decoder, tag, payload)?;
+                    verify_node_metadata(decoder, instruction, tag, payload)?;
                     // Verification follows the rows an instruction refers to, so
                     // this function is on the stack once for every level of
                     // nesting in a lowered body. Each tag verifies its fields in
