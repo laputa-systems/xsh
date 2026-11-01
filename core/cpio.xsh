@@ -443,7 +443,7 @@ pure word_at(data: Bytes, at: Int, big_endian: Bool) -> Int {
   if big_endian { low * 256 + high } else { high * 256 + low }
 }
 
-pure hex_text(value: Int) -> Str {
+pure hex_text(value) -> Str {
   let v = value.bit_and(4294967295)
   f"{HEX_PAIRS[v / 16777216 % 256]}{HEX_PAIRS[v / 65536 % 256]}{HEX_PAIRS[v / 256 % 256]}{HEX_PAIRS[v % 256]}"
 }

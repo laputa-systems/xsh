@@ -1949,8 +1949,16 @@ fn verify_scheme_body_facts(
             if capture.slot_and_flags & (1 << 31) != 0 {
                 if producer_index.demand() != crate::runtime::eval::ProducerDemand::Needed { return Err(IrVerifyError::new("mutable generic capture has no mandatory storage proof")); }
             } else {
-                let actual = decoder.checked_slot_type(slot)?.ok_or_else(|| IrVerifyError::new("generic capture has no authenticated lexical writer type"))?;
-                if store.semantic.to_type_with_budget(actual, &mut budget.semantic_types)? != ty { return Err(IrVerifyError::new("generic capture type disagrees with its lexical writer")); }
+                match decoder.checked_slot_type(slot)? {
+                    Some(actual) => {
+                        if store.semantic.to_type_with_budget(actual, &mut budget.semantic_types)? != ty { return Err(IrVerifyError::new("generic capture type disagrees with its lexical writer")); }
+                    }
+                    None if producer_index.demand() == crate::runtime::eval::ProducerDemand::Needed => {
+                        budget.charge_clone(&ty)?;
+                        requests.capture_writers.push((capture.binding_identity, ty.clone()));
+                    }
+                    None => return Err(IrVerifyError::new("generic capture has no authenticated lexical writer type")),
+                }
             }
             if slots.insert(slot, body::InitialBinding { ty: SchemeType::Ground(ty), mutable: capture.slot_and_flags & (1 << 31) != 0, access: if namespace { body::BindingAccess::StaticCallableNamespace } else { body::BindingAccess::Value }, capture_use }).is_some() { return Err(IrVerifyError::new("generic capture shares a parameter slot")); }
         }

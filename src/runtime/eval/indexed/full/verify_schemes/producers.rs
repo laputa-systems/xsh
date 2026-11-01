@@ -965,6 +965,7 @@ pub(super) struct CompletionContributionsRequest {
 #[derive(Default)]
 pub(super) struct SchemeProducerRequests {
     pub(super) streams: Vec<StreamIteration>,
+    pub(super) capture_writers: Vec<(u32, Type)>,
     pub(super) ground_arguments: Vec<GroundArgumentRequest>,
     pub(super) checked_accumulators: Vec<(u32, usize)>,
     pub(super) captures: Vec<CaptureErrorRequest>,
@@ -975,7 +976,7 @@ pub(super) struct SchemeProducerRequests {
 }
 
 impl SchemeProducerRequests {
-    fn is_empty(&self) -> bool { self.streams.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.checked_accumulators.is_empty() && self.methods.is_empty() && self.completions.is_empty() && self.callable_projections.is_empty() }
+    fn is_empty(&self) -> bool { self.streams.is_empty() && self.capture_writers.is_empty() && self.captures.is_empty() && self.applications.is_empty() && self.ground_arguments.is_empty() && self.checked_accumulators.is_empty() && self.methods.is_empty() && self.completions.is_empty() && self.callable_projections.is_empty() }
 }
 
 pub(super) fn process_option_contract(name: &str, actual: Option<&Type>, budget: &mut SchemeInstantiationBudget) -> Result<Arc<Type>, IrVerifyError> {
@@ -2445,6 +2446,10 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
     }
     proof.budget.charge(requests.applications.len())?;
     proof.scheme_applications.extend(requests.applications);
+    proof.budget.charge(requests.capture_writers.len())?;
+    for (binding, expected) in requests.capture_writers {
+        proof.binding_writer(binding, Arc::new(expected))?;
+    }
     for (owner, instruction, expected) in requests.callable_projections {
         proof.verify_static_callable_projection(owner, instruction, expected)?;
     }

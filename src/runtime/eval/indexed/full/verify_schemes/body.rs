@@ -2080,6 +2080,21 @@ mod tests {
     }
 
     #[test]
+    fn inferred_capture_authenticates_a_comprehension_writer() {
+        let mut program = prepare("let letters = [f\"{item}\" for item in range(2)]\nlet numbers = [item for item in range(2)]\npure choose(value) -> Str { letters[value.bit_and(1)] }\nassert choose(1) == \"1\"\n");
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+        let captures = program.store.functions[owner].captures.bounds(program.store.captures.len()).unwrap();
+        let capture = captures.into_iter().find(|&index| program.store.string(program.store.captures[index].name).unwrap() == "letters").unwrap();
+        let identity = program.store.binding_identities.iter().position(|binding| program.store.string(binding.name).unwrap() == "numbers").unwrap();
+        program.store.captures[capture].binding_identity = identity as u32;
+        program.store.captures[capture].name = program.store.binding_identities[identity].name;
+        program.store.captures[capture].owner = program.store.binding_identities[identity].owner;
+        let failure = FullVerifier::verify(&program).expect_err("a captured string table cannot use an integer comprehension writer");
+        assert_eq!(failure.message, "storage declaration disagrees with its read contract");
+    }
+
+    #[test]
     fn cold_contextual_empty_map_discard_preserves_finite_effects() {
         let mut program = prepare("proc discard() [] -> Unit { let _ = map.empty(); map.empty() }\ndiscard()\n");
         program.store.in_place.take();

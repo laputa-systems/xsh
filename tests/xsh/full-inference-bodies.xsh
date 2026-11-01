@@ -2476,3 +2476,24 @@ tempdir parent {
   )?
   assert output.stdout == "released\n", output.stdout
 }
+
+test test_full_inference_captures_a_computed_lookup_table { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""const DIGITS = "0123456789ABCDEF"
+let pairs = [f"{DIGITS.byte_slice(item / 16, length: 1)}{DIGITS.byte_slice(item % 16, length: 1)}" for item in range(256)]
+pure encode(value) -> Str {
+  let bits = value.bit_and(4294967295)
+  f"{pairs[bits / 16777216 % 256]}{pairs[bits / 65536 % 256]}{pairs[bits / 256 % 256]}{pairs[bits % 256]}"
+}
+print encode(0)
+print encode(305419896)
+print encode(4294967295)
+print encode(4294967296)
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "00000000\n12345678\nFFFFFFFF\n00000000\n", output.stdout
+}

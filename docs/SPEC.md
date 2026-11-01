@@ -1874,6 +1874,10 @@ types from its own body. The checker fixes its signature at the declaration;
 each direct call instantiates a quantified signature independently. One call
 never changes the declaration or another call's instance.
 
+Inferred callables can capture immutable runtime values, including collections
+produced by comprehensions. The captured type is checked against the binding's
+initializer.
+
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
 including writes in branches and loops. Fresh empty lists nested in a local
