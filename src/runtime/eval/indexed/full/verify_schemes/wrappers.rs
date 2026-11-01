@@ -410,11 +410,10 @@ pub(super) fn completion_accepts_propagation(store: &FullStore, scope: &SchemeSc
     let K::ProcCompletion { returned, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = requirement.kind else {
         return Err(IrVerifyError::new("proc propagation has an unresolved completion group"));
     };
-    let SchemeType::Result(_, expected) = returned else { return Err(IrVerifyError::new("proc completion group has no Result return")); };
+    let SchemeType::Result(..) = returned else { return Err(IrVerifyError::new("proc completion group has no Result return")); };
     if !contributions.iter().any(|contribution| matches!(contribution, PC::PropagatedError(actual) if body_types_equal(actual, error))) {
         return Err(IrVerifyError::new("proc propagation source is absent from its completion group"));
     }
-    if !body_type_matches(error, &expected, budget)? { return Err(IrVerifyError::new("proc propagation source disagrees with its completion error")); }
     Ok(())
 }
 
@@ -452,8 +451,11 @@ pub(super) fn verify_completion_groups(store: &FullStore, scheme: &FullScheme, s
                     return Err(IrVerifyError::new("proc completion group ordering is invalid"));
                 }
                 let requirement = decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
-                let K::ProcCompletion { returned: actual_return, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(_), .. } = &requirement.kind else { return Err(IrVerifyError::new("proc completion group is unresolved")); };
-                if !matches!(actual_return, SchemeType::Result(..)) { return Err(IrVerifyError::new("proc completion group has no Result return")); }
+                let K::ProcCompletion { returned: actual_return, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = &requirement.kind else { return Err(IrVerifyError::new("proc completion group is unresolved")); };
+                let SchemeType::Result(_, expected_error) = actual_return else { return Err(IrVerifyError::new("proc completion group has no Result return")); };
+                if let Some(error) = completion_error_join(store, scope, contributions, &ApplicationSubstitution::Identity, budget)?
+                    && !body_types_equal(&error, expected_error)
+                { return Err(IrVerifyError::new("proc completion error join disagrees with its owner return")); }
             }
             FullWrapper::Field { detail, .. } => {
                 saw_site = true;

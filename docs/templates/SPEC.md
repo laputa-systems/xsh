@@ -3664,10 +3664,12 @@ component publishes no member scheme.
   types only when every payload is an `Error`-typed value (an error variant, a
   family, or `Error`); `Ok(1)` against `Err("declined")` there is
   `check.type-mismatch`.
-- When a guarded field creates a Proc completion group, original `Result`
-  returns and returned callable applications contribute their checked error
-  types to the same join. A formal value `T` remains data when an invocation
-  instantiates `T` with a `Result`.
+- When a guarded field or inferred index creates a Proc completion group,
+  original `Result` returns and returned callable applications contribute their
+  checked error types to the same join. A UInt map key check contributes `Error`
+  when the selected receiver and key require validation; List and signed-map
+  calls retain their other contributed error types. A formal value `T` remains
+  data when an invocation instantiates `T` with a `Result`.
 - Recursive `proc` value returns are solved within the same monomorphic
   component before generalization. `proc main` still needs an explicit value
   return type (`check.required-return`). Empty collections, error-only bodies, and

@@ -4736,6 +4736,130 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn pending_completion_error_equations_execute_after_frontend_disposal() {
+        let mut program = prepare(r#"
+pure reject(value: Str) -> Result[Str, Str] { Err(value) }
+proc page(items, key: Int) { reject(items[key])? }
+proc forward(items, key: Int) { page(items, key)? }
+proc apply(items, key: Int, action) { action(items[key])? }
+proc check_completions() -> Result[Bool] {
+  let values: Map[UInt, Str] = {[0]: "declined"}
+  let raw: Result[Str, Str] = apply(["raw"], 0, reject)
+  let normalized: Result[Str, Error] = page(values, 0)
+  let forwarded: Result[Str, Error] = forward(values, 0)
+  let dynamic: Result[Str, Error] = apply(values, 0, reject)
+  let invalid: Result[Str, Error] = page(values, -1)
+  let normalized_message = match normalized { Err(error) => error.message; Ok(_) => "wrong" }
+  let forwarded_message = match forwarded { Err(error) => error.message; Ok(_) => "wrong" }
+  let dynamic_message = match dynamic { Err(error) => error.message; Ok(_) => "wrong" }
+  Ok(raw is Err("raw") and invalid is Err(_) and normalized_message == "declined"
+    and forwarded_message == "declined" and dynamic_message == "declined")
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let program = Arc::new(program);
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| crate::runtime::eval::LoweredFunctionKey::Name(Name::intern("check_completions")));
+            let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::CallableKind::Proc, &[], crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, crate::runtime::value::Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(crate::runtime::value::Value::Bool(true)))), "frames={force_frames}");
+        }
+    }
+
+    #[test]
+    fn pending_completion_error_binder_and_contributions_are_owned() {
+        use super::super::super::schemes::{FullSealedOperation, FullWrapper, FullWrapperContribution};
+        let program = prepare("pure identity(value: Str) -> Result[Str, Str] { Err(value) }\nproc page(items) { identity(items[0])? }\nlet result: Result[Str, Str] = page([\"x\"])");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "page").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { panic!("page has a generic contract") };
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let mut wrappers = scheme.wrappers.bounds(program.store.scheme_wrappers.len()).unwrap();
+        let (returned, detail) = wrappers.clone().find_map(|index| match program.store.scheme_wrappers[index] {
+            FullWrapper::ProcCompletion { returned, detail, .. } => Some((returned, detail)),
+            _ => None,
+        }).unwrap();
+        let result = program.store.scheme_types[returned.index()];
+        assert_eq!(result.tag, FullSchemeTypeTag::Result);
+        let error = super::super::super::schemes::SchemeTypeId::from_raw(result.second).unwrap();
+        assert_eq!(program.store.scheme_types[error.index()].tag, FullSchemeTypeTag::Parameter);
+        let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
+        let receiver = operations.filter_map(|index| match program.store.scheme_operations[index] {
+            FullSealedOperation::Index { receiver, .. } => Some(receiver),
+            _ => None,
+        }).next().unwrap();
+        let receiver_node = program.store.scheme_types[receiver.index()];
+        assert_eq!(receiver_node.tag, FullSchemeTypeTag::Parameter);
+        let call = program.store.call_instantiations.iter().find(|instance| program.store.checked_call_targets.iter().any(|site| site.instruction == instance.instruction && site.function.index() == owner)).unwrap();
+        let mut arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        let error_argument = arguments.clone().find(|&index| program.store.call_type_arguments[index].binder == program.store.scheme_types[error.index()].first).unwrap();
+        let receiver_argument = arguments.find(|&index| program.store.call_type_arguments[index].binder == receiver_node.first).unwrap();
+        let mut wrong_error = program.clone();
+        wrong_error.store.in_place.take();
+        wrong_error.store.call_type_arguments[error_argument].ty = program.store.call_type_arguments[receiver_argument].ty;
+        assert!(FullVerifier::verify(&wrong_error).is_err());
+        let mut aliased = program.clone();
+        aliased.store.in_place.take();
+        aliased.store.scheme_types[error.index()].first = receiver_node.first;
+        assert!(FullVerifier::verify(&aliased).is_err());
+        let mut concrete = program.clone();
+        concrete.store.in_place.take();
+        concrete.store.scheme_types[error.index()] = program.store.scheme_types[result.first as usize];
+        assert!(FullVerifier::verify(&concrete).is_err());
+        let completion = program.store.wrapper_completions[detail as usize];
+        let mut contributions = completion.contributions.bounds(program.store.wrapper_contributions.len()).unwrap();
+        let propagated = contributions.clone().find(|&index| matches!(program.store.wrapper_contributions[index], FullWrapperContribution::PropagatedError(_))).unwrap();
+        let (key_index, key) = contributions.find_map(|index| match program.store.wrapper_contributions[index] { FullWrapperContribution::KeyValidation(ordinal) => Some((index, ordinal)), _ => None }).unwrap();
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.wrapper_contributions[propagated] = FullWrapperContribution::KeyValidation(key);
+        assert!(FullVerifier::verify(&forged).is_err());
+        let mut circular = program.clone();
+        circular.store.in_place.take();
+        circular.store.wrapper_contributions[propagated] = FullWrapperContribution::PropagatedError(error);
+        assert!(FullVerifier::verify(&circular).is_err());
+        let mut missing_key = program.clone();
+        missing_key.store.in_place.take();
+        missing_key.store.wrapper_contributions[key_index] = FullWrapperContribution::ApplicationSource(error);
+        assert!(FullVerifier::verify(&missing_key).is_err());
+        let mut wrong_key = program.clone();
+        wrong_key.store.in_place.take();
+        let binding = wrong_key.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, crate::sema::schemes::SealedOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::IndexList))).unwrap();
+        *binding = crate::sema::schemes::SealedOperationBinding::Selected(crate::sema::sealed_operation::SealedOperationSignature::IndexMap);
+        assert!(FullVerifier::verify(&wrong_key).is_err());
+        let detail = wrappers.find_map(|index| match program.store.scheme_wrappers[index] { FullWrapper::KeyValidation { detail, .. } => Some(detail), _ => None }).unwrap();
+        let mut wrong_group = program.clone();
+        wrong_group.store.in_place.take();
+        let boundary = &mut wrong_group.store.wrapper_key_validations[detail as usize].boundary;
+        let super::super::super::schemes::FullWrapperBoundary::ProcCompletion { group, .. } = boundary else { panic!("owned key validation boundary") };
+        *group += 1;
+        assert!(FullVerifier::verify(&wrong_group).is_err());
+    }
+
+    #[test]
+    fn pending_completion_error_rejects_incompatible_application_output() {
+        use super::super::super::schemes::{FullSchemeApplication, FullWrapper};
+        let program = prepare("pure identity(value: Str) -> Result[Str, Str] { Err(value) }\npure maker() -> Int { 7 }\nproc page(items, make) { let _ = make(); identity(items[0])? }\nlet result: Result[Str, Str] = page([\"x\"], maker)");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "page").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { panic!("page has a generic contract") };
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let mut wrappers = scheme.wrappers.bounds(program.store.scheme_wrappers.len()).unwrap();
+        let returned = wrappers.find_map(|index| match program.store.scheme_wrappers[index] { FullWrapper::ProcCompletion { returned, .. } => Some(returned), _ => None }).unwrap();
+        let error = program.store.scheme_types[returned.index()].second as usize;
+        assert_eq!(program.store.scheme_types[error].tag, FullSchemeTypeTag::Parameter);
+        let mut applications = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap();
+        let result = applications.find_map(|index| match program.store.scheme_applications[index] { FullSchemeApplication::Invocation(application) => Some(application.result), _ => None }).unwrap();
+        let result = program.store.scheme_types[result.index()];
+        assert_eq!(result.tag, FullSchemeTypeTag::Parameter);
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.scheme_types[error].first = result.first;
+        assert!(FullVerifier::verify(&forged).is_err());
+    }
+
+    #[test]
     fn proc_completion_source_facts_authenticate_original_return_values() {
         let program = prepare("proc projected(value, marker: Str) [error] { let _ = marker; value?.name }");
         assert_eq!(std::mem::size_of::<super::super::super::schemes::FullSchemeBodyFact>(), 16);
