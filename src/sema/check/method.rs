@@ -686,7 +686,7 @@ impl Checker {
                     }
                 }
             } else {
-                match self.check_retained_signature_arguments_arena(arena, source, args, &instance.signature, span, &schemas, None) {
+                match self.check_retained_signature_arguments_arena(arena, source, args, &instance.signature, span, &schemas, None, Some(receiver_ty.unvalidated())) {
                     Some(mut bound) => {
                         self.retain_original_method_arguments(arena, &call_source, &mut bound.values);
                         super::args::SelectedMethodArguments::Bound(bound)

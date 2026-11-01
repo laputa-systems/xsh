@@ -306,7 +306,7 @@ pub(super) fn may_require_uint_key_validation(receiver: &SchemeType, key: &Schem
     let required = required.closed_ground_type();
     let key = key.closed_ground_type();
     match (required, key) {
-        (Some(Type::UInt), Some(Type::Int)) => true,
+        (Some(Type::UInt), Some(Type::Int) | None) => true,
         (Some(Type::UInt), _) => false,
         (_, Some(Type::UInt | Type::Str)) => false,
         _ => true,

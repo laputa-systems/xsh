@@ -6722,6 +6722,39 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn projected_unsigned_map_keys_require_their_producer_and_guard() {
+        let program = prepare("pure read(values: Map[UInt, Str], row) -> Result[Str] { values.get(row.key) }\nlet values: Map[UInt, Str] = {[0]: \"zero\"}\nlet _ = read(values, {key: 0})");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "read").unwrap();
+        let super::super::super::FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("read retains its field scheme") };
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let (check, source) = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::MapKey(_), .. }) => Some((instruction, value.raw() as usize)),
+            _ => None,
+        }).unwrap();
+        let declaration = range.clone().find(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Let { value, .. }) if value.raw() as usize == check)).unwrap();
+        let mut bypass = program.clone();
+        bypass.store.in_place.take();
+        let words = bypass.store.data[declaration].range().bounds(bypass.store.extra.len()).unwrap();
+        assert_eq!(bypass.store.extra[words.start + 1], check as u32);
+        bypass.store.extra[words.start + 1] = source as u32;
+        assert!(FullVerifier::verify(&bypass).is_err());
+        let scheme = program.store.scheme(scheme).unwrap();
+        let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
+        let result = operations.filter_map(|index| match program.store.scheme_operations[index] {
+            super::super::super::schemes::FullSealedOperation::Field { result, .. } => Some(result), _ => None,
+        }).next().unwrap();
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let map = program.store.scheme_types[program.store.scheme_params[parameters.start].ty.index()];
+        assert_eq!(map.tag, FullSchemeTypeTag::Map);
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.scheme_types[result.index()] = program.store.scheme_types[map.first as usize];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(!error.message.contains("unowned rows"), "{error:?}");
+    }
+
+    #[test]
     fn generic_map_key_checks_authenticate_their_operation_and_producer() {
         let program = prepare("pure keyed(values: Map[UInt, Str], key: Int, marker) { let _ = values.get(key); marker }\nlet values: Map[UInt, Str] = {[1]: \"one\"}\nlet selected = keyed(values, 1, \"marker\")");
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keyed").unwrap();

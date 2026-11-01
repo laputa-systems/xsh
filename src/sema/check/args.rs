@@ -1210,7 +1210,7 @@ impl Checker {
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
         checked_argument: Option<CheckedCallArgument<'_>>,
     ) {
-        let _ = self.check_retained_signature_arguments_arena(arena, source, args, sig, span, schemas, checked_argument);
+        let _ = self.check_retained_signature_arguments_arena(arena, source, args, sig, span, schemas, checked_argument, None);
     }
 
     pub(super) fn check_retained_signature_arguments_arena(
@@ -1222,6 +1222,7 @@ impl Checker {
         span: Span,
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
         checked_argument: Option<CheckedCallArgument<'_>>,
+        checked_key_receiver: Option<&Type>,
     ) -> Option<CheckedBoundArguments> {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
         let mut expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
@@ -1292,9 +1293,12 @@ impl Checker {
                 .unwrap_or_else(|_| params[slot].ty.clone());
             let schema = schemas.get(slot).cloned().flatten().unwrap_or_default();
             let previous_schema = self.boundary.expected_schema.replace(schema.clone());
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
+            let checked_key = matches!(crate::sema::builtin_templates::registered_argument_check(checked_key_receiver, slot, &expected), Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey));
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, if checked_key { None } else { Some(&expected) });
             self.boundary.expected_schema = previous_schema;
-            self.expect_api_argument(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
+            if !checked_key || !matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_))) {
+                self.expect_api_argument(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
+            }
             expanded[index].ty = actual;
             contexts.push(CheckedArgumentContext { expected: Some(expected), schema });
         }

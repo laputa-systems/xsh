@@ -147,3 +147,23 @@ pure build(marker, value: Int?) -> Str { let _ = marker; project({bytes: b"a", t
 let _ = build(7, 1)
 """, status: 2, stderr: ["[check.type-mismatch]"])?
 }
+
+test test_inferred_field_unsigned_key_keeps_checked_conversion { |ctx|
+  let program = r"""pure read(values: Map[UInt, Str], row) -> Result[Str] { values.get(row.key) }
+proc main(...args: List[Str]) [io, error] {
+  let values: Map[UInt, Str] = {[0]: "zero"}
+  let unsigned: UInt = 0
+  assert read(values, {key: unsigned})? == "zero"
+  let key = if args.len() == 0 { 0 } else { -1 }
+  print read(values, {key})?
+}
+"""
+  let valid = test.expect(ctx, program, status: 0, args: [])?
+  assert valid.stdout == "zero\n", valid.stdout
+  let invalid = test.expect(ctx, program, status: 3, args: ["negative"])?
+  assert invalid.stdout == "", invalid.stdout
+  test.expect(ctx, r"""pure read(values: Map[UInt, Str], row) -> Result[Str] { values.get(row.key) }
+let values: Map[UInt, Str] = {[0]: "zero"}
+let _ = read(values, {key: "not an integer"})
+""", status: 2, stderr: ["[check.index-type]"])?
+}
