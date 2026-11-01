@@ -4398,6 +4398,40 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn generic_module_optional_argument_authenticates_its_assignment() {
+        let program = prepare("proc change(opts, fallback: Int, file: Path, wrong: Str) -> Result[Unit] { let _ = wrong; let uid = opts.owner ?? fallback; fs.set_owner(file, uid: uid)? }");
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); changed };
+        FullVerifier::verify(&cold()).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "change").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let call = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::ModuleCall { op: crate::modules::RuntimeOp::FsSetOwner, .. }))).unwrap();
+        let schema::ExprView::ModuleCall { mut args, .. } = decoder.expression_view(call).unwrap() else { unreachable!() };
+        let _path = args.next().unwrap().unwrap().unwrap();
+        let uid = args.next().unwrap().unwrap().unwrap().raw() as usize;
+        assert!(matches!(decoder.expression_view(uid), Ok(schema::ExprView::Param(_))));
+        let mut wrong_argument = cold();
+        let words = wrong_argument.store.data[uid].range().bounds(wrong_argument.store.extra.len()).unwrap();
+        wrong_argument.store.extra[words.start] = 3;
+        assert!(FullVerifier::verify(&wrong_argument).is_err());
+        let (_, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let parameters = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| match program.store.scheme_applications[index] {
+            super::super::super::schemes::FullSchemeApplication::KnownArguments { parameters, .. } => Some(parameters),
+            _ => None,
+        }).unwrap();
+        let formal = program.store.scheme_callable_parameters[parameters.start as usize].ty;
+        let payload = SchemeTypeId::from_raw(program.store.scheme_types[formal.index()].first).unwrap();
+        let wrong = program.store.scheme_params[scheme.params.start as usize + 3].ty;
+        let wrong = program.store.scheme_types[wrong.index()];
+        let mut wrong_evidence = cold();
+        wrong_evidence.store.scheme_types[payload.index()] = wrong;
+        assert!(FullVerifier::verify(&wrong_evidence).is_err());
+        let mut wrong_operation = cold();
+        Arc::make_mut(wrong_operation.store.registered_calls.get_mut(&(call as u32)).unwrap()).signature = &crate::modules::api_spec().module_overloads("fs", "set_times").unwrap()[0];
+        assert!(FullVerifier::verify(&wrong_operation).is_err());
+    }
+
+    #[test]
     fn generic_record_get_authenticates_projection_and_registry() {
         use super::super::super::schemes::FullSchemeBodyFactValue;
         let program = prepare("type Info = {arch: Str, count: Int}\npure choose(row: Info, marker, wrong: Str) -> Result[Str] { let _ = marker; let _ = wrong; let _ = row.get(\"count\"); row.get(\"arch\")? }\nlet result = choose({arch: \"arm\", count: 4}, 1, \"wrong\")");
