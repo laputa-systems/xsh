@@ -114,6 +114,7 @@ struct HostObligation {
 
 #[derive(Clone)]
 struct HostMethodCandidates {
+    level: u32,
     selected: Option<SelectedHostMethod>,
     receiver: Type,
     result: Type,
@@ -215,13 +216,30 @@ impl HostMethodCandidates {
         constraints: &mut TypeConstraints,
         include_result: bool,
     ) -> Result<SelectedHostMethod, ConstraintConflict> {
-        let mut instance = BuiltinInstantiation::new(
+        let mut instance = BuiltinInstantiation::new_at_level(
             &candidate.signature.sig,
             candidate.signature.receiver_ty.as_ref(),
             Some(&self.receiver),
             constraints,
             self.span,
+            self.level,
         )?;
+        if candidate.receiver == MethodReceiver::Map {
+            let receiver = constraints.resolve(&self.receiver).map_err(|error| ConstraintConflict {
+                expected: self.receiver.clone(), actual: self.receiver.clone(), contribution: self.span,
+                initializer: None, established: None, resolution_error: Some(error),
+            })?;
+            if let Type::Map(key, _) = receiver.unvalidated() {
+                constraints.require_map_key(key, self.span).map_err(|error| ConstraintConflict {
+                    expected: receiver.clone(), actual: receiver.clone(), contribution: self.span,
+                    initializer: None, established: None,
+                    resolution_error: match error {
+                        crate::sema::constraints::MapKeyConstraintError::Resolution(error) => Some(error),
+                        crate::sema::constraints::MapKeyConstraintError::Invalid(_) => None,
+                    },
+                })?;
+            }
+        }
         let params = crate::sema::builtin_templates::callable_parameters(&instance.signature);
         let binding = crate::sema::arguments::bind_static_arguments(&params, &self.arguments)
             .expect("candidate arguments retain their validated layout");
@@ -480,7 +498,7 @@ impl Checker {
         let arguments = values.arguments;
         let result_level = self.callable_solver_level();
         let candidate_result = self.type_constraints.fresh_at_level(span, result_level);
-        let mut obligation = HostMethodCandidates { selected: None, receiver: receiver.clone(), result: candidate_result.clone(), expected: expected.cloned(), arguments, candidates, span };
+        let mut obligation = HostMethodCandidates { level: result_level, selected: None, receiver: receiver.clone(), result: candidate_result.clone(), expected: expected.cloned(), arguments, candidates, span };
         match obligation.select(&mut self.type_constraints, name) {
             Ok(true) => {
                 if obligation.selected.as_ref().is_some_and(|selected| continuation.phase(selected.method, &obligation.arguments).is_some()) {
@@ -807,7 +825,7 @@ mod tests {
                 (receiver.clone(), vec![ExpandedArgument { entry_index: 0, name: None, value: crate::sema::arguments::ArgumentValueSource::CheckedType, ty: deep, span }], HostMethod { receiver: MethodReceiver::List, signature: push }, ConstraintResolutionError::TypeDepth),
                 (foreign.fresh(span), Vec::new(), HostMethod { receiver: MethodReceiver::Str, signature: string }, ConstraintResolutionError::ForeignVariable),
             ] {
-                let mut obligation = HostMethodCandidates { selected: None,
+                let mut obligation = HostMethodCandidates { level: 0, selected: None,
                     receiver: actual_receiver,
                     result: Type::Str,
                     expected: None,
@@ -831,7 +849,7 @@ mod tests {
             let bytes = Box::leak(Box::new(bytes));
             let mut constraints = TypeConstraints::default();
             let receiver = constraints.fresh(span);
-            let mut obligation = HostMethodCandidates { selected: None,
+            let mut obligation = HostMethodCandidates { level: 0, selected: None,
                 receiver: receiver.clone(),
                 result: Type::Str,
                 expected: Some(Type::Str),
@@ -862,7 +880,7 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let receiver = constraints.fresh(span);
             let result = constraints.fresh(span);
-            let mut obligation = HostMethodCandidates { selected: None,
+            let mut obligation = HostMethodCandidates { level: 0, selected: None,
                 receiver: receiver.clone(),
                 result: result.clone(),
                 expected: None,
@@ -897,7 +915,7 @@ mod tests {
                         .method_overloads(receiver_domain, "byte_at")
                         .expect("registered byte_at receiver domain")[0],
                 });
-            let candidates = HostMethodCandidates { selected: None,
+            let candidates = HostMethodCandidates { level: 0, selected: None,
                 receiver: receiver.clone(),
                 result: byte_result.clone(),
                 expected: None,
@@ -913,7 +931,7 @@ mod tests {
             };
             let obligation = parsed_obligation(&mut checker, &parsed.arena, 0, "byte_at", candidates);
             checker.local_inference.host_obligations.entries.push(obligation);
-            let candidates = HostMethodCandidates { selected: None,
+            let candidates = HostMethodCandidates { level: 0, selected: None,
                 receiver: receiver.clone(),
                 result: byte_result.clone(),
                 expected: None,
@@ -966,7 +984,7 @@ mod tests {
         }).unwrap();
         assert!(matches!(arguments[0].value, crate::sema::arguments::ArgumentValueSource::Expression(_)));
         let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "byte_at", None).finish(&mut checker, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
-        checker.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: HostMethodCandidates { selected: None,
+        checker.local_inference.host_obligations.entries.push(HostObligation { continuation, candidates: HostMethodCandidates { level: 0, selected: None,
             receiver: receiver.clone(), result: result.clone(), expected: None, arguments,
             candidates: method_candidates("byte_at"), span,
         } });
@@ -1003,7 +1021,7 @@ mod tests {
         let continuation = checker.reserve_host_call_continuation(HostCallSource::Expression(call), "replace", None).finish(&mut checker, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
         checker.local_inference.host_obligations.entries.push(HostObligation {
             continuation,
-            candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("replace"), span },
+            candidates: HostMethodCandidates { level: 0, selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("replace"), span },
         });
         checker.type_constraints.constrain(&receiver, &Type::Str, span).unwrap();
         assert_eq!(checker.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1064,7 +1082,7 @@ mod tests {
             let continuation = continuation.finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
+                candidates: HostMethodCandidates { level: 0, selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
             });
             delayed.boundary.effect_owner = Some(other);
             delayed.boundary.in_pure = false;
@@ -1112,7 +1130,7 @@ mod tests {
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver: Type::Path, result, expected: None, arguments, candidates: method_candidates(name), span },
+                candidates: HostMethodCandidates { level: 0, selected: None, receiver: Type::Path, result, expected: None, arguments, candidates: method_candidates(name), span },
             });
         }
         assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1230,7 +1248,7 @@ mod tests {
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("context"), span },
+                candidates: HostMethodCandidates { level: 0, selected: None, receiver: receiver.clone(), result: result.clone(), expected: None, arguments, candidates: method_candidates("context"), span },
             });
             delayed.type_constraints.constrain(&receiver, &actual_receiver, span).unwrap();
             assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1284,7 +1302,7 @@ mod tests {
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver, result, expected: None, arguments, candidates: method_candidates(name), span },
+                candidates: HostMethodCandidates { level: 0, selected: None, receiver, result, expected: None, arguments, candidates: method_candidates(name), span },
             });
         }
         assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1344,7 +1362,7 @@ mod tests {
                 let result = delayed.type_constraints.fresh(span);
                 delayed.local_inference.host_obligations.entries.push(HostObligation {
                     continuation,
-                    candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
+                    candidates: HostMethodCandidates { level: 0, selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates(name), span },
                 });
                 delayed.type_constraints.constrain(&receiver, actual_receiver, span).unwrap();
                 assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1393,7 +1411,7 @@ mod tests {
             let continuation = delayed.reserve_host_call_continuation(HostCallSource::Expression(call), "write", None).finish(&mut delayed, vec![super::super::super::args::CheckedArgumentContext::default(); arguments.len()]);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates("write"), span },
+                candidates: HostMethodCandidates { level: 0, selected: None, receiver: receiver.clone(), result, expected: None, arguments, candidates: method_candidates("write"), span },
             });
             delayed.type_constraints.constrain(&receiver, &Type::Path, span).unwrap();
             assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1442,7 +1460,7 @@ mod tests {
             let result = delayed.type_constraints.fresh(span);
             delayed.local_inference.host_obligations.entries.push(HostObligation {
                 continuation,
-                candidates: HostMethodCandidates { selected: None, receiver: Type::Path, result, expected: None, arguments, candidates: method_candidates(name), span },
+                candidates: HostMethodCandidates { level: 0, selected: None, receiver: Type::Path, result, expected: None, arguments, candidates: method_candidates(name), span },
             });
         }
         assert_eq!(delayed.solve_host_obligations(&parsed.arena), Ok(()));
@@ -1533,7 +1551,7 @@ mod tests {
                 (deep, ConstraintResolutionError::TypeDepth),
                 (foreign.fresh(span), ConstraintResolutionError::ForeignVariable),
             ] {
-                let candidates = HostMethodCandidates { selected: None,
+                let candidates = HostMethodCandidates { level: 0, selected: None,
                     receiver,
                     result: Type::Unit,
                     expected: None,
@@ -1632,7 +1650,7 @@ let observed = probe({argument})
             let receiver = constraints.fresh_at_level(span, 1);
             let result = constraints.fresh_at_level(span, 1);
             let mut obligation = HostMethodCandidates {
-                selected: None, receiver: receiver.clone(), result: result.clone(),
+                level: 0, selected: None, receiver: receiver.clone(), result: result.clone(),
                 expected: Some(Type::rel_path()), arguments: Vec::new(), candidates: method_candidates("parent"), span,
             };
             assert_eq!(obligation.select(&mut constraints, "parent"), Ok(false));

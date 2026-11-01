@@ -2692,6 +2692,7 @@ test test_full_inference_fresh_map_alias_keeps_input_storage_contract { |ctx|
   local["key"] = value
   local
 }
+
 proc main(...args: List[Str]) [io, error] {
   var original: Map[Str, UInt] = {}
   original["key"] = 3
@@ -2720,6 +2721,44 @@ let absent: Row = {current: null, label: "old"}
 let present: Row = {current: "new", label: null}
 assert update(absent, 1).label == null
 assert update(present, "marker").label == "new"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_map_push_retains_its_key_and_item_domains { |ctx|
+  let output = test.expect(ctx, r"""pure append(values, key, value) { values.push(key, value) }
+let table: Map[UInt, List[Int]] = {}
+let key: UInt = 1
+assert append(table, key, 7)[key] == [7]
+let words: Map[Str, List[Str]] = {}
+assert append(words, "x", "word")["x"] == ["word"]
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_map_push_rejects_mismatched_inputs { |ctx|
+  for call in ["append(table, true, 7)", r"""append(table, 1, "wrong")""", "append(table, 1, unknown)"] {
+    let output = test.run_xsh(ctx, r"""pure append(values, key, value) { values.push(key, value) }
+let table: Map[Int, List[Int]] = {}
+let unknown: Any = 7
+""" + call)?
+    assert ! output.success, call
+    assert "err[check." in output.stderr, output.stderr
+  }
+  let invalid_key = test.run_xsh(ctx, r"""pure append(values, key, value) { values.push(key, value) }
+let table = append(map.empty(), [1], 7)
+""")?
+  assert ! invalid_key.success, invalid_key.stderr
+  assert "err[check." in invalid_key.stderr, invalid_key.stderr
+}
+
+test test_full_inference_map_push_keeps_conditional_receiver_contract { |ctx|
+  let output = test.expect(ctx, r"""pure append(values, key, value, enabled: Bool) {
+  if enabled { values.push(key, value) } else { values }
+}
+let table: Map[Str, List[Int]] = {}
+assert append(table, "x", 7, true)["x"] == [7]
+assert append(table, "x", 7, false).len() == 0
 """, status: 0)?
   assert output.stderr == "", output.stderr
 }

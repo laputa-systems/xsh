@@ -19,6 +19,17 @@ impl BuiltinInstantiation {
         constraints: &mut TypeConstraints,
         span: Span,
     ) -> Result<Self, ConstraintConflict> {
+        Self::new_at_level(signature, receiver_template, receiver, constraints, span, 0)
+    }
+
+    pub(crate) fn new_at_level(
+        signature: &ModuleFnSig,
+        receiver_template: Option<&Type>,
+        receiver: Option<&Type>,
+        constraints: &mut TypeConstraints,
+        span: Span,
+        level: u32,
+    ) -> Result<Self, ConstraintConflict> {
         let mut parameters = BTreeMap::new();
         if let (Some(template), Some(actual)) = (receiver_template, receiver) {
             seed_receiver_domains(template, actual, &mut parameters);
@@ -26,9 +37,9 @@ impl BuiltinInstantiation {
         if let Some(receiver) = receiver {
             parameters.insert(BuiltinTypeParameter::Receiver, receiver.clone());
         }
-        let signature = instantiate_signature(signature, &mut parameters, constraints, span);
+        let signature = instantiate_signature(signature, &mut parameters, constraints, span, level);
         if let (Some(template), Some(actual)) = (receiver_template, receiver) {
-            let template = instantiate_type(template, &mut parameters, constraints, span);
+            let template = instantiate_type(template, &mut parameters, constraints, span, level);
             constraints.constrain(&template, actual, span)?;
         }
         let mut instance = Self { signature };
@@ -44,7 +55,7 @@ impl BuiltinInstantiation {
     ) -> Self {
         let mut parameters = BTreeMap::new();
         seed_receiver_domains(&signature.return_ty, result, &mut parameters);
-        Self { signature: instantiate_signature(signature, &mut parameters, constraints, span) }
+        Self { signature: instantiate_signature(signature, &mut parameters, constraints, span, 0) }
     }
 
     pub fn constrain_result(
@@ -149,12 +160,13 @@ fn instantiate_signature(
     parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
     constraints: &mut TypeConstraints,
     span: Span,
+    level: u32,
 ) -> ModuleFnSig {
     let mut signature = signature.clone();
     for parameter in &mut signature.params {
-        parameter.ty = instantiate_type(&parameter.ty, parameters, constraints, span);
+        parameter.ty = instantiate_type(&parameter.ty, parameters, constraints, span, level);
     }
-    signature.return_ty = instantiate_type(&signature.return_ty, parameters, constraints, span);
+    signature.return_ty = instantiate_type(&signature.return_ty, parameters, constraints, span, level);
     signature
 }
 
@@ -163,53 +175,58 @@ fn instantiate_type(
     parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
     constraints: &mut TypeConstraints,
     span: Span,
+    level: u32,
 ) -> Type {
     match ty {
         Type::BuiltinParameter(parameter) => parameters
             .entry(*parameter)
-            .or_insert_with(|| constraints.fresh(span))
+            .or_insert_with(|| constraints.fresh_at_level(span, level))
             .clone(),
         Type::List(inner) => Type::List(Box::new(instantiate_type(
             inner,
             parameters,
             constraints,
             span,
+            level,
         ))),
         Type::Map(key, value) => Type::Map(
-            Box::new(instantiate_type(key, parameters, constraints, span)),
-            Box::new(instantiate_type(value, parameters, constraints, span)),
+            Box::new(instantiate_type(key, parameters, constraints, span, level)),
+            Box::new(instantiate_type(value, parameters, constraints, span, level)),
         ),
         Type::Stream(inner) => Type::Stream(Box::new(instantiate_type(
             inner,
             parameters,
             constraints,
             span,
+            level,
         ))),
         Type::Set(inner) => Type::Set(Box::new(instantiate_type(
             inner,
             parameters,
             constraints,
             span,
+            level,
         ))),
         Type::Optional(inner) => Type::Optional(Box::new(instantiate_type(
             inner,
             parameters,
             constraints,
             span,
+            level,
         ))),
         Type::Result(ok, error) => Type::Result(
-            Box::new(instantiate_type(ok, parameters, constraints, span)),
-            Box::new(instantiate_type(error, parameters, constraints, span)),
+            Box::new(instantiate_type(ok, parameters, constraints, span, level)),
+            Box::new(instantiate_type(error, parameters, constraints, span, level)),
         ),
         Type::Record(fields) => Type::Record(
             fields
                 .iter()
-                .map(|(name, ty)| (*name, instantiate_type(ty, parameters, constraints, span)))
+                .map(|(name, ty)| (*name, instantiate_type(ty, parameters, constraints, span, level)))
                 .collect::<BTreeMap<_, _>>()
                 .into(),
         ),
         Type::Validated(validated) => Type::Validated(Box::new(
-            validated.map_base(|base| instantiate_type(base, parameters, constraints, span)),
+            validated.map_base(|base| instantiate_type(base, parameters, constraints, span, level)),
         )),
         ty => ty.clone(),
     }
@@ -793,7 +810,7 @@ mod tests {
                         (BuiltinTypeParameter::Error, Type::Error),
                     ]);
                     let receiver = match &method.receiver_ty {
-                        Some(template) => instantiate_type(template, &mut parameters, &mut constraints, span()),
+                        Some(template) => instantiate_type(template, &mut parameters, &mut constraints, span(), 0),
                         None if domain == MethodReceiver::Int => Type::UInt,
                         None if domain == MethodReceiver::Record => Type::Record(BTreeMap::from([(crate::symbol::Name::intern("value"), Type::Int)]).into()),
                         None => panic!("executable method has no representable receiver: {domain:?}"),
