@@ -49,12 +49,13 @@ test test_imported_generic_calls_keep_kind_and_parameter_restrictions { |ctx|
   fp"{modules}/decoy.xsh".write("##! Same-name pure operation.\n## Returns its argument.\nexport pure required(value: Int) -> Int { value }\n")?
   for declaration in [
     "export proc required(value: Int) -> Int { value }",
-    "export stream required(value: Int) -> Int { yield value }",
+    "export stream required(value: Int) -> Stream[Int] { yield value }",
   ] {
     fp"{modules}/selected.xsh".write(f"##! Selected operation.\n## Returns the supplied value.\n{declaration}\n")?
     let result = test.run_xsh(ctx, "use decoy as trusted\nuse selected as actual\npure invoke(row) { actual.required(row.value) }\n", env: {XSH_MODULE_PATH: modules})?
     assert result.status == 2, result.stderr
-    assert "[check.local-inference]" in result.stderr, result.stderr
+    assert "[check.pure-effect]" in result.stderr, result.stderr
+    assert result.stderr.split("err[").len() == 2, result.stderr
   }
 }
 
