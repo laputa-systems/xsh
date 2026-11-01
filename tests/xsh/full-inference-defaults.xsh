@@ -108,7 +108,7 @@ test test_full_inference_nested_row_projection_rejects_a_missing_field { |ctx|
 let invalid = file_name({file: {size: 12}})
 """,
     status: 2,
-    stderr: ["[check.type-mismatch]"],
+    stderr: ["[check.unknown-field]"],
   )?
 }
 
@@ -154,4 +154,19 @@ proc denied() [error] -> Result[Stream[Str]] {
     status: 2,
     stderr: ["[check.effect-violation]", "io"],
   )?
+}
+
+test test_constructor_field_projection_retains_input_domain { |ctx|
+  let output = test.expect(ctx, r"""type Row = {value: Int}
+pure sample(row) -> Row { Row(value: row.value) }
+let unsigned: UInt = 7
+let signed: Int = sample({value: -3}).value
+let copied: Int = sample({value: unsigned}).value
+assert signed == -3 and copied == 7
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+  test.expect(ctx, r"""type Row = {value: Int}
+pure sample(row) -> Row { Row(value: row.value) }
+let _ = sample({value: "bad"})
+""", status: 2, stderr: ["[check.type-mismatch]"])?
 }

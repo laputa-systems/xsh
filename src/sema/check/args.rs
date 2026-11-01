@@ -505,7 +505,11 @@ impl Checker {
                 };
                 if let Err(conflict) = result {
                     if conflict.resolution_error.is_some() || !actual.contains_any() {
-                        self.report_inferred_type_conflict(conflict);
+                        if let Ok(Some(missing)) = self.type_constraints.missing_required_open_record_field(expected, actual) {
+                            self.report_unknown_field(span, missing, std::iter::empty());
+                        } else {
+                            self.report_inferred_type_conflict(conflict);
+                        }
                     } else {
                         self.reject_dynamic_use("a generic function argument", None, span);
                     }

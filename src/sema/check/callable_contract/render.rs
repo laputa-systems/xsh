@@ -854,7 +854,7 @@ mod tests {
         assert_eq!(path.scheme().callable().requirements().guards.len(), 1);
         let row = row.to_string();
         let path = path.to_string();
-        assert_eq!(row, "forall T0. pure(value: T0) -> Str return-schema={} effects=unknown when-non-null(T0) { forall R0\\{name}. view={name: Str, ..R0} }");
+        assert_eq!(row, "forall T0. pure(value: T0) -> Str return-schema={} effects=unknown when-non-null(T0) { forall T1. view=T1 field(T1, name) -> Str }");
         assert_eq!(path, "forall T0. pure(value: T0) -> Path return-schema={} effects=unknown when-non-null(T0) { forall T1. view=T1 method-family(PathParent, receiver=T1, args=[]) -> Path }");
     }
 

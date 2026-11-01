@@ -1627,11 +1627,14 @@ mod tests {
             }
         }).unwrap();
         let projected = &checker.expr_types[&parsed.arena.arena.expr(projection).span];
-        assert_eq!(checker.type_constraints.resolve(projected), Ok(Type::Int));
         let row = checker.expr_types[&parsed.arena.arena.expr(base).span].clone();
         assert!(row.contains_inference(), "{row:?}");
-        let field = checker.type_constraints.project_record_field(&row, name, 1, parsed.arena.arena.expr(projection).span).unwrap();
-        assert_eq!(checker.type_constraints.resolve(&field), Ok(Type::Int));
+        let owner = checker.effect_declaration_id(&parsed.arena, definition.body);
+        let operation = checker.type_constraints.source_sealed_operation(crate::sema::constraints::CallableApplicationScope::Declaration(owner), parsed.arena.arena.expr(projection).span).unwrap();
+        let crate::sema::sealed_operation::SealedOperation::Field { receiver, name: field_name, result, .. } = operation else { panic!("projection retains its field requirement") };
+        assert_eq!(*field_name, name);
+        assert_eq!(checker.type_constraints.resolve(receiver), checker.type_constraints.resolve(&row));
+        assert_eq!(checker.type_constraints.resolve(result), checker.type_constraints.resolve(projected));
         assert_eq!(checker.record_constructor_instances.len(), 1);
         assert!(checker.record_constructor_instances.values().all(|constructor| constructor.ty == Type::Record(BTreeMap::from([(name, Type::Int)]).into())));
     }

@@ -688,7 +688,7 @@ mod tests {
     use crate::sema::check::decl::USER_MODULE_CHECKS;
     use crate::sema::constraints::{ConstraintType, TypeConstraints};
     use crate::sema::inference_work;
-    use crate::sema::schemes::{SchemeRowTail, SchemeType, TypeScheme};
+    use crate::sema::schemes::{SchemeType, TypeScheme};
     use crate::sema::types::Type;
     use crate::source::Span;
     use crate::syntax::arena::{ArenaProgramBuilder, ArenaRange};
@@ -1548,8 +1548,8 @@ mod tests {
             .expect("exported projection scheme")
             .scheme();
         assert!(Arc::ptr_eq(first_scheme, second_scheme));
-        assert_eq!(first_scheme.type_parameters().len(), 1);
-        assert_eq!(first_scheme.row_parameters().len(), 1);
+        assert_eq!(first_scheme.type_parameters().len(), 2);
+        assert!(first_scheme.row_parameters().is_empty());
 
         let call_span = |source_id, source: &str, call: &str| {
             let start = source.find(call).expect("projection call expression");
@@ -1565,36 +1565,15 @@ mod tests {
             .call_instantiations
             .get(&crate::sema::schemes::InstantiationSite::call(call_span(second_source, second_text, second_call)))
             .expect("second root has a checked call instantiation").invocation().expect("the second root site is a call");
-        assert_eq!(
-            first_instantiation.type_arguments().values().collect::<Vec<_>>(),
-            [&SchemeType::Ground(crate::sema::check::Type::Str)]
-        );
-        assert_eq!(
-            second_instantiation.type_arguments().values().collect::<Vec<_>>(),
-            [&SchemeType::Ground(crate::sema::check::Type::Int)]
-        );
-        let first_row = first_instantiation
-            .row_arguments()
-            .values()
-            .next()
-            .expect("first root has open-row evidence")
-            .fields();
-        let second_row = second_instantiation
-            .row_arguments()
-            .values()
-            .next()
-            .expect("second root has open-row evidence")
-            .fields();
-        assert_eq!(first_row.len(), 1);
-        assert_eq!(
-            first_row.get(&program.symbol_owner().intern("version")),
-            Some(&SchemeType::Ground(crate::sema::check::Type::Str))
-        );
-        assert_eq!(second_row.len(), 1);
-        assert_eq!(
-            second_row.get(&program.symbol_owner().intern("enabled")),
-            Some(&SchemeType::Ground(crate::sema::check::Type::Bool))
-        );
+        let [receiver, result] = first_scheme.type_parameters() else { panic!("field receiver and result binders") };
+        let first_record = Type::Record(std::collections::BTreeMap::from([(program.symbol_owner().intern("name"), Type::Str), (program.symbol_owner().intern("version"), Type::Str)]).into());
+        let second_record = Type::Record(std::collections::BTreeMap::from([(program.symbol_owner().intern("name"), Type::Int), (program.symbol_owner().intern("enabled"), Type::Bool)]).into());
+        assert_eq!(first_instantiation.type_arguments().get(receiver), Some(&SchemeType::Ground(first_record)));
+        assert_eq!(first_instantiation.type_arguments().get(result), Some(&SchemeType::Ground(Type::Str)));
+        assert_eq!(second_instantiation.type_arguments().get(receiver), Some(&SchemeType::Ground(second_record)));
+        assert_eq!(second_instantiation.type_arguments().get(result), Some(&SchemeType::Ground(Type::Int)));
+        assert!(first_instantiation.row_arguments().is_empty());
+        assert!(second_instantiation.row_arguments().is_empty());
     }
 
     #[test]
@@ -1658,22 +1637,15 @@ mod tests {
             &SchemeType::Ground(Type::Bool)
         );
         let name_of = exported_scheme(&facts, "name_of");
-        let [type_binder] = name_of.type_parameters() else {
-            panic!("name_of has exactly one type binder: {name_of:?}");
-        };
-        let [row_binder] = name_of.row_parameters() else {
-            panic!("name_of has exactly one row binder: {name_of:?}");
-        };
+        let [receiver, result] = name_of.type_parameters() else { panic!("name_of retains field receiver and result: {name_of:?}") };
+        assert!(name_of.row_parameters().is_empty());
         assert_eq!(name_of.params().len(), 1);
-        let SchemeType::Record { fields, tail } = &name_of.params()[0].ty else {
-            panic!("name_of accepts a record parameter: {name_of:?}");
-        };
-        let name_field = crate::symbol::Name::intern("name");
-        assert_eq!(fields.len(), 1);
-        assert_eq!(fields.get(&name_field), Some(&SchemeType::Parameter(*type_binder)));
-        assert_eq!(*tail, SchemeRowTail::Parameter(row_binder.id));
-        assert_eq!(name_of.return_type(), &SchemeType::Parameter(*type_binder));
-        assert!(row_binder.lacks.contains(&name_field));
+        assert_eq!(name_of.params()[0].ty, SchemeType::Parameter(*receiver));
+        assert_eq!(name_of.return_type(), &SchemeType::Parameter(*result));
+        let [crate::sema::sealed_operation::SealedOperation::Field { receiver: field_receiver, name, result: field_result, .. }] = &name_of.callable().requirements().operations[..] else { panic!("name_of retains its field operation") };
+        assert_eq!(*name, crate::symbol::Name::intern("name"));
+        assert_eq!(*field_receiver, SchemeType::Parameter(*receiver));
+        assert_eq!(*field_result, SchemeType::Parameter(*result));
     }
 
     #[test]
@@ -1927,11 +1899,12 @@ mod tests {
             let output = session.check(root, source, CheckOptions::default());
             assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
             assert_no_inference_in_output(&output);
-            assert_call_type_arguments(&output, if index == 0 {
-                &[Type::Int, Type::Str, Type::Bool, Type::Str]
+            let expected = if index == 0 {
+                vec![Type::Int, Type::Str, Type::Bool, Type::Str, projection_record(Type::Str, "version", Type::Int)]
             } else {
-                &[Type::Str, Type::Int]
-            });
+                vec![Type::Str, Type::Int]
+            };
+            assert_call_type_arguments(&output, &expected);
             let scheme = exported_scheme(
                 &checked_module_facts(&session, workspace.module_source),
                 "identity",
@@ -2010,8 +1983,8 @@ mod tests {
             check_root(1);
         assert_eq!(root_a_identity.as_ref(), root_b_identity.as_ref());
         assert_eq!(root_a_projection.as_ref(), root_b_projection.as_ref());
-        assert_call_type_arguments(&root_a_only, &[Type::Str, Type::Str]);
-        assert_call_type_arguments(&root_b_only, &[Type::Int, Type::Int]);
+        assert_call_type_arguments(&root_a_only, &[Type::Str, Type::Str, projection_record(Type::Str, "version", Type::Str)]);
+        assert_call_type_arguments(&root_b_only, &[Type::Int, Type::Int, projection_record(Type::Int, "enabled", Type::Bool)]);
         drop(root_a_only_session);
         drop(root_b_only_session);
 
@@ -2034,8 +2007,8 @@ mod tests {
         let projection_after_b = exported_scheme(&facts_after_b, "name_of");
         assert!(Arc::ptr_eq(&identity_after_a, &identity_after_b));
         assert!(Arc::ptr_eq(&projection_after_a, &projection_after_b));
-        assert_call_type_arguments(&output_a, &[Type::Str, Type::Str]);
-        assert_call_type_arguments(&output_b, &[Type::Int, Type::Int]);
+        assert_call_type_arguments(&output_a, &[Type::Str, Type::Str, projection_record(Type::Str, "version", Type::Str)]);
+        assert_call_type_arguments(&output_b, &[Type::Int, Type::Int, projection_record(Type::Int, "enabled", Type::Bool)]);
 
         let session_ba = CheckSession::new(
             Arc::clone(&workspace.program),
@@ -2058,17 +2031,21 @@ mod tests {
             &projection_after_b,
             &exported_scheme(&facts_after_a, "name_of"),
         ));
-        assert_call_type_arguments(&output_b, &[Type::Int, Type::Int]);
-        assert_call_type_arguments(&output_a, &[Type::Str, Type::Str]);
+        assert_call_type_arguments(&output_b, &[Type::Int, Type::Int, projection_record(Type::Int, "enabled", Type::Bool)]);
+        assert_call_type_arguments(&output_a, &[Type::Str, Type::Str, projection_record(Type::Str, "version", Type::Str)]);
 
         let (joint_session, joint, joint_identity, joint_projection) = check_root(2);
         assert_eq!(joint_identity.as_ref(), root_a_identity.as_ref());
         assert_eq!(joint_projection.as_ref(), root_a_projection.as_ref());
         assert_call_type_arguments(
             &joint,
-            &[Type::Int, Type::Int, Type::Str, Type::Str],
+            &[Type::Int, Type::Int, Type::Str, Type::Str, projection_record(Type::Int, "enabled", Type::Bool), projection_record(Type::Str, "version", Type::Str)],
         );
         drop(joint_session);
+    }
+
+    fn projection_record(name: Type, extra_name: &str, extra: Type) -> Type {
+        Type::Record(std::collections::BTreeMap::from([(crate::symbol::Name::intern("name"), name), (crate::symbol::Name::intern(extra_name), extra)]).into())
     }
 
     fn assert_call_type_arguments(output: &CheckOutput, expected: &[Type]) {
@@ -2388,8 +2365,8 @@ mod tests {
             Some(crate::sema::schemes::SchemeType::Parameter(_))
         ));
         let name_scheme = name_of.scheme.as_ref().expect("name projection scheme");
-        assert_eq!(name_scheme.type_parameters().len(), 1);
-        assert_eq!(name_scheme.row_parameters().len(), 1);
+        assert_eq!(name_scheme.type_parameters().len(), 2);
+        assert!(name_scheme.row_parameters().is_empty());
         let name_body_type = name_of
             .scheme_body_facts
             .as_ref()

@@ -3314,9 +3314,9 @@ mod reveal_type_tests {
             assert_eq!(diagnostic.code, Some(DiagnosticCode::CheckRevealType));
             let start = source.rfind("projected").unwrap();
             assert_eq!(diagnostic.labels[0].span, crate::source::Span::new(SourceId::new(0), start, start + "projected".len()));
-            assert!(diagnostic.message.contains("forall T0, R0"), "{}", diagnostic.message);
-            assert!(diagnostic.message.contains("payload: T0"), "{}", diagnostic.message);
-            assert!(diagnostic.message.contains("-> T0"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("forall T0, T1"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("pure(row: T0) -> T1"), "{}", diagnostic.message);
+            assert!(diagnostic.message.contains("field(T0, payload) -> T1"), "{}", diagnostic.message);
             messages.push(diagnostic.message.clone());
         }
         assert_eq!(messages[0], messages[1]);
