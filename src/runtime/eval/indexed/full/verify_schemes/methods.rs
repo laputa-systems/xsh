@@ -383,6 +383,18 @@ fn type_may_match(actual: &Type, declared: &Type) -> bool {
     }
 }
 
+pub(super) fn may_validate_map_key(requirement: &MethodFamilyRequirement<SchemeType>, slot: u32, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    for (_, domain, _, method) in crate::modules::api_spec().method_requirement_members(requirement.kind) {
+        budget.charge(1 + method.sig.params.len() + requirement.arguments.len())?;
+        if domain == crate::modules::MethodReceiver::Map
+            && receiver_may_match(domain, &requirement.receiver)
+            && argument_layout_may_match(&method.sig.params, &requirement.argument_slots, &requirement.arguments)
+            && method.sig.params.get(slot as usize).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key))
+        { return Ok(true); }
+    }
+    Ok(false)
+}
+
 fn receiver_may_match(receiver: crate::modules::MethodReceiver, ty: &SchemeType) -> bool {
     use crate::modules::MethodReceiver as R;
     match ty {

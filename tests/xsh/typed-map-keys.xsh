@@ -359,14 +359,16 @@ proc main() [io, error] {
 
 test test_retained_get_preserves_signed_map_and_list_keys { |ctx|
   let output = test.run_script(ctx, r"""pure keyed(values, key: Int) { let _ = values.get(key); "kept" }
+pure grown(items, extra) { items.push(extra).len() }
 proc main() [io, error] {
   let signed: Map[Int, Str] = {[-1]: "negative"}
   print keyed(signed, -1)
   print keyed(["one"], -1)
+  print grown([1, 2], 3)
 }
 """)?
   assert output.success, output.stderr
-  assert output.stdout == "kept\nkept\n", output.stdout
+  assert output.stdout == "kept\nkept\n3\n", output.stdout
 }
 
 test test_retained_get_captures_key_validation_locally { |ctx|

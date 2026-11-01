@@ -3186,9 +3186,7 @@ fn verify_body_expression(
                 let encoded = *bounded(scheme_scope.methods, &store.scheme_methods, "scheme method range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body method ordinal is out of scope"))?;
                 let requirement = methods::decode(store, scheme_scope, encoded, &applications::ApplicationSubstitution::Identity, budget)?;
                 for (key, &slot) in requirement.arguments.iter().zip(&requirement.argument_slots) {
-                    let is_map_key = crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, domain, _, method)| {
-                        domain == crate::modules::MethodReceiver::Map && method.sig.params.get(slot as usize).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key))
-                    });
+                    let is_map_key = methods::may_validate_map_key(&requirement, slot, budget)?;
                     let argument = *argument_instructions.get(slot as usize).ok_or_else(|| IrVerifyError::new("generic method key slot is invalid"))?;
                     if !is_map_key || !operations::may_require_uint_key_validation(&requirement.receiver, key) {
                         if matches!(decoder.expression_view(argument)?, schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_), .. }) { return Err(IrVerifyError::new("generic method validation has another argument contract")); }
