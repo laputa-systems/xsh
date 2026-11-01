@@ -2079,7 +2079,7 @@ fn body_type_matches(actual: &SchemeType, expected: &SchemeType, budget: &mut Sc
     if let SchemeType::Optional(inner) = expected {
         budget.charge(1)?;
         if actual == &SchemeType::Ground(Type::Null) { return Ok(true); }
-        if !matches!(actual, SchemeType::Optional(_)) { return body_type_matches(actual, inner, budget); }
+        if !matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_))) { return body_type_matches(actual, inner, budget); }
     }
     if actual == expected { return Ok(true); }
     match (actual.closed_ground_type(), expected.closed_ground_type()) {

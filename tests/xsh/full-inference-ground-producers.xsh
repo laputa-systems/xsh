@@ -134,3 +134,16 @@ assert render(true, "{") is Err(_)
   assert ! rejected.success, rejected.stdout
   assert "[check.dynamic-boundary]" in rejected.stderr, rejected.stderr
 }
+
+test test_forwarded_nullable_field_keeps_its_physical_type { |ctx|
+  let output = test.expect(ctx, r"""pure project(row) -> Str { if let text = row.text { text } else { "missing" } }
+pure build(marker, value: Str?) -> Str { let _ = marker; project({bytes: b"a", text: value}) }
+assert build(7, "ok") == "ok"
+assert build(false, null) == "missing"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+  test.expect(ctx, r"""pure project(row) -> Str { if let text = row.text { text } else { "missing" } }
+pure build(marker, value: Int?) -> Str { let _ = marker; project({bytes: b"a", text: value}) }
+let _ = build(7, 1)
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+}

@@ -7360,6 +7360,28 @@ pure check_domains() -> Bool {
     }
 
     #[test]
+    fn forwarded_nullable_field_rejects_forged_operation_results() {
+        let program = prepare(r#"
+pure project(row, wrong: Bool) -> Str { let _ = wrong; if let text = row.text { text } else { "missing" } }
+pure build(marker, value: Str?) -> Str { let _ = marker; project({bytes: b"a", text: value}, false) }
+let _ = build(7, "ok")
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "project").unwrap();
+        let super::super::super::FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("project retains its field scheme") };
+        let operation = program.store.scheme(scheme).unwrap().operations.start as usize;
+        let super::super::super::schemes::FullSealedOperation::Field { result, .. } = program.store.scheme_operations[operation] else { panic!("project retains its field operation") };
+        let result = program.store.scheme_types[result.index()];
+        assert_eq!(result.tag, FullSchemeTypeTag::Optional);
+        let parameters = program.store.scheme(scheme).unwrap().params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_params[parameters.start + 1].ty;
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.scheme_types[result.first as usize] = program.store.scheme_types[wrong.index()];
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(!error.message.contains("unowned rows"), "{error:?}");
+    }
+
+    #[test]
     fn sealed_field_operation_sites_authenticate_receiver_name_and_result() {
         let program = prepare("pure project(value, other) { let _ = other; value.message }\n");
         let (owner, scheme_id) = generic_owner(&program);
