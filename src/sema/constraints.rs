@@ -2236,6 +2236,33 @@ impl TypeConstraints {
         self.constrain_checked_call_argument_with_storage_bounds(instance, expected, actual, &[], contribution)
     }
 
+    fn projected_fallback_argument_type(
+        &self, instance: &InstantiatedScheme, expected: &Type, actual: &Type,
+    ) -> Result<Option<Type>, ConstraintResolutionError> {
+        if actual.contains_inference() || actual.contains_any() || actual.contains_recovery() { return Ok(None); }
+        let Type::Record(fields) = actual else { return Ok(None); };
+        let expected = self.resolve(expected)?;
+        let Type::Inference(id) = expected else { return Ok(None); };
+        if !instance.type_arguments.values().any(|ty| *ty == expected)
+            || !matches!(self.variables.get(&id), Some(Variable::Representative(variable)) if variable.rank == 0 && variable.binding.is_none())
+        { return Ok(None); }
+        let mut replacements = BTreeMap::new();
+        for id in &instance.operations {
+            let operation = &self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?.operation;
+            let super::sealed_operation::SealedOperation::Field { receiver, name, result, .. } = operation else { continue; };
+            if self.resolve(receiver)? != expected { continue; }
+            let Some(actual_field) = fields.get(name) else { continue; };
+            let Some(optional) = self.optional_wrapper_call_argument_type(instance, result, actual_field)? else { continue; };
+            if optional.contains_inference() || !actual_field.matches_expected(&optional) { continue; }
+            if replacements.insert(*name, optional.clone()).is_some_and(|previous| previous != optional) { return Ok(None); }
+        }
+        if replacements.is_empty() { return Ok(None); }
+        let mut logical = fields.as_ref().clone();
+        logical.extend(replacements);
+        let logical = Type::Record(Arc::new(logical));
+        Ok(actual.matches_expected(&logical).then_some(logical))
+    }
+
     pub(crate) fn constrain_checked_call_argument_with_storage_bounds(
         &mut self,
         instance: &InstantiatedScheme,
@@ -2249,6 +2276,13 @@ impl TypeConstraints {
             established: None, contribution, resolution_error: Some(error),
         };
         let actual = self.resolve(actual).map_err(conflict)?;
+        if let Some(logical) = self.projected_fallback_argument_type(instance, expected, &actual).map_err(conflict)? {
+            return self.commit_constraint_transaction(|constraints| {
+                constraints.constrain(expected, &logical, contribution)?;
+                let expected = constraints.resolve(expected).map_err(conflict)?;
+                if actual.matches_expected(&expected) { Ok(()) } else { constraints.constrain(&expected, &actual, contribution) }
+            });
+        }
         if let Some(optional) = self.optional_wrapper_call_argument_type(instance, expected, &actual).map_err(conflict)? {
             return self.commit_constraint_transaction(|constraints| {
                 constraints.constrain(expected, &optional, contribution)?;

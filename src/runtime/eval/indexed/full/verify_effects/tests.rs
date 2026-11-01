@@ -4373,3 +4373,32 @@ fn deferred_fallback_call_rejects_forged_argument() {
         assert!(FullVerifier::verify(&forged).is_err());
     });
 }
+
+#[test]
+fn guarded_projected_fallback_rejects_forged_field() {
+    on_large_stack(|| {
+        let source = "type Settings = {write_out: Str?, enabled: Bool}\npure make(value, enabled: Bool) { {write_out: value, enabled: enabled} }\npure finish(settings) { if settings.enabled { settings.write_out ?? \"\" } else { \"disabled\" } }\npure present_length(settings) { settings.write_out.byte_len() }\npure caller(settings: Settings) -> Str { if settings.write_out != null { if present_length(settings) == settings.write_out.byte_len() { finish(settings) } else { \"bad\" } } else { \"empty\" } }\nlet settings = make(\"yes\", true)\nassert caller(settings).byte_len() == 3\n";
+        let annotated = source.replacen("pure finish(settings)", "pure finish(settings: Settings)", 1);
+        for (label, source) in [("inferred", source), ("annotated", annotated.as_str())] {
+            let mut program = fixture(source);
+            let _symbols = program.symbol_owner().enter();
+            program.store.in_place.take();
+            FullVerifier::verify(&program).unwrap();
+            execute_both(&program);
+            let owner = function(&program, "make");
+            let decoder = function_view_decoder(&program.store, owner);
+            let record = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRecord).unwrap();
+            let schema::ExprView::Record(entries) = decoder.expression_view(record).unwrap() else { unreachable!() };
+            let value = entries.into_iter().find_map(|entry| match entry.unwrap() {
+                decode::RecordEntryView::Field(name, value) if name == Name::intern("write_out") => Some(value.raw() as usize),
+                _ => None,
+            }).unwrap();
+            assert!(matches!(decoder.expression_view(value).unwrap(), schema::ExprView::Param(slot) if slot != 1));
+            let mut forged = program.clone();
+            forged.store.in_place.take();
+            forged.store.extra[program.store.data[value].range().start as usize] = 1;
+            assert!(matches!(function_view_decoder(&forged.store, owner).expression_view(value).unwrap(), schema::ExprView::Param(1)));
+            FullVerifier::verify(&forged).expect_err(label);
+        }
+    });
+}
