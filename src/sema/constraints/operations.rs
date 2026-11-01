@@ -153,6 +153,26 @@ mod tests {
     }
 
     #[test]
+    fn indexed_iteration_evidence_keeps_its_operation_owner() {
+        use crate::sema::schemes::{IterationPolicy, IterationRequirement, IterationSourceKind};
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let receiver = constraints.fresh(span);
+        let item = constraints.fresh(span);
+        constraints.require_iteration(&receiver, &IterationRequirement { item: item.clone(), policy: IterationPolicy::IterableInfallible, source_kind: IterationSourceKind::Direct }, span).unwrap();
+        let outer = super::super::CallableApplicationScope::Invocation;
+        let source = constraints.fresh(span);
+        let view = constraints.fresh(span);
+        let guard = constraints.register_non_null_guard(outer, source, view, span, span).unwrap();
+        let guard = super::super::CallableApplicationScope::Guard(guard);
+        constraints.register_sealed_operation(guard, SealedOperation::Index { receiver, key: Type::Int, result: Type::Bytes, syntax: crate::sema::sealed_operation::IndexSyntax::Ordinary, constant_key: None, span }).unwrap();
+        let Type::Inference(item) = item else { unreachable!() };
+        let evidence = constraints.indexed_iteration_evidence().unwrap();
+        assert!(evidence.contains_key(&(guard, item)));
+        assert!(!evidence.contains_key(&(outer, item)));
+    }
+
+    #[test]
     fn linked_slices_respect_their_owning_guard() {
         let span = Span::at(crate::source::SourceId::new(0), 0);
         let mut constraints = TypeConstraints::default();
@@ -459,6 +479,17 @@ impl SealedOperations {
 }
 
 impl TypeConstraints {
+    pub(crate) fn indexed_iteration_evidence(&self) -> Result<BTreeMap<(super::CallableApplicationScope, super::TypeVariableId), Vec<(Type, Type, Type, Span)>>, ConstraintResolutionError> {
+        let mut evidence = BTreeMap::<_, Vec<_>>::new();
+        for entry in self.operations.entries.values() {
+            let SealedOperation::Index { receiver, key, result, span, .. } = &entry.operation else { continue; };
+            let Type::Inference(source) = self.resolve(receiver)? else { continue; };
+            let Some(iteration) = self.iteration_requirement(source)? else { continue; };
+            let Type::Inference(item) = self.resolve(&iteration.item)? else { continue; };
+            evidence.entry((entry.owner, item)).or_default().push((receiver.clone(), key.clone(), result.clone(), *span));
+        }
+        Ok(evidence)
+    }
     pub(crate) fn linked_slices(&self, owner: super::CallableApplicationScope, receiver: &Type) -> Result<Vec<(Type, Type, Span)>, ConstraintResolutionError> {
         let Type::Inference(variable) = self.resolve(receiver)? else { return Ok(Vec::new()); };
         let root = self.representative_root(variable)?;

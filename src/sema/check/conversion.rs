@@ -131,16 +131,39 @@ impl Checker {
         if let Err(error) = self.type_constraints.solve_callable_applications() {
             self.error(body, &format!("conversion constraints failed: {error}"), DiagnosticCode::CheckLocalInference);
         }
+        let indexed_iterations = match self.type_constraints.indexed_iteration_evidence() {
+            Ok(evidence) => evidence,
+            Err(error) => { self.reject_host_inference_resolution(error, body); return; }
+        };
         for conversion in &pending {
             assert_eq!(conversion.owner, self.stream_origin_owner);
             let from = match self.type_constraints.resolve(&conversion.from) {
                 Ok(from) => from,
                 Err(error) => { self.reject_host_inference_resolution(error, conversion.span); continue; }
             };
-            if !matches!(from, Type::Inference(_)) || conversion.to.int_range().is_some() { continue; }
+            let Type::Inference(item) = from else { continue; };
+            if conversion.to.int_range().is_some() { continue; }
             let mut sources = Conversion::TABLE.iter().filter(|(_, target, _)| target == &conversion.to).map(|(source, _, _)| source);
             if let Some(source) = sources.next() && sources.next().is_none() {
-                if let Err(conflict) = self.type_constraints.constrain(&from, source, conversion.span) {
+                if let Err(conflict) = self.type_constraints.constrain(&Type::Inference(item), source, conversion.span) {
+                    self.report_inferred_type_conflict(conflict);
+                }
+            }
+            let Some(owner) = conversion.owner else { continue; };
+            let scope = self.constraint_scope_at(owner, conversion.span);
+            for (receiver, key, result, span) in indexed_iterations.get(&(scope, item)).into_iter().flatten() {
+                let key = match self.type_constraints.resolve(key) {
+                    Ok(key) => key,
+                    Err(error) => { self.reject_host_inference_resolution(error, *span); continue; }
+                };
+                let result = match self.type_constraints.resolve(result) {
+                    Ok(result) => result,
+                    Err(error) => { self.reject_host_inference_resolution(error, *span); continue; }
+                };
+                if key.contains_inference() || key.contains_any() || key.contains_recovery() || !key.matches_expected(&Type::Int)
+                    || result.contains_inference() || result.contains_any() || result.contains_recovery()
+                    || Conversion::select(result.unvalidated(), &conversion.to).is_none() { continue; }
+                if let Err(conflict) = self.type_constraints.constrain(receiver, &Type::List(Box::new(result)), *span) {
                     self.report_inferred_type_conflict(conflict);
                 }
             }
