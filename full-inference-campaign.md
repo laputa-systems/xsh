@@ -3,12 +3,13 @@
 **Status:** active correctness work. Full inference qualification remains open.
 All performance work and readiness checks are deferred.
 
-The latest product slice is `f25382afc`: inferred callables authenticate
-immutable computed captures through the existing producer proof.
-`core/cpio.xsh` now infers `hex_text.value`. Its focused acceptance passes
-163 pinned Linux native cases and 18 Rust controls with prepared incremental
-verification products. Normal optimized verification replay remains a milestone
-check, rather than an edit-loop prerequisite.
+The latest product is `f5f23168c`: one producer obligation per conditional
+Result argument. `core/cpio.xsh` infers `hex_text.value`; `core/chroot.xsh`
+infers `set_identity.opts`. Normal optimized verification products pass 188
+selected pinned Linux native cases. The 54 focused Rust controls also pass.
+Wider verification-profile lowering checks pass 1592 of 1598 cases. All six
+failures also reproduce on `f29b246f9` and are active work below. The debug-only
+type-agreement check was not run.
 
 The [completion contract and evidence](docs/PERFORMANCE-INFERENCE.md) owns the
 lasting requirements, capability matrix, corpus accounting, and deferred
@@ -20,23 +21,11 @@ invariants. Earlier implementation history stays in Git.
 
 | Item | Current evidence | Close when |
 |---|---|---|
-| Conditional Result arguments | Erasing `core/chroot.xsh` `set_identity.opts` fails with `generic argument request is duplicated`. The reduced caller below reproduces it. | Register one producer obligation per argument without losing its derived type or weakening duplicate/mismatched-evidence rejection. Execute the regression and real chroot callers. |
-| Remaining `nc` verifier paths | Erasing `lookup.opts` fails with `generic call argument does not match its checked parameter slot`. Erasing `connect_bounded.target` fails with `ground record producer has no record contract`. | Infer, lower, and execute the affected relationships, with forged-IR controls and the command's behavior checks. `bind_listener.port` already checks erased on the current compiler. |
+| Pure error boundaries | Wider lowering checks expose four stream-error capture failures. `enforce_pure_error_boundary` clears propagation for all pure non-Result returns, including upstream stream errors. Two UInt controls expect caller-side capture that conflicts with the current checked-key rule. | Preserve the SPEC's checked-key boundary while allowing stream failures to reach caller capture; reconcile the two stale controls without weakening the checked-key contract. Existing regressions include `typed_pure_pipeline_collector_preserves_observed_stream_failure` and `generic_index_operation_errors_forward_into_capture`. |
+| Remaining `nc` verifier paths | Erasing `lookup.opts` loses a guarded optional field's narrowed argument type. Erasing `connect_bounded.target` loses a record producer contract across conditional `linux.connect` calls. | Infer, lower, and execute both reduced relationships and real callers, with forged-IR controls and command behavior checks. `bind_listener.port` already checks erased on the current compiler. |
 | Capability coverage | The evidence matrix still lists generated metamorphic programs and an independent test-only solver comparison as unfinished. | Add generated equivalence and independent solver comparisons, including failure-specific mutation controls. Recheck other recorded limits against current source. |
 | Corpus closure | The last frozen Laputa replay on `f29b246f9` passes 56/57 parameter erasures alone and the 56-site joint. The private applied view is 38 sites. Broader residual classifications are older snapshots. | Refresh current residual classes, justify retained contracts, and compare joint frozen and practical views with behavior witnesses for changed call paths. |
 | Integrated acceptance | Focused slices pass. They do not establish complete current-source campaign qualification. | Complete the required matrix and corpus evidence, then run the current verification owners on the integrated source and remove superseded inference machinery. |
-
-The current chroot reduction is:
-
-```xsh
-type Options = {groups: Str?}
-proc set_identity(opts, outer_groups: Result[List[Int]]) [error] {}
-proc main() [error] {
-  let opts: Options = {groups: null}
-  let outer_groups = if opts.groups != null { Ok([1]) } else { Ok([]) }
-  set_identity(opts, outer_groups)
-}
-```
 
 ## Constraints
 
