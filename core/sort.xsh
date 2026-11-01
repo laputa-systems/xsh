@@ -635,7 +635,7 @@ pure sort_direction_bytes(input: Bytes, reverse: Bool) -> Str {
   for index in range(input.len()) {
     let byte = input.byte_at(index) ?? 0
     let ordered = if reverse { 255 - byte } else { byte + 1 }
-    key += padded_decimal(ordered, 3)
+    key += f"{ordered:03}"
   }
   key + (if reverse { "256" } else { "000" })
 }
@@ -656,7 +656,7 @@ pure character_order_sort_key(input: Bytes, dictionary: Bool, ignore_nonprinting
     if in_dictionary and in_printable {
       let folded = if fold_case and byte >= 97 and byte <= 122 { byte - 32 } else { byte }
       let ordered = if reverse { 255 - folded } else { folded + 1 }
-      key += padded_decimal(ordered, 3)
+      key += f"{ordered:03}"
     }
   }
   key + (if reverse { "256" } else { "000" })
