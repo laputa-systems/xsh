@@ -3235,6 +3235,7 @@ fn verify_body_expression(
                     if plan.name.as_ref() != name || plan.receiver.is_none() { return Err(IrVerifyError::new("generic host method identity disagrees with its plan")); }
                     let references = arguments.iter().map(Option::as_ref).collect::<Vec<_>>();
                     if crate::sema::builtin_templates::registered_record_get(plan) {
+                        budget.charge_clone(&plan.signature.return_ty)?;
                         let unrefined = SchemeType::Ground(plan.signature.return_ty.clone());
                         if !crate::sema::builtin_templates::verify_registered_call(plan, Some(&receiver_ty), &references, &unrefined, &|_| false) { return Err(IrVerifyError::new("generic record get disagrees with its selected registry signature")); }
                         if !body_types_equal(ty, &unrefined) {
@@ -3242,15 +3243,16 @@ fn verify_body_expression(
                             let field = slots.record_get_key(scopes, decoder, argument, budget)?.ok_or_else(|| IrVerifyError::new("generic record get has no constant key producer"))?;
                             let field = Name::intern(&field);
                             let selected = match &receiver_ty {
-                                SchemeType::Record { fields, .. } => fields.get(&field).cloned(),
-                                SchemeType::Ground(Type::Record(fields)) => fields.get(&field).cloned().map(SchemeType::Ground),
+                                SchemeType::Record { fields, .. } => fields.get(&field).map(|ty| body::BodyTypeRef::Scheme(ty).materialize(budget)).transpose()?,
+                                SchemeType::Ground(Type::Record(fields)) => fields.get(&field).map(|ty| body::BodyTypeRef::Ground(ty).materialize(budget)).transpose()?,
                                 SchemeType::Ground(Type::Module(module)) => module.get(&field).and_then(|export| match export {
-                                    crate::sema::types::ModuleExportType::GenericCallable { kind, optional: false } => Some(Type::Function(*kind)),
-                                    export => export.field_value_type(),
-                                }).map(SchemeType::Ground),
+                                    crate::sema::types::ModuleExportType::Value { ty, .. } => Some(body::BodyTypeRef::Ground(ty).materialize(budget)),
+                                    crate::sema::types::ModuleExportType::Callable { kind, .. }
+                                    | crate::sema::types::ModuleExportType::GenericCallable { kind, optional: false } => Some(budget.charge(1).map(|()| SchemeType::Ground(Type::Function(*kind)))),
+                                    _ => None,
+                                }).transpose()?,
                                 _ => None,
                             }.ok_or_else(|| IrVerifyError::new("generic record get has no selected field contract"))?;
-                            budget.charge_scheme_clone(&selected)?;
                             let expected = SchemeType::Result(Box::new(selected), Box::new(SchemeType::Ground(Type::Error)));
                             if !body_types_equal(ty, &expected) { return Err(IrVerifyError::new("generic record get disagrees with its selected field")); }
                         }
