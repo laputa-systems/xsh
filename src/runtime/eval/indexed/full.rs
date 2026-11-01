@@ -8855,6 +8855,14 @@ impl<'a> FullDecoder<'a> {
         for instruction in self.instruction_range.clone() {
             charge(1)?;
             match self.store.tags[instruction] {
+                FullTag::StmtFor | FullTag::StmtForStrLines => {
+                    let (schema::StmtView::For { slot: bound, .. } | schema::StmtView::ForStrLines { slot: bound, .. }) = self.statement_view(instruction)? else { continue };
+                    if bound == slot { return Ok(true); }
+                }
+                FullTag::StmtForRecord => {
+                    let schema::StmtView::ForRecord { target, .. } = self.statement_view(instruction)? else { continue };
+                    if comprehension_target_binds(&target.materialize()?, slot) { return Ok(true); }
+                }
                 FullTag::ExprPatternIf => {
                     let schema::ExprView::PatternIf { branches, .. } = self.expression_view(instruction)? else { continue };
                     for branch in branches {
@@ -8894,6 +8902,15 @@ impl<'a> FullDecoder<'a> {
                         if let decode::CompQualifierView::For { target, .. } = qualifier? {
                             if comprehension_target_binds(&target.materialize()?, slot) { return Ok(true); }
                         }
+                    }
+                }
+                FullTag::ExprPipeline => {
+                    let schema::ExprView::ListPipeline { stages, .. } = self.expression_view(instruction)? else { continue };
+                    for stage in stages {
+                        charge(1)?;
+                        let slots = Self::pipeline_stage_slots(&stage?);
+                        charge(slots.len())?;
+                        if slots.iter().any(|(bound, _)| *bound == slot) { return Ok(true); }
                     }
                 }
                 _ => {}

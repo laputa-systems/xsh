@@ -52,3 +52,16 @@ print $selected({srcaddr: null, numeric: true})
   assert output.success, output.stderr
   assert output.stdout == "off\nabsent\n"
 }
+
+test test_pipeline_callback_projections_authenticate_generic_arguments { |ctx|
+  let output = test.run_xsh(ctx, r"""type File = {raw: Bytes}
+pure width(raw) -> Int { raw.len() }
+pure ordered(files: List[File]) -> List[File] {
+  files |> sort-by { |file| width(file.raw) }
+}
+let files: List[File] = [{raw: b"wide"}, {raw: b"a"}, {raw: b"mid"}]
+for file in ordered(files) { print width(file.raw) }
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n3\n4\n", output.stdout
+}

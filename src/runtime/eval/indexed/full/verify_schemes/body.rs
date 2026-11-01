@@ -3748,6 +3748,36 @@ test namespace_borrow {
     }
 
     #[test]
+    fn pipeline_bound_generic_argument_producers_cannot_escape_the_stage() {
+        let mut program = prepare(r#"type File = {raw: Bytes}
+pure width(raw) -> Int { raw.len() }
+pure ordered(files: List[File], other: File) -> List[File] {
+  let sorted = files |> sort-by { |file| width(file.raw) }
+  let _ = width(other.raw)
+  sorted
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "ordered").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let pipeline = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::ListPipeline { .. }))).unwrap();
+        let schema::ExprView::ListPipeline { mut stages, .. } = decoder.expression_view(pipeline).unwrap() else { unreachable!() };
+        let stage = stages.next().unwrap().unwrap();
+        let slot = FullDecoder::pipeline_stage_slots(&stage)[0].0;
+        assert_ne!(slot, 1);
+        let inside = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(bound)) if bound == slot)).unwrap();
+        let outside = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        assert_eq!(decoder.checked_expression_type(inside).unwrap().unwrap(), decoder.checked_expression_type(outside).unwrap().unwrap());
+        let payload = program.store.data[outside].range().bounds(program.store.extra.len()).unwrap();
+        let mut escaped = program;
+        escaped.store.extra[payload.start] = slot as u32;
+        escaped.store.in_place.take();
+        assert!(FullVerifier::verify(&escaped).is_err());
+    }
+
+    #[test]
     fn generic_optional_local_authenticates_its_assignment_relationship() {
         let mut program = prepare("pure selected(value) -> Str { if let item = value { let stored: Str? = item; stored ?? \"none\" } else { \"absent\" } }");
         program.store.in_place.take();
