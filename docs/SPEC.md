@@ -1249,6 +1249,9 @@ A resolved named variant pattern constrains an inferred subject to its declaring
 nominal enum. For an indexed subject, that enum constrains the indexed element
 through the existing indexing relationship; it does not select the container
 kind. A leading-dot pattern still requires an independently known enum domain.
+An unresolved match subject also takes the nominal error family named by its
+qualified variant patterns when all arms name that same family. Exhaustiveness
+still requires every variant, and a catch-all does not infer a family.
 `type Alias = Level` aliases the same nominal type.
 Diagnostics display an imported enum's declaration name, including inside
 container types. Declarations from different modules remain distinct nominal

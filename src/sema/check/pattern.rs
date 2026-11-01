@@ -32,6 +32,52 @@ impl Checker {
         }
     }
 
+    pub(super) fn constrain_error_match_subject(
+        &mut self,
+        arena: &ArenaProgram,
+        value: &Type,
+        patterns: impl Iterator<Item = PatternId>,
+        span: Span,
+    ) -> Type {
+        let resolved = self.resolve_pattern_subject_type(value, span);
+        if !matches!(resolved, Type::Inference(_)) {
+            return resolved;
+        }
+        let mut family = None;
+        let mut pending: Vec<_> = patterns.collect();
+        while let Some(pattern) = pending.pop() {
+            let (name, variant) = match arena.arena.pattern(pattern).kind {
+                ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
+                    pending.push(child);
+                    continue;
+                }
+                ArenaPatternKind::Alternation(items) => {
+                    pending.extend(arena.arena.pattern_ids(items));
+                    continue;
+                }
+                ArenaPatternKind::ErrorVariant { family, variant, .. } => (family, variant),
+                ArenaPatternKind::TestName { name, .. } => {
+                    let text = name.as_str();
+                    let Some((family, variant)) = text.rsplit_once('.') else { return resolved };
+                    (Name::intern(family), Name::intern(variant))
+                }
+                _ => return resolved,
+            };
+            if !self.error_families.get(&name).is_some_and(|info| info.variants.contains_key(&variant)) {
+                return resolved;
+            }
+            let name = self.canonical_error_family(name);
+            if family.is_some_and(|previous| previous != name) { return resolved; }
+            family = Some(name);
+        }
+        if let Some(family) = family {
+            self.expect_type(&Type::ErrorFamily(family), value, span);
+            self.resolve_pattern_subject_type(value, span)
+        } else {
+            resolved
+        }
+    }
+
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self,
         arena: &ArenaProgram,

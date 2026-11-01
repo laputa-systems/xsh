@@ -961,3 +961,26 @@ test test_module_checking_allocation_grows_linearly_with_module_count { |ctx|
   let large = diamond_check_allocation(ctx, 128)?
   assert large < small * 10, f"checking 8x the modules allocated {large} bytes against {small}"
 }
+
+test test_inferred_error_match_keeps_imported_family_identity { |ctx|
+  let family_source = "##! Test family.\n## Failure variants.\nexport error Failure = First | Second\n"
+  let source = """use one
+use two
+pure status(failure) -> Int {
+  match failure { one.Failure.First => 1, one.Failure.Second => 2 }
+}
+"""
+  let valid = check_with_modules(ctx, {
+    "one.xsh": family_source,
+    "two.xsh": family_source,
+    "main.xsh": source + "let result = status(one.Failure.First(\"right\"))\n",
+  })?
+  assert valid.status.exited_with(0), valid.stderr
+  let wrong = check_with_modules(ctx, {
+    "one.xsh": family_source,
+    "two.xsh": family_source,
+    "main.xsh": source + "let result = status(two.Failure.First(\"wrong\"))\n",
+  })?
+  assert wrong.status.exited_with(2), wrong.stderr
+  assert "check.type" in wrong.stderr, wrong.stderr
+}

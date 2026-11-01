@@ -483,3 +483,45 @@ if let _ = mode { print "any" }
   assert count(stderr, "err[check.irrefutable-pattern-condition]") == 2, stderr
   assert count(stderr, "err[") == 2, stderr
 }
+
+error InferredFailure = First | Second
+
+pure inferred_failure_status(failure) -> Int {
+  match failure {
+    InferredFailure.First => 1,
+    InferredFailure.Second => 2,
+  }
+}
+
+pure forwarded_failure_status(failure) -> Int {
+  inferred_failure_status(failure)
+}
+
+pure guarded_failure_status(failure) -> Int {
+  var status = 0
+  match failure {
+    InferredFailure.First if false => status = 9
+    InferredFailure.First => status = 1
+    InferredFailure.Second => status = 2
+  }
+  status
+}
+
+test test_qualified_error_patterns_infer_subject_family {
+  assert inferred_failure_status(InferredFailure.First("first")) == 1
+  assert inferred_failure_status(InferredFailure.Second("second")) == 2
+  assert forwarded_failure_status(InferredFailure.First("first")) == 1
+  assert guarded_failure_status(InferredFailure.Second("second")) == 2
+}
+
+test test_inferred_error_matches_preserve_exhaustiveness_and_family { |ctx|
+  let missing = check_errors(ctx, """error Failure = First | Second
+pure status(failure) -> Int { match failure { Failure.First => 1 } }
+""")?
+  assert "check.match-value-exhaustive" in missing, missing
+  let different = check_errors(ctx, """error Failure = First | Second
+error Other = First | Second
+pure status(failure) -> Int { match failure { Failure.First => 1, Other.Second => 2 } }
+""")?
+  assert "check.pattern-type" in different, different
+}

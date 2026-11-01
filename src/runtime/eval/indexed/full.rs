@@ -54111,6 +54111,72 @@ pure use_failure(result: Result[Count, Measure]) -> Int {
     }
 
     #[test]
+    fn inferred_error_match_rejects_forged_family_and_subject() {
+        run_with_large_stack(|| {
+            let mut program = fixture("inferred-error-match-proof.xsh", r#"error Failure = First | Second
+error Other = First | Second
+pure status(failure, marker) -> Int {
+  let _ = marker
+  match failure { Failure.First => 1, Failure.Second => 2 }
+}
+pure other(failure, marker) -> Int {
+  let _ = marker
+  match failure { Other.First => 1, Other.Second => 2 }
+}
+assert status(Failure.First("one"), "marker") == 1
+assert status(Failure.Second("two"), 7) == 2
+assert other(Other.First("one"), true) == 1
+"#);
+            program.store.in_place.take();
+            assert!(program.store.in_place.get().is_none());
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "status");
+            let other = scheme_fixture_root_function(&program, "other");
+            let match_parts = |owner| {
+                let decoder = function_view_decoder(&program.store, owner);
+                program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+                    let schema::ExprView::MatchExpr { value, mut arms, .. } = decoder.expression_view(instruction).ok()? else { return None };
+                    let (pattern, _, _) = arms.next()?.ok()?;
+                    Some((value.raw() as usize, pattern.raw() as usize))
+                }).unwrap()
+            };
+            let (subject, pattern) = match_parts(owner);
+            let (_, foreign_pattern) = match_parts(other);
+            let function = IrFunctionId::new(owner).unwrap();
+            let fact = program.store.scheme_body_facts.iter().find(|fact| fact.function == function
+                && fact.instruction as usize == subject && fact.kind() == schemes::FullSchemeBodyFactKind::Expression).unwrap();
+            let subject_type = program.store.scheme_types[fact.ty().unwrap().index()];
+            assert_eq!(subject_type.tag, FullSchemeTypeTag::Ground);
+            let decoder = function_view_decoder(&program.store, owner);
+            let schema::PatternView::ErrorTest { family, .. } = decoder.checked_pattern_view(pattern as u32).unwrap() else { panic!("the match retains its qualified error pattern") };
+            let subject_ty = program.store.semantic.to_type(TypeId::from_raw(subject_type.first).unwrap()).unwrap();
+            assert_eq!(subject_ty, Type::ErrorFamily(family));
+            let mut wrong_family = program.clone();
+            wrong_family.store.in_place.take();
+            let original = program.store.pattern_data[pattern].range().bounds(program.store.extra.len()).unwrap();
+            let foreign = program.store.pattern_data[foreign_pattern].range().bounds(program.store.extra.len()).unwrap();
+            wrong_family.store.extra[original.start] = program.store.extra[foreign.start];
+            let error = FullVerifier::verify(&wrong_family).expect_err("the inferred family must reject another family's pattern");
+            assert!(error.message.contains("pattern"), "{error:?}");
+            let mut wrong_subject = program.clone();
+            wrong_subject.store.in_place.take();
+            let payload = wrong_subject.store.data[subject].range().bounds(wrong_subject.store.extra.len()).unwrap();
+            wrong_subject.store.extra[payload.start] = 1;
+            let error = FullVerifier::verify(&wrong_subject).expect_err("the inferred family must reject a different subject");
+            assert_eq!(error.message, "generic body expression disagrees with its checked type");
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
     fn typed_callable_nominal_patterns_follow_actual_constructor_targets() {
         let source = r#"type Count = pure(text: Str) -> Int
 type Measure = pure(value: Str) -> Int

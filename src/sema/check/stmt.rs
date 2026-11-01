@@ -4485,6 +4485,9 @@ impl Checker {
     ) {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
+        let value_ty = self.constrain_error_match_subject(
+            arena, &value_ty, arm_list.iter().map(|arm| arm.pattern), arena.arena.expr(value).span,
+        );
         let initial_stream_state = self.stream_mutable_state();
         let mut stream_failure = initial_stream_state.clone();
         let mut stream_reaching = Vec::new();
@@ -7754,6 +7757,9 @@ impl Checker {
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
+        let value_ty = self.constrain_error_match_subject(
+            arena, &value_ty, arm_list.iter().map(|arm| arm.pattern), arena.arena.expr(value).span,
+        );
         let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
         let deferred_before = self.local_inference.deferred_optional_assignments;
         let mut inferred: Option<Type> = None;

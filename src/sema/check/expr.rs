@@ -3115,6 +3115,9 @@ impl Checker {
         let expected = expectation.map(super::types::TypeExpectation::context);
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_expr_arms(arms);
+        let value_ty = self.constrain_error_match_subject(
+            arena, &value_ty, arm_list.iter().map(|arm| arm.pattern), arena.arena.expr(value).span,
+        );
         if arm_list.is_empty() {
             self.error(
                 span,
