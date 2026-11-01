@@ -105,3 +105,24 @@ assert match defaulted("kept") { Err(Failure.Default {message}) => message == "F
   assert output.success, output.stderr
   assert output.stdout == "code\nmessage\n"
 }
+
+test test_generic_record_constructors_accept_parameters_stored_in_optional_fields { |ctx|
+  let output = test.run_xsh(ctx, r"""type Chunk = {text: Bytes, file: Str?, number: Int}
+pure annotated(name: Str) -> Chunk { Chunk(bytes.from_text(name), name, 0) }
+pure inferred(name) -> Chunk { Chunk(bytes.from_text(name), name, 0) }
+pure named_inferred(name, count: Int) -> Chunk { Chunk(text: b"", file: name, number: count) }
+pure forwarded(value) -> Chunk {
+  let name = value ?? ""
+  Chunk(bytes.from_text(name), name, 1)
+}
+assert inferred("a.sed") == annotated("a.sed")
+assert named_inferred("b", 2).file == "b"
+assert forwarded("c").file == "c"
+assert forwarded(null).file == ""
+""")?
+  assert output.success, output.stderr
+  test.expect(ctx, r"""type Chunk = {file: Str?}
+pure inferred(name) -> Chunk { Chunk(file: name) }
+let result = inferred(1)
+""", status: 2, stderr: ["[check.callable-mismatch]"])?
+}

@@ -3125,9 +3125,20 @@ fn verify_body_expression(
                     SchemeType::Ground(Type::Record(actual)) => actual.len() == fields.len(),
                     _ => false,
                 };
+                let fields_match = match (&actual, expected.unvalidated()) {
+                    (SchemeType::Record { fields: actual, .. }, Type::Record(expected)) => {
+                        let mut all = true;
+                        for (name, expected) in expected.iter() {
+                            let Some(actual) = actual.get(name) else { all = false; break };
+                            if !applications::known_argument_assignment_matches_ground(store, decoder.owner, scheme_scope, actual, expected, budget)? { all = false; break; }
+                        }
+                        all
+                    }
+                    _ => body_type_matches_ground(&actual, expected.unvalidated()),
+                };
                 if !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Record(_))
                     || !exact_fields
-                    || !body_type_matches_ground(&actual, expected.unvalidated())
+                    || !fields_match
                 { return Err(IrVerifyError::new("generic record constructor disagrees with its actual field producers")); }
                 SchemeType::Ground(expected)
             } else {
