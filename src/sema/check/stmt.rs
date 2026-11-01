@@ -3021,8 +3021,17 @@ impl Checker {
             let ty = match &narrowing.refinement {
                 super::proof::Refinement::Type(ty) => ty.clone(),
                 super::proof::Refinement::NonNull { source, subject, comparison } => {
-                    let view = self.fresh_wrapper_type(*subject);
-                    match self.type_constraints.register_non_null_guard(self.constraint_scope(), Type::Inference(*source), view.clone(), *subject, *comparison) {
+                    let owner = self.constraint_scope();
+                    let source = Type::Inference(*source);
+                    let existing = self.type_constraints.existing_non_null_guard(owner, &source, *subject, *comparison);
+                    let (guard, view) = match existing {
+                        Some((guard, view)) => (Ok(guard), view),
+                        None => {
+                            let view = self.fresh_wrapper_type(*subject);
+                            (self.type_constraints.register_non_null_guard(owner, source, view.clone(), *subject, *comparison), view)
+                        }
+                    };
+                    match guard {
                         Ok(guard) => {
                             field_view = true;
                             self.scopes.last_mut().expect("narrowing has a lexical scope").guard = Some(guard);

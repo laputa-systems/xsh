@@ -103,3 +103,31 @@ assert nested == retained(success, Err("opaque"))
 """, status: 0)?
   assert output.stderr == "", output.stderr
 }
+
+test test_nullable_comparisons_and_copied_record_updates_compose { |ctx|
+  let source = r"""type Options = {mode: Str, table: Bool, archive: Str?, input_archive: Str?}
+proc usage_failure(message: Str, code: Int) [process] -> Unit { exit code }
+proc validate(opts) [process] -> Options {
+  var checked = opts
+  if opts.mode == "" {
+    if opts.table { checked = {...checked, mode: "in"} } else { usage_failure("mode", 2) }
+  }
+  if checked.mode == "in" {
+    if checked.archive != null and checked.input_archive != null { usage_failure("both", 2) }
+    if checked.input_archive != null { checked = {...checked, archive: checked.input_archive} }
+  }
+  checked
+}
+let value = validate({mode: "in", table: false, archive: null, input_archive: "input"})
+assert value.archive == "input"
+let cold: Options = {mode: "in", table: false, archive: null, input_archive: null}
+assert validate(cold).archive == null
+"""
+  let output = test.expect(ctx, source, status: 0)?
+  assert output.stderr == "", output.stderr
+  for wrong in ["let _ = validate({mode: \"in\", table: false, archive: 7, input_archive: null})", "let _ = validate({mode: \"in\", table: false, archive: null})"] {
+    let rejected = test.run_xsh(ctx, source + wrong)?
+    assert ! rejected.success, rejected.stdout
+    assert "[check." in rejected.stderr, rejected.stderr
+  }
+}

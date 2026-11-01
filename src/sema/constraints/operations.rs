@@ -59,6 +59,33 @@ mod tests {
     }
 
     #[test]
+    fn store_value_waits_for_exact_replacement_and_rejects_incompatible_storage() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let mut constraints = TypeConstraints::default();
+            let replacement = constraints.fresh(span);
+            let storage = Type::Optional(Box::new(Type::Str));
+            let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::StoreValue {
+                storage: storage.clone(), replacement: replacement.clone(), span,
+            }).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&replacement).unwrap(), replacement);
+            assert_eq!(constraints.operations.entries[&id].selection, None);
+            let before = constraints.operations.clone();
+            let rejected = constraints.commit_constraint_transaction(|trial| {
+                trial.constrain(&replacement, &Type::Int, span).map_err(SealedOperationError::Constraint)?;
+                trial.solve_sealed_operations()
+            });
+            assert!(matches!(rejected, Err(SealedOperationError::StorageConstraint(_))));
+            assert_eq!(constraints.operations, before);
+            constraints.constrain(&replacement, &Type::Str, span).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::StoreValue));
+            assert_eq!(constraints.resolve(&replacement).unwrap(), Type::Str);
+        });
+    }
+
+    #[test]
     fn checked_unsigned_contexts_distinguish_arithmetic_results_from_operands() {
         let span = Span::at(crate::source::SourceId::new(0), 0);
         let mut constraints = TypeConstraints::default();
@@ -771,11 +798,6 @@ impl TypeConstraints {
                     SealedOperation::StoreValue { storage, replacement, span } => {
                         let storage = this.resolve_with_changes(&storage, 0, changes)?;
                         if matches!(storage.unvalidated(), Type::Inference(_)) { continue; }
-                        let replacement = this.resolve_with_changes(&replacement, 0, changes)?;
-                        this.constrain_operation_type(&storage, &replacement, span, changes).map_err(|error| match error {
-                            SealedOperationError::Constraint(conflict) => SealedOperationError::StorageConstraint(conflict),
-                            error => error,
-                        })?;
                         let replacement = this.resolve_with_changes(&replacement, 0, changes)?;
                         if storage.contains_inference() || replacement.contains_inference() { continue; }
                         if matches!(storage, Type::Unknown | Type::Invalid) || matches!(replacement, Type::Unknown | Type::Invalid) || (replacement == Type::Any && storage != Type::Any) || !replacement.matches_expected(&storage) {

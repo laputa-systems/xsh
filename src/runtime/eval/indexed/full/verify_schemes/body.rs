@@ -8418,6 +8418,64 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
     }
 
     #[test]
+    fn copied_record_guards_authenticate_scope_and_field_sources() {
+        let mut program = prepare(r#"
+type Options = {mode: Str, table: Bool, archive: Str?, input_archive: Str?}
+proc usage_failure(message: Str, code: Int) [process] -> Unit { exit code }
+proc validate(opts) [process] -> Options {
+  var checked = opts
+  if opts.mode == "" {
+    if opts.table { checked = {...checked, mode: "in"} } else { usage_failure("mode", 2) }
+  }
+  if checked.mode == "in" {
+    if checked.archive != null and checked.input_archive != null { usage_failure("both", 2) }
+    if checked.input_archive != null { checked = {...checked, archive: checked.input_archive} }
+  }
+  checked
+}
+let value = validate({mode: "in", table: false, archive: null, input_archive: "input"})
+assert value.archive == "input"
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "validate").unwrap();
+        let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("validate retains its generic contract") };
+        let range = program.store.scheme(scheme).unwrap().guards.bounds(program.store.scheme_guards.len()).unwrap();
+        let nested = range.clone().find(|&index| program.store.scheme_guards[index].parent != super::super::super::IR_NONE).unwrap();
+        let mut wrong_parent = program.clone();
+        wrong_parent.store.scheme_guards[nested].parent = super::super::super::IR_NONE;
+        assert!(FullVerifier::verify(&wrong_parent).is_err());
+        let other = range.clone().find(|&index| index != nested).unwrap();
+        let mut wrong_source = program.clone();
+        wrong_source.store.scheme_guards[nested].source_instruction = program.store.scheme_guards[other].source_instruction;
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let field = range.clone().rev().find_map(|index| {
+            let mut instruction = program.store.scheme_guards[index].source_instruction as usize;
+            for _ in program.store.function_instruction_range(owner).unwrap() {
+                match decoder.expression_view(instruction).ok()? {
+                    schema::ExprView::Field { name: "input_archive", .. } => return Some(instruction),
+                    schema::ExprView::Param(slot) => {
+                        instruction = program.store.function_instruction_range(owner).unwrap().find_map(|candidate| match decoder.statement_view(candidate) {
+                            Ok(schema::StmtView::Let { slot: declared, value, .. }) if declared == slot => Some(value.raw() as usize),
+                            _ => None,
+                        })?;
+                    }
+                    schema::ExprView::ValueBlock { mut body, .. } => instruction = decoder.checked_block_tail_expression(&mut body).ok()?,
+                    _ => return None,
+                }
+            }
+            None
+        }).unwrap();
+        let archive = program.store.strings.iter().enumerate().find(|(index, _)| program.store.string(*index as u32 + 1).unwrap() == "archive").unwrap().0 as u32 + 1;
+        let mut wrong_field = program.clone();
+        let words = wrong_field.store.data[field].range().bounds(wrong_field.store.extra.len()).unwrap();
+        wrong_field.store.extra[words.start + 1] = archive;
+        assert!(FullVerifier::verify(&wrong_field).is_err());
+    }
+
+    #[test]
     fn inferred_record_field_guard_rejects_a_different_field() {
         let program = prepare(r#"
 pure label(row) -> Str {

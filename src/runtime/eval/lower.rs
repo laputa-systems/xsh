@@ -5207,7 +5207,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             },
                         },
                     };
-                    if !matches!((&ty, &projected), (SchemeType::Parameter(view), SchemeType::Parameter(field)) if view != field)
+                    let guarded_payload = facts.guard_scopes().expressions.contains_key(&expression) && match &projected {
+                        SchemeType::Optional(payload) => ty == **payload,
+                        SchemeType::Ground(Type::Optional(payload)) => ty.closed_ground_type().as_ref() == Some(payload.as_ref()),
+                        _ => false,
+                    };
+                    if !guarded_payload
+                        && !matches!((&ty, &projected), (SchemeType::Parameter(view), SchemeType::Parameter(field)) if view != field)
                         && !matches!((&ty, &projected), (SchemeType::Ground(_), SchemeType::Parameter(_)))
                     {
                         ty = projected;

@@ -3395,6 +3395,8 @@ that also reads a field therefore requires a present record. A body that only
 forwards the parameter accepts compatible present values and nullable values,
 including `null`. Argument labels, defaults, schemas, effects, and validation
 of `Any` keep their ordinary contracts.
+A copied record may be updated from a field narrowed by a non-null guard;
+the update retains the field’s present type without widening stored containers.
 
 Returning an inferred value from a declared optional return type retains the
 same requirement. `pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }`

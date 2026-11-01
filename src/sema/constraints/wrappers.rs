@@ -236,6 +236,10 @@ impl TypeConstraints {
         })
     }
 
+    pub(crate) fn existing_non_null_guard(&self, owner: CallableApplicationScope, source: &Type, subject: Span, comparison: Span) -> Option<(WrapperOperationId, Type)> {
+        self.wrappers.guards.iter().find(|(_, guard)| guard.owner == owner && &guard.source == source && guard.subject == subject && guard.comparison == comparison).map(|(&id, guard)| (id, guard.view.clone()))
+    }
+
     pub(crate) fn register_non_null_guard(&mut self, owner: CallableApplicationScope, source: Type, view: Type, subject: Span, comparison: Span) -> Result<WrapperOperationId, ConstraintResolutionError> {
         let dependencies = self.application_type_dependencies([&source, &view].into_iter())?;
         let id = WrapperOperationId(NonZeroU64::new(NEXT_WRAPPER.fetch_add(1, Ordering::Relaxed)).expect("wrapper identities are nonzero"));
