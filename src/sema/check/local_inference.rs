@@ -17,6 +17,7 @@ pub(super) struct LocalInference {
     aggregate_scopes: Vec<AggregateSeedScope>,
     fixed_storage_checks: Vec<FixedStorageCheck>,
     pipeline_key_checks: Vec<PipelineKeyCheck>,
+    pub(super) conversions: Vec<super::conversion::PendingConversion>,
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
@@ -56,6 +57,7 @@ pub(super) struct LocalBodyConstraints {
     collecting: bool,
     fixed_storage_start: usize,
     pipeline_key_start: usize,
+    conversion_start: usize,
 }
 
 enum LocalInferenceFailure {
@@ -116,6 +118,7 @@ impl LocalInference {
                 && other.aggregate_scopes.is_empty()
                 && other.fixed_storage_checks.is_empty()
                 && other.pipeline_key_checks.is_empty()
+                && other.conversions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
                 && other.checked_bindings.is_empty(),
@@ -420,6 +423,7 @@ impl Checker {
             collecting: self.local_inference.collecting,
             fixed_storage_start: self.local_inference.fixed_storage_checks.len(),
             pipeline_key_start: self.local_inference.pipeline_key_checks.len(),
+            conversion_start: self.local_inference.conversions.len(),
         };
         self.local_inference.collecting = true;
         enclosing
@@ -434,6 +438,7 @@ impl Checker {
         if let Err(error) = self.solve_host_obligations(program) {
             self.reject_host_inference_resolution(error, body);
         }
+        self.finish_pending_conversions(program, enclosing.conversion_start, body);
         self.close_unresolved_host_obligations(program, self.stream_origin_owner, body);
         self.close_module_overloads(program, self.stream_origin_owner, body);
         let checks = self.local_inference.fixed_storage_checks

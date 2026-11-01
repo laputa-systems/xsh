@@ -38,6 +38,14 @@ pub enum Conversion {
     IntToBounded,
 }
 
+#[derive(Clone)]
+pub(super) struct PendingConversion {
+    owner: Option<super::EffectDeclarationId>,
+    from: Type,
+    to: Type,
+    span: Span,
+}
+
 impl Conversion {
     /// Every accepted pair, in the order the language reference lists them.
     /// A validated type joins the table by adding a row here and an arm
@@ -103,6 +111,55 @@ fn rejected_pair_note(from: &Type, to: &Type) -> Option<&'static str> {
 }
 
 impl Checker {
+    fn publish_conversion(&mut self, from: &Type, to: &Type, span: Span) -> bool {
+        let from = from.clone().into_unvalidated();
+        let Some(conversion) = Conversion::select(&from, to) else {
+            let mut diagnostic = Diagnostic::error(format!("no conversion from {from} to {to}"))
+                .with_code(DiagnosticCode::CheckConversion)
+                .with_label(Label::primary(span, format!("`as` does not convert {from} to {to}")));
+            if let Some(note) = rejected_pair_note(&from, to) { diagnostic = diagnostic.with_note(note); }
+            self.diagnostics.push(diagnostic);
+            return false;
+        };
+        self.conversions.insert(span, conversion);
+        true
+    }
+
+    pub(super) fn finish_pending_conversions(&mut self, arena: &ArenaProgram, start: usize, body: Span) {
+        let pending = self.local_inference.conversions.drain(start..).collect::<Vec<_>>();
+        if pending.is_empty() { return; }
+        if let Err(error) = self.type_constraints.solve_callable_applications() {
+            self.error(body, &format!("conversion constraints failed: {error}"), DiagnosticCode::CheckLocalInference);
+        }
+        for conversion in &pending {
+            assert_eq!(conversion.owner, self.stream_origin_owner);
+            let from = match self.type_constraints.resolve(&conversion.from) {
+                Ok(from) => from,
+                Err(error) => { self.reject_host_inference_resolution(error, conversion.span); continue; }
+            };
+            if !matches!(from, Type::Inference(_)) || conversion.to.int_range().is_some() { continue; }
+            let mut sources = Conversion::TABLE.iter().filter(|(_, target, _)| target == &conversion.to).map(|(source, _, _)| source);
+            if let Some(source) = sources.next() && sources.next().is_none() {
+                if let Err(conflict) = self.type_constraints.constrain(&from, source, conversion.span) {
+                    self.report_inferred_type_conflict(conflict);
+                }
+            }
+        }
+        if let Err(error) = self.type_constraints.solve_callable_applications() {
+            self.error(body, &format!("conversion constraints failed: {error}"), DiagnosticCode::CheckLocalInference);
+        }
+        if let Err(error) = self.solve_host_obligations(arena) { self.reject_host_inference_resolution(error, body); }
+        if let Err(error) = self.type_constraints.solve_callable_applications() {
+            self.error(body, &format!("conversion constraints failed: {error}"), DiagnosticCode::CheckLocalInference);
+        }
+        for conversion in pending {
+            match self.type_constraints.resolve(&conversion.from) {
+                Ok(from) => { self.publish_conversion(&from, &conversion.to, conversion.span); }
+                Err(error) => { self.reject_host_inference_resolution(error, conversion.span); }
+            }
+        }
+    }
+
     /// Checks `value as TARGET`: selects the conversion for the pair of
     /// types, publishes it for lowering, and propagates its failure exactly
     /// as `?` on the operation would.
@@ -124,25 +181,21 @@ impl Checker {
         }
         // The operand is read as its base type: a bounded integer converts
         // as the integer it is.
-        let from = from.into_unvalidated();
-        let Some(conversion) = Conversion::select(&from, &to) else {
-            let mut diagnostic = Diagnostic::error(format!("no conversion from {from} to {to}"))
-                .with_code(DiagnosticCode::CheckConversion)
-                .with_label(Label::primary(
-                    span,
-                    format!("`as` does not convert {from} to {to}"),
-                ));
-            if let Some(note) = rejected_pair_note(&from, &to) {
-                diagnostic = diagnostic.with_note(note);
-            }
-            self.diagnostics.push(diagnostic);
-            return Type::Invalid;
+        let from = match self.type_constraints.resolve(&from) {
+            Ok(from) => from,
+            Err(error) => return self.reject_host_inference_resolution(error, span),
         };
-        self.conversions.insert(span, conversion);
+        if matches!(from, Type::Inference(_)) && self.collecting_local_constraints() {
+            let pending = PendingConversion { owner: self.stream_origin_owner, from, to: to.clone(), span };
+            if let Some(existing) = self.local_inference.conversions.iter_mut().find(|existing| existing.owner == pending.owner && existing.span == span) { *existing = pending; }
+            else { self.local_inference.conversions.push(pending); }
+        } else if !self.publish_conversion(&from, &to, span) {
+            return Type::Invalid;
+        }
         let reported = self.diagnostics.len();
         let deferred = self.deferred_effect_checks.len();
         let result = Type::Result(
-            Box::new(conversion.target().unwrap_or_else(|| to.clone())),
+            Box::new(to),
             Box::new(Type::Error),
         );
         let ty = self.check_propagation(&result, span);

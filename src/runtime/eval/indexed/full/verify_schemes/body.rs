@@ -4330,6 +4330,32 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
     }
 
     #[test]
+    fn deferred_conversion_authenticates_its_operation_and_operand() {
+        let program = prepare("pure length(value: Bytes) -> Int { value.len() }\npure decode(value, marker, wrong: Str) -> Result[Str] { let text = value[0..1] as Str; let _ = length(value); let _ = marker; let _ = wrong; text }\nlet result = decode(b\"hello\", 1, \"wrong\")");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "decode").unwrap();
+        let length = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "length").unwrap();
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); changed };
+        FullVerifier::verify(&cold()).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let method = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "utf8", .. }))).unwrap();
+        let schema::ExprView::Method { receiver, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let receiver = receiver.raw() as usize;
+        assert_eq!(program.store.tags[receiver], FullTag::ExprParam);
+        let mut wrong_operand = cold();
+        let words = wrong_operand.store.data[receiver].range().bounds(wrong_operand.store.extra.len()).unwrap();
+        assert_ne!(wrong_operand.store.extra[words.start], 2);
+        wrong_operand.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&wrong_operand).is_err());
+        let length_decoder = decoder_for_function(&program.store, length).unwrap();
+        let length_method = program.store.function_instruction_range(length).unwrap().find(|instruction| matches!(length_decoder.expression_view(*instruction), Ok(schema::ExprView::Method { name: "len", .. }))).unwrap();
+        let mut wrong_operation = cold();
+        let method_words = wrong_operation.store.data[method].range().bounds(wrong_operation.store.extra.len()).unwrap();
+        let length_words = program.store.data[length_method].range().bounds(program.store.extra.len()).unwrap();
+        wrong_operation.store.extra[method_words.start + 1] = program.store.extra[length_words.start + 1];
+        assert!(FullVerifier::verify(&wrong_operation).is_err());
+    }
+
+    #[test]
     fn stream_collect_in_a_generic_body_authenticates_its_stream_receiver() {
         let program = prepare("proc counted(root, marker) [fs, error] {\n  let listing = fs.children(root)?\n  let entries = listing.collect()\n  let _ = marker\n  entries.len()\n}\nproc main() [fs, io, error] {\n  let total = counted(p\".\", 1)?\n  let _ = total\n}\n");
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "counted").unwrap();
