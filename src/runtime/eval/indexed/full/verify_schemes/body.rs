@@ -5329,11 +5329,11 @@ test verify_completion_cleanup {
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let range = program.store.function_instruction_range(owner).unwrap();
         let assigned = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
-            Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize),
+            Ok(schema::StmtView::Assign { value, .. } | schema::StmtView::AssignPath { value, .. }) => Some(value.raw() as usize),
             _ => None,
         }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, assigned, 0, 1);
-        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "storage assignment disagrees with its sealed operation");
     }
 
     #[test]
@@ -5347,7 +5347,7 @@ test verify_completion_cleanup {
             slot
         }).collect::<Vec<_>>();
         assert_eq!(mutables.len(), 2);
-        let assignment = range.filter(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. }) if slot == mutables[0])).last().unwrap();
+        let assignment = range.filter(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { slot, .. } | schema::StmtView::AssignPath { slot, .. }) if slot == mutables[0])).last().unwrap();
         let mut escaped = program.clone();
         let payload = escaped.store.data[assignment].range().bounds(escaped.store.extra.len()).unwrap();
         escaped.store.extra[payload.start] = mutables[1] as u32;
@@ -6745,7 +6745,7 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let (owner, scheme) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
-            Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize),
+            Ok(schema::StmtView::Assign { value, .. } | schema::StmtView::AssignPath { value, .. }) => Some(value.raw() as usize),
             _ => None,
         }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, value, 1, 2);
@@ -7509,7 +7509,7 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
             Ok(schema::ExprView::ListComp { mut qualifiers, .. }) => match qualifiers.next().unwrap().unwrap() { super::super::super::decode::CompQualifierView::For { target: super::super::super::decode::CompTargetView::Slot(slot), .. } => Some(slot), _ => None },
             _ => None,
         }).unwrap();
-        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).unwrap();
+        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. } | schema::StmtView::AssignPath { .. }))).unwrap();
         let mut mutable = program.clone();
         let words = mutable.store.data[assignment].range().bounds(mutable.store.extra.len()).unwrap();
         mutable.store.extra[words.start] = slot as u32;
@@ -7616,10 +7616,10 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
         let (owner, scheme) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let writer = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
-            Ok(schema::StmtView::Assign { value, .. }) => Some(value.raw() as usize), _ => None,
+            Ok(schema::StmtView::Assign { value, .. } | schema::StmtView::AssignPath { value, .. }) => Some(value.raw() as usize), _ => None,
         }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, writer, 0, 1);
-        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "storage assignment disagrees with its sealed operation");
         let mut immutable = program.clone();
         let declaration = immutable.store.scheme_body_facts.iter_mut().find(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).unwrap();
         declaration.value = super::super::super::schemes::FullSchemeBodyFactValue::LocalImmutable(declaration.ty().unwrap());
@@ -7635,7 +7635,7 @@ pure selected(rows: List[Int], other: List[Str], selected: Bool, wrong: Int, wro
         let slot = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
             Ok(schema::StmtView::ForRecord { target: super::super::super::decode::CompTargetView::Slot(slot), .. }) => Some(slot), _ => None,
         }).unwrap();
-        let writer = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).unwrap();
+        let writer = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. } | schema::StmtView::AssignPath { .. }))).unwrap();
         let mut assigned = program.clone();
         let words = assigned.store.data[writer].range().bounds(assigned.store.extra.len()).unwrap();
         assigned.store.extra[words.start] = slot as u32;
@@ -8514,6 +8514,7 @@ observe()?
     fn nested_guard_identity_reads_reject_same_type_bindings_and_intervening_writers() {
         let mut program = prepare(r#"
 pure selected(value, replacement, marker) -> Str {
+    let _ = value == replacement
     var working = value
     var unrelated = value
     let stale = working
@@ -8577,13 +8578,13 @@ observe()?
         assert!(other_binding.store.in_place.get().is_none());
         other_binding.store.data[working] = program.store.data[stale];
         assert_eq!(FullVerifier::verify(&other_binding).unwrap_err().message, "generic body expression disagrees with its checked type");
-        let assignments = program.store.function_instruction_range(owner).unwrap().filter(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).collect::<Vec<_>>();
+        let assignments = program.store.function_instruction_range(owner).unwrap().filter(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. } | schema::StmtView::AssignPath { .. }))).collect::<Vec<_>>();
         assert_eq!(assignments.len(), 2);
         let mut writer = program.clone();
         assert!(writer.store.in_place.get().is_none());
         let ranges = assignments.iter().map(|instruction| program.store.data[*instruction].range().bounds(program.store.extra.len()).unwrap()).collect::<Vec<_>>();
-        let schema::StmtView::Assign { slot: left, .. } = decoder.statement_view(assignments[0]).unwrap() else { unreachable!() };
-        let schema::StmtView::Assign { slot: right, .. } = decoder.statement_view(assignments[1]).unwrap() else { unreachable!() };
+        let (schema::StmtView::Assign { slot: left, .. } | schema::StmtView::AssignPath { slot: left, .. }) = decoder.statement_view(assignments[0]).unwrap() else { unreachable!() };
+        let (schema::StmtView::Assign { slot: right, .. } | schema::StmtView::AssignPath { slot: right, .. }) = decoder.statement_view(assignments[1]).unwrap() else { unreachable!() };
         assert_ne!(left, right);
         assert_eq!(left, working_slot);
         assert_eq!(program.store.extra[ranges[0].start] as usize, left);
@@ -9732,7 +9733,7 @@ assert greatest([1]) == Ok([1])
             Ok(schema::ExprView::ListPipeline { mut stages, .. }) => match stages.next().unwrap().unwrap() { super::super::super::StageView::Map { slot, .. } => Some(slot), _ => panic!("map callback") },
             _ => None,
         }).unwrap();
-        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. }))).unwrap();
+        let assignment = range.clone().find(|instruction| matches!(decoder.statement_view(*instruction), Ok(schema::StmtView::Assign { .. } | schema::StmtView::AssignPath { .. }))).unwrap();
         let mut mutated_item = program.clone();
         mutated_item.store.extra[program.store.data[assignment].range().start as usize] = item_slot as u32;
         assert!(FullVerifier::verify(&mutated_item).is_err());
