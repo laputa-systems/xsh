@@ -3647,6 +3647,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let subject = self.lower_scheme_lazy_expression(value, slots, current_function, facts, visited, lowered_types)?;
         let (ok, error) = self.compact_match_scrutinee_result_types(value);
         let (condition, captures) = self.lower_pattern_condition_subject(expression, subject, slots, ok.as_ref(), error.as_ref())?;
+        if let Some(sites) = facts.guard_scopes().sites.get(&expression) {
+            self.scratch.borrow_mut().scheme_guards.sites.entry(condition.index()).or_default().extend(sites.iter().copied().filter(|site| !matches!(site, crate::sema::guarded_requirements::GuardBodySite::Output(_))));
+        }
         let scratch = self.scratch.borrow();
         let BuildExprRow::MatchExpr { arms, .. } = &scratch.expressions[condition.index()] else { return None };
         for (_, _, value) in arms {
@@ -4932,6 +4935,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let result = self.lower_scheme_expression_inner(expression, slots, current_function, facts, visited, lowered_types, body);
         self.record_scheme_guard_rows(facts.guard_scopes().expressions.get(&expression).copied(), start);
         if let Some(lowered) = result
+            && !matches!(self.program.arena.expr(expression).kind, ArenaExprKind::PatternCondition { .. })
             && let Some(sites) = facts.guard_scopes().sites.get(&expression) {
             self.scratch.borrow_mut().scheme_guards.sites.entry(lowered.index()).or_default().extend(sites.iter().copied().filter(|site| !matches!(site, crate::sema::guarded_requirements::GuardBodySite::Output(_))));
         }

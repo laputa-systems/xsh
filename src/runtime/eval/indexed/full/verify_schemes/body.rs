@@ -906,7 +906,7 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
 }
 
 fn pattern_condition_scope(
-    decoder: &FullDecoder<'_>, instruction: usize, captures: super::super::decode::ListView<'_, usize>,
+    store: &FullStore, scheme_scope: &SchemeScope, decoder: &FullDecoder<'_>, instruction: usize, captures: super::super::decode::ListView<'_, usize>,
     types: &BTreeMap<usize, SchemeType>, scope: &LexicalScope, scopes: &mut LexicalScopes,
     slot_count: usize, writers: &mut BTreeMap<usize, SchemeType>, pending: &mut Vec<Obligation>,
     visited: &mut BTreeSet<usize>, expression_scopes: &mut BTreeMap<usize, LexicalScope>,
@@ -918,7 +918,13 @@ fn pattern_condition_scope(
     for slot in captures {
         if !declared.insert(slot?) { return Err(IrVerifyError::new("generic pattern condition repeats a capture")); }
     }
-    if declared.is_empty() {
+    let optional = decoder.checked_optional_binding_source(instruction, &mut |amount| budget.charge(amount))?;
+    let binding_view = match optional {
+        Some(source) => scheme_scope.pattern_binding_view(store, decoder, instruction, source, &expression_type(types, source, budget)?, budget)?,
+        None => None,
+    };
+    let optional_predicate = declared.is_empty() && optional.is_some();
+    if declared.is_empty() && binding_view.is_none() && !optional_predicate {
         pending.push(Obligation::Expression(instruction, *scope));
         return branch_scope(scope, scopes, budget);
     }
@@ -928,12 +934,18 @@ fn pattern_condition_scope(
     expression_scopes.insert(instruction, *scope);
     let mut subject = expression_type(types, value.raw() as usize, budget)?;
     let mut selected = None;
-    for arm in arms {
+    for (position, arm) in arms.enumerate() {
         budget.charge(1)?;
         let (pattern, guard, result) = arm?;
         if guard.is_some() { return Err(IrVerifyError::new("generic pattern condition has an unowned guard")); }
         let schema::ExprView::Bool(success) = decoder.expression_view(result.raw() as usize)? else { return Err(IrVerifyError::new("generic pattern condition has a nonliteral result")) };
-        let inner = pattern_scope(decoder, pattern.raw(), &subject, scope, scopes, slot_count, writers, budget)?;
+        let pattern_subject = match (&binding_view, position) {
+            (Some(_), 0) => &SchemeType::Ground(Type::Null),
+            (None, 0) if optional_predicate => &SchemeType::Ground(Type::Null),
+            (Some(view), 1) => view,
+            _ => &subject,
+        };
+        let inner = pattern_scope(decoder, pattern.raw(), pattern_subject, scope, scopes, slot_count, writers, budget)?;
         let bindings = &scopes.frames[inner.frame].bindings;
         budget.charge(bindings.len())?;
         if success {
@@ -943,7 +955,7 @@ fn pattern_condition_scope(
         }
         if expression_type(types, result.raw() as usize, budget)?.closed_ground_type() != Some(Type::Bool) { return Err(IrVerifyError::new("generic pattern condition arm has no boolean contract")); }
         pending.push(Obligation::Expression(result.raw() as usize, inner));
-        subject = subject_after_pattern(decoder, pattern.raw(), false, subject, budget)?;
+        if binding_view.is_none() { subject = subject_after_pattern(decoder, pattern.raw(), false, subject, budget)?; }
     }
     pending.push(Obligation::Expression(value.raw() as usize, *scope));
     selected.ok_or_else(|| IrVerifyError::new("generic pattern condition has no successful capture producer"))
@@ -1542,14 +1554,21 @@ pub(super) fn verify_body(
                     }
                     schema::ExprView::PatternIf { branches, else_value, .. } => {
                         if !visited.insert(instruction) { return Err(IrVerifyError::new("generic expression is shared or cyclic")); }
+                        let output = scheme_scope.guard_output_at(instruction)?;
+                        if output.is_some() && branches.len() != 1 { return Err(IrVerifyError::new("guarded output has multiple conditions")); }
                         for branch in branches {
                             budget.charge(1)?;
                             let (condition, value, captures) = branch?;
-                            let inner = pattern_condition_scope(decoder, condition.raw() as usize, captures, types, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut visited, &mut expression_scopes, budget)?;
-                            if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
+                            let inner = pattern_condition_scope(store, scheme_scope, decoder, condition.raw() as usize, captures, types, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut visited, &mut expression_scopes, budget)?;
+                            if let Some((id, output)) = output {
+                                super::guards::verify_output_types(store, scheme_scope, id, output, super::guards::GuardOutputTypes {
+                                    result: &claimed, condition: &expression_type(types, condition.raw() as usize, budget)?,
+                                    branch: &expression_type(types, value.raw() as usize, budget)?, fallback: &expression_type(types, else_value.raw() as usize, budget)?,
+                                }, budget)?;
+                            } else if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
                             pending.push(Obligation::Expression(value.raw() as usize, inner));
                         }
-                        if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
+                        if output.is_none() && !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
                         pending.push(Obligation::Expression(else_value.raw() as usize, scope));
                     }
                     schema::ExprView::MatchExpr { value, arms, .. } => {
@@ -2061,7 +2080,7 @@ pub(super) fn verify_body(
                         for branch in branches {
                             budget.charge(1)?;
                             let (condition, body, captures) = branch?;
-                            let inner = pattern_condition_scope(decoder, condition.raw() as usize, captures, types, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut visited, &mut expression_scopes, budget)?;
+                            let inner = pattern_condition_scope(store, scheme_scope, decoder, condition.raw() as usize, captures, types, &scope, &mut scopes, slot_count, &mut writers, &mut pending, &mut visited, &mut expression_scopes, budget)?;
                             let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
                             budget.charge(statements.len())?;
                             nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: inner, value: None });
@@ -2181,6 +2200,79 @@ mod tests {
         let program = build(definition);
         FullVerifier::verify(&program).unwrap();
         program
+    }
+
+    #[test]
+    fn optional_pattern_guards_authenticate_captures_and_single_evaluation() {
+        let mut program = prepare(r#"
+pure identity(value) { value }
+pure direct(label, other) -> Str {
+    let _ = other
+    if let note = label { f"{note}" } else { "absent" }
+}
+pure indirect(label) -> Str {
+    if let note = identity(label) { f"{note}" } else { "absent" }
+}
+pure keep(value) { if let note = value { note } else { null } }
+pure exists(value) -> Bool { if let _ = value { true } else { false } }
+var reads = 0
+proc observed(value) [] { reads += 1; value }
+proc counted(value) [error] -> Result[Str] {
+    if let note = observed(value)? { f"{note}" } else { "absent" }
+}
+assert direct(null, false) == "absent"
+assert direct("text", false) == "text"
+assert indirect(null) == "absent"
+assert indirect("computed") == "computed"
+assert keep(null) == null
+assert keep(7) == 7
+assert keep("kept") == "kept"
+assert !exists(null)
+assert exists(7)
+assert counted(null)? == "absent"
+assert counted("once")? == "once"
+assert reads == 2
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let shared = Arc::new(program.clone());
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*shared.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&shared));
+            evaluator.force_frames = force_frames;
+            for step in 0..shared.driver_step_count().unwrap() {
+                let flow = evaluator.eval_indexed_driver_step(step, crate::source::Span::at(shared.store.source_id, 0)).unwrap().unwrap();
+                assert!(matches!(flow, None | Some(crate::runtime::eval::Flow::Continue(_))), "frames={force_frames}: {flow:?}");
+            }
+        }
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "direct").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let guard = program.store.scheme_guards.iter().position(|guard| range.contains(&(guard.comparison_instruction as usize))).unwrap();
+        let comparison = program.store.scheme_guards[guard].comparison_instruction as usize;
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let foreign = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut wrong_source = program.clone();
+        wrong_source.store.in_place.take();
+        wrong_source.store.scheme_guards[guard].source_instruction = foreign as u32;
+        assert!(FullVerifier::verify(&wrong_source).is_err());
+        let schema::ExprView::MatchExpr { mut arms, .. } = decoder.expression_view(comparison).unwrap() else { panic!("optional condition"); };
+        let (_, _, absent) = arms.next().unwrap().unwrap();
+        let (capture, _, present) = arms.next().unwrap().unwrap();
+        let schema::PatternView::Bind { slot, .. } = decoder.checked_pattern_view(capture.raw()).unwrap() else { panic!("captured binding"); };
+        let read = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(actual)) if actual == slot)).unwrap();
+        let mut wrong_capture = program.clone();
+        wrong_capture.store.in_place.take();
+        wrong_capture.store.data[read] = program.store.data[foreign];
+        assert!(FullVerifier::verify(&wrong_capture).is_err());
+        let mut wrong_null_arm = program.clone();
+        wrong_null_arm.store.in_place.take();
+        wrong_null_arm.store.data[absent.raw() as usize] = program.store.data[present.raw() as usize];
+        assert!(FullVerifier::verify(&wrong_null_arm).is_err());
+        let mut wrong_output = program.clone();
+        wrong_output.store.in_place.take();
+        let output = wrong_output.store.scheme_guards.iter_mut().find_map(|guard| guard.output.as_mut()).unwrap();
+        output.nonnull_when = !output.nonnull_when;
+        assert!(FullVerifier::verify(&wrong_output).is_err());
     }
 
     #[test]
@@ -7487,14 +7579,13 @@ let _ = build(7, "ok")
         let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "project").unwrap();
         let super::super::super::FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("project retains its field scheme") };
         let operation = program.store.scheme(scheme).unwrap().operations.start as usize;
-        let super::super::super::schemes::FullSealedOperation::Field { result, .. } = program.store.scheme_operations[operation] else { panic!("project retains its field operation") };
-        let result = program.store.scheme_types[result.index()];
-        assert_eq!(result.tag, FullSchemeTypeTag::Optional);
+        assert!(matches!(program.store.scheme_operations[operation], super::super::super::schemes::FullSealedOperation::Field { .. }));
         let parameters = program.store.scheme(scheme).unwrap().params.bounds(program.store.scheme_params.len()).unwrap();
         let wrong = program.store.scheme_params[parameters.start + 1].ty;
         let mut forged = program.clone();
         forged.store.in_place.take();
-        forged.store.scheme_types[result.first as usize] = program.store.scheme_types[wrong.index()];
+        let super::super::super::schemes::FullSealedOperation::Field { result, .. } = forged.store.scheme_operations[operation] else { unreachable!() };
+        forged.store.scheme_types[result.index()] = program.store.scheme_types[wrong.index()];
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(!error.message.contains("unowned rows"), "{error:?}");
     }

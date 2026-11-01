@@ -2708,17 +2708,12 @@ fn verify_body_expression(
         }
         schema::ExprView::IfExpr { mut branches, else_value, .. } => {
             if let Some((id, output)) = scheme_scope.guard_output_at(instruction)? {
-                let parent = scheme_scope.guards.parent_scope(scheme_scope, id)?;
-                let local = scheme_scope.with_guard(Some(id))?;
-                let outward = decode_scheme_type(store, &parent, output.outward, budget, 0)?;
-                if !body_types_equal(ty, &outward) { return Err(IrVerifyError::new("guarded output disagrees with its parent result")); }
-                let present = decode_scheme_type(store, &local, output.present, budget, 0)?;
-                let absent = decode_scheme_type(store, &parent, output.absent, budget, 0)?;
                 let (condition, value) = branches.next().transpose()?.ok_or_else(|| IrVerifyError::new("guarded output has no branch"))?;
                 if branches.next().is_some() { return Err(IrVerifyError::new("guarded output has multiple conditions")); }
-                if !matches!(child(condition, budget)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("guarded output condition has no boolean contract")); }
-                let (selected, fallback) = if output.nonnull_when { (&present, &absent) } else { (&absent, &present) };
-                if !body_types_equal(&child(value, budget)?, selected) || !body_types_equal(&child(else_value, budget)?, fallback) { return Err(IrVerifyError::new("guarded output branches disagree with their actual producers")); }
+                guards::verify_output_types(store, scheme_scope, id, output, guards::GuardOutputTypes {
+                    result: ty, condition: &child(condition, budget)?,
+                    branch: &child(value, budget)?, fallback: &child(else_value, budget)?,
+                }, budget)?;
                 ty.clone()
             } else {
             let matches_value = |actual: &SchemeType, budget: &mut SchemeInstantiationBudget| {

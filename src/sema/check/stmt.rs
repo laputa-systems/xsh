@@ -3778,15 +3778,34 @@ impl Checker {
         condition: ExprId,
     ) {
         if let ArenaExprKind::PatternCondition { value, arms } = arena.arena.expr(condition).kind {
-            let ty = self
-                .expr_types
-                .get(&arena.arena.expr(value).span)
-                .cloned()
+            let subject = self.proof_subject_arena(arena, value);
+            let anonymous = subject.is_none();
+            let ty = subject.map(|(_, _, ty, _)| ty)
+                .or_else(|| self.expr_types.get(&arena.arena.expr(value).span).cloned())
                 .unwrap_or(Type::Unknown);
             let ty = if matches!(ty.unvalidated(), Type::Inference(_)) {
                 self.type_constraints.resolve(&ty).unwrap_or(ty)
             } else { ty };
-            // An optional binding's pattern sees the non-null value.
+            let ty = if anonymous && matches!(ty, Type::Inference(_))
+                && self.optional_binding_spans.contains(&arena.arena.expr(condition).span)
+            {
+                let owner = self.constraint_scope();
+                let subject = arena.arena.expr(value).span;
+                let comparison = arena.arena.expr(condition).span;
+                let view = self.fresh_wrapper_type(subject);
+                let (guard, view) = match self.type_constraints.existing_non_null_guard(owner, &ty, subject, comparison) {
+                    Some((guard, view)) => (Ok(guard), view),
+                    None => (self.type_constraints.register_non_null_guard(owner, ty, view.clone(), subject, comparison), view),
+                };
+                match guard {
+                    Ok(guard) => self.scopes.last_mut().expect("pattern binding has a lexical scope").guard = Some(guard),
+                    Err(error) => {
+                        self.error(subject, &format!("guarded binding source is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return;
+                    }
+                }
+                view
+            } else { ty };
             let ty = match ty {
                 Type::Optional(present)
                     if self
@@ -3797,10 +3816,6 @@ impl Checker {
                 }
                 ty => ty,
             };
-            // The condition's own check already judged this pattern against
-            // this subject, in a scope it discarded; this pass is for the
-            // names. What it reports again is dropped, and anything only the
-            // branch scope can reveal is kept.
             let reported = self.diagnostics.len();
             self.check_pattern_arena(
                 arena,
@@ -4014,17 +4029,16 @@ impl Checker {
                     return ConditionNarrowings::default();
                 };
                 let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
-                // An optional binding succeeds exactly when the subject is
-                // not null, so its branch may also use the subject itself.
-                if let Type::Optional(present) = &subject_ty
-                    && self
+                if self
                         .optional_binding_spans
                         .contains(&arena.arena.expr(condition).span)
                 {
-                    return ConditionNarrowings {
-                        when_true: vec![binding.proof.fact(name, path, (**present).clone())],
-                        when_false: Vec::new(),
+                    let fact = match &subject_ty {
+                        Type::Optional(present) => Some(binding.proof.fact(name, path.clone(), (**present).clone())),
+                        Type::Inference(variable) => Some(binding.proof.non_null_fact(name, path.clone(), *variable, arena.arena.expr(value).span, arena.arena.expr(condition).span)),
+                        _ => None,
                     };
+                    if let Some(fact) = fact { return ConditionNarrowings { when_true: vec![fact], when_false: Vec::new() }; }
                 }
                 // A type test splits a union's members: the ones it accepts
                 // remain when it passes, the others when it fails.
@@ -4128,6 +4142,11 @@ impl Checker {
     }
 
     pub(super) fn guard_output_condition_arena(&self, arena: &ArenaProgram, condition: ExprId) -> Option<bool> {
+        if let ArenaExprKind::PatternCondition { arms, .. } = arena.arena.expr(condition).kind {
+            let arms = arena.arena.match_expr_arms(arms);
+            return (arms.len() == 2 && matches!(arena.arena.pattern(arms[0].pattern).kind,
+                crate::syntax::arena::ArenaPatternKind::Binding(_) | crate::syntax::arena::ArenaPatternKind::Wildcard)).then_some(true);
+        }
         let ArenaExprKind::Binary { op: op @ (BinaryOp::Eq | BinaryOp::Ne), left, right } = arena.arena.expr(condition).kind else { return None; };
         let left_null = matches!(arena.arena.expr(left).kind, ArenaExprKind::Null);
         let right_null = matches!(arena.arena.expr(right).kind, ArenaExprKind::Null);

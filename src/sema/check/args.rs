@@ -374,6 +374,8 @@ impl Checker {
                         | crate::sema::constraints::SealedOperationError::MapKey(_)
                         | crate::sema::constraints::SealedOperationError::Unsupported { .. } => DiagnosticCode::CheckOperatorType,
                     }
+                } else if matches!(&error, crate::sema::constraints::CallableApplicationError::Wrapper(crate::sema::constraints::WrapperConstraintError::Constraint(_))) {
+                    DiagnosticCode::CheckTypeMismatch
                 } else if let crate::sema::constraints::CallableApplicationError::Wrapper(crate::sema::constraints::WrapperConstraintError::Invalid { operation, .. }) = &error {
                     match operation {
                         crate::sema::wrapper_operation::WrapperOperationKind::Field => DiagnosticCode::CheckNullSafeField,

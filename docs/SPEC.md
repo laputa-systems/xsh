@@ -4326,6 +4326,11 @@ A value selected by such a comparison, as in
 without an annotation, or be returned. Its type joins both branches, and an
 annotation still checks that join.
 
+`if let` with an inferred subject checks its payload in the present branch, under
+the same guard as a non-null comparison. A `null` argument supplies no payload
+requirements. A computed subject is evaluated once, and its binding captures
+that value. A dependent result follows the selected branch.
+
 At a direct call to an inferred quantified pure declaration, fixed required arguments
 may be positional or named. A final rest parameter has type `List[T]`; omitting
 its annotation introduces an inferred item type `T`. Each supplied rest item

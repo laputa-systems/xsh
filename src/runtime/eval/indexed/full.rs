@@ -14924,6 +14924,44 @@ impl<'a> FullDecoder<'a> {
         Ok(matches!(subject_type, Some(Type::Optional(payload)) if payload.as_ref() == expected_payload))
     }
 
+    fn checked_optional_binding_source(
+        &self, condition: usize, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        charge(1)?;
+        let tag = self.store.tags.get(condition).ok_or_else(|| IrVerifyError::new("optional condition is out of bounds"))?;
+        if *tag != FullTag::ExprMatch { return Ok(None); }
+        let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(condition)? else { return Ok(None); };
+        charge(6)?;
+        if arms.len() != 3 { return Ok(None); }
+        let (absent, absent_guard, absent_value) = arms.next().unwrap()?;
+        let (present, present_guard, present_value) = arms.next().unwrap()?;
+        let (fallback, fallback_guard, fallback_value) = arms.next().unwrap()?;
+        if absent_guard.is_some() || present_guard.is_some() || fallback_guard.is_some()
+            || !matches!(self.checked_pattern_view(absent.raw())?, schema::PatternView::Literal(literal) if literal.is_null()?)
+            || !matches!(self.checked_pattern_view(present.raw())?, schema::PatternView::Bind { .. } | schema::PatternView::Wildcard)
+            || !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
+            || !matches!(self.expression_view(absent_value.raw() as usize)?, schema::ExprView::Bool(false))
+            || !matches!(self.expression_view(present_value.raw() as usize)?, schema::ExprView::Bool(true))
+            || !matches!(self.expression_view(fallback_value.raw() as usize)?, schema::ExprView::Bool(false))
+        { return Ok(None); }
+        Ok(Some(value.raw() as usize))
+    }
+
+    fn checked_optional_binding_source_matches(
+        &self, condition: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        let Some(mut value) = self.checked_optional_binding_source(condition, charge)? else { return Ok(false); };
+        for _ in self.instruction_range.clone() {
+            charge(1)?;
+            if value == source { return Ok(true); }
+            let schema::ExprView::ValueBlock { mut body, .. } = self.expression_view(value)? else { return Ok(false); };
+            charge(body.len())?;
+            value = self.checked_block_tail_expression(&mut body)?;
+        }
+        Err(IrVerifyError::new("optional binding has a cyclic value tail"))
+    }
+
     fn checked_condition_proves_nonnull_with_prefix(
         &self, condition: usize, when_true: bool, is_boolean: bool, use_site: usize,
         target: &(usize, Vec<Name>), expected_payload: GuardedReadContract<'_>, stability: GuardPathStability,
@@ -14950,21 +14988,9 @@ impl<'a> FullDecoder<'a> {
                 _ => condition,
             }
         } else { condition };
-        if !is_boolean && let schema::ExprView::MatchExpr { value, mut arms, .. } = self.expression_view(condition)? {
-            charge(6)?;
-            if !when_true || arms.len() != 3 { return Ok(false); }
-            let (absent, absent_guard, absent_value) = arms.next().unwrap()?;
-            let (present, present_guard, present_value) = arms.next().unwrap()?;
-            let (fallback, fallback_guard, fallback_value) = arms.next().unwrap()?;
-            if absent_guard.is_some() || present_guard.is_some() || fallback_guard.is_some()
-                || !matches!(self.checked_pattern_view(absent.raw())?, schema::PatternView::Literal(literal) if literal.is_null()?)
-                || !matches!(self.checked_pattern_view(present.raw())?, schema::PatternView::Bind { .. } | schema::PatternView::Wildcard)
-                || !matches!(self.checked_pattern_view(fallback.raw())?, schema::PatternView::Wildcard)
-                || !matches!(self.expression_view(absent_value.raw() as usize)?, schema::ExprView::Bool(false))
-                || !matches!(self.expression_view(present_value.raw() as usize)?, schema::ExprView::Bool(true))
-                || !matches!(self.expression_view(fallback_value.raw() as usize)?, schema::ExprView::Bool(false))
-            { return Ok(false); }
-            return self.checked_optional_value_matches_path(value.raw() as usize, use_site, target, expected_payload, prefix, source, charge);
+        if !is_boolean && let Some(value) = self.checked_optional_binding_source(condition, charge)? {
+            if !when_true { return Ok(false); }
+            return self.checked_optional_value_matches_path(value, use_site, target, expected_payload, prefix, source, charge);
         }
         if is_boolean {
             let tag = *self.store.tags.get(condition).ok_or_else(|| {

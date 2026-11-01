@@ -18,6 +18,30 @@ pub(super) struct GuardPack {
     pub(super) bindings: BinderPack,
 }
 
+pub(super) struct GuardOutputTypes<'a> {
+    pub(super) result: &'a super::SchemeType,
+    pub(super) condition: &'a super::SchemeType,
+    pub(super) branch: &'a super::SchemeType,
+    pub(super) fallback: &'a super::SchemeType,
+}
+
+pub(super) fn verify_output_types(
+    store: &super::FullStore, scope: &SchemeScope, id: GuardScopeId,
+    output: super::super::guard_schemes::FullGuardOutput, actual: GuardOutputTypes<'_>,
+    budget: &mut super::SchemeInstantiationBudget,
+) -> Result<(), IrVerifyError> {
+    let parent = scope.guards.parent_scope(scope, id)?;
+    let local = scope.with_guard(Some(id))?;
+    let outward = super::decode_scheme_type(store, &parent, output.outward, budget, 0)?;
+    if !super::body_types_equal(actual.result, &outward) { return Err(IrVerifyError::new("guarded output disagrees with its parent result")); }
+    let present = super::decode_scheme_type(store, &local, output.present, budget, 0)?;
+    let absent = super::decode_scheme_type(store, &parent, output.absent, budget, 0)?;
+    if !matches!(actual.condition.closed_ground_type(), Some(crate::sema::types::Type::Bool | crate::sema::types::Type::Status)) { return Err(IrVerifyError::new("guarded output condition has no boolean contract")); }
+    let (selected, fallback) = if output.nonnull_when { (&present, &absent) } else { (&absent, &present) };
+    if !super::body_types_equal(actual.branch, selected) || !super::body_types_equal(actual.fallback, fallback) { return Err(IrVerifyError::new("guarded output branches disagree with their actual producers")); }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct GuardCensus {
     pub(super) owner: super::FullSchemeId,
@@ -86,6 +110,32 @@ impl GuardCensus {
 }
 
 impl SchemeScope {
+    pub(super) fn pattern_binding_view(
+        &self, store: &super::FullStore, decoder: &super::FullDecoder<'_>, comparison: usize,
+        source: usize, actual: &super::SchemeType, budget: &mut super::SchemeInstantiationBudget,
+    ) -> Result<Option<super::SchemeType>, IrVerifyError> {
+        let GuardScopes::Scoped(census) = &self.guards else { return Ok(None); };
+        let parent = self.at_instruction(comparison)?.active_guard;
+        for &id in census.children.get(&parent).into_iter().flatten() {
+            budget.charge(1)?;
+            let pack = census.scope(id)?;
+            if pack.metadata.comparison_instruction as usize != comparison { continue; }
+            if !decoder.checked_optional_binding_source_matches(comparison, pack.metadata.source_instruction as usize, &mut |amount| budget.charge(amount))? {
+                return Err(IrVerifyError::new("guarded pattern binding has no exact optional producer"));
+            }
+            if decoder.checked_optional_binding_source(comparison, &mut |amount| budget.charge(amount))? != Some(source) {
+                return Err(IrVerifyError::new("guarded pattern binding has a different physical subject"));
+            }
+            let parent_scope = self.with_guard(parent)?;
+            let expected = super::decode_scheme_type(store, &parent_scope, pack.metadata.source, budget, 0)?;
+            if !super::body_types_equal(actual, &expected) {
+                return Err(IrVerifyError::new("guarded pattern binding source disagrees with its producer"));
+            }
+            return super::decode_scheme_type(store, &self.with_guard(Some(id))?, pack.metadata.view, budget, 0).map(Some);
+        }
+        Ok(None)
+    }
+
     pub(super) fn guard_output_at(&self, instruction: usize) -> Result<Option<(GuardScopeId, super::super::guard_schemes::FullGuardOutput)>, IrVerifyError> {
         let GuardScopes::Scoped(census) = &self.guards else { return Ok(None); };
         let Some(&id) = census.outputs.get(&instruction) else { return Ok(None); };
@@ -210,9 +260,20 @@ pub(super) fn verify_body_sources(
         }
         if let Some(output) = pack.metadata.output {
             let instruction = output.instruction as usize;
-            let super::schema::ExprView::IfExpr { mut branches, .. } = decoder.expression_view(instruction)? else { return Err(IrVerifyError::new("guarded output is not its physical conditional")); };
-            let (condition, _) = branches.next().transpose()?.ok_or_else(|| IrVerifyError::new("guarded output has no physical condition"))?;
-            if branches.next().is_some() || !prefix.guard_output_condition(decoder, condition.raw() as usize, comparison, source, output.nonnull_when, &mut |amount| budget.charge(amount))? { return Err(IrVerifyError::new("guarded output condition does not exactly classify its source")); }
+            let condition = match decoder.expression_view(instruction)? {
+                super::schema::ExprView::IfExpr { mut branches, .. } => {
+                    let (condition, _) = branches.next().transpose()?.ok_or_else(|| IrVerifyError::new("guarded output has no physical condition"))?;
+                    if branches.next().is_some() { return Err(IrVerifyError::new("guarded output condition does not exactly classify its source")); }
+                    condition.raw() as usize
+                }
+                super::schema::ExprView::PatternIf { mut branches, .. } => {
+                    let (condition, _, _) = branches.next().transpose()?.ok_or_else(|| IrVerifyError::new("guarded output has no physical condition"))?;
+                    if branches.next().is_some() { return Err(IrVerifyError::new("guarded output condition does not exactly classify its source")); }
+                    condition.raw() as usize
+                }
+                _ => return Err(IrVerifyError::new("guarded output is not its physical conditional")),
+            };
+            if !prefix.guard_output_condition(decoder, condition, comparison, source, output.nonnull_when, &mut |amount| budget.charge(amount))? { return Err(IrVerifyError::new("guarded output condition does not exactly classify its source")); }
             let expected = super::decode_scheme_type(store, &parent_scope, output.outward, budget, 0)?;
             if types.get(&instruction).is_none_or(|actual| !super::body_types_equal(actual, &expected)) { return Err(IrVerifyError::new("guarded output has no matching parent body type")); }
         }

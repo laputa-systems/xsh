@@ -1565,13 +1565,6 @@ impl Checker {
             ArenaExprKind::PatternCondition { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
-                // Over an enum or an error family only a catch-all counts as
-                // unable to fail here. Variant and facet patterns that happen
-                // to cover every variant stay accepted conditions: a
-                // declaration that gains a variant turns the same condition
-                // into one that can fail, and the two closed sets follow one
-                // rule. The broad `Error` has no variant list, so judging
-                // against it leaves the catch-all as the only cover.
                 let coverage_ty = match value_ty.unvalidated() {
                     Type::ErrorFamily(_) | Type::Tag(_) => &Type::Error,
                     _ => &value_ty,
@@ -1582,18 +1575,13 @@ impl Checker {
                     std::iter::once(pattern),
                     &self.exhaustiveness_facts(),
                 );
-                // A pattern that cannot fail on its own still has a failure
-                // case over an optional subject: `null`. That is optional
-                // binding, and the pattern then sees the non-null value. The
-                // fact is rewritten on every check of this condition.
                 self.optional_binding_spans.remove(&expr.span);
                 let value_ty = if cannot_fail && matches!(value_ty.unvalidated(), Type::Inference(_)) {
                     self.type_constraints.resolve(&value_ty).unwrap_or(value_ty)
                 } else { value_ty };
                 let value_ty = if cannot_fail && matches!(value_ty.unvalidated(), Type::Inference(_)) {
-                    let present = self.type_constraints.fresh_at_level(arena.arena.expr(*value).span, self.callable_solver_level());
-                    self.establish_optional_subject(&present, &value_ty, arena.arena.expr(*value).span);
-                    Type::Optional(Box::new(present))
+                    self.optional_binding_spans.insert(expr.span);
+                    value_ty
                 } else { value_ty };
                 let subject_ty = match value_ty {
                     Type::Optional(present) if cannot_fail => {
@@ -1601,7 +1589,7 @@ impl Checker {
                         *present
                     }
                     value_ty => {
-                        if cannot_fail {
+                        if cannot_fail && !self.optional_binding_spans.contains(&expr.span) {
                             self.error(
                                 expr.span,
                                 "pattern condition cannot fail; bind the subject with `let` instead",

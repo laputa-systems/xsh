@@ -661,6 +661,18 @@ impl ProducerPrefixContext<'_> {
         if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
             return Err(IrVerifyError::new("guard scope context disagrees with its owner"));
         }
+        let mut child = instruction;
+        for _ in self.evidence.range.clone() {
+            charge(1)?;
+            let Some(parent) = decoder.instruction_parent_of(child)? else { break; };
+            if let Some((conditions, _)) = decoder.checked_branch_conditions_for_child_with(parent, child,
+                |child, roots| Ok(roots.contains(&child)), &mut *charge)? {
+                for (condition, when_true, is_boolean) in conditions {
+                    if when_true && !is_boolean && decoder.checked_optional_binding_source_matches(condition, source, charge)? { return Ok(true); }
+                }
+            }
+            child = parent;
+        }
         let Some(target) = self.guard_source_binding_path(decoder, source, instruction, charge)? else { return Ok(false); };
         let binding = self.evidence.binding(decoder.store, decoder.owner, source, target.0)?;
         if self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)? != binding { return Ok(false); }
@@ -733,6 +745,7 @@ impl ProducerPrefixContext<'_> {
     pub(super) fn guard_output_condition(&self, decoder: &FullDecoder<'_>, condition: usize, comparison: usize, source: usize, nonnull_when: bool,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        if condition == comparison && nonnull_when && decoder.checked_optional_binding_source_matches(comparison, source, charge)? { return Ok(true); }
         let Some(target) = self.guard_source_binding_path(decoder, source, condition, charge)? else { return Ok(false); };
         let Some(comparison) = self.guard_value_expression(decoder, comparison, condition, &target, charge)? else { return Ok(false); };
         if self.guard_value_expression(decoder, condition, condition, &target, charge)? != Some(comparison) { return Ok(false); }
@@ -751,6 +764,7 @@ impl ProducerPrefixContext<'_> {
     pub(super) fn actual_null_comparison(&self, decoder: &FullDecoder<'_>, comparison: usize, source: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
+        if decoder.checked_optional_binding_source_matches(comparison, source, charge)? { return Ok(true); }
         let Some(target) = self.guard_source_binding_path(decoder, source, comparison, charge)? else { return Ok(false); };
         for outcome in [true, false] {
             if decoder.checked_condition_proves_nonnull_with_prefix(comparison, outcome, false, comparison, &target, super::super::GuardedReadContract::NonNullRead, super::super::GuardPathStability::MayChange, Some(self), None, charge)? { return Ok(true); }
