@@ -459,11 +459,12 @@ test test_unix_exec_inherits_unsearchable_working_directory { |ctx|
   defer root.chmod(0o700)
   let script = test.temp_file(ctx, name: "exec-inherited-cwd.xsh", contents: bytes.from_text(r"""
 let root = Path(args[0])
+let program = Path(args[3])
 root.chmod(0o000)
 let command = if args[1] == "explicit" {
-  process.command_argv(p"/usr/bin/true", ["true"], cwd: root)
+  process.command_argv(program, [program.display(), "--startup"], cwd: root)
 } else {
-  process.command_argv(p"/usr/bin/true", ["true"])
+  process.command_argv(program, [program.display(), "--startup"])
 }
 let environment: Map[Str, Str] = {}
 let result = if args[2] == "exec_env" {
@@ -481,7 +482,7 @@ if args[1] == "explicit" {
     for mode in ["inherited", "explicit"] {
       root.chmod(0o700)
       let errors = test.temp_path(ctx, name: f"{operation}-{mode}.stderr")
-      let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", root, mode, operation], cwd: root, stderr: errors, timeout: 5s))?
+      let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", root, mode, operation, ctx.xsh_bin], cwd: root, stderr: errors, timeout: 5s))?
       assert status.ok, errors.read_text()?
     }
   }
