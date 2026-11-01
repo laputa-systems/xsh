@@ -90,3 +90,38 @@ pure pick(items, index: Int) -> Str? {
 let rejected = pick([1, 2], 0)
 """, status: 2, stderr: ["[check.callable-mismatch]"])?
 }
+
+test test_full_inference_generic_body_generalizes_past_a_returning_match_arm { |ctx|
+  let checks = r"""
+assert classify(1, "x") == "one"
+assert classify(2, "x") == "other"
+assert classify(7, "x") == "returned"
+print "generalized"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+pure classify(code: Int, tag) -> Str {
+  let name = match code {
+    1 => "one"
+    2 => "other"
+    else => { return "returned" }
+  }
+  let _ = tag == "x"
+  name
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+pure classify(code: Int, tag: Str) -> Str {
+  let name = match code {
+    1 => "one"
+    2 => "other"
+    else => { return "returned" }
+  }
+  let _ = tag == "x"
+  name
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "generalized\n"
+}

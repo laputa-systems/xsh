@@ -330,11 +330,14 @@ impl Checker {
         }).collect::<Vec<_>>();
         for (handler, joined) in diverging_handlers { body_types.insert(handler, joined); }
         let diverging_branches = body_types.keys().copied().filter_map(|expression| {
-            let crate::syntax::arena::ArenaExprKind::If { branches, else_value } = program.arena.expr(expression).kind else { return None };
+            let values = match program.arena.expr(expression).kind {
+                crate::syntax::arena::ArenaExprKind::If { branches, else_value } => program.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain(std::iter::once(else_value)).collect::<Vec<_>>(),
+                crate::syntax::arena::ArenaExprKind::Match { arms, .. } => program.arena.match_expr_arms(arms).iter().map(|arm| arm.value).collect::<Vec<_>>(),
+                _ => return None,
+            };
             let joined = body_types.get(&expression)?.clone();
             if joined.contains_recovery() { return None; }
-            let values = program.arena.if_expr_branches(branches).iter().map(|branch| branch.value).chain(std::iter::once(else_value));
-            Some(values.filter_map(|value| {
+            Some(values.into_iter().filter_map(|value| {
                 let crate::syntax::arena::ArenaExprKind::ValueBlock(block) = program.arena.expr(value).kind else { return None };
                 let tail = program.arena.stmt_ids(program.arena.block(block).statements).last().map(|statement| program.arena.core_stmt_id(statement))?;
                 if body_types.get(&value) != Some(&Type::Unknown)
