@@ -3413,7 +3413,10 @@ List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
 Equality retains its operand compatibility requirement until each call selects
 its input types. A field compared with `Str` can therefore be `Str` or `Str?`,
-while container element types remain invariant. Membership can retain
+while container element types remain invariant. A closed comparison operand may
+establish the absent success or error type of a fresh `Err` or `Ok` constructor
+passed through a generic call. This context does not choose a function input's
+type. Membership can retain
 independent value and container parameters, selecting the ordinary domain at each
 call. Unsigned map membership validates the computed needle before evaluating
 the container; validation errors follow the enclosing capture or Proc error boundary. Ordering of two
