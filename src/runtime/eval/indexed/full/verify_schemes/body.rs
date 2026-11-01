@@ -68,6 +68,48 @@ impl LexicalScope {
         }
     }
 
+    pub(super) fn record_get_key(&self, scopes: &LexicalScopes, decoder: &FullDecoder<'_>, mut instruction: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<Arc<str>>, IrVerifyError> {
+        let mut scope = *self;
+        let mut field = None;
+        loop {
+            budget.charge(1)?;
+            match decoder.expression_view(instruction)? {
+                schema::ExprView::Param(slot) => {
+                    let Some(binding) = scope.binding(scopes, slot, budget)? else { return Ok(None) };
+                    if binding.mutable { return Ok(None); }
+                    let Some((source, source_scope)) = binding.initializer else { return Ok(None) };
+                    instruction = source;
+                    scope = source_scope;
+                }
+                schema::ExprView::Field { base, name, .. } if field.is_none() => {
+                    field = Some(Name::intern(name));
+                    instruction = base.raw() as usize;
+                }
+                schema::ExprView::Record(mut entries) if field.is_some() => {
+                    let entries = decoder.checked_record_entries(&mut entries)?;
+                    budget.charge(entries.len())?;
+                    let mut selected = None;
+                    for entry in entries.into_iter().rev() {
+                        match entry {
+                            super::super::CheckedRecordEntry::Field(name, value) if Some(name) == field => { selected = Some(value); break; }
+                            super::super::CheckedRecordEntry::Spread(_) => return Ok(None),
+                            _ => {}
+                        }
+                    }
+                    let Some(value) = selected else { return Ok(None) };
+                    instruction = value;
+                    field = None;
+                }
+                schema::ExprView::PreparedConstant(crate::runtime::eval::PreparedConstantValue(crate::runtime::eval::LoweredValue::Record(values), _)) if field.is_some() => {
+                    let Some(crate::runtime::eval::LoweredValue::Str(value)) = values.get(field.unwrap().as_str().as_str()) else { return Ok(None) };
+                    return Ok(Some(Arc::clone(value)));
+                }
+                _ if field.is_none() => return decoder.checked_literal_string(instruction),
+                _ => return Ok(None),
+            }
+        }
+    }
+
     pub(super) fn slot_type<'a>(&self, scopes: &'a LexicalScopes, slot: usize, budget: &mut SchemeInstantiationBudget) -> Result<Option<&'a SchemeType>, IrVerifyError> {
         let binding = self.binding(scopes, slot, budget)?;
         if binding.is_some_and(|binding| binding.access == BindingAccess::StaticCallableNamespace) { return Err(IrVerifyError::at(binding.and_then(|binding| binding.capture_use), "generic namespace capture escapes its callable projection")); }
@@ -4352,6 +4394,44 @@ let parent_absolute: Path = parent_transform(p"/a/b", 7)
         let method_words = wrong_operation.store.data[method].range().bounds(wrong_operation.store.extra.len()).unwrap();
         let length_words = program.store.data[length_method].range().bounds(program.store.extra.len()).unwrap();
         wrong_operation.store.extra[method_words.start + 1] = program.store.extra[length_words.start + 1];
+        assert!(FullVerifier::verify(&wrong_operation).is_err());
+    }
+
+    #[test]
+    fn generic_record_get_authenticates_projection_and_registry() {
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let program = prepare("type Info = {arch: Str, count: Int}\npure choose(row: Info, marker, wrong: Str) -> Result[Str] { let _ = marker; let _ = wrong; let _ = row.get(\"count\"); row.get(\"arch\")? }\nlet result = choose({arch: \"arm\", count: 4}, 1, \"wrong\")");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+        let cold = || { let mut changed = program.clone(); changed.store.in_place.take(); changed };
+        FullVerifier::verify(&cold()).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut sites = BTreeMap::new();
+        for instruction in program.store.function_instruction_range(owner).unwrap() {
+            let Ok(schema::ExprView::Method { receiver, name: "get", mut args, .. }) = decoder.expression_view(instruction) else { continue };
+            let argument = args.next().unwrap().unwrap().raw() as usize;
+            let schema::ExprView::Param(slot) = decoder.expression_view(argument).unwrap() else { panic!("record key must retain its immutable producer") };
+            let (_, Some(source)) = decoder.local_immutable_let_initializer(slot).unwrap() else { panic!("record key must have an initializer") };
+            let key = decoder.checked_literal_string(source).unwrap().unwrap();
+            sites.insert(key.to_string(), (instruction, receiver.raw() as usize, argument, slot));
+        }
+        let &(arch, receiver, key, _) = sites.get("arch").unwrap();
+        let &(count, _, _, count_slot) = sites.get("count").unwrap();
+        let mut wrong_key = cold();
+        let words = wrong_key.store.data[key].range().bounds(wrong_key.store.extra.len()).unwrap();
+        wrong_key.store.extra[words.start] = count_slot as u32;
+        assert!(FullVerifier::verify(&wrong_key).is_err());
+        let mut wrong_receiver = cold();
+        let words = wrong_receiver.store.data[receiver].range().bounds(wrong_receiver.store.extra.len()).unwrap();
+        wrong_receiver.store.extra[words.start] = 2;
+        assert!(FullVerifier::verify(&wrong_receiver).is_err());
+        let mut wrong_result = cold();
+        let count_fact = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == count && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))).unwrap().value;
+        let arch_fact = wrong_result.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == arch && matches!(fact.value, FullSchemeBodyFactValue::Expression(_))).unwrap();
+        arch_fact.value = count_fact;
+        assert!(FullVerifier::verify(&wrong_result).is_err());
+        let mut wrong_operation = cold();
+        let plan = wrong_operation.store.registered_calls.get_mut(&(arch as u32)).unwrap();
+        Arc::make_mut(plan).signature = &crate::modules::api_spec().method_overloads(crate::modules::MethodReceiver::Record, "keys").unwrap()[0].sig;
         assert!(FullVerifier::verify(&wrong_operation).is_err());
     }
 

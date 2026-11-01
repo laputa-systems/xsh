@@ -433,13 +433,24 @@ fn result_context_method(plan: &super::schemes::RegisteredCallPlan) -> bool {
         && plan.signature.params.iter().all(|parameter| parameter.ty == Type::Str)
 }
 
+pub(crate) fn registered_record_get(plan: &super::schemes::RegisteredCallPlan) -> bool {
+    plan.receiver == Some(crate::modules::MethodReceiver::Record)
+        && plan.name.as_ref() == "get"
+        && plan.signature.op == crate::modules::RuntimeOp::RecordGet
+        && plan.signature.arg_check == crate::modules::signature::ApiArgCheck::Standard
+        && plan.signature.semantic_rule == crate::modules::signature::SemanticRule::ConstantKeyProjection
+        && plan.signature.params.len() == 1
+        && plan.signature.params[0].ty == Type::Str
+        && plan.signature.return_ty == Type::Result(Box::new(Type::Any), Box::new(Type::Error))
+}
+
 pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCallPlan) -> bool {
     use crate::modules::signature::{ApiArgCheck, ImplBinding, MethodReceiver, SemanticRule};
     let signature = plan.signature;
     if plan.argument_checks.len() != signature.params.len() || plan.argument_checks.iter().flatten().any(|check| matches!(check, super::schemes::RegisteredArgumentCheck::Unsigned(ty) if ty.contains_inference() || ty.contains_recovery())) { return false; }
     if !matches!(signature.binding, ImplBinding::Native)
         || signature.arg_check != ApiArgCheck::Standard && !json_encode_value_parameter(plan, 0) && !result_context_method(plan)
-        || signature.semantic_rule != SemanticRule::Standard
+        || signature.semantic_rule != SemanticRule::Standard && !registered_record_get(plan)
     { return false; }
     let slots = plan.argument_slots.iter().copied().collect::<std::collections::BTreeSet<_>>();
     if slots.len() != plan.argument_slots.len()
@@ -461,6 +472,7 @@ pub(crate) fn registered_call_result(
     wire_enum: &impl Fn(crate::symbol::Name) -> bool,
 ) -> Option<super::schemes::SchemeType> {
     let parameters = registered_call_parameters(plan, receiver, arguments, None, wire_enum)?;
+    if registered_record_get(plan) { return Some(super::schemes::SchemeType::Ground(plan.signature.return_ty.clone())); }
     symbolic_template_type(&plan.signature.return_ty, &parameters, 0)
 }
 
@@ -471,7 +483,8 @@ pub(crate) fn verify_registered_call(
     result: &super::schemes::SchemeType,
     wire_enum: &impl Fn(crate::symbol::Name) -> bool,
 ) -> bool {
-    let Some(parameters) = registered_call_parameters(plan, receiver, arguments, Some(result), wire_enum) else { return false };
+    let Some(parameters) = registered_call_parameters(plan, receiver, arguments, (!registered_record_get(plan)).then_some(result), wire_enum) else { return false };
+    if registered_record_get(plan) { return result.closed_ground_type() == Some(plan.signature.return_ty.clone()); }
     let Some(expected) = symbolic_template_type(&plan.signature.return_ty, &parameters, 0) else { return false };
     result == &expected || matches!((result.closed_ground_type(), expected.closed_ground_type()), (Some(actual), Some(expected)) if actual == expected)
 }
@@ -497,7 +510,9 @@ fn registered_call_parameters(
                 if !bind_symbolic_template(template, actual, &mut parameters, 0) { return None; }
             } else {
                 let valid = match domain {
-                    MethodReceiver::Record => matches!(actual, SchemeType::Record { .. }) || matches!(actual.closed_ground_type(), Some(Type::Record(_))),
+                    MethodReceiver::Record => matches!(actual, SchemeType::Record { .. })
+                        || matches!(actual.closed_ground_type(), Some(Type::Record(_)))
+                        || registered_record_get(plan) && matches!(actual.closed_ground_type(), Some(Type::ErasedRecord | Type::Module(_))),
                     MethodReceiver::Int => matches!(actual.closed_ground_type().as_ref().map(Type::unvalidated), Some(Type::Int | Type::UInt)),
                     _ => false,
                 };

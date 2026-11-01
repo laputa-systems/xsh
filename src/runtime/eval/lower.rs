@@ -5920,8 +5920,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     while ordered.last() == Some(&None) { ordered.pop(); }
                     if slots.guarded_postfixes.contains(&expression) {
-                        let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
-                        ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments, &|name| self.declarations.wire_enums.mappings.contains_key(&name))?;
+                        if crate::sema::builtin_templates::registered_record_get(&plan) {
+                            ty = match ty {
+                                SchemeType::Optional(inner) => *inner,
+                                SchemeType::Ground(Type::Optional(inner)) => SchemeType::Ground(*inner),
+                                ty => ty,
+                            };
+                        } else {
+                            let arguments = ordered.iter().map(|value| value.and_then(|value| lowered_types.get(&value))).collect::<Vec<_>>();
+                            ty = crate::sema::builtin_templates::registered_call_result(&plan, receiver.and_then(|value| lowered_types.get(&value)), &arguments, &|name| self.declarations.wire_enums.mappings.contains_key(&name))?;
+                        }
                     }
                     if receiver.is_none() && plan.signature.op == RuntimeOp::ProcessCommandArgv {
                         if ordered.len() > 16 { return self.block_scheme_lowering_expr(expression); }
