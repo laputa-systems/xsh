@@ -465,6 +465,7 @@ impl ProducerPrefixContext<'_> {
         let mut charge = |amount| self.evidence.work.borrow_mut().charge(amount);
         charge(1)?;
         if declared_slot != slot || !self.evidence.binding_path_is_snapshot(decoder, binding, slot, &mut charge)? { return Ok(None); }
+        if decoder.store.tags[declaration].kind() != schema::InstructionKind::Stmt { return Ok(None); }
         match decoder.statement_view(declaration)? {
             schema::StmtView::Let { slot: actual, value, .. } if actual == slot => Ok(Some(value.raw() as usize)),
             _ => Ok(None),
