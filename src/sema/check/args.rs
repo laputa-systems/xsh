@@ -818,6 +818,7 @@ impl Checker {
         arg: &ArenaCallArgKind,
         expected: &Type,
         parameter: &FunctionParamSig,
+        authority: CallArgumentAuthority<'_>,
     ) -> Type {
         let schema = if parameter.rest {
             parameter
@@ -833,7 +834,20 @@ impl Checker {
             parameter.schema_expectation.clone()
         };
         let previous = self.boundary.expected_schema.replace(schema.unwrap_or_default());
-        let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
+        let context = if let Some(instance) = authority.instance() {
+            match self.type_constraints.is_unresolved_fallback_source(instance, expected) {
+                Ok(true) => None,
+                Ok(false) => Some(expected),
+                Err(error) => {
+                    self.report_inferred_type_conflict(crate::sema::constraints::ConstraintConflict {
+                        expected: expected.clone(), actual: expected.clone(), initializer: None,
+                        established: None, contribution: call_arg_span_arena(arena, arg), resolution_error: Some(error),
+                    });
+                    Some(expected)
+                }
+            }
+        } else { Some(expected) };
+        let actual = self.check_call_arg_arena(arena, source, arg, context);
         self.boundary.expected_schema = previous;
         actual
     }
@@ -966,7 +980,7 @@ impl Checker {
                             );
                         } else {
                             let actual = self.check_parameter_arg_arena(
-                                arena, source, &arg.kind, expected, param,
+                                arena, source, &arg.kind, expected, param, authority,
                             );
                             self.expect_function_call_argument(authority,
                                 expected,
@@ -1039,7 +1053,7 @@ impl Checker {
                         }
                         _ => {
                             let actual = self.check_parameter_arg_arena(
-                                arena, source, &arg.kind, &item_ty, param,
+                                arena, source, &arg.kind, &item_ty, param, authority,
                             );
                             self.expect_function_call_argument(authority,
                                 &item_ty,
@@ -1145,7 +1159,7 @@ impl Checker {
                 }
                 let expected = can_check_following_positionals.then_some(&param.ty);
                 let actual = if let Some(expected) = expected {
-                    self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param)
+                    self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param, authority)
                 } else {
                     self.check_call_arg_arena(arena, source, &arg.kind, None)
                 };

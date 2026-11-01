@@ -4922,6 +4922,28 @@ mod optional_fallback_inference_tests {
 
     #[cfg(feature = "native-tests")]
     #[test]
+    fn deferred_method_result_fallback_passes_cold_verifier_and_both_routes() {
+        let source = "proc apply(value) [] -> Str { value ?? \"\" }\nproc caller(word: Str) [] -> Str { apply(word.byte_slice(0)) }\ntest deferred { assert caller(\"word\") == \"word\"; assert apply(null) == \"\" }\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "deferred-fallback.xsh",
+            crate::loader::entry_source_from_text("deferred-fallback.xsh", source.to_owned()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.source_text_source_id().unwrap();
+        let checked = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        crate::runtime::eval::Evaluator::probe_embedded_module_lowering(&parsed.arena, &checked, source, std::sync::Arc::new(sources.clone()), source_id).unwrap();
+        let prepared = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources)
+            .prepare_test_program(std::sync::Arc::new(parsed.arena), source_id, checked).unwrap();
+        for force_frames in [false, true] {
+            let result = prepared.eval_test("deferred", crate::runtime::value::Value::Unit, false, force_frames, Vec::new(), crate::runtime::eval::TestCancellation::default());
+            assert_eq!(result.output.status, 0, "force_frames={force_frames}: {:?} {:?}", result.output.diagnostics, result.output.traceback);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
     fn optional_fallback_call_arguments_keep_values_and_wrappers_on_both_routes() {
         let source = "pure is_present(value) { value != null }\npure is_absent(value) { value == null }\npure fallback(value) { value ?? 0 }\npure constant_with_tag(tag) { let _ = tag; fallback(31) }\npure observed(value) { let _ = value != null; value ?? 0 }\npure observe(value) { let _ = value != null; value }\npure retained(value) { let _ = value ?? 0; value }\npure nested(value) { value ?? Ok(0) }\nproc proc_fallback(value) [] { value ?? 0 }\nproc text_fallback(value) [] { value ?? \"kept\" }\ntest arguments {\n  let recovered = fallback\n  assert recovered(37) == 37\n  assert fallback(7) == 7\n  assert fallback(value: 23) == 23\n  assert constant_with_tag(\"kept\") == 31\n  assert fallback(null) == 0\n  assert observed(9) == 9\n  assert observed(null) == 0\n  let present: Int? = 11\n  assert fallback(present) == 11\n  let failure: Result[Int, Str] = Err(\"kept\")\n  let missing: Int? = null\n  assert is_present(7)\n  assert is_present(\"kept\")\n  assert is_present(failure)\n  assert !is_present(missing)\n  assert !is_absent(7)\n  assert is_absent(missing)\n  let success: Result[Int, Str] = Ok(13)\n  assert fallback(failure) == 0\n  assert fallback(success) == 13\n  let optional_result: Result[Int, Str]? = failure\n  assert nested(optional_result) == failure\n  assert observe(7) == 7\n  assert observe(\"kept\") == \"kept\"\n  assert observe(failure) == failure\n  let kept: Int? = retained(17)\n  let absent: Int? = retained(null)\n  assert kept == 17\n  assert absent == null\n  assert proc_fallback(19)? == 19\n  assert proc_fallback(null)? == 0\n  assert text_fallback(null)? == \"kept\"\n}\n";
         let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(

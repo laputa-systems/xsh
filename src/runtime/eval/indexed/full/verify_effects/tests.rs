@@ -4356,3 +4356,20 @@ assert second == success
         assert_eq!(error.message, "generic success payload disagrees with its checked contract");
     });
 }
+
+#[test]
+fn deferred_fallback_call_rejects_forged_argument() {
+    on_large_stack(|| {
+        let source = "proc apply(value) [] -> Str { value ?? \"\" }\nproc caller(word: Str) [] -> Str { apply(word.byte_slice(0)) }\nlet flag = true\nlet _ = flag\nassert caller(\"word\").byte_len() == 4\n";
+        let program = fixture(source);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+        let string = (0..program.store.driver_steps.len()).flat_map(|step| program.store.driver_instruction_range(step).unwrap())
+            .find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
+        let mut forged = program.clone();
+        forged.store.tags[string] = FullTag::ExprBool;
+        forged.store.data[string] = program.store.data[boolean];
+        assert!(FullVerifier::verify(&forged).is_err());
+    });
+}

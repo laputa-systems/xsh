@@ -759,6 +759,19 @@ impl TypeConstraints {
 
     pub(crate) fn map_key_wrapper_at(&self, owner: CallableApplicationScope, span: Span) -> Option<WrapperOperationId> { self.wrappers.sources.get(&(owner, span, WrapperSource::MapKey)).copied() }
 
+    pub(crate) fn is_unresolved_fallback_source(
+        &self, instance: &super::InstantiatedScheme, expected: &Type,
+    ) -> Result<bool, ConstraintResolutionError> {
+        let expected = self.resolve(expected)?;
+        if !matches!(expected, Type::Inference(_)) { return Ok(false); }
+        for id in &instance.wrappers {
+            let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if let WrapperRequirementKind::Fallback { source, .. } = &entry.requirement.kind
+                && self.resolve(source)? == expected { return Ok(true); }
+        }
+        Ok(false)
+    }
+
     pub(super) fn optional_wrapper_call_argument_type(
         &self, instance: &super::InstantiatedScheme, expected: &Type, actual: &Type,
     ) -> Result<Option<Type>, ConstraintResolutionError> {
