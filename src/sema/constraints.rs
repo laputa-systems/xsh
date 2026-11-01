@@ -891,6 +891,20 @@ impl TypeConstraints {
     }
 
     pub(crate) fn fresh_at_level(&mut self, origin: Span, level: u32) -> Type {
+        let id = self.allocate_type_variable(origin, level);
+        if let Some(journal) = &mut self.trial_changes {
+            journal.push(ConstraintChange::FreshType(id));
+        }
+        Type::Inference(id)
+    }
+
+    fn fresh_type_with_changes(&mut self, origin: Span, level: u32, changes: &mut Vec<ConstraintChange>) -> Type {
+        let id = self.allocate_type_variable(origin, level);
+        changes.push(ConstraintChange::FreshType(id));
+        Type::Inference(id)
+    }
+
+    fn allocate_type_variable(&mut self, origin: Span, level: u32) -> TypeVariableId {
         let id = TypeVariableId(NEXT_VARIABLE.fetch_add(1, Ordering::Relaxed));
         self.variables.insert(
             id,
@@ -908,10 +922,7 @@ impl TypeConstraints {
             }),
         );
         self.counters.fresh_variables.fetch_add(1, Ordering::Relaxed);
-        if let Some(journal) = &mut self.trial_changes {
-            journal.push(ConstraintChange::FreshType(id));
-        }
-        Type::Inference(id)
+        id
     }
 
     #[cfg(test)]

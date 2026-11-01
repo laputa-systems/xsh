@@ -629,7 +629,7 @@ impl TypeConstraints {
         })
     }
 
-    fn constrain_operation_type(&mut self, expected: &Type, actual: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
+    pub(super) fn constrain_operation_type(&mut self, expected: &Type, actual: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
         self.constrain_inner(expected, actual, span, false, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))
     }
 
@@ -644,7 +644,9 @@ impl TypeConstraints {
             while let Some(id) = this.operations.pending.pop_front() {
                 assert!(this.operations.queued.remove(&id));
                 changes.push(ConstraintChange::Operation(OperationChange::Dequeued(id)));
-                let operation = this.operations.entries.get(&id).expect("queued operation belongs to its owner").operation.clone();
+                let entry = this.operations.entries.get(&id).expect("queued operation belongs to its owner");
+                let owner = entry.owner;
+                let operation = entry.operation.clone();
                 let dependencies = this.operation_dependencies(&operation)?;
                 let level = dependencies.iter().filter_map(|dependency| match dependency {
                     ApplicationDependency::Type(id) => Some(this.type_level(*id)),
@@ -796,6 +798,10 @@ impl TypeConstraints {
                         continue;
                     }
                     SealedOperation::StoreValue { storage, replacement, span } => {
+                        this.constrain_store_constructor_errors(owner, &storage, &replacement, span, changes).map_err(|error| match error {
+                            SealedOperationError::Constraint(conflict) => SealedOperationError::StorageConstraint(conflict),
+                            error => error,
+                        })?;
                         let storage = this.resolve_with_changes(&storage, 0, changes)?;
                         if matches!(storage.unvalidated(), Type::Inference(_)) { continue; }
                         let replacement = this.resolve_with_changes(&replacement, 0, changes)?;

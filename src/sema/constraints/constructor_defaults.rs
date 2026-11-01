@@ -1,4 +1,4 @@
-use super::{CallableApplicationScope, ConstraintChange, ConstraintResolutionError, SchemeOperationError, Type, TypeConstraints, TypeVariableId, Variable};
+use super::{CallableApplicationScope, ConstraintChange, ConstraintResolutionError, SchemeOperationError, SealedOperationError, Type, TypeConstraints, TypeVariableId, Variable};
 use crate::sema::check::EffectDeclarationId;
 use crate::source::Span;
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,6 +16,7 @@ pub(crate) struct ConstructorArgumentCheckpoint {
 pub(super) struct ConstructorErrorDefault {
     variable: TypeVariableId,
     source: Span,
+    constructor_owned: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -58,12 +59,73 @@ impl ConstructorErrorDefaults {
 }
 
 impl TypeConstraints {
+    fn fresh_constructor_error(&self, owner: CallableApplicationScope, error: &Type) -> Result<bool, ConstraintResolutionError> {
+        let Type::Inference(variable) = self.resolve(error)? else { return Ok(false) };
+        let Some(entries) = self.constructor_defaults.pending.get(&owner) else { return Ok(false) };
+        let owns = |variable| entries.values().any(|entry| entry.variable == variable && entry.constructor_owned);
+        let Some(Variable::Representative(value)) = self.variables.get(&variable) else { return Ok(false) };
+        if !owns(variable) || value.binding.is_some() { return Ok(false); }
+        if value.rank == 0 { return Ok(true); }
+        for &member in self.variables.keys() {
+            self.counters.occurs_visits.fetch_add(1, Ordering::Relaxed);
+            if self.representative_root(member)? == variable && !owns(member) { return Ok(false); }
+        }
+        Ok(true)
+    }
+
+    pub(super) fn constrain_store_constructor_errors(&mut self, owner: CallableApplicationScope, storage: &Type, replacement: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
+        if !self.has_constructor_error_defaults(owner) { return Ok(()); }
+        let mut pending = vec![(storage.clone(), replacement.clone(), 0)];
+        while let Some((storage, replacement, depth)) = pending.pop() {
+            if depth > super::MAX_TYPE_DEPTH { return Err(ConstraintResolutionError::TypeDepth.into()); }
+            self.counters.occurs_visits.fetch_add(1, Ordering::Relaxed);
+            let storage = self.resolve_with_changes(&storage, 0, changes)?;
+            let mut replacement = self.resolve_with_changes(&replacement, 0, changes)?;
+            if let Type::Result(_, error) = &storage
+                && self.fresh_constructor_error(owner, error)?
+            {
+                if let Type::Inference(variable) = replacement {
+                    let level = self.type_level(variable)?;
+                    let payload = self.fresh_type_with_changes(span, level, changes);
+                    let error = self.fresh_type_with_changes(span, level, changes);
+                    let shape = Type::Result(Box::new(payload), Box::new(error));
+                    self.constrain_operation_type(&Type::Inference(variable), &shape, span, changes)?;
+                    replacement = self.resolve_with_changes(&replacement, 0, changes)?;
+                }
+                if let Type::Result(_, replacement_error) = &replacement
+                    && !replacement_error.contains_any() && !replacement_error.contains_recovery()
+                {
+                    self.constrain_operation_type(error, replacement_error, span, changes)?;
+                }
+            }
+            match (storage, replacement) {
+                (Type::Result(left, left_error), Type::Result(right, right_error))
+                | (Type::Map(left, left_error), Type::Map(right, right_error)) => {
+                    pending.push((*left, *right, depth + 1));
+                    pending.push((*left_error, *right_error, depth + 1));
+                }
+                (Type::List(left), Type::List(right)) | (Type::Set(left), Type::Set(right))
+                | (Type::Stream(left), Type::Stream(right)) | (Type::Optional(left), Type::Optional(right)) => pending.push((*left, *right, depth + 1)),
+                (Type::Optional(left), right) if !matches!(right, Type::Inference(_)) => pending.push((*left, right, depth + 1)),
+                (Type::Record(left), Type::Record(right)) => {
+                    for (name, left) in left.iter() {
+                        if let Some(right) = right.get(name) { pending.push((left.clone(), right.clone(), depth + 1)); }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn record_constructor_error_default(&mut self, owner: CallableApplicationScope, error: &Type, source: Span) -> Result<(), ConstraintResolutionError> {
         let Type::Inference(variable) = self.resolve(error)? else { return Ok(()) };
         let variable = self.representative_root(variable)?;
-        if !matches!(self.variables.get(&variable), Some(Variable::Representative(value)) if value.binding.is_none()) { return Ok(()) }
+        let Some(Variable::Representative(value)) = self.variables.get(&variable) else { return Ok(()) };
+        if value.binding.is_some() { return Ok(()) }
+        let constructor_owned = value.rank == 0 && value.origin == source && !value.annotation;
         let id = NEXT_CONSTRUCTOR_DEFAULT.fetch_add(1, Ordering::Relaxed);
-        self.constructor_defaults.pending.entry(owner).or_default().insert(id, ConstructorErrorDefault { variable, source });
+        self.constructor_defaults.pending.entry(owner).or_default().insert(id, ConstructorErrorDefault { variable, source, constructor_owned });
         if let Some(changes) = &mut self.trial_changes { changes.push(ConstraintChange::ConstructorDefault(ConstructorDefaultChange::Registered(owner, id))); }
         Ok(())
     }
@@ -147,6 +209,57 @@ mod tests {
 
     fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
     fn owner() -> EffectDeclarationId { EffectDeclarationId { namespace: None, body: span() } }
+
+    #[test]
+    fn constructor_storage_context_preserves_foreign_error_cells() {
+        use crate::sema::sealed_operation::SealedOperation;
+        let mut constraints = TypeConstraints::default();
+        let scope = CallableApplicationScope::Invocation;
+        let error = constraints.fresh(span());
+        constraints.record_constructor_error_default(scope, &error, span()).unwrap();
+        let foreign_span = Span::new(SourceId::new(0), 2, 3);
+        let foreign = constraints.fresh(foreign_span);
+        let foreign_owner = CallableApplicationScope::Declaration(EffectDeclarationId { namespace: None, body: Span::new(SourceId::new(0), 2, 4) });
+        constraints.record_constructor_error_default(foreign_owner, &foreign, foreign_span).unwrap();
+        constraints.constrain(&error, &foreign, span()).unwrap();
+        let before = constraints.resolve(&foreign).unwrap();
+        constraints.register_sealed_operation(scope, SealedOperation::StoreValue {
+            storage: Type::Result(Box::new(Type::Int), Box::new(error)),
+            replacement: Type::Result(Box::new(Type::Int), Box::new(Type::Bool)), span: span(),
+        }).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&foreign).unwrap(), before);
+        assert!(matches!(before, Type::Inference(_)));
+    }
+
+    #[test]
+    fn failed_constructor_storage_context_restores_inference_state() {
+        use crate::sema::sealed_operation::SealedOperation;
+        let mut constraints = TypeConstraints::default();
+        let scope = CallableApplicationScope::Invocation;
+        let error = constraints.fresh(span());
+        constraints.record_constructor_error_default(scope, &error, span()).unwrap();
+        let replacement = constraints.fresh(Span::new(SourceId::new(0), 2, 3));
+        constraints.register_sealed_operation(scope, SealedOperation::StoreValue {
+            storage: Type::Result(Box::new(Type::Int), Box::new(error.clone())),
+            replacement: replacement.clone(), span: span(),
+        }).unwrap();
+        let variables = constraints.variables.len();
+        let operations = constraints.operations.clone();
+        let rejected = constraints.commit_constraint_transaction(|trial| {
+            trial.solve_sealed_operations()?;
+            trial.constrain(&replacement, &Type::Result(Box::new(Type::Str), Box::new(Type::Bool)), span()).map_err(SealedOperationError::Constraint)?;
+            trial.solve_sealed_operations()
+        });
+        assert!(matches!(rejected, Err(SealedOperationError::StorageConstraint(_))));
+        assert_eq!(constraints.resolve(&replacement).unwrap(), replacement);
+        assert_eq!(constraints.resolve(&error).unwrap(), error);
+        assert_eq!(constraints.variables.len(), variables);
+        assert_eq!(constraints.operations, operations);
+        constraints.constrain(&replacement, &Type::Result(Box::new(Type::Int), Box::new(Type::Bool)), span()).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&error).unwrap(), Type::Bool);
+    }
 
     #[test]
     fn constructor_defaults_wait_for_all_actuals_and_preserve_input_bound_cells() {
