@@ -24759,6 +24759,39 @@ assert read(b"", "ignored") == 0
     }
 
     #[test]
+    fn generic_optional_assignment_authenticates_its_known_argument_relation() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("generic-optional-assignment.xsh", r#"
+pure keep(value, other) {
+    var found: Str? = null
+    found = value
+    let _ = other
+    found
+}
+assert keep("a", 1) == "a"
+assert keep(null, 1) == null
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "keep");
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("keep is quantified") };
+            let scheme = program.store.schemes[scheme.index()];
+            let params = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            let value = program.store.scheme_params[params.start].ty;
+            let other = program.store.scheme_params[params.start + 1].ty;
+            let argument = scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| {
+                let schemes::FullSchemeApplication::KnownArguments { arguments, .. } = program.store.scheme_applications[index] else { return None };
+                let argument = arguments.bounds(program.store.scheme_application_arguments.len()).unwrap().start;
+                let actual = program.store.scheme_application_arguments[argument].ty;
+                (program.store.scheme_types[actual.index()] == program.store.scheme_types[value.index()]).then_some(argument)
+            }).unwrap();
+            let mut wrong_binder = (*program).clone();
+            let argument_type = wrong_binder.store.scheme_application_arguments[argument].ty;
+            wrong_binder.store.scheme_types[argument_type.index()] = program.store.scheme_types[other.index()];
+            assert!(FullVerifier::verify(&wrong_binder).is_err());
+        });
+    }
+
+    #[test]
     fn generic_arguments_authenticate_mutable_cursor_writers() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-mutable-cursor-argument.xsh", r#"

@@ -820,7 +820,8 @@ fn pipeline_configuration_bool(
 
 fn assignment_replacement(
     actual: &SchemeType, expected: &SchemeType, op: crate::syntax::node::AssignOp,
-    check: Option<super::super::decode::TypeCheckView<'_>>, budget: &mut SchemeInstantiationBudget,
+    check: Option<super::super::decode::TypeCheckView<'_>>, known_argument_assignment: bool,
+    budget: &mut SchemeInstantiationBudget,
 ) -> Result<(), IrVerifyError> {
     use crate::syntax::node::{AssignOp, BinaryOp};
     let result = if op == AssignOp::Set {
@@ -847,7 +848,7 @@ fn assignment_replacement(
         if check.schema.is_some() || expected.closed_ground_type().as_ref() != Some(&checked)
             || !body_type_matches_ground(&result, &checked) || !checked.has_unsigned_constraint()
         { return Err(IrVerifyError::new("generic assignment has an invalid storage check")); }
-    } else if !body_type_matches(&result, expected, budget)?
+    } else if !(known_argument_assignment || body_type_matches(&result, expected, budget)?)
         || expected.closed_ground_type().is_some_and(|expected| expected.has_unsigned_constraint() && result.closed_ground_type() != Some(expected))
     { return Err(IrVerifyError::new("generic assignment disagrees with its invariant slot contract")); }
     Ok(())
@@ -1726,13 +1727,15 @@ pub(super) fn verify_body(
                         let actual = expression_type(types, value.raw() as usize, budget)?;
                         if let Some(ordinal) = store_value_operation {
                             super::operations::verify_store_value_site(store, scheme_scope, ordinal, &expected, &actual, budget)?;
-                            if check.is_some() { assignment_replacement(&actual, &expected, op, check, budget)?; }
+                            if check.is_some() { assignment_replacement(&actual, &expected, op, check, false, budget)?; }
                         } else if let Some(ordinal) = compound_operation {
                             let binary = match op { AssignOp::Set => unreachable!(), AssignOp::Add => BinaryOp::Add, AssignOp::Sub => BinaryOp::Sub, AssignOp::Mul => BinaryOp::Mul, AssignOp::Div => BinaryOp::Div, AssignOp::Rem => BinaryOp::Rem };
                             super::operations::verify_body_site(store, scheme_scope, ordinal, binary, &expected, &actual, &expected, budget)?;
-                            if check.is_some() { assignment_replacement(&actual, &expected, op, check, budget)?; }
+                            if check.is_some() { assignment_replacement(&actual, &expected, op, check, false, budget)?; }
                         } else {
-                            assignment_replacement(&actual, &expected, op, check, budget)?;
+                            let known_argument_assignment = op == AssignOp::Set && check.is_none()
+                                && super::applications::known_argument_assignment_matches(store, decoder.owner, scheme_scope, &actual, &expected, budget)?;
+                            assignment_replacement(&actual, &expected, op, check, known_argument_assignment, budget)?;
                         }
                         expressions.push(value.raw() as usize);
                     }

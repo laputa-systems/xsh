@@ -53,3 +53,40 @@ pure describe(source: Int, entry: Entry) -> Int { entry.total + entry.items.len(
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "closed\n"
 }
+
+test test_full_inference_optional_local_assignment_from_generic_element { |ctx|
+  let checks = r"""
+assert pick(["a", "b"], 1) == "b"
+assert pick(["a"], 3) == null
+print "assigned"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+pure pick(items, index: Int) -> Str? {
+  var found: Str? = null
+  if index < items.len() { found = items[index] }
+  found
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+pure pick(items: List[Str], index: Int) -> Str? {
+  var found: Str? = null
+  if index < items.len() { found = items[index] }
+  found
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "assigned\n"
+}
+
+test test_full_inference_optional_local_assignment_rejects_other_element_domains { |ctx|
+  test.expect(ctx, r"""
+pure pick(items, index: Int) -> Str? {
+  var found: Str? = null
+  if index < items.len() { found = items[index] }
+  found
+}
+let rejected = pick([1, 2], 0)
+""", status: 2, stderr: ["[check.callable-mismatch]"])?
+}
