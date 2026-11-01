@@ -5817,7 +5817,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     for (argument, &slot) in arguments.into_iter().zip(&requirement.argument_slots) {
                         let slot = slot as usize;
                         if ordered.len() <= slot { ordered.resize(slot + 1, None); }
-                        if ordered[slot].replace(argument.lowered?).is_some() {
+                        let mut value = argument.lowered?;
+                        let key_span = self.key_validation_span(argument.source, argument.span);
+                        if facts.map_key_site(key_span).is_some() {
+                            let ty = lowered_types.get(&value)?.clone();
+                            value = self.lower_scheme_map_key(value, key_span, facts);
+                            self.record_scheme_storage_elaboration(value, &ty, lowered_types);
+                        }
+                        if ordered[slot].replace(value).is_some() {
                             return self.block_scheme_lowering_expr(expression);
                         }
                     }

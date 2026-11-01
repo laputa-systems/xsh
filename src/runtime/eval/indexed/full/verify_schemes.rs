@@ -1933,10 +1933,31 @@ fn verify_scheme_body_facts(
             }
         }
         if !membership_checks.is_empty() { return Err(IrVerifyError::new("membership key check has no body type")); }
+        let mut method_key_checks = BTreeSet::new();
+        for &instruction in method_sites.keys() {
+            if let schema::ExprView::Method { args, .. } = decoder.expression_view(instruction)? {
+                for argument in args {
+                    let argument = argument?.raw() as usize;
+                    if matches!(decoder.expression_view(argument)?, schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_), .. }) {
+                        method_key_checks.insert(argument);
+                    }
+                }
+            }
+        }
         for &instruction in types.keys() {
-            if let schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(ordinal), .. } = decoder.expression_view(instruction)?
-                && operation_sites.get(&instruction) != Some(&ordinal)
-            { return Err(IrVerifyError::new("map key check has no authenticated operation")); }
+            if let schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(ordinal), .. } = decoder.expression_view(instruction)? {
+                if operation_sites.get(&instruction) != Some(&ordinal) { return Err(IrVerifyError::new("map key check has no authenticated operation")); }
+                let active_scope = scope.at_instruction(instruction)?;
+                let encoded = *bounded(active_scope.operations, &store.scheme_operations, "map key operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("map key operation is out of scope"))?;
+                let operation = operations::decode(store, &active_scope, encoded, &applications::ApplicationSubstitution::Identity, &mut budget)?;
+                let crate::sema::sealed_operation::SealedOperation::MapKey { receiver, .. } = operation else { return Err(IrVerifyError::new("map key check names another operation")); };
+                let unsigned_map = match &receiver {
+                    SchemeType::Map(key, _) => body_type_matches_ground(key, &Type::UInt),
+                    SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
+                    _ => false,
+                };
+                if !unsigned_map && !method_key_checks.contains(&instruction) { return Err(IrVerifyError::new("conditional map key check has no retained method")); }
+            }
         }
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
@@ -3040,9 +3061,9 @@ fn verify_body_expression(
                 SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
                 _ => false,
             };
-            if !unsigned_map || !body_types_equal(&key, &required) || !operations::may_require_uint_key_validation(&receiver, &key) { return Err(IrVerifyError::new("map key check disagrees with its producer")); }
+            if !body_types_equal(&key, &required) || !operations::may_require_uint_key_validation(&receiver, &key) { return Err(IrVerifyError::new("map key check disagrees with its producer")); }
             if let Some(contribution) = wrappers::verify_key_validation_site(store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites.get(&instruction).copied(), ordinal, &receiver, &key, expected_return, boundary, completion_group, budget)? { completion_contributions.push(contribution); }
-            SchemeType::Ground(Type::UInt)
+            if unsigned_map { SchemeType::Ground(Type::UInt) } else { key }
         },
         schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
             let actual = child(value, budget)?;
@@ -3153,10 +3174,33 @@ fn verify_body_expression(
         schema::ExprView::Method { receiver, name, args, .. } => {
             let receiver_ty = child(receiver, budget)?;
             let mut arguments = Vec::new();
-            for argument in args { arguments.push(Some(child(argument?, budget)?)); }
+            let mut argument_instructions = Vec::new();
+            for argument in args {
+                let argument = argument?;
+                argument_instructions.push(argument.raw() as usize);
+                arguments.push(Some(child(argument, budget)?));
+            }
             if let Some(&ordinal) = method_sites.get(&instruction) {
                 let physical_arguments = arguments.iter().map(|argument| argument.as_ref().expect("method arguments are present").clone()).collect::<Vec<_>>();
                 methods::verify_body_site(store, scheme_scope, ordinal, name, &receiver_ty, &physical_arguments, ty, budget)?;
+                let encoded = *bounded(scheme_scope.methods, &store.scheme_methods, "scheme method range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body method ordinal is out of scope"))?;
+                let requirement = methods::decode(store, scheme_scope, encoded, &applications::ApplicationSubstitution::Identity, budget)?;
+                for (key, &slot) in requirement.arguments.iter().zip(&requirement.argument_slots) {
+                    let is_map_key = crate::modules::api_spec().method_requirement_members(requirement.kind).any(|(_, domain, _, method)| {
+                        domain == crate::modules::MethodReceiver::Map && method.sig.params.get(slot as usize).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key))
+                    });
+                    let argument = *argument_instructions.get(slot as usize).ok_or_else(|| IrVerifyError::new("generic method key slot is invalid"))?;
+                    if !is_map_key || !operations::may_require_uint_key_validation(&requirement.receiver, key) {
+                        if matches!(decoder.expression_view(argument)?, schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_), .. }) { return Err(IrVerifyError::new("generic method validation has another argument contract")); }
+                        continue;
+                    }
+                    let schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(operation), .. } = decoder.expression_view(argument)? else { return Err(IrVerifyError::new("generic method key has no physical validation")); };
+                    if operation_sites.get(&argument) != Some(&operation) { return Err(IrVerifyError::new("generic method key has no owned validation")); }
+                    let encoded = *bounded(scheme_scope.operations, &store.scheme_operations, "map key operation range is invalid")?.get(operation as usize).ok_or_else(|| IrVerifyError::new("map key operation is out of scope"))?;
+                    let operation = operations::decode(store, scheme_scope, encoded, &applications::ApplicationSubstitution::Identity, budget)?;
+                    let crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key: actual, .. } = operation else { return Err(IrVerifyError::new("generic method key names another operation")); };
+                    if !body_types_equal(&receiver, &requirement.receiver) || !body_types_equal(&actual, key) { return Err(IrVerifyError::new("generic method key validation disagrees with its contract")); }
+                }
                 ty.clone()
             } else {
                 if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {

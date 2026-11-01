@@ -6260,6 +6260,38 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn retained_method_key_authenticates_its_physical_check() {
+        let mut program = prepare("pure keyed(values, key: Int, wrong: Str) { let _ = wrong; let _ = values.get(key); \"one\" }\nlet values: Map[UInt, Str] = {[1]: \"one\"}\nlet selected = keyed(values, 1, \"wrong\")");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keyed").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let method = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "get", .. }))).unwrap();
+        let schema::ExprView::Method { mut args, .. } = decoder.expression_view(method).unwrap() else { unreachable!() };
+        let block = args.block_identity_for_test();
+        let check = args.next().unwrap().unwrap().raw() as usize;
+        let schema::ExprView::CheckedValue { value, check: ValueCheckView::MapKey(ordinal), .. } = decoder.expression_view(check).unwrap() else { panic!("retained method key must consume its check") };
+        let source = value.raw() as usize;
+        let arguments = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut bypass = program.clone();
+        bypass.store.extra[arguments.start + 1] = source as u32;
+        assert!(FullVerifier::verify(&bypass).is_err());
+        let mut wrong_operation = program.clone();
+        let check_payload = program.store.data[check].range().bounds(program.store.extra.len()).unwrap();
+        wrong_operation.store.extra[check_payload.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&wrong_operation).is_err());
+        let mut wrong_owner = program.clone();
+        let fact = wrong_owner.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == check && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Operation(_))).unwrap();
+        fact.function = super::super::super::IrFunctionId::new(owner + 1).unwrap();
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+        let mut wrong_producer = program.clone();
+        let source_payload = program.store.data[source].range().bounds(program.store.extra.len()).unwrap();
+        wrong_producer.store.extra[source_payload.start] = 2;
+        assert!(FullVerifier::verify(&wrong_producer).is_err());
+        assert_ne!(ordinal, u32::MAX);
+    }
+
+    #[test]
     fn generic_operators_membership_and_sets_preserve_actual_domains() {
         let program = prepare("pure keep(value, other) { let _ = value in [value]; value }");
         let (owner, scheme) = generic_owner(&program);

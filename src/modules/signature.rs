@@ -426,7 +426,9 @@ impl ApiSpec {
             for (argument, &slot) in arguments.iter().zip(argument_slots) {
                 let slot = slot as usize;
                 let Some(parameter) = parameters.get(slot) else { fits = false; break; };
-                if !supplied.insert(slot) || argument.unvalidated() != parameter.ty.unvalidated() {
+                let checked_map_key = matches!(crate::sema::builtin_templates::registered_argument_check(Some(actual), slot, &parameter.ty), Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey))
+                    && argument.unvalidated() == &Type::Int;
+                if !supplied.insert(slot) || argument.unvalidated() != parameter.ty.unvalidated() && !checked_map_key {
                     fits = false;
                     break;
                 }

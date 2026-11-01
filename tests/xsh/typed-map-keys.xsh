@@ -286,6 +286,7 @@ proc main() [io] {
     """proc keyed(values, key: Int) { values[key] }""",
     """proc keyed(values: Map[UInt, Str], key: Int) { if key in values { "present" } else { "absent" } }""",
     """proc keyed(values: Map[UInt, Str], key: Int) { values.get(key) ?? "missing" }""",
+    """proc keyed(values, key: Int) { let _ = values.get(key); "one" }""",
     """proc keyed(values: Map[UInt, Str], key: Int) { var copy = values; copy[key] = "one"; copy[key] }""",
     """proc keyed(values: Map[UInt, Str], key: Int) { let copy: Map[UInt, Str] = {[key]: "one"}; copy.values()[0] }""",
     """proc keyed(values: Map[UInt, Str], key: Int) { let copy: Map[UInt, Str] = {item: "one" for item in [key]}; copy.values()[0] }""",
@@ -331,6 +332,7 @@ proc main() [io, error] {
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values[key] }""",
     """pure keyed(values, key: Int) { values[key] }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(key) ?? "missing" }""",
+    """pure keyed(values, key: Int) { let _ = values.get(key); "one" }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(key: key) ?? "missing" }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(...{key: key}) ?? "missing" }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { if key in values { "one" } else { "missing" } }""",
@@ -353,6 +355,30 @@ proc main() [io, error] {
   assert ! generic.success, generic.stderr
   assert "schema check failed" in generic.stderr, generic.stderr
   assert generic.stdout == "one\n", generic.stdout
+}
+
+test test_retained_get_preserves_signed_map_and_list_keys { |ctx|
+  let output = test.run_script(ctx, r"""pure keyed(values, key: Int) { let _ = values.get(key); "kept" }
+proc main() [io, error] {
+  let signed: Map[Int, Str] = {[-1]: "negative"}
+  print keyed(signed, -1)
+  print keyed(["one"], -1)
+}
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "kept\nkept\n", output.stdout
+}
+
+test test_retained_get_captures_key_validation_locally { |ctx|
+  let output = test.run_script(ctx, r"""pure keyed(values, key: Int) { match try { values.get(key) } { Ok(_) => "ok"; Err(_) => "caught" } }
+proc main() [io, error] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  print keyed(values, 1)
+  print keyed(values, -1)
+}
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "ok\ncaught\n", output.stdout
 }
 
 test test_typed_map_pure_result_and_local_error_boundaries_remain_catchable { |ctx|

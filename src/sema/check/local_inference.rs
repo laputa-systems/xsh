@@ -410,7 +410,7 @@ impl Checker {
         if let Err(error) = self.solve_host_obligations(program) {
             self.reject_host_inference_resolution(error, body);
         }
-        self.close_unresolved_host_obligations(self.stream_origin_owner, body);
+        self.close_unresolved_host_obligations(program, self.stream_origin_owner, body);
         self.close_module_overloads(program, self.stream_origin_owner, body);
         let checks = self.local_inference.fixed_storage_checks
             .drain(enclosing.fixed_storage_start..).collect::<Vec<_>>();

@@ -593,7 +593,7 @@ impl Checker {
         self.error(candidates.span, message, code);
     }
 
-    pub(in super::super) fn close_unresolved_host_obligations(&mut self, owner: Option<super::super::EffectDeclarationId>, body: Span) {
+    pub(in super::super) fn close_unresolved_host_obligations(&mut self, arena: &ArenaProgram, owner: Option<super::super::EffectDeclarationId>, body: Span) {
         let pending = std::mem::take(&mut self.local_inference.host_obligations.entries);
         for obligation in pending {
             let span = obligation.candidates.span;
@@ -621,6 +621,19 @@ impl Checker {
                     };
                     let result_matches = body_result.is_ok() && expected_result.as_ref().is_none_or(Result::is_ok);
                     if result_matches {
+                        if let Some((scope, declaration, level)) = obligation.continuation.deferred_proc_key {
+                            for candidate in &obligation.candidates.candidates {
+                                if candidate.receiver != MethodReceiver::Map { continue; }
+                                let params = crate::sema::builtin_templates::callable_parameters(&candidate.signature.sig);
+                                if let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &obligation.candidates.arguments) {
+                                    for (argument, &slot) in obligation.candidates.arguments.iter().zip(&binding.argument_slots) {
+                                        if candidate.signature.sig.params.get(slot).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key)) {
+                                            self.record_deferred_proc_map_key_validation(&obligation.candidates.receiver, &argument.ty, super::super::args::key_validation_span(arena, argument), scope, declaration, level);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         let requirement = crate::sema::schemes::MethodFamilyRequirement {
                             kind,
                             receiver: obligation.candidates.receiver.clone(),

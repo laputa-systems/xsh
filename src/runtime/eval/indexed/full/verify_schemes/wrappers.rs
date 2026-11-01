@@ -1117,6 +1117,13 @@ fn key_error_transfer(receiver: &SchemeType, key: &SchemeType, ordinal: Option<u
 
 pub(super) fn actual_transfer(store: &FullStore, decoder: &FullDecoder<'_>, scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, ordinal: Option<u32>, operation_ordinal: Option<u32>, instruction: usize, view: schema::ExprView<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<Vec<C<SchemeType>>, IrVerifyError> {
     match view {
+        schema::ExprView::CheckedValue { check: super::ValueCheckView::MapKey(ordinal), .. } => {
+            if operation_ordinal != Some(ordinal) { return Err(IrVerifyError::new("captured map key has no owned operation")); }
+            let encoded = *bounded(scope.operations, &store.scheme_operations, "map key operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("captured map key operation is out of scope"))?;
+            let operation = super::operations::decode(store, scope, encoded, &ApplicationSubstitution::Identity, budget)?;
+            let crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key, .. } = operation else { return Err(IrVerifyError::new("captured map key names another operation")); };
+            key_error_transfer(&receiver, &key, Some(ordinal))
+        }
         schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn, .. } if operation_ordinal.is_some() => {
             let ordinal = operation_ordinal.unwrap();
             let encoded = *bounded(scope.operations, &store.scheme_operations, "membership operation range is invalid")?.get(ordinal as usize)

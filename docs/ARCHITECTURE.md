@@ -437,10 +437,12 @@ pure boundary or can remain Result data, matching grounded returns without
 inspecting payload values. Local capture can handle the failure. Caller capture
 cannot waive a plain pure callee's boundary. Other propagated failures, including
 upstream stream failures, retain their own propagation rules.
-The cold verifier relates the original Int key to the lowered immutable
-UInt-validation temporary and checks the conditional error contribution against
-the callable's own return boundary. Caller-side capture cannot replace that
-callee contract; an already-UInt key has no validation contribution.
+The cold verifier relates the original Int key to its lowered UInt validation
+and checks the conditional error contribution against the callable's own return
+boundary. A retained method family consumes its checked key directly and uses
+the selected receiver to determine whether the check applies. Caller-side
+capture cannot replace that callee contract; an already-UInt key has no
+validation contribution.
 
 `MapKey` retains the receiver and key relationship independently of a method's
 result or a literal's payload. Canonical argument binding identifies the key;
