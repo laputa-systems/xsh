@@ -168,3 +168,39 @@ let value = Box(value: raw.require()?, anchor: 1)
     assert "check." in rejected.stderr
   }
 }
+
+test test_require_imported_phantom_schema_needs_ground_target { |ctx|
+  let modules = test.temp_dir(ctx, name: "require-imported-phantom")?
+  fp"{modules}/model.xsh".write("##! Imported phantom schema.\n## An entry with a label.\nexport type Entry[T] = {label: Str}\n")?
+  let accepted = test.run_xsh(ctx, r"""use model as m
+let good: Any = {label: "ready"}
+let bad: Any = {label: 7}
+let explicit = good.require(m.Entry[Int])?
+let contextual: m.Entry[Int] = good.require()?
+assert explicit.label == "ready"
+assert contextual.label == "ready"
+assert bad.require(m.Entry[Int]) is Err(_)
+let rejected: Result[m.Entry[Int]] = bad.require()
+assert rejected is Err(_)
+""", env: {XSH_MODULE_PATH: modules})?
+  assert accepted.success, accepted.stderr
+  let unresolved = test.run_xsh(ctx, r"""use model as m
+let raw: Any = {label: "ready"}
+let value = raw.require(m.Entry)?
+""", env: {XSH_MODULE_PATH: modules})?
+  assert !unresolved.success, unresolved.stderr
+  assert "check.type-arity" in unresolved.stderr, unresolved.stderr
+  for source in [
+    r"""use model as m
+let raw: Any = "ready"
+let value = m.Entry(label: raw.require()?)
+""",
+    r"""use model as m
+proc make(raw: Any) { m.Entry(label: raw.require()?) }
+""",
+  ] {
+    let constructor = test.run_xsh(ctx, source, env: {XSH_MODULE_PATH: modules})?
+    assert !constructor.success, constructor.stderr
+    assert "check.constructor-inference" in constructor.stderr, constructor.stderr
+  }
+}
