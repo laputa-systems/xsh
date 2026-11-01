@@ -13,7 +13,7 @@ use super::infer_effects::{EffectDeclarationId, EffectGraph, EffectScopeFailure}
 
 enum FileInferenceFailure {
     Effects(EffectScopeFailure),
-    RejectedEffectInvocation(Vec<crate::diagnostic::Diagnostic>),
+    Diagnosed(Vec<crate::diagnostic::Diagnostic>),
     StreamOrigin(EffectDeclarationId),
 }
 
@@ -476,7 +476,7 @@ impl Checker {
     fn rejected_file_inference(failure: FileInferenceFailure) -> CheckedModuleFacts {
         let failure = match failure {
             FileInferenceFailure::Effects(failure) => failure,
-            FileInferenceFailure::RejectedEffectInvocation(diagnostics) => return CheckedModuleFacts {
+            FileInferenceFailure::Diagnosed(diagnostics) => return CheckedModuleFacts {
                 signature: None,
                 output: CheckOutput { diagnostics, ..CheckOutput::default() },
                 module_diagnostic_position: 0,
@@ -518,7 +518,8 @@ impl Checker {
     fn failed_effect_scope(&self, failure: EffectScopeFailure) -> FileInferenceFailure {
         if matches!(failure.cause, crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedEffects))
             && let Some(diagnostics) = self.rejected_effect_invocation_diagnostics(failure.owner)
-        { FileInferenceFailure::RejectedEffectInvocation(diagnostics) }
+        { FileInferenceFailure::Diagnosed(diagnostics) }
+        else if self.has_diagnosed_ungeneralized_declaration(failure.owner) { FileInferenceFailure::Diagnosed(self.diagnostics.clone()) }
         else { FileInferenceFailure::Effects(failure) }
     }
 

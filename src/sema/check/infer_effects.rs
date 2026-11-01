@@ -1427,6 +1427,17 @@ impl Checker {
         self.diagnostics.iter().any(|diagnostic| self.rejected_effect_violation(owner, diagnostic).is_some())
     }
 
+    pub(super) fn has_diagnosed_ungeneralized_declaration(&self, owner: EffectDeclarationId) -> bool {
+        let ungeneralized = |declaration: &super::PendingFunctionSig| declaration.generalized().is_none();
+        self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)).is_some_and(ungeneralized)
+            && self.declaration_inference.pending_entries().filter(|(_, declaration)| ungeneralized(declaration)).any(|(id, _)| {
+                let body = id.effect_declaration().body;
+                self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error
+                    && diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Primary
+                        && label.span.source_id == body.source_id && label.span.start() >= body.start() && label.span.end() <= body.end()))
+            })
+    }
+
     pub(super) fn rejected_effect_invocation_diagnostics(&self, owner: EffectDeclarationId) -> Option<Vec<crate::diagnostic::Diagnostic>> {
         if !self.has_diagnosed_rejected_effect_invocation(owner) { return None; }
         let mut diagnostics = self.diagnostics.clone();

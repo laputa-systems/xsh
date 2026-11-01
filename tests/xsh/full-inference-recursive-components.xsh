@@ -200,3 +200,18 @@ print $floats
   assert output.success, output.stderr
   assert output.stdout == "2\n1\n"
 }
+
+test test_full_inference_rejected_recursive_proc_reports_its_own_error_not_an_effect_fault { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc descend(count, mode) {
+  if mode != null { exit 1 }
+  let wrong: Int = "text"
+  if count > 0 { descend(count - 1, mode) }
+}
+""",
+  )?
+  assert output.status == 2, output.stderr
+  assert "[check.type-mismatch]" in output.stderr, output.stderr
+  assert "[check.local-inference]" not in output.stderr, output.stderr
+}
