@@ -5190,6 +5190,9 @@ with a `T` tail is the function's result. In value position the scope ends
 at its body: `else` after it is a parse error, because the grouping form is
 a statement.
 
+A generic callable may return from every path of the resource body. Such a
+scope has no tail value to infer; its returns still release the resources.
+
 The scope's `Err` reports only a release that failed after the body reached
 its end. Every resource is still released; the first failure, in release
 order, is the `Err`, and a later one is reported as a cleanup failure with

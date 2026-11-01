@@ -346,10 +346,21 @@ impl Checker {
                 .map(|(_, joined)| (expression, joined.clone()))
         }).collect::<Vec<_>>();
         for (branch, joined) in empty_list_branches { body_types.insert(branch, joined); }
-        let noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
-            matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. })
+        let mut noncompleting_expressions = body_types.keys().copied().filter(|&expression| {
+            matches!(program.arena.expr(expression).kind,
+                crate::syntax::arena::ArenaExprKind::StructuredPipeline { .. }
+                    | crate::syntax::arena::ArenaExprKind::ResourceScope { .. })
                 && !self.stream_expr_may_complete(program, expression)
         }).collect::<std::collections::BTreeSet<_>>();
+        loop {
+            let propagated = body_types.keys().copied().filter(|expression| {
+                !noncompleting_expressions.contains(expression)
+                    && matches!(program.arena.expr(*expression).kind, crate::syntax::arena::ArenaExprKind::Try(inner)
+                        if noncompleting_expressions.contains(&inner))
+            }).collect::<Vec<_>>();
+            if propagated.is_empty() { break; }
+            noncompleting_expressions.extend(propagated);
+        }
         for expression in &noncompleting_expressions { body_types.remove(expression); }
         for (expression, ty) in body_types.iter_mut() {
             if let Some(operand) = self.condition_operand_types.get(&program.arena.expr(*expression).span) { *ty = operand.clone(); }

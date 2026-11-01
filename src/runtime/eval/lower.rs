@@ -3430,7 +3430,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &mut self, returned: BuildStmtId, producer: BuildExprId, source_expression: Option<ExprId>,
         facts: &SchemeBodyFacts, lowered_types: &BTreeMap<BuildExprId, SchemeType>,
     ) -> Option<()> {
-        if !facts.has_proc_completion_source() { return Some(()); }
+        if !facts.has_proc_completion_source() || self.scratch.borrow().scheme_noncompleting.contains(&producer.index()) { return Some(()); }
         let source_type = lowered_types.get(&producer)?;
         let form = self.scheme_completion_source_form(source_type, source_expression)?;
         if self.scratch.borrow_mut().scheme_completion_sources.insert(returned.index(), SchemeCompletionSource { producer, form }).is_some() {
@@ -3443,6 +3443,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &self, returned: BuildExprId, producer: BuildExprId, source_expression: Option<ExprId>,
         facts: &SchemeBodyFacts, lowered_types: &BTreeMap<BuildExprId, SchemeType>,
     ) -> bool {
+        if returned == producer && self.scratch.borrow().scheme_noncompleting.contains(&returned.index()) { return true; }
         let Some(returned_type) = lowered_types.get(&returned) else { return false; };
         let expected = facts.scheme().return_type();
         if returned_type.matches_body_return(expected) || facts.scheme().method_path_return_matches(returned_type) || facts.scheme().optional_return_assignment_matches(returned_type) { return true; }
@@ -3479,6 +3480,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &mut self, value: BuildExprId, facts: &SchemeBodyFacts,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
     ) -> Option<BuildExprId> {
+        if self.scratch.borrow().scheme_noncompleting.contains(&value.index()) { return Some(value); }
         let actual = lowered_types.get(&value)?;
         if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
             && let SchemeType::Result(_, error) = facts.scheme().return_type()
@@ -4956,8 +4958,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(lowered);
         }
         if facts.noncompleting_expressions().contains(&expression) {
-            let ArenaExprKind::StructuredPipeline { input, stages } = self.program.arena.expr(expression).kind else { return None; };
-            let value = self.lower_scheme_pipeline(expression, input, stages, slots, current_function, facts, visited, lowered_types)?;
+            let value = match self.program.arena.expr(expression).kind {
+                ArenaExprKind::StructuredPipeline { input, stages } => {
+                    self.lower_scheme_pipeline(expression, input, stages, slots, current_function, facts, visited, lowered_types)?
+                }
+                ArenaExprKind::ResourceScope { bindings, block, .. } => {
+                    let span = self.program.arena.expr(expression).span;
+                    let mut domain = control::ScopeLoweringDomain::Generalized { facts, visited, types: lowered_types };
+                    let scope = self.lower_resource_scope_in_domain(expression, bindings, block, span, slots, Some(current_function), None, &mut domain)?;
+                    let statement = push_build_row!(self, stmt, BuildStmtRow::Expr { value: scope, span });
+                    push_build_row!(self, expr, BuildExprRow::ValueBlock { body: vec![statement], span })
+                }
+                ArenaExprKind::Try(inner) if facts.noncompleting_expressions().contains(&inner) => {
+                    self.lower_scheme_expression(inner, slots, current_function, facts, visited, lowered_types, body)?
+                }
+                _ => return None,
+            };
+            lowered_types.remove(&value);
             self.scratch.borrow_mut().scheme_noncompleting.insert(value.index());
             return Some(value);
         }

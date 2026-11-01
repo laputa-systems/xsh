@@ -17,20 +17,21 @@ network roots still check with the current `xsht`. The full 57-site scope is
 retained. The 56-site joint that includes exported parameters now checks and
 lowers: generic managed scopes share the ordinary cleanup lowering and preserve
 symbolic result values. Both the unmodified frozen export and the joint erasure
-pass the same three generation behavior cases. Host checks pass 113 inference-body
-cases, five lifecycle controls and three forged-IR/effect checks. The pinned Linux
-integration passes 137 native cases across inference bodies, managed cleanup and
-hidden resources. This does not expand the applied view.
+pass the same three generation behavior cases. Generic managed scopes whose
+bodies return on every path now check and run, including inferred symbolic
+returns and bare returns. The focused pinned Linux integration passes 138 native
+cases across inference bodies, managed cleanup and hidden resources. The frozen
+Laputa parameter replay remains 56/57 alone and passes the 56-site joint.
+This does not expand the applied view.
 
 - **Resume:** read `AGENTS.md`, `TODO.md`, and this document; then
   `cargo dev gate --plan --case native-tests/xsh/full-inference-bodies.xsh`.
   Build `xsht` with `cargo build --profile verification --target
   x86_64-unknown-linux-musl -p xsh -p xsht` before measuring; `cargo dev build`
   builds only `xsh`.
-- **Next slice:** the remaining core verifier tail and generic managed scopes
-  with an all-returning body. A generic managed scope with an
-  all-returning body still fails checking with `Build(RecoveryType)`; conditional
-  early return and symbolic result values pass. Use `inventory.sh` and
+- **Next slice:** the remaining core verifier tail. Generic managed scopes with
+  all-returning bodies now use the existing noncompletion proof and canonical
+  cleanup lowering. Use `inventory.sh` and
   `erase_sites.py` for annotation and behavior checks, with performance deferred.
   A pure call with no Result error contract now makes an uncaught checked key
   failure fatal; local `try` and `retry` still capture it. The boundary uses the
@@ -744,3 +745,4 @@ prescribed decisions are the starting rules.
 - 2026-10-31, slice 56 (ground key validation under a `ProcCompletion` boundary): a ground inferred-return proc with a `Map[UInt, _]` key rejected the generated `Try(Require(UInt))` because it had no `error` effect. The checker now records the key boundary, and ground lowering matches the validation result: success supplies the key, while failure explicitly returns `Err` as the proc completion. Other boundaries retain their existing lowering, and the verifier still requires `error` for uncaptured `Try`. The native regression covers seven index, membership, method, assignment, literal and comprehension sites, plus capture and retry controls. A forged explicit conversion with its schema and owner effect removed is rejected by the verifier. SPEC 6.6 describes the completion behavior.
 - 2026-10-31, slice 57 (membership with a non-integer needle in a generic container): `pure has_nul(data) { ...; b"\0" in head }` failed `UInt map index has no retained error boundary`. The scheme verifier's `may_require_uint_key_validation` treated every key that is not `UInt` or `Str` as possibly needing `UInt` validation against a type-parameter or generic-key `Map` receiver, while the checker only registers a key-validation wrapper when the key is `Int` or unresolved. It now asks the same question as the checker: the key must be `Int` or not yet closed. `core/diff.xsh` `has_nul.data` erases. Native test `test_full_inference_membership_of_a_non_integer_needle_needs_no_key_validation`.
 - 2026-10-31, pure call key-failure boundary: an uncaught UInt validation failure in a pure call is fatal when its instantiated return does not admit a Result error. Both indexed-frame exits use the existing Result-error contract authority; no IR format or verifier waiver changes. Local capture, optional Result, generic ground-key sites, proc completions, ownership and traceback controls pass. A focused Rust regression proves return-lookup failure preserves the original fatal primary and reports its secondary diagnostic. Independent review and six pinned Linux native selections pass (154 cases); performance remains deferred.
+- 2026-11-01, generic managed scopes with no normal completion: an all-returning `with` body left an unknown success type that could not generalize. The existing noncompletion proof now reaches ownership, lowering and return verification; the canonical managed-release structure remains intact, and explicit tail returns and exits stay statements. The native regression covers declared and inferred returns, both branches, root and lock cleanup after propagation, and a bare return that skips its continuation. A forged fallthrough on either branch is rejected. The normal verification build passes; pinned Linux checks pass 138 native cases and 17 Rust completion, ownership and effect controls. Generated docs and independent review pass. The frozen Laputa replay remains 56/57 alone and passes the 56-site joint. Performance remains deferred.

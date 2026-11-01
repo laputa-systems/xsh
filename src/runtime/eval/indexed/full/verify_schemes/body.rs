@@ -1844,6 +1844,9 @@ pub(super) fn verify_body(
                         }
                         expressions.push(value.raw() as usize);
                     }
+                    schema::StmtView::Return { value: returned } if noncompleting.contains(&(returned.raw() as usize)) => {
+                        expressions.push(returned.raw() as usize);
+                    }
                     schema::StmtView::Return { value: returned } => {
                         let actual = expression_type(types, returned.raw() as usize, budget)?;
                         if stream_item.is_some() {
@@ -8948,6 +8951,29 @@ pure foreign(marker) -> Int {{ let ignored = [1] |> map {{ |item| return 2 }}; l
             assert!(foreign.store.in_place.get().is_none());
             let failure = FullVerifier::verify(&foreign).expect_err("completion fact must belong to the actual owner");
             assert_eq!(failure.message, "generic body fact has invalid ownership");
+        }
+    }
+
+    #[test]
+    fn noncompleting_resource_scope_requires_all_return_paths() {
+        use super::super::super::schemes::FullSchemeBodyFactValue as Fact;
+        let source = "proc scoped(parent: Path, value, choose: Bool) [fs, error] -> Result[Path] { let _ = value; with root = fs.tempdir_in(parent)? { let temporary = root.host_path()?; if choose { return Ok(temporary) } else { return Ok(temporary) } }? }\n";
+        let mut program = prepare(source);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "scoped").unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        assert!(program.store.scheme_body_facts.iter().any(|fact| range.contains(&(fact.instruction as usize)) && matches!(fact.value, Fact::NoCompletion)));
+        let decoder = super::super::decoder_for_function(&program.store, owner).unwrap();
+        let returned = range.filter(|&instruction| matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Return { value })
+            if !program.store.scheme_body_facts.iter().any(|fact| fact.instruction == value.raw() && matches!(fact.value, Fact::NoCompletion)))).collect::<Vec<_>>();
+        assert_eq!(returned.len(), 2);
+        for instruction in returned {
+            let mut completing = program.clone();
+            completing.store.tags[instruction] = FullTag::StmtValue;
+            let failure = FullVerifier::verify(&completing).expect_err("a resource body that falls through cannot claim NoCompletion");
+            assert_eq!(failure.message, "generic completion fact can produce a value");
         }
     }
 

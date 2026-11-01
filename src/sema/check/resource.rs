@@ -74,7 +74,11 @@ fn check_scopes<'a>(
                         ))
                     })
                 });
-            expression_types.chain(tail_types)
+            let noncompleting = signature
+                .generalized_noncompleting_expressions()
+                .into_iter()
+                .flat_map(|expressions| expressions.iter().map(|&expression| (view.program.arena.expr(expression).span, false)));
+            expression_types.chain(tail_types).chain(noncompleting)
         })
         .collect();
     Analyzer {

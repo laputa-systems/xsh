@@ -2423,3 +2423,56 @@ test test_full_inference_managed_resource_scope_preserves_symbolic_results { |ct
   let nested = generic_managed_value(fp"{parent}/output", failure)?
   match nested { Err(message) => assert message == "nested failure"; Ok(_) => assert false }
 }
+
+test test_full_inference_managed_resource_scope_with_only_returns_releases_resources { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc select(root: Path, value, first: Bool) [fs, error] -> Result[Path] {
+  let _ = value
+  with temporary = fs.tempdir_in(root)? {
+    let temporary_path = temporary.host_path()?
+    if first { return Ok(temporary_path) } else { return Ok(temporary_path) }
+  }?
+}
+proc select_value(root: Path, value, first: Bool, broken: Bool) [fs, error] {
+  with temporary = fs.tempdir_in(root)?, held = fs.lock(fp"{root}/lock")? {
+    let selected = {temporary: temporary.host_path()?, value: value}
+    fp"{root}/seen".write(selected.temporary.display())
+    if broken { let _ = fp"{root}/absent".read_text()? }
+    if first { return selected } else { return selected }
+  }?
+}
+proc finish(root: Path, value) [fs, error] {
+  let _ = value
+  with temporary = fs.tempdir_in(root)? {
+    fp"{root}/unit".write(temporary.host_path()?.display())
+    return
+  }
+  assert false, "fell through resource return"
+}
+tempdir parent {
+  let first = select(parent, 7, true)?
+  let second = select(parent, "second", false)?
+  assert !first.exists()?
+  assert !second.exists()?
+  let integer = select_value(parent, 7, true, false)?
+  let text = select_value(parent, "second", false, false)?
+  assert integer.value == 7 and !integer.temporary.exists()?
+  assert text.value == "second" and !text.temporary.exists()?
+  assert select_value(parent, null, true, true) is Err(_)
+  let failed_temporary = fp"{parent}/seen".read_text()? as Path
+  assert !failed_temporary.exists()?
+  let reacquired = fs.lock(fp"{parent}/lock", nonblocking: true)?
+  fs.unlock(reacquired)
+  finish(parent, false)?
+  let unit_temporary = fp"{parent}/unit".read_text()? as Path
+  assert !unit_temporary.exists()?
+  print "released"
+}
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "released\n", output.stdout
+}

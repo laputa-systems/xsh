@@ -1178,7 +1178,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     for &statement in prefix {
                         self.lower_scheme_statement(statement, slots, current_function?, facts, visited, types, &mut body)?;
                     }
-                    if self.bodies.statement_positions.get(&last) != Some(&crate::sema::check::StatementPosition::Statement) {
+                    if self.bodies.statement_positions.get(&last) != Some(&crate::sema::check::StatementPosition::Statement)
+                        && !matches!(self.program.arena.stmt(self.program.arena.core_stmt_id(last)).kind, ArenaStmtKind::Return(_) | ArenaStmtKind::Exit(_))
+                    {
                         tail = Some(self.lower_scheme_tail_value(last, slots, current_function?, facts, visited, types, &mut body)?);
                     } else {
                         self.lower_scheme_statement(last, slots, current_function?, facts, visited, types, &mut body)?;
