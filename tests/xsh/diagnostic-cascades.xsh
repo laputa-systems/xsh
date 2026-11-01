@@ -57,8 +57,8 @@ test test_dynamic_argument_for_a_field_reader_reports_one_diagnostic { |ctx|
     "dynamic receiver",
     "pure first_name(value) { value.name }\nlet raw = json.decode(\"{\\\"name\\\": \\\"a\\\"}\")?\nprint $first_name(raw)\n",
   )?
-  assert_single(stderr, "dynamic receiver", "check.local-inference")
-  assert "row argument remains unresolved" in stderr, stderr
+  assert_single(stderr, "dynamic receiver", "check.field-access")
+  assert "field `name` is not defined for Any" in stderr, stderr
 }
 
 test test_unrelated_unresolved_call_is_still_reported_beside_another_error { |ctx|
