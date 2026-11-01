@@ -379,13 +379,6 @@ if [[ $site_ids =~ (^|,)[0-9]+(,|$) ]]; then
   printf 'paired views require exact source selectors, not inventory row numbers\n' >&2
   exit 1
 fi
-if [[ $site_ids == *'xsh|core/wc.xsh|parameter|94|pure continuation parameter data'* || \
-      $site_ids == *'xsh|core/wc.xsh|parameter|99|pure within parameter data'* || \
-      $site_ids == *'xsh|core/wc.xsh|parameter|105|pure sequence_width parameter data'* || \
-      $site_ids == *'xsh|core/wc.xsh|parameter|214|pure byte_words parameter data'* ]]; then
-  printf 'paired removal set includes a reserved wc diagnostic control\n' >&2
-  exit 1
-fi
 verify_source
 verify_products
 
@@ -429,33 +422,32 @@ interface_callable_count=0
 interface_cli_count=0
 
 run_negative_control() {
-  local selector=$1
+  local view=$1
   local name=$2
-  local root=$scratch/negative/$name/xsh
-  local laputa_root=$scratch/negative/$name/laputa
-  local output=$scratch/negative.$name.stdout
-  local error=$scratch/negative.$name.stderr
+  local call=$3
+  local root=$scratch/negative/$view/$name/xsh
+  local output=$scratch/negative.$view.$name.stdout
+  local error=$scratch/negative.$view.$name.stderr
   local status=0
-  mkdir -p "$root" "$laputa_root"
-  cp -a "$scratch/expected/original/xsh/." "$root/"
-  python3 "$repo/dev/performance/corpus/apply_spans.py" \
-    "$inventory" "$selector" "$xsh_revision" "$laputa_revision" "$root" "$laputa_root"
+  mkdir -p "$root"
+  cp -a "$views/$view/xsh/." "$root/"
+  printf '\nlet _ = %s\n' "$call" >>"$root/core/wc.xsh"
   if (cd "$root" && "$xsht" check core/wc.xsh) >"$output" 2>"$error"; then
-    printf '%s unexpectedly passed after its data parameter annotation was removed\n' "$name" >&2
+    printf '%s %s accepted an invalid list argument\n' "$view" "$name" >&2
     return 1
   else
     status=$?
   fi
-  local expected_codes=check.ambiguous-overload,check.result-fallback
   local codes
   codes=$(sed -nE 's/^err\[([^]]+)\].*/\1/p' "$error" | sort -u | paste -sd, -)
-  if [[ $status != 2 ]] || ! grep -q 'core/wc.xsh' "$error" || [[ $codes != "$expected_codes" ]]; then
+  if [[ $status != 2 || $codes != check.type-mismatch && $codes != check.callable-mismatch ]] || \
+    ! rg -Fq -- "$call" "$error" || ! rg -Fq 'List[Int]' "$error"; then
     cat "$output" "$error" >&2
-    printf '%s emitted diagnostic codes %s; expected %s in core/wc.xsh\n' \
-      "$name" "${codes:-none}" "$expected_codes" >&2
+    printf '%s %s emitted diagnostic codes %s; expected a type or callable domain rejection\n' \
+      "$view" "$name" "${codes:-none}" >&2
     return 1
   fi
-  printf '%s: %s\n' "$name" "$codes"
+  printf '%s %s: %s\n' "$view" "$name" "$codes"
 }
 
 for view in original reduced; do
@@ -472,9 +464,11 @@ done
 run_interface_qualification xsh "${practical_xsh_roots[@]}"
 run_interface_qualification laputa "${practical_laputa_roots[@]}"
 
-run_negative_control 'xsh|core/wc.xsh|parameter|94|pure continuation parameter data' continuation_data
-run_negative_control 'xsh|core/wc.xsh|parameter|99|pure within parameter data' within_data
-run_negative_control 'xsh|core/wc.xsh|parameter|214|pure byte_words parameter data' byte_words_data
+for view in original reduced; do
+  run_negative_control "$view" continuation_data 'continuation([128], 0)'
+  run_negative_control "$view" within_data 'within([128], 0, 0, 255)'
+  run_negative_control "$view" byte_words_data 'byte_words([128], false)'
+done
 
 probe_views=$scratch/signature-probes
 python3 "$repo/dev/performance/corpus/append_probes.py" \
@@ -511,5 +505,5 @@ done
 
 verify_source
 verify_products
-printf 'paired practical corpus: retained diagnostics, six runtime selectors, six signatures, and interface qualification: %s callable, %s CLI passed\n' \
+printf 'paired practical corpus: invalid-argument controls, six runtime selectors, six signatures, and interface qualification: %s callable, %s CLI passed\n' \
   "$interface_callable_count" "$interface_cli_count"

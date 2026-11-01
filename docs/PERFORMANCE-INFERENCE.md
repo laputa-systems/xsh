@@ -440,7 +440,9 @@ selectors from the inventory. The scripts reject dirty or mismatched checkouts.
 returns, effect clauses, Stream declarations, Map-typed locals, and `.require()`
 target annotations; private proc parameters are eligible. `check_views.sh`
 checks 12 XSH and three Laputa roots in both views, runs six exact behavior
-selectors in each, and compares the revealed signatures of six callables. Set
+selectors in each, and compares the revealed signatures of six callables.
+Both views must reject List[Int] arguments to the three `wc` byte helpers.
+Their parameter erasures now pass and are eligible for the reduced view. Set
 `XSH_LAPUTA_CORPUS` to the isolated Laputa checkout. There is no implicit
 fallback to the canonical checkout.
 
