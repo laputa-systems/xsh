@@ -3,14 +3,6 @@
 **Status:** active correctness work. Full inference qualification remains open.
 All performance work and readiness checks are deferred.
 
-Selector writes, fresh map factories, pipeline binders, empty argument domains,
-nullable match joins, and registered dynamic results are repaired. Their product
-passes 129 body cases, eight producer cases, 21 typed-map-key cases, and 1,638
-runtime-owner cases. Required module returns pass the 11-case require suite.
-Known filesystem overloads retain later argument domains and pass three native
-cases plus their runtime ownership checks. Final combined inference
-qualification remains open.
-
 The [completion contract and evidence](docs/PERFORMANCE-INFERENCE.md) owns the
 lasting requirements, capability matrix, corpus accounting, and deferred
 performance budgets. The [SPEC](docs/SPEC.md) owns language semantics.
@@ -21,11 +13,11 @@ invariants. Earlier implementation history stays in Git.
 
 | Item | Current evidence | Close when |
 |---|---|---|
-| Input and field constraints | Copied mutable inputs preserve nullable storage bounds, but cyclic storage relationships still narrow before all arguments contribute. Earlier field projections block later nominal Error constraints, and optional field equality still overconstrains its operands. | Retain the required input, storage, comparison, and field relationships without widening invariant containers or changing nominal domains. |
-| Method contracts | Fully inferred Map.push fails generalization. | Carry registered overloads through generalization and independent verification. |
+| Guard composition | Copied record updates and nullable field guards reject `cpio.validate_options`; a minimal reproduction remains red. | Repair the owning relationship and preserve independent guard, field, and physical producer checks. |
+| Deferred domains | Qualified error-family matches, target-typed enum variants, and conversions through iteration or slices have paired annotated/inferred failures. Method-to-method and method-to-iteration relationships are integrated. | Resolve canonical domains at checked instantiation, preserve genuine ambiguity and nominal identity, and qualify both execution routes. |
 | Corpus residuals | The prior 4,680-site private core scan passed 4,587 erasures individually, with several failing joint views; it needs replay on the combined product. Btop's 39 sites remain unmeasured. The frozen 1,040-removal baseline remains separate. | Reduce genuine inference failures, justify retained source contracts, and close joint views without changing historical denominators. |
-| Practical source views | Laputa passes 56 of 57 parameter erasures individually and all 56 jointly. All 38 private parameter sites pass. | Compare practical core and isolated Laputa views jointly, including behavior and interface witnesses. Retain the exported `write_generation_plan.path_value` contract. |
-| Integrated acceptance | Generated native and fuzz equivalence families and independent type, row, and effect solver comparisons pass on accepted products. The debug-only type-agreement check remains unrun. | Replay affected evidence on the final integrated compiler, run required verification owners, and remove superseded inference machinery. |
+| Practical source views | The combined wc/sort/awk view now fails only in `sort_records`, at sealed-operation result verification. Laputa's 56 eligible parameter erasures and 38 private sites passed earlier products. | Repair the core failure, compare joint behavior and interfaces, and rerun the final host-consumer guest drill. Retain exported `write_generation_plan.path_value`. |
+| Integrated acceptance | The previous combined product passes all 385 inference-native tests. New optional API, empty literal, and linked-method repairs need combined replay. Debug-only type agreement remains open. | Run affected verification owners, soundness families and final corpus views on the integrated compiler; remove superseded inference machinery. |
 
 ## Constraints
 
@@ -47,10 +39,11 @@ The eight core assign-target annotations pass individually; their joint source
 view still needs replay.
 Do not change historical cohort denominators.
 
-Keep inference changes in XSH and isolated Laputa source views. The separately
-authorized registry migration and h12tiny upgrade apply to both main checkouts.
-Do not change live systems, CI, toolchain pins, kernels, or releases. Git pushes
-remain unauthorized. New syntax, production dependencies, persistent cache
+Keep inference changes in XSH and isolated Laputa source views. Registry and
+h12tiny migration is integrated. The separately authorized
+[Asterinas campaign](../laputa/docs/CAMPAIGN-ASTERINAS-COMPATIBILITY.md) owns its
+local kernel execution boundary. Do not change live systems, CI, toolchain pins,
+or releases. Git pushes remain unauthorized. New syntax, persistent cache
 formats, higher-rank inference, user traits, new runtimes, and Lean expansion
 remain excluded.
 
