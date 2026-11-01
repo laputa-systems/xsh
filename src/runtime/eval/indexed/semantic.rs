@@ -53,12 +53,20 @@ impl ModuleExportHeader {
 const MAX_SEMANTIC_TYPE_DEPTH: usize = 256;
 const MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK: usize = 100_000;
 
-#[derive(Default)]
 pub(super) struct TypeMaterializationBudget {
     expanded_nodes: usize,
+    limit: usize,
+}
+
+impl Default for TypeMaterializationBudget {
+    fn default() -> Self { Self { expanded_nodes: 0, limit: MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK } }
 }
 
 impl TypeMaterializationBudget {
+    pub(super) fn with_additional_work(additional: usize) -> Self {
+        Self { expanded_nodes: 0, limit: MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK.saturating_add(additional) }
+    }
+
     fn enter(&mut self, depth: usize) -> Result<(), IrVerifyError> {
         if depth > MAX_SEMANTIC_TYPE_DEPTH {
             return Err(IrVerifyError::new("semantic type nesting is too deep"));
@@ -70,7 +78,7 @@ impl TypeMaterializationBudget {
         self.expanded_nodes = self
             .expanded_nodes
             .checked_add(amount)
-            .filter(|expanded| *expanded <= MAX_SEMANTIC_TYPE_MATERIALIZATION_WORK)
+            .filter(|expanded| *expanded <= self.limit)
             .ok_or_else(|| {
                 IrVerifyError::new("semantic type materialization exceeds its work limit")
             })?;
