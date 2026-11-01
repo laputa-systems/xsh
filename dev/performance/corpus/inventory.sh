@@ -67,6 +67,21 @@ codegen-units = 64
 xsh = { path = "$compiler_source", default-features = false }
 EOF
 cp "$repo/dev/performance/corpus/inventory.rs" "$scratch/src/main.rs"
+cp "$compiler_source/Cargo.lock" "$scratch/Cargo.lock"
+python3 - "$compiler_source" >>"$scratch/Cargo.toml" <<'PY'
+import json
+import sys
+import tomllib
+
+root = sys.argv[1]
+with open(f"{root}/Cargo.toml", "rb") as stream:
+    manifest = tomllib.load(stream)
+for registry, patches in manifest.get("patch", {}).items():
+    print(f"\n[patch.{registry}]")
+    for name, spec in patches.items():
+        path = json.dumps(root + "/" + spec["path"])
+        print(f"{name} = {{ path = {path} }}")
+PY
 export TMPDIR=$scratch/tmp
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 target_dir=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${XSH_CARGO_TARGET_DIR:-$scratch/target}")
