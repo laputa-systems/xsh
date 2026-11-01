@@ -103,6 +103,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -796,9 +802,9 @@ dependencies = [
 
 [[package]]
 name = "h12tiny-client"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bed965470cb076d20b8a29a2b2f2bd13c23b3d73cb31b01b00ba78e49ed85211"
+version = "0.6.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "6c6004fb68255068392faeec3757487b9f90f7fdba701e1aa2e60c5a369edd54"
 dependencies = [
  "async-io",
  "async-net",
@@ -808,32 +814,47 @@ dependencies = [
  "futures-util",
  "h12tiny-client-normalize",
  "h12tiny-core",
+ "h12tiny-tls-system",
  "http",
  "http-body",
  "laputa-hyper-futures-lite",
  "rustls",
  "rustls-graviola",
- "webpki-roots",
+ "rustls-webpki",
 ]
 
 [[package]]
 name = "h12tiny-client-normalize"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "664f98965870e40bbe1b42c90bc4cc37ae6dd82ac1330688f9c8c5f799d0e0e4"
+version = "0.6.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "8d20166a88fa4b6b4f301c9faae5790b4cc7d8e4cabfbd22d7cdb4935c4048ba"
 dependencies = [
  "http",
 ]
 
 [[package]]
 name = "h12tiny-core"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65b14f686f9d467159c65130277ea21667d25a4fa912ff257c78de52fb886e24"
+version = "0.6.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "c501c1c514e7a2f5abdc5fc4da0cb09de0192c26d581283dbef352fece5e1540"
 dependencies = [
  "async-io",
  "futures-io",
  "laputa-hyper-futures-lite",
+]
+
+[[package]]
+name = "h12tiny-tls-system"
+version = "0.6.0"
+source = "sparse+https://crates.17166969.xyz/current/registry/"
+checksum = "e83f47eaf57b4c7f29a0fc6c9feb7039693fd01fbc6693f196102e7217995d91"
+dependencies = [
+ "base64",
+ "openssl-probe",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-platform-verifier",
+ "rustls-webpki",
 ]
 
 [[package]]
@@ -1493,9 +1514,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "once_cell",
  "rustls-pki-types",
@@ -1516,9 +1537,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-native-certs"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
+checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
 dependencies = [
  "openssl-probe",
  "rustls-pki-types",
@@ -1546,9 +1567,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-platform-verifier"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26d1e2536ce4f35f4846aa13bff16bd0ff40157cdb14cc056c7b14ba41233ba0"
+checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
@@ -1567,9 +1588,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-platform-verifier-android"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
+checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
@@ -2040,15 +2061,6 @@ name = "webpki-root-certs"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

@@ -7,6 +7,9 @@ replace-with = "mycrates-mirror"
 [source.mycrates-mirror]
 registry = "sparse+https://crates.17166969.xyz/current/crates-io/"
 
+[registries.mycrates]
+index = "sparse+https://crates.17166969.xyz/current/registry/"
+
 # No musl linker is pinned here. On a musl Linux host the host triple is a musl
 # target, so a linker set for it also links proc-macros and build scripts, and
 # a bare rust-lld has no system library search path or CRT objects for those
