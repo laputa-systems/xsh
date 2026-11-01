@@ -2685,6 +2685,7 @@ impl Checker {
                 }
                 ArenaCompQualifier::If { condition, .. } => {
                     let ty = self.check_expr_arena(arena, source, condition, None);
+                    let ty = self.resolve_local_tail_type(ty, Some(&Type::Bool), arena.arena.expr(condition).span);
                     if ty == Type::Any {
                         self.expect_type(&Type::Bool, &ty, arena.arena.expr(condition).span);
                     } else if !(crate::sema::types::ConditionRole::Control.accepts(&ty) || ty == Type::Unknown) {

@@ -151,3 +151,28 @@ pure lookup(colors: Map[Str, Str]) -> Str { read(colors, "ec") ?? "none" }
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "forwarded\n"
 }
+
+test test_full_inference_comprehension_condition_constrains_an_unresolved_field_to_bool { |ctx|
+  let checks = r"""
+assert count_quoted([{quoted: true}, {quoted: false}, {quoted: true}]) == 2
+print "counted"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+pure count_quoted(files) -> Int { [file for file in files if file.quoted].len() }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Entry = {quoted: Bool}
+pure count_quoted(files: List[Entry]) -> Int { [file for file in files if file.quoted].len() }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "counted\n"
+}
+
+test test_full_inference_comprehension_condition_rejects_a_non_bool_field { |ctx|
+  test.expect(ctx, r"""
+pure count_quoted(files) -> Int { [file for file in files if file.quoted].len() }
+let rejected = count_quoted([{quoted: 1}])
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+}
