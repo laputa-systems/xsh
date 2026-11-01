@@ -5171,6 +5171,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 push_build_row!(self, expr, BuildExprRow::Require { value, check, span, unknown_fields })
             }
+            ArenaExprKind::Field { .. } if matches!(self.bodies.inferred_variants.get(&expression), Some(crate::sema::check::InferredVariant::Deferred { .. })) => {
+                let Some(crate::sema::check::InferredVariant::Deferred { variant, families }) = self.bodies.inferred_variants.get(&expression).cloned() else { unreachable!() };
+                if facts.operation_site(expression).is_none() || families.iter().any(|family| !self.record_checked_tag_schema(*family, variant, &[])) { return self.block_scheme_lowering_expr(expression); }
+                push_build_row!(self, expr, BuildExprRow::TargetVariant { variant, families: families.to_vec() })
+            }
             ArenaExprKind::Field { .. } if self.bodies.inferred_variants.contains_key(&expression) => {
                 self.lower_inferred_variant(expression, slots, Some(current_function), None)?
             }
@@ -5632,7 +5637,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let (type_name, variant, field_types) = match self.bodies.inferred_variants.get(&expression).cloned() {
                     Some(crate::sema::check::InferredVariant::Tag { type_name, variant, field_types }) => (type_name, variant, field_types),
                     Some(crate::sema::check::InferredVariant::Error { family, variant }) => return self.lower_scheme_error_constructor(expression, callee, args, Some((family, variant)), ty, span, slots, current_function, facts, visited, lowered_types, body),
-                    None => return self.block_scheme_lowering_expr(expression),
+                    Some(crate::sema::check::InferredVariant::Deferred { .. }) | None => return self.block_scheme_lowering_expr(expression),
                 };
                 if field_types.iter().any(Type::has_unsigned_constraint) || !self.record_checked_tag_schema(type_name, variant, &field_types) { return self.block_scheme_lowering_expr(expression); }
                 let arguments = self.program.arena.call_args(args).to_vec();

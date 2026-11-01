@@ -29,6 +29,14 @@ mod ordinary_body_tests {
     }
 
     #[test]
+    fn generic_variant_selection_follows_each_callers_nominal_field_type() {
+        accepts(
+            "enum Action { Add, Remove }\ntype Event = {action: Action}\npure selected(event) -> Bool { event.action == .Add }",
+            "let action: Action? = Add\nassert selected({action: Add})\nassert !selected({action: Remove})\nassert selected({action: action})",
+        );
+    }
+
+    #[test]
     fn generic_pattern_condition_preserves_its_branch_binding() {
         accepts(
             "pure select(value: Result[Int], label) { if let Ok(found) = value { return {label, found} }; {label, found: 0} }",

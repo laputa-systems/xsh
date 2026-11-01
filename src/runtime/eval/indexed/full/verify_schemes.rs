@@ -803,6 +803,15 @@ fn verify_scheme_tables(
         for operation in bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")? {
             if let super::schemes::FullSealedOperation::Field { name, .. } = operation
                 && store.string(*name)?.is_empty() { return Err(IrVerifyError::new("field operation name is empty")); }
+            if let super::schemes::FullSealedOperation::TargetVariant { subject, name, families, .. } = operation {
+                if store.string(*name)?.is_empty() { return Err(IrVerifyError::new("target variant name is empty")); }
+                let fields = mark_range(*families, &store.scheme_fields, &mut field_coverage, "target variant families overlap or are out of bounds")?;
+                application_budget.charge(fields.len())?;
+                let mut seen = BTreeSet::new();
+                for field in fields {
+                    if field.ty != *subject || store.string(field.name)?.is_empty() || !seen.insert(field.name) { return Err(IrVerifyError::new("target variant family entry is invalid")); }
+                }
+            }
             if let super::schemes::FullSealedOperation::RecordOverride { overrides, .. } = operation {
                 let fields = mark_range(*overrides, &store.scheme_fields, &mut field_coverage, "record override fields overlap or are out of bounds")?;
                 application_budget.charge(fields.len())?;
@@ -1833,7 +1842,7 @@ fn verify_scheme_body_facts(
             let active_scope = scope.at_instruction(instruction)?;
             let scope = &active_scope;
             if let super::schemes::FullSchemeBodyFactValue::Operation(ordinal) = fact.value {
-                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprField | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) || ordinal >= scope.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
+                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprTargetVariant | FullTag::ExprField | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) || ordinal >= scope.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
                 continue;
             }
             if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
@@ -2575,6 +2584,13 @@ fn verify_body_expression(
             let expected = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic prepared constant has no closed contract"))?;
             ensure_substitution_type(&expected)?;
             decoder.verify_prepared_constant_type(value, &expected, &mut |amount| constant_budget.charge(amount))?;
+            ty.clone()
+        }
+        schema::ExprView::TargetVariant { variant, mut families } => {
+            budget.charge(families.len())?;
+            let families = families.by_ref().collect::<Result<Vec<_>, _>>()?;
+            let ordinal = *operation_sites.get(&instruction).ok_or_else(|| IrVerifyError::new("target variant has no owned requirement"))?;
+            operations::verify_target_variant_site(store, scheme_scope, ordinal, variant, &families, ty, budget)?;
             ty.clone()
         }
         schema::ExprView::Tag { type_name, name, mut fields, .. } => {

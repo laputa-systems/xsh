@@ -3585,7 +3585,9 @@ impl Checker {
                     && !self.is_inferred_variant_expr(arena, right)
                 {
                     let right_ty = self.check_expr_arena(arena, source, right, None);
+                    let previous = self.boundary.target_variant_equality.replace(left_span);
                     let left_ty = self.check_expr_arena(arena, source, left, Some(&right_ty));
+                    self.boundary.target_variant_equality = previous;
                     (left_ty, right_ty)
                 } else if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_))
                     && !matches!(arena.arena.expr(right).kind, ArenaExprKind::Str(_))
@@ -3601,7 +3603,9 @@ impl Checker {
                         self.is_inferred_variant_expr(arena, right)
                             .then_some(&left_ty)
                     });
+                    let previous = self.boundary.target_variant_equality.replace(right_span);
                     let right_ty = self.check_expr_arena(arena, source, right, expected);
+                    self.boundary.target_variant_equality = previous;
                     (left_ty, right_ty)
                 };
                 for (operand, other) in [(right, &left_ty), (left, &right_ty)] {

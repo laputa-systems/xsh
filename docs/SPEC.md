@@ -2185,6 +2185,12 @@ or value of a known list or map, a branch of a value `if` or `match`, and the
 other operand of `==` or `!=`. An optional `T?` selects from `T`. The value and
 its type are exactly those of the qualified spelling.
 
+In a generic callable, a payload-free leading-dot variant in an equality may
+retain its expected type as a requirement. Each call must supply a visible
+nominal enum family declaring that variant, or an optional value of that family.
+A callable may remain uninstantiated. Different calls may select different
+families. The callable never selects a family from the variant spelling alone.
+
 The expected type must be one enum or one error family; a variant type selects
 from its family. The checker never chooses among candidates: `.Name` with no
 expected type (an unannotated `let`, an inferred return type), with `Error` or

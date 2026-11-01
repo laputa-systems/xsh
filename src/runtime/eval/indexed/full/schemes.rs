@@ -571,6 +571,7 @@ pub(super) use crate::sema::wrapper_operation::WrapperBinding as FullWrapperBind
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C, u8)]
 pub(super) enum FullSealedOperation {
+    TargetVariant { subject: SchemeTypeId, result: SchemeTypeId, name: u32, families: IrRange },
     TypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: SchemeTypeId },
     Field { receiver: SchemeTypeId, name: u32, result: SchemeTypeId },
     Binary { left: SchemeTypeId, right: SchemeTypeId, result: SchemeTypeId, operator: xsh_registry::signature::ArithmeticOperator },
@@ -587,7 +588,7 @@ pub(super) enum FullSealedOperation {
 impl FullSealedOperation {
     pub(super) fn inputs(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         let (fixed, overrides): (_, &[FullSchemeField]) = match self {
-            Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
+            Self::TargetVariant { subject: key, .. } | Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary { left, right, .. } => ([Some(left), Some(right)], &[]),
             Self::Equality { left, right } => ([Some(left), Some(right)], &[]),
             Self::Membership { needle, container } => ([Some(needle), Some(container)], &[]),
@@ -602,7 +603,7 @@ impl FullSealedOperation {
         Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
     pub(super) fn result(self) -> Option<SchemeTypeId> {
-        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::Field { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::TargetVariant { result, .. } | Self::Field { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         Ok(self.inputs(store)?.chain(self.result()))
@@ -1042,6 +1043,14 @@ impl FullBuilder {
         for operation in &requirements.operations {
             let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
             let encoded = match operation {
+                crate::sema::sealed_operation::SealedOperation::TargetVariant { subject, result, name, families, .. } => {
+                    let name = self.intern_string(name.as_str().as_str())?.raw();
+                    let mut fields = Vec::with_capacity(families.len());
+                    for family in families.iter() { fields.push(FullSchemeField { name: self.intern_string(family.as_str().as_str())?.raw(), ty: subject }); }
+                    let start = self.store.scheme_fields.len();
+                    self.store.scheme_fields.extend(fields);
+                    FullSealedOperation::TargetVariant { subject, result, name, families: super::table_range(start, self.store.scheme_fields.len())? }
+                }
                 crate::sema::sealed_operation::SealedOperation::Equality { left, right, .. } => FullSealedOperation::Equality { left, right },
                 crate::sema::sealed_operation::SealedOperation::Membership { needle, container, .. } => FullSealedOperation::Membership { needle, container },
                 crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key, .. } => FullSealedOperation::MapKey { receiver, key },

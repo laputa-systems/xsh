@@ -19,6 +19,12 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
     budget.charge(1)?;
     let span = crate::source::Span::at(store.source_id, 0);
     Ok(match encoded {
+        FullSealedOperation::TargetVariant { subject, result, name, families } => {
+            let fields = bounded(families, &store.scheme_fields, "target variant family range is invalid")?;
+            budget.charge(fields.len())?;
+            let families = fields.iter().map(|field| Ok(Name::intern(store.string(field.name)?))).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            SealedOperation::TargetVariant { subject: substitution.ty(store, scope, subject, budget)?, result: substitution.ty(store, scope, result, budget)?, name: Name::intern(store.string(name)?), families: families.into(), span }
+        }
         FullSealedOperation::Equality { left, right } => SealedOperation::Equality { left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, span },
         FullSealedOperation::Membership { needle, container } => SealedOperation::Membership { needle: substitution.ty(store, scope, needle, budget)?, container: substitution.ty(store, scope, container, budget)?, span },
         FullSealedOperation::MapKey { receiver, key } => SealedOperation::MapKey { receiver: substitution.ty(store, scope, receiver, budget)?, key: substitution.ty(store, scope, key, budget)?, span },
@@ -52,6 +58,12 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         budget.charge_scheme_clone(ty)?;
         ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("selected operation has no closed input tuple"))
     })?;
+    if let SealedOperation::TargetVariant { subject, result, families, .. } = &closed {
+        let mut target = subject;
+        while let Type::Optional(inner) = target { target = inner; }
+        return if matches!(target, Type::Tag(family) if families.contains(family)) && target == result { Ok(SealedOperationSignature::TargetVariant) }
+            else { Err(IrVerifyError::new("target variant has no supported nominal family")) };
+    }
     if let SealedOperation::Equality { left, right, .. } = &closed {
         return if crate::sema::sealed_operation::equality_selection(left, right) { Ok(SealedOperationSignature::Equality) }
             else { Err(IrVerifyError::new("equality operands are incompatible")) };
@@ -81,7 +93,7 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         SealedOperation::IndexStore { receiver, key, .. } => crate::sema::sealed_operation::index_store_selection(receiver, key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
-        SealedOperation::TypePredicate { .. } | SealedOperation::Equality { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
+        SealedOperation::TargetVariant { .. } | SealedOperation::TypePredicate { .. } | SealedOperation::Equality { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
@@ -106,6 +118,13 @@ pub(super) fn symbolic_output_binders(
     if matches!(encoded, FullSealedOperation::Equality { .. } | FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::StoreValue { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
+        SealedOperation::TargetVariant { mut subject, families, .. } => {
+            while let SchemeType::Optional(inner) | SchemeType::Validated(_, inner) = subject { budget.charge(1)?; subject = *inner; }
+            if let SchemeType::Ground(mut ty) = subject {
+                while let Type::Optional(inner) = ty { ty = *inner; }
+                if matches!(&ty, Type::Tag(family) if families.contains(family)) { Some(SchemeType::Ground(ty)) } else { None }
+            } else { None }
+        }
         SealedOperation::Field { mut receiver, name, .. } => {
             while let SchemeType::Validated(_, inner) = receiver { budget.charge(1)?; receiver = *inner; }
             match receiver {
@@ -325,6 +344,23 @@ pub(super) fn result_error_type(ty: &SchemeType) -> Option<Option<Type>> {
         SchemeType::Ground(ty) => crate::sema::sealed_operation::result_error_contract(ty).cloned().map(Some),
         _ => None,
 }
+}
+
+pub(super) fn verify_target_variant_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, variant: Name, physical_families: &[Name], result: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("target variant ordinal is out of scope"))?;
+    let SealedOperation::TargetVariant { result: required, name, families, .. } = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)? else {
+        return Err(IrVerifyError::new("target variant producer has another requirement"));
+    };
+    if name != variant || families.as_ref() != physical_families || !body_types_equal(&required, result) { return Err(IrVerifyError::new("target variant producer disagrees with its scoped requirement")); }
+    let mut unique = BTreeSet::new();
+    for family in families.iter() {
+        if !unique.insert(*family) { return Err(IrVerifyError::new("target variant family is duplicated")); }
+        let key = crate::runtime::eval::CheckedPatternVariantKey { kind: crate::runtime::eval::CheckedPatternVariantKind::Tag, owner: *family, variant: name };
+        if !store.declared_pattern_variants.get(&key).is_some_and(|layout| layout.fields.is_empty()) {
+            return Err(IrVerifyError::new("target variant family has no declared zero-field layout"));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn verify_body_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, operator: crate::syntax::node::BinaryOp, left: &SchemeType, right: &SchemeType, result: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {

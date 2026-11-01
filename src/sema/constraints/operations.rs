@@ -24,6 +24,7 @@ pub(crate) enum SealedOperationError {
     UnsupportedField { receiver: Type, name: crate::symbol::Name },
     MissingField { receiver: Type, name: crate::symbol::Name },
     UnsupportedMembership { container: Type, needle: Type },
+    UnsupportedVariant { subject: Type, name: crate::symbol::Name },
     UnsupportedEquality { left: Type, right: Type },
     UnsupportedSlice { receiver: Type },
     UnsupportedRecordSpread { receiver: Type },
@@ -379,6 +380,7 @@ impl std::fmt::Display for SealedOperationError {
             Self::FieldConstraint(error) => write!(formatter, "field projection requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
             Self::UnsupportedTypePredicate { domain, subject } => write!(formatter, "{domain:?} does not support {subject}"),
+            Self::UnsupportedVariant { subject, name } => write!(formatter, "{subject} has no visible zero-field variant `{name}`"),
             Self::UnsupportedEquality { left, right } => write!(formatter, "equality is not defined for {left} and {right}"),
             Self::UnsupportedMembership { container, needle } => write!(formatter, "membership is not defined for {needle} in {container}"),
             Self::UnsupportedIndex { receiver, key } => write!(formatter, "indexing is not defined for {receiver} with key {:?}", Some(key)),
@@ -659,6 +661,20 @@ impl TypeConstraints {
                             return Err(SealedOperationError::UnsupportedIndex { receiver, key });
                         }
                         let selected = SealedOperationSignature::MapKey;
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
+                        if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
+                    SealedOperation::TargetVariant { subject, result, name, families, span } => {
+                        let subject = this.resolve_with_changes(&subject, 0, changes)?;
+                        if subject.contains_inference() { continue; }
+                        let mut target = &subject;
+                        while let Type::Optional(inner) = target { target = inner; }
+                        if !matches!(target, Type::Tag(family) if families.contains(family)) {
+                            return Err(SealedOperationError::UnsupportedVariant { subject, name });
+                        }
+                        this.constrain_operation_type(target, &result, span, changes)?;
+                        let selected = SealedOperationSignature::TargetVariant;
                         let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
                         if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
                         continue;

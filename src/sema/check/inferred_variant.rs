@@ -248,7 +248,7 @@ impl Checker {
                         .get(&family)
                         .is_some_and(|info| info.variants.contains_key(&variant))
             }
-            Err(_) => false,
+            Ok(InferredVariant::Deferred { .. }) | Err(_) => false,
         };
         if same {
             self.redundant_variant_qualifiers.insert(
@@ -303,6 +303,7 @@ impl Checker {
             }
         };
         let (resolved, fact) = match variant {
+            InferredVariant::Deferred { .. } => unreachable!(),
             InferredVariant::Tag {
                 type_name,
                 field_types,
@@ -390,6 +391,29 @@ impl Checker {
         span: Span,
     ) -> Type {
         self.inferred_variants.remove(&span);
+        if self.boundary.target_variant_equality == Some(span)
+            && let Some(subject @ Type::Inference(_)) = expected {
+            let mut families = self.tag_variants.iter().filter_map(|(spelling, info)| {
+                (spelling.as_str().rsplit('.').next() == Some(name.as_str().as_str()) && info.field_count == 0).then_some(info.type_name)
+            }).collect::<Vec<_>>();
+            families.sort();
+            families.dedup();
+            if families.is_empty() {
+                self.report_variant_miss(name, VariantMiss::Uninferred, span);
+                return Type::Invalid;
+            }
+            let families: std::sync::Arc<[Name]> = families.into();
+            let result = self.type_constraints.fresh_at_level(span, self.callable_solver_level());
+            let operation = crate::sema::sealed_operation::SealedOperation::TargetVariant {
+                subject: subject.clone(), result: result.clone(), name, families: families.clone(), span,
+            };
+            if let Err(error) = self.type_constraints.register_source_sealed_operation(self.constraint_scope(), operation).and_then(|_| self.type_constraints.solve_sealed_operations()) {
+                self.error(span, &error.to_string(), DiagnosticCode::CheckInferredVariant);
+                return Type::Invalid;
+            }
+            self.inferred_variants.insert(span, InferredVariant::Deferred { variant: name, families });
+            return result;
+        }
         let variant = match self.select_inferred_variant(name, expected) {
             Ok(variant) => variant,
             Err(miss) => {
@@ -398,6 +422,7 @@ impl Checker {
             }
         };
         match &variant {
+            InferredVariant::Deferred { .. } => unreachable!(),
             InferredVariant::Tag {
                 type_name,
                 field_types,
@@ -452,6 +477,7 @@ impl Checker {
             }
         };
         let ty = match &variant {
+            InferredVariant::Deferred { .. } => unreachable!(),
             InferredVariant::Tag {
                 type_name,
                 field_types,
@@ -556,6 +582,7 @@ impl Checker {
 #[cfg(test)]
 mod pattern_tests {
     use crate::sema::check::{Checker, InferredVariantPattern};
+    use crate::symbol::Name;
     use crate::source::SourceId;
     use crate::syntax::parser::Parser;
 
@@ -581,19 +608,23 @@ mod pattern_tests {
         let declarations = r#"
 use first
 use second
+use hidden
 type FirstContext = {kind: first.Choice}
 type SecondContext = {kind: second.Choice}
 pure first_contextual(ctx: FirstContext) -> Bool { ctx.kind == .Same }
 pure second_contextual(ctx: SecondContext) -> Bool { ctx.kind == .Same }
 pure first_qualified(ctx) -> Bool { ctx.kind == first.Same }
 pure second_qualified(ctx) -> Bool { ctx.kind == second.Same }
+pure unselected(ctx) -> Bool { ctx.kind == .Same }
 assert first_contextual({kind: first.Same}) == first_qualified({kind: first.Same})
 assert second_contextual({kind: second.Same}) == second_qualified({kind: second.Same})
 "#;
         for (extra, expected) in [
             ("", None),
-            ("pure unselected(ctx) -> Bool { ctx.kind == .Same }\n", Some(DiagnosticCode::CheckInferredVariant)),
+            ("assert unselected({kind: first.Same})\nassert unselected({kind: second.Same})\n", None),
+            ("pure missing(ctx) -> Bool { ctx.kind == .Absent }\n", Some(DiagnosticCode::CheckInferredVariant)),
             ("first_qualified({kind: second.Same})\n", Some(DiagnosticCode::CheckTypeMismatch)),
+            ("unselected({kind: hidden.choice()})\n", Some(DiagnosticCode::CheckInferredVariant)),
         ] {
             let source = format!("{declarations}{extra}");
             let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only("enum-selection.xsh", crate::loader::entry_source_from_text("enum-selection.xsh", source.clone()), vec![modules.clone()]);
@@ -606,12 +637,22 @@ assert second_contextual({kind: second.Same}) == second_qualified({kind: second.
                 assert!(errors.iter().any(|diagnostic| diagnostic.code == Some(expected)), "{source}\n{errors:?}");
             } else {
                 assert!(errors.is_empty(), "{source}\n{errors:?}");
-                let families = checked.inferred_variants.iter().map(|(span, variant)| {
+                let mut deferred = 0;
+                let families = checked.inferred_variants.iter().filter_map(|(span, variant)| {
                     assert_eq!(span.source_id, source_id);
                     assert_eq!(&source[span.range()], ".Same");
-                    let crate::sema::check::InferredVariant::Tag { type_name, .. } = variant else { panic!("an enum family is selected") };
-                    *type_name
+                    match variant {
+                        crate::sema::check::InferredVariant::Tag { type_name, .. } => Some(*type_name),
+                        crate::sema::check::InferredVariant::Deferred { variant, families } => {
+                            assert_eq!(*variant, Name::intern("Same"));
+                            assert_eq!(families.len(), 2);
+                            deferred += 1;
+                            None
+                        }
+                        _ => panic!("an enum target is retained"),
+                    }
                 }).collect::<Vec<_>>();
+                assert_eq!(deferred, 1);
                 assert_eq!(families.len(), 2);
                 assert_ne!(families[0], families[1]);
                 for (family, qualified) in families.into_iter().zip(["first.Same", "second.Same"]) {
@@ -620,8 +661,10 @@ assert second_contextual({kind: second.Same}) == second_qualified({kind: second.
             }
             if expected == Some(DiagnosticCode::CheckInferredVariant) {
                 let variant = checked.diagnostics.iter().find(|diagnostic| diagnostic.code == expected).unwrap().labels[0].span;
-                assert_eq!(&source[variant.range()], ".Same");
-                assert!(!checked.inferred_variants.contains_key(&variant));
+                if extra.contains(".Absent") {
+                    assert_eq!(&source[variant.range()], ".Absent");
+                    assert!(!checked.inferred_variants.contains_key(&variant));
+                }
             }
         }
     }

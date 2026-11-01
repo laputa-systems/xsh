@@ -903,11 +903,10 @@ pub struct MessagePayloadConstructor {
     pub named_message: Option<(Span, Span)>,
 }
 
-/// A leading-dot variant resolved against its expected type. It carries the
-/// declaration the equivalent qualified spelling names, so later stages never
-/// resolve the bare name again.
+/// A leading-dot variant's checked selection or scoped deferred requirement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InferredVariant {
+    Deferred { variant: Name, families: std::sync::Arc<[Name]> },
     Tag {
         type_name: Name,
         variant: Name,
@@ -1817,6 +1816,7 @@ struct BoundaryContext {
     result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
     /// The next expression is a control position of a condition.
     control_condition: bool,
+    target_variant_equality: Option<Span>,
     /// Control positions extend through the operands of `!`, `and`, and `or`.
     in_control_position: bool,
 }

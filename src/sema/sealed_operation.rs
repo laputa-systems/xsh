@@ -65,6 +65,7 @@ pub(crate) enum SealedOperation<T> {
     StoreValue { storage: T, replacement: T, span: Span },
     Slice { receiver: T, result: T, bounds: SliceBounds, span: Span },
     RecordOverride { receiver: T, overrides: std::sync::Arc<[RecordOverrideField<T>]>, result: T, span: Span },
+    TargetVariant { subject: T, result: T, name: crate::symbol::Name, families: std::sync::Arc<[crate::symbol::Name]>, span: Span },
     Equality { left: T, right: T, span: Span },
     Membership { needle: T, container: T, span: Span },
     MapKey { receiver: T, key: T, span: Span },
@@ -84,6 +85,7 @@ pub(crate) enum SealedOperationSignature {
     SliceStr,
     SliceBytes,
     RecordOverride,
+    TargetVariant,
     Equality,
     Membership(MembershipDomain),
     MapKey,
@@ -95,14 +97,14 @@ impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
 
 impl<T> SealedOperation<T> {
     pub(crate) fn span(&self) -> Span {
-        match self { Self::Binary(operation) => operation.span, Self::Equality { span, .. } | Self::Field { span, .. } | Self::Membership { span, .. } | Self::MapKey { span, .. } | Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::IndexStore { span, .. } | Self::StoreValue { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
+        match self { Self::Binary(operation) => operation.span, Self::TargetVariant { span, .. } | Self::Equality { span, .. } | Self::Field { span, .. } | Self::Membership { span, .. } | Self::MapKey { span, .. } | Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::IndexStore { span, .. } | Self::StoreValue { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
     }
     pub(crate) fn result(&self) -> Option<&T> {
-        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::Field { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::TargetVariant { result, .. } | Self::Field { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(crate) fn inputs(&self) -> impl Iterator<Item = &T> {
         let (fixed, overrides): (_, &[RecordOverrideField<T>]) = match self {
-            Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
+            Self::TypePredicate { subject: key, .. } | Self::TargetVariant { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary(operation) => ([Some(&operation.left), Some(&operation.right)], &[]),
             Self::Equality { left, right, .. } => ([Some(left), Some(right)], &[]),
             Self::Membership { needle, container, .. } => ([Some(needle), Some(container)], &[]),
@@ -124,6 +126,7 @@ impl<T> SealedOperation<T> {
     pub(crate) fn types_mut(&mut self) -> impl Iterator<Item = &mut T> where T: Clone {
         let (fixed, overrides): (_, &mut [RecordOverrideField<T>]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None, None], &mut []),
+            Self::TargetVariant { subject, result, .. } => ([Some(subject), Some(result), None], &mut []),
             Self::Binary(operation) => ([Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)], &mut []),
             Self::Equality { left, right, .. } => ([Some(left), Some(right), None], &mut []),
             Self::Membership { needle, container, .. } => ([Some(needle), Some(container), None], &mut []),
@@ -139,6 +142,7 @@ impl<T> SealedOperation<T> {
         match (self, other) {
             (Self::TypePredicate { domain, .. }, SealedOperation::TypePredicate { domain: right, .. }) => domain == right,
             (Self::Binary(left), SealedOperation::Binary(right)) => left.operator == right.operator,
+            (Self::TargetVariant { name, families, .. }, SealedOperation::TargetVariant { name: other, families: other_families, .. }) => name == other && families == other_families,
             (Self::Equality { .. }, SealedOperation::Equality { .. }) => true,
             (Self::Field { name, .. }, SealedOperation::Field { name: right, .. }) => name == right,
             (Self::Membership { .. }, SealedOperation::Membership { .. }) => true,
@@ -153,6 +157,7 @@ impl<T> SealedOperation<T> {
     }
     pub(crate) fn owned_fields_bytes(&self) -> usize {
         match self {
+            Self::TargetVariant { families, .. } => 2 * std::mem::size_of::<usize>() + families.len() * std::mem::size_of::<crate::symbol::Name>(),
             Self::RecordOverride { overrides, .. } => 2 * std::mem::size_of::<usize>() + overrides.len() * std::mem::size_of::<RecordOverrideField<T>>(),
             _ => 0,
         }
@@ -161,6 +166,7 @@ impl<T> SealedOperation<T> {
         Ok(match self {
             Self::TypePredicate { domain, subject: key, span } => SealedOperation::TypePredicate { domain: *domain, subject: map(key)?, span: *span },
             Self::Binary(operation) => SealedOperation::Binary(SealedBinaryOperation { operator: operation.operator, left: map(&operation.left)?, right: map(&operation.right)?, result: map(&operation.result)?, span: operation.span }),
+            Self::TargetVariant { subject, result, name, families, span } => SealedOperation::TargetVariant { subject: map(subject)?, result: map(result)?, name: *name, families: families.clone(), span: *span },
             Self::Equality { left, right, span } => SealedOperation::Equality { left: map(left)?, right: map(right)?, span: *span },
             Self::Field { receiver, name, result, span } => SealedOperation::Field { receiver: map(receiver)?, name: *name, result: map(result)?, span: *span },
             Self::Membership { needle, container, span } => SealedOperation::Membership { needle: map(needle)?, container: map(container)?, span: *span },

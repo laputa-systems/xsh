@@ -636,6 +636,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             _ => Vec::new(),
         };
         match variant {
+            crate::sema::check::InferredVariant::Deferred { .. } => None,
             crate::sema::check::InferredVariant::Tag {
                 type_name,
                 variant,

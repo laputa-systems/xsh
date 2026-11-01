@@ -666,3 +666,40 @@ let wrong: Result[Int, FetchError]? = Ok("seven")
   assert ! mismatched.success, mismatched.stdout
   assert "check.type-mismatch" in mismatched.stderr, mismatched.stderr
 }
+
+test test_generic_target_variants_use_each_callers_nominal_family { |ctx|
+  let root = test.temp_dir(ctx, name: "generic-target-variants")?
+  fp"{root}/first.xsh".write_atomic("##! First choices.\n## First choice.\nexport enum Choice { Same, FirstOther }\n")
+  fp"{root}/second.xsh".write_atomic("##! Second choices.\n## Second choice.\nexport enum Choice { Same, SecondOther }\n")
+  fp"{root}/provider.xsh".write_atomic("##! Generic choice selection.\nuse first\nuse second\n## Select matching choices.\nexport pure selected(event) -> Bool { event.action == .Same }\n")
+  let executed = test.expect(
+    ctx,
+    r"""use first
+use second
+use provider
+enum State: Str { Same = "same", Different = "different" }
+pure selected(event) -> Bool { event.action == .Same }
+pure unused(event) -> Bool { event.action == .Same }
+pure forwarded(event) -> Bool { selected(event) }
+pure guarded(event) -> Bool { if event != null { event.action == .Same } else { false } }
+pure optional(flag: Bool) -> first.Choice? { if flag { first.Same } else { null } }
+print (selected({action: optional(true)}))
+print (selected({action: optional(false)}))
+print (selected({action: first.Same}))
+print (selected({action: first.FirstOther}))
+print (forwarded({action: second.Same}))
+print (forwarded({action: second.SecondOther}))
+print (guarded({action: first.Same}))
+print (provider.selected({action: first.Same}))
+print (provider.selected({action: second.SecondOther}))
+print (selected({action: Same}))
+print (selected({action: Different}))
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert executed.stdout == "true\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse\n"
+  let rejected = test.run_script(ctx, "enum A { Same, Other }\nenum B { Missing }\npure selected(event) -> Bool { event.action == .Same }\nassert selected({action: Missing})\n")?
+  assert ! rejected.success, rejected.stderr
+  assert "check.inferred-variant" in rejected.stderr, rejected.stderr
+}

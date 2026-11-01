@@ -352,6 +352,7 @@ impl Checker {
                             crate::sema::sealed_operation::TypeDomain::MinMaxItem => DiagnosticCode::CheckDynamicBoundary,
                             crate::sema::sealed_operation::TypeDomain::OrderingOperand | crate::sema::sealed_operation::TypeDomain::NegationOperand => DiagnosticCode::CheckOperatorType,
                         },
+                        crate::sema::constraints::SealedOperationError::UnsupportedVariant { .. } => DiagnosticCode::CheckInferredVariant,
                         crate::sema::constraints::SealedOperationError::UnsupportedEquality { .. } => DiagnosticCode::CheckTypeMismatch,
                         crate::sema::constraints::SealedOperationError::StorageConstraint(_) => DiagnosticCode::CheckTypeMismatch,
                         crate::sema::constraints::SealedOperationError::UnsupportedMembership { .. } => DiagnosticCode::CheckMembershipType,

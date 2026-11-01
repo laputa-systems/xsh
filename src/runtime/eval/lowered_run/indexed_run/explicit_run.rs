@@ -7602,6 +7602,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::EmptyMap |
             ExprViewKind::Range |
             ExprViewKind::Tag |
+            ExprViewKind::TargetVariant |
             ExprViewKind::Slice |
             ExprViewKind::StrByteLen |
             ExprViewKind::StrByteAt |

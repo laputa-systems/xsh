@@ -330,6 +330,7 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprEmptyMap
             | FullTag::ExprRange
             | FullTag::ExprTag
+            | FullTag::ExprTargetVariant
             | FullTag::ExprSlice
             | FullTag::ExprStrByteLen
             | FullTag::ExprStrByteAt
@@ -564,7 +565,7 @@ pub(super) fn indexed_frame_apply_child(
             position,
             command.span,
         ),
-        ExprView::FunctionRef { .. } | ExprView::EmptyMap
+        ExprView::FunctionRef { .. } | ExprView::EmptyMap | ExprView::TargetVariant { .. }
         | ExprView::Glob { .. } | ExprView::LastStatus { .. } => None,
         ExprView::PathFrom { value, span } => {
             indexed_frame_apply_child_from_fields([(Some((value.raw(), None)))], position, *span)
@@ -1274,6 +1275,11 @@ pub(super) fn indexed_frame_apply_value(
             let mut value = indexed_range_value(start, end, span)?;
             evaluator.register_returned_lowered_stream(&mut value, span)?;
             Ok(value)
+        }
+        ExprView::TargetVariant { .. } => {
+            assert!(values.next().is_none(), "target variant has no operands");
+            let (family, name, wire) = execution.target_variant(instruction, invocation).map_err(|error| indexed_error(error, call_span))?;
+            Ok(indexed_tag_value(family, wire, name, Vec::new()))
         }
         ExprView::Tag {
             type_name, name, wire, fields,
@@ -1989,6 +1995,7 @@ impl Evaluator {
             ExprViewKind::EmptyMap |
             ExprViewKind::Range |
             ExprViewKind::Tag |
+            ExprViewKind::TargetVariant |
             ExprViewKind::ListComp |
             ExprViewKind::MapComp |
             ExprViewKind::ListPipeline |

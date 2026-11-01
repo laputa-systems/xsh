@@ -1669,6 +1669,30 @@ impl FullProgram {
         Err(IrVerifyError::new("membership container nesting is too deep"))
     }
 
+    fn target_variant(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<(Name, Arc<str>, Option<Arc<crate::sema::wire_enums::WireEnumMapping>>), IrVerifyError> {
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
+        let Some(schemes::FullSealedOperation::TargetVariant { subject, name, families, .. }) = self.store.sealed_operation_site(owner, instruction)? else {
+            return Err(IrVerifyError::new("target variant has no owned requirement"));
+        };
+        let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+        let mut target = verify_schemes::instantiate_bound_type(&self.store, subject, &invocation.substitution, &mut budget, 0)?;
+        while let Type::Optional(inner) = target { target = *inner; }
+        let Type::Tag(family) = target else {
+            return Err(IrVerifyError::new("target variant has no nominal binding"));
+        };
+        let name = self.store.string(name)?;
+        let range = families.bounds(self.store.scheme_fields.len()).ok_or_else(|| IrVerifyError::new("target variant families are invalid"))?;
+        if !self.store.scheme_fields[range].iter().any(|field| self.store.string(field.name).ok() == Some(family.as_str().as_str())) {
+            return Err(IrVerifyError::new("target variant family is outside its requirement"));
+        }
+        let key = CheckedPatternVariantKey { kind: CheckedPatternVariantKind::Tag, owner: family, variant: Name::intern(name) };
+        if !self.store.declared_pattern_variants.get(&key).is_some_and(|layout| layout.fields.is_empty()) {
+            return Err(IrVerifyError::new("target variant disagrees with its declared layout"));
+        }
+        let wire = self.store.wire_enums.iter().find(|mapping| mapping.type_name == family).cloned();
+        Ok((family, Arc::from(name), wire))
+    }
+
     fn index_contract(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<(PreparedIndexReceiver, crate::sema::sealed_operation::IndexSyntax)>, IrVerifyError> {
         let invocation = self.invocation_at(owner, instruction, invocation)?;
         let Some(operation) = self.store.sealed_operation_site(owner, instruction)? else { return Ok(None); };
@@ -6800,6 +6824,10 @@ impl<'p> FullExecution<'p> {
         FullExecution::<'static>::for_function(ProgramOwner::Shared(program), index)
     }
 
+    pub(in crate::runtime::eval) fn target_variant(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<(Name, Arc<str>, Option<Arc<crate::sema::wire_enums::WireEnumMapping>>), IrVerifyError> {
+        self.program().target_variant(self.owner, instruction, invocation)
+    }
+
     pub(in crate::runtime::eval) fn index_literal_mode(&self, instruction: u32, distance: crate::runtime::eval::EndDistance, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexLiteral, IrVerifyError> {
         self.program().index_literal_mode(self.owner, instruction, distance, invocation)
     }
@@ -10470,6 +10498,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::EmptyMap
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
@@ -10921,6 +10950,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::ListBuild(_)
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
@@ -11821,6 +11851,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::EmptyMap
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
@@ -11946,6 +11977,7 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Duration(_) => Ok(Some(Type::Duration)),
             schema::ExprView::PreparedRegex(_) => Ok(Some(Type::Regex)),
             schema::ExprView::Tag { type_name, .. } => Ok(Some(Type::Tag(type_name))),
+            schema::ExprView::TargetVariant { .. } => Ok(None),
             schema::ExprView::Null => Ok(Some(Type::Null)),
             schema::ExprView::Unit => Ok(Some(Type::Unit)),
             schema::ExprView::UInt(_) => Ok(Some(Type::UInt)),
@@ -13427,6 +13459,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::Glob { .. }
             | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
@@ -13741,6 +13774,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::EmptyMap
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
@@ -16420,6 +16454,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::EmptyMap
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
@@ -16931,6 +16966,7 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::EmptyMap
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
+            | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
@@ -22384,7 +22420,7 @@ macro_rules! impl_build_id_codec {
                 if let Some(operation) = operation {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_operation_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
-                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprField | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
+                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprTargetVariant | FullTag::ExprField | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
                 }
                 if let Some(method) = method {
@@ -23901,6 +23937,67 @@ assert forward({value: 7}, "kept") == 0
             missing_guard.store.param_cold[cold].validation = IR_NONE;
             let error = FullVerifier::verify(&missing_guard).unwrap_err();
             assert!(error.message.contains("unsigned parameter is missing its runtime validation"), "{error:?}");
+        });
+    }
+
+    #[test]
+    fn generic_target_variant_producer_authenticates_its_requirement_and_owner() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-target-variant-proofs.xsh", r#"
+enum Action { Add, Remove }
+pure selected(event) -> Bool { event.action == .Add }
+pure relay(event) -> Bool { selected(event) }
+pure guarded(event) -> Bool { if event != null { event.action == .Add } else { false } }
+assert relay({action: Add})
+assert !relay({action: Remove})
+assert guarded({action: Add})
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let program = Arc::new(program);
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+            let program = Arc::try_unwrap(program).ok().unwrap();
+            let owner = scheme_fixture_root_function(&program, "selected");
+            let other = scheme_fixture_root_function(&program, "relay");
+            let instruction = function_instruction_indices(&program, "selected", FullTag::ExprTargetVariant)[0];
+            let function = IrFunctionId::new(owner).unwrap();
+            let fact = program.store.scheme_body_facts.iter().position(|fact| fact.function == function && fact.instruction as usize == instruction && fact.kind() == schemes::FullSchemeBodyFactKind::Operation).unwrap();
+            let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let cold = || { let mut forged = program.clone(); forged.store.in_place.take(); forged };
+            let _symbols = program.symbol_owner().enter();
+            let mut wrong_variant = cold();
+            wrong_variant.store.extra[words.start] = Name::intern("Remove").symbol().raw();
+            assert!(FullVerifier::verify(&wrong_variant).is_err());
+            let mut wrong_owner = cold();
+            wrong_owner.store.scheme_body_facts[fact].function = IrFunctionId::new(other).unwrap();
+            assert!(FullVerifier::verify(&wrong_owner).is_err());
+            let mut wrong_requirement = cold();
+            wrong_requirement.store.scheme_body_facts[fact].value = schemes::FullSchemeBodyFactValue::Operation(u32::MAX);
+            assert!(FullVerifier::verify(&wrong_requirement).is_err());
+            let guarded = scheme_fixture_root_function(&program, "guarded");
+            let guarded_instruction = function_instruction_indices(&program, "guarded", FullTag::ExprTargetVariant)[0];
+            let guard = program.store.scheme_body_facts.iter().position(|fact| fact.function == IrFunctionId::new(guarded).unwrap() && fact.instruction as usize == guarded_instruction && matches!(fact.value, schemes::FullSchemeBodyFactValue::GuardScope(_))).unwrap();
+            let mut wrong_guard = cold();
+            wrong_guard.store.scheme_body_facts[guard].value = schemes::FullSchemeBodyFactValue::GuardScope(u32::MAX);
+            assert!(FullVerifier::verify(&wrong_guard).is_err());
+            let mut wrong_family = cold();
+            let (families, name) = program.store.scheme_operations.iter().find_map(|operation| match operation {
+                schemes::FullSealedOperation::TargetVariant { families, name, .. } => Some((*families, *name)),
+                _ => None,
+            }).unwrap();
+            let families = families.bounds(wrong_family.store.scheme_fields.len()).unwrap();
+            wrong_family.store.scheme_fields[families.start].name = name;
+            assert!(FullVerifier::verify(&wrong_family).is_err());
+            let mut missing_family = cold();
+            let key = CheckedPatternVariantKey { kind: CheckedPatternVariantKind::Tag, owner: Name::intern("Action"), variant: Name::intern("Add") };
+            missing_family.store.declared_pattern_variants.remove(&key);
+            assert!(FullVerifier::verify(&missing_family).is_err());
         });
     }
 

@@ -358,6 +358,7 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
         let inputs = operation.inputs().map(|ty| render_scheme_type(ty, names, identities, context)).collect::<Vec<_>>().join(", ");
         let result = operation.result().map(|ty| render_scheme_type(ty, names, identities, context));
         parts.push(match operation {
+            crate::sema::sealed_operation::SealedOperation::TargetVariant { name, .. } => format!("variant({inputs}, .{name})"),
             crate::sema::sealed_operation::SealedOperation::Equality { .. } => format!("equality({inputs})"),
             crate::sema::sealed_operation::SealedOperation::Membership { .. } => format!("membership({inputs})"),
             crate::sema::sealed_operation::SealedOperation::MapKey { .. } => format!("map-key({inputs})"),
