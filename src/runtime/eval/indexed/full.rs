@@ -48393,7 +48393,8 @@ pure rebuild(row) {
             let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
             let scheme = program.store.scheme(id).unwrap();
             let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
-            let schemes::FullSealedOperation::RecordOverride { result, overrides, .. } = program.store.scheme_operations[operations.start] else { unreachable!() };
+            let operation = operations.into_iter().find(|&index| matches!(program.store.scheme_operations[index], schemes::FullSealedOperation::RecordOverride { .. })).unwrap();
+            let schemes::FullSealedOperation::RecordOverride { result, overrides, .. } = program.store.scheme_operations[operation] else { unreachable!() };
             let result = program.store.scheme_types[result.index()];
             assert_eq!(result.tag, schema::FullSchemeTypeTag::Record);
             let fields = result.children.bounds(program.store.scheme_fields.len()).unwrap();
@@ -48523,7 +48524,7 @@ assert result.extra == 9
             let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
             let scheme = program.store.scheme(id).unwrap();
             let operations = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap();
-            let operation = operations.start;
+            let operation = operations.into_iter().find(|&index| matches!(program.store.scheme_operations[index], schemes::FullSealedOperation::RecordOverride { .. })).unwrap();
             let schemes::FullSealedOperation::RecordOverride { receiver, overrides, result } = program.store.scheme_operations[operation] else { unreachable!() };
             let fields = overrides.bounds(program.store.scheme_fields.len()).unwrap();
             let record = function_instruction_indices(&program, "rebuild", FullTag::ExprRecord)[0];
@@ -48835,7 +48836,7 @@ assert b.added == 1
             let owner = scheme_fixture_root_function(&program, "extend");
             let FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { unreachable!() };
             let scheme = program.store.scheme(id).unwrap();
-            let operation = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap().start;
+            let operation = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap().find(|&index| matches!(program.store.scheme_operations[index], schemes::FullSealedOperation::RecordOverride { .. })).unwrap();
             let schemes::FullSealedOperation::RecordOverride { receiver, result, .. } = program.store.scheme_operations[operation] else { unreachable!() };
             let mut shared_tail = program.clone();
             shared_tail.store.scheme_types[result.index()].first = program.store.scheme_types[receiver.index()].first;
