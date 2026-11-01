@@ -16,6 +16,7 @@ pub(crate) struct SealedOperationId(NonZeroU64);
 pub(crate) enum SealedOperationError {
     Resolution(ConstraintResolutionError),
     Constraint(ConstraintConflict),
+    StorageConstraint(ConstraintConflict),
     MapKey(super::MapKeyConstraintError),
     UnsupportedTypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: Type },
     UnsupportedIndex { receiver: Type, key: Type },
@@ -307,6 +308,7 @@ impl std::fmt::Display for SealedOperationError {
         match self {
             Self::Resolution(error) => write!(formatter, "operation type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
+            Self::StorageConstraint(error) => write!(formatter, "storage requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
             Self::UnsupportedTypePredicate { domain, subject } => write!(formatter, "{domain:?} does not support {subject}"),
             Self::UnsupportedEquality { left, right } => write!(formatter, "equality is not defined for {left} and {right}"),
@@ -628,11 +630,14 @@ impl TypeConstraints {
                         let storage = this.resolve_with_changes(&storage, 0, changes)?;
                         if matches!(storage.unvalidated(), Type::Inference(_)) { continue; }
                         let replacement = this.resolve_with_changes(&replacement, 0, changes)?;
-                        this.constrain_operation_type(&storage, &replacement, span, changes)?;
+                        this.constrain_operation_type(&storage, &replacement, span, changes).map_err(|error| match error {
+                            SealedOperationError::Constraint(conflict) => SealedOperationError::StorageConstraint(conflict),
+                            error => error,
+                        })?;
                         let replacement = this.resolve_with_changes(&replacement, 0, changes)?;
                         if storage.contains_inference() || replacement.contains_inference() { continue; }
                         if matches!(storage, Type::Unknown | Type::Invalid) || matches!(replacement, Type::Unknown | Type::Invalid) || (replacement == Type::Any && storage != Type::Any) || !replacement.matches_expected(&storage) {
-                            return Err(SealedOperationError::Constraint(ConstraintConflict { expected: storage, actual: replacement, resolution_error: None, contribution: span, initializer: None, established: None }));
+                            return Err(SealedOperationError::StorageConstraint(ConstraintConflict { expected: storage, actual: replacement, resolution_error: None, contribution: span, initializer: None, established: None }));
                         }
                         let selection = SealedOperationSignature::StoreValue;
                         let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
