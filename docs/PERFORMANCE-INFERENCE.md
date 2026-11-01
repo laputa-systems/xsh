@@ -345,16 +345,21 @@ Two further classes come from the current practical cohort.
   `add_bytes`, `count_data` and `add_counts` turns UInt fields into inferred
   arithmetic results and loses their return schemas. Keep these four.
 
-**Cross-type overloads.** `byte_at` (`Str` and `Bytes`), `get` (`List` and
-`Map`) and `replace` (`Str` and `Regex`) on an unresolved receiver report
-`check.ambiguous-overload`. Section 9 makes these in-scope: a generic helper keeps
-a finite sealed requirement over the registry's domains and discharges it at each
-concrete use, as ordering and negation already do. They are open inference
-work, not retained annotations, and they are not registry method families
-(only `len`, `is_empty`, `write`, `parent` and `normalize` are). Removing the
-`data` annotation from `wc.continuation`, `wc.within` or `wc.byte_words`
-currently produces both `check.ambiguous-overload` and `check.result-fallback`;
-`wc.sequence_width.data` stays reserved.
+**Cross-type overloads.** Generic `byte_at`, `get`, and `replace` calls now
+retain finite registry requirements and discharge them at concrete calls.
+The private `data` parameter erasures in `wc.continuation`, `wc.within`,
+`wc.byte_words`, and `wc.sequence_width` pass. Invalid List[Int] callers remain
+rejected. Earlier ambiguous-overload diagnostics do not justify retaining these
+annotations.
+
+**Unsigned input boundaries.** A known `Map[UInt, Str]` receiver establishes a
+`UInt` key parameter when its annotation is omitted. Its typed input boundary
+rejects negative integers fatally, matching an explicit `UInt` parameter.
+An explicit `Int` parameter instead keeps key validation at the method call.
+An inferred-return proc can then report that failure through its completion.
+Retain `Int` where erasure would move this failure across an error boundary.
+`typed-map-keys::test_known_unsigned_map_infers_the_typed_key_boundary` compares
+all three forms with positive and negative callers.
 
 **Effect ceilings.** The 202 clauses split into 142 individual lint candidates
 and 60 without a suggestion (ten Laputa helpers, 38 `compare_live_*` helpers,

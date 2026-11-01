@@ -3,11 +3,11 @@
 **Status:** active correctness work. Full inference qualification remains open.
 All performance work and readiness checks are deferred.
 
-The latest accepted compiler product is `07572e8f5`. Its verification product
-passes 1,601 runtime-owner Rust cases and 148 pinned Linux native cases.
-The stream and UInt key boundary repairs pass their regression controls.
-Three private `nc` parameters now infer, including guarded record arguments,
-record spreads, and record unions. Forged producer substitutions still reject.
+The latest accepted compiler product is `07abb63cc`. The selected native matrix
+passes 162 cases, and 20 scoped Rust cases pass. The earlier 1,601-case runtime
+owner pass belongs to `07572e8f5`; integrated acceptance remains open.
+Optional destinations preserve input bounds without changing guard subject
+shape. Retained unsigned-map methods validate keys across lexical boundaries.
 
 The [completion contract and evidence](docs/PERFORMANCE-INFERENCE.md) owns the
 lasting requirements, capability matrix, corpus accounting, and deferred
@@ -19,7 +19,7 @@ invariants. Earlier implementation history stays in Git.
 
 | Item | Current evidence | Close when |
 |---|---|---|
-| Retained method families | A fully generic `.get` receiver rejects an `Int` key when instantiated as `Map[UInt, Str]`. Known unsigned receivers already validate keys. | Preserve conditional key validation, result inference, lexical error boundaries, and physical producer authentication through retained selection. |
+| Producer proofs | Pipeline callback fields, empty generic collection arguments, and generic match arms have reduced verifier failures. | Authenticate their physical producer, binder, and lexical relationships without accepting forged evidence or escaped callback bindings. |
 | Mutation inference | Eight private parameters fail assignment-target checking. Unresolved row fields and indexed stores lack the complete checker, lowering, and verifier relationship promised by the SPEC. | Infer row and List or Map writes, including compound and nested writes, while preserving invariant storage, scope, ordering, and checked keys. |
 | Corpus residuals | A fresh 4,680-site private core scan passes 4,587 erasures individually, with several failing joint views. Btop's 39 sites remain unmeasured. The frozen 1,040-removal baseline remains separate. | Reduce genuine inference failures, justify retained source contracts, and close joint views without changing historical denominators. |
 | Practical source views | Laputa passes 56 of 57 parameter erasures individually and all 56 jointly. All 38 private parameter sites pass. | Compare practical core and isolated Laputa views jointly, including behavior and interface witnesses. Retain the exported `write_generation_plan.path_value` contract. |
@@ -27,9 +27,9 @@ invariants. Earlier implementation history stays in Git.
 
 ## Constraints
 
-Use one coupled compiler writer for schemes, checking, lowering, verification,
-and prepared execution. Delegate only disjoint work. Keep independent
-producer, effect, ownership, and forged-IR checks.
+Serialize writes to shared build products. Prepare independent repairs in
+isolated worktrees and integrate each checker, lowering, and verifier slice
+together. Keep independent producer, effect, ownership, and forged-IR checks.
 
 Preserve rank-1 inference, monomorphic recursive components, container
 invariance, nominal schemas, callable kinds, and explicit public contracts.

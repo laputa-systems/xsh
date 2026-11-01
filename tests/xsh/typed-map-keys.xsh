@@ -550,3 +550,24 @@ proc main() [error] {
 """)?
   assert output.success, output.stderr
 }
+
+test test_known_unsigned_map_infers_the_typed_key_boundary { |ctx|
+  let caller = r"""
+proc main() [io] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  for key in [1, -1] {
+    match keyed(values, key) { Ok(_) => print "ok"; Err(_) => print "err" }
+  }
+}
+"""
+  let ordinary = test.run_xsh(ctx, "proc keyed(values: Map[UInt, Str], key: Int) { values.get(key) ?? \"missing\" }" + caller)?
+  assert ordinary.success, ordinary.stderr
+  assert ordinary.stdout == "ok\nerr\n", ordinary.stdout
+  for annotation in ["", ": UInt"] {
+    let source = "proc keyed(values: Map[UInt, Str], key" + annotation + ") { values.get(key) ?? \"missing\" }"
+    let typed = test.run_xsh(ctx, source + caller)?
+    assert ! typed.success, typed.stdout
+    assert "type-error" in typed.stderr, typed.stderr
+    assert typed.stdout == "ok\n", typed.stdout
+  }
+}
