@@ -4758,6 +4758,7 @@ fn verify_instantiated_call_arguments(
             materialization,
             0,
         )? };
+        let mut producer_contract = None;
         let actual = match actual {
             Some(actual) => actual,
             None if !is_splice => {
@@ -4780,13 +4781,7 @@ fn verify_instantiated_call_arguments(
                     ));
                 }
                 materialization.charge_clone(&actual)?;
-                materialization.charge(1)?;
-                ground_arguments.push(producers::GroundArgumentRequest {
-                    owner: decoder.owner,
-                    call: instruction,
-                    argument: value.raw() as usize,
-                    expected: actual.clone(),
-                });
+                producer_contract = Some(actual.clone());
                 CheckedArgumentType::Known(actual)
             }
             None => {
@@ -4795,15 +4790,18 @@ fn verify_instantiated_call_arguments(
                 ));
             }
         };
-        if matches!(actual, CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap)
+        if producer_contract.is_none() && (matches!(actual, CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap)
             || (matches!(actual, CheckedArgumentType::ListItems(_))
                 && matches!(store.tags.get(value.raw() as usize), Some(FullTag::ExprList | FullTag::ExprListBuild)))
-            || matches!(expected.unvalidated(), Type::Result(..))
+            || matches!(expected.unvalidated(), Type::Result(..)))
         {
             materialization.charge_clone(&expected)?;
+            producer_contract = Some(expected.clone());
+        }
+        if let Some(producer_contract) = producer_contract {
             materialization.charge(1)?;
             ground_arguments.push(producers::GroundArgumentRequest {
-                owner: decoder.owner, call: instruction, argument: value.raw() as usize, expected: expected.clone(),
+                owner: decoder.owner, call: instruction, argument: value.raw() as usize, expected: producer_contract,
             });
         }
         checked_arguments.push((expected, expected_scheme_type, is_splice, actual));

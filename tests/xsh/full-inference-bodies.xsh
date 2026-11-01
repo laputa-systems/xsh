@@ -2497,3 +2497,27 @@ print encode(4294967296)
   )?
   assert output.stdout == "00000000\n12345678\nFFFFFFFF\n00000000\n", output.stdout
 }
+
+test test_full_inference_conditional_result_reaches_a_generic_callee { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Options = {groups: Str?}
+proc relay(marker, values: Result[List[Int]]) [error] -> Result[List[Int]] {
+  let _ = marker
+  values
+}
+proc select(spec: Str?) [error] -> Result[List[Int]] {
+  let opts: Options = {groups: spec}
+  let selected = if opts.groups != null { Ok([1, 2]) } else { Ok([]) }
+  relay(opts, selected)
+}
+assert select("members")? == [1, 2]
+assert select(null)?.is_empty()
+print "selected"
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "selected\n", output.stdout
+}

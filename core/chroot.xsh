@@ -130,7 +130,7 @@ proc additional_groups(spec: Str) [fs, error, env] -> Result[List[Int]] {
   groups
 }
 
-proc set_identity(opts: Options, outer: Result[Identity], outer_groups: Result[List[Int]]) [fs, error, process, env] {
+proc set_identity(opts, outer: Result[Identity], outer_groups: Result[List[Int]]) [fs, error, process, env] {
   var ids = empty_identity()
   if let spec = opts.userspec {
     match identity(spec) {

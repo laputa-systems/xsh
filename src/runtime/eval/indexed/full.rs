@@ -48558,6 +48558,40 @@ assert outer("ab", 1) == 3
     }
 
     #[test]
+    fn a_conditional_result_argument_authenticates_its_list_elements() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-conditional-result-argument.xsh", r#"
+type Options = {groups: Str?}
+proc relay(marker, values: Result[List[Int]]) [error] -> Result[List[Int]] {
+  let _ = marker
+  values
+}
+proc select(spec: Str?) [error] -> Result[List[Int]] {
+  let marker = "wrong"
+  let _ = marker
+  let opts: Options = {groups: spec}
+  let selected = if opts.groups != null { Ok([1, 2]) } else { Ok([]) }
+  relay(opts, selected)
+}
+assert select("members")? == [1, 2]
+assert select(null)?.is_empty()
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let elements = function_instruction_indices(&program, "select", FullTag::ExprInt);
+            assert_eq!(elements.len(), 2);
+            let text = function_instruction_indices(&program, "select", FullTag::ExprStr).into_iter().find(|&instruction| {
+                let owner = scheme_fixture_root_function(&program, "select");
+                matches!(function_view_decoder(&program.store, owner).expression_view(instruction).unwrap(), schema::ExprView::Str("wrong"))
+            }).unwrap();
+            let mut wrong_element = program.clone();
+            wrong_element.store.in_place.take();
+            wrong_element.store.tags[elements[0]] = program.store.tags[text];
+            wrong_element.store.data[elements[0]] = program.store.data[text];
+            FullVerifier::verify(&wrong_element).expect_err("a string cannot fill a result's integer list");
+        });
+    }
+
+    #[test]
     fn a_conditional_argument_with_an_empty_list_arm_takes_the_other_arm_type() {
         run_with_large_stack(|| {
             let program = fixture("generic-conditional-empty-list-argument.xsh", r#"
