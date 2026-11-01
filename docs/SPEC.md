@@ -4124,6 +4124,8 @@ that also reads a field therefore requires a present record. A body that only
 forwards the parameter accepts compatible present values and nullable values,
 including `null`. Argument labels, defaults, schemas, effects, and validation
 of `Any` keep their ordinary contracts.
+Under a non-null guard the requirement belongs to that guard, so a call that
+cannot select the guard does not check it.
 A copied record may be updated from a field narrowed by a non-null guard;
 the update retains the field’s present type without widening stored containers.
 A `null` argument copied into a local that the body later replaces takes the

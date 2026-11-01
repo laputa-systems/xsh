@@ -297,7 +297,7 @@ impl Checker {
                 );
             }
         }
-        if deferred.get() { self.retain_known_call_arguments(arena, args, contract, span, checked_argument, owner); }
+        if deferred.get() { self.retain_known_call_arguments(arena, args, contract, span, checked_argument, self.constraint_scope()); }
         let argument_error = self.diagnostics[diagnostics_before_arguments..]
             .iter()
             .any(|diagnostic| {

@@ -405,3 +405,31 @@ proc main(...args: List[Str]) [io, error] {
   let bad = test.expect(ctx, checked, status: 3, args: ["negative"])?
   assert bad.stdout == "2 3\n", bad.stdout
 }
+
+test test_guarded_known_nullable_call_keeps_its_requirement_in_the_guard { |ctx|
+  let output = test.run_xsh(ctx, r"""type Item = {name: Str}
+pure known(value: Item?) -> Bool { value != null }
+pure check(value, enabled) { if enabled != null { known(value) } else { false } }
+pure forward(value, enabled) { check(value, enabled) }
+let some: Int? = 1
+let none: Int? = null
+let item: Item = {name: "x"}
+assert check(item, some)
+assert !check(null, some)
+assert !check(item, none)
+assert forward(item, some)
+assert !check(7, null)
+print "ok"
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "ok\n", output.stdout
+}
+
+test test_guarded_known_nullable_call_rejects_a_selected_incompatible_argument { |ctx|
+  test.expect(ctx, r"""type Item = {name: Str}
+pure known(value: Item?) -> Bool { value != null }
+pure check(value, enabled) { if enabled != null { known(value) } else { false } }
+let some: Int? = 1
+let _ = check({name: 7}, some)
+""", status: 2, stderr: ["[check.callable-mismatch]"])?
+}
