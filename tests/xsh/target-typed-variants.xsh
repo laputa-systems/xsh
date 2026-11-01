@@ -667,6 +667,21 @@ let wrong: Result[Int, FetchError]? = Ok("seven")
   assert "check.type-mismatch" in mismatched.stderr, mismatched.stderr
 }
 
+test test_later_body_context_closes_a_target_variant_family { |ctx|
+  let good = test.expect(ctx, r"""enum Action { Add, Remove }
+type Event = {action: Action}
+pure consume(event: Event) -> Unit {}
+pure selected(event) -> Bool {
+  let selected = event.action == .Add
+  consume(event)
+  selected
+}
+assert selected({action: Add})
+assert !selected({action: Remove})
+""", status: 0)?
+  assert good.stderr == "", good.stderr
+}
+
 test test_generic_target_variants_use_each_callers_nominal_family { |ctx|
   let root = test.temp_dir(ctx, name: "generic-target-variants")?
   fp"{root}/first.xsh".write_atomic("##! First choices.\n## First choice.\nexport enum Choice { Same, FirstOther }\n")

@@ -629,7 +629,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        let variant = self.bodies.inferred_variants.get(&id)?.clone();
+        let mut variant = self.bodies.inferred_variants.get(&id)?.clone();
+        if let crate::sema::check::InferredVariant::Deferred { variant: name, families } = &variant {
+            let Type::Tag(type_name) = self.bodies.expr_types.get(&id)? else { return None; };
+            if !families.contains(type_name) { return None; }
+            variant = crate::sema::check::InferredVariant::Tag { type_name: *type_name, variant: *name, field_types: Vec::new() };
+        }
         let span = self.program.arena.expr(id).span;
         let args = match self.program.arena.expr(id).kind {
             ArenaExprKind::Call { args, .. } => self.program.arena.call_args(args).to_vec(),
