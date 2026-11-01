@@ -6954,6 +6954,27 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn sealed_equality_authenticates_body_and_call_selection() {
+        use crate::sema::schemes::SealedOperationBinding;
+        use crate::sema::sealed_operation::SealedOperationSignature;
+        let program = prepare("pure same(value) { value == \"hi\" }\npure relay(value) { same(value) }\nlet value: Str? = null\nlet result = relay(value)");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "same").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let binary = program.store.function_instruction_range(owner).unwrap().find(|instruction| matches!(decoder.expression_view(*instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq, .. }))).unwrap();
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        let words = changed.store.data[binary].range().bounds(changed.store.extra.len()).unwrap();
+        let selected = changed.store.extra[words.start] as usize;
+        changed.store.binary_ops[selected] = crate::syntax::node::BinaryOp::Add;
+        assert!(FullVerifier::verify(&changed).is_err());
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        let binding = changed.store.call_operation_bindings.iter_mut().find(|binding| matches!(binding, SealedOperationBinding::Selected(SealedOperationSignature::Equality))).unwrap();
+        *binding = SealedOperationBinding::Selected(SealedOperationSignature::StoreValue);
+        assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
     fn sealed_binary_operation_sites_authenticate_opcode_inputs_and_result() {
         let program = prepare("pure combine(a, b, wrong) { a + b }\npure numbers() -> Int { combine(1, 2, false) }");
         let (owner, scheme_id) = generic_owner(&program);

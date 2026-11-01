@@ -64,6 +64,7 @@ pub(crate) enum SealedOperation<T> {
     StoreValue { storage: T, replacement: T, span: Span },
     Slice { receiver: T, result: T, bounds: SliceBounds, span: Span },
     RecordOverride { receiver: T, overrides: std::sync::Arc<[RecordOverrideField<T>]>, result: T, span: Span },
+    Equality { left: T, right: T, span: Span },
     Membership { needle: T, container: T, span: Span },
     MapKey { receiver: T, key: T, span: Span },
 }
@@ -81,6 +82,7 @@ pub(crate) enum SealedOperationSignature {
     SliceStr,
     SliceBytes,
     RecordOverride,
+    Equality,
     Membership(MembershipDomain),
     MapKey,
 }
@@ -91,15 +93,16 @@ impl<T> From<SealedBinaryOperation<T>> for SealedOperation<T> {
 
 impl<T> SealedOperation<T> {
     pub(crate) fn span(&self) -> Span {
-        match self { Self::Binary(operation) => operation.span, Self::Membership { span, .. } | Self::MapKey { span, .. } | Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::IndexStore { span, .. } | Self::StoreValue { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
+        match self { Self::Binary(operation) => operation.span, Self::Equality { span, .. } | Self::Membership { span, .. } | Self::MapKey { span, .. } | Self::TypePredicate { span, .. } | Self::Index { span, .. } | Self::IndexStore { span, .. } | Self::StoreValue { span, .. } | Self::Slice { span, .. } | Self::RecordOverride { span, .. } => *span }
     }
     pub(crate) fn result(&self) -> Option<&T> {
-        match self { Self::TypePredicate { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary(operation) => Some(&operation.result), Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(crate) fn inputs(&self) -> impl Iterator<Item = &T> {
         let (fixed, overrides): (_, &[RecordOverrideField<T>]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary(operation) => ([Some(&operation.left), Some(&operation.right)], &[]),
+            Self::Equality { left, right, .. } => ([Some(left), Some(right)], &[]),
             Self::Membership { needle, container, .. } => ([Some(needle), Some(container)], &[]),
             Self::StoreValue { storage, replacement, .. } => ([Some(storage), Some(replacement)], &[]),
             Self::Index { receiver, key, .. } | Self::IndexStore { receiver, key, .. } | Self::MapKey { receiver, key, .. } => ([Some(receiver), Some(key)], &[]),
@@ -120,6 +123,7 @@ impl<T> SealedOperation<T> {
         let (fixed, overrides): (_, &mut [RecordOverrideField<T>]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None, None], &mut []),
             Self::Binary(operation) => ([Some(&mut operation.left), Some(&mut operation.right), Some(&mut operation.result)], &mut []),
+            Self::Equality { left, right, .. } => ([Some(left), Some(right), None], &mut []),
             Self::Membership { needle, container, .. } => ([Some(needle), Some(container), None], &mut []),
             Self::StoreValue { storage, replacement, .. } => ([Some(storage), Some(replacement), None], &mut []),
             Self::MapKey { receiver, key, .. } => ([Some(receiver), Some(key), None], &mut []),
@@ -133,6 +137,7 @@ impl<T> SealedOperation<T> {
         match (self, other) {
             (Self::TypePredicate { domain, .. }, SealedOperation::TypePredicate { domain: right, .. }) => domain == right,
             (Self::Binary(left), SealedOperation::Binary(right)) => left.operator == right.operator,
+            (Self::Equality { .. }, SealedOperation::Equality { .. }) => true,
             (Self::Membership { .. }, SealedOperation::Membership { .. }) => true,
             (Self::MapKey { .. }, SealedOperation::MapKey { .. }) => true,
             (Self::Index { syntax, constant_key, .. }, SealedOperation::Index { syntax: right_syntax, constant_key: right_key, .. }) => syntax == right_syntax && constant_key == right_key,
@@ -153,6 +158,7 @@ impl<T> SealedOperation<T> {
         Ok(match self {
             Self::TypePredicate { domain, subject: key, span } => SealedOperation::TypePredicate { domain: *domain, subject: map(key)?, span: *span },
             Self::Binary(operation) => SealedOperation::Binary(SealedBinaryOperation { operator: operation.operator, left: map(&operation.left)?, right: map(&operation.right)?, result: map(&operation.result)?, span: operation.span }),
+            Self::Equality { left, right, span } => SealedOperation::Equality { left: map(left)?, right: map(right)?, span: *span },
             Self::Membership { needle, container, span } => SealedOperation::Membership { needle: map(needle)?, container: map(container)?, span: *span },
             Self::MapKey { receiver, key, span } => SealedOperation::MapKey { receiver: map(receiver)?, key: map(key)?, span: *span },
             Self::Index { receiver, key, result, syntax, constant_key, span } => SealedOperation::Index { receiver: map(receiver)?, key: map(key)?, result: map(result)?, syntax: *syntax, constant_key: *constant_key, span: *span },
@@ -343,4 +349,11 @@ pub(crate) fn membership_domain(container: &Type) -> Option<MembershipDomain> {
         Type::EnvPathList => MembershipDomain::EnvPath,
         _ => return None,
     })
+}
+
+pub(crate) fn equality_selection(left: &Type, right: &Type) -> bool {
+    if left.contains_inference() || right.contains_inference() || left.contains_recovery() || right.contains_recovery() || left.contains_any() || right.contains_any() { return false; }
+    let left = left.equality_operand_type();
+    let right = right.equality_operand_type();
+    left.matches_expected(&right) || right.matches_expected(&left)
 }

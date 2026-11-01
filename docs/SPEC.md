@@ -4135,11 +4135,12 @@ apply; a result annotation cannot turn a non-Result argument into a Result.
 Concatenation preserves `NonEmpty` when either operand has it.
 List element storage remains invariant: concatenating `List[UInt]` with
 `List[Int]` is a type error, even though scalar Int-to-UInt checks are supported.
-Equality can retain a shared type parameter, including list membership with
-the same item parameter. Membership can retain independent value and container
-parameters, selecting the ordinary domain at each call. Unsigned map membership
-validates the computed needle before evaluating the container; validation errors
-follow the enclosing capture or Proc error boundary. Ordering of two
+Equality retains its operand compatibility requirement until each call selects
+its input types. A field compared with `Str` can therefore be `Str` or `Str?`,
+while container element types remain invariant. Membership can retain
+independent value and container parameters, selecting the ordinary domain at each
+call. Unsigned map membership validates the computed needle before evaluating
+the container; validation errors follow the enclosing capture or Proc error boundary. Ordering of two
 quantified operands retains one shared type parameter bounded to the ordering
 domains `Int`, `UInt`, `Float`, `Duration`, and `Str`; each call checks that
 domain, so `pure less(a, b) { a < b }` accepts `1, 2` and `"a", "b"` and

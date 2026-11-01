@@ -20,6 +20,7 @@ pub(crate) enum SealedOperationError {
     UnsupportedTypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: Type },
     UnsupportedIndex { receiver: Type, key: Type },
     UnsupportedMembership { container: Type, needle: Type },
+    UnsupportedEquality { left: Type, right: Type },
     UnsupportedSlice { receiver: Type },
     UnsupportedRecordSpread { receiver: Type },
     Unsupported { operator: crate::sema::sealed_operation::ArithmeticOperator, left: Type, right: Type },
@@ -29,6 +30,28 @@ pub(crate) enum SealedOperationError {
 mod tests {
     use super::*;
     use crate::sema::sealed_operation::SealedBinaryOperation;
+
+    #[test]
+    fn equality_waits_for_inputs_and_rolls_back_incompatible_evidence() {
+        let span = Span::at(crate::source::SourceId::new(0), 0);
+        let mut constraints = TypeConstraints::default();
+        let input = constraints.fresh(span);
+        let operation = SealedOperation::Equality { left: input.clone(), right: Type::Str, span };
+        let id = constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, operation).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.resolve(&input).unwrap(), input);
+        let before = constraints.operations.clone();
+        let rejected = constraints.commit_constraint_transaction(|this| {
+            this.constrain(&input, &Type::Int, span).map_err(SealedOperationError::Constraint)?;
+            this.solve_sealed_operations()
+        });
+        assert!(matches!(rejected, Err(SealedOperationError::UnsupportedEquality { .. })));
+        assert_eq!(constraints.operations, before);
+        assert_eq!(constraints.resolve(&input).unwrap(), input);
+        constraints.constrain(&input, &Type::Optional(Box::new(Type::Str)), span).unwrap();
+        constraints.solve_sealed_operations().unwrap();
+        assert_eq!(constraints.operations.entries[&id].selection, Some(SealedOperationSignature::Equality));
+    }
 
     #[test]
     fn checked_unsigned_contexts_distinguish_arithmetic_results_from_operands() {
@@ -286,6 +309,7 @@ impl std::fmt::Display for SealedOperationError {
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
             Self::UnsupportedTypePredicate { domain, subject } => write!(formatter, "{domain:?} does not support {subject}"),
+            Self::UnsupportedEquality { left, right } => write!(formatter, "equality is not defined for {left} and {right}"),
             Self::UnsupportedMembership { container, needle } => write!(formatter, "membership is not defined for {needle} in {container}"),
             Self::UnsupportedIndex { receiver, key } => write!(formatter, "indexing is not defined for {receiver} with key {:?}", Some(key)),
             Self::UnsupportedSlice { receiver } => write!(formatter, "slicing is not defined for {receiver} with key None"),
@@ -533,6 +557,16 @@ impl TypeConstraints {
                             return Err(SealedOperationError::UnsupportedIndex { receiver, key });
                         }
                         let selected = SealedOperationSignature::MapKey;
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
+                        if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
+                    SealedOperation::Equality { left, right, .. } => {
+                        let left = this.resolve_with_changes(&left, 0, changes)?;
+                        let right = this.resolve_with_changes(&right, 0, changes)?;
+                        if left.contains_inference() || right.contains_inference() { continue; }
+                        if !crate::sema::sealed_operation::equality_selection(&left, &right) { return Err(SealedOperationError::UnsupportedEquality { left, right }); }
+                        let selected = SealedOperationSignature::Equality;
                         let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
                         if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
                         continue;

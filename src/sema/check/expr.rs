@@ -3605,6 +3605,15 @@ impl Checker {
                 }
                 let Ok(left_ty) = self.resolve_operator_operand(left_ty, left_span) else { return Type::Invalid };
                 let Ok(right_ty) = self.resolve_operator_operand(right_ty, right_span) else { return Type::Invalid };
+                if (left_ty.contains_inference() || right_ty.contains_inference()) && left_ty != Type::Null && right_ty != Type::Null {
+                    let span = Span::new(left_span.source_id, left_span.start(), right_span.end());
+                    let operation = crate::sema::sealed_operation::SealedOperation::Equality { left: left_ty, right: right_ty, span };
+                    if let Err(error) = self.type_constraints.register_source_sealed_operation(self.constraint_scope(), operation).and_then(|_| self.type_constraints.solve_sealed_operations()) {
+                        self.error(span, &error.to_string(), DiagnosticCode::CheckTypeMismatch);
+                        return Type::Invalid;
+                    }
+                    return Type::Bool;
+                }
                 let (left_ty, right_ty) = (left_ty.equality_operand_type(), right_ty.equality_operand_type());
                 if left_ty != Type::Any
                     && right_ty != Type::Any

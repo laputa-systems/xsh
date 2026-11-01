@@ -19,6 +19,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
     budget.charge(1)?;
     let span = crate::source::Span::at(store.source_id, 0);
     Ok(match encoded {
+        FullSealedOperation::Equality { left, right } => SealedOperation::Equality { left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, span },
         FullSealedOperation::Membership { needle, container } => SealedOperation::Membership { needle: substitution.ty(store, scope, needle, budget)?, container: substitution.ty(store, scope, container, budget)?, span },
         FullSealedOperation::MapKey { receiver, key } => SealedOperation::MapKey { receiver: substitution.ty(store, scope, receiver, budget)?, key: substitution.ty(store, scope, key, budget)?, span },
         FullSealedOperation::TypePredicate { domain, subject: key } => SealedOperation::TypePredicate { domain, subject: substitution.ty(store, scope, key, budget)?, span },
@@ -48,6 +49,10 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         budget.charge_scheme_clone(ty)?;
         ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("selected operation has no closed input tuple"))
     })?;
+    if let SealedOperation::Equality { left, right, .. } = &closed {
+        return if crate::sema::sealed_operation::equality_selection(left, right) { Ok(SealedOperationSignature::Equality) }
+            else { Err(IrVerifyError::new("equality operands are incompatible")) };
+    }
     if let SealedOperation::Membership { needle, container, .. } = &closed {
         return crate::sema::sealed_operation::membership_selection(container, needle).map(SealedOperationSignature::Membership)
             .ok_or_else(|| IrVerifyError::new("membership has no supported canonical domain"));
@@ -72,7 +77,7 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         SealedOperation::IndexStore { receiver, key, .. } => crate::sema::sealed_operation::index_store_selection(receiver, key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
-        SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
+        SealedOperation::TypePredicate { .. } | SealedOperation::Equality { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
@@ -94,7 +99,7 @@ pub(super) fn symbolic_output_binders(
     substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<BTreeSet<usize>, IrVerifyError> {
     let mut evidence = BTreeSet::new();
-    if matches!(encoded, FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::StoreValue { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
+    if matches!(encoded, FullSealedOperation::Equality { .. } | FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::StoreValue { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
         SealedOperation::Index { mut receiver, key, constant_key, .. } => {
@@ -155,7 +160,7 @@ pub(super) fn symbolic_output_binders(
             }
             return Ok(evidence);
         }
-        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
+        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Equality { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
     };
     if let Some(projection) = projection {
         let parameter = decode_scheme_type(store, scope, encoded.result().unwrap(), budget, 0)?;
@@ -310,6 +315,13 @@ pub(super) fn result_error_type(ty: &SchemeType) -> Option<Option<Type>> {
 pub(super) fn verify_body_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, operator: crate::syntax::node::BinaryOp, left: &SchemeType, right: &SchemeType, result: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body operation ordinal is out of scope"))?;
     let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+    if let SealedOperation::Equality { left: required_left, right: required_right, .. } = &operation {
+        if !matches!(operator, crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne)
+            || !body_types_equal(left, required_left) || !body_types_equal(right, required_right) || result != &SchemeType::Ground(Type::Bool)
+        { return Err(IrVerifyError::new("generic equality site disagrees with its scoped requirement")); }
+        if required_left.closed_ground_type().is_some() && required_right.closed_ground_type().is_some() { selection(&operation, budget)?; }
+        return Ok(());
+    }
     if let SealedOperation::Membership { needle, container, .. } = &operation {
         if !matches!(operator, crate::syntax::node::BinaryOp::In | crate::syntax::node::BinaryOp::NotIn)
             || !body_types_equal(left, needle) || !body_types_equal(right, container) || result != &SchemeType::Ground(Type::Bool)

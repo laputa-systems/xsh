@@ -578,6 +578,7 @@ pub(super) enum FullSealedOperation {
     StoreValue { storage: SchemeTypeId, replacement: SchemeTypeId },
     Slice { receiver: SchemeTypeId, result: SchemeTypeId, bounds: crate::sema::sealed_operation::SliceBounds },
     RecordOverride { receiver: SchemeTypeId, result: SchemeTypeId, overrides: IrRange },
+    Equality { left: SchemeTypeId, right: SchemeTypeId },
     Membership { needle: SchemeTypeId, container: SchemeTypeId },
     MapKey { receiver: SchemeTypeId, key: SchemeTypeId },
 }
@@ -587,6 +588,7 @@ impl FullSealedOperation {
         let (fixed, overrides): (_, &[FullSchemeField]) = match self {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary { left, right, .. } => ([Some(left), Some(right)], &[]),
+            Self::Equality { left, right } => ([Some(left), Some(right)], &[]),
             Self::Membership { needle, container } => ([Some(needle), Some(container)], &[]),
             Self::StoreValue { storage, replacement } => ([Some(storage), Some(replacement)], &[]),
             Self::Index { receiver, key, .. } | Self::IndexStore { receiver, key, .. } | Self::MapKey { receiver, key } => ([Some(receiver), Some(key)], &[]),
@@ -599,7 +601,7 @@ impl FullSealedOperation {
         Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
     pub(super) fn result(self) -> Option<SchemeTypeId> {
-        match self { Self::TypePredicate { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         Ok(self.inputs(store)?.chain(self.result()))
@@ -1039,6 +1041,7 @@ impl FullBuilder {
         for operation in &requirements.operations {
             let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
             let encoded = match operation {
+                crate::sema::sealed_operation::SealedOperation::Equality { left, right, .. } => FullSealedOperation::Equality { left, right },
                 crate::sema::sealed_operation::SealedOperation::Membership { needle, container, .. } => FullSealedOperation::Membership { needle, container },
                 crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key, .. } => FullSealedOperation::MapKey { receiver, key },
                 crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, subject: key, .. } => FullSealedOperation::TypePredicate { domain, subject: key },
