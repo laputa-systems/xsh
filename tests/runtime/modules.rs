@@ -21,6 +21,46 @@ fn symlinked_entry_resolves_imports_beside_target() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+fn module_namespace_call_allocated_bytes(root: &std::path::Path, calls: usize) -> u64 {
+    let report = root.join(format!("report-{calls}.json"));
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+        .args(["runtime-stats", "--json"])
+        .arg(&report)
+        .arg(root.join("main.xsh"))
+        .env("XSH_CALLS", calls.to_string())
+        .env_remove("XSH_MODULE_PATH")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), format!("{calls}\n"));
+    let report_json = json_parse(&std::fs::read_to_string(&report).unwrap());
+    json_u64(json_field(json_field(&report_json, "execution"), "alloc_bytes"))
+}
+
+#[test]
+fn calls_through_a_wide_module_namespace_do_not_copy_the_module() {
+    let root = temp_path("module-namespace-calls");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut module = String::from("##! Module with many exports.\n");
+    for index in 0..512 {
+        module.push_str(&format!("## Export {index}.\nexport const item_{index} = {index}\n"));
+    }
+    std::fs::write(root.join("wide.xsh"), module).unwrap();
+    std::fs::write(
+        root.join("main.xsh"),
+        "use wide\npure first() -> Int { wide.item_0 + 1 }\nproc main() [env, error, io] {\n  let calls = env.int(\"XSH_CALLS\", 10)?\n  var total = 0\n  for _ in range(calls) { total += first() }\n  print f\"{total}\"\n}\n",
+    )
+    .unwrap();
+    let few = module_namespace_call_allocated_bytes(&root, 10);
+    let many = module_namespace_call_allocated_bytes(&root, 1010);
+    let per_call = (many - few) / 1000;
+    std::fs::remove_dir_all(&root).unwrap();
+    assert!(
+        per_call < 8192,
+        "each call through a 512-export module allocated {per_call} bytes"
+    );
+}
+
 #[cfg(feature = "net")]
 use std::sync::atomic::AtomicBool;
 

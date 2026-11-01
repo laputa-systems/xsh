@@ -17,12 +17,14 @@ use super::type_view::ValueView;
 use crate::map_key::{MapKey, MapKeyRef};
 use crate::runtime::process::{ProcessStatus, ProcessStatusKind};
 use crate::runtime::value::{
-    ErrorContext, PathValue, RecordMap, RegexValue, ResultValue, RuntimeError, Value,
+    ErrorContext, PathValue, RecordMap, RecordShapeData, RegexValue, ResultValue, RuntimeError, Value,
     error_constructor,
 };
 use crate::source::Span;
 use crate::symbol::Name;
 use crate::syntax::node::{AssignOp, BinaryOp};
+use rustc_hash::FxHashMap;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -1264,12 +1266,53 @@ pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredVa
     Some(LoweredValue::Record(Arc::new(record)))
 }
 
-pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
+const LOWERED_MODULE_CACHE_LIMIT: usize = 256;
+
+struct LoweredModuleCacheEntry {
+    _shape: Arc<RecordShapeData>,
+    _values: Arc<[Value]>,
+    lowered: LoweredValue,
+}
+
+thread_local! {
+    static LOWERED_MODULES: RefCell<FxHashMap<(usize, usize), LoweredModuleCacheEntry>> =
+        RefCell::new(FxHashMap::default());
+}
+
+fn build_lowered_module(value: &RecordMap) -> Option<LoweredValue> {
     let mut module = BTreeMap::new();
     for (key, value) in value.owned_key_iter() {
         module.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
     }
     Some(LoweredValue::Module(Arc::new(module)))
+}
+
+pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
+    let Some((shape, values)) = value.shared_identity() else {
+        return build_lowered_module(value);
+    };
+    let key = (Arc::as_ptr(shape) as usize, Arc::as_ptr(values).cast::<Value>() as usize);
+    if let Some(lowered) = LOWERED_MODULES
+        .with(|cache| cache.borrow().get(&key).map(|entry| entry.lowered.clone()))
+    {
+        return Some(lowered);
+    }
+    let lowered = build_lowered_module(value)?;
+    LOWERED_MODULES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= LOWERED_MODULE_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(
+            key,
+            LoweredModuleCacheEntry {
+                _shape: Arc::clone(shape),
+                _values: Arc::clone(values),
+                lowered: lowered.clone(),
+            },
+        );
+    });
+    Some(lowered)
 }
 
 pub(super) fn lowered_list_from_runtime(value: &[Value]) -> Option<LoweredValue> {

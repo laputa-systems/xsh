@@ -180,6 +180,15 @@ pub enum RecordMap {
     SparseShaped(Arc<SparseRecordMap>),
 }
 
+impl RecordMap {
+    pub(crate) fn shared_identity(&self) -> Option<(&Arc<RecordShapeData>, &Arc<[Value]>)> {
+        match self {
+            Self::Shaped { shape, values } => Some((shape, values)),
+            Self::Dynamic(_) | Self::SparseShaped(_) => None,
+        }
+    }
+}
+
 impl PartialEq for RecordMap {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len()
