@@ -196,10 +196,29 @@ print $word
   assert output.stdout == "2\nnew\n"
 }
 
-test test_typing_generic_body_keeps_host_ambiguity_and_effect_rejections { |ctx|
+test test_typing_generic_body_retains_cross_type_host_requirements { |ctx|
   test.expect(
     ctx,
     r"""pure read(row) { row.value.byte_at(0) }
+assert read({value: b"x"}) == 120
+assert read({value: "x"}) == 120
+""",
+    status: 0,
+  )?
+  test.expect(
+    ctx,
+    r"""pure read(row) { row.value.byte_at(0) }
+let rejected = read({value: 1})
+""",
+    status: 2,
+    stderr: ["[check.callable-mismatch]"],
+  )?
+}
+
+test test_typing_generic_body_keeps_host_ambiguity_and_effect_rejections { |ctx|
+  test.expect(
+    ctx,
+    r"""pure read(row) { row.value.lines() }
 let caller = read({value: b"x"})
 """,
     status: 2,

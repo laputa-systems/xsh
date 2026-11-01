@@ -314,28 +314,45 @@ assert replace("a\tb") == "a b"
   }
 }
 
-test test_typing_host_replacement_result_keeps_receiver_ambiguity { |ctx|
-  for caller in ["\"a\\tb\"", "rx\"a\""] {
-    let source = r"""pure anchor(value: Str) -> Bool { value == "x" }
-pure ambiguous(text) -> Str {
+test test_typing_host_replacement_result_retains_receiver_requirement { |ctx|
+  let declaration = r"""pure anchor(value: Str) -> Bool { value == "x" }
+pure replaced(text) -> Str {
   let flat = text.replace("\t", with: " ")
   let anchored = anchor(flat)
   flat
 }
-let output = ambiguous(""" + caller + ")\n"
-    test.expect(ctx, source, status: 2, stderr: ["[check.ambiguous-overload]"])?
-  }
+"""
+  test.expect(
+    ctx,
+    declaration + r"""assert replaced("a\tb") == "a b"
+assert replaced(rx"a") == "\t"
+""",
+    status: 0,
+  )?
+  test.expect(ctx, declaration + "let rejected = replaced(1)\n", status: 2, stderr: ["[check.callable-mismatch]"])?
 }
 
 test test_typing_host_byte_receiver_keeps_ambiguity_after_bytes_caller { |ctx|
   test.expect(
     ctx,
-    r"""pure byte(raw) -> Int { raw.byte_at(0) ?? 0 }
-let output = byte(b"A")
+    r"""pure count(raw) -> Int { raw.lines().len() }
+let output = count(b"A")
 """,
     status: 2,
     stderr: ["[check.ambiguous-overload]"],
   )?
+}
+
+test test_typing_host_byte_receiver_selects_its_member_per_caller { |ctx|
+  let declaration = "pure byte(raw) -> Int { raw.byte_at(0) ?? 0 }\n"
+  test.expect(
+    ctx,
+    declaration + r"""assert byte(b"A") == 65
+assert byte("A") == 65
+""",
+    status: 0,
+  )?
+  test.expect(ctx, declaration + "let rejected = byte([1])\n", status: 2, stderr: ["[check.callable-mismatch]"])?
 }
 
 test test_typing_host_inference_preserves_argument_and_effect_errors { |ctx|
@@ -355,22 +372,40 @@ test test_typing_host_inference_preserves_argument_and_effect_errors { |ctx|
   )?
 }
 
-test test_typing_host_untemplated_receiver_domains_remain_candidates { |ctx|
+test test_typing_host_untemplated_receiver_domains_select_per_use { |ctx|
   test.expect(
     ctx,
     r"""pure keys(value) -> List[Str] { value.keys() }
-let output = keys({value: 1})
+assert keys({value: 1}) == ["value"]
+let table: Map[Str, Int] = {"k": 1}
+assert keys(table) == ["k"]
+""",
+    status: 0,
+  )?
+  test.expect(
+    ctx,
+    r"""pure keys(value) -> List[Str] { value.keys() }
+let rejected = keys(3)
 """,
     status: 2,
-    stderr: ["[check.ambiguous-overload]"],
+    stderr: ["[check.callable-mismatch]"],
   )?
   test.expect(
     ctx,
     r"""pure number(value) -> Float { value.float() }
-let output = number(1)
+assert number(1) == 1.0
+let unsigned: UInt = 2
+assert number(unsigned) == 2.0
+""",
+    status: 0,
+  )?
+  test.expect(
+    ctx,
+    r"""pure number(value) -> Float { value.float() }
+let rejected = number(true)
 """,
     status: 2,
-    stderr: ["[check.local-inference]"],
+    stderr: ["[check.callable-mismatch]"],
   )?
   let output = test.run_script(
     ctx,
