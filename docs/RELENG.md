@@ -25,6 +25,18 @@ Darwin products link through the system C compiler driver without ICF: Apple's
 TAPI files. Darwin `dist` products are therefore larger than an ICF-capable link
 would produce. Revisit ICF when the pinned LLVM reads the installed SDK.
 
+## Historical P0 product sizes
+
+The scoped-verification P0 built these products on `fcdae517e` in the pinned
+Linux image for x86_64. Both profiles used O3. Current profiles use O2, so these
+sizes do not establish an O2 baseline. The O2 `dist` comparison appears below.
+
+| Product | Verification bytes | Release bytes (thin LTO) |
+|---|---|---|
+| `xsh` | 48,039,856 | 45,461,864 |
+| `xsht` | 57,345,872 | 60,585,776 |
+| `xshi` | 587,320 | 566,240 |
+
 ## Optimization level
 
 Products build at `opt-level = 2`. O3 made the shipped binaries about 5% larger

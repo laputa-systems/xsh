@@ -6,6 +6,28 @@ Run `cargo dev gate --full` for the full local integration gate and
 selection lives in `dev/gates.xsh`; profile and platform rules live in
 `dev/test_workflows.xsh` and `dev/targets.xsh`.
 
+## Historical P0 loop measurements
+
+On `fcdae517e`, the scoped-verification P0 measured verification products in
+its pinned Linux image on a 32-core x86_64 host. These products used O3; current
+verification products use O2. Establish an O2 baseline before comparing current
+work. The short-loop batches include shell spawn cost. Peak RSS is the largest
+process RSS, not a cgroup peak. Gate times include container startup and product
+freshness checks; their CPU and memory were not measured.
+
+| Loop | Samples | Wall median (p90) | CPU median | Peak RSS |
+|---|---|---|---|---|
+| `xsh --startup` | 20 batches of 50 | 0.8 ms (0.8) | 0.8 ms | 15 MB |
+| `xsht test --exact` one native test | 20 batches of 10 | 28 ms (29) | 127 ms | 75 MB |
+| `xsht check` one file | 20 batches of 20 | 10 ms (10) | 9.5 ms | 43 MB |
+| `xsht check core`, 928 files | 5 | 11.2 s (11.5) | 271 s | 2.8 GB |
+| `cargo dev gate --case check-docs`, warm | 3, interleaved | 56.6 s (59.8) | unavailable | unavailable |
+| `cargo dev gate --case test-sema`, warm | 3, interleaved | 99.7 s (108.4) | unavailable | unavailable |
+
+Each batch held the shared gate lock and passed `perf-gate-ready` before and
+`perf-gate-ready -1` afterward. `xsht check core` used about 24 cores. See
+[Release engineering](RELENG.md#historical-p0-product-sizes) for product sizes.
+
 ## Native tests first
 
 Use native XSH tests for language and command behavior. Use Rust tests for host
@@ -128,6 +150,10 @@ The `laputa/pm.plan/inventory` scenario checks synthetic package graph order,
 reuse, dependency kinds, and executor provenance.
 The `laputa/world/host-plan` scenario checks isolated host-plan selection and
 mirror environment handling; it does not build a world.
+Historical PM diagnostics used an older XSH seed. They do not qualify the
+current seed, the full world inventory, artifact reuse, or a bootable root.
+The historical real-kernel plan lacked an independent inventory oracle. The
+synthetic Kbuild scenarios do not qualify the real-kernel scenario.
 
 The explicit `performance/json-n/correctness` scenario runs alone. It generates
 its fixture in owned scratch and checks the output and side effects in a fresh,
