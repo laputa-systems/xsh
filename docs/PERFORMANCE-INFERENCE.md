@@ -141,32 +141,38 @@ that fails for its specific cause.
 | Recursion | `recursive-components`: `self_recursive_scc_generalizes_after_checking`, `mutual_recursive_scc_is_declaration_order_independent`, `recursive_proc_preserves_independent_result_instances`, `recursive_pure_indexes_a_generic_receiver`; `producers`: `recursive_returns_are_inferred_monotype_per_component` | `safety`: `recursive_infinite_type_is_rejected`, `polymorphic_recursion_is_rejected`; `recursive-components`: `recursive_peer_callback_requirements_remain_independent` | Earlier forwarding-composition probes emitted quadratically growing output because each scheme retained its callee's applications. Current scaling remains unqualified; the reductions are in the Git history of `full-inference-campaign.md`. |
 | Effects | `callables`: `callback_effects_flow_through_lazy_producers`; `effect-union`: `imported_effect_union_preserves_promised_bounds_and_independent_types`; `recursive-components`: `recursive_peer_retains_callback_effects`; `stream-effects`: `stream_effect_is_lazy_through_returned_alias`; `defaults`: `stream_default_effect_is_charged_at_creation` | `callables`: `explicit_effect_bound_rejects_callback_laundering`; `effect-union`: `imported_effect_union_keeps_unknown_dynamic_effects_rejected`, `imported_effect_union_reports_a_missing_capability`; `stream-effects`: `inferred_stream_effect_alias_rejects_empty_bound`; `bodies`: `body_retry_delay_requires_time_effect`; `safety`: `returned_callable_keeps_its_effect_obligation` | None recorded. |
 | Streams | `producers`: `recursive_stream_keeps_independent_lazy_item_contexts`, `mutual_streams_share_yield_cells_before_generalizing`; `callable-relays`: `imported_generic_stream_alias_retains_its_scheme_and_lazy_order`; `defaults`: `stream_default_runs_at_first_pull_and_closes_on_stop`; `bodies`: `body_yield_delegation_closes_nested_streams` | `producers`: `live_producer_keeps_its_item_type_monomorphic`; `safety`: `live_producer_keeps_one_incompatible_item_type`, `generic_alias_does_not_duplicate_a_resource_handle`, `iteration_stream_failure_preserves_pull_order_and_cleanup` | None recorded. |
-| Rows and locals | `defaults`: `nested_row_projection_preserves_open_fields`; `safety`: `activation_local_mutable_accumulator_is_generic`; `relational-constraints`: `nullable_target_preserves_source_presence`, `optional_guard_preserves_original_immutable_reads`; `callables`: `wrapper_fields_preserve_null_and_optional_field_idempotence` | `defaults`: `nested_row_projection_rejects_a_missing_field`; `callables`: `wrapper_fields_reject_a_second_optional_hop`; `safety`: `shared_mutable_capture_through_record_stays_monomorphic`; `relational-constraints`: `nullable_target_keeps_nullable_field_rejection` | No dedicated witness for a duplicate-label or lacks violation. `{n: 0, ...r}` and a field assignment on a local copy of an unannotated parameter are rejected with the wording "spread must be a record" and "field assignment requires a record value"; `{...r, n: v}` works. A row override needs a lacks constraint, so the rejection is a limit, and only the wording is open. |
+| Rows and locals | `defaults`: `nested_row_projection_preserves_open_fields`; `safety`: `activation_local_mutable_accumulator_is_generic`; `relational-constraints`: `nullable_target_preserves_source_presence`, `optional_guard_preserves_original_immutable_reads`; `callables`: `wrapper_fields_preserve_null_and_optional_field_idempotence` | `defaults`: `nested_row_projection_rejects_a_missing_field`; `callables`: `wrapper_fields_reject_a_second_optional_hop`; `safety`: `shared_mutable_capture_through_record_stays_monomorphic`; `relational-constraints`: `nullable_target_keeps_nullable_field_rejection` | `checker-records::test_checker_record_spreads_use_the_final_field_type` covers final-field selection. Rust `callable_scheme_rejects_record_fields_missing_from_row_lacks` authenticates lacks evidence. Unknown prefix spreads and generic field mutation remain separate cases requiring classification or repair. |
 | Operation constraints | `callables`: `sealed_binary_arithmetic_instantiates_independent_domains`, `operator_relationships_reuse_per_instantiation`, `ordering_retains_its_domain_for_quantified_operands`, `negation_instantiates_independent_numeric_domains`; `membership`: `membership_preserves_container_domains`; `uint-arithmetic`: `test_inferred_uint_arithmetic_preserves_intrinsic_results` | `callables`: `sealed_binary_arithmetic_rejects_an_unsupported_tuple`, `operator_relationship_rejects_an_unsupported_instance`; `membership`: `membership_rejects_incompatible_domains`; Rust: `checked_dynamic_arguments_do_not_establish_generic_operation_domains` | Generic negation rejects `UInt`. |
-| Dynamic boundaries | `inferred-require`: `test_require_infers_target_from_annotated_binding`, `test_require_uses_returns_branches_blocks_and_parameters`; `metamorphic`: `inline_and_named_descriptors_ground_the_same_fields`; `hidden-resources`: `scalar_extra_fields_survive_record_require` | `inferred-require`: `test_require_rejects_unanchored_targets`; `dynamic-error-boundary`: `test_dynamic_errors_require_validation_before_propagation`; `callables`: `dynamic_callable_does_not_gain_a_signature`; `diagnostic-cascades`: `test_dynamic_argument_for_a_field_reader_reports_one_diagnostic` | No witness for a phantom external schema. |
+| Dynamic boundaries | `inferred-require`: `test_require_infers_target_from_annotated_binding`, `test_require_uses_returns_branches_blocks_and_parameters`; `metamorphic`: `inline_and_named_descriptors_ground_the_same_fields`; `hidden-resources`: `scalar_extra_fields_survive_record_require` | `inferred-require`: `test_require_rejects_unanchored_targets`; `dynamic-error-boundary`: `test_dynamic_errors_require_validation_before_propagation`; `callables`: `dynamic_callable_does_not_gain_a_signature`; `diagnostic-cascades`: `test_dynamic_argument_for_a_field_reader_reports_one_diagnostic` | `inferred-require::test_require_imported_phantom_schema_needs_ground_target` covers explicit, contextual, and unresolved phantom arguments. |
 | Prepared programs | Rust, in `runtime::eval::indexed::full`: `generic_pure_sequences_calls_and_captures_execute_after_frontend_drop`, `imported_generic_aliases_execute_after_frontend_drop_on_both_routes`, `generic_proc_imports_preserve_quantified_contract_after_frontend_disposal`, `imported_generic_callable_argument_is_bound_to_its_export_function`; `metamorphic`: `exported_proc_and_stream_schemes_are_client_independent` | Rust: `full_verifier_rejects_forged_generic_call_substitutions`, `full_verifier_rejects_forged_generic_rows_and_body_facts`, `full_verifier_rejects_forged_capture_type_as_generic_argument_evidence`, `full_verifier_rejects_forged_generic_module_exports`, `full_verifier_rejects_forged_statement_callback_result_fact`, `full_verifier_rejects_future_and_stale_visible_driver_slot_identities` | No test asserts that no solver runs at run time; the property is structural. |
 
-The completion contract also requires metamorphic tests, an independent test-only solver and
-regression examples. `metamorphic` holds eight hand-written equivalence tests:
-alpha renaming and declaration order, transparent aliases, inline against named
-descriptors, named-argument permutations, helper extraction, client
-independence, import-root order, and explicit against inferred callables.
-Nothing generates equivalent programs. No independent test-only solver compares
-success, failure or schemes on generated problems. The two items below are
-therefore open.
+The native `metamorphic` suite has eight hand-written equivalence tests.
+The four `generated` tests generate alpha-renamed aliases, import and declaration
+orders, named arguments, defaults, descriptors, extracted helpers, cleanup, and
+explicit or inferred Int, Str, Bool, and List[Int] instances. Mutation controls
+change meaning and must fail equivalence.
 
-| Open G3 item | Status |
-|---|---|
-| Generated metamorphic programs | Not done. |
-| Independent test-only solver comparison | Not done. |
+The fuzz harness adds four `metamorphic::` tests. Forty fixed generated programs
+run as original, reordered, renamed, and explicitly typed variants. Eight generic
+families run through six equivalent rewrites. Two mutation controls confirm that
+changed output is detected. All four pass on the accepted key-boundary product.
+The final integrated compiler must replay them after producer changes.
 
-G3 is not closed while either item is open.
+The test-only independent reference solvers compare generated type and row
+problems at 128 fixed seeds, and effect problems at 64 fixed seeds. Fourteen
+reference tests cover success, conflict, schemes modulo renaming, rollback,
+generalization, row lacks, and effect substitution. Their mutation controls
+reject wrong solver outcomes. The capture owner rollback control also passes.
+These solvers use the standard library and do not share the production solver.
 
-Wider frontend scenarios also remain unqualified. Historical 64-unit alias
-and higher-order composition probes exceeded the indexed type-materialization
-bound. Reduced recursive-effect and module-diamond probes failed checking.
-Reproduce those inputs on current source before classifying their causes.
-Those probes did not establish disposal execution, scaling, or performance.
+Correctness-only replays of annotated and reduced 64-unit alias, higher-order
+composition, recursive-effect, and module-diamond fixtures now pass checking
+and execution on the key-boundary product. Their expected outputs are 42, 64,
+42, and 128. These fixed-size witnesses establish neither scaling nor performance.
+
+G3 completion still requires the remaining inference relationships and final
+integrated-source evidence. Passing these equivalence and reference families
+does not close the corpus or mutation obligations.
 
 ## Annotation erasure
 
@@ -208,9 +214,10 @@ below is from that run.
 Private `proc` parameters are in the applied view as of 2026-10-31; exported
 parameters, private `proc` returns, effect clauses, and `Map`/`.require()`
 locals remain retained. The counts in this section measure every site and are
-unchanged; only the view's eligible set changes. The Laputa practical root has
-38 private parameter sites (12 pure, 26 proc): 37 pass alone and jointly, and
-`generation_runtime_artifacts.value` is the `check.map-key-type` residual.
+unchanged; only the view's eligible set changes. A fresh replay on the key-boundary product passes all 38 private Laputa
+parameter sites (12 pure, 26 proc), both individually and jointly. Across all
+57 parameter sites, 56 pass individually and jointly. The exported
+`write_generation_plan.path_value` contract remains retained.
 Regenerate the view site list before quoting an applied-view count.
 
 Across every private parameter annotation in the 250 top-level `core/*.xsh`
@@ -231,6 +238,14 @@ Candidate classes among the recorded `compact.indexed-build` failures include ge
 argument temporaries without a unique path, incomplete storage contracts,
 condition control roles, and stream return provenance. Two `check.conversion`
 cases were also recorded. Their current status requires reproduction.
+
+A fresh source-qualified scan uses XSH source `1d306d486` and the accepted
+key-boundary compiler. Of 4,680 private core parameter sites excluding Btop,
+4,587 pass individually. Several per-file joint views still fail. The omitted
+Btop file has 39 private sites. The scan is correctness evidence and contains
+no timing or performance qualification. Later guarded-record repairs close the
+two recorded `nc` verifier failures. Remaining failures require classification
+and repair before current-corpus closure.
 
 ## Frozen corpus
 
