@@ -92,6 +92,7 @@ pub(super) fn lower_command_word_reference_in_domain(
                     base: value,
                     index: super::super::IndexOperand::Ordinary(key),
                     span,
+                    key_span: span,
                 },
             ) },
         };

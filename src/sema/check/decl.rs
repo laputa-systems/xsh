@@ -987,6 +987,20 @@ impl Checker {
                 }
             }
         }
+        let mut map_key_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            let span = program.arena.expr(expression).span;
+            let scope = self.constraint_scope_at(effect_declaration, span);
+            if let (Some(operation), Some(wrapper)) = (self.type_constraints.map_key_operation_at(scope, span), self.type_constraints.map_key_wrapper_at(scope, span)) {
+                let operation = self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?);
+                let wrapper = self.type_constraints.generalized_wrapper_ordinal(wrapper, effect_declaration, &callable, pending.generalized_scope()?);
+                match (operation, wrapper) {
+                    (Ok(Some(operation)), Ok(Some(wrapper))) => { map_key_sites.insert(span, (expression, operation, wrapper)); }
+                    (Ok(None), Ok(None)) => {}
+                    _ => { self.error(span, "map key validation has no checked scope", DiagnosticCode::CheckLocalInference); return None; }
+                }
+            }
+        }
         let mut proc_return_sites = BTreeMap::new();
         for (&span, sites) in self.proc_return_sites.get(&effect_declaration).into_iter().flatten() {
             let mut representative = None;
@@ -1017,7 +1031,7 @@ impl Checker {
                 pending.generalized_tail_types()?.clone(),
                 pending.generalized_guard_scopes()?.clone(),
                 noncompleting_expressions,
-            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_compound_sites(compound_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)) {
+            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_compound_sites(compound_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)).and_then(|facts| facts.with_map_key_sites(map_key_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

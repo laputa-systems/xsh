@@ -1830,7 +1830,7 @@ fn verify_scheme_body_facts(
             let active_scope = scope.at_instruction(instruction)?;
             let scope = &active_scope;
             if let super::schemes::FullSchemeBodyFactValue::Operation(ordinal) = fact.value {
-                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord) || ordinal >= scope.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
+                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) || ordinal >= scope.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
                 continue;
             }
             if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
@@ -1856,6 +1856,7 @@ fn verify_scheme_body_facts(
                         match operations.get(operation as usize) {
                             Some(super::schemes::FullSealedOperation::Index { .. }) => FullTag::ExprIndex,
                             Some(super::schemes::FullSealedOperation::Membership { .. }) => FullTag::ExprBinary,
+                            Some(super::schemes::FullSealedOperation::MapKey { .. }) => FullTag::ExprCheckedValue,
                             _ => return Err(IrVerifyError::new("key validation names another operation")),
                         }
                     },
@@ -1932,6 +1933,11 @@ fn verify_scheme_body_facts(
             }
         }
         if !membership_checks.is_empty() { return Err(IrVerifyError::new("membership key check has no body type")); }
+        for &instruction in types.keys() {
+            if let schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(ordinal), .. } = decoder.expression_view(instruction)?
+                && operation_sites.get(&instruction) != Some(&ordinal)
+            { return Err(IrVerifyError::new("map key check has no authenticated operation")); }
+        }
         let mut slots = BTreeMap::new();
         for (slot, parameter) in bounded(scheme.params, &store.scheme_params, "scheme parameter range is invalid")?.iter().enumerate() {
             slots.insert(slot, body::InitialBinding { ty: decode_scheme_type(store, scope, parameter.ty, &mut budget, 0)?, mutable: false, access: body::BindingAccess::Value, capture_use: None });
@@ -3018,6 +3024,26 @@ fn verify_body_expression(
             ty.clone()
         }
         schema::ExprView::CheckedValue { value, check: ValueCheckView::MembershipKey(_), .. } => child(value, budget)?,
+        schema::ExprView::CheckedValue { value, check: ValueCheckView::FatalUIntKey, .. } => {
+            let key = child(value, budget)?;
+            if !body_type_matches_ground(&key, &Type::Int) && !body_type_matches_ground(&key, &Type::UInt) { return Err(IrVerifyError::new("fatal UInt key check has an incompatible producer")); }
+            SchemeType::Ground(Type::UInt)
+        },
+        schema::ExprView::CheckedValue { value, check: ValueCheckView::MapKey(ordinal), .. } => {
+            if operation_sites.get(&instruction) != Some(&ordinal) { return Err(IrVerifyError::new("map key check has no matching operation")); }
+            let key = child(value, budget)?;
+            let encoded = *bounded(scheme_scope.operations, &store.scheme_operations, "map key operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("map key operation is out of scope"))?;
+            let operation = operations::decode(store, scheme_scope, encoded, &applications::ApplicationSubstitution::Identity, budget)?;
+            let crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key: required, .. } = operation else { return Err(IrVerifyError::new("map key check names another operation")); };
+            let unsigned_map = match &receiver {
+                SchemeType::Map(key, _) => body_type_matches_ground(key, &Type::UInt),
+                SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
+                _ => false,
+            };
+            if !unsigned_map || !body_types_equal(&key, &required) || !operations::may_require_uint_key_validation(&receiver, &key) { return Err(IrVerifyError::new("map key check disagrees with its producer")); }
+            if let Some(contribution) = wrappers::verify_key_validation_site(store, decoder.owner, scheme_scope, effect_scopes, wrapper_sites.get(&instruction).copied(), ordinal, &receiver, &key, expected_return, boundary, completion_group, budget)? { completion_contributions.push(contribution); }
+            SchemeType::Ground(Type::UInt)
+        },
         schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
             let actual = child(value, budget)?;
             let (source, destination) = materializations::endpoints(store, id, instruction, Some(scheme_scope), budget)?;

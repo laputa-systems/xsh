@@ -2521,3 +2521,32 @@ print "selected"
   )?
   assert output.stdout == "selected\n", output.stdout
 }
+
+test test_full_inference_pure_collectors_preserve_upstream_error_capture { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""error PullFailure = Late(message: Str)
+var released = 0
+proc fail() [] -> Result[Unit, PullFailure] { Err(PullFailure.Late(message: "source failed")) }
+stream values(item) [error] {
+  defer { released += 1 }
+  yield item
+  fail()?
+}
+pure collect_values(source) { source |> collect }
+pure collect_ints(source: Stream[Int]) -> List[Int] { source |> collect }
+let integers = try { collect_values(values(1)) }
+let strings = try { collect_values(values("text")) }
+let typed = try { collect_ints(values(2)) }
+assert match integers { Err(failure) => failure.message == "source failed"; Ok(_) => false }
+assert match strings { Err(failure) => failure.message == "source failed"; Ok(_) => false }
+assert match typed { Err(failure) => failure.message == "source failed"; Ok(_) => false }
+assert released == 3
+print $released
+""",
+    status: 0,
+    args: [],
+    env: {},
+  )?
+  assert output.stdout == "3\n", output.stdout
+}

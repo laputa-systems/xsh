@@ -535,39 +535,6 @@ mod tests {
     }
 
     #[test]
-    fn pure_return_resolution_failure_keeps_the_primary_error_fatal() {
-        crate::runtime::eval::run_eval(|| {
-            let (program, source_id) = full_program("pure value() -> Int { 1 }\n");
-            let span = Span::new(source_id, 0, 0);
-            let mut error = RuntimeError::new("schema", "original key failure").with_span(span);
-            error.propagated = true;
-            let mut original = error.clone();
-            original.propagated = false;
-            let invocation = PreparedInvocationBindings::default();
-            let failure = ExplicitFrames::enforce_pure_error_boundary(&mut error, || {
-                program.invocation_return_type(usize::MAX, &invocation).map_err(|error| indexed_error(error, span))
-            }).expect_err("missing return owner must fail");
-            assert_eq!(failure.kind, "indexed-ir");
-            assert_eq!(error, original);
-            assert!(!error.propagated);
-            let mut evaluator = Evaluator::new(Vec::new());
-            {
-                let mut frames = ExplicitFrames::new(&mut evaluator, &program);
-                frames.report_pure_return_contract_error(&failure);
-            }
-            assert!(String::from_utf8_lossy(&evaluator.stderr).contains(&failure.message));
-
-            error.propagated = true;
-            ExplicitFrames::enforce_pure_error_boundary(&mut error, || {
-                Ok(crate::sema::types::Type::Result(Box::new(crate::sema::types::Type::Int), Box::new(crate::sema::types::Type::Error)))
-            }).unwrap();
-            assert!(error.propagated);
-            ExplicitFrames::enforce_pure_error_boundary(&mut error, || Ok(crate::sema::types::Type::Int)).unwrap();
-            assert!(!error.propagated);
-        });
-    }
-
-    #[test]
     fn forced_discard_keeps_child_captures_and_skips_parent_defers() {
         crate::runtime::eval::run_eval(|| {
             let source = r#"var checks = 0
@@ -2114,17 +2081,20 @@ enum FrameContinuation {
         instruction: u32,
         check: PreparedIndexKeyCheck,
         span: Span,
+        key_span: Span,
         next: Box<FrameContinuation>,
     },
     IndexValue {
         base: LoweredValue,
         check: PreparedIndexKeyCheck,
         span: Span,
+        key_span: Span,
         next: Box<FrameContinuation>,
     },
     IndexLiteral {
         mode: crate::runtime::eval::indexed::full::PreparedIndexLiteral,
         span: Span,
+        key_span: Span,
         next: Box<FrameContinuation>,
     },
     ModuleArguments {
@@ -7479,6 +7449,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     index: operand,
                     span: value_span,
+                    key_span,
                 } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
@@ -7487,11 +7458,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let continuation = match operand {
                     crate::runtime::eval::IndexOperand::Ordinary(key) => {
                         let check = self.calls[index].execution.index_key_check(instruction, &self.calls[index].applications).map_err(|error| indexed_error(error, value_span))?;
-                        FrameContinuation::IndexBase { instruction: key.raw(), check, span: value_span, next: Box::new(next) }
+                        FrameContinuation::IndexBase { instruction: key.raw(), check, span: value_span, key_span, next: Box::new(next) }
                     }
                     crate::runtime::eval::IndexOperand::NegativeLiteral(distance) => {
                         let mode = self.calls[index].execution.index_literal_mode(instruction, distance, &self.calls[index].applications).map_err(|error| indexed_error(error, value_span))?;
-                        FrameContinuation::IndexLiteral { mode, span: value_span, next: Box::new(next) }
+                        FrameContinuation::IndexLiteral { mode, span: value_span, key_span, next: Box::new(next) }
                     }
                 };
                 self.push_expr(index, base.raw(), value_span, continuation);
@@ -7513,6 +7484,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::IndexLiteral {
                         mode: crate::runtime::eval::indexed::full::PreparedIndexLiteral::FromEnd(distance.get()),
                         span: value_span,
+                        key_span: value_span,
                         next: Box::new(next),
                     },
                 );
@@ -8038,19 +8010,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 instruction,
                 check,
                 span,
+                key_span,
                 next,
             } => match value {
                 FrameValue::Value(base) => self.push_expr(
                     index,
                     instruction,
                     span,
-                    FrameContinuation::IndexValue { base, check, span, next },
+                    FrameContinuation::IndexValue { base, check, span, key_span, next },
                 ),
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
             FrameContinuation::IndexLiteral {
                 mode,
                 span,
+                key_span,
                 next,
             } => match value {
                 FrameValue::Value(base) => {
@@ -8060,22 +8034,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             self.push_value(index, FrameValue::Value(value), *next);
                         }
                         crate::runtime::eval::indexed::full::PreparedIndexLiteral::MapKey { key, check } => {
-                            self.push_value(index, FrameValue::Value(LoweredValue::Int(key)), FrameContinuation::IndexValue { base, check, span, next });
+                            self.push_value(index, FrameValue::Value(LoweredValue::Int(key)), FrameContinuation::IndexValue { base, check, span, key_span, next });
                         }
                     }
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::IndexValue { base, check, span, next } => match value {
+            FrameContinuation::IndexValue { base, check, span, key_span, next } => match value {
                 FrameValue::Value(value) => {
                     if check == PreparedIndexKeyCheck::FatalUInt {
-                        super::super::checked_storage_value(self.evaluator, &value, &LoweredTypeCheck { ty: crate::sema::types::Type::UInt, name: Arc::from("UInt"), schema: None }, span)?;
+                        let value = super::fatal_uint_key(self.evaluator, value, key_span)?;
                         let value = super::lowered_index_value(base, value, span)?;
                         self.push_value(index, FrameValue::Value(value), *next);
                     } else if check == PreparedIndexKeyCheck::UInt && !crate::runtime::eval::type_view::value_matches_runtime_type(crate::runtime::eval::ValueView::Lowered(&value), &crate::sema::types::Type::UInt) {
-                        let value = crate::runtime::eval::require::require_value(self.evaluator, value, &LoweredTypeCheck { ty: crate::sema::types::Type::UInt, name: Arc::from("UInt"), schema: None }, span);
-                        let next = FrameContinuation::IndexValue { base, check: PreparedIndexKeyCheck::Ordinary, span, next };
-                        self.push_value(index, FrameValue::Value(value), FrameContinuation::Try { span, next: Box::new(next) });
+                        let value = crate::runtime::eval::require::require_value(self.evaluator, value, &LoweredTypeCheck { ty: crate::sema::types::Type::UInt, name: Arc::from("UInt"), schema: None }, key_span);
+                        let next = FrameContinuation::IndexValue { base, check: PreparedIndexKeyCheck::Ordinary, span, key_span, next };
+                        self.push_value(index, FrameValue::Value(value), FrameContinuation::Try { span: key_span, next: Box::new(next) });
                     } else {
                         let value = super::lowered_index_value(base, value, span)?;
                         self.push_value(index, FrameValue::Value(value), *next);
@@ -11552,23 +11526,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
-    fn enforce_pure_error_boundary(
-        error: &mut RuntimeError,
-        resolve_return: impl FnOnce() -> Result<crate::sema::types::Type, RuntimeError>,
-    ) -> Result<(), RuntimeError> {
-        if error.abort.is_some() || !error.propagated { return Ok(()); }
-        error.propagated = false;
-        let returned = resolve_return()?;
-        if crate::sema::sealed_operation::result_error_contract(&returned).is_some() {
-            error.propagated = true;
-        }
-        Ok(())
-    }
-
-    fn report_pure_return_contract_error(&mut self, error: &RuntimeError) {
-        self.evaluator.write_stderr_line(&format!("pure return contract error [{}]: {}", error.kind, error.message));
-    }
-
     fn finish_error_call(
         &mut self,
         index: usize,
@@ -11650,19 +11607,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 None => self.result = Some(Ok(value)),
             }
             return Ok(());
-        }
-        if let FrameOwner::Function(function, CallableKind::Pure) = call.owner
-            && let Some(error) = self.pending_error.as_mut()
-        {
-            let program = call.execution.program();
-            let boundary = Self::enforce_pure_error_boundary(error, || {
-                let view = program.function_view(function, CallableKind::Pure)
-                    .map_err(|error| indexed_error(error, call.call_span))?
-                    .ok_or_else(|| RuntimeError::new("indexed-ir", "pure return owner is missing").with_span(call.call_span))?;
-                program.invocation_return_type(view.index(), &call.applications)
-                    .map_err(|error| indexed_error(error, call.call_span))
-            });
-            if let Err(error) = boundary { self.report_pure_return_contract_error(&error); }
         }
         if let Some(FrameContinuation::UtilsCacheResult { span, .. }) =
             call.return_to.as_ref()
@@ -11761,7 +11705,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtFlow::Continue => Err(RuntimeError::new("control-flow", "continue outside loop")
                 .with_span(call.call_span)),
         };
-        let mut value = value.and_then(|value| {
+        let value = value.and_then(|value| {
             self.evaluator.validate_scheme_callable_return(program, view.index(), &call.applications, &value, call.call_span)?;
             Ok(value)
         });
@@ -11776,12 +11720,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.evaluator
                 .transfer_owned_host_resources_in_runtime_error(error, parent);
         }
-        let boundary = if kind == CallableKind::Pure && let Err(error) = &mut value {
-            Self::enforce_pure_error_boundary(error, || {
-                program.invocation_return_type(view.index(), &call.applications)
-                    .map_err(|error| indexed_error(error, call.call_span))
-            })
-        } else { Ok(()) };
         let cleanup = cleanup_call_scopes(self.evaluator, &mut call);
         self.evaluator.frame_scratch.recycle_block_stacks(&mut call);
         self.release_slots(call.slots);
@@ -11816,7 +11754,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(()) => cleanup.map(|()| value),
             },
         };
-        if let Err(error) = boundary { self.report_pure_return_contract_error(&error); }
         drop(call._binding_namespace_lease.take());
         self.evaluator.prune_binding_values();
         match (call.return_to, value) {

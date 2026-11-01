@@ -6232,6 +6232,34 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn generic_map_key_checks_authenticate_their_operation_and_producer() {
+        let program = prepare("pure keyed(values: Map[UInt, Str], key: Int, marker) { let _ = values.get(key); marker }\nlet values: Map[UInt, Str] = {[1]: \"one\"}\nlet selected = keyed(values, 1, \"marker\")");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "keyed").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (check, value, ordinal) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: ValueCheckView::MapKey(ordinal), .. }) => Some((instruction, value.raw() as usize, ordinal)),
+            _ => None,
+        }).unwrap();
+        let payload = program.store.data[check].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[payload.start + 2], ordinal);
+        let mut wrong_ordinal = program.clone();
+        wrong_ordinal.store.in_place.take();
+        wrong_ordinal.store.extra[payload.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&wrong_ordinal).is_err());
+        let mut wrong_wrapper = program.clone();
+        wrong_wrapper.store.in_place.take();
+        let fact = wrong_wrapper.store.scheme_body_facts.iter_mut().find(|fact| fact.instruction as usize == check && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Wrapper(_))).unwrap();
+        fact.value = super::super::super::schemes::FullSchemeBodyFactValue::Wrapper(u32::MAX);
+        assert!(FullVerifier::verify(&wrong_wrapper).is_err());
+        let mut wrong_producer = program.clone();
+        wrong_producer.store.in_place.take();
+        let source = wrong_producer.store.data[value].range().bounds(wrong_producer.store.extra.len()).unwrap();
+        assert_eq!(source.len(), 1);
+        wrong_producer.store.extra[source.start] = 2;
+        assert!(FullVerifier::verify(&wrong_producer).is_err());
+    }
+
+    #[test]
     fn generic_operators_membership_and_sets_preserve_actual_domains() {
         let program = prepare("pure keep(value, other) { let _ = value in [value]; value }");
         let (owner, scheme) = generic_owner(&program);

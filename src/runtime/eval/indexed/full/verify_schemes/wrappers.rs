@@ -47,7 +47,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                     FullWrapperContribution::Source(ty) => C::Source(substitution.ty(store, scope, *ty, budget)?),
                     FullWrapperContribution::KeyValidation(operation) => {
                         let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*operation as usize).ok_or_else(|| IrVerifyError::new("capture index operation ordinal is out of scope"))?;
-                        if !matches!(encoded, super::super::schemes::FullSealedOperation::Index { .. } | super::super::schemes::FullSealedOperation::Membership { .. }) { return Err(IrVerifyError::new("capture index contribution names another operation")); }
+                        if !matches!(encoded, super::super::schemes::FullSealedOperation::Index { .. } | super::super::schemes::FullSealedOperation::Membership { .. } | super::super::schemes::FullSealedOperation::MapKey { .. }) { return Err(IrVerifyError::new("capture index contribution names another operation")); }
                         C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(*operation))
                     }
                     FullWrapperContribution::KeyValidationBoundary(wrapper) => {
@@ -72,7 +72,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullWrappe
                     FullWrapperContribution::ApplicationSource(ty) => PC::ApplicationSource(substitution.ty(store, scope, *ty, budget)?),
                     FullWrapperContribution::KeyValidation(ordinal) => {
                         let operation = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation ordinal is out of scope"))?;
-                        if !matches!(operation, super::super::schemes::FullSealedOperation::Index { .. } | super::super::schemes::FullSealedOperation::Membership { .. }) { return Err(IrVerifyError::new("completion index contribution names another operation")); }
+                        if !matches!(operation, super::super::schemes::FullSealedOperation::Index { .. } | super::super::schemes::FullSealedOperation::Membership { .. } | super::super::schemes::FullSealedOperation::MapKey { .. }) { return Err(IrVerifyError::new("completion index contribution names another operation")); }
                         PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(*ordinal))
                     }
                     FullWrapperContribution::KeyValidationBoundary(_) | FullWrapperContribution::Explicit(_) | FullWrapperContribution::Source(_) => return Err(IrVerifyError::new("capture contribution appears in a proc completion")),
@@ -178,7 +178,7 @@ fn map_forwarded_index_references(
         };
         let caller_operation = bounded(caller_scope.operations, &store.scheme_operations, "caller operation range is invalid")?
             .get(caller_ordinal as usize).ok_or_else(|| IrVerifyError::new("forwarded index wrapper operation is out of scope"))?;
-        if !matches!(caller_operation, FullSealedOperation::Index { .. } | FullSealedOperation::Membership { .. }) { return Err(IrVerifyError::new("forwarded index wrapper names another operation")); }
+        if !matches!(caller_operation, FullSealedOperation::Index { .. } | FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. }) { return Err(IrVerifyError::new("forwarded index wrapper names another operation")); }
         *operation = crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal);
         return Ok(());
     }
@@ -731,7 +731,7 @@ impl Coverage {
                 FullWrapper::KeyValidation { operation, detail } => {
                     Self::detail(&mut self.key_validations, detail)?;
                     if operation >= scope.operations.len { return Err(IrVerifyError::new("wrapper index operation ordinal is out of scope")); }
-                    if !matches!(bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize), Some(FullSealedOperation::Index { .. } | FullSealedOperation::Membership { .. })) {
+                    if !matches!(bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize), Some(FullSealedOperation::Index { .. } | FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. })) {
                         return Err(IrVerifyError::new("wrapper index requirement names another operation"));
                     }
                 }

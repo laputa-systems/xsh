@@ -260,7 +260,7 @@ proc main() [io, error] {
   ] {
     let output = test.run_script(ctx, f"{site}\n{caller}")?
     assert ! output.success, site
-    assert "violates UInt constraint" in output.stderr, f"{site}: {output.stderr}"
+    assert "schema check failed" in output.stderr, f"{site}: {output.stderr}"
     assert ! ("captured" in output.stdout), f"{site}: {output.stdout}"
     assert ! ("unexpected" in output.stdout), f"{site}: {output.stdout}"
   }
@@ -331,6 +331,8 @@ proc main() [io, error] {
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values[key] }""",
     """pure keyed(values, key: Int) { values[key] }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(key) ?? "missing" }""",
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(key: key) ?? "missing" }""",
+    """pure keyed(values: Map[UInt, Str], key: Int) -> Str { values.get(...{key: key}) ?? "missing" }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { if key in values { "one" } else { "missing" } }""",
     """pure keyed(values, key: Int) { if key in values { "one" } else { "missing" } }""",
     """pure keyed(values: Map[UInt, Str], key: Int) -> Str { let copy: Map[UInt, Str] = {[key]: "one"}; copy.values()[0] }""",
@@ -409,4 +411,114 @@ proc main() [io, error] { print (try { f({}) } ?? 99) }
     assert item.message in output.stderr, output.stderr
     assert output.stdout == "", output.stdout
   }
+}
+
+test test_generic_map_key_validation_preserves_return_contract { |ctx|
+  for operation in [
+    "let _ = values.get(key)",
+    "let _ = values.get(key: key)",
+    "let _ = values.get(...{key: key})",
+    "let copy: Map[UInt, Str] = {[key]: \"one\"}; let _ = copy",
+    "let copy: Map[UInt, Str] = {item: \"one\" for item in [key]}; let _ = copy",
+    "var copy: Map[UInt, Str] = {}; copy[key] = \"one\"",
+  ] {
+    let rejected = test.run_script(ctx, f"""pure keyed(values: Map[UInt, Str], key: Int, marker) {{ {operation}; marker }}
+let values: Map[UInt, Str] = {{[1]: "one"}}
+let payload: Result[Int, Str] = Err("payload")
+let result = keyed(values, -1, payload)
+print "executed"
+""")?
+    assert ! rejected.success, operation
+    assert "UInt map key validation error is outside the callable Result contract" in rejected.stderr, rejected.stderr
+    assert rejected.stdout == "", rejected.stdout
+    let accepted = test.run_script(ctx, f"""pure keyed(values: Map[UInt, Str], key: UInt, marker) {{ {operation}; marker }}
+let values: Map[UInt, Str] = {{[1]: "one"}}
+let payload: Result[Int, Str] = Err("payload")
+assert keyed(values, 1, payload) == payload
+""")?
+    assert accepted.success, accepted.stderr
+  }
+  for operation in ["values.get(key: key)", "values.get(...{key: key})"] {
+    let fatal = test.run_script(ctx, f"""pure keyed(values: Map[UInt, Str], key: Int, marker) {{ let _ = {operation}; marker }}
+let values: Map[UInt, Str] = {{[1]: "one"}}
+print (try {{ keyed(values, -1, "one") }} ?? "captured")
+""")?
+    assert ! fatal.success, operation
+    assert "schema check failed: expected UInt, found Int" in fatal.stderr, fatal.stderr
+    assert fatal.stdout == "", fatal.stdout
+  }
+  let valid = test.run_script(ctx, r"""pure keyed(values: Map[UInt, Str], key: UInt, marker) { let _ = values.get(key); marker }
+pure captured(values: Map[UInt, Str], key: Int, marker) { let _ = try { values.get(key) }; marker }
+pure propagated(values: Map[UInt, Str], key: Int, marker) { let _ = values.get(key); marker }
+pure late_list(values, key: Int, marker) { let _ = values.get(key); let typed: List[Str] = values; marker }
+pure late_signed(values, key: Int, marker) { let _ = values.get(key); let typed: Map[Int, Str] = values; marker }
+pure late_capture(values, key: Int, marker) { let caught = try { values.get(key) }; let typed: Map[UInt, Str] = values; {marker: marker, captured: caught is Err(_)} }
+let values: Map[UInt, Str] = {[1]: "one"}
+let payload: Result[Int, Str] = Err("payload")
+let errors: Result[Int] = Ok(7)
+assert keyed(values, 1, payload) == payload
+assert captured(values, -1, payload) == payload
+assert late_list(["one"], -1, payload) == payload
+let signed: Map[Int, Str] = {[-1]: "one"}
+assert late_signed(signed, -1, payload) == payload
+let caught = late_capture(values, -1, payload)
+assert caught.marker == payload
+assert caught.captured
+assert match propagated(values, -1, errors) { Err(_) => true; Ok(_) => false }
+""")?
+  assert valid.success, valid.stderr
+  let late = test.run_script(ctx, r"""pure keyed(values, key: Int, marker) {
+  let _ = values.get(key)
+  let typed: Map[UInt, Str] = values
+  marker
+}
+let values: Map[UInt, Str] = {[1]: "one"}
+let payload: Result[Int, Str] = Err("payload")
+let result = keyed(values, -1, payload)
+print "executed"
+""")?
+  assert ! late.success, late.stderr
+  assert "UInt map key validation error is outside the callable Result contract" in late.stderr, late.stderr
+  assert late.stdout == "", late.stdout
+}
+
+test test_generic_map_key_capture_preserves_nested_guard_scope { |ctx|
+  let output = test.run_script(ctx, r"""pure guarded(values: Map[UInt, Str]?, key: Int, marker) {
+  let caught = try { if let present = values { let _ = present.get(...{key: key}) }; assert true }
+  {marker: marker, captured: match caught { Err(error) => error.message == "schema check failed: expected UInt, found Int"; Ok(_) => false }}
+}
+let values: Map[UInt, Str] = {[1]: "one"}
+let payload: Result[Int, Str] = Err("payload")
+let absent = guarded(null, -1, payload)
+let invalid = guarded(values, -1, payload)
+let valid = guarded(values, 1, payload)
+assert ! absent.captured
+assert invalid.captured
+assert ! valid.captured
+assert absent.marker == payload
+assert invalid.marker == payload
+assert valid.marker == payload
+""")?
+  assert output.success, output.stderr
+}
+
+test test_late_map_method_key_validation_keeps_proc_completion { |ctx|
+  let output = test.run_script(ctx, r"""proc map_key(values, key: Int) {
+  let _ = values.get(key)
+  let typed: Map[UInt, Str] = values
+  "one"
+}
+proc list_key(values, key: Int) {
+  let _ = values.get(key)
+  let typed: List[Str] = values
+  "one"
+}
+proc main() [error] {
+  let values: Map[UInt, Str] = {[1]: "one"}
+  assert map_key(values, 1)? == "one"
+  assert match map_key(values, -1) { Err(error) => error.message == "schema check failed: expected UInt, found Int"; Ok(_) => false }
+  assert list_key(["one"], -1)? == "one"
+}
+""")?
+  assert output.success, output.stderr
 }

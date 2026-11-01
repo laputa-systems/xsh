@@ -1969,7 +1969,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 };
                 if uint_key && let Some(value) = lowered_args.first_mut() {
                     *value = self
-                        .require_ground_uint_key(*value, method_args[0].0.span, slots);
+                        .require_ground_uint_key(*value, self.key_validation_span(method_args[0].0.source, method_args[0].0.span), slots);
                 }
                 if lowered_str_byte_op(&name.as_str(), &lowered_args) {
                     return Some(match name.as_str().as_str() {
@@ -2411,7 +2411,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 bindings.extend(argument_bindings);
                 if uint_key && let Some(value) = lowered_args.first_mut() {
                     *value = self
-                        .require_ground_uint_key(*value, method_args[0].0.span, slots);
+                        .require_ground_uint_key(*value, self.key_validation_span(method_args[0].0.source, method_args[0].0.span), slots);
                 }
                 let value = push_build_row!(
                     self,

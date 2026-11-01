@@ -501,7 +501,7 @@ pub struct CheckedStreamStage {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) enum GroundKeyValidationBoundary { Fatal, ProcCompletion }
+pub(crate) enum GroundKeyValidationBoundary { Fatal, ProcCompletion, PureReturn }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CheckedResultConstructor { Ok, Err }
@@ -1782,6 +1782,7 @@ struct BoundaryContext {
     proc_completion: Option<ProcCompletionBoundary>,
     current_yield: Option<Type>,
     in_pure: bool,
+    in_test: bool,
     current_effects: Option<Vec<Effect>>,
     effect_owner: Option<EffectDeclarationId>,
     return_schema: Option<super::constants::SchemaExpectation>,

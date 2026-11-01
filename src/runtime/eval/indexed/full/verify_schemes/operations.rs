@@ -20,6 +20,7 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
     let span = crate::source::Span::at(store.source_id, 0);
     Ok(match encoded {
         FullSealedOperation::Membership { needle, container } => SealedOperation::Membership { needle: substitution.ty(store, scope, needle, budget)?, container: substitution.ty(store, scope, container, budget)?, span },
+        FullSealedOperation::MapKey { receiver, key } => SealedOperation::MapKey { receiver: substitution.ty(store, scope, receiver, budget)?, key: substitution.ty(store, scope, key, budget)?, span },
         FullSealedOperation::TypePredicate { domain, subject: key } => SealedOperation::TypePredicate { domain, subject: substitution.ty(store, scope, key, budget)?, span },
         FullSealedOperation::Binary { left, right, result, operator } => SealedOperation::Binary(SealedBinaryOperation {
             operator, left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, result: substitution.ty(store, scope, result, budget)?, span,
@@ -47,6 +48,10 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         return crate::sema::sealed_operation::membership_selection(container, needle).map(SealedOperationSignature::Membership)
             .ok_or_else(|| IrVerifyError::new("membership has no supported canonical domain"));
     }
+    if let SealedOperation::MapKey { receiver, key, .. } = &closed {
+        return if crate::sema::sealed_operation::map_key_selection(receiver, key) { Ok(SealedOperationSignature::MapKey) }
+            else { Err(IrVerifyError::new("map key validation has no supported input domain")) };
+    }
     if let SealedOperation::TypePredicate { domain, subject: key, .. } = &closed {
         return if domain.accepts(key) { Ok(SealedOperationSignature::TypePredicate(*domain)) }
             else { Err(IrVerifyError::new("key predicate has no supported canonical domain")) };
@@ -56,7 +61,7 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         SealedOperation::Index { receiver, key, constant_key, .. } => index_selection(receiver, key, *constant_key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
-        SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } => unreachable!(),
+        SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } => unreachable!(),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
@@ -76,7 +81,7 @@ pub(super) fn symbolic_output_binders(
     substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<BTreeSet<usize>, IrVerifyError> {
     let mut evidence = BTreeSet::new();
-    if matches!(encoded, FullSealedOperation::Membership { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
+    if matches!(encoded, FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
         SealedOperation::Index { mut receiver, key, constant_key, .. } => {
@@ -124,7 +129,7 @@ pub(super) fn symbolic_output_binders(
             }
             return Ok(evidence);
         }
-        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } => unreachable!(),
+        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } => unreachable!(),
     };
     if let Some(projection) = projection {
         let parameter = decode_scheme_type(store, scope, encoded.result().unwrap(), budget, 0)?;

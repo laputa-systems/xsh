@@ -1675,7 +1675,7 @@ impl TypeConstraints {
             if let super::wrapper_operation::WrapperRequirementKind::KeyValidation { operation, .. } = &mut requirement.kind {
                 let super::wrapper_operation::WrapperOperationRef::Ordinal(operation_ordinal) = operation else { return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation)); };
                 let operation_id = *operations.get(*operation_ordinal as usize).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation))?;
-                if !matches!(self.operations.entries.get(&operation_id).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. } | super::sealed_operation::SealedOperation::Membership { .. })) {
+                if !matches!(self.operations.entries.get(&operation_id).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. } | super::sealed_operation::SealedOperation::Membership { .. } | super::sealed_operation::SealedOperation::MapKey { .. })) {
                     return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation));
                 }
                 *operation = super::wrapper_operation::WrapperOperationRef::Source(operation_id);
@@ -1686,7 +1686,7 @@ impl TypeConstraints {
                     instantiated.push(match contribution {
                         super::wrapper_operation::WrapperCompletionContribution::KeyValidation(super::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
                             let operation = *operations.get(*ordinal as usize).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation))?;
-                            if !matches!(self.operations.entries.get(&operation).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. } | super::sealed_operation::SealedOperation::Membership { .. })) {
+                            if !matches!(self.operations.entries.get(&operation).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. } | super::sealed_operation::SealedOperation::Membership { .. } | super::sealed_operation::SealedOperation::MapKey { .. })) {
                                 return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation));
                             }
                             super::wrapper_operation::WrapperCompletionContribution::KeyValidation(super::wrapper_operation::WrapperOperationRef::Source(operation))
@@ -1714,7 +1714,7 @@ impl TypeConstraints {
                     let contribution = match contribution {
                         super::wrapper_operation::WrapperErrorContribution::KeyValidation(super::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
                             let operation = *operations.get(*ordinal as usize).ok_or(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation))?;
-                            if !matches!(self.operations.entries.get(&operation).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. } | super::sealed_operation::SealedOperation::Membership { .. })) {
+                            if !matches!(self.operations.entries.get(&operation).map(|entry| &entry.operation), Some(super::sealed_operation::SealedOperation::Index { .. } | super::sealed_operation::SealedOperation::Membership { .. } | super::sealed_operation::SealedOperation::MapKey { .. })) {
                                 return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSealedOperation));
                             }
                             super::wrapper_operation::WrapperErrorContribution::KeyValidation(super::wrapper_operation::WrapperOperationRef::Source(operation))

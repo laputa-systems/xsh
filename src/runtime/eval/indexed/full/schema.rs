@@ -1012,6 +1012,7 @@ instruction_schema! {
             base: BuildExprId,
             index: crate::runtime::eval::IndexOperand<BuildExprId>,
             span: Span,
+            key_span: Span,
         } => ExprIndex = 57 [0; Operands; FrameApply];
         /// `base[-distance]` over a list, where the checker saw the negative
         /// literal.

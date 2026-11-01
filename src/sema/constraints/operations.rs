@@ -302,10 +302,13 @@ pub(super) struct ScopedOperation {
     pub(super) selection: Option<SealedOperationSignature>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum OperationSource { Expression, Predicate(crate::sema::sealed_operation::TypeDomain), MapKey }
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SealedOperations {
     pub(super) entries: BTreeMap<SealedOperationId, ScopedOperation>,
-    source_sites: BTreeMap<(super::CallableApplicationScope, Span, Option<crate::sema::sealed_operation::TypeDomain>), SealedOperationId>,
+    source_sites: BTreeMap<(super::CallableApplicationScope, Span, OperationSource), SealedOperationId>,
     watchers: BTreeMap<ApplicationDependency, BTreeSet<SealedOperationId>>,
     pending: VecDeque<SealedOperationId>,
     queued: BTreeSet<SealedOperationId>,
@@ -314,7 +317,7 @@ pub(super) struct SealedOperations {
 #[derive(Clone, Debug)]
 pub(super) enum OperationChange {
     Fresh(SealedOperationId),
-    Source((super::CallableApplicationScope, Span, Option<crate::sema::sealed_operation::TypeDomain>), SealedOperationId),
+    Source((super::CallableApplicationScope, Span, OperationSource), SealedOperationId),
     Selection(SealedOperationId, Option<SealedOperationSignature>),
     Watcher(ApplicationDependency, SealedOperationId),
     Queued(SealedOperationId),
@@ -328,7 +331,7 @@ impl SealedOperations {
         self.entries.len() * size_of::<(SealedOperationId, ScopedOperation)>()
             + self.entries.values().flat_map(|entry| entry.operation.types()).map(super::type_owned_payload_bytes).sum::<usize>()
             + self.entries.values().map(|entry| entry.operation.owned_fields_bytes()).sum::<usize>()
-            + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span, Option<crate::sema::sealed_operation::TypeDomain>), SealedOperationId)>()
+            + self.source_sites.len() * size_of::<((super::CallableApplicationScope, Span, OperationSource), SealedOperationId)>()
             + self.watchers.len() * size_of::<(ApplicationDependency, BTreeSet<SealedOperationId>)>()
             + self.watchers.values().map(|ids| ids.len() * size_of::<SealedOperationId>()).sum::<usize>()
             + self.pending.capacity() * size_of::<SealedOperationId>()
@@ -522,6 +525,18 @@ impl TypeConstraints {
                         if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
                         continue;
                     }
+                    SealedOperation::MapKey { receiver, key, .. } => {
+                        let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
+                        let key = this.resolve_with_changes(&key, 0, changes)?;
+                        if receiver.contains_inference() || key.contains_inference() { continue; }
+                        if !crate::sema::sealed_operation::map_key_selection(&receiver, &key) {
+                            return Err(SealedOperationError::UnsupportedIndex { receiver, key });
+                        }
+                        let selected = SealedOperationSignature::MapKey;
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
+                        if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
                     SealedOperation::Membership { needle, container, span } => {
                         let container = this.resolve_with_changes(&container, 0, changes)?;
                         if matches!(container.unvalidated(), Type::Inference(_)) { continue; }
@@ -688,12 +703,16 @@ impl TypeConstraints {
     }
 
     pub(crate) fn sealed_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
-        self.operations.source_sites.get(&(owner, span, None)).copied()
+        self.operations.source_sites.get(&(owner, span, OperationSource::Expression)).copied()
+    }
+
+    pub(crate) fn map_key_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
+        self.operations.source_sites.get(&(owner, span, OperationSource::MapKey)).copied()
     }
 
     pub(crate) fn source_list_from_end_indexes(&self, owner: super::CallableApplicationScope) -> Result<Vec<(Span, u32)>, ConstraintResolutionError> {
         let mut indexes = Vec::new();
-        for (&(scope, span, _), id) in self.operations.source_sites.range((owner, Span::at(crate::source::SourceId::new(0), 0), None)..) {
+        for (&(scope, span, _), id) in self.operations.source_sites.range((owner, Span::at(crate::source::SourceId::new(0), 0), OperationSource::Expression)..) {
             if scope != owner { break; }
             let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if entry.owner != owner || entry.operation.span() != span { return Err(ConstraintResolutionError::ForeignVariable); }
@@ -755,7 +774,7 @@ impl TypeConstraints {
     pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: impl Into<SealedOperation<Type>>) -> Result<SealedOperationId, SealedOperationError> {
         let operation = operation.into();
         self.commit_constraint_transaction(|this| {
-            let domain = match &operation { SealedOperation::TypePredicate { domain, .. } => Some(*domain), _ => None };
+            let domain = match &operation { SealedOperation::TypePredicate { domain, .. } => OperationSource::Predicate(*domain), SealedOperation::MapKey { .. } => OperationSource::MapKey, _ => OperationSource::Expression };
             if let Some(id) = this.operations.source_sites.get(&(owner, operation.span(), domain)).copied() {
                 let previous = this.operations.entries[&id].operation.clone();
                 if !previous.same_kind(&operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }

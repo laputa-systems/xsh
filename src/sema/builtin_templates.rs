@@ -393,7 +393,7 @@ pub(crate) fn registered_uint_map_key(receiver: Option<&Type>) -> bool {
 
 pub(crate) fn registered_argument_check(receiver: Option<&Type>, slot: usize, parameter: &Type) -> Option<super::schemes::RegisteredArgumentCheck> {
     use super::schemes::RegisteredArgumentCheck;
-    if slot == 0 && registered_uint_map_key(receiver) {
+    if slot == 0 && parameter.unvalidated() == &Type::UInt && registered_uint_map_key(receiver) {
         Some(RegisteredArgumentCheck::UIntMapKey)
     } else if parameter.has_unsigned_constraint() {
         Some(RegisteredArgumentCheck::Unsigned(parameter.clone()))

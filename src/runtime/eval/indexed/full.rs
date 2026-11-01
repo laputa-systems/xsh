@@ -1583,10 +1583,19 @@ impl FullProgram {
         let operations = pack.operations.bounds(self.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
         let Some(schemes::FullSealedOperation::Membership { container, .. }) = self.store.scheme_operations[operations].get(ordinal as usize) else { return Err(IrVerifyError::new("membership check names another operation")); };
         let check = self.invocation_membership_key_check(*container, scoped)?;
-        self.key_check_at_boundary(check, owner, instruction, ordinal)
+        self.key_check_at_boundary(check, owner, instruction, ordinal, invocation)
     }
 
-    fn key_check_at_boundary(&self, check: PreparedIndexKeyCheck, owner: u32, instruction: u32, operation: u32) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+    fn map_key_check(&self, owner: u32, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        let scoped = self.invocation_at(owner, instruction, invocation)?;
+        let (_, _, pack) = self.store.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("map key check has no prepared owner"))?;
+        let operations = pack.operations.bounds(self.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("map key operation range is invalid"))?;
+        let Some(schemes::FullSealedOperation::MapKey { receiver, .. }) = self.store.scheme_operations[operations].get(ordinal as usize) else { return Err(IrVerifyError::new("map key check names another operation")); };
+        let check = self.invocation_membership_key_check(*receiver, scoped)?;
+        self.key_check_at_boundary(check, owner, instruction, ordinal, invocation)
+    }
+
+    fn key_check_at_boundary(&self, check: PreparedIndexKeyCheck, owner: u32, instruction: u32, operation: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         if check != PreparedIndexKeyCheck::UInt { return Ok(check); }
         let ExecutableOwner::Function(function) = ExecutableOwner::from_raw(owner)? else { return Err(IrVerifyError::new("key validation has no function owner")); };
         let (_, _, pack) = self.store.requirement_pack_at(owner, instruction)?.ok_or_else(|| IrVerifyError::new("key validation has no prepared owner"))?;
@@ -1600,7 +1609,8 @@ impl FullProgram {
         let propagates = match boundary {
             schemes::FullWrapperBoundary::Captured | schemes::FullWrapperBoundary::ErrorReturn(_) | schemes::FullWrapperBoundary::ProcCompletion { .. }
             | schemes::FullWrapperBoundary::Producer | schemes::FullWrapperBoundary::TopLevel => true,
-            schemes::FullWrapperBoundary::Return(_) => pure,
+            schemes::FullWrapperBoundary::Return(_) => pure
+                && self.invocation_return_envelope(function.index(), invocation)? != PreparedReturnEnvelope::Plain,
         };
         Ok(if propagates { PreparedIndexKeyCheck::UInt } else { PreparedIndexKeyCheck::FatalUInt })
     }
@@ -1656,7 +1666,7 @@ impl FullProgram {
     fn index_key_check(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         let Some((receiver, _)) = self.index_contract(owner, instruction, invocation)? else { return Ok(PreparedIndexKeyCheck::Ordinary); };
         let operation = self.store.sealed_operation_ordinal(owner, instruction)?.ok_or_else(|| IrVerifyError::new("index key check has no sealed operation"))?;
-        self.key_check_at_boundary(receiver.key_check(), owner, instruction, operation)
+        self.key_check_at_boundary(receiver.key_check(), owner, instruction, operation, invocation)
     }
 
     fn index_literal_mode(&self, owner: u32, instruction: u32, distance: crate::runtime::eval::EndDistance, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexLiteral, IrVerifyError> {
@@ -1668,7 +1678,7 @@ impl FullProgram {
             PreparedIndexReceiver::List => Ok(PreparedIndexLiteral::FromEnd(distance.get())),
             PreparedIndexReceiver::SignedMap | PreparedIndexReceiver::UnsignedMap => {
                 let operation = self.store.sealed_operation_ordinal(owner, instruction)?.ok_or_else(|| IrVerifyError::new("literal index has no sealed operation"))?;
-                Ok(PreparedIndexLiteral::MapKey { key: -(distance.get() as i64), check: self.key_check_at_boundary(receiver.key_check(), owner, instruction, operation)? })
+                Ok(PreparedIndexLiteral::MapKey { key: -(distance.get() as i64), check: self.key_check_at_boundary(receiver.key_check(), owner, instruction, operation, invocation)? })
             }
             _ => Err(IrVerifyError::new("literal index receiver has no prepared List or integer Map contract")),
         }
@@ -2314,7 +2324,7 @@ impl FullProgram {
                             let (source, destination) = verify_schemes::materialization_contract(&self.store, scopes, id, instruction, &mut budget)?;
                             Contract::Materialization { source, destination }
                         }
-                        ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_) => continue,
+                        ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_) | ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey => continue,
                     };
                     Some(Record { site: Site::ValueBoundary(span), contract })
                 }
@@ -6782,6 +6792,10 @@ impl<'p> FullExecution<'p> {
         self.program().membership_key_check(self.owner, instruction, ordinal, invocation)
     }
 
+    pub(in crate::runtime::eval) fn map_key_check(&self, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
+        self.program().map_key_check(self.owner, instruction, ordinal, invocation)
+    }
+
     pub(in crate::runtime::eval) fn index_key_check(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         self.program().index_key_check(self.owner, instruction, invocation)
     }
@@ -7568,7 +7582,7 @@ impl<'a> FullDecoder<'a> {
             let binding_dependent_value = if tag == FullTag::ExprCheckedValue {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(index)? else { unreachable!() };
                 match check {
-                    ValueCheckView::MembershipKey(_) | ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => true,
+                    ValueCheckView::MembershipKey(_) | ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey | ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => true,
                     ValueCheckView::Ground(_) => self.store.call_instantiations.binary_search_by_key(&(index as u32), |instance| instance.instruction).is_ok(),
                 }
             } else { false };
@@ -7834,7 +7848,7 @@ impl<'a> FullDecoder<'a> {
                 let schema::ExprView::CheckedValue { check, .. } = self.expression_view(current)? else { unreachable!() };
                 match check {
                     ValueCheckView::Ground(check) => check.ty.id,
-                    ValueCheckView::MembershipKey(_) | ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
+                    ValueCheckView::MembershipKey(_) | ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey | ValueCheckView::Materialization(_) | ValueCheckView::RecordConstructor(_) => self.checked_expression_type_id(current)?.ok_or_else(|| IrVerifyError::new("materialized callee receiver has no checked destination"))?,
                 }
             } else {
                 self.checked_expression_type_id(current)?
@@ -10691,6 +10705,7 @@ impl<'a> FullDecoder<'a> {
                 self.checked_expression_matches_type(value.raw() as usize, &source)
             }
             schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_), .. } => self.checked_expression_matches_type(value.raw() as usize, expected),
+            schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey, .. } => if *expected == Type::UInt { Ok(()) } else { Err(IrVerifyError::new("map key check has another destination")) },
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
                 if checked != *expected {
@@ -12008,6 +12023,7 @@ impl<'a> FullDecoder<'a> {
                 verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget).map(|(_, destination)| Some(destination))
             }
             schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } => Ok(Some(check.ty.materialize()?)),
+            schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey, .. } => Ok(Some(Type::UInt)),
             schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_) | ValueCheckView::MembershipKey(_), .. } => self.derive_checked_expression_type(value.raw() as usize),
             schema::ExprView::ValueBlock { mut body, .. } => {
                 match self.checked_value_block_result(&mut body)? {
@@ -12535,6 +12551,7 @@ impl<'a> FullDecoder<'a> {
             }
         };
         match view {
+            schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey, .. } => return reject_producer(),
             schema::ExprView::CheckedValue { value, check: ValueCheckView::MembershipKey(_), .. } => {
                 if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("membership key carries unrelated contract evidence")); }
                 require_child(value.raw() as usize, &ty)?;
@@ -22318,7 +22335,7 @@ macro_rules! impl_build_id_codec {
                 if let Some(operation) = operation {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_operation_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
-                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
+                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
                 }
                 if let Some(method) = method {
@@ -35473,12 +35490,20 @@ assert has({[1]: "one"}, 1)
             }
         }
         let owner = scheme_fixture_root_function(&program, "has");
-        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprRequire).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let (instruction, value) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::CheckedValue { value, check: decode::ValueCheckView::FatalUIntKey, .. }) => Some((instruction, value.raw())),
+            _ => None,
+        }).unwrap();
         let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
         let mut wrong = program.clone();
         let mut semantic = SemanticPoolBuilder::default();
         let signed = semantic.intern_type(&mut wrong.store.semantic, &Type::Int).unwrap();
-        wrong.store.extra[words.start + 1] = signed.raw();
+        let mut payload = vec![value, decode::ValueCheckTag::Ground as u32, signed.raw(), wrong.store.functions[owner].name, 0];
+        payload.extend_from_slice(&program.store.extra[words.start + 2..words.end]);
+        let start = wrong.store.extra.len() as u32;
+        wrong.store.extra.extend_from_slice(&payload);
+        wrong.store.data[instruction] = crate::runtime::eval::indexed::IrData::new(start, payload.len() as u32);
         let error = FullVerifier::verify(&wrong).expect_err("generic membership must retain its unsigned key guard");
         assert!(error.message.contains("membership key producer does not preserve"), "{error:?}");
     }
@@ -47883,6 +47908,8 @@ pure choose(value: Any) -> Result[Str, Str] {
             let program = Arc::new(fixture("generic-index-call-capture.xsh", r#"
 pure read(values, key) { values[key] }
 pure captured(values, key) { try { read(values, key) } }
+pure captured_unsigned(values: Map[UInt, Int]) -> Result[Int] { captured(values, -1) }
+pure locally_captured(values, key) { try { values[key] } }
 pure preserve_signed(values: Map[Int, Int], key: Int, payload: Result[Int, Str]) -> Result[Int, Str] {
   try { let _ = read(values, key); payload? }
 }
@@ -47903,7 +47930,7 @@ pure discard_data(values, key, failure: Result[Int, Str]) -> Result[Int, Str] {
   try { let _ = read_data(values, key); failure? }
 }
 let values: Map[UInt, Int] = {[0]: 7}
-let selected = captured(values, -1)
+let selected = locally_captured(values, -1)
 assert match selected { Err(error) => error.message == "schema check failed: expected UInt, found Int"; Ok(_) => false }
 let payload: Result[Int, Str] = Err("payload")
 let signed: Map[Int, Int] = {[-1]: 7}
@@ -47945,6 +47972,15 @@ assert match unsigned_data { Err(error) => error == "text result data"; Ok(_) =>
                 assert_eq!(evaluator.lookup("data_capture").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("payload".into())))));
                 assert_eq!(evaluator.lookup("invalid_data_capture").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("payload".into())))));
                 assert_eq!(evaluator.lookup("unsigned_data").unwrap().value, Value::Result(crate::runtime::value::ResultValue::Err(Box::new(Value::Str("text result data".into())))));
+                let values = evaluator.lookup("values").unwrap().value.clone();
+                let error = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "captured_unsigned")),
+                    CallableKind::Pure,
+                    &[values],
+                    Span::at(program.store.source_id, 0),
+                ).unwrap().expect_err("caller capture cannot waive the plain pure key boundary");
+                assert_eq!(error.kind, "schema");
+                assert!(!error.propagated);
             }
         });
     }
@@ -48554,6 +48590,24 @@ assert outer("ab", 1) == 3
             wrong.store.tags[length[0]] = program.store.tags[text];
             wrong.store.data[length[0]] = program.store.data[text];
             FullVerifier::verify(&wrong).expect_err("a string cannot fill an integer parameter");
+        });
+    }
+
+    #[test]
+    fn key_return_boundary_rejects_an_unbound_invocation() {
+        run_with_large_stack(|| {
+            let program = fixture("unbound-key-return.xsh", "pure read(values, key) { values[key] }\n");
+            FullVerifier::verify(&program).unwrap();
+            let function = scheme_fixture_root_function(&program, "read");
+            let owner = IrFunctionId::new(function).unwrap().raw();
+            let instruction = program.store.function_instruction_range(function).unwrap().find(|&instruction| {
+                program.store.sealed_operation_site(owner, instruction as u32).unwrap().is_some()
+            }).unwrap() as u32;
+            let operation = program.store.sealed_operation_ordinal(owner, instruction).unwrap().unwrap();
+            let error = program.key_check_at_boundary(
+                PreparedIndexKeyCheck::UInt, owner, instruction, operation, &PreparedInvocationBindings::default(),
+            ).err().expect("a key boundary needs the actual return binding");
+            assert_eq!(error.message, "invocation return parameter has no actual binding");
         });
     }
 

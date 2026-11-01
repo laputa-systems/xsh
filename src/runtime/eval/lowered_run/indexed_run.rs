@@ -398,6 +398,8 @@ pub(super) fn indexed_type_check(
 
 pub(in crate::runtime::eval) enum IndexedValueCheck {
     MembershipKey(u32),
+    MapKey(u32),
+    FatalUIntKey,
     Ground(LoweredTypeCheck),
     Materialization(u32),
     RecordConstructor,
@@ -406,6 +408,8 @@ pub(in crate::runtime::eval) enum IndexedValueCheck {
 pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Result<IndexedValueCheck, RuntimeError> {
     match check {
         ValueCheckView::MembershipKey(ordinal) => Ok(IndexedValueCheck::MembershipKey(ordinal)),
+        ValueCheckView::MapKey(ordinal) => Ok(IndexedValueCheck::MapKey(ordinal)),
+        ValueCheckView::FatalUIntKey => Ok(IndexedValueCheck::FatalUIntKey),
         ValueCheckView::Ground(check) => indexed_type_check(check, span).map(IndexedValueCheck::Ground),
         ValueCheckView::Materialization(id) => Ok(IndexedValueCheck::Materialization(id)),
         ValueCheckView::RecordConstructor(_) => Ok(IndexedValueCheck::RecordConstructor),
@@ -415,6 +419,18 @@ pub(super) fn indexed_value_check(check: ValueCheckView<'_>, span: Span) -> Resu
 pub(super) enum CheckedValueOutcome {
     Value(LoweredValue),
     Propagate(LoweredValue),
+}
+
+fn fatal_uint_key(evaluator: &Evaluator, value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
+    let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
+    match crate::runtime::eval::require::require_value(evaluator, value, &check, span) {
+        LoweredValue::ResultOk(value) => Ok(*value),
+        LoweredValue::ResultErr(error) => match *error {
+            crate::runtime::value::Value::Error(error) => Err(*error),
+            _ => unreachable!("UInt validation returns a schema error"),
+        },
+        _ => unreachable!("UInt validation returns a Result"),
+    }
 }
 
 pub(super) fn finish_checked_value(
@@ -427,17 +443,20 @@ pub(super) fn finish_checked_value(
     span: Span,
 ) -> Result<CheckedValueOutcome, RuntimeError> {
     match check {
-        IndexedValueCheck::MembershipKey(ordinal) => {
+        IndexedValueCheck::MembershipKey(ordinal) | IndexedValueCheck::MapKey(ordinal) => {
+            let mode = match check {
+                IndexedValueCheck::MembershipKey(_) => execution.membership_key_check(instruction, *ordinal, invocation),
+                IndexedValueCheck::MapKey(_) => execution.map_key_check(instruction, *ordinal, invocation),
+                _ => unreachable!(),
+            }.map_err(|error| indexed_error(error, span))?;
             let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
-            match execution.membership_key_check(instruction, *ordinal, invocation).map_err(|error| indexed_error(error, span))? {
+            match mode {
                 crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::UInt => Ok(CheckedValueOutcome::Propagate(crate::runtime::eval::require::require_value(evaluator, value, &check, span))),
-                crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::FatalUInt => {
-                    super::checked_storage_value(evaluator, &value, &check, span)?;
-                    Ok(CheckedValueOutcome::Value(value))
-                }
+                crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::FatalUInt => fatal_uint_key(evaluator, value, span).map(CheckedValueOutcome::Value),
                 crate::runtime::eval::indexed::full::PreparedIndexKeyCheck::Ordinary => Ok(CheckedValueOutcome::Value(value)),
             }
         }
+        IndexedValueCheck::FatalUIntKey => fatal_uint_key(evaluator, value, span).map(CheckedValueOutcome::Value),
         IndexedValueCheck::RecordConstructor => Ok(CheckedValueOutcome::Value(value)),
         IndexedValueCheck::Ground(check) => {
             let value = materialize_indexed_scheme_value(execution, invocation, instruction, value, span)?;
@@ -1777,7 +1796,7 @@ impl Evaluator {
                 ControlFlow::Continue(self.indexed_field_value(base, name, span)?)
             }
             ExprViewKind::Index => {
-                let ExprView::Index { base, index, span } =
+                let ExprView::Index { base, index, span, .. } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
                 else {

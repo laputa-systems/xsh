@@ -359,6 +359,7 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
         let result = operation.result().map(|ty| render_scheme_type(ty, names, identities, context));
         parts.push(match operation {
             crate::sema::sealed_operation::SealedOperation::Membership { .. } => format!("membership({inputs})"),
+            crate::sema::sealed_operation::SealedOperation::MapKey { .. } => format!("map-key({inputs})"),
             crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, .. } => format!("{domain:?}({inputs})"),
             crate::sema::sealed_operation::SealedOperation::Binary(operation) => format!("arithmetic({:?}, {inputs}) -> {}", operation.operator, result.unwrap()),
             crate::sema::sealed_operation::SealedOperation::Index { syntax, constant_key, .. } => {

@@ -67,6 +67,15 @@ pub(super) enum SelectedMethodArguments {
     },
 }
 
+pub(super) fn key_validation_span(arena: &ArenaProgram, argument: &crate::sema::arguments::ExpandedArgument) -> Span {
+    use crate::sema::arguments::ArgumentValueSource;
+    match argument.value {
+        ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => arena.arena.expr(value).span,
+        ArgumentValueSource::RecordField { record, .. } => arena.arena.expr(record).span,
+        ArgumentValueSource::CheckedType => argument.span,
+    }
+}
+
 fn expanded_checked_argument(argument: CheckedCallArgument<'_>) -> crate::sema::arguments::ExpandedArgument {
     crate::sema::arguments::ExpandedArgument {
         entry_index: 0,

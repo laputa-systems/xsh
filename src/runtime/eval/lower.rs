@@ -66,6 +66,7 @@ pub(super) struct SlotScope {
     // Layout entries restore the enclosing runtime names when a block ends.
     declared: Vec<(Name, Option<usize>)>,
     high_water: usize,
+    plain_pure_return: bool,
 }
 
 enum PhysicalReadContract<'a> {
@@ -2935,6 +2936,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         // Parameter slots exist at entry, but their names are hidden while
         // lowering defaults so every default resolves in the outer environment.
         let mut slots = SlotScope::default();
+        slots.plain_pure_return = callable_kind == CallableKind::Pure && matches!(return_kind, LoweredReturnKind::Plain(_));
         for _ in &params {
             slots.reserve("parameter");
         }
@@ -3820,7 +3822,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                     SchemeType::Ground(ty) => matches!(ty.unvalidated(), Type::Map(key, _) if **key == Type::UInt),
                                     _ => false,
                                 } {
-                                    value = self.require_uint_key(value, self.program.arena.expr(index).span);
+                                    value = self.lower_scheme_map_key(value, self.program.arena.expr(index).span, facts);
                                     self.record_scheme_storage_elaboration(value, &SchemeType::Ground(Type::UInt), lowered_types);
                                 }
                                 super::LoweredAssignStep::Index(value)
@@ -4468,6 +4470,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.lower_scheme_source_arguments(expression, program.arena.call_args(args), plan, slots, current_function, facts, visited, lowered_types, body)
     }
 
+    fn key_validation_span(&self, source: ArgumentValueSource, fallback: Span) -> Span {
+        match source {
+            ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => self.program.arena.expr(value).span,
+            ArgumentValueSource::RecordField { record, .. } => self.program.arena.expr(record).span,
+            ArgumentValueSource::CheckedType => fallback,
+        }
+    }
+
     fn lower_scheme_source_arguments(
         &mut self, expression: ExprId, args: &[crate::syntax::arena::ArenaCallArg],
         plan: Option<&crate::sema::schemes::RegisteredCallPlan>,
@@ -4506,7 +4516,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let value = if let Some(plan) = plan {
                 let slot = *plan.argument_slots.get(arguments.len())?;
                 match plan.argument_checks.get(slot).and_then(Option::as_ref) {
-                    Some(check) => self.lower_scheme_registered_argument(value, check, argument.span, slots, lowered_types, body),
+                    Some(check) => self.lower_scheme_registered_argument(value, check, self.key_validation_span(argument.value, argument.span), slots, facts, lowered_types, body),
                     None => value,
                 }
             } else { value };
@@ -4522,18 +4532,32 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(arguments)
     }
 
+    fn lower_scheme_map_key(&mut self, original: BuildExprId, span: Span, facts: &SchemeBodyFacts) -> BuildExprId {
+        if let Some((expression, operation, wrapper)) = facts.map_key_site(span) {
+            let checked = push_build_row!(self, expr, BuildExprRow::CheckedValue { value: original, check: LoweredValueCheck::MapKey(operation), span });
+            let mut scratch = self.scratch.borrow_mut();
+            scratch.scheme_operations.insert(checked.index(), operation);
+            scratch.scheme_wrappers.insert(checked.index(), wrapper);
+            if let Some(scope) = facts.guard_scopes().expressions.get(&expression) { scratch.scheme_guards.expressions.insert(checked.index(), *scope); }
+            checked
+        } else { self.require_uint_key(original, span) }
+    }
+
     fn lower_scheme_registered_argument(
         &mut self,
         original: BuildExprId,
         check: &crate::sema::schemes::RegisteredArgumentCheck,
         span: Span,
         slots: &mut SlotScope,
+        facts: &SchemeBodyFacts,
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
         body: &mut Vec<BuildStmtId>,
     ) -> BuildExprId {
         let (checked, ty) = match check {
             crate::sema::schemes::RegisteredArgumentCheck::Unsigned(ty) => (self.checked_unsigned_value(original, ty, span), SchemeType::Ground(ty.clone())),
-            crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey => (self.require_uint_key(original, span), SchemeType::Ground(Type::UInt)),
+            crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey => {
+                (self.lower_scheme_map_key(original, span, facts), SchemeType::Ground(Type::UInt))
+            },
         };
         self.record_scheme_storage_elaboration(checked, &ty, lowered_types);
         let slot = slots.reserve("checked generic body argument");
@@ -5148,6 +5172,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::Index { base, index, .. } => {
                 let source_base = base;
+                let key_span = self.program.arena.expr(index).span;
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
                 if slots.guarded_postfixes.contains(&expression) {
                     let mut source = lowered_types.get(&base)?;
@@ -5169,7 +5194,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 {
                     let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
                     if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
-                    push_build_row!(self, expr, BuildExprRow::Index { base, index: super::IndexOperand::NegativeLiteral(super::EndDistance::new(distance.get())?), span })
+                    push_build_row!(self, expr, BuildExprRow::Index { base, index: super::IndexOperand::NegativeLiteral(super::EndDistance::new(distance.get())?), span, key_span })
                 } else if let Some(distance) = self.bodies.from_end_indexes.get(&expression).copied().and_then(super::EndDistance::new) {
                     let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.program.arena.expr(index).kind else { return self.block_scheme_lowering_expr(expression) };
                     if !facts.expression_types().contains_key(&index) || !facts.expression_types().contains_key(&expr) || !visited.insert(index) || !visited.insert(expr) { return self.block_scheme_lowering_expr(expression); }
@@ -5177,11 +5202,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else {
                     let uint_key = lowered_types.get(&base).and_then(SchemeType::closed_ground_type).is_some_and(|ty| crate::sema::builtin_templates::registered_uint_map_key(Some(ty.unvalidated())));
                     let mut lowered_index = self.lower_scheme_expression(index, slots, current_function, facts, visited, lowered_types, body)?;
-                    if uint_key {
-                        lowered_index = self.lower_scheme_registered_argument(lowered_index, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, self.program.arena.expr(index).span, slots, lowered_types, body);
+                    if uint_key && facts.operation_site(expression).is_none() {
+                        lowered_index = self.lower_scheme_registered_argument(lowered_index, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, self.program.arena.expr(index).span, slots, facts, lowered_types, body);
                     }
                     let index = lowered_index;
-                    push_build_row!(self, expr, BuildExprRow::Index { base, index: super::IndexOperand::Ordinary(index), span })
+                    push_build_row!(self, expr, BuildExprRow::Index { base, index: super::IndexOperand::Ordinary(index), span, key_span })
                 }
             }
             ArenaExprKind::Slice { base, start, end, .. } => {
@@ -5336,7 +5361,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     lowered_types.insert(checked, lowered_types.get(&left)?.clone());
                     checked
                 } else { left };
-                let left = if unsigned_key {
+                let left = if unsigned_key && membership_operation.is_none() {
                     let checked = self.require_uint_key(left, left_span);
                     self.record_scheme_storage_elaboration(checked, &SchemeType::Ground(Type::UInt), lowered_types);
                     checked
@@ -5440,7 +5465,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             ArenaRecordFieldKind::Computed { key, value, span } => {
                                 let key_span = self.program.arena.expr(key).span;
                                 let mut key = self.lower_scheme_expression(key, slots, current_function, facts, visited, lowered_types, body)?;
-                                if key_type == Type::UInt { key = self.lower_scheme_registered_argument(key, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, key_span, slots, lowered_types, body); }
+                                if key_type == Type::UInt { key = self.lower_scheme_registered_argument(key, &crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey, key_span, slots, facts, lowered_types, body); }
                                 (Some(key), self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?, self.program.arena.span(span))
                             }
                             ArenaRecordFieldKind::Named { name, value, span } => {
@@ -5513,7 +5538,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     SchemeType::Ground(Type::Map(key, _)) => **key == Type::UInt,
                     _ => return self.block_scheme_lowering_expr(expression),
                 } {
-                    key = self.require_uint_key(key, key_span);
+                    key = self.lower_scheme_map_key(key, key_span, facts);
                     self.record_scheme_storage_elaboration(key, &SchemeType::Ground(Type::UInt), lowered_types);
                 }
                 let value = self.lower_scheme_lazy_expression(value, slots, current_function, facts, visited, lowered_types)?;
@@ -8267,7 +8292,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 (_, BuildExprRow::CheckedValue { check, .. }) => return match check {
                     LoweredValueCheck::Ground(check) => Some(check.ty.clone()),
                     LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type(),
-                    LoweredValueCheck::RecordConstructor(_) | LoweredValueCheck::MembershipKey(_) => None,
+                    LoweredValueCheck::RecordConstructor(_) | LoweredValueCheck::MembershipKey(_) | LoweredValueCheck::MapKey(_) | LoweredValueCheck::FatalUIntKey => None,
                 },
                 _ => {}
             }
@@ -9362,8 +9387,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else {
                     self.lower_producer_input_expr(base, slots, current_function, item_slot)?
                 };
-                // The checker decided that this index counts from the end;
-                // its literal is not evaluated.
                 if let Some(distance) = self
                     .bodies
                     .from_end_indexes
@@ -9393,7 +9416,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildExprRow::Index {
                         base: lowered_base,
                         index: super::IndexOperand::Ordinary(lowered_index),
-                        span
+                        span,
+                        key_span: self.program.arena.expr(index).span,
                     }
                 ))
             }

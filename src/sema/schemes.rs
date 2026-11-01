@@ -404,6 +404,7 @@ pub(crate) struct SchemeBodyFacts {
     compound_sites: BTreeMap<ExprId, u32>,
     method_sites: BTreeMap<ExprId, u32>,
     wrapper_sites: BTreeMap<ExprId, u32>,
+    map_key_sites: BTreeMap<Span, (ExprId, u32, u32)>,
     guard_scopes: super::guarded_requirements::GuardBodyScopes,
 }
 
@@ -1482,7 +1483,7 @@ impl SchemeBodyFacts {
             operation_sites: BTreeMap::new(),
             compound_sites: BTreeMap::new(),
             method_sites: BTreeMap::new(),
-            wrapper_sites: BTreeMap::new(), guard_scopes,
+            wrapper_sites: BTreeMap::new(), map_key_sites: BTreeMap::new(), guard_scopes,
         }.with_noncompleting_expressions(noncompleting_expressions)
     }
 
@@ -1548,11 +1549,23 @@ impl SchemeBodyFacts {
         Ok(self)
     }
     pub(crate) fn wrapper_site(&self, expression: ExprId) -> Option<u32> { self.wrapper_sites.get(&expression).copied() }
+    pub(crate) fn with_map_key_sites(mut self, sites: BTreeMap<Span, (ExprId, u32, u32)>) -> Result<Self, SchemeBuildError> {
+        for &(expression, operation, wrapper) in sites.values() {
+            let requirements = self.requirement_pack_at(expression)?;
+            if !matches!(requirements.operations.get(operation as usize), Some(super::sealed_operation::SealedOperation::MapKey { .. }))
+                || !matches!(requirements.wrappers.get(wrapper as usize).map(|wrapper| &wrapper.kind), Some(super::wrapper_operation::WrapperRequirementKind::KeyValidation { operation: super::wrapper_operation::WrapperOperationRef::Ordinal(actual), .. }) if *actual == operation)
+            { return Err(SchemeBuildError::UnresolvedWrapper); }
+        }
+        self.map_key_sites = sites;
+        Ok(self)
+    }
+    pub(crate) fn map_key_site(&self, span: Span) -> Option<(ExprId, u32, u32)> { self.map_key_sites.get(&span).copied() }
+
     pub(crate) fn has_proc_completion_source(&self) -> bool {
         if self.scheme.kind() != crate::sema::types::CallableKind::Proc { return false; }
         let wrappers = &self.scheme.callable().requirements().wrappers;
-        self.wrapper_sites.values().any(|ordinal| {
-            let Some(requirement) = wrappers.get(*ordinal as usize) else { return false; };
+        self.wrapper_sites.values().copied().chain(self.map_key_sites.values().map(|(_, _, wrapper)| *wrapper)).any(|ordinal| {
+            let Some(requirement) = wrappers.get(ordinal as usize) else { return false; };
             let (group, returned) = match &requirement.kind {
                 super::wrapper_operation::WrapperRequirementKind::Field {
                     boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
@@ -1581,8 +1594,8 @@ impl SchemeBodyFacts {
             return false;
         }
         let wrappers = &self.scheme.callable().requirements().wrappers;
-        self.wrapper_sites.values().any(|ordinal| {
-            let Some(requirement) = wrappers.get(*ordinal as usize) else { return false; };
+        self.wrapper_sites.values().copied().chain(self.map_key_sites.values().map(|(_, _, wrapper)| *wrapper)).any(|ordinal| {
+            let Some(requirement) = wrappers.get(ordinal as usize) else { return false; };
             let (field_return, group) = match &requirement.kind {
                 super::wrapper_operation::WrapperRequirementKind::Field {
                     boundary: super::wrapper_operation::WrapperBoundary::ProcCompletion {
@@ -1715,6 +1728,7 @@ impl SchemeBodyFacts {
             .saturating_add(self.compound_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.method_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.wrapper_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.map_key_sites.len() * size_of::<(Span, (ExprId, u32, u32))>())
             .saturating_add(self.guard_scopes.expressions.len() * size_of::<(ExprId, super::guarded_requirements::GuardScopeId)>())
             .saturating_add(self.guard_scopes.statements.len() * size_of::<(StmtId, super::guarded_requirements::GuardScopeId)>())
             .saturating_add(self.guard_scopes.statement_sites.len() * size_of::<(StmtId, Vec<super::guarded_requirements::GuardBodySite>)>())

@@ -202,7 +202,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let [argument_slot] = plan.argument_slots.as_ref() else { return None; };
                 let mut body = Vec::new();
                 let item = match plan.argument_checks.get(*argument_slot).and_then(Option::as_ref) {
-                    Some(check) => self.lower_scheme_registered_argument(item, check, span, slots, lowered_types, &mut body),
+                    Some(check) => self.lower_scheme_registered_argument(item, check, span, slots, facts, lowered_types, &mut body),
                     None => item,
                 };
                 let mut args = vec![None; plan.signature.params.len()];

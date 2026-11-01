@@ -95,13 +95,16 @@ pub(super) enum WrapperDependency { Type(super::TypeVariableId), Row(super::RowV
 
 enum WrapperDependencyNode<'a> { Type(&'a Type, usize), Row(RowTail, usize) }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum WrapperSource { Expression, MapKey }
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct WrapperOperations {
     pub(super) entries: BTreeMap<WrapperOperationId, ScopedWrapper>,
     pub(super) guards: BTreeMap<WrapperOperationId, ScopedGuard>,
     pub(super) guard_instances: BTreeMap<WrapperOperationId, GuardInstance>,
     pub(super) guard_owners: BTreeMap<CallableApplicationScope, Vec<WrapperOperationId>>,
-    sources: BTreeMap<(CallableApplicationScope, Span), WrapperOperationId>,
+    sources: BTreeMap<(CallableApplicationScope, Span, WrapperSource), WrapperOperationId>,
     watchers: BTreeMap<WrapperDependency, BTreeSet<WrapperOperationId>>,
     pending: VecDeque<WrapperOperationId>,
     queued: BTreeSet<WrapperOperationId>,
@@ -109,7 +112,7 @@ pub(super) struct WrapperOperations {
 
 #[derive(Clone, Debug)]
 pub(super) enum WrapperChange {
-    Fresh(WrapperOperationId), GuardInstanceFresh(WrapperOperationId), GuardInstanceState(WrapperOperationId, GuardInstanceState), GuardFresh(WrapperOperationId), GuardRead(WrapperOperationId), GuardViewUsed(WrapperOperationId), GuardSelection(WrapperOperationId, Option<GuardSelection>), Source((CallableApplicationScope, Span)),
+    Fresh(WrapperOperationId), GuardInstanceFresh(WrapperOperationId), GuardInstanceState(WrapperOperationId, GuardInstanceState), GuardFresh(WrapperOperationId), GuardRead(WrapperOperationId), GuardViewUsed(WrapperOperationId), GuardSelection(WrapperOperationId, Option<GuardSelection>), Source((CallableApplicationScope, Span, WrapperSource)),
     GuardOutput(WrapperOperationId),
     GuardEffects(WrapperOperationId, Option<crate::sema::guarded_requirements::GuardEffects<EffectVariableId>>),
     Requirement(WrapperOperationId, WrapperRequirement<Type, EffectVariableId>),
@@ -136,7 +139,7 @@ impl WrapperOperations {
             }).sum::<usize>()
             + self.guard_owners.len() * size_of::<(CallableApplicationScope, Vec<WrapperOperationId>)>()
             + self.guard_owners.values().map(|ids| ids.capacity() * size_of::<WrapperOperationId>()).sum::<usize>()
-            + self.sources.len() * size_of::<((CallableApplicationScope, Span), WrapperOperationId)>()
+            + self.sources.len() * size_of::<((CallableApplicationScope, Span, WrapperSource), WrapperOperationId)>()
             + self.watchers.len() * size_of::<(WrapperDependency, BTreeSet<WrapperOperationId>)>()
             + self.watchers.values().map(|ids| ids.len() * size_of::<WrapperOperationId>()).sum::<usize>()
             + self.pending.capacity() * size_of::<WrapperOperationId>() + self.queued.len() * size_of::<WrapperOperationId>();
@@ -748,7 +751,9 @@ impl TypeConstraints {
         Ok(false)
     }
 
-    pub(crate) fn wrapper_at(&self, owner: CallableApplicationScope, span: Span) -> Option<WrapperOperationId> { self.wrappers.sources.get(&(owner, span)).copied() }
+    pub(crate) fn wrapper_at(&self, owner: CallableApplicationScope, span: Span) -> Option<WrapperOperationId> { self.wrappers.sources.get(&(owner, span, WrapperSource::Expression)).copied() }
+
+    pub(crate) fn map_key_wrapper_at(&self, owner: CallableApplicationScope, span: Span) -> Option<WrapperOperationId> { self.wrappers.sources.get(&(owner, span, WrapperSource::MapKey)).copied() }
 
     pub(super) fn optional_wrapper_call_argument_type(
         &self, instance: &super::InstantiatedScheme, expected: &Type, actual: &Type,
@@ -793,7 +798,7 @@ impl TypeConstraints {
 
     fn local_proc_completion_wrapper_id(&self, owner: CallableApplicationScope) -> Result<Option<WrapperOperationId>, ConstraintResolutionError> {
         let mut source_group = None;
-        for ((source_owner, _), id) in &self.wrappers.sources {
+        for ((source_owner, _, _), id) in &self.wrappers.sources {
             if *source_owner != owner { continue; }
             let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             let group = match &entry.requirement.kind {
@@ -872,7 +877,7 @@ impl TypeConstraints {
             }
             contributions.push(WrapperCompletionContribution::ApplicationSource(self.referenced_callable_application_result(*reference)?));
         }
-        for ((source_owner, _), id) in &self.wrappers.sources {
+        for ((source_owner, _, _), id) in &self.wrappers.sources {
             if *source_owner != owner_scope { continue; }
             let entry = self.wrappers.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
             if let WrapperRequirementKind::Field { source, boundary: WrapperBoundary::ProcCompletion { returned, group: WrapperGroupRef::Source(field_group) }, .. } = &entry.requirement.kind
@@ -949,10 +954,44 @@ impl TypeConstraints {
 
     pub(crate) fn register_source_wrapper(&mut self, owner: CallableApplicationScope, requirement: WrapperRequirement<Type, EffectVariableId>) -> Result<WrapperOperationId, WrapperConstraintError> {
         self.commit_constraint_transaction(|this| {
-            if let Some(id) = this.wrapper_at(owner, requirement.span) {
+            let role = match &requirement.kind {
+                WrapperRequirementKind::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Source(id), .. }
+                    if this.operations.entries.get(id).is_some_and(|entry| matches!(entry.operation, crate::sema::sealed_operation::SealedOperation::MapKey { .. })) => WrapperSource::MapKey,
+                _ => WrapperSource::Expression,
+            };
+            if let Some(id) = this.wrappers.sources.get(&(owner, requirement.span, role)).copied() {
                 let previous = this.wrappers.entries[&id].requirement.clone();
                 let previous_shape = previous.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
-                let next_shape = requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                let mut next_shape = requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                if let (WrapperRequirementKind::Capture { contributions: left, .. }, WrapperRequirementKind::Capture { contributions: right, .. }) = (&previous_shape.kind, &mut next_shape.kind) {
+                    use crate::sema::wrapper_operation::{WrapperErrorContribution, WrapperOperationRef, WrapperRequirementRef};
+                    for (left, right) in left.iter().zip(std::sync::Arc::make_mut(right).iter_mut()) {
+                        if let (WrapperErrorContribution::KeyValidationBoundary(WrapperRequirementRef::Source(left_id)), WrapperErrorContribution::KeyValidationBoundary(WrapperRequirementRef::Source(right_id))) = (left, right) {
+                            let left_entry = this.wrappers.entries.get(left_id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                            let right_entry = this.wrappers.entries.get(right_id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                            if left_entry.owner != owner || right_entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                            let left_requirement = left_entry.requirement.clone();
+                            let right_requirement = right_entry.requirement.clone();
+                            let (WrapperRequirementKind::KeyValidation { operation: WrapperOperationRef::Source(left_operation), .. }, WrapperRequirementKind::KeyValidation { operation: WrapperOperationRef::Source(right_operation), .. }) = (&left_requirement.kind, &right_requirement.kind) else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
+                            let left_entry = this.operations.entries.get(left_operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                            let right_entry = this.operations.entries.get(right_operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
+                            if left_entry.owner != owner || right_entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                            let left_operation = left_entry.operation.clone();
+                            let right_operation = right_entry.operation.clone();
+                            if left_operation.span() != right_operation.span() || !left_operation.same_kind(&right_operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                            let left_boundary = left_requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                            let mut right_boundary = right_requirement.try_map(&mut (), |_, _| Ok::<_, std::convert::Infallible>(()), |_, _| Ok(EffectContract::<()>::finite(EffectSet::default()))).unwrap();
+                            if let (WrapperRequirementKind::KeyValidation { operation: left, .. }, WrapperRequirementKind::KeyValidation { operation: right, .. }) = (&left_boundary.kind, &mut right_boundary.kind) { *right = *left; }
+                            if left_boundary != right_boundary { return Err(ConstraintResolutionError::ForeignVariable.into()); }
+                            this.apply_journaled(|this, changes| {
+                                for (expected, actual) in left_operation.types().zip(right_operation.types()) { this.constrain_wrapper_type(expected, actual, requirement.span, changes)?; }
+                                for (expected, actual) in left_requirement.types().into_iter().zip(right_requirement.types()) { this.constrain_wrapper_type(expected, actual, requirement.span, changes)?; }
+                                Ok::<_, WrapperConstraintError>(())
+                            })?;
+                            *right_id = *left_id;
+                        }
+                    }
+                }
                 if previous_shape != next_shape {
                     return Err(WrapperConstraintError::Invalid { message: "wrapper source changed its operation".into(), operation: requirement.operation_kind() });
                 }
@@ -968,8 +1007,8 @@ impl TypeConstraints {
             let span = requirement.span;
             let id = this.register_wrapper(owner, requirement)?;
             this.apply_journaled(|this, changes| {
-                assert!(this.wrappers.sources.insert((owner, span), id).is_none());
-                changes.push(ConstraintChange::Wrapper(WrapperChange::Source((owner, span))));
+                assert!(this.wrappers.sources.insert((owner, span, role), id).is_none());
+                changes.push(ConstraintChange::Wrapper(WrapperChange::Source((owner, span, role))));
                 Ok::<_, WrapperConstraintError>(())
             })?;
             Ok(id)
@@ -1115,7 +1154,7 @@ impl TypeConstraints {
     }
 
     pub(crate) fn constrain_wrapper_returns(&mut self, owner: crate::sema::check::EffectDeclarationId, returned: &Type, span: Span) -> Result<(), WrapperConstraintError> {
-        let boundaries = self.wrappers.sources.iter().filter_map(|((source_owner, _), id)| {
+        let boundaries = self.wrappers.sources.iter().filter_map(|((source_owner, _, _), id)| {
             if *source_owner != CallableApplicationScope::Declaration(owner) { return None; }
             match &self.wrappers.entries[id].requirement.kind {
                 WrapperRequirementKind::Field { boundary: WrapperBoundary::Return(ty) | WrapperBoundary::ErrorReturn(ty), .. } => Some(ty.clone()),
@@ -1571,6 +1610,43 @@ impl TypeConstraints {
 mod tests {
     use super::*;
     use crate::symbol::{Name, SymbolOwner};
+
+    #[test]
+    fn capture_recheck_rejects_foreign_key_boundaries_and_rolls_back() {
+        use crate::sema::sealed_operation::SealedOperation;
+        use crate::sema::wrapper_operation::{WrapperErrorContribution, WrapperOperationRef, WrapperRequirementRef};
+        SymbolOwner::new().with_current(|| {
+            let span = Span::new(crate::source::SourceId::new(0), 0, 1);
+            let owner = CallableApplicationScope::Invocation;
+            let foreign = CallableApplicationScope::Declaration(crate::sema::check::EffectDeclarationId { namespace: None, body: span });
+            let mut constraints = TypeConstraints::default();
+            let key = constraints.fresh_at_level(span, 1);
+            let make = |constraints: &mut TypeConstraints, owner, key| {
+                let operation = constraints.register_sealed_operation(owner, SealedOperation::MapKey { receiver: Type::Map(Box::new(Type::UInt), Box::new(Type::Str)), key, span }).unwrap();
+                constraints.register_wrapper(owner, WrapperRequirement { kind: WrapperRequirementKind::KeyValidation { operation: WrapperOperationRef::Source(operation), boundary: WrapperBoundary::Return(Type::Str) }, span }).unwrap()
+            };
+            let original = make(&mut constraints, owner, key.clone());
+            let original_second = make(&mut constraints, owner, Type::Int);
+            let replacement = make(&mut constraints, owner, Type::Int);
+            let foreign_boundary = make(&mut constraints, foreign, Type::Int);
+            let guard_source = constraints.fresh_at_level(span, 1);
+            let guard_view = constraints.fresh_at_level(span, 1);
+            let guard = constraints.register_non_null_guard(owner, guard_source, guard_view, span, span).unwrap();
+            let guarded_boundary = make(&mut constraints, CallableApplicationScope::Guard(guard), Type::Int);
+            let capture = |first, second| WrapperRequirement { kind: WrapperRequirementKind::Capture {
+                contributions: vec![WrapperErrorContribution::KeyValidationBoundary(WrapperRequirementRef::Source(first)), WrapperErrorContribution::KeyValidationBoundary(WrapperRequirementRef::Source(second))].into(), result: Type::Error, expected: false,
+            }, span };
+            constraints.register_source_wrapper(owner, capture(original, original_second)).unwrap();
+            let wrappers = constraints.wrappers.clone();
+            let operations = constraints.operations.clone();
+            for boundary in [foreign_boundary, guarded_boundary] {
+                assert!(constraints.register_source_wrapper(owner, capture(replacement, boundary)).is_err());
+                assert_eq!(constraints.resolve(&key).unwrap(), key);
+                assert_eq!(constraints.wrappers, wrappers);
+                assert_eq!(constraints.operations, operations);
+            }
+        });
+    }
 
     #[test]
     fn guarded_outputs_select_actual_results_without_absent_payloads_and_rollback() {

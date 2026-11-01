@@ -419,22 +419,37 @@ resolved List receiver publishes its owned negative-literal distance for ordinar
 lowering. A closed Map keeps its ordinary negative key. Computed
 negative indices retain ordinary evaluation; there is no runtime overload
 search or value-tag selection of literal meaning.
+The index row retains separate operation and key spans. UInt validation reports
+the key span; lookup failures retain the operation span.
 
 Unsigned map keys use the canonical UInt validator and existing lexical
 propagation flow. At erased function returns, the authenticated substituted
-outer envelope determines whether propagated errors cross a plain boundary or
-remain Result data, matching grounded returns without inspecting payload values.
+outer envelope determines whether an uncaught key failure is fatal at a plain
+pure boundary or can remain Result data, matching grounded returns without
+inspecting payload values. Local capture can handle the failure. Caller capture
+cannot waive a plain pure callee's boundary. Other propagated failures, including
+upstream stream failures, retain their own propagation rules.
 The cold verifier relates the original Int key to the lowered immutable
 UInt-validation temporary and checks the conditional error contribution against
 the callable's own return boundary. Caller-side capture cannot replace that
 callee contract; an already-UInt key has no validation contribution.
+
+`MapKey` retains the receiver and key relationship independently of a method's
+result or a literal's payload. Canonical argument binding identifies the key;
+named arguments use their value expression, and named spreads retain their
+record expression as the source owner while verification checks the projected
+key producer. Pending method selection retains the lexical error boundary until
+the selected Map operation determines whether validation contributes an error.
+An unrelated method does not create a proc-completion contribution. Capture
+reconciliation validates both source owners before comparing fresh equivalent
+requirements, and failed comparisons roll back their constraints and watchers.
 
 The focused ordinary/generic UInt-key parity control observes the same outcomes
 on both evaluator routes:
 
 | Map item type | Valid `Int` key holding the payload | Negative `Int` key |
 | --- | --- | --- |
-| `Str` | original string | propagated Schema failure |
+| `Str` | original string | fatal Schema failure |
 | `Result[Int, Error]` | original error payload | Schema error as Result data |
 | `Result[Int, Str]` | rejected for an `Int` key | rejected for an `Int` key |
 | `Result[Int, Str]?` | rejected for an `Int` key | rejected for an `Int` key |

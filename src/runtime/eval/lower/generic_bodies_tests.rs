@@ -5356,11 +5356,11 @@ pure signed_mutated(container: Map[Int, Int]) -> Bool { mutated(container) }
             let result = evaluator.call_indexed_direct(captured, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap();
             assert!(matches!(result, Value::Result(ResultValue::Err(_))), "frames={force_frames}: {result:?}");
             let forwarded = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("unsigned_caught_relay")));
-            let result = evaluator.call_indexed_direct(forwarded, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap();
-            let Value::Result(ResultValue::Err(error)) = result else { panic!("forwarding retains the captured UInt failure") };
-            let Value::Error(error) = *error else { panic!("UInt validation retains ordinary Error data") };
+            let error = evaluator.call_indexed_direct(forwarded, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap()
+                .expect_err("caller capture cannot waive the plain pure key boundary");
             assert_eq!(error.kind, "schema");
             assert_eq!(error.message, "schema check failed: expected UInt, found Int");
+            assert!(!error.propagated);
             let signed = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("signed_mutated")));
             assert_eq!(evaluator.call_indexed_direct(signed, CallableKind::Pure, &arguments, Span::at(source_id, 0)).unwrap().unwrap(), Value::Bool(false));
         }

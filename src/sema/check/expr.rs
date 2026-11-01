@@ -2016,6 +2016,7 @@ impl Checker {
                         expected_key,
                         crate::sema::constants::SchemaComponent::Key,
                     );
+                    if let Some(receiver) = expected { self.record_map_key_validation(receiver, &key_ty, arena.arena.expr(key).span); }
                     if !key_ty.is_recovery()
                         && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
                     {
@@ -2768,6 +2769,7 @@ impl Checker {
         };
         self.record_uint_key_site(arena.arena.expr(key).span);
         let key_ty = self.check_expr_arena(arena, source, key, expected_key);
+        if let Some(receiver) = expected { self.record_map_key_validation(receiver, &key_ty, arena.arena.expr(key).span); }
         if !key_ty.is_recovery()
             && self.type_constraints.require_map_key(&key_ty, arena.arena.expr(key).span).is_err()
         {
@@ -4449,9 +4451,9 @@ impl Checker {
         }
     }
 
-    fn inferred_return_proc_owner(&self) -> Option<super::EffectDeclarationId> {
+    pub(super) fn inferred_return_proc_owner(&self) -> Option<super::EffectDeclarationId> {
         self.boundary.effect_owner.filter(|owner| {
-            self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner))
+            !self.boundary.in_test && self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner))
                 .is_some_and(|pending| pending.kind() == crate::sema::types::CallableKind::Proc && pending.return_authority == super::TypeAuthority::Inferred)
         })
     }
@@ -4464,7 +4466,9 @@ impl Checker {
     }
 
     pub(super) fn record_uint_key_site(&mut self, key_span: Span) {
-        if self.key_validation_failure_is_fatal() {
+        if self.boundary.retry_attempt_depth == 0 && self.boundary.in_pure {
+            self.key_validation_boundaries.insert(key_span, super::GroundKeyValidationBoundary::PureReturn);
+        } else if self.key_validation_failure_is_fatal() {
             self.key_validation_boundaries.insert(key_span, super::GroundKeyValidationBoundary::Fatal);
         } else if self.boundary.retry_attempt_depth == 0 && self.inferred_return_proc_owner().is_some() {
             self.key_validation_boundaries.insert(key_span, super::GroundKeyValidationBoundary::ProcCompletion);
@@ -4477,11 +4481,21 @@ impl Checker {
         operation: crate::sema::constraints::SealedOperationId,
         span: Span,
     ) {
+        let boundary = self.key_validation_boundary(span);
+        self.register_key_validation_at(owner, operation, boundary, span);
+    }
+
+    fn register_key_validation_at(
+        &mut self,
+        owner: crate::sema::constraints::CallableApplicationScope,
+        operation: crate::sema::constraints::SealedOperationId,
+        boundary: crate::sema::wrapper_operation::WrapperBoundary<Type>,
+        span: Span,
+    ) {
         use crate::sema::wrapper_operation::{WrapperOperationRef, WrapperRequirement, WrapperRequirementKind};
         let requirement = WrapperRequirement {
             kind: WrapperRequirementKind::KeyValidation {
-                operation: WrapperOperationRef::Source(operation),
-                boundary: self.key_validation_boundary(span),
+                operation: WrapperOperationRef::Source(operation), boundary,
             },
             span,
         };
@@ -4489,6 +4503,43 @@ impl Checker {
             .and_then(|_| self.type_constraints.solve_wrapper_operations())
         {
             self.error(span, &error.to_string(), DiagnosticCode::CheckIndexType);
+        }
+    }
+
+    pub(super) fn record_map_key_validation(&mut self, receiver: &Type, key: &Type, span: Span) {
+        if crate::sema::builtin_templates::registered_uint_map_key(Some(receiver.unvalidated())) { self.record_uint_key_site(span); }
+        if !crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) { return; }
+        let owner = self.constraint_scope();
+        let operation = crate::sema::sealed_operation::SealedOperation::MapKey { receiver: receiver.clone(), key: key.clone(), span };
+        let operation = self.type_constraints.register_source_sealed_operation(owner, operation)
+            .and_then(|operation| self.type_constraints.solve_sealed_operations().map(|()| operation));
+        match operation {
+            Ok(operation) => {
+                self.register_key_validation(owner, operation, span);
+                if self.boundary.retry_attempt_depth > 0 && let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
+                    errors.push((crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(operation)), span));
+                }
+            }
+            Err(error) => self.error(span, &error.to_string(), DiagnosticCode::CheckIndexType),
+        }
+    }
+
+    pub(super) fn record_deferred_proc_map_key_validation(
+        &mut self, receiver: &Type, key: &Type, span: Span,
+        owner: crate::sema::constraints::CallableApplicationScope,
+        declaration: super::EffectDeclarationId, level: u32,
+    ) {
+        if !crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) { return; }
+        self.key_validation_boundaries.insert(span, super::GroundKeyValidationBoundary::ProcCompletion);
+        let operation = crate::sema::sealed_operation::SealedOperation::MapKey { receiver: receiver.clone(), key: key.clone(), span };
+        let operation = self.type_constraints.register_source_sealed_operation(owner, operation)
+            .and_then(|operation| self.type_constraints.solve_sealed_operations().map(|()| operation));
+        match operation {
+            Ok(operation) => match self.type_constraints.ensure_proc_completion_group(declaration, declaration.body, level) {
+                Ok((group, returned)) => self.register_key_validation_at(owner, operation, crate::sema::wrapper_operation::WrapperBoundary::ProcCompletion { returned, group: crate::sema::wrapper_operation::WrapperGroupRef::Source(group) }, span),
+                Err(error) => self.error(span, &format!("proc completion wrapper failed: {error}"), DiagnosticCode::CheckLocalInference),
+            },
+            Err(error) => self.error(span, &error.to_string(), DiagnosticCode::CheckIndexType),
         }
     }
 

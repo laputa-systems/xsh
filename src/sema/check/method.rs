@@ -625,13 +625,6 @@ impl Checker {
         {
             return self.check_inferred_host_method(arena, source, call_source, base, receiver_ty.clone(), name, args, span, expected);
         }
-        if crate::sema::builtin_templates::registered_uint_map_key(Some(receiver_ty.unvalidated())) {
-            for arg in args {
-                if let crate::syntax::arena::ArenaCallArgKind::Positional(value) | crate::syntax::arena::ArenaCallArgKind::Named { value, .. } = arg.kind {
-                    self.record_uint_key_site(arena.arena.expr(value).span);
-                }
-            }
-        }
         let selection = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
         let (method, checked_values) = match selection {
             MethodSelection::BeforeArguments(method) => (method, None),
@@ -698,6 +691,18 @@ impl Checker {
                     None => super::args::SelectedMethodArguments::Invalid,
                 }
             };
+            let bound = match &arguments {
+                super::args::SelectedMethodArguments::Bound(bound) => Some((&bound.values, &bound.binding)),
+                super::args::SelectedMethodArguments::Values { values, binding, .. } => Some((values, binding)),
+                super::args::SelectedMethodArguments::Invalid => None,
+            };
+            if let Some((values, binding)) = bound {
+                for (argument, &slot) in values.arguments.iter().zip(&binding.argument_slots) {
+                    if instance.signature.params.get(slot).is_some_and(|parameter| matches!(crate::sema::builtin_templates::registered_argument_check(Some(receiver_ty.unvalidated()), slot, &parameter.ty), Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey))) {
+                        self.record_map_key_validation(receiver_ty, &argument.ty, super::args::key_validation_span(arena, argument));
+                    }
+                }
+            }
             return self.finalize_selected_host_method(arena, receiver, name, method, instance.signature, arguments, &context, span);
         }
         self.finalize_host_method_effects(&context, &method.sig, name, span);

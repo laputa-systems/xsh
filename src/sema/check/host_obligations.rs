@@ -89,7 +89,7 @@ impl HostCallStart {
         let after_arguments = checker.reserve_host_call_phase();
         HostCallContinuation {
             owner: self.owner, source: self.source, before_arguments: self.before_arguments, after_arguments,
-            name: self.name, receiver_schema: self.receiver_schema, arguments,
+            name: self.name, receiver_schema: self.receiver_schema, arguments, deferred_proc_key: None,
         }
     }
 }
@@ -103,6 +103,7 @@ struct HostCallContinuation {
     name: String,
     receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
     arguments: Vec<super::super::args::CheckedArgumentContext>,
+    deferred_proc_key: Option<(crate::sema::constraints::CallableApplicationScope, super::super::EffectDeclarationId, u32)>,
 }
 
 #[derive(Clone)]
@@ -472,7 +473,7 @@ impl Checker {
         let contexts = super::method_argument_contexts(arena, args, &signatures, continuation.receiver_schema.as_ref());
         let Some(mut values) = self.check_argument_values_arena(arena, source, args, contexts) else { return Type::Invalid; };
         self.retain_original_method_arguments(arena, &call_source, &mut values);
-        let continuation = continuation.finish(self, values.contexts);
+        let mut continuation = continuation.finish(self, values.contexts);
         let arguments = values.arguments;
         let result_level = self.callable_solver_level();
         let candidate_result = self.type_constraints.fresh_at_level(span, result_level);
@@ -480,6 +481,17 @@ impl Checker {
         match obligation.select(&mut self.type_constraints, name) {
             Ok(true) => {
                 if obligation.selected.as_ref().is_some_and(|selected| continuation.phase(selected.method, &obligation.arguments).is_some()) {
+                    if let Some(selected) = &obligation.selected {
+                        let resolved_receiver = match self.type_constraints.resolve(&receiver) {
+                            Ok(receiver) => receiver,
+                            Err(error) => return self.reject_host_inference_resolution(error, span),
+                        };
+                        for (argument, &slot) in obligation.arguments.iter().zip(&selected.binding.argument_slots) {
+                            if selected.method.receiver == MethodReceiver::Map && selected.method.signature.sig.params.get(slot).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key)) {
+                                self.record_map_key_validation(&resolved_receiver, &argument.ty, super::super::args::key_validation_span(arena, argument));
+                            }
+                        }
+                    }
                     return self.finalize_host_obligation(arena, &mut HostObligation { continuation, candidates: obligation });
                 }
                 let receiver = match self.type_constraints.resolve(&receiver) {
@@ -492,6 +504,22 @@ impl Checker {
             Err(error) => return self.reject_host_inference_resolution(error, span),
         }
         if self.collecting_local_constraints() {
+            let mut key_arguments = BTreeMap::new();
+            for candidate in &obligation.candidates {
+                if candidate.receiver != MethodReceiver::Map { continue; }
+                let params = crate::sema::builtin_templates::callable_parameters(&candidate.signature.sig);
+                let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &obligation.arguments) else { continue; };
+                for (argument, &slot) in obligation.arguments.iter().zip(&binding.argument_slots) {
+                    if candidate.signature.sig.params.get(slot).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key)) {
+                        key_arguments.insert(super::super::args::key_validation_span(arena, argument), argument.ty.clone());
+                    }
+                }
+            }
+            if !key_arguments.is_empty() && self.boundary.retry_attempt_depth == 0 && let Some(declaration) = self.inferred_return_proc_owner() {
+                continuation.deferred_proc_key = Some((self.constraint_scope(), declaration, self.callable_solver_level()));
+            } else {
+                for (span, key) in key_arguments { self.record_map_key_validation(&receiver, &key, span); }
+            }
             if let Some(result) = obligation.common_closed_result() {
                 self.expect_type(&candidate_result, result, span);
             }
@@ -627,6 +655,17 @@ impl Checker {
         assert!(matches!(arena.arena.expr(call).kind, crate::syntax::arena::ArenaExprKind::Call { .. }));
         let selected = obligation.candidates.selected.take().expect("a finalized host call retains the committed selection");
         let phase = continuation.phase(selected.method, &obligation.candidates.arguments).expect("a finalized host call has canonical selection order");
+        if let Some((scope, declaration, level)) = continuation.deferred_proc_key && selected.method.receiver == MethodReceiver::Map {
+            let receiver = match self.type_constraints.resolve(&obligation.candidates.receiver) {
+                Ok(receiver) => receiver,
+                Err(error) => return self.reject_host_inference_resolution(error, obligation.candidates.span),
+            };
+            for (argument, &slot) in obligation.candidates.arguments.iter().zip(&selected.binding.argument_slots) {
+                if selected.method.signature.sig.params.get(slot).is_some_and(|parameter| parameter.ty == Type::BuiltinParameter(xsh_registry::types::BuiltinTypeParameter::Key)) {
+                    self.record_deferred_proc_map_key_validation(&receiver, &argument.ty, super::super::args::key_validation_span(arena, argument), scope, declaration, level);
+                }
+            }
+        }
         self.finalize_selected_host_method(
             arena, selected.method.receiver, &continuation.name, selected.method.signature, selected.signature,
             super::super::args::SelectedMethodArguments::Values {

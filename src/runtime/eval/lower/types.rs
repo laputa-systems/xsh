@@ -430,9 +430,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         )
     }
 
+    fn fatal_uint_key(&mut self, value: BuildExprId, span: Span) -> BuildExprId {
+        push_build_row!(self, expr, BuildExprRow::CheckedValue { value, check: LoweredValueCheck::FatalUIntKey, span })
+    }
+
     pub(super) fn require_uint_key(&mut self, value: BuildExprId, span: Span) -> BuildExprId {
         if self.bodies.checked_control_flow.key_validation_boundaries.get(&span) == Some(&crate::sema::check::GroundKeyValidationBoundary::Fatal) {
-            return self.checked_unsigned_value(value, &Type::UInt, span);
+            return self.fatal_uint_key(value, span);
         }
         let check = LoweredTypeCheck {
             ty: Type::UInt,
@@ -451,6 +455,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     pub(super) fn require_ground_uint_key(&mut self, value: BuildExprId, span: Span, slots: &mut super::SlotScope) -> BuildExprId {
+        if self.bodies.checked_control_flow.key_validation_boundaries.get(&span) == Some(&crate::sema::check::GroundKeyValidationBoundary::PureReturn)
+            && slots.plain_pure_return
+        { return self.fatal_uint_key(value, span); }
         if self.bodies.checked_control_flow.key_validation_boundaries.get(&span) != Some(&crate::sema::check::GroundKeyValidationBoundary::ProcCompletion) {
             return self.require_uint_key(value, span);
         }

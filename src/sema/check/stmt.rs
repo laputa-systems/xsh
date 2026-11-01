@@ -5052,6 +5052,7 @@ impl Checker {
             return_ty: inferred_proc_completion.unwrap_or_else(|| return_ty.clone()),
         });
         self.boundary.in_pure = pure;
+        self.boundary.in_test = def.test_declaration;
         self.boundary.current_effects = if pure {
             None
         } else {
@@ -6075,7 +6076,9 @@ impl Checker {
                     Type::Map(key_ty, item_ty) => {
                         let index_span = arena.arena.expr(*index).span;
                         self.expect_type(&key_ty, &index_ty, index_span);
-                        if key_ty.unvalidated() == &Type::UInt { self.record_uint_key_site(index_span); }
+                        if key_ty.unvalidated() == &Type::UInt {
+                            self.record_map_key_validation(&Type::Map(key_ty.clone(), item_ty.clone()), &index_ty, index_span);
+                        }
                         item_ty.as_ref().clone()
                     }
                     Type::List(item_ty) => {
