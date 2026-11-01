@@ -402,6 +402,8 @@ pub(crate) struct SchemeBodyFacts {
     proc_return_sites: BTreeMap<Span, SchemeProcReturnSite>,
     operation_sites: BTreeMap<ExprId, u32>,
     compound_sites: BTreeMap<ExprId, u32>,
+    index_store_sites: BTreeMap<ExprId, u32>,
+    store_value_sites: BTreeMap<ExprId, u32>,
     method_sites: BTreeMap<ExprId, u32>,
     wrapper_sites: BTreeMap<ExprId, u32>,
     map_key_sites: BTreeMap<Span, (ExprId, u32, u32)>,
@@ -1482,6 +1484,8 @@ impl SchemeBodyFacts {
             proc_return_sites: BTreeMap::new(),
             operation_sites: BTreeMap::new(),
             compound_sites: BTreeMap::new(),
+            index_store_sites: BTreeMap::new(),
+            store_value_sites: BTreeMap::new(),
             method_sites: BTreeMap::new(),
             wrapper_sites: BTreeMap::new(), map_key_sites: BTreeMap::new(), guard_scopes,
         }.with_noncompleting_expressions(noncompleting_expressions)
@@ -1543,6 +1547,22 @@ impl SchemeBodyFacts {
     }
 
     pub(crate) fn operation_site(&self, expression: ExprId) -> Option<u32> { self.operation_sites.get(&expression).copied() }
+    pub(crate) fn with_index_store_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| !matches!(requirements.operations.get(*ordinal as usize), Some(super::sealed_operation::SealedOperation::IndexStore { .. })))) {
+            return Err(SchemeBuildError::UnresolvedSealedOperation);
+        }
+        self.index_store_sites = sites;
+        Ok(self)
+    }
+    pub(crate) fn index_store_site(&self, expression: ExprId) -> Option<u32> { self.index_store_sites.get(&expression).copied() }
+    pub(crate) fn with_store_value_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
+        if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| !matches!(requirements.operations.get(*ordinal as usize), Some(super::sealed_operation::SealedOperation::StoreValue { .. })))) {
+            return Err(SchemeBuildError::UnresolvedSealedOperation);
+        }
+        self.store_value_sites = sites;
+        Ok(self)
+    }
+    pub(crate) fn store_value_site(&self, expression: ExprId) -> Option<u32> { self.store_value_sites.get(&expression).copied() }
     pub(crate) fn with_compound_sites(mut self, sites: BTreeMap<ExprId, u32>) -> Result<Self, SchemeBuildError> {
         if sites.iter().any(|(expression, ordinal)| !self.expression_types.contains_key(expression) || self.requirement_pack_at(*expression).map_or(true, |requirements| !matches!(requirements.operations.get(*ordinal as usize), Some(super::sealed_operation::SealedOperation::Binary(_))))) {
             return Err(SchemeBuildError::UnresolvedSealedOperation);
@@ -1734,6 +1754,8 @@ impl SchemeBodyFacts {
             .saturating_add(self.proc_return_site_count() * size_of::<(Span, SchemeProcReturnSite)>())
             .saturating_add(self.operation_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.compound_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.index_store_sites.len() * size_of::<(ExprId, u32)>())
+            .saturating_add(self.store_value_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.method_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.wrapper_sites.len() * size_of::<(ExprId, u32)>())
             .saturating_add(self.map_key_sites.len() * size_of::<(Span, (ExprId, u32, u32))>())

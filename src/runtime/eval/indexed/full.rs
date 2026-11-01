@@ -1515,6 +1515,19 @@ impl FullStore {
 }
 
 impl FullProgram {
+    fn assignment_storage_check(&self, owner: u32, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<LoweredTypeCheck>, IrVerifyError> {
+        let Some((scheme, _, _)) = self.store.requirement_pack_at(owner, instruction)? else { return Ok(None) };
+        let invocation = self.invocation_at(owner, instruction, invocation)?;
+        let range = self.store.scheme(scheme)?.body_facts.bounds(self.store.scheme_body_facts.len()).ok_or_else(|| IrVerifyError::new("assignment fact range is invalid"))?;
+        let facts = &self.store.scheme_body_facts[range];
+        let key = (instruction, schemes::FullSchemeBodyFactKind::Assignment as u8);
+        let index = facts.binary_search_by_key(&key, |fact| (fact.instruction, fact.kind() as u8)).map_err(|_| IrVerifyError::new("assignment storage fact is absent"))?;
+        let schemes::FullSchemeBodyFactValue::Assignment(ty) = facts[index].value else { return Err(IrVerifyError::new("assignment storage fact is invalid")) };
+        let mut budget = verify_schemes::SchemeInstantiationBudget::new(&self.store);
+        let ty = verify_schemes::instantiate_bound_type(&self.store, ty, &invocation.substitution, &mut budget, 0)?;
+        Ok(ty.has_unsigned_constraint().then(|| LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None }))
+    }
+
     fn invocation_at<'a>(&self, owner: u32, instruction: u32, invocation: &'a PreparedInvocationBindings) -> Result<&'a PreparedInvocationBindings, IrVerifyError> {
         let Some((scheme, scope, _)) = self.store.requirement_pack_at(owner, instruction)? else { return Ok(invocation); };
         if !invocation.substitution.owns_prepared_scope(scheme, None) { return Err(IrVerifyError::new("prepared invocation belongs to another callable or root")); }
@@ -4089,6 +4102,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     active_scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
     active_scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
     active_scheme_local_declarations: BTreeMap<BuildStmtId, crate::runtime::eval::SchemeLocalDeclaration>,
+    active_scheme_assignment_types: BTreeMap<BuildStmtId, SchemeType>,
     active_expression_instructions: BTreeMap<usize, u32>,
 }
 
@@ -4948,6 +4962,7 @@ impl FullBuilder {
         self.active_scheme_body_types = body.scheme_body_types.clone();
         self.active_scheme_tail_types = body.scheme_tail_types.clone();
         self.active_scheme_local_declarations = body.scheme_local_declarations.clone();
+        self.active_scheme_assignment_types = body.scheme_assignment_types.clone();
         self.active_expression_instructions.clear();
         let mut words = self.take_payload();
         let encoded = body.body.encode(self, &mut words);
@@ -4956,6 +4971,7 @@ impl FullBuilder {
         self.active_scheme_body_types.clear();
         self.active_scheme_tail_types.clear();
         self.active_scheme_local_declarations.clear();
+        self.active_scheme_assignment_types.clear();
         self.active_expression_instructions.clear();
         if let Err(error) = encoded {
             self.recycle_payload(words);
@@ -6790,6 +6806,10 @@ impl<'p> FullExecution<'p> {
 
     pub(in crate::runtime::eval) fn membership_key_check(&self, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
         self.program().membership_key_check(self.owner, instruction, ordinal, invocation)
+    }
+
+    pub(in crate::runtime::eval) fn assignment_storage_check(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<Option<LoweredTypeCheck>, IrVerifyError> {
+        self.program().assignment_storage_check(self.owner, instruction, invocation)
     }
 
     pub(in crate::runtime::eval) fn map_key_check(&self, instruction: u32, ordinal: u32, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexKeyCheck, IrVerifyError> {
@@ -15312,7 +15332,8 @@ impl<'a> FullDecoder<'a> {
                             if depth == target.1.len() { return Ok(true); }
                             depth += 1;
                         }
-                        decode::AssignStepView::Index(_) => return Ok(true),
+                        decode::AssignStepView::Index(_) | decode::AssignStepView::IndexStore(_, _) => return Ok(true),
+                        decode::AssignStepView::CompoundOperation(_) | decode::AssignStepView::StoreValue(_) => {},
                     }
                 }
                 Ok(true)
@@ -15427,7 +15448,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 FullTag::StmtAssignPath => {
                     let schema::StmtView::AssignPath { path, value, .. } = self.statement_view(parent)? else { unreachable!() };
-                    for step in path { if let decode::AssignStepView::Index(value) = step? { operand!(value); } }
+                    for step in path { if let decode::AssignStepView::Index(value) | decode::AssignStepView::IndexStore(value, _) = step? { operand!(value); } }
                     operand!(value);
                 }
                 FullTag::StmtPatternIf => {
@@ -16666,11 +16687,16 @@ impl<'a> FullDecoder<'a> {
                 } => {
                     let mut checked_path = Vec::new();
                     for step in &mut path {
-                        checked_path.push(match step? {
+                        let step = match step? {
+                            decode::AssignStepView::CompoundOperation(_) | decode::AssignStepView::StoreValue(_) => continue,
+                            other => other,
+                        };
+                        checked_path.push(match step {
+                            decode::AssignStepView::CompoundOperation(_) | decode::AssignStepView::StoreValue(_) => unreachable!(),
                             decode::AssignStepView::Field(name) => {
                                 CallableAssignmentPathStep::Field(name)
                             }
-                            decode::AssignStepView::Index(_) => CallableAssignmentPathStep::Index,
+                            decode::AssignStepView::Index(_) | decode::AssignStepView::IndexStore(_, _) => CallableAssignmentPathStep::Index,
                         });
                     }
                     self.verify_callable_assignment_value(
@@ -22031,6 +22057,7 @@ trait SchemeBodyFactId: Copy {
     fn scheme_guard_sites(self, _: &BuildScratch) -> Vec<crate::sema::guarded_requirements::GuardBodySite> { Vec::new() }
     fn scheme_tail_type(self, builder: &FullBuilder) -> Option<SchemeType>;
     fn scheme_local_declaration(self, _: &FullBuilder) -> Option<crate::runtime::eval::SchemeLocalDeclaration> { None }
+    fn scheme_assignment_type(self, _: &FullBuilder) -> Option<SchemeType> { None }
 }
 
 impl SchemeBodyFactId for BuildExprId {
@@ -22059,6 +22086,9 @@ impl SchemeBodyFactId for BuildStmtId {
 
     fn scheme_local_declaration(self, builder: &FullBuilder) -> Option<crate::runtime::eval::SchemeLocalDeclaration> {
         builder.active_scheme_local_declarations.get(&self).cloned()
+    }
+    fn scheme_assignment_type(self, builder: &FullBuilder) -> Option<SchemeType> {
+        builder.active_scheme_assignment_types.get(&self).cloned()
     }
 }
 
@@ -22190,6 +22220,7 @@ macro_rules! impl_build_id_codec {
                 let scheme_body_type = (*self).scheme_expression_type(builder);
                 let scheme_tail_type = (*self).scheme_tail_type(builder);
                 let scheme_local_declaration = (*self).scheme_local_declaration(builder);
+                let scheme_assignment_type = (*self).scheme_assignment_type(builder);
                 let transfers_resource = if $resource_transfer {
                     *scratch.resource_transfers.get(self.index()).ok_or_else(|| {
                         IrBuildError::format("indexed_resource_transfer_fact", None, 0, 0)
@@ -22212,6 +22243,7 @@ macro_rules! impl_build_id_codec {
                     || scheme_body_type.is_some()
                     || scheme_tail_type.is_some()
                     || scheme_local_declaration.is_some()
+                    || scheme_assignment_type.is_some()
                     || scheme_guard_scope.is_some() || !scheme_guard_sites.is_empty();
                 let output_start = output.len();
                 row.encode(builder, output)?;
@@ -22504,6 +22536,12 @@ macro_rules! impl_build_id_codec {
                         &ty,
                         schemes::FullSchemeBodyFactKind::Tail,
                     )?;
+                }
+                if let Some(ty) = scheme_assignment_type {
+                    let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_assignment_instruction", None, 0, self.index()))?;
+                    let scheme = builder.active_scheme.ok_or_else(|| IrBuildError::format("scheme_assignment_scheme", None, 0, instruction))?;
+                    let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("scheme_assignment_owner", None, 0, instruction))?;
+                    builder.record_scheme_body_fact(function, scheme, instruction, &ty, schemes::FullSchemeBodyFactKind::Assignment)?;
                 }
                 if let Some(declaration) = scheme_local_declaration {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("scheme_local_declaration_instruction", None, 0, self.index()))?;
@@ -30118,7 +30156,7 @@ assert genuine_tail_runs == 0
         for fact in &mut program.store.scheme_body_facts {
             match &mut fact.value {
                 schemes::FullSchemeBodyFactValue::Expression(ty) | schemes::FullSchemeBodyFactValue::Tail(ty)
-                | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) => shift_scheme_type_id(ty, removed_index),
+                | schemes::FullSchemeBodyFactValue::LocalImmutable(ty) | schemes::FullSchemeBodyFactValue::LocalMutable(ty) | schemes::FullSchemeBodyFactValue::Assignment(ty) => shift_scheme_type_id(ty, removed_index),
                 schemes::FullSchemeBodyFactValue::EmptyList | schemes::FullSchemeBodyFactValue::EmptyMap | schemes::FullSchemeBodyFactValue::RecordProducer | schemes::FullSchemeBodyFactValue::Operation(_) | schemes::FullSchemeBodyFactValue::Method(_) | schemes::FullSchemeBodyFactValue::Wrapper(_)
                 | schemes::FullSchemeBodyFactValue::CompletionLiftedValue(_) | schemes::FullSchemeBodyFactValue::CompletionReturnedResult(_)
                 | schemes::FullSchemeBodyFactValue::CompletionAuthoredOk(_) | schemes::FullSchemeBodyFactValue::CompletionAuthoredErr(_) | schemes::FullSchemeBodyFactValue::NoCompletion | schemes::FullSchemeBodyFactValue::GuardScope(_) => {},
@@ -37759,6 +37797,7 @@ proc main() [env, error] -> Result[Unit] {
                 scheme_body_types: BTreeMap::new(),
                 scheme_tail_types: BTreeMap::new(),
                 scheme_local_declarations: BTreeMap::new(),
+                scheme_assignment_types: BTreeMap::new(),
                 params: SmallVec::from_vec(vec![Name::intern("flag")]),
                 param_kinds: SmallVec::from_vec(vec![LoweredParamKind::Typed(LoweredType::Bool)]),
                 param_checks: SmallVec::from_vec(vec![None]),
@@ -58242,6 +58281,7 @@ proc local() [env, error] -> Int {
                     scheme_body_types: BTreeMap::new(),
                     scheme_tail_types: BTreeMap::new(),
                     scheme_local_declarations: BTreeMap::new(),
+                    scheme_assignment_types: BTreeMap::new(),
                     scratch,
                 };
                 let unit = LoweredFunctionUnit {

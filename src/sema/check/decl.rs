@@ -955,6 +955,36 @@ impl Checker {
                 }
             }
         }
+        let mut index_store_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            let span = program.arena.expr(expression).span;
+            let scope = self.constraint_scope_at(effect_declaration, span);
+            if let Some(operation) = self.type_constraints.index_store_operation_at(scope, span) {
+                match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { index_store_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(span, &format!("index store has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
+        let mut store_value_sites = BTreeMap::new();
+        for &expression in pending.generalized_body_types()?.keys() {
+            let span = program.arena.expr(expression).span;
+            let scope = self.constraint_scope_at(effect_declaration, span);
+            if let Some(operation) = self.type_constraints.store_value_operation_at(scope, span) {
+                match self.type_constraints.generalized_operation_ordinal(operation, effect_declaration, &callable, pending.generalized_scope()?) {
+                    Ok(Some(ordinal)) => { store_value_sites.insert(expression, ordinal); }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error(span, &format!("storage assignment has no checked scope: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return None;
+                    }
+                }
+            }
+        }
         let mut compound_sites = BTreeMap::new();
         for (&expression, &site) in &self.compound_assignment_operations {
             if !pending.generalized_body_types()?.contains_key(&expression) { continue; }
@@ -1031,7 +1061,7 @@ impl Checker {
                 pending.generalized_tail_types()?.clone(),
                 pending.generalized_guard_scopes()?.clone(),
                 noncompleting_expressions,
-            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_compound_sites(compound_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)).and_then(|facts| facts.with_map_key_sites(map_key_sites)) {
+            ).and_then(|facts| facts.with_constructor_producers(constructor_producers)).and_then(|facts| facts.with_constructor_instances(constructor_instances)).and_then(|facts| facts.with_proc_return_sites(proc_return_sites)).and_then(|facts| facts.with_operation_sites(operation_sites)).and_then(|facts| facts.with_compound_sites(compound_sites)).and_then(|facts| facts.with_index_store_sites(index_store_sites)).and_then(|facts| facts.with_store_value_sites(store_value_sites)).and_then(|facts| facts.with_method_sites(method_sites)).and_then(|facts| facts.with_wrapper_sites(wrapper_sites)).and_then(|facts| facts.with_map_key_sites(map_key_sites)) {
                 Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
                 Err(_) => {
                     let message = "generic function body has a type outside its checked scheme";

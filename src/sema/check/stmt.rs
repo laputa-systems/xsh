@@ -5870,7 +5870,9 @@ impl Checker {
             span,
         );
         if op == AssignOp::Set {
-            let actual = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
+            let deferred_storage = !matches!(arena.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(_))
+                && matches!(self.type_constraints.resolve(&target_ty), Ok(Type::Inference(_)));
+            let actual = self.check_expr_or_run_arena(arena, source, value, if deferred_storage { None } else { Some(&target_ty) });
             let value_span = expr_or_run_span_arena(arena, value);
             if !actual.can_escape_context_scope()
                 && self.boundary.context_scope_depths.last().is_some_and(|depth| {
@@ -5884,7 +5886,18 @@ impl Checker {
                     DiagnosticCode::CheckContextScopeEscape,
                 );
             }
-            self.expect_type(&target_ty, &actual, value_span);
+            if deferred_storage {
+                let owner = self.constraint_scope();
+                let operation = crate::sema::sealed_operation::SealedOperation::StoreValue {
+                    storage: target_ty.clone(), replacement: actual.clone(), span: value_span,
+                };
+                if let Err(error) = self.type_constraints.register_source_sealed_operation(owner, operation)
+                    .and_then(|_| self.type_constraints.solve_sealed_operations()) {
+                    self.error(value_span, &error.to_string(), DiagnosticCode::CheckTypeMismatch);
+                }
+            } else {
+                self.expect_type(&target_ty, &actual, value_span);
+            }
             if binding.mutable && matches!(target_ty.unvalidated(), Type::Stream(_)) {
                 let may_error = matches!(value, ArenaExprOrRun::Expr(expression)
                     if self.expression_may_have_latent_stream_error(arena, expression));
@@ -5906,8 +5919,7 @@ impl Checker {
         }
         let rhs = self.check_expr_or_run_arena(arena, source, value, Some(target_ty.unvalidated()));
         let value_span = expr_or_run_span_arena(arena, value);
-        let unresolved_local = matches!(arena.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(_))
-            && matches!(self.type_constraints.resolve(&target_ty), Ok(Type::Inference(_)))
+        let unresolved_local = matches!(self.type_constraints.resolve(&target_ty), Ok(Type::Inference(_)))
             && !(op == AssignOp::Add && matches!(self.type_constraints.resolve(&rhs), Ok(Type::List(_))));
         let result = match value {
             ArenaExprOrRun::Expr(rhs_expression) if unresolved_local => self.check_unresolved_compound_assignment(rhs_expression, op, &target_ty, &rhs, span, value_span),
@@ -6033,6 +6045,13 @@ impl Checker {
             ArenaAssignTargetKind::Field { base, name } => {
                 let base_ty =
                     self.assignment_target_type_arena(arena, source, *base, root_ty, span);
+                let base_ty = match self.type_constraints.resolve(&base_ty) {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        self.error(span, &format!("assignment type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                };
                 match base_ty {
                     Type::Record(fields) => fields.get(name).cloned().unwrap_or_else(|| {
                         self.error(
@@ -6044,12 +6063,13 @@ impl Checker {
                     }),
                     Type::Unknown => Type::Unknown,
                     Type::Inference(_) => {
-                        self.error(
-                            span,
-                            "field assignment needs a known record type, and this value comes from an unannotated parameter; annotate the record type, or build the updated copy with `{...value, field: new}`",
-                            DiagnosticCode::CheckAssignTarget,
-                        );
-                        Type::Unknown
+                        match self.type_constraints.project_record_field(&base_ty, *name, self.callable_solver_level(), span) {
+                            Ok(ty) => ty,
+                            Err(conflict) => {
+                                self.expect_type(&conflict.expected, &conflict.actual, conflict.contribution);
+                                Type::Invalid
+                            }
+                        }
                     }
                     _ => {
                         self.error(
@@ -6062,11 +6082,14 @@ impl Checker {
                 }
             }
             ArenaAssignTargetKind::Index { base, index } => {
-                // Replacing an element keeps the list's length, so the
-                // target is read as its base and keeps its own type.
-                let base_ty = self
-                    .assignment_target_type_arena(arena, source, *base, root_ty, span)
-                    .into_unvalidated();
+                let base_ty = self.assignment_target_type_arena(arena, source, *base, root_ty, span);
+                let base_ty = match self.type_constraints.resolve(&base_ty) {
+                    Ok(ty) => ty.into_unvalidated(),
+                    Err(error) => {
+                        self.error(span, &format!("assignment type cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference);
+                        return Type::Invalid;
+                    }
+                };
                 let literal_key = match &base_ty {
                     Type::Map(key_ty, _) => self.path_literal_expectation(arena, *index, key_ty),
                     _ => None,
@@ -6086,6 +6109,23 @@ impl Checker {
                         item_ty.as_ref().clone()
                     }
                     Type::Unknown => Type::Unknown,
+                    Type::Inference(_) => {
+                        let site = arena.arena.expr(*index).span;
+                        let owner = self.constraint_scope();
+                        let result = self.type_constraints.index_store_operation(owner, site)
+                            .and_then(|operation| operation.result()).cloned()
+                            .unwrap_or_else(|| self.type_constraints.fresh_at_level(site, self.callable_solver_level()));
+                        let operation = crate::sema::sealed_operation::SealedOperation::IndexStore {
+                            receiver: base_ty.clone(), key: index_ty.clone(), result: result.clone(), span: site,
+                        };
+                        if let Err(error) = self.type_constraints.register_source_sealed_operation(owner, operation)
+                            .and_then(|_| self.type_constraints.solve_sealed_operations()) {
+                            self.error(site, &error.to_string(), DiagnosticCode::CheckAssignTarget);
+                            return Type::Invalid;
+                        }
+                        self.record_map_key_validation(&base_ty, &index_ty, site);
+                        result
+                    }
                     _ => {
                         self.error(
                             span,

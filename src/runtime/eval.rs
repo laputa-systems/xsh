@@ -1247,6 +1247,7 @@ struct FunctionBuild {
     scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
     scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
     scheme_local_declarations: BTreeMap<BuildStmtId, SchemeLocalDeclaration>,
+    scheme_assignment_types: BTreeMap<BuildStmtId, SchemeType>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 
@@ -1873,6 +1874,9 @@ struct LoweredSpawnRun {
 enum LoweredAssignStep {
     Field(Name),
     Index(BuildExprId),
+    IndexStore(BuildExprId, u32),
+    CompoundOperation(u32),
+    StoreValue(u32),
 }
 
 #[derive(Clone, Debug)]

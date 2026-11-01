@@ -6126,6 +6126,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     })
                     .transpose()
                     .map_err(|error| indexed_error(error, value_span))?;
+                let check = execution.assignment_storage_check(instruction, &self.calls[index].applications)
+                    .map_err(|error| indexed_error(error, value_span))?.or(check);
                 let (value, singleton) =
                     indexed_assignment_operand(
                         &execution,
@@ -12680,13 +12682,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 position,
                             };
                         }
-                        Some(AssignStepView::Index(expr)) => {
+                        Some(AssignStepView::Index(expr) | AssignStepView::IndexStore(expr, _)) => {
                             state.path = AssignPathCursor::Encoded {
                                 statement,
                                 position,
                             };
                             next_selector = Some(expr.raw());
                             break;
+                        }
+                        Some(AssignStepView::CompoundOperation(_) | AssignStepView::StoreValue(_)) => {
+                            state.path = AssignPathCursor::Encoded { statement, position };
                         }
                         None => {
                             state.path = AssignPathCursor::Exhausted;

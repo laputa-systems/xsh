@@ -51,6 +51,7 @@ pub(super) struct SlotScope {
     types: FxHashMap<BindingId, SchemeType>,
     checked_slot_types: FxHashMap<usize, Type>,
     scheme_declarations: BTreeMap<BuildStmtId, super::SchemeLocalDeclaration>,
+    scheme_assignment_types: BTreeMap<BuildStmtId, SchemeType>,
     indices: FxHashMap<Name, usize>,
     // Guarded receivers and explicit pipeline inputs bind once before their
     // selected operation; exact expression IDs reuse that retained value.
@@ -3155,6 +3156,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             scheme_body_types,
             scheme_tail_types,
             scheme_local_declarations: std::mem::take(&mut slots.scheme_declarations),
+            scheme_assignment_types: std::mem::take(&mut slots.scheme_assignment_types),
             scratch: self.scratch.clone(),
         })
     }
@@ -3789,6 +3791,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 return Some(());
             }
             let mut completion_source = None;
+            let mut assignment_type = None;
             let row = match node.kind {
                 ArenaStmtKind::Command(command) => {
                     let mut domain = commands::CommandLoweringDomain::Generalized { facts, visited, types: lowered_types };
@@ -3799,9 +3802,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let name = self.assign_target_root_name(target)?;
                     let binding = self.bodies.resolved_bindings.value_sites.get(&(node.span, name))?;
                     let slot = slots.resolve_binding(*binding)?;
-                    let check = self.scheme_assignment_target_type(target, node.span, slots)?.closed_ground_type()
-                        .filter(Type::has_unsigned_constraint)
-                        .map(|ty| LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None });
                     let mut selected = target;
                     let mut selectors = Vec::new();
                     loop {
@@ -3812,24 +3812,52 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     }
                     let mut path = Vec::new();
+                    let mut target_type = slots.types.get(binding)?.clone();
                     for selected in selectors.into_iter().rev() {
                         path.push(match self.program.arena.assign_target(selected).kind {
-                            ArenaAssignTargetKind::Field { name, .. } => super::LoweredAssignStep::Field(name),
-                            ArenaAssignTargetKind::Index { base, index } => {
+                            ArenaAssignTargetKind::Field { name, .. } => {
+                                target_type = match target_type {
+                                    SchemeType::Record { fields, .. } => fields.get(&name)?.clone(),
+                                    SchemeType::Ground(Type::Record(fields)) => SchemeType::Ground(fields.get(&name)?.clone()),
+                                    _ => return None,
+                                };
+                                super::LoweredAssignStep::Field(name)
+                            }
+                            ArenaAssignTargetKind::Index { index, .. } => {
+                                while let SchemeType::Validated(_, inner) = target_type { target_type = *inner; }
                                 let mut value = self.lower_scheme_lazy_expression(index, slots, current_function, facts, visited, lowered_types)?;
-                                if match self.scheme_assignment_target_type(base, node.span, slots)? {
+                                let ordinal = facts.index_store_site(index);
+                                let uint_key = match &target_type {
                                     SchemeType::Map(key, _) => key.closed_ground_type() == Some(Type::UInt),
                                     SchemeType::Ground(ty) => matches!(ty.unvalidated(), Type::Map(key, _) if **key == Type::UInt),
                                     _ => false,
-                                } {
+                                };
+                                if uint_key || facts.map_key_site(self.program.arena.expr(index).span).is_some() {
+                                    let key_type = lowered_types.get(&value)?.clone();
                                     value = self.lower_scheme_map_key(value, self.program.arena.expr(index).span, facts);
-                                    self.record_scheme_storage_elaboration(value, &SchemeType::Ground(Type::UInt), lowered_types);
+                                    let checked_type = if uint_key { SchemeType::Ground(Type::UInt) } else { key_type };
+                                    self.record_scheme_storage_elaboration(value, &checked_type, lowered_types);
                                 }
-                                super::LoweredAssignStep::Index(value)
+                                if let Some(ordinal) = ordinal {
+                                    let operation = facts.requirement_pack_at(index).ok()?.operations.get(ordinal as usize)?;
+                                    let crate::sema::sealed_operation::SealedOperation::IndexStore { result, .. } = operation else { return None };
+                                    target_type = result.clone();
+                                    super::LoweredAssignStep::IndexStore(value, ordinal)
+                                } else {
+                                    target_type = match target_type {
+                                        SchemeType::List(item) | SchemeType::Map(_, item) => *item,
+                                        SchemeType::Ground(ty) => match ty.into_unvalidated() { Type::List(item) | Type::Map(_, item) => SchemeType::Ground(*item), _ => return None },
+                                        _ => return None,
+                                    };
+                                    super::LoweredAssignStep::Index(value)
+                                }
                             }
                             _ => return None,
                         });
                     }
+                    if !path.is_empty() { assignment_type = Some(target_type.clone()); }
+                    let check = target_type.closed_ground_type().filter(Type::has_unsigned_constraint)
+                        .map(|ty| LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None });
                     if op != AssignOp::Set && path.is_empty()
                         && let Some(ordinal) = facts.compound_site(expression)
                     {
@@ -3846,6 +3874,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         drop(scratch);
                         BuildStmtRow::Assign { slot, op: AssignOp::Set, value, check, span: node.span }
                     } else {
+                    if !path.is_empty() {
+                        if op != AssignOp::Set && let Some(ordinal) = facts.compound_site(expression) {
+                            path.push(super::LoweredAssignStep::CompoundOperation(ordinal));
+                        } else if op == AssignOp::Set && let Some(ordinal) = facts.store_value_site(expression) {
+                            path.push(super::LoweredAssignStep::StoreValue(ordinal));
+                        }
+                    }
                     let value = self.lower_scheme_lazy_expression(expression, slots, current_function, facts, visited, lowered_types)?;
                     if path.is_empty() { BuildStmtRow::Assign { slot, op, value, check, span: node.span } }
                     else { BuildStmtRow::AssignPath { slot, path: super::LoweredAssignPath(path), op, value, check, span: node.span } }
@@ -4043,6 +4078,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => return None,
             };
             let lowered = push_build_row!(self, stmt, row);
+            if let Some(ty) = assignment_type { slots.scheme_assignment_types.insert(lowered, ty); }
             let site = match node.kind {
                 ArenaStmtKind::Assign { .. } => Some(ResourceTransferSite::Assignment(statement)),
                 ArenaStmtKind::Return(_) => Some(ResourceTransferSite::Return(statement)),

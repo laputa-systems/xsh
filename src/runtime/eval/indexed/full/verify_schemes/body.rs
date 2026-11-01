@@ -1,3 +1,4 @@
+use crate::syntax::node::{AssignOp, BinaryOp};
 use super::{SchemeType, BTreeMap, PropagationBoundary, SchemeInstantiationBudget, IrVerifyError, FullDecoder, Arc, schema, FullStore, SchemeScope, body_types_equal, IrFunctionId, FullCallableContract, bounded, decode_scheme_type, BTreeSet, VerifiedSchemeScopes, producers, wrappers, Type, Name, Validation, iteration_contract, body_propagated_error_matches_owner, RefCell, body_type_matches_ground, body_type_matches, body_assignment_matches, FullTag, applications, scheme_conversion, ValueConversion, SchemeRowTail, verify_body_expression, scheme_stored_type};
 
 #[derive(Clone, Copy)]
@@ -966,7 +967,7 @@ pub(super) fn verify_body(
     method_sites: &BTreeMap<usize, u32>,
     wrapper_sites: &BTreeMap<usize, u32>,
     completion_sources: &mut BTreeMap<usize, super::super::schemes::FullSchemeBodyCompletionSource>,
-    tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>,
+    tails: &mut BTreeMap<usize, SchemeType>, declarations: &mut BTreeMap<usize, (SchemeType, bool)>, assignment_types: &mut BTreeMap<usize, SchemeType>,
     slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, completion_group: Option<u32>, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, producer_index: &super::producers::GroundProducerIndex, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<BodyProof, IrVerifyError> {
@@ -1591,31 +1592,86 @@ pub(super) fn verify_body(
                         };
                         let binding = scope.binding(&scopes, slot, budget)?.ok_or_else(|| IrVerifyError::new("generic assignment does not target a mutable declaration"))?;
                         if !binding.mutable { return Err(IrVerifyError::new("generic assignment does not target a mutable declaration")); }
-                        let mut expected = BodyTypeRef::Scheme(&binding.ty);
+                        budget.charge_scheme_clone(&binding.ty)?;
+                        let mut expected = binding.ty.clone();
+                        let has_path = path.is_some();
+                        let mut compound_operation = None;
+                        let mut store_value_operation = None;
+                        let mut selector_count = 0usize;
                         if let Some(mut path) = path {
                             if path.len() == 0 { return Err(IrVerifyError::new("generic assignment path is empty")); }
                             while path.len() != 0 {
                                 budget.charge(1)?;
-                                expected = match path.next().ok_or_else(|| IrVerifyError::new("generic assignment selector is absent"))?? {
-                                    super::super::decode::AssignStepView::Field(name) => expected.field(name).ok_or_else(|| IrVerifyError::new("generic assignment field disagrees with its storage contract"))?,
+                                let step = path.next().ok_or_else(|| IrVerifyError::new("generic assignment selector is absent"))??;
+                                if let super::super::decode::AssignStepView::CompoundOperation(ordinal) = step {
+                                    if path.len() != 0 || selector_count == 0 || op == AssignOp::Set || compound_operation.replace(ordinal).is_some() {
+                                        return Err(IrVerifyError::new("generic assignment has an invalid compound operation"));
+                                    }
+                                    continue;
+                                }
+                                if let super::super::decode::AssignStepView::StoreValue(ordinal) = step {
+                                    if path.len() != 0 || selector_count == 0 || op != AssignOp::Set || store_value_operation.replace(ordinal).is_some() {
+                                        return Err(IrVerifyError::new("generic assignment has an invalid storage operation"));
+                                    }
+                                    continue;
+                                }
+                                selector_count += 1;
+                                expected = match step {
+                                    super::super::decode::AssignStepView::CompoundOperation(_) | super::super::decode::AssignStepView::StoreValue(_) => unreachable!(),
+                                    super::super::decode::AssignStepView::Field(name) => BodyTypeRef::Scheme(&expected).field(name).ok_or_else(|| IrVerifyError::new("generic assignment field disagrees with its storage contract"))?.materialize(budget)?,
+                                    super::super::decode::AssignStepView::IndexStore(index, ordinal) => {
+                                        while let SchemeType::Validated(_, inner) = expected { expected = *inner; }
+                                        let instruction = index.raw() as usize;
+                                        let checked = decoder.expression_view(instruction)?;
+                                        let actual = match &checked {
+                                            schema::ExprView::CheckedValue { value, check: super::ValueCheckView::MapKey(_), .. } => expression_type(types, value.raw() as usize, budget)?,
+                                            _ => expression_type(types, instruction, budget)?,
+                                        };
+                                        if super::operations::may_require_uint_key_validation(&expected, &actual) {
+                                            let schema::ExprView::CheckedValue { check: super::ValueCheckView::MapKey(key_ordinal), .. } = checked else {
+                                                return Err(IrVerifyError::new("generic index store key has no physical validation"));
+                                            };
+                                            if operation_sites.get(&instruction) != Some(&key_ordinal) { return Err(IrVerifyError::new("generic index store key has no owned validation")); }
+                                            let encoded = *bounded(scheme_scope.operations, &store.scheme_operations, "map key operation range is invalid")?.get(key_ordinal as usize).ok_or_else(|| IrVerifyError::new("map key operation is out of scope"))?;
+                                            let key_operation = super::operations::decode(store, scheme_scope, encoded, &super::applications::ApplicationSubstitution::Identity, budget)?;
+                                            let crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key, .. } = key_operation else { return Err(IrVerifyError::new("generic index store key names another operation")); };
+                                            if !body_types_equal(&receiver, &expected) || !body_types_equal(&key, &actual) { return Err(IrVerifyError::new("generic index store key validation disagrees with its contract")); }
+                                        }
+                                        let item = super::operations::verify_index_store_site(store, scheme_scope, ordinal, &expected, &actual, budget)?;
+                                        expressions.push(instruction);
+                                        item
+                                    },
                                     super::super::decode::AssignStepView::Index(index) => {
                                         let instruction = index.raw() as usize;
                                         let actual = expression_type(types, instruction, budget)?;
-                                        let (key, item) = if let Some((key, item)) = expected.map_parts() {
+                                        let expected_ref = BodyTypeRef::Scheme(&expected);
+                                        let (key, item) = if let Some((key, item)) = expected_ref.map_parts() {
                                             (key.materialize(budget)?, item)
                                         } else {
-                                            (SchemeType::Ground(Type::Int), expected.list_item().ok_or_else(|| IrVerifyError::new("generic assignment index has no list or map storage contract"))?)
+                                            (SchemeType::Ground(Type::Int), expected_ref.list_item().ok_or_else(|| IrVerifyError::new("generic assignment index has no list or map storage contract"))?)
                                         };
                                         if !body_type_matches(&actual, &key, budget)? { return Err(IrVerifyError::new("generic assignment selector disagrees with its key contract")); }
                                         expressions.push(instruction);
-                                        item
+                                        item.materialize(budget)?
                                     }
                                 };
                             }
                         }
-                        let expected = expected.materialize(budget)?;
+                        if has_path {
+                            let stored = assignment_types.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic assignment has no storage type"))?;
+                            if !body_types_equal(&stored, &expected) { return Err(IrVerifyError::new("generic assignment storage type disagrees with its path")); }
+                        }
                         let actual = expression_type(types, value.raw() as usize, budget)?;
-                        assignment_replacement(&actual, &expected, op, check, budget)?;
+                        if let Some(ordinal) = store_value_operation {
+                            super::operations::verify_store_value_site(store, scheme_scope, ordinal, &expected, &actual, budget)?;
+                            if check.is_some() { assignment_replacement(&actual, &expected, op, check, budget)?; }
+                        } else if let Some(ordinal) = compound_operation {
+                            let binary = match op { AssignOp::Set => unreachable!(), AssignOp::Add => BinaryOp::Add, AssignOp::Sub => BinaryOp::Sub, AssignOp::Mul => BinaryOp::Mul, AssignOp::Div => BinaryOp::Div, AssignOp::Rem => BinaryOp::Rem };
+                            super::operations::verify_body_site(store, scheme_scope, ordinal, binary, &expected, &actual, &expected, budget)?;
+                            if check.is_some() { assignment_replacement(&actual, &expected, op, check, budget)?; }
+                        } else {
+                            assignment_replacement(&actual, &expected, op, check, budget)?;
+                        }
                         expressions.push(value.raw() as usize);
                     }
                     schema::StmtView::LetRecord { source, target, .. } => {
@@ -6510,6 +6566,48 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn generic_inferred_index_writes_authenticate_their_operation() {
+        let program = prepare("pure replace(items, key, value) { var local = items; local[key] = value; local }");
+        let (owner, scheme) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let path = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::AssignPath { path, .. }) => Some(path.block_identity_for_test()), _ => None,
+        }).unwrap();
+        let mut changed = program.clone();
+        let words = changed.store.blocks[path.index()].instructions.bounds(changed.store.extra.len()).unwrap();
+        assert_eq!(&changed.store.extra[words.start..words.start + 2], &[2, 2]);
+        changed.store.extra[words.start + 3] = u32::MAX;
+        assert!(FullVerifier::verify(&changed).is_err());
+        let mut changed = program.clone();
+        assert_eq!(changed.store.extra[words.start + 4], 4);
+        changed.store.extra[words.start + 5] = u32::MAX;
+        assert!(FullVerifier::verify(&changed).is_err());
+        let mut wrong_kind = program.clone();
+        wrong_kind.store.extra[words.start + 5] = wrong_kind.store.extra[words.start + 3];
+        assert_eq!(FullVerifier::verify(&wrong_kind).unwrap_err().message, "storage assignment has another operation kind");
+        let params = program.store.schemes[scheme.index()].params.bounds(program.store.scheme_params.len()).unwrap();
+        let wrong = program.store.scheme_params[params.start].ty;
+        let wrong_receiver = program.store.scheme_params[params.start + 1].ty;
+        let assignment_fact = program.store.scheme_body_facts.iter().position(|fact| matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Assignment(_))).unwrap();
+        let mut wrong_storage = program.clone();
+        wrong_storage.store.scheme_body_facts[assignment_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Assignment(wrong);
+        assert!(FullVerifier::verify(&wrong_storage).is_err());
+        let operations = program.store.schemes[scheme.index()].operations.bounds(program.store.scheme_operations.len()).unwrap();
+        let index = operations.clone().filter(|index| matches!(program.store.scheme_operations[*index], super::super::super::schemes::FullSealedOperation::IndexStore { .. })).next().unwrap();
+        let store = operations.filter(|index| matches!(program.store.scheme_operations[*index], super::super::super::schemes::FullSealedOperation::StoreValue { .. })).next().unwrap();
+        let mut wrong_value = program.clone();
+        let super::super::super::schemes::FullSealedOperation::StoreValue { replacement, .. } = &mut wrong_value.store.scheme_operations[store] else { unreachable!() };
+        *replacement = wrong_receiver;
+        assert!(FullVerifier::verify(&wrong_value).is_err());
+        for field in 0..3 {
+            let mut changed = program.clone();
+            let super::super::super::schemes::FullSealedOperation::IndexStore { receiver, key, result } = &mut changed.store.scheme_operations[index] else { unreachable!() };
+            match field { 0 => *receiver = wrong_receiver, 1 => *key = wrong, _ => *result = wrong }
+            assert!(FullVerifier::verify(&changed).is_err());
+        }
+    }
+
+    #[test]
     fn generic_assignment_selectors_authenticate_actual_key_domains() {
         let program = prepare("pure keep(value, index: Int, wrong: Bool) { var items = [value]; items[index] = value; items }");
         let (owner, scheme) = generic_owner(&program);
@@ -6529,7 +6627,7 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let value = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) { Ok(schema::StmtView::AssignPath { value, .. }) => Some(value.raw() as usize), _ => None }).unwrap();
         let changed = retarget_comprehension_operand(&program, owner, scheme, value, 1, 2);
-        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "storage assignment disagrees with its sealed operation");
     }
 
     #[test]
@@ -6601,9 +6699,9 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let wrong_name = program.symbol_owner().with_current(|| Name::intern("wrong").symbol().raw());
         let mut changed = program.clone();
         let words = changed.store.blocks[path.index()].instructions.bounds(changed.store.extra.len()).unwrap();
-        assert_eq!(&changed.store.extra[words.start..words.start + 2], &[1, 0]);
+        assert_eq!(&changed.store.extra[words.start..words.start + 2], &[2, 0]);
         changed.store.extra[words.start + 2] = wrong_name;
-        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment disagrees with its invariant slot contract");
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic assignment storage type disagrees with its path");
     }
 
     #[test]

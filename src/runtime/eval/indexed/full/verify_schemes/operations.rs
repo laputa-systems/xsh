@@ -29,6 +29,10 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
             receiver: substitution.ty(store, scope, receiver, budget)?, key: substitution.ty(store, scope, key, budget)?, result: substitution.ty(store, scope, result, budget)?, syntax,
             constant_key: if constant_key == IR_NONE { None } else { Some(Name::intern(store.string(constant_key)?)) }, span,
         },
+        FullSealedOperation::StoreValue { storage, replacement } => SealedOperation::StoreValue { storage: substitution.ty(store, scope, storage, budget)?, replacement: substitution.ty(store, scope, replacement, budget)?, span },
+        FullSealedOperation::IndexStore { receiver, key, result } => SealedOperation::IndexStore {
+            receiver: substitution.ty(store, scope, receiver, budget)?, key: substitution.ty(store, scope, key, budget)?, result: substitution.ty(store, scope, result, budget)?, span,
+        },
         FullSealedOperation::Slice { receiver, result, bounds } => SealedOperation::Slice { receiver: substitution.ty(store, scope, receiver, budget)?, result: substitution.ty(store, scope, result, budget)?, bounds, span },
         FullSealedOperation::RecordOverride { receiver, overrides, result } => {
             let fields = bounded(overrides, &store.scheme_fields, "record override field range is invalid")?;
@@ -48,6 +52,12 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
         return crate::sema::sealed_operation::membership_selection(container, needle).map(SealedOperationSignature::Membership)
             .ok_or_else(|| IrVerifyError::new("membership has no supported canonical domain"));
     }
+    if let SealedOperation::StoreValue { storage, replacement, .. } = &closed {
+        if matches!(storage, Type::Unknown | Type::Invalid) || matches!(replacement, Type::Unknown | Type::Invalid) || (replacement == &Type::Any && storage != &Type::Any) || !replacement.matches_expected(storage) {
+            return Err(IrVerifyError::new("sealed storage replacement disagrees with its destination"));
+        }
+        return Ok(SealedOperationSignature::StoreValue);
+    }
     if let SealedOperation::MapKey { receiver, key, .. } = &closed {
         return if crate::sema::sealed_operation::map_key_selection(receiver, key) { Ok(SealedOperationSignature::MapKey) }
             else { Err(IrVerifyError::new("map key validation has no supported input domain")) };
@@ -59,9 +69,10 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
     let selected = match &closed {
         SealedOperation::Binary(operation) => arithmetic_selection(operation.operator, &operation.left, &operation.right).map(|(signature, result)| (SealedOperationSignature::Binary(signature), result)),
         SealedOperation::Index { receiver, key, constant_key, .. } => index_selection(receiver, key, *constant_key),
+        SealedOperation::IndexStore { receiver, key, .. } => crate::sema::sealed_operation::index_store_selection(receiver, key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
-        SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } => unreachable!(),
+        SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
     };
     let (signature, result) = selected.ok_or_else(|| IrVerifyError::new("sealed operation input tuple has no canonical signature"))?;
     budget.charge_clone(&result)?;
@@ -71,6 +82,8 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
             (Some(Type::Record(expected)), Type::Record(selected)) => expected.iter().all(|(name, ty)| selected.get(name) == Some(ty)),
             _ => false,
         }
+    } else if matches!(operation, SealedOperation::IndexStore { .. }) {
+        body_types_equal(&SchemeType::Ground(result), operation.result().unwrap())
     } else { body_type_matches(&SchemeType::Ground(result), operation.result().unwrap(), budget)? };
     if !matches { return Err(IrVerifyError::new("sealed operation result disagrees with its input signature")); }
     Ok(signature)
@@ -81,7 +94,7 @@ pub(super) fn symbolic_output_binders(
     substitution: &SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget,
 ) -> Result<BTreeSet<usize>, IrVerifyError> {
     let mut evidence = BTreeSet::new();
-    if matches!(encoded, FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
+    if matches!(encoded, FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::StoreValue { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
         SealedOperation::Index { mut receiver, key, constant_key, .. } => {
@@ -94,6 +107,19 @@ pub(super) fn symbolic_output_binders(
                     budget.charge_clone(&receiver)?;
                     budget.charge_scheme_clone(&key)?;
                     key.closed_ground_type().and_then(|key| index_selection(&receiver, &key, constant_key).map(|(_, result)| SchemeType::Ground(result)))
+                }
+                _ => None,
+            }
+        }
+        SealedOperation::IndexStore { mut receiver, key, .. } => {
+            while let SchemeType::Validated(_, inner) = receiver { budget.charge(1)?; receiver = *inner; }
+            match receiver {
+                SchemeType::List(item) if body_type_matches_ground(&key, &Type::Int) => Some(*item),
+                SchemeType::Map(required, item) if body_type_matches(&key, &required, budget)? || { budget.charge_scheme_clone(&required)?; budget.charge_scheme_clone(&item)?; may_require_uint_key_validation(&SchemeType::Map(required.clone(), item.clone()), &key) } => Some(*item),
+                SchemeType::Ground(receiver) => {
+                    budget.charge_clone(&receiver)?;
+                    budget.charge_scheme_clone(&key)?;
+                    key.closed_ground_type().and_then(|key| crate::sema::sealed_operation::index_store_selection(&receiver, &key).map(|(_, result)| SchemeType::Ground(result)))
                 }
                 _ => None,
             }
@@ -129,7 +155,7 @@ pub(super) fn symbolic_output_binders(
             }
             return Ok(evidence);
         }
-        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } => unreachable!(),
+        SealedOperation::Binary(_) | SealedOperation::TypePredicate { .. } | SealedOperation::Membership { .. } | SealedOperation::MapKey { .. } | SealedOperation::StoreValue { .. } => unreachable!(),
     };
     if let Some(projection) = projection {
         let parameter = decode_scheme_type(store, scope, encoded.result().unwrap(), budget, 0)?;
@@ -332,6 +358,41 @@ pub(super) fn verify_index_site(
     if !supported { return Err(IrVerifyError::new("generic index site has no supported input domain")); }
     if receiver.closed_ground_type().is_some() && key.closed_ground_type().is_some() && result.closed_ground_type().is_some() { selection(&operation, budget)?; }
     Ok(())
+}
+
+pub(super) fn verify_store_value_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, storage: &SchemeType, replacement: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("storage assignment ordinal is out of scope"))?;
+    let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+    let SealedOperation::StoreValue { storage: required, replacement: actual, .. } = &operation else { return Err(IrVerifyError::new("storage assignment has another operation kind")) };
+    if !body_types_equal(storage, required) || !body_types_equal(replacement, actual) { return Err(IrVerifyError::new("storage assignment disagrees with its sealed operation")); }
+    if storage.closed_ground_type().is_some() && replacement.closed_ground_type().is_some() { selection(&operation, budget)?; }
+    Ok(())
+}
+
+pub(super) fn verify_index_store_site(
+    store: &FullStore, scope: &SchemeScope, ordinal: u32, receiver: &SchemeType, key: &SchemeType,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<SchemeType, IrVerifyError> {
+    let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("body index store ordinal is out of scope"))?;
+    let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+    let SealedOperation::IndexStore { receiver: required_receiver, key: required_key, result, .. } = &operation else {
+        return Err(IrVerifyError::new("generic index store has another operation kind"));
+    };
+    if !body_types_equal(receiver, required_receiver) || !body_types_equal(key, required_key) {
+        return Err(IrVerifyError::new("generic index store disagrees with its sealed operation"));
+    }
+    let mut storage = receiver;
+    while let SchemeType::Validated(_, inner) = storage { storage = inner; }
+    match storage {
+        SchemeType::Parameter(_) => {},
+        SchemeType::List(item) if body_type_matches_ground(key, &Type::Int) && body_types_equal(item, result) => {},
+        SchemeType::Map(required, item) if (body_type_matches(key, required, budget)? || may_require_uint_key_validation(receiver, key)) && body_types_equal(item, result) => {},
+        SchemeType::Ground(ground) if matches!(ground.unvalidated(), Type::List(_) | Type::Map(_, _)) => {},
+        _ => return Err(IrVerifyError::new("generic index store has no compatible storage domain")),
+    }
+    if receiver.closed_ground_type().is_some() && key.closed_ground_type().is_some() && result.closed_ground_type().is_some() { selection(&operation, budget)?; }
+    budget.charge_scheme_clone(result)?;
+    Ok(result.clone())
 }
 
 pub(super) fn verify_slice_site(

@@ -1169,6 +1169,9 @@ enum_schema!(LoweredRecordEntry => RecordEntryView ["record entry tag is invalid
 enum_schema!(LoweredAssignStep => AssignStepView ["assignment path step tag is invalid"] {
     Field(name: Name) = 0;
     Index(value: BuildExprId) = 1;
+    IndexStore(value: BuildExprId, operation: u32) = 2;
+    CompoundOperation(operation: u32) = 3;
+    StoreValue(operation: u32) = 4;
 });
 enum_schema!(LoweredCompTarget => CompTargetView ["comprehension target tag is invalid"] {
     Discard = 2;

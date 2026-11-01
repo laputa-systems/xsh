@@ -303,7 +303,7 @@ pub(super) struct ScopedOperation {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(super) enum OperationSource { Expression, Predicate(crate::sema::sealed_operation::TypeDomain), MapKey }
+pub(super) enum OperationSource { Expression, IndexStore, StoreValue, Predicate(crate::sema::sealed_operation::TypeDomain), MapKey }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SealedOperations {
@@ -590,6 +590,46 @@ impl TypeConstraints {
                         if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
                         continue;
                     }
+                    SealedOperation::StoreValue { storage, replacement, span } => {
+                        let storage = this.resolve_with_changes(&storage, 0, changes)?;
+                        if matches!(storage.unvalidated(), Type::Inference(_)) { continue; }
+                        let replacement = this.resolve_with_changes(&replacement, 0, changes)?;
+                        this.constrain_operation_type(&storage, &replacement, span, changes)?;
+                        let replacement = this.resolve_with_changes(&replacement, 0, changes)?;
+                        if storage.contains_inference() || replacement.contains_inference() { continue; }
+                        if matches!(storage, Type::Unknown | Type::Invalid) || matches!(replacement, Type::Unknown | Type::Invalid) || (replacement == Type::Any && storage != Type::Any) || !replacement.matches_expected(&storage) {
+                            return Err(SealedOperationError::Constraint(ConstraintConflict { expected: storage, actual: replacement, resolution_error: None, contribution: span, initializer: None, established: None }));
+                        }
+                        let selection = SealedOperationSignature::StoreValue;
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
+                    SealedOperation::IndexStore { receiver, key, result, span } => {
+                        let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
+                        if matches!(receiver.unvalidated(), Type::Inference(_)) { continue; }
+                        let required = match receiver.unvalidated() {
+                            Type::List(_) => Type::Int,
+                            Type::Map(key, _) => (**key).clone(),
+                            _ => return Err(SealedOperationError::UnsupportedIndex { receiver, key }),
+                        };
+                        if !crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
+                            this.constrain_operation_type(&required, &key, span, changes)?;
+                        }
+                        let key = this.resolve_with_changes(&key, 0, changes)?;
+                        let Some((selection, selected)) = crate::sema::sealed_operation::index_store_selection(&receiver, &key) else {
+                            return Err(SealedOperationError::UnsupportedIndex { receiver, key });
+                        };
+                        if selected.contains_any() && !selected.contains_inference() {
+                            this.constrain_inner(&result, &selected, span, true, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))?;
+                        } else {
+                            this.constrain_operation_type(&result, &selected, span, changes)?;
+                        }
+                        if receiver.contains_inference() || key.contains_inference() { continue; }
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
                     SealedOperation::RecordOverride { receiver, overrides, result, span } => {
                         let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
                         let overrides = overrides.iter().map(|field| Ok(crate::sema::sealed_operation::RecordOverrideField { name: field.name, ty: this.resolve_with_changes(&field.ty, 0, changes)? })).collect::<Result<Vec<_>, ConstraintResolutionError>>()?;
@@ -724,6 +764,18 @@ impl TypeConstraints {
         Ok(indexes)
     }
 
+    pub(crate) fn store_value_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
+        self.operations.source_sites.get(&(owner, span, OperationSource::StoreValue)).copied()
+    }
+
+    pub(crate) fn index_store_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
+        self.operations.source_sites.get(&(owner, span, OperationSource::IndexStore)).copied()
+    }
+
+    pub(crate) fn index_store_operation(&self, owner: super::CallableApplicationScope, span: Span) -> Option<&SealedOperation<Type>> {
+        self.index_store_operation_at(owner, span).and_then(|id| self.operations.entries.get(&id)).map(|entry| &entry.operation)
+    }
+
     pub(crate) fn source_sealed_operation_id(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
         self.sealed_operation_at(owner, span)
     }
@@ -774,7 +826,7 @@ impl TypeConstraints {
     pub(crate) fn register_source_sealed_operation(&mut self, owner: super::CallableApplicationScope, operation: impl Into<SealedOperation<Type>>) -> Result<SealedOperationId, SealedOperationError> {
         let operation = operation.into();
         self.commit_constraint_transaction(|this| {
-            let domain = match &operation { SealedOperation::TypePredicate { domain, .. } => OperationSource::Predicate(*domain), SealedOperation::MapKey { .. } => OperationSource::MapKey, _ => OperationSource::Expression };
+            let domain = match &operation { SealedOperation::TypePredicate { domain, .. } => OperationSource::Predicate(*domain), SealedOperation::MapKey { .. } => OperationSource::MapKey, SealedOperation::IndexStore { .. } => OperationSource::IndexStore, SealedOperation::StoreValue { .. } => OperationSource::StoreValue, _ => OperationSource::Expression };
             if let Some(id) = this.operations.source_sites.get(&(owner, operation.span(), domain)).copied() {
                 let previous = this.operations.entries[&id].operation.clone();
                 if !previous.same_kind(&operation) { return Err(ConstraintResolutionError::ForeignVariable.into()); }

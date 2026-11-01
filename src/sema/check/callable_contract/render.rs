@@ -367,6 +367,8 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
                 let field = constant_key.map(|name| format!(", field={:?}", name.as_str().as_str())).unwrap_or_default();
                 format!("index({inputs}{literal}{field}) -> {}", result.unwrap())
             }
+            crate::sema::sealed_operation::SealedOperation::StoreValue { .. } => format!("store-value({inputs})"),
+            crate::sema::sealed_operation::SealedOperation::IndexStore { .. } => format!("index-store({inputs}) -> {}", result.unwrap()),
             crate::sema::sealed_operation::SealedOperation::Slice { bounds, .. } => format!("slice({bounds:?}, {inputs}) -> {}", result.unwrap()),
             crate::sema::sealed_operation::SealedOperation::RecordOverride { overrides, .. } => {
                 let names = overrides.iter().map(|field| field.name.as_str().to_string()).collect::<Vec<_>>().join(", ");

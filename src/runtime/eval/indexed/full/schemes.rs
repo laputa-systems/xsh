@@ -85,6 +85,7 @@ pub(super) enum FullSchemeBodyFactKind {
     Tail,
     LocalImmutable,
     LocalMutable,
+    Assignment,
     EmptyList,
     EmptyMap,
     RecordProducer,
@@ -573,6 +574,8 @@ pub(super) enum FullSealedOperation {
     TypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: SchemeTypeId },
     Binary { left: SchemeTypeId, right: SchemeTypeId, result: SchemeTypeId, operator: xsh_registry::signature::ArithmeticOperator },
     Index { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId, syntax: crate::sema::sealed_operation::IndexSyntax, constant_key: u32 },
+    IndexStore { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId },
+    StoreValue { storage: SchemeTypeId, replacement: SchemeTypeId },
     Slice { receiver: SchemeTypeId, result: SchemeTypeId, bounds: crate::sema::sealed_operation::SliceBounds },
     RecordOverride { receiver: SchemeTypeId, result: SchemeTypeId, overrides: IrRange },
     Membership { needle: SchemeTypeId, container: SchemeTypeId },
@@ -585,7 +588,8 @@ impl FullSealedOperation {
             Self::TypePredicate { subject: key, .. } => ([Some(key), None], &[]),
             Self::Binary { left, right, .. } => ([Some(left), Some(right)], &[]),
             Self::Membership { needle, container } => ([Some(needle), Some(container)], &[]),
-            Self::Index { receiver, key, .. } | Self::MapKey { receiver, key } => ([Some(receiver), Some(key)], &[]),
+            Self::StoreValue { storage, replacement } => ([Some(storage), Some(replacement)], &[]),
+            Self::Index { receiver, key, .. } | Self::IndexStore { receiver, key, .. } | Self::MapKey { receiver, key } => ([Some(receiver), Some(key)], &[]),
             Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
             Self::RecordOverride { receiver, overrides, .. } => {
                 let range = overrides.bounds(store.scheme_fields.len()).ok_or_else(|| super::IrVerifyError::new("record override field range is invalid"))?;
@@ -595,7 +599,7 @@ impl FullSealedOperation {
         Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
     pub(super) fn result(self) -> Option<SchemeTypeId> {
-        match self { Self::TypePredicate { .. } | Self::Membership { .. } | Self::MapKey { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         Ok(self.inputs(store)?.chain(self.result()))
@@ -666,6 +670,7 @@ pub(super) enum FullSchemeBodyFactValue {
     Tail(SchemeTypeId),
     LocalImmutable(SchemeTypeId),
     LocalMutable(SchemeTypeId),
+    Assignment(SchemeTypeId),
     EmptyList,
     EmptyMap,
     RecordProducer,
@@ -693,6 +698,7 @@ impl FullSchemeBodyFact {
             FullSchemeBodyFactValue::Tail(_) => FullSchemeBodyFactKind::Tail,
             FullSchemeBodyFactValue::LocalImmutable(_) => FullSchemeBodyFactKind::LocalImmutable,
             FullSchemeBodyFactValue::LocalMutable(_) => FullSchemeBodyFactKind::LocalMutable,
+            FullSchemeBodyFactValue::Assignment(_) => FullSchemeBodyFactKind::Assignment,
             FullSchemeBodyFactValue::EmptyList => FullSchemeBodyFactKind::EmptyList,
             FullSchemeBodyFactValue::EmptyMap => FullSchemeBodyFactKind::EmptyMap,
             FullSchemeBodyFactValue::RecordProducer => FullSchemeBodyFactKind::RecordProducer,
@@ -704,7 +710,7 @@ impl FullSchemeBodyFact {
     pub(super) fn ty(self) -> Option<SchemeTypeId> {
         match self.value {
             FullSchemeBodyFactValue::Expression(ty) | FullSchemeBodyFactValue::Tail(ty)
-            | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) => Some(ty),
+            | FullSchemeBodyFactValue::LocalImmutable(ty) | FullSchemeBodyFactValue::LocalMutable(ty) | FullSchemeBodyFactValue::Assignment(ty) => Some(ty),
             FullSchemeBodyFactValue::EmptyList | FullSchemeBodyFactValue::EmptyMap | FullSchemeBodyFactValue::RecordProducer | FullSchemeBodyFactValue::NoCompletion
             | FullSchemeBodyFactValue::Operation(_) | FullSchemeBodyFactValue::Method(_) | FullSchemeBodyFactValue::Wrapper(_)
             | FullSchemeBodyFactValue::CompletionLiftedValue(_) | FullSchemeBodyFactValue::CompletionReturnedResult(_)
@@ -1038,6 +1044,8 @@ impl FullBuilder {
                 crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, subject: key, .. } => FullSealedOperation::TypePredicate { domain, subject: key },
                 crate::sema::sealed_operation::SealedOperation::Binary(operation) => FullSealedOperation::Binary { left: operation.left, right: operation.right, result: operation.result, operator: operation.operator },
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, result, syntax, constant_key, .. } => FullSealedOperation::Index { receiver, key, result, syntax, constant_key: constant_key.map(|name| self.intern_string(name.as_str().as_str()).map(|id| id.raw())).transpose()?.unwrap_or(super::IR_NONE) },
+                crate::sema::sealed_operation::SealedOperation::StoreValue { storage, replacement, .. } => FullSealedOperation::StoreValue { storage, replacement },
+                crate::sema::sealed_operation::SealedOperation::IndexStore { receiver, key, result, .. } => FullSealedOperation::IndexStore { receiver, key, result },
                 crate::sema::sealed_operation::SealedOperation::Slice { receiver, result, bounds, .. } => FullSealedOperation::Slice { receiver, result, bounds },
                 crate::sema::sealed_operation::SealedOperation::RecordOverride { receiver, overrides, result, .. } => {
                     let mut fields = Vec::with_capacity(overrides.len());
@@ -1239,6 +1247,7 @@ impl FullBuilder {
                 FullSchemeBodyFactKind::Tail => FullSchemeBodyFactValue::Tail(ty),
                 FullSchemeBodyFactKind::LocalImmutable => FullSchemeBodyFactValue::LocalImmutable(ty),
                 FullSchemeBodyFactKind::LocalMutable => FullSchemeBodyFactValue::LocalMutable(ty),
+                FullSchemeBodyFactKind::Assignment => FullSchemeBodyFactValue::Assignment(ty),
                 FullSchemeBodyFactKind::EmptyList | FullSchemeBodyFactKind::EmptyMap | FullSchemeBodyFactKind::RecordProducer | FullSchemeBodyFactKind::NoCompletion | FullSchemeBodyFactKind::GuardScope | FullSchemeBodyFactKind::Operation | FullSchemeBodyFactKind::Method | FullSchemeBodyFactKind::Wrapper | FullSchemeBodyFactKind::CompletionSource => return Err(IrBuildError::format("typed_constructor_fact", None, 0, instruction)),
             },
         });

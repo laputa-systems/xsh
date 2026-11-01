@@ -1458,7 +1458,6 @@ export const marker = 1
 test test_full_inference_row_override_rejections_name_the_cause_and_the_fix { |ctx|
   let cases = [
     {name: "named fields before an unknown spread", source: "pure a(r) { {n: 0, ...r} }\n", message: "cannot follow named fields", fix: "{...value, field: 1}", at: ":1:20"},
-    {name: "field assignment on a copy", source: "pure c(r) { var local = r; local.n = 1; local }\n", message: "field assignment needs a known record type", fix: "{...value, field: new}", at: ":1:28"},
   ]
   for {name, source, message, fix, at} in cases {
     let output = test.run_xsh(ctx, source)?
@@ -2549,4 +2548,123 @@ print $released
     env: {},
   )?
   assert output.stdout == "3\n", output.stdout
+}
+
+test test_full_inference_mutates_copies_of_inferred_records { |ctx|
+  let output = test.expect(ctx, r"""pure field(row) { var copy = row; copy.n = 1; copy }
+let original = {n: 4, label: "kept"}
+let updated = field(original)
+assert original.n == 4
+assert updated.n == 1 and updated.label == "kept"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_mutates_copies_of_inferred_collections { |ctx|
+  let output = test.expect(ctx, r"""pure replace(items, key, value) { var copy = items; copy[key] = value; copy }
+pure nested(row, key, value) { var copy = row; copy.rows[key] = value; copy }
+let numbers = replace([1, 2], 0, 9)
+let words = replace({["a"]: "old"}, "a", "new")
+assert numbers == [9, 2]
+assert words["a"] == "new"
+let updated = nested({rows: [1, 2], label: "kept"}, 1, 8)
+assert updated.rows == [1, 8] and updated.label == "kept"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_rejects_invalid_inferred_field_writes { |ctx|
+  let cases = [
+    "pure change(row) { var local = row; local.n = 1; local }\nlet _ = change({other: 3})\n",
+    "pure change(row) { var local = row; local.n = 1; local }\nlet _ = change({n: \"wrong\"})\n",
+    "pure change(row) { let local = row; local.n = 1; local }\nlet _ = change({n: 3})\n",
+  ]
+  for source in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, output.stderr
+  }
+}
+
+test test_full_inference_rejects_invalid_inferred_index_writes { |ctx|
+  let cases = [
+    "pure change(items, key, value) { var local = items; local[key] = value; local }\nlet _ = change([1], 0, \"wrong\")\n",
+    "pure change(items, key, value) { var local = items; local[key] = value; local }\nlet _ = change(\"text\", 0, \"x\")\n",
+    "pure change(items, key, value) { var local = items; local[key] = value; local }\nlet _ = change({name: 1}, \"name\", 2)\n",
+    "pure change(items, key, value) { let local = items; local[key] = value; local }\nlet _ = change([1], 0, 2)\n",
+    "pure change(items, value: Any) { var local = items; local[0] = value; local }\nlet _ = change([1], \"wrong\")\n",
+    "pure change(items, key, value) { var local = items; local[key] = value; local }\nlet original: Map[Str, List[Str]] = {[\"x\"]: [\"a\"]}\nlet incompatible: List[Str?] = [null]\nlet _ = change(original, \"x\", incompatible)\n",
+  ]
+  for source in cases {
+    let output = test.run_xsh(ctx, source)?
+    assert output.success == false, output.stderr
+  }
+}
+
+test test_full_inference_compound_field_writes_keep_the_selected_storage { |ctx|
+  let output = test.expect(ctx, r"""pure bump(row, step) { var copy = row; copy.n += step; copy }
+let a = bump({n: 3, label: "kept"}, 2)
+let b = bump({n: 1.5, label: "other"}, 2.0)
+assert a.n == 5 and a.label == "kept"
+assert b.n == 3.5 and b.label == "other"
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_index_writes_evaluate_selectors_before_rhs { |ctx|
+  let output = test.expect(ctx, r"""pure change(items) {
+  var root = items
+  var seen: List[Str] = []
+  root[if true { seen += ["selector"]; 0 } else { 1 }] += if true {
+    seen += ["rhs"]
+    root[0] = 10
+    2
+  } else { 0 }
+  {root: root, seen: seen}
+}
+let result = change([1])
+assert result.root == [12]
+assert result.seen == ["selector", "rhs"]
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_index_writes_check_unsigned_keys { |ctx|
+  let program = r"""proc replace(items, key: Int, value) [error] { var copy = items; copy[key] = value; copy }
+proc main(...args: List[Str]) [io, error] {
+  let list = replace([1], 0, 2)?
+  var table: Map[UInt, Str] = {}
+  table[3] = "old"
+  let changed = replace(table, 3, "new")?
+  print ${list[0]} ${changed[3]}
+  if args.len() > 0 { let _ = replace(table, -1, "bad")? }
+}
+"""
+  let ok = test.expect(ctx, program, status: 0, args: [])?
+  assert ok.stdout == "2 new\n", ok.stdout
+  let bad = test.expect(ctx, program, status: 3, args: ["negative"])?
+  assert bad.stdout == "2 new\n", bad.stdout
+}
+
+test test_full_inference_index_writes_preserve_unsigned_storage { |ctx|
+  let program = r"""proc replace(items, key: Int, value: Int) [error] { var copy = items; copy[key] = value; copy }
+proc main(...args: List[Str]) [io, error] {
+  let original: List[UInt] = [3]
+  let valid = replace(original, 0, 2)?
+  print ${valid[0]}
+  if args.len() > 0 { let _ = replace(original, 0, -1)? }
+}
+"""
+  let ok = test.expect(ctx, program, status: 0, args: [])?
+  assert ok.stdout == "2\n", ok.stdout
+  let bad = test.expect(ctx, program, status: 3, args: ["negative"])?
+  assert bad.stdout == "2\n", bad.stdout
+}
+
+test test_full_inference_index_writes_preserve_any_storage { |ctx|
+  let output = test.expect(ctx, r"""pure replace(items, value: Any) { var copy = items; copy[0] = value; copy }
+let original: List[Any] = [1]
+let changed = replace(original, "new")
+assert changed[0] is Str
+""", status: 0)?
+  assert output.stderr == "", output.stderr
 }

@@ -4545,7 +4545,7 @@ impl<'a> ProducerProof<'a> {
                                     let (written, value) = match writer_decoder.statement_view(writer)? {
                                         schema::StmtView::Assign { value, .. } => (Vec::new(), value.raw() as usize),
                                         schema::StmtView::AssignField { field, value, .. } => (vec![FunctionProjection::Field(Name::intern(field))], value.raw() as usize),
-                                        schema::StmtView::AssignPath { path, value, .. } => (path.map(|step| step.map(|step| match step { super::super::decode::AssignStepView::Field(field) => FunctionProjection::Field(field), super::super::decode::AssignStepView::Index(_) => FunctionProjection::Element })).collect::<Result<Vec<_>, _>>()?, value.raw() as usize),
+                                        schema::StmtView::AssignPath { path, value, .. } => (path.map(|step| step.map(|step| match step { super::super::decode::AssignStepView::Field(field) => Some(FunctionProjection::Field(field)), super::super::decode::AssignStepView::Index(_) | super::super::decode::AssignStepView::IndexStore(_, _) => Some(FunctionProjection::Element), super::super::decode::AssignStepView::CompoundOperation(_) | super::super::decode::AssignStepView::StoreValue(_) => None })).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect::<Vec<_>>(), value.raw() as usize),
                                         _ => continue,
                                     };
                                     if let Some(remaining) = self.callable_assignment_projection(&decoder, instruction, &written, &path)? { pending.push((writer_owner, CallableProducer::Expression(value), remaining)); }
@@ -4568,7 +4568,7 @@ impl<'a> ProducerProof<'a> {
                             schema::StmtView::Assign { value, .. } => (Vec::new(), value.raw() as usize),
                             schema::StmtView::AssignField { field, value, .. } => (vec![FunctionProjection::Field(Name::intern(field))], value.raw() as usize),
                             schema::StmtView::AssignPath { path, value, .. } => {
-                                let written = path.map(|step| step.map(|step| match step { super::super::decode::AssignStepView::Field(field) => FunctionProjection::Field(field), super::super::decode::AssignStepView::Index(_) => FunctionProjection::Element })).collect::<Result<Vec<_>, _>>()?;
+                                let written = path.map(|step| step.map(|step| match step { super::super::decode::AssignStepView::Field(field) => Some(FunctionProjection::Field(field)), super::super::decode::AssignStepView::Index(_) | super::super::decode::AssignStepView::IndexStore(_, _) => Some(FunctionProjection::Element), super::super::decode::AssignStepView::CompoundOperation(_) | super::super::decode::AssignStepView::StoreValue(_) => None })).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect::<Vec<_>>();
                                 (written, value.raw() as usize)
                             }
                             _ => continue,
@@ -8757,7 +8757,8 @@ impl<'a> ProducerProof<'a> {
                     self.budget.charge(1)?;
                     match step? {
                         super::super::decode::AssignStepView::Field(name) => target = self.storage_assignment_target(&target, &[super::super::CallableAssignmentPathStep::Field(name)])?,
-                        super::super::decode::AssignStepView::Index(index) => {
+                        super::super::decode::AssignStepView::CompoundOperation(_) | super::super::decode::AssignStepView::StoreValue(_) => {},
+                        super::super::decode::AssignStepView::Index(index) | super::super::decode::AssignStepView::IndexStore(index, _) => {
                             let key = match FullDecoder::assignment_receiver_type(&target) {
                                 Type::List(_) => Arc::new(Type::Int),
                                 Type::Map(key, _) => { self.budget.charge_clone(key)?; Arc::new((**key).clone()) },

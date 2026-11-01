@@ -1812,6 +1812,7 @@ fn verify_scheme_body_facts(
         let mut completion_sources = BTreeMap::new();
         let mut tails = BTreeMap::new();
         let mut declarations = BTreeMap::new();
+        let mut assignment_types = BTreeMap::new();
         let mut previous_fact = None;
         for (offset, fact) in store.scheme_body_facts[facts_range.clone()].iter().enumerate() {
             budget.charge(1)?;
@@ -1891,6 +1892,9 @@ fn verify_scheme_body_facts(
                 FullSchemeBodyFactKind::Tail if store.tags[instruction] == FullTag::StmtReturn => {
                     if tails.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic body tail fact is duplicated")); }
                 }
+                FullSchemeBodyFactKind::Assignment if store.tags[instruction] == FullTag::StmtAssignPath => {
+                    if assignment_types.insert(instruction, ty).is_some() { return Err(IrVerifyError::new("generic assignment type fact is duplicated")); }
+                }
                 FullSchemeBodyFactKind::LocalImmutable | FullSchemeBodyFactKind::LocalMutable if matches!(store.tags[instruction], FullTag::StmtLet | FullTag::StmtLetRecord) => {
                     if declarations.insert(instruction, (ty, fact.kind() == FullSchemeBodyFactKind::LocalMutable)).is_some() { return Err(IrVerifyError::new("generic local declaration fact is duplicated")); }
                 }
@@ -1940,6 +1944,18 @@ fn verify_scheme_body_facts(
                     let argument = argument?.raw() as usize;
                     if matches!(decoder.expression_view(argument)?, schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_), .. }) {
                         method_key_checks.insert(argument);
+                    }
+                }
+            }
+        }
+        for instruction in instruction_range.clone() {
+            if let Ok(schema::StmtView::AssignPath { path, .. }) = decoder.statement_view(instruction) {
+                for step in path {
+                    if let super::decode::AssignStepView::IndexStore(index, _) = step? {
+                        let index = index.raw() as usize;
+                        if matches!(decoder.expression_view(index)?, schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_), .. }) {
+                            method_key_checks.insert(index);
+                        }
                     }
                 }
             }
@@ -1999,7 +2015,7 @@ fn verify_scheme_body_facts(
         let completion_group = wrappers::verify_completion_groups(store, scheme, scope, &wrapper_sites, &expected_return, &mut budget)?;
         let analysis = producer_index.scheme_return_analysis(function_id)?;
         let mut constant_budget = SchemeInstantiationBudget::for_prepared_constants(store, producer_index.scheme_prepared_constant_work(function_id)?);
-        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions, callable_projections } = body::verify_body(store, &decoder, &types, &noncompleting, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, producer_index, &mut registered_coverage, &mut budget, &mut constant_budget)?;
+        let body::BodyProof { expressions: visited, writers, statements: visited_statements, streams: stream_sources, captures, applications, checked_accumulators, completion_contributions, callable_projections } = body::verify_body(store, &decoder, &types, &noncompleting, &constructors, &operation_sites, &method_sites, &wrapper_sites, &mut completion_sources, &mut tails, &mut declarations, &mut assignment_types, slots, scope, producer_index.scheme_scopes(store)?, &expected_return, completion_group, statements.iter().skip(1).map(|raw| *raw as usize).collect(), &analysis, producer_index, &mut registered_coverage, &mut budget, &mut constant_budget)?;
         let slot_facts = bounded(function.slot_type_facts, &store.slot_type_facts, "generic slot type fact range is invalid")?;
         for (slot, &raw) in slot_facts.iter().enumerate().filter(|(_, raw)| **raw != IR_NONE) {
             let ty = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("generic slot type fact is invalid"))?;
@@ -2014,7 +2030,7 @@ fn verify_scheme_body_facts(
         if operation_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body operation has no authenticated expression")); }
         if method_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body method has no authenticated expression")); }
         if wrapper_sites.keys().any(|instruction| !visited.contains(instruction)) { return Err(IrVerifyError::new("generic body wrapper has no authenticated expression")); }
-        if !tails.is_empty() || !declarations.is_empty() || visited.len() != types.len() + constructors.len() + noncompleting.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
+        if !tails.is_empty() || !declarations.is_empty() || !assignment_types.is_empty() || visited.len() != types.len() + constructors.len() + noncompleting.len() { return Err(IrVerifyError::new("generic body contains an unchecked or escaped expression")); }
         let mut encoded_expressions = BTreeSet::new();
         let mut encoded_statements = BTreeSet::new();
         for instruction in instruction_range {
