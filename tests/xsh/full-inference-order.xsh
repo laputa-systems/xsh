@@ -256,13 +256,13 @@ test test_copied_storage_joins_shared_input_arguments_in_either_order { |ctx|
   let output = test.expect(ctx, r"""pure replace(first, second, replacement) {
   var local = first
   local = replacement
-  let _ = first == second
+  let _ = [first, second]
   local
 }
 let first = replace({name: "original"}, null, {name: "updated"})
 let second = replace(null, {name: "original"}, {name: "updated"})
 assert first == {name: "updated"} and second == {name: "updated"}
-pure keep(first, second) { var local = first; local = first; let _ = first == second; local }
+pure keep(first, second) { var local = first; local = first; let _ = [first, second]; local }
 let left = keep([1], [])
 let right = keep([], [1])
 assert left == [1] and right == []

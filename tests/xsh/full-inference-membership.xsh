@@ -40,10 +40,10 @@ env ({PATH: "/xsh/bin:/xsh/other"}) {
 test test_full_inference_membership_validates_unsigned_keys_before_the_container { |ctx|
   let output = test.run_xsh(
     ctx,
-    r"""pure computed(container) { 1 - 2 in container }
-pure mutated(container) { var key = 1; key -= 2; key in container }
+    r"""pure computed(container) { try { 1 - 2 in container } }
+pure mutated(container) { var key = 1; key -= 2; try { key in container } }
 pure relay(container) { mutated(container) }
-pure caught_relay(container) { try { relay(container) } }
+pure caught_relay(container) { try { relay(container)? } }
 proc selected(container, key: Int) { key in container }
 pure ordered(container) {
   var visits = 0
@@ -70,7 +70,7 @@ match caught_unsigned.result {
 let caught_signed = ordered(signed)
 assert caught_signed.visits == 11
 assert caught_signed.result == Ok(false)
-match try { computed(unsigned) } {
+match computed(unsigned) {
   Ok(_) => { assert false },
   Err(error) => {
     test.error_kind(Err(error), "schema")?
@@ -89,6 +89,18 @@ match caught_relay(unsigned) {
   assert output.success, output.stderr
   assert output.stdout == ""
   assert output.stderr == ""
+}
+
+test test_full_inference_membership_keeps_plain_pure_key_failures_fatal { |ctx|
+  for call in ["computed(unsigned)", "relay(unsigned)"] {
+    let source = r"""pure computed(container) { 1 - 2 in container }
+pure mutated(container) { var key = 1; key -= 2; key in container }
+pure relay(container) { mutated(container) }
+let unsigned: Map[UInt, Int] = {[0]: 7}
+""" + "let captured = try { " + call + " }\n"
+    let output = test.expect(ctx, source, status: 3, stderr: ["schema check failed: expected UInt, found Int"])?
+    assert output.stdout == "", output.stdout
+  }
 }
 
 test test_full_inference_membership_rejects_incompatible_domains { |ctx|
