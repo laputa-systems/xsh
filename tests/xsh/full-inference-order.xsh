@@ -210,6 +210,39 @@ assert selected == {name: "updated"}
   assert output.stderr == "", output.stderr
 }
 
+test test_copied_storage_requirements_stay_in_a_non_null_comparison_guard { |ctx|
+  let output = test.expect(ctx, r"""pure change(value, enabled) {
+  if enabled != null {
+    var local = value
+    local = {name: "updated"}
+    local
+  } else { value }
+}
+let none: Int? = null
+let some: Int? = 1
+let skipped = change(null, none)
+let selected = change(null, some)
+let absent = change(null, null)
+assert skipped == null
+assert selected == {name: "updated"}
+assert absent == null
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_guarded_copied_storage_rejects_an_incompatible_replacement { |ctx|
+  test.expect(ctx, r"""pure change(value, enabled) {
+  if enabled != null {
+    var local = value
+    local = {name: "updated"}
+    local
+  } else { value }
+}
+let some: Int? = 1
+let _ = change(7, some)
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+}
+
 test test_copied_nullable_storage_uses_the_compatible_record_upper_bound { |ctx|
   let output = test.expect(ctx, r"""type Item = {name: Str}
 pure known(value: Item?) -> Bool { value != null }

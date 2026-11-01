@@ -974,13 +974,60 @@ impl TypeConstraints {
     }
 
     pub(crate) fn has_store_value_requirement(
-        &self, instance: &super::InstantiatedScheme, expected: &Type,
+        &self, instance: &super::InstantiatedRequirements, expected: &Type,
     ) -> Result<bool, super::ConstraintResolutionError> {
         let expected = self.resolve(expected)?;
+        let mut stores = Vec::new();
+        self.collect_live_store_values(instance, &mut stores)?;
+        for (storage, _) in &stores {
+            if self.resolve(storage)? == expected { return Ok(true); }
+        }
+        self.pending_guard_stores_into(instance, &expected)
+    }
+
+    fn collect_live_store_values(
+        &self, instance: &super::InstantiatedRequirements, stores: &mut Vec<(Type, Type)>,
+    ) -> Result<(), ConstraintResolutionError> {
         for id in &instance.operations {
-            let entry = self.operations.entries.get(id).ok_or(super::ConstraintResolutionError::ForeignVariable)?;
-            if let SealedOperation::StoreValue { storage, .. } = &entry.operation
-                && self.resolve(storage)? == expected { return Ok(true); }
+            let entry = self.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if let SealedOperation::StoreValue { storage, replacement, .. } = &entry.operation {
+                stores.push((storage.clone(), replacement.clone()));
+            }
+        }
+        for id in instance.guards.iter().chain(&instance.guard_calls) {
+            let guard = self.wrappers.guard_instances.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            if let super::wrapper_constraints::GuardInstanceState::NonNull(pack) | super::wrapper_constraints::GuardInstanceState::Optional(pack) = &guard.state {
+                self.collect_live_store_values(pack, stores)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn pending_guard_stores_into(
+        &self, instance: &super::InstantiatedRequirements, expected: &Type,
+    ) -> Result<bool, ConstraintResolutionError> {
+        for id in instance.guards.iter().chain(&instance.guard_calls) {
+            let guard = self.wrappers.guard_instances.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
+            let found = match &guard.state {
+                super::wrapper_constraints::GuardInstanceState::Pending(inherited) => self.guard_template_stores_into(&guard.template.requirements, inherited, expected)?,
+                super::wrapper_constraints::GuardInstanceState::NonNull(pack) | super::wrapper_constraints::GuardInstanceState::Optional(pack) => self.pending_guard_stores_into(pack, expected)?,
+                super::wrapper_constraints::GuardInstanceState::Null(_) => false,
+            };
+            if found { return Ok(true); }
+        }
+        Ok(false)
+    }
+
+    fn guard_template_stores_into(
+        &self, requirements: &crate::sema::schemes::CallableRequirements, inherited: &super::InstantiatedRequirements, expected: &Type,
+    ) -> Result<bool, ConstraintResolutionError> {
+        for operation in &requirements.operations {
+            if let SealedOperation::StoreValue { storage: crate::sema::schemes::SchemeType::Parameter(parameter), .. } = operation
+                && let Some(storage) = inherited.type_arguments.get(parameter)
+                && self.resolve(storage)? == *expected { return Ok(true); }
+        }
+        for nested in &requirements.guards {
+            if self.guard_template_stores_into(&nested.requirements, inherited, expected)? { return Ok(true); }
         }
         Ok(false)
     }
@@ -993,10 +1040,10 @@ impl TypeConstraints {
     ) -> Result<Option<Type>, super::ConstraintResolutionError> {
         let expected = self.resolve(expected)?;
         let mut sources = argument_bounds.to_vec();
-        for id in &instance.operations {
-            let entry = self.operations.entries.get(id).ok_or(super::ConstraintResolutionError::ForeignVariable)?;
-            let SealedOperation::StoreValue { storage, replacement, .. } = &entry.operation else { continue };
-            if self.resolve(storage)? == expected { sources.push(replacement.clone()); }
+        let mut stores = Vec::new();
+        self.collect_live_store_values(instance, &mut stores)?;
+        for (storage, replacement) in stores {
+            if self.resolve(&storage)? == expected { sources.push(replacement); }
         }
         self.nullable_storage_witness(&expected, sources, self.known_nullable_argument_bounds(instance, &expected)?)
     }
@@ -1061,9 +1108,9 @@ impl TypeConstraints {
             let mut edges = vec![BTreeSet::new(); roots.len()];
             let mut reverse = edges.clone();
             let mut stores = Vec::new();
-            for id in &instance.operations {
-                let entry = this.operations.entries.get(id).ok_or(ConstraintResolutionError::ForeignVariable)?;
-                let SealedOperation::StoreValue { storage, replacement, .. } = &entry.operation else { continue };
+            let mut live = Vec::new();
+            this.collect_live_store_values(instance, &mut live)?;
+            for (storage, replacement) in &live {
                 let Type::Inference(storage) = this.resolve(storage)? else { continue };
                 let Some(&target) = roots.get(&storage) else { continue };
                 let replacement = this.resolve(replacement)?;

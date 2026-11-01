@@ -266,6 +266,13 @@ impl Checker {
             }
             pending_storage.clear();
         }
+        if !pending_storage.is_empty()
+            && contract.instantiation.as_ref().is_some_and(|(_, instance)| !instance.guards.is_empty() || !instance.guard_calls.is_empty())
+            && let Err(error) = self.type_constraints.solve_wrapper_operations()
+        {
+            self.error(span, &format!("guarded copied storage cannot be activated: {error}"), DiagnosticCode::CheckTypeMismatch);
+            pending_storage.clear();
+        }
         let mut groups: Vec<(Type, Vec<(Type, Type, Span)>)> = Vec::new();
         for (expected, actual, argument_span) in pending_storage {
             let identity = self.type_constraints.resolve(&expected).unwrap_or_else(|_| expected.clone());

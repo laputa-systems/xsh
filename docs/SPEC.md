@@ -4126,6 +4126,10 @@ including `null`. Argument labels, defaults, schemas, effects, and validation
 of `Any` keep their ordinary contracts.
 A copied record may be updated from a field narrowed by a non-null guard;
 the update retains the field’s present type without widening stored containers.
+A `null` argument copied into a local that the body later replaces takes the
+optional of the replacement type, including when the replacement sits under a
+non-null guard that the call can select. A guard that the call cannot select
+contributes no replacement.
 
 Within a generic call, an absent `Ok` error or `Err` success component can take
 context from a compatible replacement assigned to the same local. Written
