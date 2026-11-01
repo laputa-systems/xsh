@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 58
+Next: 59
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -105,6 +105,15 @@ out of scope.
 - **Unmet:** Full combined qualification remains manual-only on a stable source. The known XSH-29 deadline causes have focused written/desugared proof; that does not supply full-corpus acceptance. The replacement image and repaired launcher are available, and historical passes do not qualify them.
 - **Fix with:** orchestrate
 - **Effort:** M
+
+### XSH-58 · P2 · Keep one invalid use of a retained requirement from rejecting valid uses
+
+- **Area:** Inference
+- **Where:** `src/sema/constraints/methods.rs`, `src/sema/constraints/operations.rs`
+- **Problem:** A callable whose omitted parameter retains a sealed host requirement (for example `keys`, `replace` or `byte_at`) is rejected at every call when one call fits no member. In one program, `ambiguous(1)` also makes `ambiguous("a\tb")` fail, although that call selects a unique member on its own.
+- **Recommendation:** Select the member per instantiation and report only the call that fits none, without sharing the failed selection across instances. Add a native test with one valid and one invalid call in the same program.
+- **Fix with:** root-cause
+- **Effort:** S
 
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
