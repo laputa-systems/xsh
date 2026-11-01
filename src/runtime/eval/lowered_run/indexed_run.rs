@@ -985,8 +985,14 @@ pub(super) fn indexed_range_value(
 ) -> Result<LoweredValue, RuntimeError> {
     let start = indexed_range_bound(&start, "start", span)?;
     let end = indexed_range_bound(&end, "end", span)?;
-    let items = indexed_range_values(start, end, span, Value::Int)?;
-    Ok(LoweredValue::Stream(Box::new(StreamValue::from_values_live("range", items))))
+    let fits_in_list = usize::try_from(start.abs_diff(end))
+        .ok()
+        .and_then(|count| count.checked_mul(std::mem::size_of::<Value>()))
+        .is_some_and(|bytes| bytes <= isize::MAX as usize);
+    if !fits_in_list {
+        return Err(indexed_allocation_error("range", span));
+    }
+    Ok(LoweredValue::Stream(Box::new(StreamValue::from_int_range_live(start, end))))
 }
 
 pub(super) fn indexed_tag_value(

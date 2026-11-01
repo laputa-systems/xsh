@@ -504,6 +504,22 @@ test test_eager_range_capacity_failure_is_catchable {
   assert range(-3).collect() == [0, -1, -2]
 }
 
+test test_range_yields_each_item_once_in_either_direction {
+  assert range(3).collect() == [0, 1, 2]
+  assert range(2, 5).collect() == [2, 3, 4]
+  assert range(2, -2).collect() == [2, 1, 0, -1]
+  assert range(4, 4).collect() == []
+  assert range(9223372036854775805, 9223372036854775807).collect() == [9223372036854775805, 9223372036854775806]
+  let lowest = 0 - 9223372036854775807 - 1
+  assert range(lowest + 2, lowest).collect() == [lowest + 2, lowest + 1]
+  var seen: List[Int] = []
+  for item in range(1000000000) {
+    seen += [item]
+    if item == 2 { break }
+  }
+  assert seen == [0, 1, 2]
+}
+
 test test_eager_pipeline_range_capacity_failure_is_catchable {
   let failed = try { [] |> range(0, 9223372036854775807) }
   assert failed is Err(is HostIo)

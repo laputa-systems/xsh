@@ -201,6 +201,37 @@ fn list_and_map_accumulation_allocation_traffic_is_not_quadratic() {
     }
 }
 
+fn range_early_exit_allocated_bytes(size: usize) -> u64 {
+    let fixture = Path::new(cargo_env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/runtime/range-early-exit.xsh");
+    let report = temp_path(&format!("range-early-exit-{size}")).with_extension("json");
+    let output = std::process::Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+        .args(["runtime-stats", "--json", report.to_str().unwrap(), fixture.to_str().unwrap()])
+        .env("XSH_RANGE_SIZE", size.to_string())
+        .output()
+        .expect("run range early-exit fixture");
+    assert!(
+        output.status.success(),
+        "range size={size} stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+    let report_json = json_parse(&std::fs::read_to_string(&report).expect("read runtime stats report"));
+    let bytes = json_u64(json_field(json_field(&report_json, "execution"), "alloc_bytes"));
+    let _ = std::fs::remove_file(&report);
+    bytes
+}
+
+#[test]
+fn range_loop_leaving_early_allocates_independently_of_range_size() {
+    let small = range_early_exit_allocated_bytes(16);
+    let large = range_early_exit_allocated_bytes(1_000_000);
+    assert!(
+        large <= small + 4096,
+        "a million-item range allocated {large} bytes against {small} for sixteen items"
+    );
+}
+
 /// Reading a map must not copy all of its entries.
 ///
 /// `xsht runtime-stats` runs the disk-backed XSH fixture at two sizes and read-pass counts.

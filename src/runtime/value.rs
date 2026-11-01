@@ -1446,6 +1446,10 @@ impl StreamValue {
         )
     }
 
+    pub(crate) fn from_int_range_live(start: i64, end: i64) -> Self {
+        Self::from_live("range", IntRangeStream::new(start, end))
+    }
+
     pub(crate) fn from_live(name: &'static str, source: impl LiveStream + 'static) -> Self {
         Self {
             contract: None,
@@ -1490,6 +1494,38 @@ struct ValuesStream {
 impl LiveStream for ValuesStream {
     fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         Ok(self.values.next())
+    }
+}
+
+struct IntRangeStream {
+    next: i64,
+    remaining: u64,
+    descending: bool,
+}
+
+impl IntRangeStream {
+    fn new(start: i64, end: i64) -> Self {
+        Self {
+            next: start,
+            remaining: start.abs_diff(end),
+            descending: start > end,
+        }
+    }
+}
+
+impl LiveStream for IntRangeStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        let item = self.next;
+        self.remaining -= 1;
+        self.next = if self.descending {
+            self.next.wrapping_sub(1)
+        } else {
+            self.next.wrapping_add(1)
+        };
+        Ok(Some(Value::Int(item)))
     }
 }
 

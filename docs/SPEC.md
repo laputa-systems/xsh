@@ -5882,10 +5882,12 @@ Live sources produce items on demand: `fs.walk`, `fs.files`, `fs.dirs`,
 `fs.children`, `Path.lines()`, `Path.bytes_lines()`, `run.stream`, and `stream`
 producers. `Str.lines()` and `Bytes.lines()` split an existing buffer.
 
-Bare `range(n)` and `range(start, n)` return `Stream[Int]` values with their
-items eagerly materialized when the call runs. Bounds and catchable allocation
-failures are checked before the first item is pulled. Pipeline `range` also
-retains its eager materialization.
+Bare `range(n)` and `range(start, n)` return `Stream[Int]` values that produce
+each item when it is pulled, so a loop that leaves early holds no items it never
+reached. Bounds are checked, and a range with more items than any list could
+hold fails with a catchable allocation error, before the first item is pulled.
+Pipeline `range` retains its eager materialization and its catchable allocation
+failures.
 
 Range source bounds must be positional `Int` expressions. The checker validates
 each bound before execution, including bounds inside functions that are never
