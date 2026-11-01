@@ -30896,7 +30896,7 @@ assert genuine_tail_runs == 0
         let program = fixture(
             "generic-symbolic-composition.xsh",
             "pure identity(value) { value }\n\
-             pure name_of(value) { value.name }\n\
+             pure name_of(value) { let _ = {...value, name: value.name}; value.name }\n\
              pure project(value) { identity(name_of(value)) }\n\
              let integer: Int = project({name: 42, enabled: true})\n",
         );
@@ -30941,8 +30941,8 @@ assert genuine_tail_runs == 0
         let nested_program = fixture(
             "generic-symbolic-row-lacks.xsh",
             "pure identity(value) { value }\n\
-             pure name_of(value) { value.name }\n\
-             pure project(value) { identity(name_of(value.node)) }\n\
+             pure name_of(value) { let _ = {...value, name: value.name}; value.name }\n\
+             pure project(value) { let _ = {...value, node: value.node}; identity(name_of(value.node)) }\n\
              let integer: Int = project({node: {name: 42, extra: true}, enabled: false})\n",
         );
         FullVerifier::verify(&nested_program).unwrap();
@@ -30990,7 +30990,7 @@ assert genuine_tail_runs == 0
         let wrong_argument_program = fixture(
             "generic-symbolic-argument-fact.xsh",
             "pure identity(value) { value }\n\
-             pure name_of(value) { value.name }\n\
+             pure name_of(value) { let _ = {...value, name: value.name}; value.name }\n\
              pure project(value, other) { identity(name_of(value)) }\n\
              let integer: Int = project({name: 42}, true)\n",
         );
@@ -31033,7 +31033,7 @@ assert genuine_tail_runs == 0
         let root_program = fixture(
             "generic-ground-root-call.xsh",
             "pure identity(value) { value }\n\
-             pure name_of(value) { value.name }\n\
+             pure name_of(value) { let _ = {...value, name: value.name}; value.name }\n\
              let integer: Int = identity(42)\n\
              let projected: Int = name_of({name: 7, extra: true})\n",
         );
