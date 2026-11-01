@@ -399,6 +399,18 @@ impl Checker {
                 return None;
             }
         }
+        let mut storage_inputs = types.clone();
+        for &owner in component {
+            if owner == declaration.effect_declaration() { continue; }
+            if let Some(shape) = self.declaration_inference.pending(FunctionDeclarationId::new(owner)).and_then(super::PendingFunctionSig::provisional) {
+                storage_inputs.extend(shape.params().iter().map(|parameter| parameter.signature.ty.clone()));
+            }
+        }
+        storage_inputs.extend(read_bindings.iter().filter_map(|&id| {
+            let declaration = self.resolved_bindings.declarations.get(&id)?;
+            self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id))).map(|binding| binding.ty.clone())
+        }));
+        if !self.complete_fresh_map_stores(constructor_owner, component, &storage_inputs, body_span) { return None; }
         if !self.validate_local_inference(declaration.effect_declaration(), component, &types) {
             return None;
         }

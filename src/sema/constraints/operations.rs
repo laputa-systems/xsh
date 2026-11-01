@@ -764,6 +764,45 @@ impl TypeConstraints {
         Ok(indexes)
     }
 
+    pub(crate) fn complete_fresh_map_stores(
+        &mut self,
+        owner: super::CallableApplicationScope,
+        component: &std::collections::BTreeSet<crate::sema::check::EffectDeclarationId>,
+        inputs: &[Type],
+        fresh_values: &[Type],
+    ) -> Result<(), SealedOperationError> {
+        self.commit_constraint_transaction(|this| {
+            let stores = this.operations.entries.values().filter_map(|entry| {
+                if entry.owner != owner { return None; }
+                match &entry.operation {
+                    SealedOperation::StoreValue { storage, replacement, span } => Some((storage.clone(), replacement.clone(), *span)),
+                    _ => None,
+                }
+            }).collect::<Vec<_>>();
+            loop {
+                let mut changed = false;
+                for (storage, replacement, span) in &stores {
+                    let Type::Inference(variable) = this.resolve(storage)? else { continue };
+                    let root = this.representative_root(variable)?;
+                    let fresh = this.unresolved_input_variables(fresh_values)?;
+                    if !fresh.contains_type(root) { continue; }
+                    if let super::CallableApplicationScope::Declaration(declaration) = owner
+                        && this.input_bound_variables(declaration, component, inputs)?.contains_type(root)
+                    { continue; }
+                    let before = this.resolve(storage)?;
+                    let replacement_before = this.resolve(replacement)?;
+                    this.constrain(storage, replacement, *span).map_err(SealedOperationError::Constraint)?;
+                    if this.resolve(storage)? != before || this.resolve(replacement)? != replacement_before {
+                        this.solve_sealed_operations()?;
+                        changed = true;
+                    }
+                }
+                if !changed { break; }
+            }
+            Ok(())
+        })
+    }
+
     pub(crate) fn store_value_operation_at(&self, owner: super::CallableApplicationScope, span: Span) -> Option<SealedOperationId> {
         self.operations.source_sites.get(&(owner, span, OperationSource::StoreValue)).copied()
     }

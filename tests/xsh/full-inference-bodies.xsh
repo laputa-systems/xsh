@@ -2668,3 +2668,40 @@ assert changed[0] is Str
 """, status: 0)?
   assert output.stderr == "", output.stderr
 }
+
+test test_full_inference_fresh_map_writes_derive_independent_domains { |ctx|
+  let output = test.expect(ctx, r"""pure make(value) { var entries = map.empty(); entries["k"] = value; entries }
+assert make(7).values() == [7]
+assert make("text").values() == ["text"]
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_fresh_fold_seed_is_grounded_by_the_writer { |ctx|
+  let output = test.expect(ctx, r"""let result = [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged }
+let checked = [1] |> fold(map.empty()) { |acc, item| var merged = acc; merged["k"] = item; merged }
+assert checked["k"] == 1
+""", status: 0)?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_fresh_map_alias_keeps_input_storage_contract { |ctx|
+  let program = r"""proc replace(input, value: Int) [error] {
+  var local = map.empty()
+  local = input
+  local["key"] = value
+  local
+}
+proc main(...args: List[Str]) [io, error] {
+  var original: Map[Str, UInt] = {}
+  original["key"] = 3
+  let updated = replace(original, 2)?
+  print ${updated["key"]} ${original["key"]}
+  if args.len() > 0 { let _ = replace(original, -1)? }
+}
+"""
+  let good = test.expect(ctx, program, status: 0, args: [])?
+  assert good.stdout == "2 3\n", good.stdout
+  let bad = test.expect(ctx, program, status: 3, args: ["negative"])?
+  assert bad.stdout == "2 3\n", bad.stdout
+}

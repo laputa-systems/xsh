@@ -213,8 +213,32 @@ impl Checker {
         });
     }
 
+    pub(super) fn complete_fresh_map_stores(
+        &mut self,
+        owner: crate::sema::constraints::CallableApplicationScope,
+        component: &BTreeSet<super::EffectDeclarationId>,
+        inputs: &[Type],
+        span: Span,
+    ) -> bool {
+        let mut fresh_values = self.local_inference.bindings.values().filter_map(|inference| {
+            match &inference.ty { Type::Map(_, value) => Some((**value).clone()), _ => None }
+        }).collect::<Vec<_>>();
+        fresh_values.extend(self.api_calls.iter().filter_map(|(site, call)| {
+            if call.sig.op != xsh_registry::RuntimeOp::MapEmpty || call.receiver.is_some() || !call.params.is_empty() || !call.argument_slots.is_empty() { return None; }
+            match self.expr_types.get(site) { Some(Type::Map(_, value)) => Some((**value).clone()), _ => None }
+        }));
+        match self.type_constraints.complete_fresh_map_stores(owner, component, inputs, &fresh_values) {
+            Ok(()) => true,
+            Err(error) => {
+                self.error(span, &format!("fresh map storage cannot be inferred: {error}"), DiagnosticCode::CheckLocalInference);
+                false
+            }
+        }
+    }
+
     pub(super) fn resolve_checked_types(&mut self) {
         let first_new = self.diagnostics.len();
+        self.complete_fresh_map_stores(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[], Span::at(crate::source::SourceId::new(0), 0));
         if let Err(error) = self.type_constraints.complete_constructor_error_defaults(crate::sema::constraints::CallableApplicationScope::Invocation, &BTreeSet::new(), &[]) {
             self.error(Span::at(crate::source::SourceId::new(0), 0), &format!("constructor error inference cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
         }
@@ -1713,7 +1737,10 @@ mod tests {
             checker.solve_host_obligations(&parsed.arena).unwrap();
             let owner = checker.effect_declaration_id(&parsed.arena, definition.body);
             let formals = parsed.arena.arena.params(definition.params).iter().map(|parameter| checker.checked_parameter_type(&parsed.arena, parameter).unwrap()).collect::<Vec<_>>();
-            assert!(checker.validate_local_inference(owner, &BTreeSet::from([owner]), &formals), "{source}: {:?}", checker.diagnostics);
+            let component = BTreeSet::from([owner]);
+            let span = parsed.arena.arena.span(parsed.arena.arena.block(definition.body).span);
+            assert!(checker.complete_fresh_map_stores(crate::sema::constraints::CallableApplicationScope::Declaration(owner), &component, &formals, span));
+            assert!(checker.validate_local_inference(owner, &component, &formals), "{source}: {:?}", checker.diagnostics);
             checker
         });
         assert_eq!(work.function_body_check_entries, 1);
