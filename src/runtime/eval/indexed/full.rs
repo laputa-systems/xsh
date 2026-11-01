@@ -48545,8 +48545,11 @@ assert result.extra == 9
             *target = program.store.scheme_types[receiver.index()].children;
             FullVerifier::verify(&shared).expect_err("record override fields cannot share another owned field range");
             let mut field_type = program.clone();
-            field_type.store.scheme_fields[fields.start].ty = program.store.scheme_fields[fields.start + 1].ty;
-            FullVerifier::verify(&field_type).expect_err("an override field must retain its actual value contract");
+            let first_type = program.store.scheme_fields[fields.start].ty;
+            let second_type = program.store.scheme_fields[fields.start + 1].ty;
+            field_type.store.scheme_types[first_type.index()] = program.store.scheme_types[second_type.index()];
+            let error = FullVerifier::verify(&field_type).expect_err("an override field must retain its actual value contract");
+            assert_eq!(error.message, "record override order or field contract disagrees with its producer");
             let call = scheme_fixture_root_call(&program, "rebuild");
             let instance = program.store.call_instantiations.iter().find(|instance| instance.instruction == call).unwrap();
             let rows = instance.arguments.row_arguments.bounds(program.store.call_row_arguments.len()).unwrap();
