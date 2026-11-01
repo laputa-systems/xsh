@@ -1294,8 +1294,9 @@ impl TypeConstraints {
                         if operation_entry.owner != wrapper_owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                         let operation = operation_entry.operation.try_map(|ty| this.resolve_with_changes(ty, 0, changes).map_err(WrapperConstraintError::Resolution))?;
                         let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
-                        if receiver.contains_inference() || key.contains_inference() { continue; }
-                        if crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
+                        let unsettled = receiver.contains_inference() || key.contains_inference();
+                        if unsettled && crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) { continue; }
+                        if !unsettled && crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
                             match boundary {
                                 WrapperBoundary::Return(returned) | WrapperBoundary::ErrorReturn(returned) => {
                                     let returned = this.resolve_with_changes(returned, 0, changes)?;

@@ -24792,6 +24792,33 @@ assert keep(null, 1) == null
     }
 
     #[test]
+    fn forwarded_key_validation_cannot_be_selected_without_a_closed_domain() {
+        run_with_large_stack(|| {
+            let text_keyed = fixture("generic-text-key-validation.xsh", r#"
+pure read(colors, code) { colors.get(code) }
+pure lookup(colors) { let _ = read(colors, "ec"); 0 }
+let present: Map[Str, Str] = {"ec": "x"}
+assert lookup(present) == 0
+"#);
+            FullVerifier::verify(&text_keyed).unwrap();
+            let int_keyed = fixture("generic-int-key-validation.xsh", r#"
+pure read(colors, code) { colors.get(code) }
+pure lookup(colors) { let _ = read(colors, 1); 0 }
+"#);
+            FullVerifier::verify(&int_keyed).unwrap();
+            let forwarded = int_keyed.store.call_wrapper_bindings.iter().enumerate()
+                .filter(|(_, binding)| matches!(binding, crate::sema::wrapper_operation::WrapperBinding::Forwarded(_)))
+                .map(|(index, _)| index).collect::<Vec<_>>();
+            assert!(!forwarded.is_empty());
+            for index in forwarded {
+                let mut selected = int_keyed.clone();
+                selected.store.call_wrapper_bindings[index] = crate::sema::wrapper_operation::WrapperBinding::Selected(crate::sema::wrapper_operation::WrapperSelection::KeyValidation);
+                assert!(FullVerifier::verify(&selected).is_err(), "forged selection at {index} verified");
+            }
+        });
+    }
+
+    #[test]
     fn generic_arguments_authenticate_mutable_cursor_writers() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-mutable-cursor-argument.xsh", r#"

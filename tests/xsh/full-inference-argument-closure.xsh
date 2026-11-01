@@ -125,3 +125,29 @@ pure classify(code: Int, tag: Str) -> Str {
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "generalized\n"
 }
+
+test test_full_inference_forwarded_map_read_with_text_key_needs_no_uint_validation { |ctx|
+  let checks = r"""
+let present: Map[Str, Str] = {"ec": "x"}
+let absent: Map[Str, Str] = {"zz": "x"}
+assert lookup(present) == "x"
+assert lookup(absent) == "none"
+print "forwarded"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+pure read(colors, code) -> Str? {
+  if let Ok(text) = colors.get(code) { text } else { null }
+}
+pure lookup(colors) -> Str { read(colors, "ec") ?? "none" }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+pure read(colors: Map[Str, Str], code: Str) -> Str? {
+  if let Ok(text) = colors.get(code) { text } else { null }
+}
+pure lookup(colors: Map[Str, Str]) -> Str { read(colors, "ec") ?? "none" }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "forwarded\n"
+}

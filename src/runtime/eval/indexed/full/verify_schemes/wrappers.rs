@@ -251,8 +251,10 @@ fn selection(
     budget: &mut SchemeInstantiationBudget,
 ) -> Result<WrapperSelection, IrVerifyError> {
     resolve_capture_index_contributions(store, scope, &mut requirement, substitution, budget)?;
-    if let K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } = &requirement.kind {
-        validate_key_validation_boundary(store, scope, *operation, boundary, substitution, budget)?;
+    if let K::KeyValidation { operation: crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(operation), boundary } = &requirement.kind
+        && validate_key_validation_boundary(store, scope, *operation, boundary, substitution, budget)?
+    {
+        return Ok(WrapperSelection::KeyValidation);
     }
     if let K::ProcCompletion { returned, contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = &requirement.kind {
         let Some(actual_error) = completion_error_join(store, scope, contributions, substitution, budget)? else {
@@ -282,19 +284,19 @@ fn validate_key_validation_boundary(
     boundary: &B<SchemeType>,
     substitution: &ApplicationSubstitution<'_>,
     budget: &mut SchemeInstantiationBudget,
-) -> Result<(), IrVerifyError> {
+) -> Result<bool, IrVerifyError> {
     let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("index validation operation ordinal is out of scope"))?;
     let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
     let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("index validation wrapper names another operation")); };
-    if !super::operations::may_require_uint_key_validation(&receiver, &key)
-        || receiver.closed_ground_type().is_none()
+    if !super::operations::may_require_uint_key_validation(&receiver, &key) { return Ok(true); }
+    if receiver.closed_ground_type().is_none()
         || key.closed_ground_type().is_none()
         || !super::operations::requires_uint_key_validation(&receiver, &key)
-    { return Ok(()); }
+    { return Ok(false); }
     if let B::Return(returned) | B::ErrorReturn(returned) = boundary
         && super::operations::result_error_type(returned).is_some_and(|error| error.is_none_or(|error| !Type::Error.matches_expected(&error)))
     { return Err(IrVerifyError::new("UInt map key validation error is outside the callable Result contract")); }
-    Ok(())
+    Ok(false)
 }
 
 pub(super) fn verify_key_validation_site(
