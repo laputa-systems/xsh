@@ -1489,6 +1489,14 @@ impl SchemeBodyFacts {
 
     pub(crate) fn guard_scopes(&self) -> &super::guarded_requirements::GuardBodyScopes { &self.guard_scopes }
 
+    pub(crate) fn optional_assignment_matches(&self, expression: ExprId, actual: &SchemeType, expected: &SchemeType) -> bool {
+        let requirements = self.scheme.callable().requirements();
+        if requirements.assigns_to_optional(actual, expected) { return true; }
+        self.guard_scopes.expressions.get(&expression)
+            .and_then(|scope| requirements.guard(*scope))
+            .is_some_and(|guard| guard.requirements.assigns_to_optional(actual, expected))
+    }
+
     pub(crate) fn with_proc_return_sites(mut self, sites: BTreeMap<Span, SchemeProcReturnSite>) -> Result<Self, SchemeBuildError> {
         for site in sites.values() {
             let application = self.scheme.callable().requirements().applications.get(site.application as usize)

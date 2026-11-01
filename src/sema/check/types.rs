@@ -336,6 +336,13 @@ impl Checker {
         }
     }
 
+    pub(super) fn establish_optional_subject(&mut self, present: &Type, subject: &Type, span: Span) {
+        let expected = Type::Optional(Box::new(present.clone()));
+        if let Err(conflict) = self.type_constraints.constrain(&expected, subject, span) {
+            self.report_inferred_type_conflict(conflict);
+        }
+    }
+
     fn constrain_inferred_expectation(
         &mut self,
         expected: &Type,
@@ -357,6 +364,8 @@ impl Checker {
                 self.type_constraints
                     .check_nullable_seed(seed, actual, span)
             }
+        } else if self.defer_optional_assignment(expected, actual, span) {
+            Ok(())
         } else if self.local_list_record_input_context(expected, actual).map_err(|error| crate::sema::constraints::ConstraintConflict {
             expected: expected.clone(), actual: actual.clone(), initializer: None, established: None,
             contribution: span, resolution_error: Some(error),

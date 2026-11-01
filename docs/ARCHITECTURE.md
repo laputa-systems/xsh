@@ -244,6 +244,12 @@ are generalized without changing the input to an Optional. Cold call proof
 uses the exact owner and binder and preserves the actual callee's schema and
 unsigned runtime guards. Argument relationships cannot supply result, effect,
 field-presence or already-validated-value evidence.
+Optional destinations use this relationship before binding an unresolved input.
+Assignment requirements retain their lexical guard owner and their actual source
+span. A distinct source role keeps them separate from calls at the same span.
+Annotated optional locals accept symbolic producers through that owned argument
+proof. The cold verifier checks the relationship before publishing the local.
+Unsigned storage retains its separate physical validation requirement.
 
 Known `FsRoot` receiver calls inside generalized bodies retain their selected
 registry signature and source argument-to-parameter mapping. They use the same

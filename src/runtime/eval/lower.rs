@@ -4111,8 +4111,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         let binding = self.declaration_binding(self.program.arena.stmt(statement).span, name)?;
         let ty = self.declarations.local_binding_types.get(&self.program.arena.stmt(statement).span).cloned();
-        let kind = lowered_scheme_physical_type(lowered_types.get(&value)?);
-        let checked = self.lower_binding_storage_value(annotation, ty.as_ref(), kind, value, self.program.arena.stmt(statement).span)?;
+        let actual = lowered_types.get(&value)?;
+        let kind = lowered_scheme_physical_type(actual);
+        let retained_assignment = annotation.is_some() && kind.is_none()
+            && ty.as_ref().is_some_and(|expected| !expected.has_unsigned_constraint()
+                && matches!(initializer, ArenaExprOrRun::Expr(expression) if facts.optional_assignment_matches(expression, actual, &SchemeType::Ground(expected.clone()))));
+        let checked = if retained_assignment { value } else {
+            self.lower_binding_storage_value(annotation, ty.as_ref(), kind, value, self.program.arena.stmt(statement).span)?
+        };
         if checked != value {
             let stored = SchemeType::Ground(ty.clone()?);
             self.record_scheme_storage_elaboration(checked, &stored, lowered_types);

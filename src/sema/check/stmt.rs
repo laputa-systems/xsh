@@ -4650,7 +4650,7 @@ impl Checker {
             Ok(Type::Inference(variable)) => {
                 let subject = super::expr::expr_or_run_span_arena(arena, initializer);
                 let present = self.type_constraints.fresh_at_level(subject, self.callable_solver_level());
-                self.expect_type(&Type::Optional(Box::new(present.clone())), &Type::Inference(variable), subject);
+                self.establish_optional_subject(&present, &Type::Inference(variable), subject);
                 Type::Optional(Box::new(present))
             }
             _ => init_ty,

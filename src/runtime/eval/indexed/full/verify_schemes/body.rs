@@ -1568,7 +1568,12 @@ pub(super) fn verify_body(
                             continue;
                         }
                         let actual = expression_type(types, value.raw() as usize, budget)?;
-                        let stored = scheme_stored_type(actual, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
+                        let annotation = annotation.map(|annotation| annotation.materialize()).transpose()?;
+                        let stored = match annotation {
+                            Some(expected) if matches!(expected, Type::Optional(_)) && !expected.has_unsigned_constraint()
+                                && applications::known_argument_assignment_matches_ground(store, decoder.owner, scheme_scope, &actual, &expected, budget)? => SchemeType::Ground(expected),
+                            annotation => scheme_stored_type(actual, annotation)?,
+                        };
                         let (declared, mutable) = declarations.remove(&instruction).ok_or_else(|| IrVerifyError::new("generic local declaration has no permission fact"))?;
                         if !body_types_equal(&stored, &declared) { return Err(IrVerifyError::new("generic declaration disagrees with its initializer")); }
                         if slot >= slot_count || writers.insert(slot, declared.clone()).is_some() { return Err(IrVerifyError::new("generic declaration slot is duplicated or out of bounds")); }
@@ -3684,6 +3689,31 @@ test namespace_borrow {
             parameter.conversions = mode;
             assert!(FullVerifier::verify(&changed).is_err(), "{mode}");
         }
+    }
+
+    #[test]
+    fn generic_optional_local_authenticates_its_assignment_relationship() {
+        let mut program = prepare("pure selected(value) -> Str { if let item = value { let stored: Str? = item; stored ?? \"none\" } else { \"absent\" } }");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let (_, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let mut ranges = vec![scheme.applications];
+        for index in scheme.guards.bounds(program.store.scheme_guards.len()).unwrap() {
+            ranges.push(program.store.scheme_guards[index].applications);
+        }
+        let (parameters, arguments) = ranges.into_iter().find_map(|range| {
+            range.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| {
+                match program.store.scheme_applications[index] {
+                    super::super::super::schemes::FullSchemeApplication::KnownArguments { parameters, arguments } => Some((parameters, arguments)),
+                    _ => None,
+                }
+            })
+        }).unwrap();
+        let argument = program.store.scheme_application_arguments[arguments.start as usize].ty;
+        let mut forged = program;
+        forged.store.scheme_callable_parameters[parameters.start as usize].ty = argument;
+        assert!(FullVerifier::verify(&forged).is_err());
     }
 
     #[test]

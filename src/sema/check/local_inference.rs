@@ -1009,13 +1009,13 @@ impl Checker {
         let (Ok(expected), Ok(actual)) = (self.type_constraints.resolve(expected), self.type_constraints.resolve(actual)) else { return false };
         if !matches!(actual, Type::Inference(_)) || self.type_constraints.is_present_only_variable(&actual) { return false; }
         if !matches!(expected, Type::Optional(_)) { return false; }
-        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
+        let owner = self.constraint_scope();
         let relationship = KnownCallArguments {
             parameters: vec![KnownArgumentParameter { layout: ArgumentParameterLayout { name: crate::symbol::Name::intern("value"), defaulted: false, rest: false }, ty: expected }].into(),
             arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: actual, span }].into(),
-            span: Span::new(span.source_id, span.start(), span.end() + 1),
+            span,
         };
-        match self.type_constraints.register_known_call_arguments(owner, relationship) {
+        match self.type_constraints.register_assignment_requirement(owner, relationship) {
             Ok(_) => {
                 self.local_inference.deferred_optional_assignments += 1;
                 true

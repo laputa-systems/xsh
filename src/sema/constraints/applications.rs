@@ -104,11 +104,17 @@ pub(super) enum ApplicationDependency {
     Row(RowVariableId),
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum ApplicationSourceRole {
+    Call,
+    Assignment,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CallableApplications {
     pub(super) entries: BTreeMap<CallableApplicationId, ScopedCallableApplication>,
     scopes: BTreeMap<CallableApplicationScope, Vec<CallableApplicationId>>,
-    source_sites: BTreeMap<(CallableApplicationScope, crate::source::Span), CallableApplicationId>,
+    source_sites: BTreeMap<(CallableApplicationScope, crate::source::Span, ApplicationSourceRole), CallableApplicationId>,
     watchers: BTreeMap<ApplicationDependency, BTreeSet<CallableApplicationId>>,
     pending: VecDeque<CallableApplicationId>,
     queued: BTreeSet<CallableApplicationId>,
@@ -292,6 +298,40 @@ mod tests {
             constraints.constrain(&input, &Type::Int, span()).unwrap();
             constraints.solve_callable_applications().unwrap();
             assert!(constraints.settled_callable_application_binding(id).unwrap().is_some());
+        });
+    }
+
+    #[test]
+    fn assignment_requirements_do_not_alias_calls_at_the_same_span() {
+        SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let callee = constraints.fresh_at_level(span(), 1);
+            let invocation = application(&mut constraints, callee, vec![(StaticArgumentKind::Positional, Type::Int)], CallableKindRequirement::Pure);
+            let call = constraints.register_source_callable_application(owner(), invocation).unwrap();
+            let input = constraints.fresh_at_level(span(), 1);
+            let requirement = KnownCallArguments {
+                parameters: vec![crate::sema::callable_application::KnownArgumentParameter {
+                    layout: crate::sema::arguments::ArgumentParameterLayout { name: Name::intern("value"), defaulted: false, rest: false },
+                    ty: Type::Optional(Box::new(Type::Str)),
+                }].into(),
+                arguments: vec![CallableApplicationArgument { kind: StaticArgumentKind::Positional, ty: input.clone(), span: span() }].into(),
+                span: span(),
+            };
+            let assignment = constraints.register_assignment_requirement(owner(), requirement.clone()).unwrap();
+            assert_ne!(assignment, call);
+            assert_eq!(constraints.register_assignment_requirement(owner(), requirement).unwrap(), assignment);
+            let before = constraints.clone();
+            let rejected = constraints.commit_constraint_transaction(|this| {
+                this.constrain(&input, &Type::Int, span()).map_err(CallableApplicationError::Constraint)?;
+                this.solve_callable_applications()
+            });
+            assert!(matches!(rejected, Err(CallableApplicationError::Constraint(_))));
+            assert_eq!(constraints.applications, before.applications);
+            assert_eq!(constraints.resolve(&input).unwrap(), input);
+            constraints.constrain(&input, &Type::Str, span()).unwrap();
+            constraints.solve_callable_applications().unwrap();
+            assert!(constraints.settled_callable_application_binding(assignment).unwrap().is_some());
+            assert_eq!(constraints.source_callable_application_reference(owner(), span()).unwrap(), Some(constraints.callable_application_reference(call).unwrap()));
         });
     }
 
@@ -696,7 +736,7 @@ mod tests {
 #[derive(Clone, Debug)]
 pub(super) enum ApplicationChange {
     Fresh(CallableApplicationId),
-    Source((CallableApplicationScope, crate::source::Span), CallableApplicationId),
+    Source((CallableApplicationScope, crate::source::Span, ApplicationSourceRole), CallableApplicationId),
     Binding(CallableApplicationId, Option<CallableApplicationBinding>),
     ReturnEnvelopes(CallableApplicationId, std::sync::Arc<[crate::sema::callable_application::ProcReturnEnvelope<Type>]>),
     Watcher(ApplicationDependency, CallableApplicationId),
@@ -833,7 +873,7 @@ impl TypeConstraints {
     }
 
     pub(crate) fn source_callable_application_reference(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Result<Option<CallableApplicationReference>, CallableApplicationError> {
-        self.applications.source_sites.get(&(scope, span)).copied()
+        self.applications.source_sites.get(&(scope, span, ApplicationSourceRole::Call)).copied()
             .filter(|id| self.applications.entries[id].application.invocation().is_some())
             .map(|id| self.callable_application_reference(id)).transpose()
     }
@@ -871,7 +911,7 @@ impl TypeConstraints {
     }
 
     pub(crate) fn source_callable_application(&self, scope: CallableApplicationScope, span: crate::source::Span) -> Option<&CallableInvocation<Type, super::EffectVariableId>> {
-        self.applications.source_sites.get(&(scope, span)).and_then(|id| self.applications.entries.get(id)).and_then(|entry| entry.application.invocation())
+        self.applications.source_sites.get(&(scope, span, ApplicationSourceRole::Call)).and_then(|id| self.applications.entries.get(id)).and_then(|entry| entry.application.invocation())
     }
 
     pub(crate) fn register_source_callable_application(
@@ -879,7 +919,7 @@ impl TypeConstraints {
         scope: CallableApplicationScope,
         application: CallableInvocation<Type, super::EffectVariableId>,
     ) -> Result<CallableApplicationId, CallableApplicationError> {
-        let site = (scope, application.span);
+        let site = (scope, application.span, ApplicationSourceRole::Call);
         self.commit_constraint_transaction(|this| {
             if let Some(&id) = this.applications.source_sites.get(&site) {
                 let previous = this.applications.entries[&id].application.invocation().cloned().ok_or(CallableApplicationError::SourceShape(application.span))?;
@@ -917,7 +957,24 @@ impl TypeConstraints {
         scope: CallableApplicationScope,
         arguments: KnownCallArguments<Type>,
     ) -> Result<CallableApplicationId, CallableApplicationError> {
-        let site = (scope, arguments.span);
+        self.register_known_arguments_at_source(scope, arguments, ApplicationSourceRole::Call)
+    }
+
+    pub(crate) fn register_assignment_requirement(
+        &mut self,
+        scope: CallableApplicationScope,
+        arguments: KnownCallArguments<Type>,
+    ) -> Result<CallableApplicationId, CallableApplicationError> {
+        self.register_known_arguments_at_source(scope, arguments, ApplicationSourceRole::Assignment)
+    }
+
+    fn register_known_arguments_at_source(
+        &mut self,
+        scope: CallableApplicationScope,
+        arguments: KnownCallArguments<Type>,
+        role: ApplicationSourceRole,
+    ) -> Result<CallableApplicationId, CallableApplicationError> {
+        let site = (scope, arguments.span, role);
         self.commit_constraint_transaction(|this| {
             if let Some(&id) = this.applications.source_sites.get(&site) {
                 let previous = this.applications.entries[&id].application.clone();
