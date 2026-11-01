@@ -2016,7 +2016,10 @@ Handle the index inside the function or pass a `UInt` key when it is already
 validated. With a `UInt` key, a stored `Result` error remains ordinary result
 data. The same validation applies to a `Map[UInt, V]` key in a map literal, a
 map comprehension, an indexed assignment, a membership test, and a key
-argument of a map method. In a `proc` with a declared return type that does
+argument of a map method. An omitted parameter that a `Map[UInt, V]` method
+receives directly as its key is a `UInt` parameter, and its input boundary
+rejects a negative caller. A key read through a field projection keeps the
+field's own type and is validated at the method call. In a `proc` with a declared return type that does
 not declare `error`, a key failure outside `try` and `retry` is fatal, as a
 `UInt` constraint violation is, and a caller's `try` does not capture it.
 In a `proc` whose return type is inferred, the failure is instead the proc's

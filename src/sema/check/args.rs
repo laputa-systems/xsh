@@ -1317,7 +1317,8 @@ impl Checker {
                 .unwrap_or_else(|_| params[slot].ty.clone());
             let schema = schemas.get(slot).cloned().flatten().unwrap_or_default();
             let previous_schema = self.boundary.expected_schema.replace(schema.clone());
-            let checked_key = matches!(crate::sema::builtin_templates::registered_argument_check(checked_key_receiver, slot, &expected), Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey));
+            let checked_key = matches!(crate::sema::builtin_templates::registered_argument_check(checked_key_receiver, slot, &expected), Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey))
+                && !matches!(arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind, crate::syntax::arena::ArenaExprKind::Ident(_));
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, if checked_key { None } else { Some(&expected) });
             self.boundary.expected_schema = previous_schema;
             if !checked_key || !matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_))) {
@@ -1649,7 +1650,6 @@ pub(super) fn call_arg_span_arena(arena: &ArenaProgram, kind: &ArenaCallArgKind)
     }
 }
 
-#[allow(dead_code)]
 pub(super) fn call_arg_expr_id_arena(kind: &ArenaCallArgKind) -> ExprId {
     match kind {
         ArenaCallArgKind::Positional(value)
