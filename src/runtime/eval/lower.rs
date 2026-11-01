@@ -5189,7 +5189,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 let base = self.lower_scheme_expression(base, slots, current_function, facts, visited, lowered_types, body)?;
-                if facts.wrapper_site(expression).is_none() {
+                if facts.wrapper_site(expression).is_none() && facts.operation_site(expression).is_none() {
                     let mut source = lowered_types.get(&base)?;
                     while let SchemeType::Validated(_, inner) = source { source = inner; }
                     let projected = match source {
@@ -5975,7 +5975,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             _ => return self.block_scheme_lowering_expr(expression),
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
-        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::Record(_))
+        if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Field { .. } | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::Record(_))
             && let Some(ordinal) = facts.operation_site(expression)
             && self.scratch.borrow_mut().scheme_operations.insert(lowered.index(), ordinal).is_some()
         { return self.block_scheme_lowering_expr(expression); }

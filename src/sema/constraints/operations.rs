@@ -17,9 +17,12 @@ pub(crate) enum SealedOperationError {
     Resolution(ConstraintResolutionError),
     Constraint(ConstraintConflict),
     StorageConstraint(ConstraintConflict),
+    FieldConstraint(ConstraintConflict),
     MapKey(super::MapKeyConstraintError),
     UnsupportedTypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: Type },
     UnsupportedIndex { receiver: Type, key: Type },
+    UnsupportedField { receiver: Type, name: crate::symbol::Name },
+    MissingField { receiver: Type, name: crate::symbol::Name },
     UnsupportedMembership { container: Type, needle: Type },
     UnsupportedEquality { left: Type, right: Type },
     UnsupportedSlice { receiver: Type },
@@ -71,6 +74,33 @@ mod tests {
         assert_eq!(constraints.resolve(&unrelated).unwrap(), Type::UInt);
         constraints.solve_sealed_operations().unwrap();
         assert_eq!(constraints.resolve(&result).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn sealed_field_requirements_restore_failed_domain_selection() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let mut constraints = TypeConstraints::default();
+            let receiver = constraints.fresh_at_level(span, 1);
+            let result = constraints.fresh_at_level(span, 1);
+            constraints.register_sealed_operation(super::super::CallableApplicationScope::Invocation, SealedOperation::Field {
+                receiver: receiver.clone(), name: crate::symbol::Name::intern("errno"), result: result.clone(), span,
+            }).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+            let pending = constraints.operations.clone();
+            let rejected = constraints.commit_constraint_transaction(|constraints| {
+                constraints.constrain(&receiver, &Type::Bool, span).map_err(SealedOperationError::Constraint)?;
+                constraints.solve_sealed_operations()
+            });
+            assert!(matches!(rejected, Err(SealedOperationError::UnsupportedField { .. })));
+            assert_eq!(constraints.resolve(&receiver).unwrap(), receiver);
+            assert_eq!(constraints.operations, pending);
+            constraints.constrain(&receiver, &Type::Error, span).unwrap();
+            constraints.solve_sealed_operations().unwrap();
+            assert_eq!(constraints.resolve(&receiver).unwrap(), Type::Error);
+            assert_eq!(constraints.resolve(&result).unwrap(), Type::Optional(Box::new(Type::Int)));
+        });
     }
 
     #[test]
@@ -309,11 +339,14 @@ impl std::fmt::Display for SealedOperationError {
             Self::Resolution(error) => write!(formatter, "operation type resolution failed: {error:?}"),
             Self::Constraint(error) => write!(formatter, "operation requires {}, found {}", error.expected, error.actual),
             Self::StorageConstraint(error) => write!(formatter, "storage requires {}, found {}", error.expected, error.actual),
+            Self::FieldConstraint(error) => write!(formatter, "field projection requires {}, found {}", error.expected, error.actual),
             Self::MapKey(error) => write!(formatter, "operation Set item requires MapKey: {error:?}"),
             Self::UnsupportedTypePredicate { domain, subject } => write!(formatter, "{domain:?} does not support {subject}"),
             Self::UnsupportedEquality { left, right } => write!(formatter, "equality is not defined for {left} and {right}"),
             Self::UnsupportedMembership { container, needle } => write!(formatter, "membership is not defined for {needle} in {container}"),
             Self::UnsupportedIndex { receiver, key } => write!(formatter, "indexing is not defined for {receiver} with key {:?}", Some(key)),
+            Self::UnsupportedField { receiver, name } => write!(formatter, "field `{name}` is not defined for {receiver}"),
+            Self::MissingField { receiver, name } => write!(formatter, "unknown field `{name}` on {receiver}"),
             Self::UnsupportedSlice { receiver } => write!(formatter, "slicing is not defined for {receiver} with key None"),
             Self::UnsupportedRecordSpread { receiver } => write!(formatter, "record spread is not defined for {receiver} with key None"),
             Self::Unsupported { operator, left, right } => write!(formatter, "{operator:?} is not defined for {left} and {right}"),
@@ -510,6 +543,12 @@ impl TypeConstraints {
         self.constrain_inner(expected, actual, span, false, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::Constraint(ConstraintConflict { expected, actual, resolution_error, contribution: span, initializer: None, established: None }))
     }
 
+    fn constrain_field_type(&mut self, expected: &Type, actual: &Type, span: Span, changes: &mut Vec<ConstraintChange>) -> Result<(), SealedOperationError> {
+        self.constrain_inner(expected, actual, span, true, 0, changes).map_err(|(expected, actual, resolution_error)| SealedOperationError::FieldConstraint(ConstraintConflict {
+            expected, actual, resolution_error, contribution: span, initializer: None, established: None,
+        }))
+    }
+
     fn solve_pending_sealed_operations(&mut self) -> Result<(), SealedOperationError> {
         self.apply_journaled(|this, changes| {
             while let Some(id) = this.operations.pending.pop_front() {
@@ -592,6 +631,30 @@ impl TypeConstraints {
                         continue;
                     }
                     SealedOperation::Binary(operation) => operation,
+                    SealedOperation::Field { receiver, name, result, span } => {
+                        let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
+                        if let Type::Inference(variable) = receiver.unvalidated() {
+                            if let Some(record) = this.record_binding(*variable)? {
+                                let fields = this.resolve_row(&record.shape)?.fields;
+                                if let Some(selected) = fields.get(&name) {
+                                    this.constrain_field_type(&result, selected, span, changes)?;
+                                } else {
+                                    this.project_record_field_with_changes(&receiver, name, &result, level.unwrap_or(0), span, changes).map_err(SealedOperationError::FieldConstraint)?;
+                                }
+                            }
+                            continue;
+                        }
+                        let (selection, selected) = crate::sema::sealed_operation::field_selection(&receiver, name)
+                            .ok_or_else(|| match receiver.unvalidated() {
+                                Type::Record(_) => SealedOperationError::MissingField { receiver: receiver.clone(), name },
+                                _ => SealedOperationError::UnsupportedField { receiver: receiver.clone(), name },
+                            })?;
+                        this.constrain_field_type(&result, &selected, span, changes)?;
+                        if receiver.contains_inference() { continue; }
+                        let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selection);
+                        if previous != Some(selection) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
+                        continue;
+                    }
                     SealedOperation::Index { receiver, key, result, constant_key, span, .. } => {
                         let receiver = this.resolve_with_changes(&receiver, 0, changes)?;
                         if let Type::Inference(variable) = receiver.unvalidated() {
@@ -617,6 +680,8 @@ impl TypeConstraints {
                             this.constrain_operation_type(&required, &key, span, changes)?;
                         }
                         let key = this.resolve_with_changes(&key, 0, changes)?;
+                        if let (Type::Record(fields), Some(name)) = (receiver.unvalidated(), constant_key)
+                            && !fields.contains_key(&name) { return Err(SealedOperationError::MissingField { receiver, name }); }
                         let Some((selection, selected)) = index_selection(&receiver, &key, constant_key) else {
                             return Err(SealedOperationError::UnsupportedIndex { receiver, key });
                         };

@@ -3351,7 +3351,12 @@ runtime captures, required `.field` projections, list literals without splices,
 records with named fields, declared error variant constructors, `Ok` and `Err`
 constructors, value blocks,
 value-producing `if` and `match` branches, loops, or statically selected pure
-calls. Unguarded indexing retains the `List` or `Map` receiver, key, and item
+calls. An inferred field read retains the receiver and selected field relationship
+across records and values with fixed fields. Reading an error field before a call
+that requires `Error` preserves the error domain; it does not infer a record.
+Closed record arguments retain empty record fields; empty lists or maps inside
+them still need a determined domain.
+Unguarded indexing retains the `List` or `Map` receiver, key, and item
 relationships; slicing retains the `List`, `Str`, or `Bytes` receiver domain.
 Literal record and module keys preserve the selected field relationship through
 compiler-created immutable temporaries. Negative literals select list items

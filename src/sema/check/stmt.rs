@@ -3867,6 +3867,7 @@ impl Checker {
         arena: &ArenaProgram,
         mut expr: ExprId,
     ) -> Option<(Name, Vec<Name>, Type, &Binding)> {
+        let subject_span = arena.arena.expr(expr).span;
         let mut path = Vec::new();
         loop {
             let subject = match arena.arena.expr(expr).kind {
@@ -3888,7 +3889,11 @@ impl Checker {
                     .binding()?;
                 let ty = match super::proof::projected_type(&binding.ty, &path) {
                     Some(ty) => ty.clone(),
-                    None => self.type_constraints.recorded_field_type(&binding.ty, &path).ok()??,
+                    None => binding.guarded_field_views.iter()
+                        .find(|(narrowing, _)| *narrowing.path == *path && binding.proof.accepts(narrowing))
+                        .map(|(_, view)| view.clone())
+                        .or_else(|| self.type_constraints.source_sealed_operation(self.constraint_scope(), subject_span).and_then(|operation| operation.result().cloned()))
+                        .or_else(|| self.type_constraints.recorded_field_type(&binding.ty, &path).ok().flatten())?,
                 };
                 return Some((name, path, ty, binding));
             }
@@ -3907,6 +3912,16 @@ impl Checker {
         binding.guarded_field_views.iter()
             .find(|(narrowing, _)| *narrowing.path == *path && binding.proof.accepts(narrowing))
             .map(|(_, view)| view.clone())
+    }
+
+    pub(super) fn guarded_field_source_arena(&self, arena: &ArenaProgram, field: ExprId) -> Option<Type> {
+        let (_, path, _, binding) = self.proof_subject_arena(arena, field)?;
+        binding.guarded_field_views.iter()
+            .find(|(narrowing, _)| *narrowing.path == *path && binding.proof.accepts(narrowing))
+            .and_then(|(narrowing, _)| match &narrowing.refinement {
+                super::proof::Refinement::NonNull { source, .. } => Some(Type::Inference(*source)),
+                super::proof::Refinement::Type(_) => None,
+            })
     }
 
     pub(super) fn is_proven_nonnull_subject_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {

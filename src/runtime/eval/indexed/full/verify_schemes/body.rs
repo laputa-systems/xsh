@@ -7064,6 +7064,61 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn sealed_field_operations_preserve_domains_after_frontend_disposal() {
+        let mut program = prepare(r#"
+error Failure = Raised
+pure message(value) { value.message }
+pure relay(value) { message(value) }
+pure consume(value: Error) -> Str { value.message }
+pure fields_first(value) -> Str { let code = value.errno ?? 0; consume(value) }
+pure check_domains() -> Bool {
+  relay(Failure.Raised("error")) == "error" and relay({message: "record", extra: 7}) == "record"
+    and fields_first(Failure.Raised("anchored")) == "anchored"
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        let program = Arc::new(program);
+        for force_frames in [false, true] {
+            let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.force_frames = force_frames;
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let key = program.symbol_owner().with_current(|| crate::runtime::eval::LoweredFunctionKey::Name(Name::intern("check_domains")));
+            let actual = evaluator.call_indexed_direct(key, crate::runtime::eval::CallableKind::Pure, &[], crate::source::Span::at(program.store.source_id, 0)).unwrap().unwrap();
+            assert_eq!(actual, crate::runtime::value::Value::Bool(true), "frames={force_frames}");
+        }
+    }
+
+    #[test]
+    fn sealed_field_operation_sites_authenticate_receiver_name_and_result() {
+        let program = prepare("pure project(value, other) { let _ = other; value.message }\n");
+        let (owner, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let operation = scheme.operations.start as usize;
+        let super::super::super::schemes::FullSealedOperation::Field { receiver, name, result } = program.store.scheme_operations[operation] else { panic!("field operation") };
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let other = program.store.scheme_params[parameters.start + 1].ty;
+        let reject = |mut changed: FullProgram| {
+            changed.store.in_place.take();
+            assert!(FullVerifier::verify(&changed).is_err());
+        };
+        let mut wrong_receiver = program.clone();
+        wrong_receiver.store.scheme_operations[operation] = super::super::super::schemes::FullSealedOperation::Field { receiver: other, name, result };
+        reject(wrong_receiver);
+        let mut wrong_name = program.clone();
+        let other_name = wrong_name.store.functions[owner].name;
+        wrong_name.store.scheme_operations[operation] = super::super::super::schemes::FullSealedOperation::Field { receiver, name: other_name, result };
+        reject(wrong_name);
+        let mut wrong_result = program.clone();
+        wrong_result.store.scheme_operations[operation] = super::super::super::schemes::FullSealedOperation::Field { receiver, name, result: other };
+        reject(wrong_result);
+        let mut missing_site = program.clone();
+        let site = missing_site.store.scheme_body_facts.iter_mut().find(|fact| fact.function.index() == owner && matches!(fact.value, super::super::super::schemes::FullSchemeBodyFactValue::Operation(_))).unwrap();
+        site.value = super::super::super::schemes::FullSchemeBodyFactValue::Operation(u32::MAX);
+        reject(missing_site);
+    }
+
+    #[test]
     fn sealed_binary_operation_schemes_preserve_domains_after_frontend_disposal() {
         let program = Arc::new(prepare("pure combine(a, b) { a + b }\npure divide(a, b) { a / b }\npure subtract(a, b) { a - b }\npure relay(a, b) { combine(a, b) }\npure check_domains() -> Bool {\nlet number: Int = relay(1, 2)\nlet text: Str = relay(\"one\", \" two\")\nlet joined: List[Int] = combine([1], [2])\nlet remaining: Set[Int] = subtract({1, 2, 3, 4}, {3, 4})\nlet ratio: Int = divide(4s, 2s)\nlet scaled: Duration = divide(4s, 2)\nnumber == 3 and text == \"one two\" and joined == [1, 2] and remaining == {1, 2} and ratio == 2 and scaled == 2s\n}"));
         for force_frames in [false, true] {
@@ -8667,7 +8722,7 @@ observe()?
     }
 
     #[test]
-    fn actual_record_row_evidence_rejects_opaque_field_type_forgery() {
+    fn actual_field_receiver_evidence_rejects_opaque_field_type_forgery() {
         let mut program = prepare(r#"
 type OpaqueRow = {name: Str, opaque: Any}
 pure name(row) -> Str { row.name }
@@ -8691,26 +8746,27 @@ observe()?
         program.store.in_place.take();
         for (name, guarded, expected) in [("name", false, "generic call argument does not match its checked parameter slot"), ("guarded_name", true, "guard local payload disagrees with its actual source")] {
             let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
-            let fields = program.store.checked_call_targets.iter().filter(|site| site.function.index() == owner).map(|site| {
+            let records = program.store.checked_call_targets.iter().filter(|site| site.function.index() == owner).map(|site| {
                 let mut arguments = program.store.call_instantiations.iter().find(|instance| instance.instruction == site.instruction).unwrap().arguments;
                 if guarded {
                     let bindings = arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap();
                     let super::super::super::guard_schemes::FullGuardBinding::NonNull(local) = program.store.call_guard_bindings[bindings.start] else { panic!("actual records are live non-null sources") };
                     arguments = local;
                 }
-                let rows = arguments.row_arguments.bounds(program.store.call_row_arguments.len()).unwrap();
-                assert_eq!(rows.len(), 1);
-                let fields = program.store.call_row_arguments[rows.start].fields.bounds(program.store.call_row_fields.len()).unwrap();
-                fields.into_iter().find(|index| program.store.string(program.store.call_row_fields[*index].name).unwrap() == "opaque").unwrap()
+                let arguments = arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+                arguments.into_iter().find(|index| {
+                    let node = program.store.scheme_types[program.store.call_type_arguments[*index].ty.index()];
+                    node.tag == FullSchemeTypeTag::Ground && program.symbol_owner().with_current(|| matches!(program.store.semantic.to_type(super::super::TypeId::from_raw(node.first).unwrap()).unwrap(), Type::Record(fields) if fields.contains_key(&Name::intern("opaque"))))
+                }).unwrap()
             }).collect::<Vec<_>>();
-            assert_eq!(fields.len(), 2);
-            let first = program.store.call_row_fields[fields[0]].ty;
-            let second = program.store.call_row_fields[fields[1]].ty;
+            assert_eq!(records.len(), 2);
+            let first = program.store.call_type_arguments[records[0]].ty;
+            let second = program.store.call_type_arguments[records[1]].ty;
             assert_ne!(first, second);
             let mut changed = program.clone();
             assert!(changed.store.in_place.get().is_none());
-            changed.store.call_row_fields[fields[0]].ty = second;
-            changed.store.call_row_fields[fields[1]].ty = first;
+            changed.store.call_type_arguments[records[0]].ty = second;
+            changed.store.call_type_arguments[records[1]].ty = first;
             let error = FullVerifier::verify(&changed).expect_err("actual opaque row fields cannot be forged as typed data");
             assert_eq!(error.message, expected, "{name}: {error:?}");
         }

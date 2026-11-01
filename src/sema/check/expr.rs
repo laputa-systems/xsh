@@ -1400,7 +1400,8 @@ impl Checker {
                     self.error(expr.span, &format!("guarded field view is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
                     return Type::Invalid;
                 }
-                let ty = self.check_field_arena(arena, source, *base, *name, expr.span, expected);
+                let projection_source = self.guarded_field_source_arena(arena, id);
+                let ty = self.check_field_arena(arena, source, *base, *name, expr.span, expected, projection_source);
                 view.unwrap_or(ty)
             }
             ArenaExprKind::NullSafeField { base, name } => {
@@ -3925,6 +3926,7 @@ impl Checker {
         name: Name,
         span: Span,
         expected: Option<&Type>,
+        projection_source: Option<Type>,
     ) -> Type {
         if let Some(ty) = self.check_env_typed_field_arena(arena, source, base, span) {
             return ty;
@@ -4004,20 +4006,19 @@ impl Checker {
             return Type::Unknown;
         }
         if matches!(base_ty, Type::Inference(_)) {
-            return match self
-                .type_constraints
-                .project_record_field(&base_ty, name, 1, span)
-            {
-                Ok(field_type) => field_type,
-                Err(conflict) => {
-                    self.expect_type(
-                        &conflict.expected,
-                        &conflict.actual,
-                        conflict.contribution,
-                    );
-                    Type::Unknown
+            if let Some(result) = projection_source {
+                let operation = crate::sema::sealed_operation::SealedOperation::Field { receiver: base_ty, name, result: result.clone(), span };
+                if let Err(error) = self.type_constraints.register_source_sealed_operation(self.constraint_scope(), operation)
+                    .and_then(|_| self.type_constraints.solve_sealed_operations())
+                {
+                    self.error(span, &error.to_string(), DiagnosticCode::CheckFieldAccess);
+                    return Type::Invalid;
                 }
-            };
+                return result;
+            }
+            return self.check_sealed_postfix_operation(span, DiagnosticCode::CheckFieldAccess, |result| {
+                crate::sema::sealed_operation::SealedOperation::Field { receiver: base_ty, name, result, span }
+            });
         }
         match base_ty.into_unvalidated() {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
@@ -5225,7 +5226,7 @@ mod arena_tests {
     }
 
     #[test]
-    fn inferred_receiver_field_projection_uses_an_open_row() {
+    fn inferred_receiver_field_projection_retains_its_selected_field() {
         use crate::sema::types::Type;
         use std::collections::BTreeMap;
         use std::sync::Arc;
@@ -5274,6 +5275,7 @@ mod arena_tests {
                 .type_constraints
                 .constrain(&receiver, &actual, span)
                 .unwrap();
+            checker.type_constraints.solve_sealed_operations().unwrap();
             assert_eq!(
                 checker.type_constraints.resolve(&projected).unwrap(),
                 Type::Int

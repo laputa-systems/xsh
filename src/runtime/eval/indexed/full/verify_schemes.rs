@@ -801,6 +801,8 @@ fn verify_scheme_tables(
             let scope = &pack_scope;
         let mut roots = Vec::new();
         for operation in bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")? {
+            if let super::schemes::FullSealedOperation::Field { name, .. } = operation
+                && store.string(*name)?.is_empty() { return Err(IrVerifyError::new("field operation name is empty")); }
             if let super::schemes::FullSealedOperation::RecordOverride { overrides, .. } = operation {
                 let fields = mark_range(*overrides, &store.scheme_fields, &mut field_coverage, "record override fields overlap or are out of bounds")?;
                 application_budget.charge(fields.len())?;
@@ -1831,7 +1833,7 @@ fn verify_scheme_body_facts(
             let active_scope = scope.at_instruction(instruction)?;
             let scope = &active_scope;
             if let super::schemes::FullSchemeBodyFactValue::Operation(ordinal) = fact.value {
-                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) || ordinal >= scope.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
+                if !matches!(store.tags[instruction], FullTag::ExprBinary | FullTag::ExprField | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) || ordinal >= scope.operations.len || operation_sites.insert(instruction, ordinal).is_some() { return Err(IrVerifyError::new("body operation has invalid or duplicated ownership")); }
                 continue;
             }
             if let super::schemes::FullSchemeBodyFactValue::Method(ordinal) = fact.value {
@@ -2904,6 +2906,18 @@ fn verify_body_expression(
             }
             budget.charge_scheme_clone(ty)?;
             ty.clone()
+        }
+        schema::ExprView::Field { base, name, .. } if operation_sites.contains_key(&instruction) => {
+            let receiver = child(base, budget)?;
+            let actual = operations::verify_field_site(store, scheme_scope, operation_sites[&instruction], &receiver, Name::intern(name), budget)?;
+            if !body_types_equal(&actual, ty) && guards::authenticates_read(store, decoder, scheme_scope, instruction, &actual, ty,
+                producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?.as_ref(), budget)?
+            {
+                budget.charge_scheme_clone(ty)?;
+                ty.clone()
+            } else {
+                actual
+            }
         }
         schema::ExprView::Field { base, name, .. } => {
             let mut base = child(base, budget)?;

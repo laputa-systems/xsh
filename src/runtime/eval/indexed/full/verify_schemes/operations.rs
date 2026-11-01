@@ -22,6 +22,9 @@ pub(super) fn decode(store: &FullStore, scope: &SchemeScope, encoded: FullSealed
         FullSealedOperation::Equality { left, right } => SealedOperation::Equality { left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, span },
         FullSealedOperation::Membership { needle, container } => SealedOperation::Membership { needle: substitution.ty(store, scope, needle, budget)?, container: substitution.ty(store, scope, container, budget)?, span },
         FullSealedOperation::MapKey { receiver, key } => SealedOperation::MapKey { receiver: substitution.ty(store, scope, receiver, budget)?, key: substitution.ty(store, scope, key, budget)?, span },
+        FullSealedOperation::Field { receiver, name, result } => SealedOperation::Field {
+            receiver: substitution.ty(store, scope, receiver, budget)?, name: Name::intern(store.string(name)?), result: substitution.ty(store, scope, result, budget)?, span,
+        },
         FullSealedOperation::TypePredicate { domain, subject: key } => SealedOperation::TypePredicate { domain, subject: substitution.ty(store, scope, key, budget)?, span },
         FullSealedOperation::Binary { left, right, result, operator } => SealedOperation::Binary(SealedBinaryOperation {
             operator, left: substitution.ty(store, scope, left, budget)?, right: substitution.ty(store, scope, right, budget)?, result: substitution.ty(store, scope, result, budget)?, span,
@@ -74,6 +77,7 @@ fn selection(operation: &SealedOperation<SchemeType>, budget: &mut SchemeInstant
     let selected = match &closed {
         SealedOperation::Binary(operation) => arithmetic_selection(operation.operator, &operation.left, &operation.right).map(|(signature, result)| (SealedOperationSignature::Binary(signature), result)),
         SealedOperation::Index { receiver, key, constant_key, .. } => index_selection(receiver, key, *constant_key),
+        SealedOperation::Field { receiver, name, .. } => crate::sema::sealed_operation::field_selection(receiver, *name),
         SealedOperation::IndexStore { receiver, key, .. } => crate::sema::sealed_operation::index_store_selection(receiver, key),
         SealedOperation::Slice { receiver, .. } => slice_selection(receiver),
         SealedOperation::RecordOverride { receiver, overrides, .. } => record_override_selection(receiver, overrides),
@@ -102,6 +106,17 @@ pub(super) fn symbolic_output_binders(
     if matches!(encoded, FullSealedOperation::Equality { .. } | FullSealedOperation::Membership { .. } | FullSealedOperation::MapKey { .. } | FullSealedOperation::StoreValue { .. } | FullSealedOperation::Binary { .. } | FullSealedOperation::TypePredicate { .. }) { return Ok(evidence); }
     let operation = decode(store, scope, encoded, &ApplicationSubstitution::Symbolic(substitution), budget)?;
     let projection = match operation {
+        SealedOperation::Field { mut receiver, name, .. } => {
+            while let SchemeType::Validated(_, inner) = receiver { budget.charge(1)?; receiver = *inner; }
+            match receiver {
+                SchemeType::Record { mut fields, .. } => fields.remove(&name),
+                SchemeType::Ground(receiver) => {
+                    budget.charge_clone(&receiver)?;
+                    crate::sema::sealed_operation::field_selection(&receiver, name).map(|(_, ty)| SchemeType::Ground(ty))
+                }
+                _ => None,
+            }
+        }
         SealedOperation::Index { mut receiver, key, constant_key, .. } => {
             while let SchemeType::Validated(_, inner) = receiver { budget.charge(1)?; receiver = *inner; }
             match receiver {
@@ -370,6 +385,23 @@ pub(super) fn verify_index_site(
     if !supported { return Err(IrVerifyError::new("generic index site has no supported input domain")); }
     if receiver.closed_ground_type().is_some() && key.closed_ground_type().is_some() && result.closed_ground_type().is_some() { selection(&operation, budget)?; }
     Ok(())
+}
+
+pub(super) fn verify_field_site(
+    store: &FullStore, scope: &SchemeScope, ordinal: u32, receiver: &SchemeType, name: Name,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<SchemeType, IrVerifyError> {
+    let encoded = bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("field operation ordinal is out of scope"))?;
+    let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Identity, budget)?;
+    let SealedOperation::Field { receiver: required_receiver, name: required_name, result: required_result, .. } = &operation else {
+        return Err(IrVerifyError::new("generic field site has another operation kind"));
+    };
+    if !body_types_equal(receiver, required_receiver) || name != *required_name {
+        return Err(IrVerifyError::new("generic field site disagrees with its sealed operation"));
+    }
+    if receiver.closed_ground_type().is_some() && required_result.closed_ground_type().is_some() { selection(&operation, budget)?; }
+    budget.charge_scheme_clone(required_result)?;
+    Ok(required_result.clone())
 }
 
 pub(super) fn verify_store_value_site(store: &FullStore, scope: &SchemeScope, ordinal: u32, storage: &SchemeType, replacement: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {

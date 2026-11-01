@@ -2263,6 +2263,7 @@ impl TypeConstraints {
             }
         }
         let exact_null_argument = has_anchor(&actual, AnchorEvidence::CheckedNullArgument).map_err(conflict)?;
+        let checked_record_argument = matches!(actual, Type::Record(_));
         if matches!(actual, Type::Record(_)) && (actual.contains_any() || exact_null_argument) {
             let mut applied = false;
             self.apply_journaled(|this, changes| {
@@ -2271,7 +2272,7 @@ impl TypeConstraints {
             }).map_err(|(expected, actual, resolution_error)| ConstraintConflict { expected, actual, resolution_error, initializer: None, established: None, contribution })?;
             if applied { return Ok(()); }
         }
-        if !actual.contains_any() && !exact_null_argument || actual.contains_inference() || actual.contains_recovery() {
+        if !actual.contains_any() && !exact_null_argument && !checked_record_argument || actual.contains_inference() || actual.contains_recovery() {
             if !expected.contains_inference() && !actual.contains_inference() && actual.matches_expected(expected) { return Ok(()); }
             return self.constrain(expected, &actual, contribution);
         }
@@ -5404,10 +5405,51 @@ mod tests {
         constraints.constrain_checked_call_argument(&instance, &outside, &Type::List(Box::new(Type::Null)), span(4)).unwrap();
         assert_eq!(constraints.resolve(&outside).unwrap(), outside);
         assert!(constraints.constrain_checked_call_argument(&instance, &Type::Int, &Type::Null, span(5)).is_err());
-        for actual in [Type::List(Box::new(Type::Unknown)), Type::Record(Arc::new(BTreeMap::new()))] {
-            constraints.constrain_checked_call_argument(&instance, &payload, &actual, span(6)).unwrap();
-            assert_eq!(constraints.resolve(&payload).unwrap(), payload);
-        }
+        constraints.constrain_checked_call_argument(&instance, &payload, &Type::List(Box::new(Type::Unknown)), span(6)).unwrap();
+        assert_eq!(constraints.resolve(&payload).unwrap(), payload);
+    }
+
+    #[test]
+    fn checked_record_arguments_preserve_closed_shapes_and_instance_ownership() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let instance_for = |argument: &Type| InstantiatedScheme {
+                params: vec![argument.clone()], return_type: argument.clone(), requirements: InstantiatedRequirements {
+                    type_arguments: BTreeMap::from([(SchemeTypeParameterId(0), argument.clone())]), ..InstantiatedRequirements::default()
+                },
+            };
+            let empty = Type::Record(Arc::new(BTreeMap::new()));
+            let inner = crate::symbol::Name::intern("inner");
+            for actual in [empty.clone(), Type::Record(Arc::new(BTreeMap::from([(inner, empty)])))] {
+                let mut constraints = TypeConstraints::default();
+                let argument = constraints.fresh(span(1));
+                let instance = instance_for(&argument);
+                constraints.constrain_checked_call_argument(&instance, &argument, &actual, span(2)).unwrap();
+                assert_eq!(constraints.resolve(&instance.return_type).unwrap(), actual);
+                let outside = constraints.fresh(span(3));
+                constraints.constrain_checked_call_argument(&instance, &outside, &actual, span(4)).unwrap();
+                assert_eq!(constraints.resolve(&outside).unwrap(), outside);
+                let aliased = constraints.fresh(span(5));
+                let caller = constraints.fresh(span(6));
+                let instance = instance_for(&aliased);
+                constraints.constrain(&aliased, &caller, span(7)).unwrap();
+                let original = constraints.resolve(&caller).unwrap();
+                constraints.constrain_checked_call_argument(&instance, &aliased, &actual, span(8)).unwrap();
+                assert_eq!(constraints.resolve(&caller).unwrap(), original);
+            }
+            let mut constraints = TypeConstraints::default();
+            let argument = constraints.fresh(span(1));
+            let instance = instance_for(&argument);
+            let item = constraints.fresh(span(2));
+            let unresolved = Type::Record(Arc::new(BTreeMap::from([(inner, Type::List(Box::new(item.clone())))])));
+            constraints.constrain_checked_call_argument(&instance, &argument, &unresolved, span(3)).unwrap();
+            assert_eq!(constraints.resolve(&item).unwrap(), item);
+            assert!(constraints.resolve(&instance.return_type).unwrap().contains_inference());
+            let mut foreign = TypeConstraints::default();
+            let actual = Type::Record(Arc::new(BTreeMap::from([(inner, foreign.fresh(span(4)))])));
+            let failure = constraints.constrain_checked_call_argument(&instance, &argument, &actual, span(5)).unwrap_err();
+            assert_eq!(failure.resolution_error, Some(ConstraintResolutionError::ForeignVariable));
+            assert_eq!(constraints.resolve(&item).unwrap(), item);
+        });
     }
 
     #[test]

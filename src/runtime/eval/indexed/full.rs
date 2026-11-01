@@ -22384,7 +22384,7 @@ macro_rules! impl_build_id_codec {
                 if let Some(operation) = operation {
                     let instruction = instruction.ok_or_else(|| IrBuildError::format("sealed_operation_instruction", None, 0, self.index()))?;
                     let function = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("sealed_operation_owner", None, 0, instruction))?;
-                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
+                    if builder.active_scheme.is_none() || !matches!(builder.store.tags[instruction], FullTag::ExprBinary | FullTag::ExprField | FullTag::ExprIndex | FullTag::ExprSlice | FullTag::ExprRecord | FullTag::ExprCheckedValue) { return Err(IrBuildError::format("sealed_operation_owner", None, 0, instruction)); }
                     builder.store.scheme_body_facts.push(schemes::FullSchemeBodyFact { instruction: u32::try_from(instruction).map_err(|_| IrBuildError::format("sealed_operation_instruction", None, 0, instruction))?, function, value: schemes::FullSchemeBodyFactValue::Operation(operation) });
                 }
                 if let Some(method) = method {

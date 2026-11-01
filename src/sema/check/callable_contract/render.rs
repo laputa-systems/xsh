@@ -363,6 +363,7 @@ fn render_requirement_parts(requirements: &CallableRequirements, effects: Option
             crate::sema::sealed_operation::SealedOperation::MapKey { .. } => format!("map-key({inputs})"),
             crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, .. } => format!("{domain:?}({inputs})"),
             crate::sema::sealed_operation::SealedOperation::Binary(operation) => format!("arithmetic({:?}, {inputs}) -> {}", operation.operator, result.unwrap()),
+            crate::sema::sealed_operation::SealedOperation::Field { name, .. } => format!("field({inputs}, {name}) -> {}", result.unwrap()),
             crate::sema::sealed_operation::SealedOperation::Index { syntax, constant_key, .. } => {
                 let literal = match syntax { crate::sema::sealed_operation::IndexSyntax::Ordinary => String::new(), crate::sema::sealed_operation::IndexSyntax::NegativeLiteral(distance) => format!(", negative-literal={distance}") };
                 let field = constant_key.map(|name| format!(", field={:?}", name.as_str().as_str())).unwrap_or_default();

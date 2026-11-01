@@ -572,6 +572,7 @@ pub(super) use crate::sema::wrapper_operation::WrapperBinding as FullWrapperBind
 #[repr(C, u8)]
 pub(super) enum FullSealedOperation {
     TypePredicate { domain: crate::sema::sealed_operation::TypeDomain, subject: SchemeTypeId },
+    Field { receiver: SchemeTypeId, name: u32, result: SchemeTypeId },
     Binary { left: SchemeTypeId, right: SchemeTypeId, result: SchemeTypeId, operator: xsh_registry::signature::ArithmeticOperator },
     Index { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId, syntax: crate::sema::sealed_operation::IndexSyntax, constant_key: u32 },
     IndexStore { receiver: SchemeTypeId, key: SchemeTypeId, result: SchemeTypeId },
@@ -592,7 +593,7 @@ impl FullSealedOperation {
             Self::Membership { needle, container } => ([Some(needle), Some(container)], &[]),
             Self::StoreValue { storage, replacement } => ([Some(storage), Some(replacement)], &[]),
             Self::Index { receiver, key, .. } | Self::IndexStore { receiver, key, .. } | Self::MapKey { receiver, key } => ([Some(receiver), Some(key)], &[]),
-            Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
+            Self::Field { receiver, .. } | Self::Slice { receiver, .. } => ([Some(receiver), None], &[]),
             Self::RecordOverride { receiver, overrides, .. } => {
                 let range = overrides.bounds(store.scheme_fields.len()).ok_or_else(|| super::IrVerifyError::new("record override field range is invalid"))?;
                 ([Some(receiver), None], &store.scheme_fields[range])
@@ -601,7 +602,7 @@ impl FullSealedOperation {
         Ok(fixed.into_iter().flatten().chain(overrides.iter().map(|field| field.ty)))
     }
     pub(super) fn result(self) -> Option<SchemeTypeId> {
-        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
+        match self { Self::TypePredicate { .. } | Self::Equality { .. } | Self::Membership { .. } | Self::MapKey { .. } | Self::StoreValue { .. } => None, Self::Binary { result, .. } | Self::Field { result, .. } | Self::Index { result, .. } | Self::IndexStore { result, .. } | Self::Slice { result, .. } | Self::RecordOverride { result, .. } => Some(result) }
     }
     pub(super) fn types(self, store: &super::FullStore) -> Result<impl Iterator<Item = SchemeTypeId> + '_, super::IrVerifyError> {
         Ok(self.inputs(store)?.chain(self.result()))
@@ -1046,6 +1047,7 @@ impl FullBuilder {
                 crate::sema::sealed_operation::SealedOperation::MapKey { receiver, key, .. } => FullSealedOperation::MapKey { receiver, key },
                 crate::sema::sealed_operation::SealedOperation::TypePredicate { domain, subject: key, .. } => FullSealedOperation::TypePredicate { domain, subject: key },
                 crate::sema::sealed_operation::SealedOperation::Binary(operation) => FullSealedOperation::Binary { left: operation.left, right: operation.right, result: operation.result, operator: operation.operator },
+                crate::sema::sealed_operation::SealedOperation::Field { receiver, name, result, .. } => FullSealedOperation::Field { receiver, name: self.intern_string(name.as_str().as_str())?.raw(), result },
                 crate::sema::sealed_operation::SealedOperation::Index { receiver, key, result, syntax, constant_key, .. } => FullSealedOperation::Index { receiver, key, result, syntax, constant_key: constant_key.map(|name| self.intern_string(name.as_str().as_str()).map(|id| id.raw())).transpose()?.unwrap_or(super::IR_NONE) },
                 crate::sema::sealed_operation::SealedOperation::StoreValue { storage, replacement, .. } => FullSealedOperation::StoreValue { storage, replacement },
                 crate::sema::sealed_operation::SealedOperation::IndexStore { receiver, key, result, .. } => FullSealedOperation::IndexStore { receiver, key, result },

@@ -356,6 +356,9 @@ impl Checker {
                         crate::sema::constraints::SealedOperationError::StorageConstraint(_) => DiagnosticCode::CheckTypeMismatch,
                         crate::sema::constraints::SealedOperationError::UnsupportedMembership { .. } => DiagnosticCode::CheckMembershipType,
                         crate::sema::constraints::SealedOperationError::UnsupportedIndex { .. } => DiagnosticCode::CheckIndexType,
+                        crate::sema::constraints::SealedOperationError::UnsupportedField { .. } => DiagnosticCode::CheckFieldAccess,
+                        crate::sema::constraints::SealedOperationError::MissingField { .. } => DiagnosticCode::CheckUnknownField,
+                        crate::sema::constraints::SealedOperationError::FieldConstraint(_) => DiagnosticCode::CheckTypeMismatch,
                         crate::sema::constraints::SealedOperationError::UnsupportedSlice { .. } => DiagnosticCode::CheckSliceType,
                         crate::sema::constraints::SealedOperationError::UnsupportedRecordSpread { .. } => DiagnosticCode::CheckSpreadNotRecord,
                         crate::sema::constraints::SealedOperationError::Resolution(_)
@@ -494,7 +497,7 @@ impl Checker {
             };
             let storage_bounds = match authority { CallArgumentAuthority::KnownCallable { storage_bounds: Some(bounds), .. } => bounds, _ => &[] };
             if let Some(authority) = authority.instance().filter(|instance|
-                exact_null || actual.contains_any() || !instance.wrappers.is_empty() || !instance.applications.is_empty()) {
+                exact_null || actual.contains_any() || matches!(actual, Type::Record(_)) || !instance.wrappers.is_empty() || !instance.applications.is_empty() || !instance.operations.is_empty()) {
                 let result = if storage_bounds.is_empty() {
                     self.type_constraints.constrain_checked_call_argument(authority, expected, actual, span)
                 } else {
@@ -1764,7 +1767,7 @@ pub(super) fn module_arg_matches_param_arena(actual: &Type, expected: &Type) -> 
 #[cfg(test)]
 mod nullable_target_tests {
     use super::Checker;
-    use crate::sema::{schemes::SchemeType, types::Type};
+    use crate::sema::schemes::SchemeType;
 
     #[test]
     fn nullable_argument_deferral_keeps_present_fields_validation_and_effect_authority() {
@@ -1783,14 +1786,14 @@ mod nullable_target_tests {
     #[test]
     fn nullable_argument_relationship_preserves_static_splices_and_named_slots() {
         for argument in ["value", "value: value", "@[value]"] {
-            let source = format!("type Item = {{value: Int}}\npure accepts(value: Item?) -> Int {{ let _ = value; 0 }}\npure read(value) -> Int {{ let _ = accepts({argument}); value.value }}\n");
-            let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
-            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
-            let checked = Checker::check_arena(&parsed.arena, &source);
-            assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
-            let read = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "read").unwrap();
-            let parameter = &read.scheme.as_ref().unwrap().callable().params()[0].ty;
-            assert!(matches!(parameter, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))), "{argument}: {parameter:?}");
+            for (caller, accepted) in [("", true), ("let result: Int = read({value: 7})", true), ("let invalid = read(null)", false)] {
+                let source = format!("type Item = {{value: Int}}\npure accepts(value: Item?) -> Int {{ let _ = value; 0 }}\npure read(value) -> Int {{ let _ = accepts({argument}); value.value }}\n{caller}\n");
+                let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena(&parsed.arena, &source);
+                if accepted { assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics); }
+                else { assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckFieldAccess)), "{source}\n{:?}", checked.diagnostics); }
+            }
         }
     }
 
@@ -1814,9 +1817,11 @@ mod nullable_target_tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let read = checked.checked_declarations.functions.values().find(|declaration| declaration.name == "read").unwrap();
-        let parameter = &read.scheme.as_ref().unwrap().callable().params()[0].ty;
-        assert!(matches!(parameter, SchemeType::Record { .. } | SchemeType::Ground(Type::Record(_))), "{parameter:?}");
+        let source = format!("{source}\nlet missing: Item? = null\nlet invalid = read(missing)\n");
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckFieldAccess)), "{source}\n{:?}", checked.diagnostics);
     }
 }
 
