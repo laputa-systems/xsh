@@ -34255,8 +34255,9 @@ assert nullable_name == null
 
     #[test]
     fn full_verifier_rejects_forged_generic_rows_and_body_facts() {
-        let program = imported_scheme_fixture_after_frontend_drop_with_entry(
+        let program = imported_scheme_fixture_after_frontend_drop_with_module(
             "use model\nproc main() [error] -> Result[Unit] {\n  assert model.identity(false) == false\n  assert model.name_of({name: \"package\", version: 1}) == \"package\"\n  return Ok()\n}\n",
+            "##! Generic verifier fixture.\n## Identity.\nexport pure identity(value) { value }\n## Projection.\nexport pure name_of(value) { let {name: name} = value; let _ = value.name; name }\n## Unused.\nexport pure unused(value) { value }\n## Dynamic.\nexport pure dynamic(value: Any) -> Any { value }\n## Marker.\nexport let marker = 17\n",
         );
         FullVerifier::verify(&program).unwrap();
         let projection_call = scheme_fixture_call(&program, "name_of");
@@ -34315,7 +34316,7 @@ assert nullable_name == null
 
         let missing_row_program = fixture(
             "generic-missing-row-substitution.xsh",
-            "pure deep_name(value) { value.node.name }\n\
+            "pure deep_name(value) { let _ = {...value, node: value.node}; let _ = {...value.node, name: value.node.name}; value.node.name }\n\
              let result: Int = deep_name({node: {name: 42}})\n",
         );
         FullVerifier::verify(&missing_row_program).unwrap();
@@ -34326,7 +34327,7 @@ assert nullable_name == null
             .iter()
             .find(|row| row.instruction == deep_name_call)
             .unwrap();
-        assert_eq!(deep_name_instantiation.arguments.row_arguments.len, 2);
+        assert_eq!(deep_name_instantiation.arguments.row_arguments.len, 4);
         let mut missing_row_binder = missing_row_program.clone();
         remove_scheme_fixture_call_row_argument(&mut missing_row_binder, deep_name_call, 1);
         let error = FullVerifier::verify(&missing_row_binder).unwrap_err();
