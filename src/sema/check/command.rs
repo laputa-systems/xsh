@@ -361,7 +361,17 @@ impl Checker {
             super::ValueBindingLookup::NoSite => None,
         };
         if let Some(binding) = binding {
-            return binding.ty.clone();
+            let id = binding.id;
+            let ty = binding.ty.clone();
+            let guard = self.scopes.iter().rev().find_map(|scope| scope.get(&name)
+                .filter(|binding| binding.id == id).map(|_| scope.guard)).flatten();
+            if let Some(guard) = guard
+                && let Err(error) = self.type_constraints.note_guard_view_read(guard, &ty)
+            {
+                self.error(span, &format!("guarded view read is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
+                return Type::Invalid;
+            }
+            return ty;
         }
         if self.procs.contains_key(&name) {
             if self.boundary.in_pure {

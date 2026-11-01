@@ -7538,7 +7538,7 @@ impl Checker {
                 }
                 let deferred_before = self.local_inference.deferred_optional_assignments;
                 let output_parent = self.constraint_scope();
-                let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && expectation.is_none() && arena.arena.if_branches(branches).len() == 1).then(|| arena.arena.if_branches(branches)[0].condition)
+                let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && arena.arena.if_branches(branches).len() == 1).then(|| arena.arena.if_branches(branches)[0].condition)
                     .and_then(|condition| self.guard_output_condition_arena(arena, condition).map(|polarity| (condition, polarity)));
                 let mut output_branch = None;
                 let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
@@ -7644,9 +7644,13 @@ impl Checker {
                         let (live_scope, present, absent) = if nonnull_when { (*branch_scope, branch_type.clone(), actual.clone()) } else { (output_else, actual.clone(), branch_type.clone()) };
                         if let crate::sema::constraints::CallableApplicationScope::Guard(guard) = live_scope
                             && present != Type::Unknown && absent != Type::Unknown
+                && (expectation.is_none() || self.type_constraints.resolve(&present).is_ok_and(|present| present.contains_inference()))
                         {
                             match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr(condition).span, crate::sema::guarded_requirements::GuardOutputSite::Statement(stmt.span), present, absent, nonnull_when, self.callable_solver_level()) {
-                                Ok(Some(outward)) => return outward,
+                                Ok(Some(outward)) => {
+                                    if let Some(expectation) = expectation { self.expect_type(expectation.context(), &outward, stmt.span); }
+                                    return outward;
+                                }
                                 Ok(None) => {},
                                 Err(error) => {
                                     self.error(stmt.span, &format!("guarded output relationship is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);

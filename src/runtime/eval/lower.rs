@@ -4298,10 +4298,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut body = Vec::new();
         let value = self.lower_scheme_expression(expression, slots, current_function, facts, visited, lowered_types, &mut body)?;
         let ty = lowered_types.get(&value)?.clone();
+        let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
         let tail = push_build_row!(self, stmt, BuildStmtRow::Value { value });
         if ty.may_hold_resource() { self.scratch.borrow_mut().mark_resource_transfer(tail); }
         body.push(tail);
         let value = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span: self.program.arena.expr(expression).span });
+        self.record_scheme_guard_rows(facts.guard_scopes().expressions.get(&expression).copied(), start);
         lowered_types.insert(value, ty);
         Some(value)
     }

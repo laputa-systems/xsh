@@ -4321,6 +4321,10 @@ pre-existing containers retain their own invariant domains.
 
 Equality or inequality against `null` does not itself choose an inferred
 parameter's type, whichever operand contains `null`.
+A value selected by such a comparison, as in
+`if value != null { value } else { null }`, may initialize a local, with or
+without an annotation, or be returned. Its type joins both branches, and an
+annotation still checks that join.
 
 At a direct call to an inferred quantified pure declaration, fixed required arguments
 may be positional or named. A final rest parameter has type `List[T]`; omitting

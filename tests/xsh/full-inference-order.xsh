@@ -433,3 +433,38 @@ let some: Int? = 1
 let _ = check({name: 7}, some)
 """, status: 2, stderr: ["[check.callable-mismatch]"])?
 }
+
+test test_guarded_values_flow_into_locals_and_returns { |ctx|
+  let output = test.run_xsh(ctx, r"""pure returned(value) -> Path? { if value != null { value } else { null } }
+pure untyped(value) -> Bool {
+  let checked = if value != null { value } else { null }
+  checked != null
+}
+pure annotated(value) -> Bool {
+  let checked: Path? = if value != null { value } else { null }
+  checked != null
+}
+pure forwarded(value) -> Bool { annotated(value) }
+let possible: Path? = p"/"
+assert returned(p"/") == p"/"
+assert returned(null) == null
+assert untyped(p"/")
+assert !untyped(null)
+assert annotated(p"/")
+assert !annotated(null)
+assert forwarded(possible)
+assert !forwarded(null)
+print "ok"
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "ok\n", output.stdout
+}
+
+test test_guarded_local_keeps_its_annotation_contract { |ctx|
+  test.expect(ctx, r"""pure annotated(value) -> Bool {
+  let checked: Int? = if value != null { value } else { null }
+  checked != null
+}
+let _ = annotated("text")
+""", status: 2, stderr: ["[check.callable-mismatch]"])?
+}

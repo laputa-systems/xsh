@@ -2495,7 +2495,7 @@ impl Checker {
     ) -> Type {
         let expectation = expectation.filter(|expectation| expectation.context() != &Type::Unknown);
         let output_parent = self.constraint_scope();
-        let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && expectation.is_none() && arena.arena.if_expr_branches(branches).len() == 1).then(|| arena.arena.if_expr_branches(branches)[0].condition)
+        let output_condition = (purpose == super::stmt::TailCheckingPurpose::Value && arena.arena.if_expr_branches(branches).len() == 1).then(|| arena.arena.if_expr_branches(branches)[0].condition)
             .and_then(|condition| self.guard_output_condition_arena(arena, condition).map(|polarity| (condition, polarity)));
         let mut output_branch = None;
         let mut inferred = None;
@@ -2605,9 +2605,13 @@ impl Checker {
             let (live_scope, present, absent) = if nonnull_when { (branch_scope, branch_type, else_ty.clone()) } else { (output_else, else_ty.clone(), branch_type) };
             if let crate::sema::constraints::CallableApplicationScope::Guard(guard) = live_scope
                 && present != Type::Unknown && absent != Type::Unknown
+                && (expectation.is_none() || self.type_constraints.resolve(&present).is_ok_and(|present| present.contains_inference()))
             {
                 match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr(condition).span, crate::sema::guarded_requirements::GuardOutputSite::Expression(arena.arena.expr(expression).span), present, absent, nonnull_when, self.callable_solver_level()) {
-                    Ok(Some(outward)) => return outward,
+                    Ok(Some(outward)) => {
+                        if let Some(expectation) = expectation { self.expect_type(expectation.context(), &outward, arena.arena.expr(expression).span); }
+                        return outward;
+                    }
                     Ok(None) => {},
                     Err(error) => {
                         self.error(arena.arena.expr(expression).span, &format!("guarded output relationship is invalid: {error:?}"), DiagnosticCode::CheckLocalInference);
