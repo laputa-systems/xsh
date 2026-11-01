@@ -432,7 +432,7 @@ pure resolver_reason(message: Str) -> Str {
   parts[-1]
 }
 
-proc lookup(host: Str, opts: Options) [net] -> Lookup {
+proc lookup(host: Str, opts) [net] -> Lookup {
   if host == "" or (opts.numeric and ! numeric_host(host)) {
     return {rows: [], problem: "Name does not resolve"}
   }
@@ -557,7 +557,7 @@ proc bind_source(fd: Int, family: Str, opts: Options) [net, fs, process, io, err
 # One connect attempt, bounded by -w when given. The kernel reports a connect
 # that ran out of its send timeout as EINPROGRESS; the utility names that
 # ETIMEDOUT.
-proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, error] {
+proc connect_bounded(fd: Int, target, opts: Options) [net, process, error] {
   let c = linux.net_constants()
   return linux.connect(fd, target) when opts.timeout < 0
   linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })
@@ -887,7 +887,7 @@ proc listen_addresses(host: Str?, opts: Options) [net, process, io] -> List[Addr
 
 # Binds the first address that accepts it. Several listeners may share a port
 # (SO_REUSEPORT), as the utility's do.
-proc bind_listener(host: Str?, port: Int, opts: Options) [net, process, io, error] -> Int {
+proc bind_listener(host: Str?, port, opts: Options) [net, process, io, error] -> Int {
   let c = linux.net_constants()
   var last_failure = "Address not available"
   for row in listen_addresses(host, opts) {

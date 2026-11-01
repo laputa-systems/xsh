@@ -4785,7 +4785,7 @@ fn verify_instantiated_call_arguments(
             0,
         )? };
         let mut producer_contract = None;
-        let actual = match actual {
+        let mut actual = match actual {
             Some(actual) => actual,
             None if !is_splice => {
                 let derived = match pipeline_item {
@@ -4801,11 +4801,6 @@ fn verify_instantiated_call_arguments(
                     },
                 };
                 ensure_closed_type(&actual)?;
-                if !actual.matches_expected(&expected) {
-                    return Err(IrVerifyError::new(
-                        "generic call argument does not match its checked parameter slot",
-                    ));
-                }
                 materialization.charge_clone(&actual)?;
                 producer_contract = Some(actual.clone());
                 CheckedArgumentType::Known(actual)
@@ -4816,6 +4811,14 @@ fn verify_instantiated_call_arguments(
                 ));
             }
         };
+        if let CheckedArgumentType::Known(stored) = &actual
+            && !stored.matches_expected(&expected)
+            && producer_proof.guarded_record_argument(decoder.owner, value.raw() as usize, stored, &expected)?
+        {
+            materialization.charge_clone(&expected)?;
+            producer_contract = Some(expected.clone());
+            actual = CheckedArgumentType::Known(expected.clone());
+        }
         if producer_contract.is_none() && (matches!(actual, CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap)
             || (matches!(actual, CheckedArgumentType::ListItems(_))
                 && matches!(store.tags.get(value.raw() as usize), Some(FullTag::ExprList | FullTag::ExprListBuild)))

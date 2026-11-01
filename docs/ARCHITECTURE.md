@@ -147,6 +147,14 @@ retain static substitution rules. Cold proof checks actual members, writers,
 ownership, and context use before accepting strict generic binder evidence.
 Existing Any and Optional widening use checked-value argument elaborations rather than treating
 a formal target as the actual producer type.
+Guarded record arguments retain their storage contract and a separately proved
+read view. The existing optional-read proof authenticates the source binding,
+active guards, scope, and intervening mutations before generic call evidence can
+use that view. A record literal derives narrowed fields from its effective
+writers; a spread proves the original source view while retaining every other
+source field. The resulting argument still has an independent ground producer
+obligation. Registered unions containing an erased record use the ordinary
+erased-record aggregate proof, including extra and overwritten field producers.
 Error variant constructors in generic bodies reuse the canonical checked
 family, variant, and source-ordered payload binding from ordinary lowering.
 Generated default-message and unsigned-check rows retain actual producer types

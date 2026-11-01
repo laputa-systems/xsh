@@ -2934,6 +2934,42 @@ impl<'a> ProducerProof<'a> {
         Ok(Some((*actual).clone()))
     }
 
+    pub(super) fn guarded_record_argument(&mut self, owner: u32, instruction: usize, actual: &Type, expected: &Type) -> Result<bool, IrVerifyError> {
+        if !matches!(expected, Type::Record(_)) { return Ok(false); }
+        let decoder = self.owner(owner)?;
+        if self.index.guarded_record_read_matches_type(&decoder, instruction, actual, expected, &mut self.budget)? { return Ok(true); }
+        let (Type::Record(actual_fields), Type::Record(expected_fields)) = (actual, expected) else { return Ok(false); };
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Record(_))
+            || !crate::runtime::eval::lower::only_optional_read_narrowing(actual, expected)
+        { return Ok(false); }
+        let writers = self.record_field_writers(&decoder, instruction)?.writers;
+        for (name, expected) in expected_fields.iter() {
+            self.budget.charge(1)?;
+            let Some(actual) = actual_fields.get(name) else { return Ok(false); };
+            if decoder.checked_type_fits(actual, expected) { continue; }
+            let proven = match writers.get(name) {
+                Some(super::super::CheckedRecordFieldWriter::Value(value)) => self.index.guarded_record_read_matches_type(&decoder, *value, actual, expected, &mut self.budget)?,
+                Some(super::super::CheckedRecordFieldWriter::Spread { instruction, fields }) => self.record_spread_field_view(&decoder, *instruction, fields, *name, expected)?.is_some(),
+                None => false,
+            };
+            if !proven { return Ok(false); }
+        }
+        Ok(true)
+    }
+
+    fn record_spread_field_view(&mut self, decoder: &FullDecoder<'a>, instruction: usize, fields: &Arc<Type>, name: Name, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
+        let Type::Record(source) = fields.unvalidated() else { return Err(IrVerifyError::new("record spread has no record contract")); };
+        let actual = source.get(&name).ok_or_else(|| IrVerifyError::new("record spread omits its projected field"))?;
+        if decoder.checked_type_fits(actual, expected) { return Ok(Some(Arc::clone(fields))); }
+        self.budget.charge_clone(fields)?;
+        self.budget.charge_clone(expected)?;
+        let mut narrowed = (**source).clone();
+        narrowed.insert(name, expected.clone());
+        let view = Arc::new(Type::Record(Arc::new(narrowed)));
+        let proven = self.index.guarded_record_read_matches_type(decoder, instruction, fields, &view, &mut self.budget)?;
+        Ok(proven.then_some(view))
+    }
+
     pub(super) fn contextual_relative_path_argument(&mut self, owner: u32, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
         if expected != &Type::rel_path() { return Ok(false); }
         let decoder = self.owner(owner)?;
@@ -5833,13 +5869,17 @@ impl<'a> ProducerProof<'a> {
                 };
                 let record_contract = match (record_contract, &actual) {
                     (Type::Union(members), Some(actual)) => {
-                        let mut candidates = members.iter().filter(|member| matches!(member, Type::Record(_)) && actual.matches_expected(member));
+                        let mut candidates = members.iter().filter(|member| matches!(member, Type::Record(_) | Type::ErasedRecord) && actual.matches_expected(member));
                         let selected = candidates.next();
                         if candidates.next().is_some() { return Err(IrVerifyError::new("ground record producer matches several union members")); }
                         selected.unwrap_or(record_contract)
                     }
                     _ => record_contract,
                 };
+                if record_contract == &Type::ErasedRecord {
+                    self.verify_erased_record_aggregates(&decoder, unresolved)?;
+                    return Ok(());
+                }
                 let Type::Record(expected_fields) = record_contract else { return Err(IrVerifyError::new("ground record producer has no record contract")) };
                 for (name, expected) in expected_fields.iter() {
                     match writers.get(name) {
@@ -5848,9 +5888,9 @@ impl<'a> ProducerProof<'a> {
                             self.expression(owner, *value, Arc::new(expected.clone()), false);
                         },
                         Some(super::super::CheckedRecordFieldWriter::Spread { instruction, fields }) => {
-                            let Type::Record(source) = fields.unvalidated() else { unreachable!("record spread writer has a non-record field contract") };
-                            if !decoder.checked_type_fits(&source[name], expected) { return Err(IrVerifyError::new("ground record last spread writer disagrees with its result field contract")); }
-                            self.expression(owner, *instruction, Arc::clone(fields), false);
+                            let view = self.record_spread_field_view(&decoder, *instruction, fields, *name, expected)?
+                                .ok_or_else(|| IrVerifyError::new("ground record last spread writer disagrees with its result field contract"))?;
+                            self.expression(owner, *instruction, view, false);
                         }
                         None => return Err(IrVerifyError::new("ground record producer omits a required field")),
                     }

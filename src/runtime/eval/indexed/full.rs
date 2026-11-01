@@ -34663,6 +34663,75 @@ assert nullable_name == null
     }
 
     #[test]
+    fn guarded_record_arguments_require_their_own_source_binding() {
+        let source = r#"
+type Options = {srcaddr: Str?, numeric: Bool}
+proc lookup(host: Str, opts) -> Bool { opts.numeric }
+proc selected(opts: Options, other: Options) -> Bool {
+    let _ = other
+    if let given = opts.srcaddr { return lookup(given, opts) }
+    false
+}
+"#;
+        for argument in ["opts", "{...opts, numeric: false}"] {
+            let source = source.replace("lookup(given, opts)", &format!("lookup(given, {argument})"));
+            let program = fixture("guarded-record-argument.xsh", &source);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "selected");
+            let call = scheme_fixture_call(&program, "lookup");
+            let arguments = scheme_fixture_call_arguments(&program, call);
+            let argument = arguments[1].1 as usize;
+            let decoder = function_view_decoder(&program.store, owner);
+            let source = match decoder.expression_view(argument).unwrap() {
+                schema::ExprView::Param(0) => argument,
+                schema::ExprView::Record(mut entries) => entries.find_map(|entry| match entry.unwrap() {
+                    decode::RecordEntryView::Spread(value) => Some(value.raw() as usize),
+                    _ => None,
+                }).unwrap(),
+                _ => panic!("the argument retains its record source"),
+            };
+            assert!(matches!(decoder.expression_view(source), Ok(schema::ExprView::Param(0))));
+            let mut forged = program.clone();
+            let words = forged.store.data[source].range().bounds(forged.store.extra.len()).unwrap();
+            forged.store.extra[words.start] = 1;
+            let error = FullVerifier::verify(&forged).expect_err("a same-typed record needs its own active guard");
+            assert_eq!(error.message, "generic call argument does not match its checked parameter slot");
+        }
+    }
+
+    #[test]
+    fn erased_record_union_arguments_authenticate_extra_field_producers() {
+        let program = fixture("erased-record-union-producer.xsh", r#"
+proc connect_bounded(target, flag: Bool) [net, process, error] {
+    if flag { linux.connect(-1, target) } else { linux.connect(-1, target) }
+}
+proc selected() [net, process, error] -> Str {
+    let target = {family: "inet", address: "127.0.0.1", port: 80, witness: "original"}
+    let later = "later"
+    let _ = connect_bounded(target, true)
+    later
+}
+"#);
+        FullVerifier::verify(&program).unwrap();
+        let owner = scheme_fixture_root_function(&program, "selected");
+        let decoder = function_view_decoder(&program.store, owner);
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let witness_name = program.symbol_owner().with_current(|| Name::intern("witness"));
+        let witness = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
+            Ok(schema::ExprView::Record(mut entries)) => entries.find_map(|entry| match entry.unwrap() {
+                decode::RecordEntryView::Field(name, value) if name == witness_name => Some(value.raw() as usize),
+                _ => None,
+            }),
+            _ => None,
+        }).unwrap();
+        let later = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+        let mut forged = program.clone();
+        forged.store.tags[witness] = FullTag::ExprParam;
+        forged.store.data[witness] = program.store.data[later];
+        FullVerifier::verify(&forged).expect_err("an erased record union cannot read a field producer before its declaration");
+    }
+
+    #[test]
     fn full_verifier_rejects_forged_enum_local_storage_facts() {
         let program = fixture(
             "enum-local-storage.xsh",
