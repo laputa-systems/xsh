@@ -4297,3 +4297,31 @@ proc wait_ready(plugin: Service, value: Int, plain: Str) [env, error] -> Result[
         }
     });
 }
+
+#[test]
+fn generic_fixed_opaque_empty_list_authenticates_its_physical_producer() {
+    on_large_stack(|| {
+        let program = fixture(r#"
+type Member = {value: Any}
+proc use_members(input, members: List[Member]) -> Str { f"{input}:{members.len()}" }
+pure foreign() -> Bool { true }
+assert use_members("x", []) == "x:0"
+"#);
+        FullVerifier::verify(&program).unwrap();
+        execute_both(&program);
+        let empty = program.store.tags.iter().position(|tag| *tag == FullTag::ExprList).unwrap();
+        let foreign = function(&program, "foreign");
+        let decoder = function_view_decoder(&program.store, foreign);
+        let boolean = program.store.function_instruction_range(foreign).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Bool(_)))).unwrap();
+        let context = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == empty && matches!(fact.purpose, super::super::FullCheckedExprPurpose::ProducerContext(_))).unwrap();
+        let mut wrong_owner = program.clone();
+        wrong_owner.store.in_place.take();
+        wrong_owner.store.checked_expr_types[context].purpose = super::super::FullCheckedExprPurpose::ProducerContext(super::super::ExecutableOwner::Function(super::super::IrFunctionId::new(foreign).unwrap()));
+        assert!(FullVerifier::verify(&wrong_owner).is_err());
+        let mut changed = program.clone();
+        changed.store.in_place.take();
+        changed.store.tags[empty] = program.store.tags[boolean];
+        changed.store.data[empty] = program.store.data[boolean];
+        assert!(FullVerifier::verify(&changed).is_err());
+    });
+}

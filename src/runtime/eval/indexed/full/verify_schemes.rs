@@ -4866,6 +4866,7 @@ fn verify_instantiated_call_arguments(
             .ok_or_else(|| IrVerifyError::new("generic call argument type is invalid"))?;
         let pipeline_item = if is_splice { None } else { producer_proof.pipeline_item_argument_type(decoder.owner, value.raw() as usize)? };
         let literal_context = if pipeline_item.is_some() { None } else { producer_proof.literal_argument_type(decoder.owner, value.raw() as usize)? };
+        let has_literal_context = literal_context.is_some();
         let actual = if producer_proof.contextual_relative_path_argument(decoder.owner, value.raw() as usize, &expected)? {
             materialization.charge_clone(&expected)?;
             Some(CheckedArgumentType::Known(expected.clone()))
@@ -4905,6 +4906,10 @@ fn verify_instantiated_call_arguments(
                 ));
             }
         };
+        if has_literal_context && let CheckedArgumentType::Known(actual) = &actual {
+            materialization.charge_clone(actual)?;
+            producer_contract = Some(actual.clone());
+        }
         if let CheckedArgumentType::Known(stored) = &actual
             && !stored.matches_expected(&expected)
             && producer_proof.guarded_record_argument(decoder.owner, value.raw() as usize, stored, &expected)?

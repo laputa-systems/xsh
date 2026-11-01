@@ -170,3 +170,26 @@ pure sample(row) -> Row { Row(value: row.value) }
 let _ = sample({value: "bad"})
 """, status: 2, stderr: ["[check.type-mismatch]"])?
 }
+
+test test_empty_literal_uses_fixed_opaque_parameter_contract { |ctx|
+  let good = test.expect(ctx, r"""type Member = {value: Any}
+proc use_members(input, members: List[Member]) -> Str { f"{input}:{members.len()}" }
+proc use_ints(input, values: List[Int]) -> Str { f"{input}:{values.len()}" }
+let empty: List[Member] = []
+assert use_members("x", []) == "x:0"
+assert use_members("y", empty) == "y:0"
+assert use_members("z", [{value: "data"}]) == "z:1"
+assert use_ints("x", []) == "x:0"
+""", status: 0)?
+  assert good.stderr == "", good.stderr
+  test.expect(ctx, r"""type Member = {value: Any}
+type TextMember = {value: Str}
+proc use_members(input, members: List[Member]) -> Str { f"{input}:{members.len()}" }
+let wrong: List[TextMember] = [{value: "data"}]
+let _ = use_members("x", wrong)
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+  test.expect(ctx, r"""pure identify(value) { value }
+let opaque: Any = 7
+let _: Int = identify(opaque)
+""", status: 2, stderr: ["[check.dynamic-boundary]"])?
+}
