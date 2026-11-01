@@ -1,14 +1,133 @@
 # Inference evidence
 
-Reference for the evidence the [inference campaign](../full-inference-campaign.md)
-uses: the G3 matrix status, the frozen and practical corpus views, annotation
-erasure measurements, and the classes of annotation that stay. The campaign
-document holds the contract and the log.
+Reference for the inference completion contract, capability evidence, corpus
+views, and retained annotations. [Active work](../full-inference-campaign.md)
+lives in the campaign document. Earlier implementation notes remain in its
+Git history.
+
+## Completion contract
+
+Complete one rank-1 type, row, and effect system across ordinary XSH programs.
+The [SPEC](SPEC.md) owns language behavior. [Architecture](ARCHITECTURE.md)
+owns the checker, scheme, verifier, and prepared-execution boundaries.
+
+- Infer private and exported pure, proc, and stream interfaces independently
+  of callers. Preserve parameter labels, defaults, rest arguments, schemas,
+  visibility, callable kinds, and written capability bounds.
+- Solve recursive components monomorphically before generalization. Reject
+  infinite types and polymorphic recursion. Higher-rank inference is excluded.
+- Support ordinary bodies through the same constraint and elaboration path.
+  Branches, patterns, loops, mutation, containers, wrappers, comprehensions,
+  resource scopes, cleanup, and delayed work cannot retain a generic whitelist.
+- Preserve reusable schemes through immutable aliases, imports, callable
+  selection, factories, and structural values where rank-1 typing permits them.
+  Callback parameters remain monomorphic within each invocation.
+- Generalize only variables independent of shared mutable or resource state.
+  Fresh activation-local accumulators can use enclosing parameters. Live
+  producer instances retain one monomorphic item type and one cleanup owner.
+- Infer returns, yielded items, null joins, and empty payloads without choosing
+  `Any`. Preserve proc completion envelopes, nested Results, Bool statement
+  semantics, propagation destinations, and source-selected conversions.
+- Compose callback and recursive effects. Preserve explicit bounds and the
+  established charge sites for defaults, defers, signal hooks, and stream pulls.
+  Capturing an error does not erase other effects or delayed obligations.
+- Retain coherent builtin overload relationships as sealed requirements.
+  Discharge them at concrete calls without rechecking bodies, caller training,
+  open instance search, new coercions, or source-spelling exceptions.
+- Preserve unique record labels, lacks constraints, container invariance,
+  nominal domains, validated types, and flow-fact invalidation. External `Any`
+  requires explicit schema validation and cannot invent a callable contract.
+- Lower each generic body once. Prepared invocation carries checked evidence
+  without solver state, frontend borrows, runtime overload search, or a second
+  executor. Immutable exported schemes remain independent of clients.
+- Independently verify binders, actual producers, substitutions, layouts,
+  captures, effects, and ownership. Matching forged metadata cannot certify
+  itself. Resource exhaustion remains deterministic and fails closed.
+- Tooling consumes published checker facts. Source migration preserves
+  elaboration, source order, bytes, errors, and cleanup, and is idempotent.
+  Remove superseded restrictions and migration-only paths after caller checks.
+
+No new public syntax, production dependency, persistent cache format, public
+trait system, runtime inference fallback, native backend, or Lean proof campaign
+is part of this completion scope.
+
+### Required evidence
+
+Every capability family below needs metadata checks, execution after frontend
+disposal, and a negative control that fails for its intended reason. Cover both
+ordinary and forced indexed execution. A malformed-IR control starts from a
+valid fixture and changes the intended invariant.
+
+Generate equivalent programs for alpha renaming, import order, independent
+declaration order, aliases, named arguments, defaults, descriptors, helper
+extraction, and explicit versus inferred types. Preserve actual source meaning
+when an annotation selects a conversion, nominal domain, or public promise.
+
+Extend the existing soundness/reference tests with an independent test-only
+solver for the supported type, row, and effect core. Compare generated problems
+at fixed seeds for success, failure, and schemes modulo renaming. Include
+rollback, generalization, effect substitution, row constraints, and mutations
+that demonstrate a wrong solver result is detected.
+
+Classify each retained annotation by its actual cause. Intentional contracts,
+source elaboration, missing information, genuine ambiguity, and excluded
+higher-rank requirements can justify retention. Missing in-scope inference
+remains open work. Reclassify the historical 758 Proc restrictions and compare
+the 202 effect clauses by dependency component. Preserve the frozen and current
+cohort denominators below.
+
+Compare selected erasures jointly with meaningful core and isolated Laputa
+behavior witnesses. Check interfaces, operations, errors, output, side-effect
+order, stream pulls, and cleanup. The old concrete private contract must remain
+a valid instance of its inferred scheme. Keep annotation-only erasure separate
+from source rewrites. A targeted pass does not establish corpus equivalence.
+
+Close correctness only after every required family and in-scope failure class
+has current integrated-source evidence. Use the current verification owners in
+[Testing](TESTING.md). Historical receipts do not qualify a changed compiler.
+
+## Deferred performance qualification
+
+All performance work and readiness checks are currently deferred. These
+requirements remain for an owner-authorized resumption.
+
+| Metric | Budget relative to the frozen reference |
+|---|---|
+| Unchanged annotated source, cold frontend/preparation median | Reference + max(5% of reference, 1 ms) |
+| Cold frontend/preparation p95 | Reference + max(10% of reference, 2 ms) |
+| Peak process memory and retained typing data, separately | Reference + max(10% of reference, 2 MiB) |
+| Reduced versus annotated equivalent, median frontend cost | Annotated cost + max(20% of annotated cost, 2 ms) |
+| Existing monomorphic runtime median | Reference + max(5% of reference, 1 ms) |
+
+Use source-qualified baseline and candidate products in the same pinned
+environment. Cold means a fresh process without an in-process frontend cache.
+Record OS page-cache state separately and do not drop host caches.
+Use at least 100 interleaved completed invocations per cold distribution and
+five interleaved runs per runtime workload. Report median and p95 for cold
+cost, and median, minimum, and range for runtime cost.
+
+Keep phase CPU, wall time, preparation, runtime, retained data, allocation
+traffic, peak process RSS, and cgroup peaks separate. Bracket measurements with
+both readiness checks and reject contaminated windows. Differences within the
+observed spread are inconclusive. Allow up to three independent admitted
+windows for an unresolved budget before withholding qualification.
+
+Use fixed 64, 128, 256, and 512-unit alias, dependency, row, composition,
+producer, recursive-effect, module-diamond, and finite-overload families.
+Retain the 400-alias and semantic-depth controls separately. For fixed-size
+output per unit, normalized work must not exceed `3 * previous + 128` per
+doubling. Normalize only by independently counted emitted type/evidence size.
+Report raw work and growing output size too.
+
+Count constraints, representative and occurs visits, level adjustments, row
+labels, instantiations, candidate tests, watcher wakeups, effect edges, body
+checks, evidence nodes, and diagnostic work. Bound repeated work per output
+node rather than claiming the whole solver is linear from union-find alone.
+Retain runtime and product-size accounting for both ground and generic code.
 
 ## G3 capability matrix
 
-This table is the checkable status of the section 13 matrix in
-`full-inference-campaign.md` at the `master` revision that carries it. Every
+This table records evidence for the completion contract above. Every
 test below is a native `tests/xsh/` test unless it names a Rust test. Names omit
 the `test_full_inference_` prefix inside `tests/xsh/full-inference-*.xsh`. A row
 lists a positive witness that executes after frontend disposal and a negative
@@ -17,9 +136,9 @@ that fails for its specific cause.
 | Row | Positive witnesses | Negative witnesses | Recorded limits |
 |---|---|---|---|
 | Callable kinds | `callables`: `imported_generic_alias_instantiates_int_str_bool`, `private_generic_calls_infer_independent_instances`; `procedures`: `proc_branches_keep_one_int_or_str_result`; `producers`: `unannotated_generic_stream_infers_items_and_closes_early` | `callables`: `explicit_effect_bound_rejects_callback_laundering`; `producers`: `stream_rejects_incompatible_yield_types`; `typed-callables`: `test_typed_callable_fits_the_dynamic_handle_of_its_kind` | Malformed written annotations are covered by the parser and checker suites, not by a G3 witness. |
-| Body composition | `bodies`: `body_patterns_guards_and_while`, `body_record_map_set_updates_and_comprehensions`, `body_try_retry_and_captured_error`; `callables`: `generic_bodies_compose_rows_results_optionals_and_loops`; `defaults`: `defaults_and_rest_parameters_keep_body_relationships` | `bodies`: `body_rejects_non_indexable_instance`, `body_rejects_incompatible_generic_branch`; `callables`: `ordering_rejects_operands_outside_its_domain`, `negation_rejects_operands_outside_its_domain`; `procedures`: `only_proc_completions_convert_error_payloads`; `diagnostic-cascades`: one diagnostic per rejected body | A `proc` statement call cannot use a `pure` callback that returns `Unit`; discard with `let _ =`. Generic negation does not accept `UInt`. A `pure` function has no proc-style `Err(Str)` conversion. |
+| Body composition | `bodies`: `body_patterns_guards_and_while`, `body_record_map_set_updates_and_comprehensions`, `body_try_retry_and_captured_error`, `managed_resource_scope_with_only_returns_releases_resources`, `captures_a_computed_lookup_table`; `callables`: `generic_bodies_compose_rows_results_optionals_and_loops`; `defaults`: `defaults_and_rest_parameters_keep_body_relationships` | `bodies`: `body_rejects_non_indexable_instance`, `body_rejects_incompatible_generic_branch`; `callables`: `ordering_rejects_operands_outside_its_domain`, `negation_rejects_operands_outside_its_domain`; `procedures`: `only_proc_completions_convert_error_payloads`; `diagnostic-cascades`: one diagnostic per rejected body | A `proc` statement call cannot use a `pure` callback that returns `Unit`; discard with `let _ =`. Generic negation does not accept `UInt`. A `pure` function has no proc-style `Err(Str)` conversion. |
 | Callable values | `callables`: `callable_values_in_records_keep_the_outer_scheme`, `unannotated_conditional_selection_infers_one_callable`; `callable-lists`: `callable_list_generalizes_its_outer_relationship`; `captured-callables`: `returned_generic_callable_uses_immutable_capture`; `typing-imported-pure`: `test_imported_callables_pass_directly_as_arguments_to_generic_callees`, `test_imported_callable_arguments_keep_their_module_environment` | `callables`: `private_module_callables_remain_inaccessible`, `dynamic_callable_does_not_gain_a_signature`, `unannotated_callback_parameter_is_monomorphic_across_calls`; `callable-relays`: `conditional_selection_rejects_incompatible_callables`; `callable-lists`: `callable_list_rejects_an_incompatible_shared_contract`; `safety`: `mutable_callable_binding_keeps_one_instance`; `diagnostic-cascades`: `test_failed_callback_call_does_not_reject_later_valid_calls` | An exported callable alias needs an explicit contract (SPEC 9.4). A callback parameter is monomorphic within one call (rank-1). |
-| Recursion | `recursive-components`: `self_recursive_scc_generalizes_after_checking`, `mutual_recursive_scc_is_declaration_order_independent`, `recursive_proc_preserves_independent_result_instances`, `recursive_pure_indexes_a_generic_receiver`; `producers`: `recursive_returns_are_inferred_monotype_per_component` | `safety`: `recursive_infinite_type_is_rejected`, `polymorphic_recursion_is_rejected`; `recursive-components`: `recursive_peer_callback_requirements_remain_independent` | The checker output of a chain of `n` forwarding compositions grows quadratically because each scheme carries its callee's applications. See the reduced-composition decision in the log of `full-inference-campaign.md`. |
+| Recursion | `recursive-components`: `self_recursive_scc_generalizes_after_checking`, `mutual_recursive_scc_is_declaration_order_independent`, `recursive_proc_preserves_independent_result_instances`, `recursive_pure_indexes_a_generic_receiver`; `producers`: `recursive_returns_are_inferred_monotype_per_component` | `safety`: `recursive_infinite_type_is_rejected`, `polymorphic_recursion_is_rejected`; `recursive-components`: `recursive_peer_callback_requirements_remain_independent` | Earlier forwarding-composition probes emitted quadratically growing output because each scheme retained its callee's applications. Current scaling remains unqualified; the reductions are in the Git history of `full-inference-campaign.md`. |
 | Effects | `callables`: `callback_effects_flow_through_lazy_producers`; `effect-union`: `imported_effect_union_preserves_promised_bounds_and_independent_types`; `recursive-components`: `recursive_peer_retains_callback_effects`; `stream-effects`: `stream_effect_is_lazy_through_returned_alias`; `defaults`: `stream_default_effect_is_charged_at_creation` | `callables`: `explicit_effect_bound_rejects_callback_laundering`; `effect-union`: `imported_effect_union_keeps_unknown_dynamic_effects_rejected`, `imported_effect_union_reports_a_missing_capability`; `stream-effects`: `inferred_stream_effect_alias_rejects_empty_bound`; `bodies`: `body_retry_delay_requires_time_effect`; `safety`: `returned_callable_keeps_its_effect_obligation` | None recorded. |
 | Streams | `producers`: `recursive_stream_keeps_independent_lazy_item_contexts`, `mutual_streams_share_yield_cells_before_generalizing`; `callable-relays`: `imported_generic_stream_alias_retains_its_scheme_and_lazy_order`; `defaults`: `stream_default_runs_at_first_pull_and_closes_on_stop`; `bodies`: `body_yield_delegation_closes_nested_streams` | `producers`: `live_producer_keeps_its_item_type_monomorphic`; `safety`: `live_producer_keeps_one_incompatible_item_type`, `generic_alias_does_not_duplicate_a_resource_handle`, `iteration_stream_failure_preserves_pull_order_and_cleanup` | None recorded. |
 | Rows and locals | `defaults`: `nested_row_projection_preserves_open_fields`; `safety`: `activation_local_mutable_accumulator_is_generic`; `relational-constraints`: `nullable_target_preserves_source_presence`, `optional_guard_preserves_original_immutable_reads`; `callables`: `wrapper_fields_preserve_null_and_optional_field_idempotence` | `defaults`: `nested_row_projection_rejects_a_missing_field`; `callables`: `wrapper_fields_reject_a_second_optional_hop`; `safety`: `shared_mutable_capture_through_record_stays_monomorphic`; `relational-constraints`: `nullable_target_keeps_nullable_field_rejection` | No dedicated witness for a duplicate-label or lacks violation. `{n: 0, ...r}` and a field assignment on a local copy of an unannotated parameter are rejected with the wording "spread must be a record" and "field assignment requires a record value"; `{...r, n: v}` works. A row override needs a lacks constraint, so the rejection is a limit, and only the wording is open. |
@@ -27,7 +146,7 @@ that fails for its specific cause.
 | Dynamic boundaries | `inferred-require`: `test_require_infers_target_from_annotated_binding`, `test_require_uses_returns_branches_blocks_and_parameters`; `metamorphic`: `inline_and_named_descriptors_ground_the_same_fields`; `hidden-resources`: `scalar_extra_fields_survive_record_require` | `inferred-require`: `test_require_rejects_unanchored_targets`; `dynamic-error-boundary`: `test_dynamic_errors_require_validation_before_propagation`; `callables`: `dynamic_callable_does_not_gain_a_signature`; `diagnostic-cascades`: `test_dynamic_argument_for_a_field_reader_reports_one_diagnostic` | No witness for a phantom external schema. |
 | Prepared programs | Rust, in `runtime::eval::indexed::full`: `generic_pure_sequences_calls_and_captures_execute_after_frontend_drop`, `imported_generic_aliases_execute_after_frontend_drop_on_both_routes`, `generic_proc_imports_preserve_quantified_contract_after_frontend_disposal`, `imported_generic_callable_argument_is_bound_to_its_export_function`; `metamorphic`: `exported_proc_and_stream_schemes_are_client_independent` | Rust: `full_verifier_rejects_forged_generic_call_substitutions`, `full_verifier_rejects_forged_generic_rows_and_body_facts`, `full_verifier_rejects_forged_capture_type_as_generic_argument_evidence`, `full_verifier_rejects_forged_generic_module_exports`, `full_verifier_rejects_forged_statement_callback_result_fact`, `full_verifier_rejects_future_and_stale_visible_driver_slot_identities` | No test asserts that no solver runs at run time; the property is structural. |
 
-Section 13 also asks for metamorphic tests, an independent test-only solver and
+The completion contract also requires metamorphic tests, an independent test-only solver and
 regression examples. `metamorphic` holds eight hand-written equivalence tests:
 alpha renaming and declaration order, transparent aliases, inline against named
 descriptors, named-argument permutations, helper extraction, client
@@ -43,7 +162,17 @@ therefore open.
 
 G3 is not closed while either item is open.
 
+Wider frontend scenarios also remain unqualified. Historical 64-unit alias
+and higher-order composition probes exceeded the indexed type-materialization
+bound. Reduced recursive-effect and module-diamond probes failed checking.
+Reproduce those inputs on current source before classifying their causes.
+Those probes did not establish disposal execution, scaling, or performance.
+
 ## Annotation erasure
+
+The dated counts below are historical snapshots. Reproduce their diagnostic
+classes before treating them as current failures. The active campaign lists
+currently confirmed blockers.
 
 `dev/performance/corpus/erase_sites.py` measures how many inventory sites a
 compiler lets a source tree drop. It erases each site alone, then every site
@@ -74,7 +203,7 @@ below is from that run.
 |---|---:|---|
 | Proc return annotation that selects the plain value contract, so callers see `T` and not `Result[T, Error]` | 20 of 23 `check.type-mismatch` returns | Source meaning, not missing inference. The other three need individual review. |
 | `check.ambiguous-overload` on a parameter | 22 | Cross-type overloads on an unresolved receiver (see Retained annotations) are section 9 work. All 22 are of that kind. |
-| `compact.indexed-build` verification or lowering | 22 | Open implementation work; first reductions are in the log of `full-inference-campaign.md`. |
+| `compact.indexed-build` verification or lowering | 22 | Open implementation work; earlier reductions are in the Git history of `full-inference-campaign.md`. |
 
 Private `proc` parameters are in the applied view as of 2026-10-31; exported
 parameters, private `proc` returns, effect clauses, and `Map`/`.require()`
@@ -96,12 +225,12 @@ body is outside the supported parameter projection", 15 "generic argument
 temporary is not bound on a unique path", 14 "call argument has no checked
 type", and a tail of smaller checker classes.
 
-A `Set[Str]` local from `set.empty()` passed to a generic callee also fails
-verification with "generic call argument has no closed checked type". Open
-candidate classes among the `compact.indexed-build` failures are generic
+These snapshots also recorded a `Set[Str]` local from `set.empty()` passed to
+a generic callee failing with "generic call argument has no closed checked type".
+Candidate classes among the recorded `compact.indexed-build` failures include generic
 argument temporaries without a unique path, incomplete storage contracts,
 condition control roles, and stream return provenance. Two `check.conversion`
-cases are open.
+cases were also recorded. Their current status requires reproduction.
 
 ## Frozen corpus
 

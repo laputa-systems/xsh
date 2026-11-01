@@ -382,5 +382,5 @@ universal formal obligations.
 - 2026-10-18: The scheduler bridge derives the shared namespace from the common Git directory, using the unchanged launcher from its reviewed tool checkout. Compiler qualification stays with R13.
 - 2026-10-24: Paused at the owner's request. Completed slices were integrated, three incomplete branches parked, and 312 checkouts reclaimed.
 - 2026-10-25: Paused on `master`. Lint and lsmem source integrated, obsolete lane snapshots committed and their checkouts retired, full qualification explicitly pending.
-- 2026-10-28: G0 defers this campaign's performance obligations. The inference log lines moved to [the inference campaign](../full-inference-campaign.md#log).
+- 2026-10-28: G0 defers this campaign's performance obligations. Inference evidence is maintained in [Inference evidence](PERFORMANCE-INFERENCE.md).
 - 2026-10-30: Resumed on `perf/g1-next`. Did not repin the qualification image or write under the main checkout's `.work/`, since either changes the approved environment or the lane's write boundary; both wait for the owner. Attributed the scheduler-pair timeouts to fork under the shared address-space lock and fixed them at the spawn (`0836935e3`). Timing gates were not run: the lane's own suites kept the host busy, so perf gate deferred: host busy.
