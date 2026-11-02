@@ -254,3 +254,52 @@ print "built"
   assert inferred.stdout == "text\nnone\nbuilt\n"
   assert inferred.stdout == annotated.stdout
 }
+
+test test_full_inference_recursive_null_argument_makes_the_shared_parameter_nullable { |ctx|
+  let inferred = test.run_xsh(
+    ctx,
+    r"""pure thin(value, depth: Int) {
+  if depth > 0 { return thin(null, depth - 1) }
+  value
+}
+proc walk(target, depth: Int) [error] {
+  if depth > 0 { walk(null, depth - 1) }
+  if let found = target { assert found.byte_len() == 4 }
+}
+assert thin("text", 2) == null
+if let kept = thin("text", 0) { print $kept }
+walk("deep", 0)
+walk("deep", 2)
+print "walked"
+""",
+  )?
+  let annotated = test.run_xsh(
+    ctx,
+    r"""pure thin(value: Str?, depth: Int) -> Str? {
+  if depth > 0 { return thin(null, depth - 1) }
+  value
+}
+proc walk(target: Str?, depth: Int) [error] {
+  if depth > 0 { walk(null, depth - 1) }
+  if let found = target { assert found.byte_len() == 4 }
+}
+assert thin("text", 2) == null
+if let kept = thin("text", 0) { print $kept }
+walk("deep", 0)
+walk("deep", 2)
+print "walked"
+""",
+  )?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "text\nwalked\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_recursive_null_argument_rejects_a_non_nullable_use { |ctx|
+  test.expect(ctx, r"""pure thin(value, depth: Int) {
+  if depth > 0 { return thin(null, depth - 1) }
+  value.byte_len()
+}
+""", status: 2, stderr: ["[check.optional-method]"])?
+}

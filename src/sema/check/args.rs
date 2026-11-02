@@ -494,6 +494,12 @@ impl Checker {
                 || pending_method_result)
             && matches!(self.type_constraints.resolve(actual), Ok(Type::Inference(_)))
         { deferred.set(true); return; }
+        if authority.instance().is_none() && matches!(self.type_constraints.resolve(actual), Ok(Type::Null))
+            && let Err(conflict) = self.type_constraints.require_shared_parameter_nullable(expected, span)
+        {
+            self.report_inferred_type_conflict(conflict);
+            return;
+        }
         if !self.scheme_callable_types_compatible(expected, actual) {
             let exact_null = match self.type_constraints.call_argument_has_closed_null_evidence(actual) {
                 Ok(evidence) => evidence,

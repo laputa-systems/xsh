@@ -2219,6 +2219,23 @@ impl TypeConstraints {
         )
     }
 
+    pub(crate) fn require_shared_parameter_nullable(
+        &mut self,
+        expected: &Type,
+        contribution: Span,
+    ) -> Result<(), ConstraintConflict> {
+        let conflict = |error| ConstraintConflict {
+            expected: expected.clone(), actual: Type::Null, initializer: None,
+            established: None, contribution, resolution_error: Some(error),
+        };
+        let Type::Inference(id) = self.resolve(expected).map_err(conflict)? else { return Ok(()); };
+        if self.record_binding(id).map_err(conflict)?.is_some() { return Ok(()); }
+        let Some(Variable::Representative(variable)) = self.variables.get(&id) else { return Ok(()); };
+        let (level, origin) = (variable.level, variable.origin);
+        let payload = self.fresh_at_level(origin, level);
+        self.constrain(&Type::Inference(id), &Type::Optional(Box::new(payload)), contribution)
+    }
+
     pub(crate) fn call_argument_has_closed_null_evidence(&self, actual: &Type) -> Result<bool, ConstraintResolutionError> {
         has_anchor(&self.resolve(actual)?, AnchorEvidence::CheckedNullArgument)
     }

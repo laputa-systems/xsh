@@ -4370,7 +4370,8 @@ rule also allows exported pure functions to omit return annotations. Recursive
 pure declarations share provisional parameter and return types within their
 component. The checker solves every member before generalizing the component;
 recursive calls use those shared monotypes, and independent outside calls
-instantiate the published schemes freshly.
+instantiate the published schemes freshly. A `null` argument in a recursive
+call makes an unresolved shared parameter optional.
 `Null` is a closed return type, including inside records and containers.
 A null-only value supplies no optional payload type or domain schema.
 Checked tooling contracts retain quantified parameter relationships and open
