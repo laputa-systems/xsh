@@ -645,7 +645,7 @@ mod tests {
         assert!(unused[0].fix_hints.is_empty());
         assert_eq!(unused[0].notes, [KeptDeclaration::CommentBeside.hand_edit()]);
 
-        let inside = "error LoadError {\n  # legacy\n  Failed(message: Str)\n}\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n";
+        let inside = "error LoadError =\n  # legacy\n  Failed(message: Str)\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n";
         let unused = lint(inside);
         assert_eq!(unused.len(), 1, "{unused:?}");
         assert!(unused[0].fix_hints.is_empty());

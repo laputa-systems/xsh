@@ -1,18 +1,17 @@
 error Short = Missing(file: Path) : NotFound | Invalid(file: Path, message: Str)
 error Wide = Missing(file: Path) : NotFound | Invalid(file: Path, message: Str) | Rejected(url: Str, status: Int) : PermissionDenied, Timeout | Usage
-error Single { Usage }
-error   Spaced   {
-
+error Single =
   Usage
-      Offline:Timeout
+error   Spaced   =
+
+  Usage |
+      Offline:Timeout |
   Rejected( url: Str,
     status: Int )
-}
-error Commented {
+error Commented =
   # Why the request never left.
-  Usage  # bad arguments
+  Usage |  # bad arguments
   Offline
-}
 error Trailing = Usage | Offline  # a note
 
 proc show(error: Error) {

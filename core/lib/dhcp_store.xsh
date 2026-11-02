@@ -33,14 +33,13 @@ export type LeaseRecord = {
 }
 
 ## Why a document was refused.
-export error StoreReject {
-  TooLarge(limit: Int)
-  NotJson(message: Str)
-  Version(found: Int)
-  Schema(message: Str)
-  Unknown
+export error StoreReject =
+  TooLarge(limit: Int) |
+  NotJson(message: Str) |
+  Version(found: Int) |
+  Schema(message: Str) |
+  Unknown |
   Value(message: Str)
-}
 
 type ClasslessJson = {destination: Str, prefix: Int, gateway: Str}
 

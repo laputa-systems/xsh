@@ -1,7 +1,4 @@
-error FetchError {
-    Usage
-    Rejected(url: Str, status: Int)
-}
+error FetchError = Usage | Rejected(url: Str, status: Int)
 
 # begin example
 let named = FetchError.Usage(message: "not a URL")  # error: check.error-constructor

@@ -1055,7 +1055,7 @@ mod tests {
 
     #[test]
     fn result_return_instance_preserves_existing_callable_error_compatibility() {
-        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        let declarations = "error Failure = Bad\nerror Other = Wrong\n";
         let original = root_schema_contract(&format!("{declarations}pure describe(ok: Bool) -> Result[Str] {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
         let inferred = root_schema_contract(&format!("{declarations}pure describe(ok: Bool) {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
         assert!(original.is_instance_of(&inferred).unwrap());
@@ -1095,7 +1095,7 @@ mod tests {
 
     #[test]
     fn result_error_compatibility_retains_bare_errors_families_and_wrapping() {
-        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        let declarations = "error Failure = Bad\nerror Other = Wrong\n";
         for (original, candidate) in [
             ("pure describe() -> Error { Failure.Bad(\"bad\") }\n", "pure describe() { Failure.Bad(\"bad\") }\n"),
             ("pure describe(ok: Bool) -> Result[Str, Failure] { guard ok else { return Err(Failure.Bad(\"bad\")) }; \"yes\" }\n", "pure describe(ok: Bool) { guard ok else { return Err(Other.Wrong(\"bad\")) }; \"yes\" }\n"),

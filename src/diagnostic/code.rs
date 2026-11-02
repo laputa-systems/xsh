@@ -196,6 +196,7 @@ diagnostic_codes! {
         ParseEnumWirePayload = "parse.enum-wire-payload", error, "Reject payload fields on a `Str`-backed enum variant";
         ParseEnvAssignment = "parse.env-assignment", error, "Reject an `env` block entry that is not a `NAME=value` assignment";
         ParseEnvScopeMigration = "parse.env-scope-migration", error, "Reject an expression `env { ... }` without an explicit `env ({NAME: value}) { ... }` overlay";
+        ParseErrorBraceDeclaration = "parse.error-brace-declaration", error, "Reject the removed `error NAME { ... }` spelling; write `error NAME = A | B`";
         ParseErrorVariant = "parse.error-variant", error, "Reject an `error` definition with a missing or malformed variant";
         ParseExpectedBuilderEntry = "parse.expected-builder-entry", error, "Reject a builder block entry that is not a valid entry form";
         ParseExpectedCommand = "parse.expected-command", error, "Reject a missing command name where a command is expected";

@@ -286,11 +286,10 @@ print "after"
   assert "match-no-arm" in output.stderr, output.stderr
 }
 
-error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 # A value of one declared error family is closed the same way. `is Facet`
 # covers the variants that implement the facet.
@@ -319,11 +318,10 @@ test test_error_family_matches_covering_every_variant_run {
 test test_statement_match_missing_an_error_variant_is_a_check_error { |ctx|
   let stderr = check_errors(
     ctx,
-    """error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+    """error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 proc report(failure: FetchError) [io] {
   match failure {
@@ -348,8 +346,8 @@ report(FetchError.Offline())
   assert "not every variant of this error family is handled" in stderr, stderr
   assert count(stderr, "err[check.non-exhaustive-match]") == 2, stderr
   assert count(stderr, "err[") == 2, stderr
-  assert ":8:" in stderr, stderr
-  assert ":12:" in stderr, stderr
+  assert ":7:" in stderr, stderr
+  assert ":11:" in stderr, stderr
 }
 
 test test_value_match_over_an_error_family_names_its_missing_variants { |ctx|

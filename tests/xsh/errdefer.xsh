@@ -1,6 +1,4 @@
-error StepError {
-    Failed
-}
+error StepError = Failed
 
 proc fails() {
   error.fail("boom")
@@ -10,9 +8,7 @@ proc fails() {
 proc trace(ctx: TestContext, body: Str) [fs, process, error] -> Result[Str] {
   let output = test.expect(
     ctx,
-    """error StepError {
-  Failed(message: Str)
-}
+    """error StepError = Failed(message: Str)
 
 proc fails() {
   error.fail("boom")
@@ -210,9 +206,7 @@ match try { step()? } {
 test test_a_failing_errdefer_leaves_the_original_failure_primary { |ctx|
   let output = test.expect(
     ctx,
-    """error StepError {
-  Failed(message: Str)
-}
+    """error StepError = Failed(message: Str)
 
 proc fails() {
   error.fail("undo failed")

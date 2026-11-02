@@ -576,7 +576,7 @@ export type Box[T] = {value: T}
 ## Public choices.
 export enum Choice { First, Second }
 ## Public failure.
-export error Failure { Broken(message: Str) }
+export error Failure = Broken(message: Str)
 ## Public service.
 export type Service = module { export pure read() -> Int }
 ## Return the value.
@@ -641,7 +641,7 @@ export pure identity(value: Hidden) -> Hidden { value }
         let root = tempfile::TempDir::new_in(scratch).unwrap();
         let root_path = canonical(root.path()).unwrap();
         let file = root_path.join("model.xsh");
-        let source = "##! Public names.\n## Public number.\nexport type Public = Int\n## Public failure.\nexport error Failure { Broken(message: Str) }\n";
+        let source = "##! Public names.\n## Public number.\nexport type Public = Int\n## Public failure.\nexport error Failure = Broken(message: Str)\n";
         fs::write(&file, source).unwrap();
         let file = file.to_str().unwrap();
         let (sources, parsed) = loader::parse_load_entry_source_arena_only(file, loader::entry_source_from_text(file, source.to_owned()), Vec::new());

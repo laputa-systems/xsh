@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn an_inferred_variant_keeps_the_family_typed_annotation() {
-        let source = "error Fam {\n  Bad(message: Str)\n}\n\nproc pick(n: Int) -> Result[Int, Fam] {\n  if n < 0 {\n    return Err(.Bad(message: \"negative\"))\n  }\n\n  n\n}\n\nprint ${pick(1) ?? 0}\n";
+        let source = "error Fam = Bad(message: Str)\n\nproc pick(n: Int) -> Result[Int, Fam] {\n  if n < 0 {\n    return Err(.Bad(message: \"negative\"))\n  }\n\n  n\n}\n\nprint ${pick(1) ?? 0}\n";
         assert!(lint(source).is_empty());
     }
 
@@ -440,7 +440,7 @@ mod tests {
             // The annotation is the expected type of the empty list.
             "proc names() -> Result[List[Str]] {\n  []\n}\n\nprint ${names()?.len()}\n",
             // The annotation is wider than the body's error type.
-            "error Fam {\n  Bad(message: Str)\n}\n\nproc pick(n: Int) -> Result[Int] {\n  if n < 0 {\n    return Err(Fam.Bad(message: \"negative\"))\n  }\n\n  n\n}\n\nprint ${pick(1) ?? 0}\n",
+            "error Fam = Bad(message: Str)\n\nproc pick(n: Int) -> Result[Int] {\n  if n < 0 {\n    return Err(Fam.Bad(message: \"negative\"))\n  }\n\n  n\n}\n\nprint ${pick(1) ?? 0}\n",
             // The annotation narrows an integer literal.
             "proc port() -> Result[UInt] {\n  8080\n}\n\nprint ${port()?}\n",
         ] {

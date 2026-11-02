@@ -411,11 +411,6 @@ fn expression_statement_stops() -> Vec<Vec<Term>> {
             term(Class::Name, false),
             tag_term(T::Equals),
         ],
-        vec![
-            word_term("error", false),
-            term(Class::Name, false),
-            tag_term(T::LBrace),
-        ],
     ]);
     leads.push(vec![
         word_term("nominal", false),
@@ -1043,24 +1038,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 w("error"),
                 ident(),
-                alt([
-                    seq([
-                        t(T::Equals),
-                        nl(),
-                        opt(seq([t(T::Pipe), nl()])),
-                        r("error_variant"),
-                        star(seq([t(T::Pipe), nl(), r("error_variant")])),
-                    ]),
-                    // One variant per line: a line break is the separator.
-                    seq([
-                        t(T::LBrace),
-                        nl(),
-                        r("error_variant"),
-                        star(seq([t(T::Newline), r("error_variant")])),
-                        nl(),
-                        t(T::RBrace),
-                    ]),
-                ]),
+                t(T::Equals),
+                nl(),
+                opt(seq([t(T::Pipe), nl()])),
+                r("error_variant"),
+                star(seq([t(T::Pipe), nl(), r("error_variant")])),
             ]),
         ),
         rule(

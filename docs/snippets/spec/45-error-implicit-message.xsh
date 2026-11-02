@@ -1,8 +1,7 @@
-error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 pure describe(error: FetchError) -> Str {
   match Err(error) {

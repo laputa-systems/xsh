@@ -125,10 +125,7 @@ export type Reaction = {session: Session, effects: List[machine.Effect]}
 export type Beginning = {record: store.LeaseRecord?, observed: network.Observation, admin_down: Bool}
 
 ## Why a one-shot run ended.
-export error ClientFailure {
-  NoLease(message: Str)
-  Unreachable(message: Str)
-}
+export error ClientFailure = NoLease(message: Str) | Unreachable(message: Str)
 
 const MAX_SETTLE_ROUNDS = 8
 const MAX_INCOMING = 64

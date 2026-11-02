@@ -74,7 +74,7 @@ fn execute_both(program: &FullProgram) {
 #[test]
 fn driver_execution_oracle_rejects_uncaught_propagation() {
     on_large_stack(|| {
-        let program = fixture("error Failure { Bad }\npure failed() -> Result[Unit] { Err(Failure.Bad(\"bad\")) }\nfailed()?\n");
+        let program = fixture("error Failure = Bad\npure failed() -> Result[Unit] { Err(Failure.Bad(\"bad\")) }\nfailed()?\n");
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute_both(&program)));
         assert!(outcome.is_err(), "an escaping script error cannot qualify successful execution");
     });

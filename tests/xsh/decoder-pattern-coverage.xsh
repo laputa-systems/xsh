@@ -1,10 +1,9 @@
 test test_indexed_pattern_decoder_falls_through_for_dynamic_nonmatches { |ctx|
   let output = test.expect(
     ctx,
-    r"""error DecoderPatternError {
-    Missing(detail: Str) : NotFound
-    Rejected(message: Str) : InvalidData
-}
+    r"""error DecoderPatternError =
+  Missing(detail: Str) : NotFound |
+  Rejected(message: Str) : InvalidData
 enum DecoderPatternChoice { Selected(Int), Empty }
 
 pure dynamic_text() -> Any { "ordinary text" }

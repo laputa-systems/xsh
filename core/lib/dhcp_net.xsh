@@ -63,12 +63,11 @@ export enum Settled {
 export type Outcome = {settled: Settled, owned: Owned, conflicts: List[Conflict]}
 
 ## Why an observation cannot be trusted.
-export error ObserveReject {
-  Incomplete(state: Str)
-  NoSuchLink(name: Str)
-  AmbiguousLink(name: Str)
+export error ObserveReject =
+  Incomplete(state: Str) |
+  NoSuchLink(name: Str) |
+  AmbiguousLink(name: Str) |
   BadValue(detail: Str)
-}
 
 ## The main routing table.
 export const TABLE_MAIN = 254

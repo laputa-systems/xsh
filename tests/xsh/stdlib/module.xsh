@@ -1816,7 +1816,7 @@ test test_optional_module_calls_propagate_result_conditions { |ctx|
     {name: "failed", body: "Err(ReadyError.Failed(\"not ready\"))"},
   ] {
     fp"{root}/{name}.xsh".write(f"""##! Optional readiness fixture.
-error ReadyError {{ Failed }}
+error ReadyError = Failed
 ## Reports the fixture readiness.
 export proc ready() [env, error] -> Result[Bool, Error] {{
   let _ = e"PATH"

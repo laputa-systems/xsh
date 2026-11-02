@@ -1,10 +1,9 @@
 enum Level { Info, Warn, Fault(Str) }
 
-error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 const level: Level = Warn
 let failure: FetchError = FetchError.Offline()

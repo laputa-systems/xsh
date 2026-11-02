@@ -1,10 +1,7 @@
 # begin example
 enum Kind { File, Binary, Tree(Int) }
 
-error ProofError {
-    Usage
-    Missing(file: Path)
-}
+error ProofError = Usage | Missing(file: Path)
 
 pure classify(file: Path) -> Result[Kind, ProofError] {
   fail .Usage("no file named") when file == p""

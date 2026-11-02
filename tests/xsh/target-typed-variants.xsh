@@ -307,10 +307,7 @@ const variant_pattern_kinds = """##! Kinds.
 export enum Kind { File, Binary, Tree(Int) }
 
 ## Why ownership is unknown.
-export error OwnerError {
-    Unowned
-    Conflict(file: Path, owner: Str)
-}
+export error OwnerError = Unowned | Conflict(file: Path, owner: Str)
 """
 
 test test_target_typed_variant_patterns_match_like_their_qualified_spellings { |ctx|
@@ -322,11 +319,10 @@ test test_target_typed_variant_patterns_match_like_their_qualified_spellings { |
 
 enum Level { Info, Warn, Fault(Str) }
 
-error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 pure fetch(step: Int) -> Result[Level, FetchError] {
   return Err(.Usage("bad flag")) when step == 0
@@ -508,10 +504,7 @@ test test_prefer_inferred_variant_fix_reaches_patterns_but_not_arm_heads { |ctx|
   fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)
   let source = r"""use kinds as k
 
-error FetchError {
-    Usage
-    Rejected(url: Str, status: Int)
-}
+error FetchError = Usage | Rejected(url: Str, status: Int)
 
 pure fetch(step: Int) -> Result[k.Kind, FetchError] {
   return Err(.Usage("bad flag")) when step == 0

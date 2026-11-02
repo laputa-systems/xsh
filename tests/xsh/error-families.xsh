@@ -1,16 +1,14 @@
-error OrderError {
-    Conflict(path: Path, owner: Str)
-    Pair(second: Str, first: Str)
-    Triple(zulu: Int, mike: Str, alpha: Bool)
-}
+error OrderError =
+  Conflict(path: Path, owner: Str) |
+  Pair(second: Str, first: Str) |
+  Triple(zulu: Int, mike: Str, alpha: Bool)
 
-error FetchError {
-    # A variant without a payload carries only its message.
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-    Refused(message: Str, port: Int) : PermissionDenied, Timeout
-}
+error FetchError =
+  # A variant without a payload carries only its message.
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int) |
+  Refused(message: Str, port: Int) : PermissionDenied, Timeout
 
 error OptionalError = Failed
 
@@ -124,9 +122,7 @@ if possible != null {
 test test_structured_error_runs_on_forced_frames { |ctx|
   let output = test.run_xsh(
     ctx,
-    r"""error E {
-  Failed(message: Str, code: Int) : Timeout
-}
+    r"""error E = Failed(message: Str, code: Int) : Timeout
 let problem = E.Failed("no route", 17)
 assert problem == E.Failed("no route", 17)
 assert problem.message == "no route"
@@ -157,7 +153,7 @@ let triple = E.Triple(1, "m", true, 4)
   assert "too many error constructor arguments" in extra.stderr
 }
 
-test test_brace_error_families_declare_variants_payloads_and_facets {
+test test_error_families_declare_variants_payloads_and_facets {
   assert fetch_label(FetchError.Rejected("https://example.test", 503)) == "https://example.test answered 503"
   assert fetch_label(FetchError.Refused("refused", 22)) == "refused on 22"
   assert fetch_label(FetchError.Offline()) == "offline"
@@ -194,10 +190,7 @@ test test_declared_payloads_keep_their_message_rule {
 test test_payloadless_variants_reject_other_arguments { |ctx|
   let named = test.run_script(
     ctx,
-    """error E {
-    Usage
-    Other(code: Int)
-}
+    """error E = Usage | Other(code: Int)
 let usage = E.Usage(message: "named")
 """,
   )?
@@ -246,25 +239,21 @@ let other = E.Other()
   assert "missing error payload field" in missing.stderr
 }
 
-test test_brace_error_families_reject_separators_and_empty_bodies { |ctx|
-  for source in [
-    """error E {
-    Usage,
-    Other(code: Int)
-}
-""",
-    """error E { Usage | Other(code: Int) }
-""",
-    """error E { Usage Other }
-""",
-    """error E {
-}
-""",
+test test_brace_error_declarations_are_rejected_with_the_pipe_spelling { |ctx|
+  for case in [
+    {source: "error E {\n    Usage\n    Other(code: Int)\n}\n", rewrite: "error E = Usage | Other(code: Int)"},
+    {source: "error E { Usage }\n", rewrite: "error E = Usage"},
+    {source: "export error E {\n    A(file: Path,\n      message: Str)\n    B : Timeout\n}\n", rewrite: "error E = A(file: Path, message: Str) | B : Timeout"},
   ] {
-    let rejected = test.run_script(ctx, source)?
+    let rejected = test.run_script(ctx, case.source)?
     assert ! rejected.success, rejected.stderr
-    assert "parse.error-variant" in rejected.stderr, rejected.stderr
+    assert "parse.error-brace-declaration" in rejected.stderr, rejected.stderr
+    assert case.rewrite in rejected.stderr, rejected.stderr
   }
+
+  let empty = test.run_script(ctx, "error E {\n}\n")?
+  assert ! empty.success, empty.stderr
+  assert "parse.error-variant" in empty.stderr, empty.stderr
 
   let generic = test.run_script(
     ctx,
@@ -277,14 +266,11 @@ test test_brace_error_families_reject_separators_and_empty_bodies { |ctx|
   assert "parse.generic-error-family" in generic.stderr, generic.stderr
 }
 
-test test_brace_error_families_export_and_match_across_modules { |ctx|
-  let root = test.temp_dir(ctx, name: "brace-error-module")?
+test test_error_families_export_and_match_across_modules { |ctx|
+  let root = test.temp_dir(ctx, name: "error-family-module")?
   fp"{root}/fetch.xsh".write_atomic("""##! Fetch failures.
 ## Why a fetch failed.
-export error FetchError {
-    Usage
-    Rejected(url: Str, status: Int) : PermissionDenied
-}
+export error FetchError = Usage | Rejected(url: Str, status: Int) : PermissionDenied
 ## Fails with a usage error.
 export proc refuse(reason: Str) -> Result[Unit, FetchError] {
   return Err(.Usage(reason))
@@ -317,10 +303,7 @@ test test_prefer_implicit_message_fix_preserves_behavior_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-lint")?
   let source = r"""error ProofError = Usage(message: Str) | Failed(kind: Str, message: Str) | Missing(message: Str) : NotFound
 
-error StageError {
-    Skipped(message: Str)
-    Broken(detail: Str)
-}
+error StageError = Skipped(message: Str) | Broken(detail: Str)
 
 proc check(name: Str) -> Result[Unit, ProofError] {
   let message = f"no {name}"
@@ -353,7 +336,7 @@ print ${StageError.Broken("detail").message}
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "error ProofError = Usage | Failed(kind: Str, message: Str) | Missing : NotFound" in fixed, fixed
-  assert "    Skipped\n    Broken(detail: Str)\n" in fixed, fixed
+  assert "error StageError = Skipped | Broken(detail: Str)\n" in fixed, fixed
   assert "ProofError.Usage(\"empty name\")" in fixed, fixed
   assert "Err(.Missing(message))" in fixed, fixed
   assert "ProofError.Failed(kind: \"kind\", message:)" in fixed, fixed

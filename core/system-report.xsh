@@ -2,11 +2,10 @@
 use lib.system_report
 use lib.system_report_live as live_collector
 
-error SystemReportCliError {
-    Usage : Usage
-    InvalidInput : InvalidInput
-    Unsupported : Unsupported
-}
+error SystemReportCliError =
+  Usage : Usage |
+  InvalidInput : InvalidInput |
+  Unsupported : Unsupported
 
 type SystemReportOptions = {
   from_report: Str,

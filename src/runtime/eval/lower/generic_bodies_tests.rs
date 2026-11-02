@@ -525,7 +525,7 @@ fn typed_driver_conditions_preserve_lexical_boolean_producers_on_both_routes() {
             "let ready: Bool = true\nassert ready\n",
             "tempdir site { let ready: Bool = true; assert ready }\n",
             "tempdir site { with root = fs.open_root(site)? { let ready: Bool = true; assert ready } }\n",
-            "error Failure { Bad }\npure failed() -> Result[Str] { Err(Failure.Bad(\"bad\")) }\nmatch failed() { Err(error) => assert error.message != \"\"; Ok(_) => assert false }\n",
+            "error Failure = Bad\npure failed() -> Result[Str] { Err(Failure.Bad(\"bad\")) }\nmatch failed() { Err(error) => assert error.message != \"\"; Ok(_) => assert false }\n",
         ] {
             let (program, sources, source_id) = record_form_program(source);
             for force_frames in [false, true] {

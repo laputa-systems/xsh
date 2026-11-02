@@ -846,14 +846,23 @@ impl<'a> Parser<'a> {
             );
         }
         let variants = if self.at(TokenKindMatch::LBrace) {
-            self.parse_error_variant_block_arena_only(arena)?
+            let block_start = self.current_start();
+            let (variants, written) = self.parse_error_variant_block_arena_only(arena)?;
+            let block = self.span(block_start, self.previous_end());
+            self.diagnostics.push(
+                Diagnostic::error("`error NAME { ... }` was removed")
+                    .with_code(DiagnosticCode::ParseErrorBraceDeclaration)
+                    .with_label(Label::primary(block, "declare the variants with `=` and `|`"))
+                    .with_note(format!("write `error {} = {}`", name.as_str(), written.join(" | "))),
+            );
+            variants
         } else {
             self.expect(TokenKindMatch::Equals, "expected `=` in error definition");
-            self.skip_newlines();
+            self.skip_enum_trivia();
             let mut variants = Vec::new();
             loop {
                 if self.consume(TokenKindMatch::Pipe).is_some() {
-                    self.skip_newlines();
+                    self.skip_enum_trivia();
                 }
                 if self.at(TokenKindMatch::Eof) {
                     break;
@@ -871,7 +880,7 @@ impl<'a> Parser<'a> {
                 if self.consume(TokenKindMatch::Pipe).is_none() {
                     break;
                 }
-                self.skip_newlines();
+                self.skip_enum_trivia();
             }
             variants
         };
@@ -881,28 +890,35 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    /// The braced variant list of an error family: one variant per line.
-    /// A newline is the only separator, because `,` already separates the
-    /// facets that may end a variant's line.
+    /// The removed braced variant list of an error family, read so the rest of
+    /// the program still parses, with each variant's text on one line.
     fn parse_error_variant_block_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<Vec<ArenaErrorVariant>> {
+    ) -> Option<(Vec<ArenaErrorVariant>, Vec<String>)> {
         self.expect(
             TokenKindMatch::LBrace,
             "expected `{` after error family name",
         )?;
         let mut variants = Vec::new();
+        let mut written = Vec::new();
         loop {
             self.skip_enum_trivia();
             if self.at(TokenKindMatch::RBrace) || self.at(TokenKindMatch::Eof) {
                 break;
             }
+            let variant_start = self.current_start();
             let Some(variant) = self.parse_error_variant_arena_only(arena)? else {
                 self.diagnostic_here("expected error variant", DiagnosticCode::ParseErrorVariant);
                 break;
             };
             variants.push(variant);
+            written.push(
+                self.span_text(self.span(variant_start, self.previous_end()))
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
             if !matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment)
                 && !self.at(TokenKindMatch::RBrace)
                 && !self.at(TokenKindMatch::Eof)
@@ -928,7 +944,7 @@ impl<'a> Parser<'a> {
                 DiagnosticCode::ParseErrorVariant,
             );
         }
-        Some(variants)
+        Some((variants, written))
     }
 
     /// One variant with its payload fields and facets, or `None` when the
@@ -1384,9 +1400,9 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    /// `error Name =`, `error Name {`, or either after `[...]`; the bracketed
-    /// form is parsed only to report that generic error families are
-    /// unsupported.
+    /// `error Name =`, the removed `error Name {`, or either after `[...]`; the
+    /// bracketed form is parsed only to report that generic error families are
+    /// unsupported, and the braced form to report its replacement.
     fn lookahead_is_error_def(&self) -> bool {
         if self.current_name() != Some(Name::intern("error"))
             || !matches!(

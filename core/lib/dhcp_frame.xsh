@@ -11,17 +11,16 @@
 export type Datagram = {source: Int, destination: Int, source_port: Int, destination_port: Int, payload: Bytes}
 
 ## Why a frame is not a DHCP server datagram for this client.
-export error FrameReject {
-  TooShort
-  NotIpv4
-  BadHeader
-  Fragment
-  BadChecksum
-  NotUdp
-  BadLength
-  WrongPort
+export error FrameReject =
+  TooShort |
+  NotIpv4 |
+  BadHeader |
+  Fragment |
+  BadChecksum |
+  NotUdp |
+  BadLength |
+  WrongPort |
   WrongHardware
-}
 
 const ETHERTYPE_IPV4 = 2048
 const ETHERNET_HEADER = 14

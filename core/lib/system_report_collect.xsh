@@ -41,16 +41,15 @@ export type SourceRead = src.SourceRead
 ## Retains a bounded integer or the source, syntax, or range state that withheld it.
 export type BoundedNumber = src.BoundedNumber
 
-error SystemReportSourceError {
-    InvalidPciAddress
-    InvalidPciId
-    InvalidUsbDescriptor
-    InvalidThpPolicy
-    InvalidCgroupMount
-    InvalidCpuFreqMembers
-    InvalidCacheSharing
-    InvalidIdleStateIndex
-}
+error SystemReportSourceError =
+  InvalidPciAddress |
+  InvalidPciId |
+  InvalidUsbDescriptor |
+  InvalidThpPolicy |
+  InvalidCgroupMount |
+  InvalidCpuFreqMembers |
+  InvalidCacheSharing |
+  InvalidIdleStateIndex
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
 export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {

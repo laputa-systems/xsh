@@ -308,9 +308,7 @@ type Either[T] = Union[T, Str]
 type Collapsed = Either[Str]
 type Kept = Either[Int]
 
-error BuildError {
-  Failed(reason: Str)
-}
+error BuildError = Failed(reason: Str)
 
 type Family = Union[BuildError, Error]
 

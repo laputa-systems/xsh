@@ -1,10 +1,9 @@
 error ConfigError = Missing(file: Path) : NotFound | Invalid(file: Path, message: Str)
 
-error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
   return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""

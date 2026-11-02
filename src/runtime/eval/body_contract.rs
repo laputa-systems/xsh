@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn narrower_result_error_preserves_same_body_and_retains_error_selection() {
-        let declarations = "error Failure { Bad }\nerror Other { Wrong }\n";
+        let declarations = "error Failure = Bad\nerror Other = Wrong\n";
         let original = declaration(&format!("{declarations}pure keep(ok: Bool) -> Result[Str] {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
         let candidate = declaration(&format!("{declarations}pure keep(ok: Bool) {{ guard ok else {{ return Err(Failure.Bad(\"bad\")) }}; \"yes\" }}\n"));
         assert!(original.preserved_by(&candidate), "{original:?}\n{candidate:?}");

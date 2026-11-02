@@ -7,21 +7,20 @@
 ##! message only carries wording.
 
 ## Why a transfer failed, independent of any applet's wording.
-export error TransferFailure {
-  Dns
-  Connect
-  ConnectTimeout
-  Timeout
-  Certificate
-  Handshake
-  EmptyReply
-  Redirects
-  Status(code: Int)
-  Scheme
-  Write
-  TrustStore
+export error TransferFailure =
+  Dns |
+  Connect |
+  ConnectTimeout |
+  Timeout |
+  Certificate |
+  Handshake |
+  EmptyReply |
+  Redirects |
+  Status(code: Int) |
+  Scheme |
+  Write |
+  TrustStore |
   Other
-}
 
 ## One HTTP header field.
 export type Header = {name: Str, value: Str}

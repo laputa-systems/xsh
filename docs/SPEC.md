@@ -1361,11 +1361,10 @@ families whose variants carry fixed payloads and may implement facets:
 ```xsh
 error ConfigError = Missing(file: Path) : NotFound | Invalid(file: Path, message: Str)
 
-error FetchError {
-    Usage
-    Offline : Timeout
-    Rejected(url: Str, status: Int)
-}
+error FetchError =
+  Usage |
+  Offline : Timeout |
+  Rejected(url: Str, status: Int)
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
   return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
@@ -1377,11 +1376,12 @@ pure parse_url(url: Str) -> Result[Str, FetchError] {
 }
 ```
 
-A family is written on one line with `=` and `|`, or in braces with one
-variant per line and no separator. The two forms declare the same family, and
-in both a variant's facets follow it after `:`. `xsht fmt` keeps the `=` form
-while the declaration fits the line width and writes the brace form once it
-does not; a family written in braces stays in braces.
+A family is written with `=` and `|`, and a line may break after the `=` and
+after each `|`. A variant's facets follow it after `:`. `xsht fmt` keeps the
+declaration on one line while it fits the line width and otherwise puts one
+variant on each line, each but the last ending in `|`. The braced spelling
+`error NAME { A newline B }` is `parse.error-brace-declaration`, and the
+diagnostic prints the `=` line to write.
 
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
@@ -2229,10 +2229,7 @@ families with the same name remain distinct for type and pattern matching.
 ```xsh
 enum Kind { File, Binary, Tree(Int) }
 
-error ProofError {
-    Usage
-    Missing(file: Path)
-}
+error ProofError = Usage | Missing(file: Path)
 
 pure classify(file: Path) -> Result[Kind, ProofError] {
   fail .Usage("no file named") when file == p""

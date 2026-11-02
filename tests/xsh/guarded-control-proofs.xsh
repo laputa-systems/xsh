@@ -150,10 +150,7 @@ print ${choose()}
 }
 
 test guarded_exhaustive_result_and_error_family_returns_lower_and_run { |ctx|
-  let source = r"""error FlowFailure {
-  Missing
-  Changed
-}
+  let source = r"""error FlowFailure = Missing | Changed
 pure choose_result(value: Result[Int, Error]) -> Int {
   match value {
     Ok(number) => { return number }

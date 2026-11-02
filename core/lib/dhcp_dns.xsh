@@ -48,10 +48,7 @@ export enum Standing {
 }
 
 ## Why an update could not run.
-export error DnsReject {
-  Busy
-  Invalid(message: Str)
-}
+export error DnsReject = Busy | Invalid(message: Str)
 
 type ContributionJson = {version: Int, servers: List[Str], search: List[Str]}
 

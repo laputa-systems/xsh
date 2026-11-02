@@ -1104,11 +1104,12 @@ families whose variants carry fixed payloads and may implement facets:
 {{.spec.error_declaration.source}}
 ```
 
-A family is written on one line with `=` and `|`, or in braces with one
-variant per line and no separator. The two forms declare the same family, and
-in both a variant's facets follow it after `:`. `xsht fmt` keeps the `=` form
-while the declaration fits the line width and writes the brace form once it
-does not; a family written in braces stays in braces.
+A family is written with `=` and `|`, and a line may break after the `=` and
+after each `|`. A variant's facets follow it after `:`. `xsht fmt` keeps the
+declaration on one line while it fits the line width and otherwise puts one
+variant on each line, each but the last ending in `|`. The braced spelling
+`error NAME { A newline B }` is `parse.error-brace-declaration`, and the
+diagnostic prints the `=` line to write.
 
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).

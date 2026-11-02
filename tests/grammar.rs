@@ -541,8 +541,8 @@ fn unannotated_pure_parameters_require_an_immediate_delimiter() {
 ) { | c | } loop { | items , | } exit b or items - - b as c >= - Thing
 "#,
         r#"pure c ( y
-) -> a . Thing [ proc ( ) [ ] -> y . y [ ] ? ] ? { ; error x { Thing (
-) } }
+) -> a . Thing [ proc ( ) [ ] -> y . y [ ] ? ] ? { ; error x = Thing (
+) }
 "#,
         r#"cli main ( ) -> x . x ? { | items , | } test items [ ] { b /= b not in b not in value / b ? ; pure items ( y
 ) -> b . Thing [ proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> Thing ] ? { } } within 10ms { ; type c = exact module { } }
@@ -1253,19 +1253,18 @@ fn inferred_variant_patterns_are_parsed_and_recognized_alike() {
     }
 }
 
-/// An error family has an `=` form and a brace form with one variant per
-/// line; the parser and the productions agree on both and on what the brace
-/// form rejects.
+/// An error family is written with `=` and `|`, and a line may break after
+/// each `|`; the parser and the productions agree on it and on the braced
+/// spelling that was removed.
 #[test]
 fn error_family_forms_are_parsed_and_recognized_alike() {
     let recognizer = Recognizer::new(grammar());
     for source in [
         "error E = A(file: Path) : NotFound | B(file: Path, message: Str) | C\n",
-        "error E { A }\n",
-        "error E {\n    A\n}\n",
-        "error E {\n    A\n    B(code: Int) : NotFound, Timeout\n\n    # note\n    C : Timeout # trailing\n}\n",
-        "export error E {\n    A(file: Path,\n      message: Str)\n    B\n}\n",
-        "error E {\n    A\n}\nlet x = 1\n",
+        "error E = A\n",
+        "error E =\n    A |\n    B(code: Int) : NotFound, Timeout |\n    C : Timeout\n",
+        "export error E =\n    A(file: Path,\n      message: Str) |\n    B\n",
+        "error E = A\nlet x = 1\n",
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(
@@ -1280,13 +1279,10 @@ fn error_family_forms_are_parsed_and_recognized_alike() {
         );
     }
     for source in [
+        "error E { A }\n",
+        "error E {\n    A\n}\n",
+        "export error E {\n    A\n    B\n}\n",
         "error E { }\n",
-        "error E {\n}\n",
-        "error E { A, B }\n",
-        "error E {\n    A,\n    B\n}\n",
-        "error E { A | B }\n",
-        "error E { A B }\n",
-        "error E {\n    A : NotFound,\n    B\n}\n",
     ] {
         assert!(
             !Parser::parse_source_arena_only(SourceId::new(0), source)

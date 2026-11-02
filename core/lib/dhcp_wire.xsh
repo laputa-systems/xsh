@@ -6,28 +6,27 @@
 
 ## Why a received datagram was refused. A reject is data: the client counts it
 ## and keeps running.
-export error WireReject {
-  TooShort
-  TooLong
-  BadOp(op: Int)
-  BadHardware
-  BadCookie
-  XidMismatch
-  ChaddrMismatch
-  ClientIdMismatch
-  OptionTruncated
-  MissingEnd
-  TooManyOptions
-  BadOverload(value: Int)
-  DuplicateOption(code: Int)
-  BadOptionLength(code: Int)
-  BadOptionValue(code: Int)
-  MissingMessageType
-  BadMessageType(kind: Int)
-  MissingServerId
-  MissingLeaseTime
+export error WireReject =
+  TooShort |
+  TooLong |
+  BadOp(op: Int) |
+  BadHardware |
+  BadCookie |
+  XidMismatch |
+  ChaddrMismatch |
+  ClientIdMismatch |
+  OptionTruncated |
+  MissingEnd |
+  TooManyOptions |
+  BadOverload(value: Int) |
+  DuplicateOption(code: Int) |
+  BadOptionLength(code: Int) |
+  BadOptionValue(code: Int) |
+  MissingMessageType |
+  BadMessageType(kind: Int) |
+  MissingServerId |
+  MissingLeaseTime |
   BadAddress(field: Str)
-}
 
 ## The sender identity of a client: its hardware address and the client
 ## identifier (RFC 2132 option 61, hardware type 1 followed by the address).

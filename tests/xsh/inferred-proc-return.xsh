@@ -15,9 +15,7 @@ export pure disk(mount: Str) -> Disk {
 
 const script = r"""use disks
 
-error PickError {
-  Negative(message: Str)
-}
+error PickError = Negative(message: Str)
 
 proc root() -> Result[disks.Disk] {
   disks.disk("/")

@@ -67,11 +67,7 @@ export enum TimerRule: Str {
 export type Timers = {renew_ms: Int, rebind_ms: Int, rule: TimerRule}
 
 ## Why an acknowledged lease cannot be used.
-export error LeaseReject {
-  ZeroLease
-  ShortLease(seconds: Int)
-  BadAddress
-}
+export error LeaseReject = ZeroLease | ShortLease(seconds: Int) | BadAddress
 
 ## Delays and counts, in milliseconds. Tests shrink them; the client uses
 ## `default_timing`.
