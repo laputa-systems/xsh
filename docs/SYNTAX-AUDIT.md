@@ -1,6 +1,6 @@
 # Syntax audit
 
-Phase A of the [syntax consolidation campaign](CAMPAIGN-SYNTAX-CONSOLIDATION.md). It lists what the language spells more than one way, which words are special only in one position, and which rules exist only to separate two forms. Nothing here is approved. Phase B removes nothing until the owner marks the list below.
+Phase A of the [syntax consolidation campaign](CAMPAIGN-SYNTAX-CONSOLIDATION.md). It lists what the language spells more than one way, which words are special only in one position, and which rules exist only to separate two forms. The owner's decisions are in [Owner decisions](#owner-decisions).
 
 ## Summary
 
@@ -622,7 +622,7 @@ Applied rules: one spelling per concept; sugar kept only when the core form cost
 
 ## Phase B status
 
-Items land in the order below. C10 and C13 are deferred by the owner; no D or K item is touched.
+Items land in the order below. The decided D items and C10 follow C03.
 
 | Item | Status | Error code | Notes |
 |---|---|---|---|
@@ -640,23 +640,28 @@ Items land in the order below. C10 and C13 are deferred by the owner; no D or K 
 
 ## Owner decisions
 
-Each item marked "owner decision" above, with the choice needed.
+The owner approved the C items and delegated the D items and the deferred C items to the campaign's recommendations. These are the decisions; each removal follows the Phase B steps.
 
-- **D01**: Keep postfix `when`/`unless`, or remove them in favor of `if`? DESIGN.md names them as model sugar.
-- **D02**: Keep `guard COND else { }`, or remove it in favor of `if !COND { }`? Decide with D01: which of `if`, `guard`, and postfix guards is the one early-exit spelling.
-- **D03**: For each sugar clause word (`until`, `every`, `backoff`, `within`, `atomically`, `replace`, `exit`, `fail`, `collect`, `without`, `as`, `on`, `nominal`, `optional`, `exact`, `tempdir`): reserve it and rename the identifiers shown, or drop its form? The reserve costs are in the ranked list.
-- **D04**: Keep the `at` clause of `tempdir` as the single contextual-word exception, or drop it and accept the three-line manual shape?
-- **D05**: Keep `ctx` blocks (a contextual word with tens of thousands of identifier uses) or replace them with a method form? The nearest method form does not capture the same failures.
-- **D06**: Remove the handler form of `with` (no use outside tests)? A rewrite is not mechanical.
-- **D07**: Remove builder blocks in favor of `process.command_argv` with named arguments?
-- **D08**: When a lint pushes toward syntax that replaced a method or a qualified name (`as`, `e"NAME"`, `.Variant`), does rule 3 override the lint? One answer for all three.
-- **D09**: Do the character-only shorthands (punned arguments, shorthand fields, positional constructors, record literals of schema type, implicit `message` payloads, item `.`) stay?
-- **D10**: Keep ordering chains (27 sites)?
-- **D11**: Keep `not in` (1,688 sites) or remove it, which frees the reserved word `not`?
-- **D12**: Record the stage names after `|>` as the one documented exception to rule 4?
-- **D13**: Keep both `cd PATH { }` and `cd (PATH) { }` (and the same for `env`), or keep only the call spelling?
-- **D14**: Should explicit tail `return`, `Ok(...)` wrapping, and `?` on calls that already propagate become errors?
-- **D15**: Do migration lints stay after a removal, as `lint.enum-declaration` did? Who runs the large rewrites (C10, D01, D11), given the autofixer ban?
+| Id | Decision | Why |
+|---|---|---|
+| C03 | remove | Saves four characters per site, so it fails rule 2. Migrated by a reviewed scripted substitution (D15). |
+| C10 | remove | `p"..."` already has 8,650 sites against 986. Migrated by a scripted rewrite driven by parser spans, then reviewed (D15). |
+| C13 | keep | `for {index: i, value: v} in SRC \|> enumerate()` obscures the intent the sugar names, which rule 2 allows as a reason to keep. |
+| D01 | keep | DESIGN.md names postfix guards as model sugar; 5,803 sites. |
+| D02 | keep | `guard` checks that its `else` block exits (`check.guard-fallthrough`); `if !COND` cannot express that check. |
+| D03 | reserve `until`, `every`, `backoff`, `atomically`, `within` | They appear only in the K03 to K05 clauses and cost 59 identifier renames together. The other clause words stay contextual and are listed with D12 as documented exceptions: reserving them costs hundreds of renames (`exact`, `fail`, `optional`) or collides with common names (`as`, `on`, `replace`, `collect`, `without`, `exit`, `nominal`, `tempdir`). |
+| D04 | keep | The manual shape is three lines, over the one-extra-line budget. `at` is a documented exception. |
+| D05 | keep | No existing spelling captures the same failures. `ctx` is a documented exception. |
+| D06 | remove | No use outside tests of the feature. The handler sees only initializer failures; the rewrite is a `try` capture and a `match`. |
+| D07 | remove | One site outside tests and snippets; `process.command_argv` takes every field. Deletes four productions and a lookahead used in ten. |
+| D08 | keep the current lint direction | `as`, `e"NAME"`, and `.Variant` are the established, more common spellings; no removal. |
+| D09 | keep | Character-only shorthands; the lints already settle one spelling per site. |
+| D10 | remove | 27 sites. Rewrite `a < b < c` as `a < b and b < c` when `b` is a name or literal, otherwise bind `b` first. |
+| D11 | keep | `!(a in b)` reads worse than `not in` at 1,688 sites; `not` is one reserved word. |
+| D12 | keep as the documented exception to rule 4 | Rule 6 forbids the new syntax that reserving the stage names would need. The contextual words kept by D03, D04, and D05 join this exception list. |
+| D13 | remove the command spelling | The call spelling `cd (PATH) { }` and `env (OVERLAY) { }` is the only one valid in value position. |
+| D14 | keep as lints | These are redundant forms, not second spellings of a construct, and each lint carries its fix. |
+| D15 | delete each removed form's `prefer-*` lint; the campaign runs rewrites itself | A rewrite is a reviewed scripted substitution or a parser-span rewrite, never the formatter or `--fix`. |
 
 ## Reproduction
 
