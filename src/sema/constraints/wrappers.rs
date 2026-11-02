@@ -1,4 +1,4 @@
-use super::{Binding, CallableApplicationScope, ConstraintChange, ConstraintConflict, ConstraintResolutionError, EffectConstraintError, EffectVariableId, RowTail, SchemeOperationError, TypeConstraints, Variable, MAX_TYPE_DEPTH};
+use super::{Binding, CallableApplicationScope, ConstraintChange, ConstraintConflict, ConstraintResolutionError, EffectConstraintError, EffectVariableId, RowTail, SchemeOperationError, TypeConstraints, TypeVariableId, Variable, MAX_TYPE_DEPTH};
 use crate::sema::effects::{EffectContract, EffectPredicate, EffectSet};
 use crate::sema::types::Type;
 use crate::sema::wrapper_operation::{map_wrapper_groups, WrapperBinding, WrapperBoundary, WrapperCompletionContribution, WrapperCompletionContributions, WrapperGroupId, WrapperGroupRef, WrapperProjection, WrapperRequirement, WrapperRequirementKind, WrapperSelection, FallbackKind, fallback_projection, guarded_field_projection};
@@ -257,6 +257,17 @@ impl TypeConstraints {
             Ok::<_, ConstraintResolutionError>(())
         })?;
         Ok(id)
+    }
+
+    pub(super) fn is_non_null_guard_view(&self, id: TypeVariableId) -> Result<bool, ConstraintResolutionError> {
+        if self.wrappers.guards.is_empty() { return Ok(false); }
+        let root = self.representative_root(id)?;
+        for guard in self.wrappers.guards.values() {
+            for view in std::iter::once(&guard.view).chain(guard.reads.iter().map(|read| &read.view)) {
+                if let Type::Inference(view) = view && self.representative_root(*view)? == root { return Ok(true); }
+            }
+        }
+        Ok(false)
     }
 
     pub(crate) fn note_guard_view_read(&mut self, id: WrapperOperationId, ty: &Type) -> Result<(), ConstraintResolutionError> {

@@ -208,3 +208,31 @@ print "defined"
   assert inferred.stdout == "defined\n"
   assert annotated.stdout == inferred.stdout
 }
+
+test test_inferred_guarded_source_reads_store_into_optional_fields_as_present_values { |ctx|
+  let body = r"""type Output = {target: Str, linked: Bool}
+type Check = {sink: Output?, removed: Bool}
+pure check(PREVIOUS, current: Output) -> Check {
+  if let before = previous {
+    if current.target != before.target { return {sink: current, removed: false} }
+    if ! current.linked { return {sink: previous, removed: true} }
+  }
+  {sink: previous, removed: false}
+}
+let held: Output = {target: "a", linked: true}
+let moved: Output = {target: "b", linked: true}
+let unlinked: Output = {target: "a", linked: false}
+let missing: Output? = null
+if let moved_sink = check(held, moved).sink { print $moved_sink.target }
+print $check(held, unlinked).removed
+print $check(held, held).removed
+assert check(missing, held).sink == null
+print "absent"
+"""
+  let inferred = test.run_xsh(ctx, body.replace("PREVIOUS", with: "previous"))?
+  let annotated = test.run_xsh(ctx, body.replace("PREVIOUS", with: "previous: Output?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "b\ntrue\nfalse\nabsent\n"
+  assert annotated.stdout == inferred.stdout
+}
