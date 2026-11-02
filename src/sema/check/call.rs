@@ -1447,7 +1447,7 @@ impl Checker {
                 }
                 Err(error) => {
                     if self.covered_by_specific_error(site.source) { continue; }
-                    if self.diagnostics.iter().any(|diagnostic| diagnostic.message == "argument type needs an annotation"
+                    if self.diagnostics.iter().any(|diagnostic| matches!(diagnostic.message.as_str(), "argument type needs an annotation" | "local type needs an annotation")
                         && diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Primary
                             && label.span.source_id == site.source.source_id
                             && site.source.start() <= label.span.start() && label.span.end() <= site.source.end()))

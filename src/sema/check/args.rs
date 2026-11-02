@@ -856,7 +856,16 @@ impl Checker {
                 }
             }
         } else { Some(expected) };
+        let aggregate = match (arg, context) {
+            (ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }, Some(context))
+                if authority.instance().is_some() && self.begin_argument_aggregate(arena, *value, context) => Some(*value),
+            _ => None,
+        };
         let actual = self.check_call_arg_arena(arena, source, arg, context);
+        let actual = match aggregate {
+            Some(value) => self.finish_argument_aggregate(arena, value, actual),
+            None => actual,
+        };
         self.boundary.expected_schema = previous;
         actual
     }

@@ -822,6 +822,34 @@ impl Checker {
         retain_nonmaterial_record_producers(program, expression, origins, &mut self.local_inference.constructor_producers);
     }
 
+    pub(super) fn begin_argument_aggregate(&mut self, program: &ArenaProgram, expression: ExprId, expected: &Type) -> bool {
+        if self.boundary.current_return.is_none()
+            || self.local_inference_owner().is_none()
+            || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
+            || !contains_fresh_empty_list(program, expression)
+            || !matches!(self.type_constraints.resolve(expected), Ok(Type::Inference(_)))
+        { return false; }
+        self.local_inference.aggregate_scopes.push(AggregateSeedScope {
+            initializer: program.arena.expr(expression).span,
+            origins: BTreeMap::new(),
+        });
+        true
+    }
+
+    pub(super) fn finish_argument_aggregate(&mut self, program: &ArenaProgram, expression: ExprId, actual: Type) -> Type {
+        let origin = program.arena.expr(expression).span;
+        let scope = self.local_inference.aggregate_scopes.pop().expect("an argument aggregate owns its origin scope");
+        assert_eq!(scope.initializer, origin);
+        self.record_overwritten_constructor_producers(program, expression, &scope.origins, false);
+        let mut holes = Vec::new();
+        let ty = self.materialize_fresh_aggregate(program, expression, &actual, std::slice::from_ref(&actual), &scope.origins, &mut holes);
+        if holes.is_empty() { return actual; }
+        let inference = LocalBindingInference { ty: ty.clone(), holes, owner: self.local_inference_owner(), initializer: origin };
+        self.local_inference.bindings.insert(origin, inference);
+        self.record_expr_type(origin, ty.clone());
+        ty
+    }
+
     fn local_inference_owner(&self) -> Option<super::EffectDeclarationId> {
         self.stream_origin_owner.filter(|owner| {
             self.declaration_inference.pending(super::FunctionDeclarationId::new(*owner)).is_some()

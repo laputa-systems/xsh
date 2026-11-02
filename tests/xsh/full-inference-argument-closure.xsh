@@ -202,3 +202,44 @@ print "anchored"
   assert output.success, output.stderr
   assert output.stdout == "anchored\n"
 }
+
+test test_full_inference_inline_record_argument_with_an_empty_list_matches_the_let_bound_form { |ctx|
+  let checks = r"""
+assert inline(3) == bound(3)
+assert inline(3).elements.len() == 0
+assert inline(3).name == "row"
+print "seeded"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Element = {id: Int}
+type Row = {name: Str, elements: List[Element]}
+pure row_for(entry, name: Str) -> Row { {name: name, elements: entry.elements} }
+pure inline(count: Int) -> Row { row_for({values: count, elements: []}, "row") }
+pure bound(count: Int) -> Row {
+  let entry = {values: count, elements: []}
+  row_for(entry, "row")
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Element = {id: Int}
+type Row = {name: Str, elements: List[Element]}
+type Entry = {values: Int, elements: List[Element]}
+pure row_for(entry: Entry, name: Str) -> Row { {name: name, elements: entry.elements} }
+pure inline(count: Int) -> Row { row_for({values: count, elements: []}, "row") }
+pure bound(count: Int) -> Row {
+  let entry: Entry = {values: count, elements: []}
+  row_for(entry, "row")
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "seeded\n"
+}
+
+test test_full_inference_inline_record_argument_rejects_an_unanchored_empty_list { |ctx|
+  test.expect(ctx, r"""
+pure count(entry) -> Int { entry.elements.len() }
+pure unanchored() -> Int { count({elements: []}) }
+""", status: 2, stderr: ["[check.local-inference]", "local type needs an annotation"])?
+}
