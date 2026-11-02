@@ -445,6 +445,13 @@ all value evaluations and use the last value's type. Shorthand lowering uses eac
 source override's type rather than the final record field type. Existing record
 rows execute the construction without a new opcode or runtime solver.
 
+A closed record literal's static type is a lower bound for each spread operand,
+so a field written before a spread survives only when the operand's checked
+record type names it or a later entry writes it again. The ground record
+writers, the derived record type and the generic record shape proof reject a
+field that precedes a spread without that evidence, whatever claimed type the
+IR carries for the result.
+
 The indexed `Index` operand distinguishes an ordinary expression from a nonzero
 negative-literal distance. Cold verification authenticates that form against the
 owned requirement and actual producer contracts. A generic negative literal
