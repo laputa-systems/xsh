@@ -398,7 +398,7 @@ fn match_expr_structural(
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::TempDirScope { .. } => false,
     }
 }
@@ -699,7 +699,7 @@ fn build_replacement_text(
                     ArenaChild::Expr(child) => child,
                     ArenaChild::Stmt(_) | ArenaChild::Pattern(_) | ArenaChild::Block(_)
                     | ArenaChild::BindingTarget(_) | ArenaChild::AssignTarget(_)
-                    | ArenaChild::TypeExpr(_) | ArenaChild::BuilderBlock(_) => unreachable!("record children are expressions"),
+                    | ArenaChild::TypeExpr(_) => unreachable!("record children are expressions"),
                 };
                 let Some(pending) = edits.as_mut() else { return; };
                 let Some(replacement) = build_replacement_text(arena, child, m, target_source, pattern_source) else {
@@ -845,7 +845,7 @@ fn build_replacement_text(
         | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::Capture(_) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Capture(_) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. }
         | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => {
             let text = pattern_source.get(expr.span.start()..expr.span.end())?;

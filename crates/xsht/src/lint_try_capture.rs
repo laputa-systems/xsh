@@ -304,8 +304,7 @@ fn closed_scalar_expression(
                         | ArenaChild::Block(_)
                         | ArenaChild::BindingTarget(_)
                         | ArenaChild::AssignTarget(_)
-                        | ArenaChild::TypeExpr(_)
-                        | ArenaChild::BuilderBlock(_) => unsupported_child = true,
+                        | ArenaChild::TypeExpr(_) => unsupported_child = true,
                     });
                     if unsupported_child || expression_children != 1 {
                         break 'walk false;
@@ -351,8 +350,7 @@ fn closed_scalar_expression(
                         | ArenaChild::Block(_)
                         | ArenaChild::BindingTarget(_)
                         | ArenaChild::AssignTarget(_)
-                        | ArenaChild::TypeExpr(_)
-                        | ArenaChild::BuilderBlock(_) => unsupported_child = true,
+                        | ArenaChild::TypeExpr(_) => unsupported_child = true,
                     });
                     if unsupported_child || !callee_seen {
                         break 'walk false;
@@ -390,7 +388,6 @@ fn closed_scalar_expression(
                 | ArenaExprKind::Run(_)
                 | ArenaExprKind::Spawn(_)
                 | ArenaExprKind::Wait(_)
-                | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Capture(_)
                 | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
                 | ArenaExprKind::Convert { .. }

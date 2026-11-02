@@ -102,11 +102,12 @@ let values = [1, 2] |> batch(count: 1)
   let stderr_path = fp"{root}/stderr.txt"
   let xsh = ctx.xsh_bin
   let tool = fp"{repo}/tools/xsh-ir-coverage.xsh"
-  let command = process.command {
-    stdout = stdout_path
-    stderr = stderr_path
-    run $xsh $tool -- --root $root --json $report_path
-  }
+  let command = process.command_argv(
+    xsh,
+    [xsh, tool, "--", "--root", root, "--json", report_path],
+    stdout: stdout_path,
+    stderr: stderr_path,
+  )
   let status = process.run(command)?
   let succeeded = status.exited_with(0)
   let diagnostic = stderr_path.read_text()?
@@ -120,7 +121,7 @@ let values = [1, 2] |> batch(count: 1)
   assert report.rows.len() == 5
   assert report.rows[0].total == 2
   assert report.rows[0].unsupported == ["Command"]
-  assert instruction_tags.len() == 153
+  assert instruction_tags.len() == 152
   assert "ExprCodecSchema" in expression_tags
   assert instruction_tags[0] == "IntInt"
   let nonempty_instruction_tags = instruction_tags.require(NonEmpty[Str])?
@@ -143,11 +144,12 @@ let values = [1, 2] |> batch(count: 1)
   assert report.script.groups[0].group == "expression"
   assert report.script.samples[0].shape == "Let"
   assert "lowered IR coverage" in stdout_path.read_text()?
-  let invalid = process.command {
-    stdout = stdout_path
-    stderr = stderr_path
-    run $xsh $tool -- --root fp"{root}/absent"
-  }
+  let invalid = process.command_argv(
+    xsh,
+    [xsh, tool, "--", "--root", fp"{root}/absent"],
+    stdout: stdout_path,
+    stderr: stderr_path,
+  )
   assert ! process.run(invalid)?.exited_with(0)
   assert stderr_path.read_text()? != ""
 }
@@ -316,11 +318,12 @@ let value = helper("OK")
   let stderr_path = fp"{root}/stderr.txt"
   let xsh = ctx.xsh_bin
   let tool = fp"{repo}/tools/xsh-ir-coverage.xsh"
-  let command = process.command {
-    stdout = stdout_path
-    stderr = stderr_path
-    run $xsh $tool -- --root $root --json $report_path
-  }
+  let command = process.command_argv(
+    xsh,
+    [xsh, tool, "--", "--root", root, "--json", report_path],
+    stdout: stdout_path,
+    stderr: stderr_path,
+  )
   let succeeded = process.run(command)?.exited_with(0)
   let diagnostic = stderr_path.read_text()?
   assert succeeded, diagnostic
@@ -381,11 +384,12 @@ pattern_schema! {
   let stderr_path = fp"{output_root}/stderr.txt"
   let xsh = ctx.xsh_bin
   let tool = fp"{repo}/tools/xsh-ir-coverage.xsh"
-  let command = process.command {
-    stdout = stdout_path
-    stderr = stderr_path
-    run $xsh $tool -- --root $root --json $report_path
-  }
+  let command = process.command_argv(
+    xsh,
+    [xsh, tool, "--", "--root", root, "--json", report_path],
+    stdout: stdout_path,
+    stderr: stderr_path,
+  )
   let status = process.run(command)?
   let diagnostic = stderr_path.read_text()?
   assert status.exited_with(0), diagnostic

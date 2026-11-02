@@ -4,7 +4,7 @@ use super::{
     LoweredProcessCommandArgv, LoweredRunCapture, LoweredSpawnRun,
     LoweredTypeCheck, LoweredValueCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
     LoweredRecordEntry, LoweredAssignStep, LoweredCompTarget, LoweredCompQualifier,
-    LoweredProcessCommandBuilderEntry, LoweredErrorExpr,
+    LoweredErrorExpr,
     LoweredPipelineStage,
 };
 
@@ -1202,15 +1202,6 @@ impl CompTargetView<'_> {
 enum_schema!(LoweredCompQualifier => CompQualifierView ["comprehension qualifier tag is invalid"] {
     For { target: Box<LoweredCompTarget>, iter: BuildExprId, span: Span } = 0;
     If { condition: BuildExprId, span: Span } = 1;
-});
-enum_schema!(
-    #[expect(
-        clippy::large_enum_variant,
-        reason = "boxing the borrowed Run view would allocate during indexed IR decoding"
-    )]
-    LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
-        Field { name: Name, value: BuildExprId, span: Span } = 0;
-        Run { operands: LoweredRunOperands, span: Span } = 1;
 });
 enum_schema!(LoweredErrorExpr => ErrorExprView ["error expression tag is invalid"] {
     Structured { family: String, family_identity: String, variant: String,

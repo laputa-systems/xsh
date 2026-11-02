@@ -193,7 +193,7 @@ use xsh::frontend::check::CheckedEffects;
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExpr, ArenaExprKind, ArenaExprOrRun,
     ArenaFmtPart, ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind,
@@ -202,7 +202,7 @@ use xsh::frontend::syntax::arena::{
     ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaSugarOperand,
     ArenaText, ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart, AssignTargetId, AstArena,
     BindingTargetId,
-    BlockId, BuilderBlockId, CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId,
+    BlockId, CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId,
     RunFormId, StmtId, SugarForm, TypeExprId, WaitPace,
 };
 use xsh::frontend::syntax::node::{
@@ -3598,7 +3598,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -4494,7 +4493,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

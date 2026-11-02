@@ -783,7 +783,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

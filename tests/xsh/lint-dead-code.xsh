@@ -125,7 +125,7 @@ test test_lint_flow_carries_atomic_body_returns_to_the_enclosing_sequence { |ctx
 test test_lint_flow_preserves_guard_fail_pacing_and_builder_transfers { |ctx|
   let reported = dead_code(
     ctx,
-    "proc guarded(ready: Bool) {\n  guard ready else { return }\n  print \"reachable after block guard\"\n}\n\nproc unless_return(stop: Bool) {\n  return unless stop\n  print \"reachable after unless\"\n}\n\nproc paced() [time, error] {\n  wait until true within 1ms every 1ms\n  wait until true within 1ms backoff 1ms..4ms\n  print \"reachable after waits\"\n}\n\nproc failed() [error] {\n  fail \"failed\"\n  print \"unreachable after fail\"\n}\n\nproc built(stop: Bool) [process, error] {\n  let command = process.command {\n    timeout = if stop { return } else { return }\n    run true\n  }\n  print \"unreachable after builder\"\n}\n",
+    "proc guarded(ready: Bool) {\n  guard ready else { return }\n  print \"reachable after block guard\"\n}\n\nproc unless_return(stop: Bool) {\n  return unless stop\n  print \"reachable after unless\"\n}\n\nproc paced() [time, error] {\n  wait until true within 1ms every 1ms\n  wait until true within 1ms backoff 1ms..4ms\n  print \"reachable after waits\"\n}\n\nproc failed() [error] {\n  fail \"failed\"\n  print \"unreachable after fail\"\n}\n\nproc built(stop: Bool) [process, error] {\n  let command = process.command_argv(\n    \"true\", [\"true\"],\n    timeout: if stop { return } else { return },\n  )\n  print \"unreachable after builder\"\n}\n",
   )?
   assert headers(reported.stderr) == [unreachable, unreachable], reported.stderr
   assert "dead.xsh:19:3\n" in reported.stderr, reported.stderr

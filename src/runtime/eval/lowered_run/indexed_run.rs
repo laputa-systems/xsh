@@ -1,6 +1,6 @@
 use crate::runtime::eval::indexed::full::decode::ValueCheckView;
 use super::{
-    Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
+    Arc, AssignOp, BTreeMap, BinaryOp, Binding, ControlFlow, Duration,
     DeferKind, Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
     LoweredFunctionKey, CallableKind, LoweredMapCursor,
     LoweredProjectedReduceState, LoweredReduceProjection,
@@ -15,14 +15,14 @@ use super::{
     bytes_contains, bytes_module,
     check_env_name, checked_int_binary, compare_lowered_sort_keys, compound_assignment_value,
     error_constructor, execute_run_with_policy, exit_status, fs_module,
-    lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
+    lowered_assign_value, lowered_binary_value, lowered_bool_arg_or,
     lowered_bytes_parts, lowered_bytes_value,
-    empty_command_plan, lowered_command_plan_value, lowered_command_redirections,
+    lowered_command_plan_value,
     lowered_contains_value,
-    lowered_count_key, lowered_duration_arg, lowered_command_env_arg,
+    lowered_count_key, lowered_duration_arg,
     lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
     lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
-    lowered_int_arg, lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
+    lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
     lowered_path_arg, lowered_path_from_value, lowered_path_like_arg,
     lowered_path_method_value, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list, lowered_process_run_error,
@@ -476,14 +476,8 @@ pub(super) fn finish_checked_value(
 pub(super) enum FrameApplyOperand {
     Raw,
     Path(&'static str),
-    PathLike(&'static str),
     Bool(&'static str),
-    BuilderBool(&'static str),
     StringList(&'static str),
-    Environment(&'static str),
-    Duration(&'static str),
-    PositiveInt(&'static str),
-    AcceptedExitCodes,
     ErrorFailMessage,
     ExitStatus,
 }
@@ -494,10 +488,6 @@ pub(super) enum FrameApplyValue {
     Bool(bool),
     String(String),
     StringList(Vec<String>),
-    Environment(BTreeMap<String, Vec<u8>>),
-    Duration(DurationValue),
-    Int(i64),
-    AcceptedExitCodes(crate::runtime::process::AcceptedExitCodes),
     ExitStatus(u8),
 }
 
@@ -781,22 +771,8 @@ fn convert_frame_apply_operand(
     match operand {
         FrameApplyOperand::Raw => Ok(FrameApplyValue::Value(value)),
         FrameApplyOperand::Path(operation) => Ok(FrameApplyValue::Path(lowered_path_arg(value, operation, span)?)),
-        FrameApplyOperand::PathLike(operation) => Ok(FrameApplyValue::Path(lowered_path_like_arg(value, operation, span)?)),
         FrameApplyOperand::Bool(operation) => Ok(FrameApplyValue::Bool(lowered_bool_arg_or(Some(value), false, operation, span)?)),
-        FrameApplyOperand::BuilderBool(field) => Ok(FrameApplyValue::Bool(lowered_bool_builder_field(value, field, span)?)),
         FrameApplyOperand::StringList(operation) => Ok(FrameApplyValue::StringList(lowered_str_list_arg(Some(value), operation, span)?)),
-        FrameApplyOperand::Environment(operation) => Ok(FrameApplyValue::Environment(lowered_command_env_arg(value, operation, span)?)),
-        FrameApplyOperand::Duration(operation) => Ok(FrameApplyValue::Duration(lowered_duration_arg(Some(value), operation, span)?)),
-        FrameApplyOperand::PositiveInt(operation) => {
-            let value = lowered_int_arg(Some(value), operation, span)?;
-            if value <= 0 {
-                return Err(RuntimeError::new("cpu-max", "cpu_max must be positive").with_span(span));
-            }
-            Ok(FrameApplyValue::Int(value))
-        }
-        FrameApplyOperand::AcceptedExitCodes => Ok(FrameApplyValue::AcceptedExitCodes(
-            super::lowered_accepted_exit_codes(value, span)?,
-        )),
         FrameApplyOperand::ErrorFailMessage => match lowered_str_value(&value) {
             Some(message) => Ok(FrameApplyValue::String(message.to_string())),
             None => Err(RuntimeError::new(
@@ -2025,7 +2001,6 @@ impl Evaluator {
             ExprViewKind::PathRemove |
             ExprViewKind::ModuleCall |
             ExprViewKind::ProcessCommandArgv |
-            ExprViewKind::ProcessCommandBuilder |
             ExprViewKind::Abort |
             ExprViewKind::Fail |
             ExprViewKind::Error |

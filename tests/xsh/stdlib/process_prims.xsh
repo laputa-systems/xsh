@@ -241,9 +241,7 @@ process.set_signal_action("USR1", "default")?
 assert process.signal_action("USR1")? == "default"
 test_invalid_action()
 process.set_signal_action("USR2", "ignore")?
-unix.exec(process.command {
-  run sh -c "kill -USR2 $$; echo survived"
-})?
+unix.exec(process.command_argv("sh", ["sh", "-c", "kill -USR2 $$; echo survived"]))?
 
 proc test_invalid_action() [io] {
   match process.set_signal_action("USR1", "catch") {

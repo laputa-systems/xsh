@@ -51,14 +51,10 @@ test test_every_environment_value_position_joins_a_path_list { |ctx|
   assert process.run(argv_plan)?.exited_with(0)
   assert by_argv.read_text()? == "/one:/two"
 
-  let by_builder = fp"{root}/builder.out"
-  let builder_plan = process.command {
-    env = {XSH_PATH_LIST: dirs}
-    stdout = by_builder
-    run $sh -c $script
-  }
-  assert process.run(builder_plan)?.exited_with(0)
-  assert by_builder.read_text()? == "/one:/two"
+  let by_plan = fp"{root}/plan.out"
+  let plan = process.command_argv(sh, [sh, "-c", script], env: {XSH_PATH_LIST: dirs}, stdout: by_plan)
+  assert process.run(plan)?.exited_with(0)
+  assert by_plan.read_text()? == "/one:/two"
 
   let nested = test.run_xsh(ctx, "print (e\"XSH_PATH_LIST\"?)\n", env: {XSH_PATH_LIST: dirs})?
   assert nested.success, nested.stderr

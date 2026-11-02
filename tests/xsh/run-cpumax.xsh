@@ -18,10 +18,7 @@ test test_spawn_and_command_plan_cpumax_leave_no_scope { |ctx|
     ctx,
     r"""let first = spawn run --cpumax=80 true ?
 let first_status = wait first?
-let command = process.command {
-  cpu_max = 80
-  run true
-}
+let command = process.command_argv("true", ["true"], cpu_max: 80)
 let second = spawn command?
 let second_status = wait second?
 print ${first_status.ok} ${second_status.ok}

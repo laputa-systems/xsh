@@ -1218,7 +1218,7 @@ on <span class="hl-type">SIGTERM</span> <span class="hl-punctuation">[</span>fs<
 state<span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"deploying\n"</span><span class="hl-punctuation">)</span>
 <span class="hl-keyword">run</span> <span class="hl-function">sleep</span> <span class="hl-number">30</span>
 state<span class="hl-punctuation">.</span><span class="hl-function">write</span><span class="hl-punctuation">(</span><span class="hl-string">"done\n"</span><span class="hl-punctuation">)</span></code></pre></figure>
-<p>The hook may delay forwarding the signal to running children by <code>--pre-cancel</code> (150 ms by default), long enough to record state or start an orderly handoff. There is no way to ignore a signal in XSH code. To keep a child running after a hangup, start it with the <code>process.command</code> fields <code>ignore_hup</code>, <code>new_session</code>, or <code>detach</code>.</p>
+<p>The hook may delay forwarding the signal to running children by <code>--pre-cancel</code> (150 ms by default), long enough to record state or start an orderly handoff. There is no way to ignore a signal in XSH code. To keep a child running after a hangup, start it with the <code>process.command_argv</code> arguments <code>ignore_hup</code>, <code>new_session</code>, or <code>detach</code>.</p>
 </section>
 <section class="chapter">
 <h2 id="archives"><a class="anchor" href="#archives">Archives</a></h2>

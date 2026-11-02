@@ -2,7 +2,7 @@
 //! module so that operators, stages, run forms, and effects are spelled once.
 
 use super::{
-    BINARY_OPERATORS, BUILDER_APIS, BUILDER_STATEMENT_KEYWORDS, Class, EXPORTABLE_KEYWORDS, Item,
+    BINARY_OPERATORS, Class, EXPORTABLE_KEYWORDS, Item,
     OperatorFamily, OperatorToken, RUN_FORMS, Rule, RunOption, STATEMENT_KEYWORDS, STREAM_STAGES,
     Section, SignalHookOption, StatementForm, StreamStage, Term, PostfixForm, NameStatementForm, effect_names,
 };
@@ -49,10 +49,6 @@ fn class(class: Class) -> Item {
 
 fn gclass(class: Class) -> Item {
     Item::Term(term(class, true))
-}
-
-fn condition_body(comma_terminator: bool) -> Item {
-    Item::ConditionBody { comma_terminator }
 }
 
 fn postfix(command_argument: bool) -> Item {
@@ -322,7 +318,7 @@ fn postfix_guard_leads() -> Vec<Vec<Term>> {
 }
 
 /// What begins a statement of its own where an expression statement could
-/// start: keyword and declaration forms, and `process.command {`.
+/// start: keyword and declaration forms.
 fn expression_statement_stops() -> Vec<Vec<Term>> {
     use TokenTag as T;
     let mut leads: Vec<Vec<Term>> = STATEMENT_KEYWORDS
@@ -350,14 +346,6 @@ fn expression_statement_stops() -> Vec<Vec<Term>> {
         word_term("nominal", false),
         keyword_term(Keyword::Type),
     ]);
-    leads.extend(BUILDER_APIS.map(|(module, function)| {
-        vec![
-            word_term(module, false),
-            glued_tag_term(T::Dot),
-            word_term(function, true),
-            tag_term(T::LBrace),
-        ]
-    }));
     // `exit` and `fail` begin their statements before a `?` is read as the
     // rest of an expression over a binding of that name. An `as` or an `is`
     // after either word continues an expression, as an operator does.
@@ -1298,13 +1286,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::If),
                 r("condition"),
-                condition_body(false),
                 block(),
                 star(seq([
                     kw(Keyword::Else),
                     kw(Keyword::If),
                     r("condition"),
-                    condition_body(false),
                     block(),
                 ])),
                 opt(seq([kw(Keyword::Else), block()])),
@@ -1332,7 +1318,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "while_statement",
-            seq([kw(Keyword::While), r("condition"), condition_body(false), block()]),
+            seq([kw(Keyword::While), r("condition"), block()]),
         ),
         rule(
             Statements,
@@ -1344,7 +1330,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("binding_target"),
                 kw(Keyword::In),
                 r("condition_expression"),
-                condition_body(false),
                 block(),
             ]),
         ),
@@ -1387,7 +1372,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Match),
                 r("condition_expression"),
-                condition_body(false),
                 t(T::LBrace),
                 star(alt([sep(), seq([r("arm_head"), r("arm_body")])])),
                 // The catch-all `else` arm is the last arm.
@@ -1493,7 +1477,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::With),
                 list(seq([ident(), t(T::Equals), r("condition_expression")])),
-                condition_body(true),
                 block(),
                 nl(),
                 kw(Keyword::Else),
@@ -1718,12 +1701,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     not([vec![word_term("until", false)]]),
                     r("operand"),
                 ]),
-                seq([w("ctx"), line(r("condition_expression")), condition_body(false), block()]),
+                seq([w("ctx"), line(r("condition_expression")), block()]),
                 r("context_scope"),
                 r("tempdir_scope"),
                 r("within_scope"),
                 r("resource_scope"),
-                r("builder_call"),
                 r("item_expression"),
             ]),
         ),
@@ -1844,13 +1826,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::If),
                 r("condition"),
-                condition_body(false),
                 block(),
                 star(seq([
                     kw(Keyword::Else),
                     kw(Keyword::If),
                     r("condition"),
-                    condition_body(false),
                     block(),
                 ])),
                 kw(Keyword::Else),
@@ -1863,7 +1843,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Match),
                 r("condition_expression"),
-                condition_body(false),
                 t(T::LBrace),
                 star(alt([
                     sep(),
@@ -2017,7 +1996,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 w("tempdir"),
                 ident(),
                 opt(seq([w("at"), r("condition_expression")])),
-                condition_body(false),
                 t(T::LBrace),
                 star(sep()),
                 r("statements"),
@@ -2032,61 +2010,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::With),
                 list1(seq([ident(), t(T::Equals), r("condition_expression")])),
-                condition_body(true),
                 block(),
             ]),
-        ),
-        rule(
-            Expressions,
-            "builder_call",
-            seq([
-                alt(BUILDER_APIS
-                    .map(|(module, function)| seq([w(module), g(T::Dot), gw(function)]))),
-                opt(seq([g(T::LParen), r("call_arguments"), t(T::RParen)])),
-                r("builder_block"),
-            ]),
-        ),
-        rule(
-            Expressions,
-            "builder_block",
-            seq([
-                t(T::LBrace),
-                star(alt([
-                    sep(),
-                    r("builder_compound_entry"),
-                    seq([r("builder_entry"), sep()]),
-                ])),
-                opt(r("builder_entry")),
-                t(T::RBrace),
-            ]),
-        ),
-        rule(
-            Expressions,
-            "builder_compound_entry",
-            alt(
-                statement_rules(&keyword_forms(BUILDER_STATEMENT_KEYWORDS), true)
-                    .into_iter()
-                    .chain([
-                        seq([w("task"), name(), opt(signature()), block()]),
-                        seq([name(), star(r("command_argument")), r("builder_block")]),
-                    ]),
-            ),
-        ),
-        rule(
-            Expressions,
-            "builder_entry",
-            alt(
-                statement_rules(&keyword_forms(BUILDER_STATEMENT_KEYWORDS), false)
-                    .into_iter()
-                    .chain([
-                        seq([ident(), t(T::Equals), r("expression")]),
-                        seq([
-                            name(),
-                            not([vec![tag_term(T::Equals)]]),
-                            star(r("command_argument")),
-                        ]),
-                    ]),
-            ),
         ),
         rule(
             Expressions,

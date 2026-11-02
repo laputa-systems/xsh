@@ -2,7 +2,7 @@ use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCommand,
     ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
     ArenaPipeStageKind, ArenaRecordFieldKind, ArenaRunTailOperand, ArenaStmtKind, ArenaSugar,
     ArenaTypeDefBody, ArenaWordPart, ExprId, StmtId, SugarForm,
@@ -877,12 +877,7 @@ let mode = 0o755
 let timeout = 30s
 let message = f"mode {mode}"
 defer run true ?
-let command = process.command {
-  cwd = Path("src")
-  timeout = 2s
-  cpu_max = 80
-  run --timeout=1s --cpumax=80 make check
-}
+let command = process.command_argv("make", ["make", "check"], cwd: Path("src"), timeout: 2s, cpu_max: 80)
 run.status --cpumax=80 echo ok
 run.capture --text echo ok
 let raw_lines = run.stream --text printf "%s\n" a b
@@ -900,7 +895,7 @@ match Err(Error(kind: "not-found")) {
         root.iter()
             .any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Defer(..)))
     );
-    let block_id = root
+    let command = root
         .iter()
         .find_map(|id| {
             let ArenaStmtKind::Let {
@@ -910,74 +905,13 @@ match Err(Error(kind: "not-found")) {
             else {
                 return None;
             };
-            let ArenaExprKind::BuilderCall { block, .. } = arena.expr(expr).kind else {
-                return None;
-            };
-            Some(block)
+            matches!(arena.expr(expr).kind, ArenaExprKind::Call { .. }).then_some(expr)
         })
-        .expect("expected builder call");
-    let entries = arena.builder_entries(arena.builder_block(block_id).entries);
-    assert!(matches!(
-        entries[0].kind,
-        ArenaBuilderEntryKind::Field { .. }
-    ));
-}
-
-#[test]
-fn parser_accepts_builder_task_and_generic_entry_shapes() {
-    // `Task` and generic command-style `Entry` builder entries are parser-only
-    // grammar (no accepting API's check currently exercises them), so this
-    // checks parsing alone via Parser::parse_source_arena_only, not the full
-    // assert_parse_and_check helper.
-    let output = Parser::parse_source_arena_only(
-        SourceId::new(0),
-        "\
-let exec = process.command {
-  task build {
-    run echo hi
-  }
-  some_entry arg1 arg2 {
-    nested = 1
-  }
-}
-",
-    );
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    let ArenaExprKind::BuilderCall { block, .. } = arena.expr(root_let_init_expr(&output, 0)).kind
-    else {
-        panic!("expected builder call");
+        .expect("expected command_argv call");
+    let ArenaExprKind::Call { args, .. } = arena.expr(command).kind else {
+        unreachable!("matched above");
     };
-    let entries = arena.builder_entries(arena.builder_block(block).entries);
-    assert_eq!(entries.len(), 2);
-    let ArenaBuilderEntryKind::Task {
-        name,
-        block: task_block,
-    } = entries[0].kind
-    else {
-        panic!("expected task entry");
-    };
-    assert_eq!(name, "build");
-    let task_stmts: Vec<_> = arena.stmt_ids(arena.block(task_block).statements).collect();
-    assert_eq!(task_stmts.len(), 1);
-
-    let ArenaBuilderEntryKind::Entry {
-        name,
-        args,
-        block: nested_block,
-    } = &entries[1].kind
-    else {
-        panic!("expected generic entry");
-    };
-    assert_eq!(*name, "some_entry");
-    assert_eq!(arena.command_args(*args).len(), 2);
-    let nested_block = nested_block.expect("entry has a nested builder block");
-    let nested_entries = arena.builder_entries(arena.builder_block(nested_block).entries);
-    assert_eq!(nested_entries.len(), 1);
-    assert!(matches!(
-        nested_entries[0].kind,
-        ArenaBuilderEntryKind::Field { .. }
-    ));
+    assert_eq!(arena.call_args(args).len(), 5);
 }
 
 #[test]

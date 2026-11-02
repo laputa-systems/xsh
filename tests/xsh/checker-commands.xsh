@@ -177,18 +177,12 @@ test test_checker_rejects_invalid_spawn_wait_shapes { |ctx|
   }
 }
 
-test test_checker_handles_foundation_builders_literals_and_context { |ctx|
+test test_checker_handles_foundation_command_plans_literals_and_context { |ctx|
   expect_accepted(
     ctx,
     r"""
 let mode = 0o755
-let command = process.command {
-  timeout = 30s
-  detach = true
-  new_session = false
-  ignore_hup = true
-  run --timeout=1s echo ok
-}
+let command = process.command_argv("echo", ["echo", "ok"], timeout: 30s, detach: true, new_session: false, ignore_hup: true)
 let _command = command
 """,
   )
@@ -197,16 +191,20 @@ let _command = command
 test test_checker_rejects_foundation_contract_errors { |ctx|
   for case in [
     {
-      source: "use process\nlet command = process.command { timeout = 1\nrun true }\n",
+      source: "use process\nlet command = process.command_argv(\"true\", [\"true\"], timeout: 1)\n",
       code: "check.type-mismatch",
     },
     {
-      source: "let command = process.command { unknown = 1\nrun true }\n",
-      code: "check.builder-field",
+      source: "let command = process.command_argv(\"true\", [\"true\"], unknown: 1)\n",
+      code: "check.named-arg",
     },
     {
-      source: "let command = process.command { cpu_max = 0\nrun true }\n",
-      code: "check.builder-field",
+      source: "let command = process.command_argv(\"true\", [\"true\"], cpu_max: 0)\n",
+      code: "check.named-arg",
+    },
+    {
+      source: "let command = process.command { cwd = p\"build\"\nrun true }\n",
+      code: "parse.builder-block",
     },
     {
       source: "run --cpumax=0 true\n",

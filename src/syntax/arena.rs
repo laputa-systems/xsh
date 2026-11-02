@@ -129,7 +129,6 @@ id_type!(BindingTargetId);
 id_type!(AssignTargetId);
 id_type!(TypeExprId);
 id_type!(RunFormId);
-id_type!(BuilderBlockId);
 id_type!(UseStmtId);
 id_type!(TypeDefId);
 id_type!(ErrorDefId);
@@ -585,31 +584,6 @@ mod child_tests {
         let mut children = Vec::new();
         lowerer.arena.for_each_stmt_child(stmt, SugarView::Core, |child| children.push(child));
         assert_eq!(children, expected);
-    }
-
-    #[test]
-    fn builder_enumeration_keeps_nested_blocks_immediate() {
-        use ArenaChild::{Block, BuilderBlock, Expr, Stmt};
-        let owner = crate::symbol::SymbolOwner::new();
-        let mut arena = AstArena::default();
-        let name = owner.intern("entry");
-        let span = SpanId::from_index(0);
-        let value = ExprId::from_index(0);
-        let argument = ExprId::from_index(1);
-        let nested = BuilderBlockId::from_index(1);
-        let task = BlockId::from_index(0);
-        let stmt = StmtId::from_index(0);
-        arena.command_args.push(ArenaCommandArg { kind: ArenaCommandArgKind::Typed(argument), span });
-        arena.builder_entries.extend([
-            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Field { name, value }, span },
-            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Entry { name, args: ArenaRange::new(0, 1), block: Some(nested) }, span },
-            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Task { name, block: task }, span },
-            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Stmt(stmt), span },
-        ]);
-        arena.builder_blocks.push(ArenaBuilderBlock { entries: ArenaRange::new(0, 4), span });
-        let mut children = Vec::new();
-        arena.for_each_builder_child(BuilderBlockId::from_index(0), |child| children.push(child));
-        assert_eq!(children, [Expr(value), Expr(argument), BuilderBlock(nested), Block(task), Stmt(stmt)]);
     }
 
     #[test]
@@ -1161,7 +1135,6 @@ impl ArenaProgram {
             source_text_literals: self.arena.source_text_literals(),
             cooked_text_literals: self.arena.cooked_texts.len(),
             run_forms: self.arena.run_forms.len(),
-            builder_blocks: self.arena.builder_blocks.len(),
             spans: self.arena.spans.len(),
             span_source_overrides: self.arena.span_source_overrides(),
             extra_items: self.arena.extra.len(),
@@ -1182,7 +1155,6 @@ impl ArenaProgram {
             block_storage_bytes: self.arena.block_storage_bytes(),
             control_storage_bytes: self.arena.control_storage_bytes(),
             call_record_storage_bytes: self.arena.call_record_storage_bytes(),
-            builder_storage_bytes: self.arena.builder_storage_bytes(),
             command_storage_bytes: self.arena.command_storage_bytes(),
             side_table_storage_bytes: self.arena.side_table_storage_bytes(),
             tables: self.arena.table_stats(),
@@ -1516,8 +1488,6 @@ pub struct ArenaProgramBuilder<'a> {
     word_part_input_starts: Vec<usize>,
     fmt_part_inputs: Vec<(ArenaFmtPartTag, ArenaFmtPartData)>,
     fmt_part_input_starts: Vec<usize>,
-    builder_entry_inputs: Vec<ArenaBuilderEntry>,
-    builder_entry_input_starts: Vec<usize>,
     modules: Vec<ArenaUserModule>,
     docs: ArenaDocComments,
     /// Depth of embedded-implementation source parsing.
@@ -1576,8 +1546,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             word_part_input_starts: Vec::new(),
             fmt_part_inputs: Vec::new(),
             fmt_part_input_starts: Vec::new(),
-            builder_entry_inputs: Vec::new(),
-            builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
             docs: ArenaDocComments::default(),
             internal_source_depth: 0,
@@ -1638,8 +1606,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             word_part_input_starts: Vec::new(),
             fmt_part_inputs: Vec::new(),
             fmt_part_input_starts: Vec::new(),
-            builder_entry_inputs: Vec::new(),
-            builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
             docs: ArenaDocComments::default(),
             internal_source_depth: 0,
@@ -1659,12 +1625,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         }
     }
 
-    /// Inverse of `push_current_statement` — for contexts like builder-block
-    /// `Stmt` entries, which want the `StmtId` a `parse_statement_arena_only`
-    /// call just produced without leaving it registered on the enclosing
-    /// block's/root's statement list. Must be called immediately after the
-    /// one `parse_statement_arena_only` call that produced it, with no other
-    /// statement push in between.
     pub fn pop_last_statement(&mut self) -> StmtId {
         if self.block_statement_starts.is_empty() {
             self.statements
@@ -2693,61 +2653,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             range_start,
             self.lowerer.arena.fmt_part_tags.len() - range_start,
         )
-    }
-
-    // Builder-block entries can nest (an `Entry` can itself carry a nested
-    // builder block), so this needs the same stage-then-drain treatment as
-    // fmt parts.
-    pub fn begin_builder_entries(&mut self) {
-        self.builder_entry_input_starts
-            .push(self.builder_entry_inputs.len());
-    }
-
-    pub fn push_builder_entry_input(&mut self, entry: ArenaBuilderEntry) {
-        self.builder_entry_inputs.push(entry);
-    }
-
-    pub fn finish_builder_block(&mut self, span: Span) -> BuilderBlockId {
-        let start = self
-            .builder_entry_input_starts
-            .pop()
-            .expect("finish_builder_block called without begin_builder_entries");
-        let range_start = self.lowerer.arena.builder_entries.len();
-        for entry in self.builder_entry_inputs.drain(start..) {
-            self.lowerer.arena.builder_entries.push(entry);
-        }
-        let entries = ArenaRange::new(
-            range_start,
-            self.lowerer.arena.builder_entries.len() - range_start,
-        );
-        let id = BuilderBlockId::new(self.lowerer.arena.builder_blocks.len());
-        let span = self.lowerer.span(span);
-        self.lowerer
-            .arena
-            .builder_blocks
-            .push(ArenaBuilderBlock { entries, span });
-        id
-    }
-
-    pub fn build_builder_entry(
-        &mut self,
-        kind: ArenaBuilderEntryKind,
-        span: Span,
-    ) -> ArenaBuilderEntry {
-        ArenaBuilderEntry {
-            kind,
-            span: self.lowerer.span(span),
-        }
-    }
-
-    pub fn push_builder_call_expr_id(
-        &mut self,
-        call: ExprId,
-        block: BuilderBlockId,
-        span: Span,
-    ) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::BuilderCall { call, block }, span)
     }
 
     pub fn build_pipe_stage(&mut self, kind: ArenaPipeStageKind, span: Span) -> ArenaPipeStage {
@@ -4552,7 +4457,6 @@ pub struct ArenaStats {
     pub source_text_literals: usize,
     pub cooked_text_literals: usize,
     pub run_forms: usize,
-    pub builder_blocks: usize,
     pub spans: usize,
     pub span_source_overrides: usize,
     pub extra_items: usize,
@@ -4573,7 +4477,6 @@ pub struct ArenaStats {
     pub block_storage_bytes: usize,
     pub control_storage_bytes: usize,
     pub call_record_storage_bytes: usize,
-    pub builder_storage_bytes: usize,
     pub command_storage_bytes: usize,
     pub side_table_storage_bytes: usize,
     pub tables: Vec<ArenaTableStats>,
@@ -4642,7 +4545,6 @@ pub struct AstArena {
     pub text_data: Vec<ArenaTextData>,
     pub cooked_texts: Vec<Arc<str>>,
     pub run_forms: Vec<ArenaRunForm>,
-    pub builder_blocks: ArenaColdVec<ArenaBuilderBlock>,
     pub extra: Vec<u32>,
     pub block_params: Vec<ArenaBlockParam>,
     pub params: Vec<ArenaParam>,
@@ -4673,7 +4575,6 @@ pub struct AstArena {
     pub call_args: Vec<ArenaCallArg>,
     pub pipe_stages: Vec<ArenaPipeStage>,
     pub stream_stages: Vec<ArenaStreamStage>,
-    pub builder_entries: ArenaColdVec<ArenaBuilderEntry>,
     pub command_args: Vec<ArenaCommandArg>,
     pub env_assignments: Vec<ArenaEnvAssignment>,
     pub run_segments: Vec<ArenaRunSegment>,
@@ -5076,10 +4977,6 @@ impl AstArena {
                 ArenaSpawnTarget::Command(expr) => visit(Child::Expr(expr)),
             },
             ArenaExprKind::Wait(form) => visit(Child::Expr(form.target)),
-            ArenaExprKind::BuilderCall { call, block } => {
-                visit(Child::Expr(call));
-                visit(Child::BuilderBlock(block));
-            }
             ArenaExprKind::CodecSchema { format, input, schema, .. } => {
                 visit(Child::Expr(format)); visit(Child::Expr(input)); visit(Child::TypeExpr(schema));
             }
@@ -5192,22 +5089,6 @@ impl AstArena {
             ArenaTypeExprTag::Result => {
                 visit(ArenaChild::TypeExpr(TypeExprId::from_index(data.lhs as usize)));
                 if let Some(err) = optional_type_expr_id(data.rhs) { visit(ArenaChild::TypeExpr(err)); }
-            }
-        }
-    }
-
-    /// A nested builder block remains a child, so enumeration never descends
-    /// on the native stack or allocates a work list.
-    pub fn for_each_builder_child(&self, id: BuilderBlockId, mut visit: impl FnMut(ArenaChild)) {
-        for entry in self.builder_entries(self.builder_block(id).entries) {
-            match entry.kind {
-                ArenaBuilderEntryKind::Field { value, .. } => visit(ArenaChild::Expr(value)),
-                ArenaBuilderEntryKind::Entry { args, block, .. } => {
-                    self.for_each_command_args_child(args, &mut visit);
-                    if let Some(block) = block { visit(ArenaChild::BuilderBlock(block)); }
-                }
-                ArenaBuilderEntryKind::Task { block, .. } => visit(ArenaChild::Block(block)),
-                ArenaBuilderEntryKind::Stmt(stmt) => visit(ArenaChild::Stmt(stmt)),
             }
         }
     }
@@ -5466,10 +5347,6 @@ impl AstArena {
             + vec_capacity_bytes(&self.stream_stages)
     }
 
-    pub fn builder_storage_bytes(&self) -> usize {
-        vec_capacity_bytes(&self.builder_blocks) + vec_capacity_bytes(&self.builder_entries)
-    }
-
     pub fn command_storage_bytes(&self) -> usize {
         vec_capacity_bytes(&self.command_stmts)
             + vec_capacity_bytes(&self.run_forms)
@@ -5491,7 +5368,6 @@ impl AstArena {
             + self.block_storage_bytes()
             + self.control_storage_bytes()
             + self.call_record_storage_bytes()
-            + self.builder_storage_bytes()
             + self.command_storage_bytes()
     }
 
@@ -5561,7 +5437,6 @@ impl AstArena {
             table!(text_data),
             table!(cooked_texts),
             table!(run_forms),
-            table!(builder_blocks),
             table!(extra),
             table!(block_params),
             table!(params),
@@ -5588,7 +5463,6 @@ impl AstArena {
             table!(call_args),
             table!(pipe_stages),
             table!(stream_stages),
-            table!(builder_entries),
             table!(command_args),
             table!(env_assignments),
             table!(run_segments),
@@ -5630,7 +5504,6 @@ impl AstArena {
             + self.text_storage_bytes()
             + self.cooked_text_storage_bytes()
             + vec_capacity_bytes(&self.run_forms)
-            + vec_capacity_bytes(&self.builder_blocks)
             + self.extra_storage_bytes()
             + vec_capacity_bytes(&self.block_params)
             + vec_capacity_bytes(&self.params)
@@ -5650,7 +5523,6 @@ impl AstArena {
             + vec_capacity_bytes(&self.call_args)
             + vec_capacity_bytes(&self.pipe_stages)
             + vec_capacity_bytes(&self.stream_stages)
-            + vec_capacity_bytes(&self.builder_entries)
             + vec_capacity_bytes(&self.command_args)
             + vec_capacity_bytes(&self.env_assignments)
             + vec_capacity_bytes(&self.run_segments)
@@ -5686,7 +5558,6 @@ impl AstArena {
             + self.call_args.len()
             + self.pipe_stages.len()
             + self.stream_stages.len()
-            + self.builder_entries.len()
             + self.command_args.len()
             + self.env_assignments.len()
             + self.run_segments.len()
@@ -6107,10 +5978,6 @@ impl AstArena {
                 target: ExprId::new(data.lhs as usize),
                 span: SpanId::new(data.rhs as usize),
             }),
-            ArenaExprTag::BuilderCall => ArenaExprKind::BuilderCall {
-                call: ExprId::new(data.lhs as usize),
-                block: BuilderBlockId::new(data.rhs as usize),
-            },
             ArenaExprTag::Try => ArenaExprKind::Try(ExprId::new(data.lhs as usize)),
             ArenaExprTag::CodecSchema => {
                 let raw = range_slice(&self.extra, range_from_data(data));
@@ -6368,10 +6235,6 @@ impl AstArena {
 
     pub fn run_form(&self, id: RunFormId) -> &ArenaRunForm {
         &self.run_forms[id.index()]
-    }
-
-    pub fn builder_block(&self, id: BuilderBlockId) -> &ArenaBuilderBlock {
-        &self.builder_blocks[id.index()]
     }
 
     pub fn extra_range(&self, range: ArenaRange) -> &[u32] {
@@ -6674,10 +6537,6 @@ impl AstArena {
         range_slice(&self.stream_stages, range)
     }
 
-    pub fn builder_entries(&self, range: ArenaRange) -> &[ArenaBuilderEntry] {
-        range_slice(&self.builder_entries, range)
-    }
-
     pub fn command_args(&self, range: ArenaRange) -> &[ArenaCommandArg] {
         range_slice(&self.command_args, range)
     }
@@ -6871,10 +6730,6 @@ fn raw_run_form_id(id: RunFormId) -> u32 {
 
 fn raw_tagged_run_form_id(id: RunFormId) -> u32 {
     raw_index_for_tagged_id(id.index()) | ARENA_RUN_FORM_FLAG
-}
-
-fn raw_builder_block_id(id: BuilderBlockId) -> u32 {
-    raw_index(id.index())
 }
 
 fn raw_span_id(id: SpanId) -> u32 {
@@ -7348,7 +7203,6 @@ pub enum ArenaChild {
     BindingTarget(BindingTargetId),
     AssignTarget(AssignTargetId),
     TypeExpr(TypeExprId),
-    BuilderBlock(BuilderBlockId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -7831,7 +7685,6 @@ pub enum ArenaExprTag {
     SpawnRun,
     SpawnCommand,
     Wait,
-    BuilderCall,
     Try,
     Capture,
     CodecSchema,
@@ -8051,10 +7904,6 @@ pub enum ArenaExprKind {
     Run(RunFormId),
     Spawn(ArenaSpawnForm),
     Wait(ArenaWaitForm),
-    BuilderCall {
-        call: ExprId,
-        block: BuilderBlockId,
-    },
     Try(ExprId),
     Capture(BlockId),
     CodecSchema {
@@ -8352,36 +8201,6 @@ pub struct ArenaStreamStage {
     pub block: Option<BlockId>,
     pub args: ArenaRange,
     pub span: SpanId,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArenaBuilderBlock {
-    pub entries: ArenaRange,
-    pub span: SpanId,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArenaBuilderEntry {
-    pub kind: ArenaBuilderEntryKind,
-    pub span: SpanId,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ArenaBuilderEntryKind {
-    Field {
-        name: Name,
-        value: ExprId,
-    },
-    Entry {
-        name: Name,
-        args: ArenaRange,
-        block: Option<BuilderBlockId>,
-    },
-    Task {
-        name: Name,
-        block: BlockId,
-    },
-    Stmt(StmtId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -9363,10 +9182,6 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::Wait(form) => (
                 ArenaExprTag::Wait,
                 ArenaExprData::new(raw_expr_id(form.target), raw_span_id(form.span)),
-            ),
-            ArenaExprKind::BuilderCall { call, block } => (
-                ArenaExprTag::BuilderCall,
-                ArenaExprData::new(raw_expr_id(call), raw_builder_block_id(block)),
             ),
             ArenaExprKind::Try(id) => (ArenaExprTag::Try, ArenaExprData::new(raw_expr_id(id), 0)),
             ArenaExprKind::CodecSchema { kind, format, input, schema } => {

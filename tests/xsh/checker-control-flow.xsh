@@ -690,14 +690,9 @@ pure choose_guard(stop: Bool) -> Int {
         diagnostics: [],
       },
       {
-        name: "builder-field-break-reaches-the-enclosing-loop",
-        source: "proc choose(stop: Bool) [process, error] -> Int { loop { let command = process.command { timeout = if stop { break } else { 1s }; run true }; return 1 } }\n",
+        name: "named-argument-break-reaches-the-enclosing-loop",
+        source: "proc choose(stop: Bool) [process, error] -> Int { loop { let command = process.command_argv(\"true\", [\"true\"], timeout: if stop { break } else { 1s }); return 1 } }\n",
         diagnostics: ["check.missing-return"],
-      },
-      {
-        name: "builder-task-break-does-not-leave-the-enclosing-loop",
-        source: "proc spin() [process, error] { loop { let command = process.command { task worker() { break }; run true } } }\n",
-        diagnostics: ["check.loop-no-break", "check.loop-control", "check.builder-entry"],
       },
       {
         name: "captured-cd_setup_failure-keeps_function_fallthrough",

@@ -201,10 +201,6 @@ impl Analyzer<'_> {
                     .program
                     .arena
                     .for_each_binding_target_child(target, |child| pending.push(child)),
-                ArenaChild::BuilderBlock(block) => self
-                    .program
-                    .arena
-                    .for_each_builder_child(block, |child| pending.push(child)),
                 ArenaChild::TypeExpr(_) => {}
             }
         }
@@ -744,7 +740,6 @@ impl Analyzer<'_> {
                 | ArenaExprKind::Run(_)
                 | ArenaExprKind::Spawn(_)
                 | ArenaExprKind::Wait(_)
-                | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Try(_)
                 | ArenaExprKind::Capture(_)
                 | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

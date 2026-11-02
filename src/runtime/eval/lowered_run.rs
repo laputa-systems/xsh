@@ -2502,19 +2502,6 @@ fn lowered_command_plan_value(
     Ok(LoweredValue::Command(Box::new(plan)))
 }
 
-fn lowered_bool_builder_field(
-    value: LoweredValue,
-    field: &str,
-    span: Span,
-) -> Result<bool, RuntimeError> {
-    let LoweredValue::Bool(value) = value else {
-        return Err(
-            RuntimeError::new("type-error", format!("{field} expected Bool")).with_span(span),
-        );
-    };
-    Ok(value)
-}
-
 fn lowered_runtime_value(value: Value, span: Span) -> Result<LoweredValue, RuntimeError> {
     lowered_value_from_runtime_any(&value).ok_or_else(|| {
         RuntimeError::new("type-error", "unsupported lowered module value").with_span(span)

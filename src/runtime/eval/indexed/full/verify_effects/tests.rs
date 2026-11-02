@@ -1894,7 +1894,7 @@ pure build_argv(target: Str, words: List[Str]) -> Command {
     process.command_argv(target, words)
 }
 proc launch_builder() [process, error] -> Result[ProcessHandle, ProcessError] {
-    spawn process.command { timeout = 2s; run true }
+    spawn process.command_argv("true", ["true"], timeout: 2s)
 }
 let child = launch()?
 let status = wait child?
@@ -1950,7 +1950,7 @@ proc await_many(handles: List[ProcessHandle], wrong: List[Int], erased: Any) [pr
     wait handles
 }
 proc build_plan(limit: Duration, wrong: Bool) [process, error] -> Result[ProcessHandle, ProcessError] {
-    spawn process.command { timeout = limit; run true }
+    spawn process.command_argv("true", ["true"], timeout: limit)
 }
 "#;
         let mut program = fixture(source);
@@ -1970,7 +1970,7 @@ proc build_plan(limit: Duration, wrong: Bool) [process, error] -> Result[Process
             ("await_one", 0, 2, "generic call substitution contains dynamic type"),
             ("await_many", 0, 1, "wait target is neither ProcessHandle nor List[ProcessHandle]"),
             ("await_many", 0, 2, "generic call substitution contains dynamic type"),
-            ("build_plan", 0, 1, "process option disagrees with its canonical contract"),
+            ("build_plan", 0, 1, "command operands disagree with their native contract"),
         ] {
             let error = FullVerifier::verify(&process_parameter_mutation(&program, name, from, to)).unwrap_err();
             assert!(error.message.contains(message), "{name} parameter {from}->{to}: {error:?}");
@@ -2012,14 +2012,11 @@ proc launch_command(plan: Command) [process] -> Result[ProcessHandle, ProcessErr
 }
 
 #[test]
-fn physical_process_builder_preserves_the_canonical_record_environment_boundary() {
+fn physical_process_command_argv_preserves_the_canonical_record_environment_boundary() {
     on_large_stack(|| {
         let source = r#"
 proc launch_with_env(environment: Record, erased: Any, wrong: Bool) [process, error] -> Result[ProcessHandle, ProcessError] {
-    spawn process.command {
-        env = environment
-        run sh -c r"""test "$XSH_RECORD_ENV" = preserved"""
-    }
+    spawn process.command_argv("sh", ["sh", "-c", r"""test "$XSH_RECORD_ENV" = preserved"""], env: environment)
 }
 let child = launch_with_env({XSH_RECORD_ENV: "preserved"}, {}, false)?
 let status = wait child?
@@ -2030,7 +2027,7 @@ assert status.ok
         execute_both(&program);
         for slot in [1, 2] {
             let error = FullVerifier::verify(&process_parameter_mutation(&program, "launch_with_env", 0, slot)).unwrap_err();
-            assert_eq!(error.message, "process option disagrees with its canonical contract", "{error:?}");
+            assert_eq!(error.message, "command operands disagree with their native contract", "{error:?}");
         }
     });
 }

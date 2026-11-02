@@ -741,7 +741,7 @@ immediately. `exit STATUS` chooses the exit status; a hook for `INT` or
 The hook may delay forwarding the signal to running children by
 `--pre-cancel` (150 ms by default), long enough to record state or start an
 orderly handoff. There is no way to ignore a signal in XSH code. To keep a
-child running after a hangup, start it with the `process.command` fields
+child running after a hangup, start it with the `process.command_argv` arguments
 `ignore_hup`, `new_session`, or `detach`.
 
 ## Archives

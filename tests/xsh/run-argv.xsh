@@ -25,10 +25,7 @@ test test_spliced_target_in_every_run_form {
   let job = spawn run @(["true"]) ?
   let waited = wait job?
   assert waited.success
-  let plan = process.command {
-    env = {GREETING: "planned"}
-    run @(["sh", "-c", "exit 0"])
-  }
+  let plan = process.command_argv("sh", ["sh", "-c", "exit 0"], env: {GREETING: "planned"})
   assert process.run(plan)?.success
 }
 

@@ -177,12 +177,10 @@ test test_temp { |ctx|
 }
 
 test test_process_command_builder {
-  let command = process.command {
-    run true
-  }
+  let command = process.command_argv("true", ["true"])
 
   let status = process.run(command)?
-  assert status.exited_with(0), "builder command should run"
+  assert status.exited_with(0), "command plan should run"
 }
 
 pure language_sugar_label(value: Str) -> Result[Str] {

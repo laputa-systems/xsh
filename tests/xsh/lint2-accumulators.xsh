@@ -91,9 +91,7 @@ test test_list_comprehension_keeps_accumulator_reads_in_nested_run_and_stream_in
     r"""proc build(inputs: List[Str]) [process, error] -> List[Command] {
   var plans: List[Command] = []
   for item in inputs {
-    plans = plans.push(process.command {
-      run /bin/echo ${plans.len()} $item
-    })
+    plans = plans.push(process.command_argv("/bin/echo", ["/bin/echo", f"{plans.len()}", item]))
   }
   plans
 }

@@ -474,32 +474,6 @@ pub fn statement_form(keyword: Keyword) -> Option<StatementForm> {
         .map(|(_, form)| *form)
 }
 
-/// Keyword statements a builder block accepts as entries.
-pub const BUILDER_STATEMENT_KEYWORDS: [Keyword; 15] = [
-    Keyword::Let,
-    Keyword::Const,
-    Keyword::Var,
-    Keyword::Return,
-    Keyword::Defer,
-    Keyword::Errdefer,
-    Keyword::If,
-    Keyword::While,
-    Keyword::For,
-    Keyword::Loop,
-    Keyword::Guard,
-    Keyword::Break,
-    Keyword::Continue,
-    Keyword::Match,
-    Keyword::Run,
-];
-
-/// `(module, function)` calls that take a builder block: `process.command { ... }`.
-pub const BUILDER_APIS: [(&str, &str); 1] = [("process", "command")];
-
-pub fn builder_api_accepts_block(module: &str, function: &str) -> bool {
-    BUILDER_APIS.contains(&(module, function))
-}
-
 /// Keyword-led declarations that `export` publishes. `export` also accepts a
 /// signal hook (`on`) and an error family (`error`), which begin with
 /// contextual words.
@@ -1161,99 +1135,6 @@ pub fn context_scope_suffix_lookahead<'s>(
         .is_some())
 }
 
-/// Whether a builder API's following block is still the condition body rather
-/// than a callback block. The parser and grammar use the same suffix boundary.
-pub fn builder_block_is_condition_body<'s>(
-    mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>,
-    comma_terminator: bool,
-) -> bool {
-    if !peek(0).is_some_and(|token| token.tag == TokenTag::LBrace) {
-        return false;
-    }
-    let (mut depth, mut offset) = (0, 0);
-    while let Some(tag) = peek(offset).map(|token| token.tag) {
-        match tag {
-            TokenTag::LBrace | TokenTag::DollarLBrace => depth += 1,
-            TokenTag::RBrace => {
-                depth -= 1;
-                if depth == 0 {
-                    offset += 1;
-                    break;
-                }
-            }
-            TokenTag::Eof => return false,
-            _ => {}
-        }
-        offset += 1;
-    }
-    while matches!(peek(offset).map(|token| token.tag), Some(TokenTag::Newline | TokenTag::Comment)) {
-        offset += 1;
-    }
-    let Some(suffix) = peek(offset) else { return true };
-    !(matches!(suffix.tag, TokenTag::LBrace | TokenTag::Dot | TokenTag::LBracket | TokenTag::LParen | TokenTag::PipeGt | TokenTag::Question)
-        || comma_terminator && suffix.tag == TokenTag::Comma
-        || matches!(suffix.tag, TokenTag::Ident | TokenTag::ProcIdent) && matches!(suffix.text, "within" | "as" | "is")
-        || binary_operator_at(
-            suffix.tag,
-            suffix.keyword,
-            peek(offset + 1).and_then(|next| next.keyword),
-        ).is_some())
-}
-
-/// Whether the brace at `position` follows a builder callback that the parser
-/// would attach to the expression before it.
-pub fn condition_body_follows_builder_callback(
-    tokens: &[GrammarToken<'_>],
-    position: usize,
-    comma_terminator: bool,
-) -> bool {
-    if !tokens.get(position).is_some_and(|token| token.tag == TokenTag::LBrace) {
-        return false;
-    }
-    let mut callee_end = position.checked_sub(1);
-    if callee_end.is_some_and(|index| tokens[index].tag == TokenTag::RParen) {
-        let mut depth = 1usize;
-        let Some(mut index) = callee_end.unwrap().checked_sub(1) else { return false };
-        loop {
-            match tokens.get(index).map(|token| token.tag) {
-                Some(TokenTag::RParen) => depth += 1,
-                Some(TokenTag::LParen) => {
-                    depth -= 1;
-                    if depth == 0 {
-                        if !tokens[index].glued {
-                            return false;
-                        }
-                        callee_end = index.checked_sub(1);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-            let Some(previous) = index.checked_sub(1) else { return false };
-            index = previous;
-        }
-    }
-    let Some(function_index) = callee_end else { return false };
-    let Some(dot_index) = function_index.checked_sub(1) else { return false };
-    let Some(module_index) = dot_index.checked_sub(1) else { return false };
-    let (Some(module), Some(dot), Some(function)) = (
-        tokens.get(module_index), tokens.get(dot_index), tokens.get(function_index),
-    ) else { return false };
-    if module.tag != TokenTag::Ident
-        || dot.tag != TokenTag::Dot
-        || !dot.glued
-        || function.tag != TokenTag::Ident
-        || !function.glued
-        || !builder_api_accepts_block(module.text, function.text)
-    {
-        return false;
-    }
-    !builder_block_is_condition_body(
-        |offset| tokens.get(position + offset).copied(),
-        comma_terminator,
-    )
-}
-
 pub fn name_starts_collect<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {
     peek(0).is_some_and(|token| token.tag == TokenTag::Ident && token.text == "collect")
         && peek(1).is_some_and(|token| token.tag == TokenTag::LBrace)
@@ -1339,8 +1220,6 @@ pub enum Item {
     /// Zero-width: this is not the start of a complete `cd (...) { ... }` or
     /// `env (...) { ... }` scope.
     NotContextScope,
-    /// Zero-width: a condition body does not steal a preceding builder callback.
-    ConditionBody { comma_terminator: bool },
     Rule(&'static str),
     Seq(Vec<Item>),
     Alt(Vec<Item>),

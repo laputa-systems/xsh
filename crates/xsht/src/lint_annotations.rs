@@ -772,7 +772,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Convert { .. } => self.any_expr_child(expr, |child| {
                 self.expression_depends_on_expected_type(child, removing_annotation)

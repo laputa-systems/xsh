@@ -415,7 +415,6 @@ impl LiteralConstant {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -3954,7 +3953,6 @@ impl ConstantPreparation<'_> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

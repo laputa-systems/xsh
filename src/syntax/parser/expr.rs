@@ -1068,18 +1068,11 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 };
-            } else if arena_expr_accepts_builder_block(arena, left.id)
-                && self.at(TokenKindMatch::LBrace)
-                && !self.builder_block_is_condition_body()
+            } else if self.at(TokenKindMatch::LBrace)
+                && !self.condition_expr
+                && arena_expr_is_process_command(arena, left.id)
             {
-                let block = self.parse_builder_block_arena_only(arena)?;
-                let span = self.span(left.span.start(), self.previous_end());
-                let id = arena.push_builder_call_expr_id(left.id, block, span);
-                left = ArenaOnlyExpr {
-                    id,
-                    span,
-                    bare_ident: None,
-                };
+                self.skip_removed_builder_block_arena_only(arena, left.span)?;
             } else {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_line_breaks();
@@ -3053,17 +3046,11 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 };
-            } else if arena_expr_accepts_builder_block(arena, left.id)
-                && self.at(TokenKindMatch::LBrace)
-                && !self.builder_block_is_condition_body()
+            } else if self.at(TokenKindMatch::LBrace)
+                && !self.condition_expr
+                && arena_expr_is_process_command(arena, left.id)
             {
-                let block = self.parse_builder_block_arena_only(arena)?;
-                let span = self.span(left.span.start(), self.previous_end());
-                left = ArenaOnlyExpr {
-                    id: arena.push_builder_call_expr_id(left.id, block, span),
-                    span,
-                    bare_ident: None,
-                };
+                self.skip_removed_builder_block_arena_only(arena, left.span)?;
             } else {
                 break;
             }
@@ -3077,31 +3064,20 @@ impl<'a> Parser<'a> {
             && self.at(TokenKindMatch::LParen)
             && matches!(self.peek_tag(1), Some(TokenTag::Newline | TokenTag::Comment))
     }
-
-    /// A final builder-looking block can belong to the enclosing condition head; operators and the `wait until` delimiter keep it on the expression.
-    fn builder_block_is_condition_body(&self) -> bool {
-        if !self.condition_expr || !self.at(TokenKindMatch::LBrace) {
-            return false;
-        }
-        grammar::builder_block_is_condition_body(
-            |offset| self.grammar_token(offset),
-            self.comma_is_terminator,
-        )
-    }
 }
 
-fn arena_expr_accepts_builder_block(arena: &ArenaProgramBuilder<'_>, id: ExprId) -> bool {
+fn arena_expr_is_process_command(arena: &ArenaProgramBuilder<'_>, id: ExprId) -> bool {
     match arena.expr_kind(id) {
         ArenaExprKind::Call { callee, .. } => match arena.expr_kind(callee) {
             ArenaExprKind::Field { base, name } => matches!(
                 arena.expr_kind(base),
-                ArenaExprKind::Ident(module) if grammar::builder_api_accepts_block(&module.as_str(), &name.as_str())
+                ArenaExprKind::Ident(module) if module.as_str() == "process" && name.as_str() == "command"
             ),
             _ => false,
         },
         ArenaExprKind::Field { base, name } => matches!(
             arena.expr_kind(base),
-            ArenaExprKind::Ident(module) if grammar::builder_api_accepts_block(&module.as_str(), &name.as_str())
+            ArenaExprKind::Ident(module) if module.as_str() == "process" && name.as_str() == "command"
         ),
         _ => false,
     }

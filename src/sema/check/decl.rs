@@ -58,7 +58,6 @@ fn collect_body_type_facts(
     let mut patterns = FxHashSet::default();
     let mut binding_targets = FxHashSet::default();
     let mut assign_targets = FxHashSet::default();
-    let mut builder_blocks = FxHashSet::default();
     let mut expression_spans = std::collections::BTreeSet::new();
     let mut failure_only_completion_expressions = FxHashSet::default();
     let mut types = BTreeMap::new();
@@ -124,17 +123,13 @@ fn collect_body_type_facts(
             ArenaChild::AssignTarget(id) if assign_targets.insert((id, usage)) => {
                 arena.for_each_assign_target_child(id, |child| pending.push((child, usage)));
             }
-            ArenaChild::BuilderBlock(id) if builder_blocks.insert((id, usage)) => {
-                arena.for_each_builder_child(id, |child| pending.push((child, usage)));
-            }
             ArenaChild::Expr(_)
             | ArenaChild::Stmt(_)
             | ArenaChild::Block(_)
             | ArenaChild::Pattern(_)
             | ArenaChild::BindingTarget(_)
             | ArenaChild::AssignTarget(_)
-            | ArenaChild::TypeExpr(_)
-            | ArenaChild::BuilderBlock(_) => {}
+            | ArenaChild::TypeExpr(_) => {}
         }
     }
     let mut reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect::<std::collections::BTreeSet<_>>();
@@ -2475,8 +2470,7 @@ fn append_binding_target_names_arena(
                         | ArenaChild::Pattern(_)
                         | ArenaChild::Block(_)
                         | ArenaChild::AssignTarget(_)
-                        | ArenaChild::TypeExpr(_)
-                        | ArenaChild::BuilderBlock(_) => {
+                        | ArenaChild::TypeExpr(_) => {
                             unreachable!("binding targets only have binding-target children")
                         }
                     });

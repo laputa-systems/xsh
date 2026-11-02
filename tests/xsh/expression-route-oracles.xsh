@@ -312,10 +312,6 @@ test test_expr_process_command_argv { |ctx|
   )?
 }
 
-test test_expr_process_command_builder { |ctx|
-  test.expect(ctx, "let command = process.command { run true }\nassert process.run(command)?.exited_with(0)\n", status: 0)?
-}
-
 test test_expr_ok { |ctx|
   let result = Ok(21)
   assert result == Ok(21)

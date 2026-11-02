@@ -40,11 +40,6 @@ proc show(names: List[Str], mode: Int) [process, env, error] {
       one ?
     else => print other
   }
-  let plan = process.command {
-    run printf "%s\n" \
-      planned
-  }
-  let _ = process.run(plan)?
 }
 
 show(names, 1)?

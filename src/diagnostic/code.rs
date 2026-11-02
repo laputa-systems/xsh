@@ -186,6 +186,7 @@ diagnostic_codes! {
         ParseCaptureMode = "parse.capture-mode", error, "Reject a `run` capture mode other than `--text` or `--bytes`";
         ParseCaptureModeInterpolation = "parse.capture-mode-interpolation", error, "Reject an interpolated `run` capture mode instead of a literal `--text` or `--bytes`";
         ParseCdArity = "parse.cd-arity", error, "Reject `cd` with more than one path argument";
+        ParseBuilderBlock = "parse.builder-block", error, "Reject a `process.command { ... }` builder block; write `process.command_argv(target, argv, ...)`";
         ParseCliEntryName = "parse.cli-entry-name", error, "Reject `cli NAME(...)` with a name other than `main`; write `cli main(...)`";
         ParseCliEntryScope = "parse.cli-entry-scope", error, "Reject `cli main` declared anywhere but the entry module's top level";
         ParseCommandCallExpr = "parse.command-call-expr", error, "Reject a call expression used as a command argument";
@@ -199,7 +200,6 @@ diagnostic_codes! {
         ParseEnvScopeMigration = "parse.env-scope-migration", error, "Reject an expression `env { ... }` without an explicit `env ({NAME: value}) { ... }` overlay";
         ParseErrorBraceDeclaration = "parse.error-brace-declaration", error, "Reject the removed `error NAME { ... }` spelling; write `error NAME = A | B`";
         ParseErrorVariant = "parse.error-variant", error, "Reject an `error` definition with a missing or malformed variant";
-        ParseExpectedBuilderEntry = "parse.expected-builder-entry", error, "Reject a builder block entry that is not a valid entry form";
         ParseExpectedCommand = "parse.expected-command", error, "Reject a missing command name where a command is expected";
         ParseExpectedCommandArg = "parse.expected-command-arg", error, "Reject a missing command argument where one is required";
         ParseExpectedExpression = "parse.expected-expression", error, "Reject a missing expression, including `$name` and `${...}` in expression context";
@@ -284,10 +284,6 @@ diagnostic_codes! {
         CheckBarePrintIdent = "check.bare-print-ident", error, "Reject bare identifiers, bare words, and field access in `print` without `$` or quotes";
         CheckBlockParams = "check.block-params", error, "Reject parameters on a block that does not receive any";
         CheckBoolStatement = "check.bool-statement", error, fixable, "Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard";
-        CheckBuilderCall = "check.builder-call", error, "Reject a builder block on a call that does not accept one";
-        CheckBuilderCheck = "check.builder-check", error, "Reject a `process.command` builder block without exactly one `run` entry";
-        CheckBuilderEntry = "check.builder-entry", error, "Reject an unknown builder entry, task, or statement in a builder block";
-        CheckBuilderField = "check.builder-field", error, "Reject a duplicate or unknown builder field, or a non-positive `cpu_max`";
         CheckBytesChunks = "check.bytes-chunks", error, "Reject a non-positive `size` for a bytes `chunks` stage";
         CheckCallSplice = "check.call-splice", error, "Reject an `@` splice in a call argument position that does not allow one";
         CheckCallTarget = "check.call-target", error, "Reject a call to an unresolved target or a local that shadows a function";

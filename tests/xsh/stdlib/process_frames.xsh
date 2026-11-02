@@ -124,7 +124,7 @@ tail-after-redirection
 """, output.stdout
 }
 
-test test_run_source_order_is_shared_by_spawn_and_process_command_builder { |ctx|
+test test_run_source_order_is_shared_by_spawn { |ctx|
   let output = test.run_xsh(ctx, r"""proc mark(label: Str, value: Str) [io] -> Str {
   print $label
   return value
@@ -138,10 +138,6 @@ assert plain.exited_with(0)
 let child = spawn run --timeout=timeout("spawn-timeout") SPAWN_ORDER=${mark("spawn-env", "ready")} ${mark("spawn-target", "true")} ${mark("spawn-argument", "ignored")} ?
 let statuses = wait [child]?
 assert statuses[0].exit_code()? == 0
-let command = process.command {
-  run --timeout=timeout("builder-timeout") BUILDER_ORDER=${mark("builder-env", "ready")} ${mark("builder-target", "true")} ${mark("builder-argument", "ignored")}
-}
-assert process.run(command)?.exited_with(0)
 """)?
   assert output.success, output.stderr
   assert output.stdout == """plain-timeout
@@ -152,10 +148,6 @@ spawn-timeout
 spawn-env
 spawn-target
 spawn-argument
-builder-timeout
-builder-env
-builder-target
-builder-argument
 """, output.stdout
 }
 

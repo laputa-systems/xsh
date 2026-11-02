@@ -112,7 +112,6 @@ pub fn render_item(item: &Item, nested: bool) -> String {
         },
         Item::WordStart => "&word_argument".to_string(),
         Item::NotContextScope => "!context_scope_form".to_string(),
-        Item::ConditionBody { .. } => "!builder_callback_before_condition_body".to_string(),
         Item::Rule(name) => (*name).to_string(),
         Item::Seq(items) if items.is_empty() => "()".to_string(),
         Item::Seq(items) if items.len() == 1 => render_item(&items[0], nested),

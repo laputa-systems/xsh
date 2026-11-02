@@ -1,6 +1,6 @@
 test test_boolean_guard_keeps_its_terminal_builder {
-  let plan = process.command { run true }
-  guard plan == process.command { run true } else {
+  let plan = process.command_argv("true", ["true"])
+  guard plan == process.command_argv("true", ["true"]) else {
     return error.fail("the guard did not compare the constructed command")
   }
 }

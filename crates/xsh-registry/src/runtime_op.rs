@@ -565,7 +565,6 @@ pub enum RuntimeOp {
     ProcessSetIoPriority,
     ProcessSignalAction,
     ProcessSetSignalAction,
-    ProcessCommand,
     SystemHostname,
     SystemUname,
     SystemMemory,

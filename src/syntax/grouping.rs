@@ -363,8 +363,7 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::Index { .. }
         | ArenaExprKind::Slice { .. }
         | ArenaExprKind::Try(_)
-        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
-        | ArenaExprKind::BuilderCall { .. } => POSTFIX,
+        | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. } => POSTFIX,
     }
 }
 
@@ -503,7 +502,6 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Capture(_)
@@ -655,17 +653,6 @@ fn null_safe_follow(context: Context) -> Follow {
     })
 }
 
-/// A call or field that the parser extends with a following `{` builder block.
-fn accepts_builder_block(arena: &AstArena, kind: &ArenaExprKind) -> bool {
-    let field = match kind {
-        ArenaExprKind::Call { callee, .. } => arena.expr(*callee).kind,
-        other => other.clone(),
-    };
-    matches!(field, ArenaExprKind::Field { base, name }
-        if matches!(arena.expr(base).kind, ArenaExprKind::Ident(module)
-            if grammar::builder_api_accepts_block(&module.as_str(), &name.as_str())))
-}
-
 /// Whether a record or map comprehension written first in a statement or arm
 /// body reads as a record rather than a block (`Parser::brace_starts_record_value`).
 fn brace_reads_as_record(arena: &AstArena, kind: &ArenaExprKind) -> bool {
@@ -752,7 +739,6 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
                     ArenaExprKind::Try(_)
                         | ArenaExprKind::NullSafeField { .. }
                         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
-                        | ArenaExprKind::BuilderCall { .. }
                         | ArenaExprKind::Index { guarded: true, .. }
                         | ArenaExprKind::Slice { guarded: true, .. }
                 )
@@ -831,11 +817,7 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
                     )
             }
         },
-        _ => {
-            context.slot == Slot::Open
-                && follow.token == FollowToken::Brace
-                && accepts_builder_block(arena, &kind)
-        }
+        _ => false,
     };
     let level_needs = (matches!(kind, ArenaExprKind::PatternTest { .. })
         && context.level > PATTERN_TEST)
@@ -970,7 +952,6 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -1115,7 +1096,6 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
             left(Slot::Try, Follow::adjacent(FollowToken::QuestionDotCall))
         }
         ArenaExprKind::Try(_) => left(Slot::Try, Follow::adjacent(FollowToken::Question)),
-        ArenaExprKind::BuilderCall { .. } => left(Slot::Postfix { dotted: false }, Follow::BRACE),
         ArenaExprKind::Pipeline { input, .. } | ArenaExprKind::ValuePipelineCall { input, .. }
             if input == child =>
         {
@@ -1260,7 +1240,6 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
         | ArenaExprKind::Index { base, .. }
         | ArenaExprKind::Slice { base, .. } => visit(base),
         ArenaExprKind::Call { callee, .. } => visit(callee),
-        ArenaExprKind::BuilderCall { call, .. } => visit(call),
         ArenaExprKind::Pipeline { input, .. } | ArenaExprKind::StructuredPipeline { input, .. } => {
             visit(input)
         }
@@ -1364,7 +1343,6 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

@@ -438,7 +438,7 @@ pub(super) fn needs_operand_proof(store: &FullStore, instruction: usize) -> Resu
     if tag == FullTag::ExprTry {
         return store.try_operand(instruction).map(|operand| operand.is_some_and(|value| matches!(store.tags[value], FullTag::ExprErr | FullTag::ExprMatch)));
     }
-    if matches!(tag, FullTag::ExprAbort | FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder
+    if matches!(tag, FullTag::ExprAbort | FullTag::ExprDynamicCall | FullTag::ExprTypedCall | FullTag::ExprProcessCommandArgv
         | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand | FullTag::ExprWait | FullTag::ExprCapture) { return Ok(true); }
     if !matches!(tag, FullTag::ExprModuleCall | FullTag::ExprMethod) { return Ok(false); }
     let data = store.data.get(instruction).ok_or_else(|| IrVerifyError::new("native operation has no instruction payload"))?;

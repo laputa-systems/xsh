@@ -160,7 +160,7 @@ test test_bare_minus_command_arguments_preserve_source_adjacency { |ctx|
 
 test test_run_option_values_leave_following_words_as_command_arguments { |ctx|
   expect_parses(ctx, "run --accept= spawn - ! value? (\n@y ) ;\n")
-  expect_parses(ctx, "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n")
+  expect_parses(ctx, "guard let items = run --accept= spawn process.command_argv(a, b) --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n")
 }
 
 test test_block_parameters_and_duration_patterns_parse { |ctx|

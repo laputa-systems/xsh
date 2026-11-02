@@ -33,10 +33,7 @@ test test_accept_never_normalizes_signals_setup_or_decode_failures {
 }
 
 test test_accept_command_and_owned_wait_preserve_policy {
-  let command = process.command {
-    accept = [0, 1]
-    run sh -c "exit 1"
-  }
+  let command = process.command_argv("sh", ["sh", "-c", "exit 1"], accept: [0, 1])
   assert process.run(command)?.exited_with(1)
   let child = spawn command?
   assert (wait child?).exited_with(1)
@@ -262,7 +259,7 @@ test test_accept_policy_requires_bounded_int_codes_on_every_plan_route { |ctx|
     "run --accept=[] sh\n",
     "run --accept=[0,0] sh\n",
     "run --accept=[256] sh\n",
-    "let command = process.command { accept = [-1]\nrun sh }\n",
+    "let command = process.command_argv(\"sh\", [\"sh\"], accept: [-1])\n",
     "let command = process.command_argv(\"sh\", [\"sh\"], accept: [0,0])\n",
   ] {
     test.expect(ctx, source, status: 2, stderr: ["[check.accept-policy]"])?
@@ -270,7 +267,7 @@ test test_accept_policy_requires_bounded_int_codes_on_every_plan_route { |ctx|
 
   for source in [
     "run --accept=[true] sh\n",
-    "let command = process.command { accept = [\"zero\"]\nrun sh }\n",
+    "let command = process.command_argv(\"sh\", [\"sh\"], accept: [\"zero\"])\n",
     "let command = process.command_argv(\"sh\", [\"sh\"], accept: [false])\n",
   ] {
     test.expect(ctx, source, status: 2, stderr: ["[check.type-mismatch]"])?

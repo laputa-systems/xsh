@@ -183,7 +183,6 @@
         "ExprPathRemove=94|BuildExprRow:ExprView:Expr|PathRemove(path:tokens:[\"BuildExprId\"],missing_ok:tokens:[\"Option\",\"<\",\"BuildExprId\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprModuleCall=99|BuildExprRow:ExprView:Expr|ModuleCall(op:tokens:[\"RuntimeOp\"],call_plan:tokens:[\"Option\",\"<\",\"Arc\",\"<\",\"crate\",\"::\",\"runtime\",\"::\",\"eval\",\"::\",\"ModuleCallPlan\",\">\",\">\"],args:tokens:[\"Vec\",\"<\",\"Option\",\"<\",\"BuildExprId\",\">\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
         "ExprProcessCommandArgv=100|BuildExprRow:ExprView:Expr|ProcessCommandArgv(value:tokens:[\"Box\",\"<\",\"LoweredProcessCommandArgv\",\">\"])|tokens:[\"EFFECT_PROCESS\",\"|\",\"EFFECT_CANCELLATION\",\"|\",\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
-        "ExprProcessCommandBuilder=101|BuildExprRow:ExprView:Expr|ProcessCommandBuilder(entries:tokens:[\"Vec\",\"<\",\"LoweredProcessCommandBuilderEntry\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROCESS\",\"|\",\"EFFECT_CANCELLATION\",\"|\",\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
         "ExprAbort=102|BuildExprRow:ExprView:Expr|Abort(status:tokens:[\"BuildExprId\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprFail=103|BuildExprRow:ExprView:Expr|Fail(message:tokens:[\"BuildExprId\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameApply",
         "ExprOk=104|BuildExprRow:ExprView:Expr|Ok(value:tokens:[\"BuildExprId\"])|tokens:[\"0\"]|Operands|FrameControl",
@@ -448,17 +447,6 @@
         "Record{fields:tokens:[\"ArenaRange\"],rest:tokens:[\"bool\"]}"
       ]
     },
-    "syntax.arena.ArenaBuilderEntryKind": {
-      "source": "src/syntax/arena.rs",
-      "declaration": "ArenaBuilderEntryKind",
-      "extractor": "rust-enum",
-      "items": [
-        "Field{name:tokens:[\"Name\"],value:tokens:[\"ExprId\"]}",
-        "Entry{name:tokens:[\"Name\"],args:tokens:[\"ArenaRange\"],block:tokens:[\"Option\",\"<\",\"BuilderBlockId\",\">\"]}",
-        "Task{name:tokens:[\"Name\"],block:tokens:[\"BlockId\"]}",
-        "Stmt(tokens:[\"StmtId\"])"
-      ]
-    },
     "syntax.arena.ArenaByteSpans": {
       "source": "src/syntax/arena.rs",
       "declaration": "ArenaByteSpans",
@@ -502,8 +490,7 @@
         "Block(tokens:[\"BlockId\"])",
         "BindingTarget(tokens:[\"BindingTargetId\"])",
         "AssignTarget(tokens:[\"AssignTargetId\"])",
-        "TypeExpr(tokens:[\"TypeExprId\"])",
-        "BuilderBlock(tokens:[\"BuilderBlockId\"])"
+        "TypeExpr(tokens:[\"TypeExprId\"])"
       ]
     },
     "syntax.arena.ArenaCommand": {
@@ -588,7 +575,6 @@
         "Run(tokens:[\"RunFormId\"])",
         "Spawn(tokens:[\"ArenaSpawnForm\"])",
         "Wait(tokens:[\"ArenaWaitForm\"])",
-        "BuilderCall{call:tokens:[\"ExprId\"],block:tokens:[\"BuilderBlockId\"]}",
         "Try(tokens:[\"ExprId\"])",
         "Capture(tokens:[\"BlockId\"])",
         "CodecSchema{kind:tokens:[\"xsh_registry\",\"::\",\"signature\",\"::\",\"CodecSchemaIntrinsic\"],format:tokens:[\"ExprId\"],input:tokens:[\"ExprId\"],schema:tokens:[\"TypeExprId\"]}",
@@ -676,7 +662,6 @@
         "SpawnRun",
         "SpawnCommand",
         "Wait",
-        "BuilderCall",
         "Try",
         "Capture",
         "CodecSchema",

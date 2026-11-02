@@ -318,8 +318,6 @@ mod args;
 #[path = "check/assignment_facts.rs"]
 mod assignment_facts;
 pub use assignment_facts::assignment_target_root_name;
-#[path = "check/builder.rs"]
-mod builder;
 #[path = "check/cache_trace.rs"]
 mod cache_trace;
 use cache_trace::CacheTrace;
@@ -1646,11 +1644,6 @@ impl ErrorPayloadFields {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BuilderKind {
-    ProcessCommand,
 }
 
 /// What the item `.` denotes inside the innermost callback block being

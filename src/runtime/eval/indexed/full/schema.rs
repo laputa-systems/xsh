@@ -8,7 +8,7 @@ use super::{
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredPipelineStage, LoweredProcessCommandArgv,
-    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
+    LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
     LoweredBindingIdentity, LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot,
     LoweredType, LoweredTypeCheck, LoweredValueCheck,
@@ -1195,10 +1195,6 @@ instruction_schema! {
             span: Span,
         } => ExprModuleCall = 99 [EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameApply];
-        ProcessCommandBuilder {
-            entries: Vec<LoweredProcessCommandBuilderEntry>,
-            span: Span,
-        } => ExprProcessCommandBuilder = 101 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Abort {
             status: BuildExprId,
             span: Span,

@@ -2205,17 +2205,17 @@ mod tests {
             .iter()
             .find(|table| table.name == "expr_data")
             .expect("expr_data table");
-        let builder_blocks = stats
+        let exit_required_blocks = stats
             .ast_tables
             .iter()
-            .find(|table| table.name == "builder_blocks")
-            .expect("builder_blocks table");
+            .find(|table| table.name == "exit_required_blocks")
+            .expect("exit_required_blocks table");
 
         assert!(expr_data.items > 0);
         assert_eq!(expr_data.files, 1);
-        assert_eq!(builder_blocks.items, 0);
-        assert_eq!(builder_blocks.files, 0);
-        assert_eq!(builder_blocks.retained_bytes, 0);
+        assert_eq!(exit_required_blocks.items, 0);
+        assert_eq!(exit_required_blocks.files, 0);
+        assert_eq!(exit_required_blocks.retained_bytes, 0);
     }
 
     #[test]

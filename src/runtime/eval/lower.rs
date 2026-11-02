@@ -13,7 +13,7 @@ use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
 use crate::syntax::arena::DeferTrigger;
 use crate::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg, ArenaChild,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArg, ArenaChild,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
     ArenaFmtPart, ArenaPatternKind, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget,
     ArenaStmtKind, ArenaStreamStage, ArenaTypeExprTag, ArenaUserModule, ArenaWordPart, AstArena,
@@ -35,7 +35,7 @@ use super::lowered_ops::{
 };
 use super::{
     DeferKind, CheckedPatternField, CheckedPatternVariantKey, CheckedPatternVariantKind,
-    LoweredErrorExpr, LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry,
+    LoweredErrorExpr, LoweredProcessCommandArgv,
     LoweredRecordEntry,
     LoweredRecordUpdates, LoweredRunCapture, LoweredSpawnRun,
     driver_annotation_requires_validation, lowered_record_vec_get,
@@ -1175,8 +1175,7 @@ fn compact_collect_arena_child_call_edges(
         ArenaChild::Pattern(_)
         | ArenaChild::BindingTarget(_)
         | ArenaChild::AssignTarget(_)
-        | ArenaChild::TypeExpr(_)
-        | ArenaChild::BuilderBlock(_) => {}
+        | ArenaChild::TypeExpr(_) => {}
     }
 }
 
@@ -1269,10 +1268,6 @@ fn compact_collect_expr_call_edges(
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
     ) {
-        return;
-    }
-    if let ArenaExprKind::BuilderCall { call, .. } = program.arena.expr(id).kind {
-        compact_collect_expr_call_edges(program, call, namespace, index_of, edges);
         return;
     }
     program
@@ -1518,9 +1513,6 @@ fn with_error_source_exprs(program: &ArenaProgram, initializer: ExprId) -> Vec<E
             ArenaChild::TypeExpr(ty) => program
                 .arena
                 .for_each_type_expr_child(ty, |child| pending.push(child)),
-            ArenaChild::BuilderBlock(block) => program
-                .arena
-                .for_each_builder_child(block, |child| pending.push(child)),
         }
     }
     sources.insert(initializer);
@@ -1806,7 +1798,6 @@ compact_expr_kind_catalog! {
     ArenaExprKind::Run(_) => (31, "run");
     ArenaExprKind::Spawn(_) => (32, "spawn");
     ArenaExprKind::Wait(_) => (33, "wait");
-    ArenaExprKind::BuilderCall { .. } => (34, "builder_call");
     ArenaExprKind::Try(_) => (35, "try");
     ArenaExprKind::CodecSchema { .. } => (52, "codec-schema");
     ArenaExprKind::Require { .. } => (36, "require");
@@ -9482,14 +9473,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Call { callee, args } => {
                 self.lower_call(id, callee, args, None, slots, current_function, item_slot)
             }
-            ArenaExprKind::BuilderCall { call, block } => self.lower_process_command_builder(
-                call,
-                block,
-                slots,
-                current_function,
-                item_slot,
-                span,
-            ),
             ArenaExprKind::Capture(block) => Some(push_build_row!(
                 self,
                 expr,
@@ -10287,7 +10270,6 @@ mod compact_expr_kind_tests {
             (31, "run"),
             (32, "spawn"),
             (33, "wait"),
-            (34, "builder_call"),
             (35, "try"),
             (52, "codec-schema"),
             (36, "require"),

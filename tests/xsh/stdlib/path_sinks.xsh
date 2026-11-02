@@ -21,14 +21,10 @@ test test_command_plan_env_receives_a_path_as_native_bytes { |ctx|
   assert process.run(argv_plan)?.exited_with(0)
   assert by_argv.read_bytes()? == b"dir/bad\xffname"
 
-  let by_builder = fp"{root}/builder.out"
-  let builder_plan = process.command {
-    env = {SINK: raw}
-    stdout = by_builder
-    run $sh -c $script
-  }
-  assert process.run(builder_plan)?.exited_with(0)
-  assert by_builder.read_bytes()? == b"dir/bad\xffname"
+  let by_raw = fp"{root}/raw.out"
+  let raw_plan = process.command_argv(sh, [sh, "-c", script], env: {SINK: raw}, stdout: by_raw)
+  assert process.run(raw_plan)?.exited_with(0)
+  assert by_raw.read_bytes()? == b"dir/bad\xffname"
 
   # Text and numbers arrive as before.
   let plain = fp"{root}/plain.out"

@@ -570,32 +570,35 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
   fp"{stale_dir}/xsh".write("stale binary")
   let output = fp"{root}/make-output.txt"
 
-  let default = process.command {
-    cwd = root
-    stdout = output
-    env = {XSH_DEV: ""}
-    run make --no-print-directory -n build
-  }
+  let default = process.command_argv(
+    "make",
+    ["make", "--no-print-directory", "-n", "build"],
+    cwd: root,
+    stdout: output,
+    env: {XSH_DEV: ""},
+  )
   assert process.run(default)?.exited_with(0)
   assert output.read_text()? == """cargo dev build
 """
 
-  let lint_check = process.command {
-    cwd = root
-    stdout = output
-    env = {XSH_DEV: ""}
-    run make --no-print-directory -n check
-  }
+  let lint_check = process.command_argv(
+    "make",
+    ["make", "--no-print-directory", "-n", "check"],
+    cwd: root,
+    stdout: output,
+    env: {XSH_DEV: ""},
+  )
   assert process.run(lint_check)?.exited_with(0)
   assert output.read_text()? == """cargo dev check lint
 """
 
-  let override = process.command {
-    cwd = root
-    stdout = output
-    env = {XSH_DEV: ""}
-    run make --no-print-directory -n build "XSH_DEV=/missing/xsh"
-  }
+  let override = process.command_argv(
+    "make",
+    ["make", "--no-print-directory", "-n", "build", "XSH_DEV=/missing/xsh"],
+    cwd: root,
+    stdout: output,
+    env: {XSH_DEV: ""},
+  )
   assert process.run(override)?.exited_with(0)
   assert output.read_text()? == """/missing/xsh dev/main.xsh -- build
 """

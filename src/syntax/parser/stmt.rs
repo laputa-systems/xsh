@@ -6,8 +6,8 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBuilderEntryKind, ArenaErrorVariant, ArenaExprOrRun, ArenaModuleContractEntryKind,
-    ArenaProgramBuilder, ArenaTypeDefBody, BindingTargetId, BuilderBlockId, DeferTrigger, ExprId,
+    ArenaErrorVariant, ArenaExprOrRun, ArenaModuleContractEntryKind,
+    ArenaProgramBuilder, ArenaTypeDefBody, BindingTargetId, DeferTrigger, ExprId,
     TypeExprId,
 };
 use crate::syntax::grammar::{self, StatementForm};
@@ -2408,110 +2408,23 @@ impl<'a> Parser<'a> {
         params
     }
 
-    pub(super) fn parse_builder_block_arena_only(
+    pub(super) fn skip_removed_builder_block_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<BuilderBlockId> {
-        let start = self.expect(
-            TokenKindMatch::LBrace,
-            "expected `{` to start builder block",
-        )?;
-        arena.begin_builder_entries();
-        self.skip_separators();
-        self.in_nested_group(|parser| {
-            while !parser.at(TokenKindMatch::RBrace) && !parser.at(TokenKindMatch::Eof) {
-                if parser.parse_builder_entry_arena_only(arena).is_none() {
-                    parser.recover_statement();
-                }
-                parser.skip_separators();
-            }
-        });
-        let end = self
-            .expect(
-                TokenKindMatch::RBrace,
-                "expected `}` to close builder block",
-            )
-            .map(|span| span.end())
-            .unwrap_or_else(|| self.current_end());
-        Some(arena.finish_builder_block(self.span(start.start(), end)))
-    }
-
-    fn parse_builder_entry_arena_only(
-        &mut self,
-        arena: &mut ArenaProgramBuilder<'_>,
+        call: crate::source::Span,
     ) -> Option<()> {
-        self.skip_comments();
-        let start = self.current_start();
-        match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(keyword))
-                if grammar::BUILDER_STATEMENT_KEYWORDS.contains(&keyword) =>
-            {
-                self.parse_statement_arena_only(arena)?;
-                let stmt_id = arena.pop_last_statement();
-                let span = self.span(start, self.previous_end());
-                let entry = arena.build_builder_entry(ArenaBuilderEntryKind::Stmt(stmt_id), span);
-                arena.push_builder_entry_input(entry);
-                return Some(());
-            }
-            (TokenTag::Ident | TokenTag::ProcIdent, _)
-                if self.current_name().is_some_and(|name| name == "task")
-                    && matches!(
-                        self.peek_tag(1),
-                        Some(TokenTag::Ident | TokenTag::ProcIdent)
-                    ) =>
-            {
-                self.bump();
-                let name = self.expect_proc_ident("expected task name")?;
-                if self.consume(TokenKindMatch::LParen).is_some() {
-                    while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
-                        self.bump();
-                    }
-                    self.expect(TokenKindMatch::RParen, "expected `)` after task signature");
-                }
-                let block = self.parse_block_arena_only(arena)?;
-                let span = self.span(start, self.previous_end());
-                let entry =
-                    arena.build_builder_entry(ArenaBuilderEntryKind::Task { name, block }, span);
-                arena.push_builder_entry_input(entry);
-                return Some(());
-            }
-            (TokenTag::Ident, _) if self.lookahead_is_assignment() => {
-                let name = self.expect_ident("expected builder field name")?;
-                self.expect(TokenKindMatch::Equals, "expected `=` in builder field");
-                let value = self.parse_expr_id_arena_only(arena)?;
-                let end = self.expect_terminator();
-                let span = self.span(start, end);
-                let entry =
-                    arena.build_builder_entry(ArenaBuilderEntryKind::Field { name, value }, span);
-                arena.push_builder_entry_input(entry);
-                return Some(());
-            }
-            (TokenTag::Ident | TokenTag::ProcIdent, _) => {}
-            _ => {
-                self.diagnostic_here(
-                    "expected builder entry",
-                    DiagnosticCode::ParseExpectedBuilderEntry,
-                );
-                return None;
-            }
-        }
-
-        let name = self.parse_command_name()?;
-        let args = self.parse_command_args_arena_only(true, arena);
-        let block = if self.at(TokenKindMatch::LBrace) {
-            Some(self.parse_builder_block_arena_only(arena)?)
-        } else {
-            None
-        };
-        let end = if block.is_some() {
-            self.previous_end()
-        } else {
-            self.expect_terminator()
-        };
-        let span = self.span(start, end);
-        let entry =
-            arena.build_builder_entry(ArenaBuilderEntryKind::Entry { name, args, block }, span);
-        arena.push_builder_entry_input(entry);
+        let start = self.current_span();
+        self.parse_block_arena_only(arena)?;
+        let block = self.span(start.start(), self.previous_end());
+        self.diagnostics.push(
+            Diagnostic::error("a command plan is built with `process.command_argv`")
+                .with_code(DiagnosticCode::ParseBuilderBlock)
+                .with_label(Label::primary(block, "a builder block is not a call argument"))
+                .with_label(Label::secondary(call, "this call takes no block"))
+                .with_note(
+                    "write `process.command_argv(target, [target, args...], cwd: p\"dir\", timeout: 5s)`: the words of `run` are the target and the argv list, and each `name = value` field is a named argument",
+                ),
+        );
         Some(())
     }
 }

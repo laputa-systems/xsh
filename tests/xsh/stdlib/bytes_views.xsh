@@ -26,10 +26,7 @@ test test_forwarded_bytes_view_preserves_binary_child_stdin { |ctx|
 
 test test_bytes_view_command_builder_uses_input_redirection { |ctx|
   let data = b"prefix\0\xffsuffix"
-  let command = process.command {
-    stdin = data[6..8]
-    run ${ctx.xsh_bin} --version
-  }
+  let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, "--version"], stdin: data[6..8])
   let _ = command
 }
 

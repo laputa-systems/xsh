@@ -2419,9 +2419,7 @@ let spliced = run.text (show) show-argv @([raw, p""]) ?
 print --flush ${{spliced == {spliced}}}
 let human = run.text (show) show-argv (f"--target={{raw}}") ?
 print --flush ${{human == {human}}}
-let stored = process.command {{
-  run (show) show-argv "--target=${{raw}}"
-}}
+let stored = process.command_argv(show, [show, "show-argv", fp"--target={{raw}}"])
 let _ = process.run(stored)?
 "#,
         show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-helper")),
@@ -2470,11 +2468,7 @@ let composed = fp"{{root}}/{{name}}"
 print ${{composed.read_bytes()? == b"native contents"}}
 let direct = run.bytes cat < "$root/$name" ?
 print ${{direct == b"native contents"}}
-let command = process.command {{
-  stdin = fp"{{root}}/{{name}}"
-  stdout = fp"{{root}}/{{destination}}"
-  run cat
-}}
+let command = process.command_argv("cat", ["cat"], stdin: fp"{{root}}/{{name}}", stdout: fp"{{root}}/{{destination}}")
 let _ = process.run(command)?
 "#,
         root = xsh_string_literal(root.to_str().unwrap())

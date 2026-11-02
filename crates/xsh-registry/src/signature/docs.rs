@@ -406,11 +406,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Use this instead of separately creating parents, copying, chmodding, and touching a destination.",
             &["filesystem", "install", "permissions"],
         )),
-        ("process", "command") => Some((
-            "Builds a typed command plan without starting it.",
-            "The plan captures argv, cwd, environment, and redirection before execution or spawn. Stdin accepts a file Path or immutable Bytes content; empty Bytes closes input, and text must be explicitly encoded. Optional accept stores the same bounded exit-code policy as a run entry's --accept option; supply one spelling per plan.",
-            &["process", "argv", "plan"],
-        )),
         ("process", "spawn") => Some((
             "Starts a typed command in the background and returns its pid record.",
             "The command's stdin, stdout, and stderr redirections apply; a stream it does not redirect is connected to /dev/null. A redirection that cannot be opened is an error and the command does not start. The returned pid record does not carry lexical ownership. The child is released to the background reaper; use the spawn language form when a scope must own a ProcessHandle.",
@@ -1336,7 +1331,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command_argv") => Some((
             "Builds a command plan from an executable and argv list.",
-            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Env accepts a Record or Map[Str, Bytes]; map values overlay inherited environment entries without UTF-8 conversion, with the same environment-name and NUL validation as record entries. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits. Optional same_group applies to spawn: the child stays in the caller's process group instead of leading its own, so its handle signals and cancels address the child's pid alone and never the caller's group; it conflicts with detach and new_session.",
+            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Env accepts a Record or Map[Str, Bytes]; map values overlay inherited environment entries without UTF-8 conversion, with the same environment-name and NUL validation as record entries. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file; empty Bytes closes input, and text must be explicitly encoded. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits. Optional same_group applies to spawn: the child stays in the caller's process group instead of leading its own, so its handle signals and cancels address the child's pid alone and never the caller's group; it conflicts with detach and new_session.",
             &["process", "argv", "plan"],
         )),
         ("process", "run") => Some((

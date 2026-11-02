@@ -712,7 +712,7 @@ impl ScopeChecker<'_> {
             | ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList
             | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
             | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_)
-            | ArenaExprKind::Wait(_) | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Wait(_)
             | ArenaExprKind::Try(_) | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. } | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. }
@@ -777,11 +777,6 @@ impl ScopeChecker<'_> {
             ArenaChild::TypeExpr(ty) => {
                 let mut children = Vec::new();
                 self.program.arena.for_each_type_expr_child(ty, |child| children.push(child));
-                for child in children { self.child(child); }
-            }
-            ArenaChild::BuilderBlock(block) => {
-                let mut children = Vec::new();
-                self.program.arena.for_each_builder_child(block, |child| children.push(child));
                 for child in children { self.child(child); }
             }
         }

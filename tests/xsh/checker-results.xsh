@@ -77,9 +77,7 @@ pure empty_names() -> List[Str] {
 proc empty_result_names() -> Result[List[Str]] {
   []
 }
-let command = process.command {
-  run true
-}
+let command = process.command_argv("true", ["true"])
 """,
     ["check.missing-return", "check.type-mismatch", "check.ignored-result", "check.empty-list"],
   )

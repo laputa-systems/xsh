@@ -517,7 +517,6 @@ pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> boo
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }

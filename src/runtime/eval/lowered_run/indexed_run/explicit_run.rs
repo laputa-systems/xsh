@@ -7,7 +7,7 @@ use super::serial_pipeline::{
 };
 use super::super::LoweredRetryDelays;
 use super::{
-    Arc, AssignOp, BTreeMap, BinaryOp, BindingNamespaceLease, CommandPlan, ControlFlow,
+    Arc, AssignOp, BTreeMap, BinaryOp, BindingNamespaceLease, ControlFlow,
     DeferKind, Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
@@ -46,13 +46,13 @@ use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
     AssignStepView, CallArgView, CompQualifierView, CompTargetView, FmtPartView, ListPosition,
     ListView,
-    ProcessCommandBuilderEntryView, RecordEntryView, RunArgKindView, RunArgView, RunEnvView,
+    RecordEntryView, RunArgKindView, RunArgView, RunEnvView,
     RunOptionView, RunOperandsView, RunRedirectionView, RunTailOperandView,
     ScanBytesView, ScanConditionView,
 };
 use crate::runtime::eval::{
     BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredCallArg, LoweredAssignStep,
-    LoweredCompQualifier, LoweredCompTarget, LoweredFmtPart, LoweredProcessCommandBuilderEntry,
+    LoweredCompQualifier, LoweredCompTarget, LoweredFmtPart,
     LoweredRecordEntry, LoweredRunEnv, LoweredRunOption,
     LoweredRunPipelineSegment, LoweredRunTailOperand, ScanCheck,
     visit_retained_lowered_value, visit_retained_lowered_values,
@@ -1531,10 +1531,6 @@ type ExprPatternIfPosition = ListPosition<ExprPatternIfBranch>;
 
 type IfExprPosition = ListPosition<(BuildExprId, BuildExprId)>;
 
-struct ProcessCommandRunState {
-    operands: ProcessRunOperandsCursor,
-}
-
 #[derive(Clone, Copy)]
 enum ProcessExecutionMode {
     Capture,
@@ -1894,102 +1890,6 @@ fn process_run_operands<'e>(
     }
 }
 
-struct ProcessCommandBuilderState {
-    call_span: Span,
-    span: Span,
-    plan: Option<CommandPlan>,
-    cwd: Option<crate::runtime::value::PathValue>,
-    env: BTreeMap<String, Vec<u8>>,
-    stdin: Option<LoweredValue>,
-    stdout: Option<LoweredValue>,
-    stderr: Option<LoweredValue>,
-    stdout_append: bool,
-    stderr_append: bool,
-    timeout: Option<crate::runtime::value::DurationValue>,
-    cpu_max: Option<i64>,
-    accepted_exit_codes: Option<crate::runtime::process::AcceptedExitCodes>,
-    detach: Option<bool>,
-    new_session: Option<bool>,
-    ignore_hup: Option<bool>,
-    same_group: Option<bool>,
-    run: Option<ProcessCommandRunState>,
-}
-
-impl ProcessCommandBuilderState {
-    fn new(call_span: Span, span: Span) -> Self {
-        Self {
-            call_span,
-            span,
-            plan: None,
-            cwd: None,
-            env: BTreeMap::new(),
-            stdin: None,
-            stdout: None,
-            stderr: None,
-            stdout_append: false,
-            stderr_append: false,
-            timeout: None,
-            cpu_max: None,
-            accepted_exit_codes: None,
-            detach: None,
-            new_session: None,
-            ignore_hup: None,
-            same_group: None,
-            run: None,
-        }
-    }
-
-    fn visit_retained_values(
-        &self,
-        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
-    ) {
-        for value in [&self.stdin, &self.stdout, &self.stderr].into_iter().flatten() {
-            visit_retained_lowered_value(value, visitor);
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum ProcessCommandBuilderPhase {
-    Field,
-    Run(ProcessExecutionOperand),
-}
-
-fn process_command_builder_view<'e>(
-    execution: &'e FullExecution<'_>,
-    instruction: u32,
-    span: Span,
-) -> Result<(ListView<'e, LoweredProcessCommandBuilderEntry>, Span), RuntimeError> {
-    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
-    match super::ExprView::decode(execution, tag, payload)
-        .map_err(|error| indexed_error(error, span))?
-    {
-        super::ExprView::ProcessCommandBuilder { entries, span } => Ok((entries, span)),
-        _ => unreachable!("process command builder has a matching typed view"),
-    }
-}
-
-fn process_command_builder_entry<'e>(
-    execution: &'e FullExecution<'_>,
-    instruction: u32,
-    position: ListPosition<LoweredProcessCommandBuilderEntry>,
-    span: Span,
-) -> Result<(
-    Option<ProcessCommandBuilderEntryView<'e>>,
-    ListPosition<LoweredProcessCommandBuilderEntry>,
-    Span,
-), RuntimeError> {
-    let (mut entries, builder_span) = process_command_builder_view(execution, instruction, span)?;
-    entries
-        .resume(position)
-        .map_err(|error| indexed_error(error, builder_span))?;
-    let entry = entries
-        .next()
-        .transpose()
-        .map_err(|error| indexed_error(error, builder_span))?;
-    Ok((entry, entries.position(), builder_span))
-}
-
 enum FrameContinuation {
     SchemeCallable {
         instruction: u32,
@@ -2135,13 +2035,6 @@ enum FrameContinuation {
         error_field_position: Option<ListPosition<(Arc<str>, BuildExprId)>>,
         values: Vec<super::FrameApplyValue>,
         span: Span,
-        next: Box<FrameContinuation>,
-    },
-    ProcessCommandBuilder {
-        instruction: u32,
-        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
-        phase: ProcessCommandBuilderPhase,
-        state: Box<ProcessCommandBuilderState>,
         next: Box<FrameContinuation>,
     },
     ProcessRun {
@@ -2549,10 +2442,6 @@ impl FrameContinuation {
                 }
                 next.visit_retained_values(visitor);
             }
-            C::ProcessCommandBuilder { state, next, .. } => {
-                state.visit_retained_values(visitor);
-                next.visit_retained_values(visitor);
-            }
             C::ProcessRun { next, .. }
             | C::SpawnCommand { next, .. }
             | C::Wait { next, .. } => next.visit_retained_values(visitor),
@@ -2647,7 +2536,6 @@ fn with_initializer_handler(
             | FrameContinuation::BinaryRight { next, .. }
             | FrameContinuation::BoolBinaryRight { next, .. }
             | FrameContinuation::ApplyOperands { next, .. }
-            | FrameContinuation::ProcessCommandBuilder { next, .. }
             | FrameContinuation::ProcessRun { next, .. }
             | FrameContinuation::SpawnCommand { next, .. }
             | FrameContinuation::Wait { next, .. }
@@ -6712,27 +6600,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            ExprViewKind::ProcessCommandBuilder => {
-                let (entries, builder_span) = process_command_builder_view(
-                    execution,
-                    instruction,
-                    span,
-                )?;
-                self.evaluator.trace_enter(
-                    TraceKind::ModuleCall,
-                    Some(builder_span),
-                    Some("process.command"),
-                    TracePayload::None,
-                );
-                let state = Box::new(ProcessCommandBuilderState::new(span, builder_span));
-                self.step_process_command_builder(
-                    index,
-                    instruction,
-                    entries.position(),
-                    state,
-                    next,
-                )?;
-            }
             ExprViewKind::ListPipeline => {
                 let (input, pipeline_span, stages) = indexed_value_pipeline_input(
                     execution,
@@ -8725,26 +8592,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.push_value(index, FrameValue::Value(value), *next);
                     }
                 }
-                FrameValue::Break(value) => {
-                    self.push_value(index, FrameValue::Break(value), *next);
-                }
-            },
-            FrameContinuation::ProcessCommandBuilder {
-                instruction,
-                entry,
-                phase,
-                state,
-                next,
-            } => match value {
-                FrameValue::Value(value) => self.continue_process_command_builder(
-                    index,
-                    instruction,
-                    entry,
-                    phase,
-                    state,
-                    value,
-                    *next,
-                )?,
                 FrameValue::Break(value) => {
                     self.push_value(index, FrameValue::Break(value), *next);
                 }
@@ -12733,293 +12580,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls[index]
             .work
             .push(FrameWork::Value { value, next });
-    }
-
-    fn step_process_command_builder(
-        &mut self,
-        index: usize,
-        instruction: u32,
-        entries: ListPosition<LoweredProcessCommandBuilderEntry>,
-        mut state: Box<ProcessCommandBuilderState>,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        let (entry, _, _) = process_command_builder_entry(
-            &self.calls[index].execution,
-            instruction,
-            entries,
-            state.call_span,
-        )?;
-        match entry {
-            Some(ProcessCommandBuilderEntryView::Field { value, span, .. }) => {
-                self.push_expr(
-                    index,
-                    value.raw(),
-                    span,
-                    FrameContinuation::ProcessCommandBuilder {
-                        instruction,
-                        entry: entries,
-                        phase: ProcessCommandBuilderPhase::Field,
-                        state,
-                        next: Box::new(next),
-                    },
-                );
-            }
-            Some(ProcessCommandBuilderEntryView::Run { operands, span }) => {
-                if state.plan.is_some() {
-                    return Err(RuntimeError::new(
-                        "builder-entry",
-                        "process.command accepts one run entry",
-                    )
-                    .with_span(span));
-                }
-                state.plan = Some(super::empty_command_plan());
-                state.run = Some(ProcessCommandRunState {
-                    operands: ProcessRunOperandsCursor::new(&operands),
-                });
-                self.step_process_command_run(
-                    index,
-                    instruction,
-                    entries,
-                    state,
-                    next,
-                )?;
-            }
-            None => self.finish_process_command_builder(index, state, next)?,
-        }
-        Ok(())
-    }
-
-    fn step_process_command_run(
-        &mut self,
-        index: usize,
-        instruction: u32,
-        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
-        mut state: Box<ProcessCommandBuilderState>,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        let (entry_view, _, builder_span) = process_command_builder_entry(
-            &self.calls[index].execution,
-            instruction,
-            entry,
-            state.call_span,
-        )?;
-        let Some(ProcessCommandBuilderEntryView::Run { mut operands, span }) = entry_view else {
-            unreachable!("process command run cursor has a run entry")
-        };
-        let cursor = &mut state
-            .run
-            .as_mut()
-            .expect("active process command run")
-            .operands;
-        if let Some(operand) = cursor.next(&mut operands, builder_span)? {
-            let (child, descriptor, child_span) =
-                process_run_operand_expression(operand, span);
-            self.push_expr(
-                index,
-                child,
-                child_span,
-                FrameContinuation::ProcessCommandBuilder {
-                    instruction,
-                    entry,
-                    phase: ProcessCommandBuilderPhase::Run(descriptor),
-                    state,
-                    next: Box::new(next),
-                },
-            );
-            return Ok(());
-        }
-        state.run = None;
-        let (_, entries, _) = process_command_builder_entry(
-            &self.calls[index].execution,
-            instruction,
-            entry,
-            state.call_span,
-        )?;
-        self.step_process_command_builder(index, instruction, entries, state, next)
-    }
-
-    fn finish_process_command_builder(
-        &mut self,
-        index: usize,
-        state: Box<ProcessCommandBuilderState>,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        let mut plan = state.plan.ok_or_else(|| {
-            RuntimeError::new("builder-check", "process.command requires a run entry")
-                .with_span(state.span)
-        })?;
-        if state.cwd.is_some() {
-            plan.cwd = state.cwd;
-        }
-        plan.env.extend(state.env);
-        plan.redirections.extend(super::lowered_command_redirections(
-            state.stdin,
-            state.stdout,
-            state.stderr,
-            state.stdout_append,
-            state.stderr_append,
-            "process.command",
-            state.span,
-        )?);
-        if state.timeout.is_some() {
-            plan.timeout = state.timeout;
-        }
-        if state.cpu_max.is_some() {
-            plan.cpu_max = state.cpu_max;
-        }
-        if state.accepted_exit_codes.is_some() {
-            if plan.accepted_exit_codes.is_some() {
-                return Err(RuntimeError::new(
-                    "accept-policy",
-                    "accept cannot be supplied both as a field and a run option",
-                )
-                .with_span(state.span));
-            }
-            plan.accepted_exit_codes = state.accepted_exit_codes;
-        }
-        if let Some(value) = state.detach {
-            plan.detach = value;
-        }
-        if let Some(value) = state.new_session {
-            plan.new_session = value;
-        }
-        if let Some(value) = state.ignore_hup {
-            plan.ignore_hup = value;
-        }
-        if let Some(value) = state.same_group {
-            plan.same_group = value;
-        }
-        self.evaluator.trace_exit(
-            TraceKind::ModuleResult,
-            Some(state.span),
-            Some("process.command"),
-            TracePayload::None,
-        );
-        self.push_value(
-            index,
-            FrameValue::Value(LoweredValue::Command(Box::new(plan))),
-            next,
-        );
-        Ok(())
-    }
-
-    fn continue_process_command_builder(
-        &mut self,
-        index: usize,
-        instruction: u32,
-        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
-        phase: ProcessCommandBuilderPhase,
-        mut state: Box<ProcessCommandBuilderState>,
-        value: LoweredValue,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        match phase {
-            ProcessCommandBuilderPhase::Field => {
-                let (entry_view, remaining, _) = process_command_builder_entry(
-                    &self.calls[index].execution,
-                    instruction,
-                    entry,
-                    state.call_span,
-                )?;
-                let Some(ProcessCommandBuilderEntryView::Field { name, span, .. }) = entry_view else {
-                    unreachable!("field phase has a field entry")
-                };
-                let (operand, field) = match name.as_str().as_str() {
-                    "cwd" => (Some(super::FrameApplyOperand::PathLike("process.command")), "cwd"),
-                    "env" => (Some(super::FrameApplyOperand::Environment("process.command")), "env"),
-                    "stdin" => (None, "stdin"),
-                    "stdout" => (None, "stdout"),
-                    "stderr" => (None, "stderr"),
-                    "stdout_append" => (Some(super::FrameApplyOperand::BuilderBool("stdout_append")), "stdout_append"),
-                    "stderr_append" => (Some(super::FrameApplyOperand::BuilderBool("stderr_append")), "stderr_append"),
-                    "timeout" => (Some(super::FrameApplyOperand::Duration("process.command")), "timeout"),
-                    "accept" => (Some(super::FrameApplyOperand::AcceptedExitCodes), "accept"),
-                    "cpu_max" => (Some(super::FrameApplyOperand::PositiveInt("process.command")), "cpu_max"),
-                    "detach" => (Some(super::FrameApplyOperand::BuilderBool("detach")), "detach"),
-                    "new_session" => (Some(super::FrameApplyOperand::BuilderBool("new_session")), "new_session"),
-                    "ignore_hup" => (Some(super::FrameApplyOperand::BuilderBool("ignore_hup")), "ignore_hup"),
-                    "same_group" => (Some(super::FrameApplyOperand::BuilderBool("same_group")), "same_group"),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "builder-field",
-                            format!("unknown process.command field `{name}`"),
-                        )
-                        .with_span(span));
-                    }
-                };
-                let value = super::indexed_frame_apply_operand(value, operand, span)?;
-                match (field, value) {
-                    ("cwd", super::FrameApplyValue::Path(value)) => state.cwd = Some(value),
-                    ("env", super::FrameApplyValue::Environment(value)) => state.env.extend(value),
-                    ("stdin", super::FrameApplyValue::Value(value)) => state.stdin = Some(value),
-                    ("stdout", super::FrameApplyValue::Value(value)) => state.stdout = Some(value),
-                    ("stderr", super::FrameApplyValue::Value(value)) => state.stderr = Some(value),
-                    ("stdout_append", super::FrameApplyValue::Bool(value)) => state.stdout_append = value,
-                    ("stderr_append", super::FrameApplyValue::Bool(value)) => state.stderr_append = value,
-                    ("timeout", super::FrameApplyValue::Duration(value)) => state.timeout = Some(value),
-                    ("accept", super::FrameApplyValue::AcceptedExitCodes(value)) => state.accepted_exit_codes = Some(value),
-                    ("cpu_max", super::FrameApplyValue::Int(value)) => state.cpu_max = Some(value),
-                    ("detach", super::FrameApplyValue::Bool(value)) => state.detach = Some(value),
-                    ("new_session", super::FrameApplyValue::Bool(value)) => state.new_session = Some(value),
-                    ("ignore_hup", super::FrameApplyValue::Bool(value)) => state.ignore_hup = Some(value),
-                    ("same_group", super::FrameApplyValue::Bool(value)) => state.same_group = Some(value),
-                    _ => unreachable!("process command builder conversion matches its field"),
-                }
-                self.step_process_command_builder(index, instruction, remaining, state, next)
-            }
-            ProcessCommandBuilderPhase::Run(phase) => self.continue_process_command_run(
-                index, instruction, entry, phase, state, value, next,
-            ),
-        }
-    }
-
-    fn continue_process_command_run(
-        &mut self,
-        index: usize,
-        instruction: u32,
-        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
-        operand: ProcessExecutionOperand,
-        mut state: Box<ProcessCommandBuilderState>,
-        value: LoweredValue,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        let (entry_view, _, _) = process_command_builder_entry(
-            &self.calls[index].execution,
-            instruction,
-            entry,
-            state.call_span,
-        )?;
-        let Some(ProcessCommandBuilderEntryView::Run { span, .. }) = entry_view
-        else {
-            unreachable!("run phase has a run entry")
-        };
-        let _run = state.run.as_mut().expect("active process command run");
-        let plan = state
-            .plan
-            .as_mut()
-            .expect("process command plan exists during run");
-        match convert_process_operand(self.evaluator, operand, value)? {
-            ConvertedProcessOperand::Target { value, leading } => {
-                plan.target = value;
-                plan.argv.extend(leading);
-            }
-            ConvertedProcessOperand::Argument(items) => plan.argv.extend(items),
-            ConvertedProcessOperand::Environment { name, value } => {
-                plan.env
-                    .insert(name.as_str().as_str().to_owned(), value);
-            }
-            ConvertedProcessOperand::Redirection(_) => {
-                return Err(RuntimeError::new(
-                    "builder-entry",
-                    "process.command run entries cannot contain redirections",
-                )
-                .with_span(span));
-            }
-            ConvertedProcessOperand::Timeout(value) => plan.timeout = Some(value),
-            ConvertedProcessOperand::CpuMax(value) => plan.cpu_max = Some(value),
-            ConvertedProcessOperand::Accept(value) => plan.accepted_exit_codes = Some(value),
-        }
-        self.step_process_command_run(index, instruction, entry, state, next)
     }
 
     /// Opens the owned scope of one pattern condition and its body: the

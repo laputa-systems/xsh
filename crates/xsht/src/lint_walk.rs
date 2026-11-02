@@ -2,14 +2,14 @@ use xsh::frontend::syntax::arena::{ArenaChild, ArenaRunTailOperand};
 
 use super::{
     rules,
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaMatchExprArm, ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStage,
     ArenaPipeStageKind, ArenaRange, ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar,
     ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprKind,
-    ArenaTypeExprTag, ArenaWordPart, AssignOp, AssignTargetId, BinaryOp, Binding, BindingTargetId, BlockId, BuilderBlockId,
+    ArenaTypeExprTag, ArenaWordPart, AssignOp, AssignTargetId, BinaryOp, Binding, BindingTargetId, BlockId,
     CallableEdgeOwner,
     CommandStmtId, Diagnostic, DiagnosticCode, ExprId, FixHint, FunctionDefId, FxHashMap, Label,
     Linter, Name, PathDisplaySite, PatternId, RunFormId, Severity, Span, StmtId, SugarForm,
@@ -152,7 +152,6 @@ impl LintExprVisitor<'_, '_> {
             ArenaChild::Expr(child) => self.visit_expr(child),
             ArenaChild::Block(block) => self.linter.lint_block(block),
             ArenaChild::TypeExpr(ty) => self.linter.collect_type_expr_refs(ty),
-            ArenaChild::BuilderBlock(block) => self.visit_builder_block(block),
             ArenaChild::Stmt(_)
             | ArenaChild::Pattern(_)
             | ArenaChild::BindingTarget(_)
@@ -171,7 +170,6 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Index { .. }
             | ArenaExprKind::Slice { .. }
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::ErrorContext { .. }
@@ -725,9 +723,6 @@ impl LintExprVisitor<'_, '_> {
         self.linter.lint_stream_stage(stage);
     }
 
-    fn visit_builder_block(&mut self, block: BuilderBlockId) {
-        self.linter.lint_builder_block(block);
-    }
 }
 
 impl<'a> Linter<'a> {
@@ -1766,33 +1761,6 @@ impl<'a> Linter<'a> {
             self.binding_initializer_types
                 .insert(self.arena.stmt(statement).span, ty.clone());
         }
-    }
-
-    pub(super) fn lint_builder_block(&mut self, block: BuilderBlockId) {
-        self.push_scope();
-        let entries: Vec<_> = self
-            .arena
-            .builder_entries(self.arena.builder_block(block).entries)
-            .to_vec();
-        for entry in entries {
-            match entry.kind {
-                ArenaBuilderEntryKind::Field { value, .. } => self.lint_expr(value),
-                ArenaBuilderEntryKind::Entry { args, block, .. } => {
-                    for arg in self.arena.command_args(args).to_vec() {
-                        self.lint_command_arg(&arg);
-                    }
-                    if let Some(block) = block {
-                        self.lint_builder_block(block);
-                    }
-                }
-                ArenaBuilderEntryKind::Task { block, .. } => self.lint_block_statements(block),
-                ArenaBuilderEntryKind::Stmt(stmt) => self.lint_stmt(stmt, false),
-            }
-        }
-        if let Some(flow_facts) = &mut self.flow_facts {
-            flow_facts.record_builder_block(self.arena, block);
-        }
-        self.pop_scope();
     }
 
     pub(super) fn lint_stream_block(&mut self, block: BlockId) {

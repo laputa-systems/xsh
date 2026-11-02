@@ -9,13 +9,13 @@
 use super::{ArenaTypeExprKind, canonical_effects, type_expr_kind};
 use std::fmt::Write as _;
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArgKind,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind,
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStageKind, ArenaProgram, ArenaRange,
     ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaRunTailOperand, ArenaSpawnTarget,
     ArenaStmtKind, ArenaStreamStage, ArenaSugarOperand, ArenaText, ArenaTypeDefBody, ArenaWordPart,
-    AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId, ExprId, FunctionDefId,
+    AssignTargetId, AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId,
     PatternId, RunFormId, StmtId, TypeExprId,
 };
 
@@ -1003,11 +1003,6 @@ impl CanonicalWriter<'_> {
                 self.put("wait;");
                 self.expr(form.target);
             }
-            ArenaExprKind::BuilderCall { call, block } => {
-                self.put("builder;");
-                self.expr(*call);
-                self.builder_block(*block);
-            }
             ArenaExprKind::Try(inner) => {
                 self.put("try;");
                 self.expr(*inner);
@@ -1174,35 +1169,6 @@ impl CanonicalWriter<'_> {
             }
         }
         self.put("|");
-    }
-
-    fn builder_block(&mut self, id: BuilderBlockId) {
-        let block = self.arena.builder_block(id);
-        self.put("BB(");
-        for entry in self.arena.builder_entries(block.entries) {
-            match &entry.kind {
-                ArenaBuilderEntryKind::Field { name, value } => {
-                    self.put("field;");
-                    self.debug(name);
-                    self.expr(*value);
-                }
-                ArenaBuilderEntryKind::Entry { name, args, block } => {
-                    self.put("entry;");
-                    self.debug(name);
-                    self.command_args(*args);
-                    if let Some(block) = block {
-                        self.builder_block(*block);
-                    }
-                }
-                ArenaBuilderEntryKind::Task { name, block } => {
-                    self.put("task;");
-                    self.debug(name);
-                    self.block(*block);
-                }
-                ArenaBuilderEntryKind::Stmt(stmt) => self.stmt(*stmt),
-            }
-        }
-        self.put(")");
     }
 
     fn run(&mut self, id: RunFormId) {

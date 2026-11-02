@@ -942,10 +942,9 @@ impl ProducerDemand {
         program: &'a crate::syntax::arena::ArenaProgram,
         declarations: &'a crate::sema::check::CompactDeclOutput,
     ) -> impl Iterator<Item = Span> + 'a {
-        declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
+        declarations.bodies.expr_types.iter().filter_map(move |(expression, _)| {
             let expression = program.arena.expr(*expression);
-            (matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Spawn(_) | crate::syntax::arena::ArenaExprKind::Wait(_))
-                || (*ty == Type::Command && matches!(expression.kind, crate::syntax::arena::ArenaExprKind::BuilderCall { .. }))).then_some(expression.span)
+            matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Spawn(_) | crate::syntax::arena::ArenaExprKind::Wait(_)).then_some(expression.span)
         })
     }
 
@@ -1814,20 +1813,6 @@ enum LoweredRecordEntry {
 /// Static replacement paths retain RHS expressions in source order.
 #[derive(Clone, Debug)]
 struct LoweredRecordUpdates(Vec<(Vec<Name>, BuildExprId, Span)>);
-
-#[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug)]
-enum LoweredProcessCommandBuilderEntry {
-    Field {
-        name: Name,
-        value: BuildExprId,
-        span: Span,
-    },
-    Run {
-        operands: LoweredRunOperands,
-        span: Span,
-    },
-}
 
 #[derive(Clone, Debug)]
 struct LoweredProcessCommandArgv {

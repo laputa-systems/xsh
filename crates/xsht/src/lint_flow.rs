@@ -1,12 +1,12 @@
 use xsh::frontend::syntax::arena::ArenaRunTailOperand;
 
 use super::{
-    ArenaAssignTargetKind, ArenaBuilderEntryKind, ArenaCallArg, ArenaCallArgKind, ArenaCommand,
+    ArenaAssignTargetKind, ArenaCallArg, ArenaCallArgKind, ArenaCommand,
     ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun,
     ArenaFmtPart, ArenaPipeStage, ArenaPipeStageKind, ArenaRange, ArenaRecordFieldKind,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar,
     ArenaWordPart, AssignTargetId, AstArena, BinaryOp, BlockId,
-    BuilderBlockId, CommandStmtId, ExprId, FxHashMap, RunFormId, StmtId,
+    CommandStmtId, ExprId, FxHashMap, RunFormId, StmtId,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -96,7 +96,6 @@ pub(super) struct FlowFacts {
     statements: FxHashMap<StmtId, FlowSummary>,
     blocks: FxHashMap<BlockId, FlowSummary>,
     assign_targets: FxHashMap<AssignTargetId, FlowSummary>,
-    builder_blocks: FxHashMap<BuilderBlockId, FlowSummary>,
     commands: FxHashMap<CommandStmtId, FlowSummary>,
     runs: FxHashMap<RunFormId, FlowSummary>,
 }
@@ -125,13 +124,6 @@ impl FlowFacts {
             .assign_targets
             .get(&target)
             .expect("flow assignment target child was not visited")
-    }
-
-    fn builder_block(&self, block: BuilderBlockId) -> FlowSummary {
-        *self
-            .builder_blocks
-            .get(&block)
-            .expect("flow builder block child was not visited")
     }
 
     fn command(&self, command: CommandStmtId) -> FlowSummary {
@@ -173,14 +165,6 @@ impl FlowFacts {
         assert!(
             self.assign_targets.insert(target, flow).is_none(),
             "flow assignment target was summarized more than once"
-        );
-    }
-
-    pub(super) fn record_builder_block(&mut self, arena: &AstArena, block: BuilderBlockId) {
-        let flow = builder_block_setup_flow(arena, self, block);
-        assert!(
-            self.builder_blocks.insert(block, flow).is_none(),
-            "flow builder block was summarized more than once"
         );
     }
 
@@ -556,9 +540,6 @@ fn expr_flow(arena: &AstArena, facts: &FlowFacts, expr: ExprId) -> FlowSummary {
             ArenaSpawnTarget::Command(command) => facts.expression(command),
         },
         ArenaExprKind::Wait(form) => facts.expression(form.target),
-        ArenaExprKind::BuilderCall { call, block } => {
-            facts.expression(call).then(facts.builder_block(block))
-        }
         ArenaExprKind::CodecSchema { format, input, .. } => facts.expression(format).then(facts.expression(input)),
         ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
             facts.expression(value)
@@ -707,31 +688,6 @@ fn assign_target_flow(arena: &AstArena, facts: &FlowFacts, target: AssignTargetI
             facts.assign_target(base).then(facts.expression(index))
         }
     }
-}
-
-fn builder_block_setup_flow(
-    arena: &AstArena,
-    facts: &FlowFacts,
-    block: BuilderBlockId,
-) -> FlowSummary {
-    let mut flow = FlowSummary::fallthrough();
-    for entry in arena.builder_entries(arena.builder_block(block).entries) {
-        match &entry.kind {
-            ArenaBuilderEntryKind::Field { value, .. } => {
-                flow = flow.then(facts.expression(*value));
-            }
-            ArenaBuilderEntryKind::Entry { args, block, .. } => {
-                for arg in arena.command_args(*args) {
-                    flow = flow.then(command_arg_flow(arena, facts, arg));
-                }
-                if let Some(block) = block {
-                    flow = flow.then(facts.builder_block(*block));
-                }
-            }
-            ArenaBuilderEntryKind::Task { .. } | ArenaBuilderEntryKind::Stmt(_) => {}
-        }
-    }
-    flow
 }
 
 fn command_flow(arena: &AstArena, facts: &FlowFacts, command: CommandStmtId) -> FlowSummary {

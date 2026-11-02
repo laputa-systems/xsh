@@ -8,7 +8,7 @@ use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
-    ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand, ArenaCommandArg,
+    ArenaBindingTargetKind, ArenaCommand, ArenaCommandArg,
     ArenaCommandArgKind, ArenaCompQualifier, ArenaEnvAssignment, ArenaEnvAssignmentValue,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
     ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget,
@@ -3027,12 +3027,6 @@ impl<'a> Writer<'a> {
                 output.push_str("wait ");
                 self.write_expr(form.target, child(form.target), output);
             }
-            ArenaExprKind::BuilderCall { call, block } => {
-                self.write_expr(*call, child(*call), output);
-                output.push(' ');
-                let indent = indent_for_expr(output);
-                self.write_builder_block(*block, indent, output);
-            }
             ArenaExprKind::Try(inner) => {
                 let start = output.len();
                 self.write_expr(*inner, child(*inner), output);
@@ -3985,69 +3979,6 @@ impl<'a> Writer<'a> {
             }
         }
         output.push('"');
-    }
-
-    fn write_builder_block(
-        &mut self,
-        block_id: xsh::frontend::syntax::arena::BuilderBlockId,
-        indent: usize,
-        output: &mut String,
-    ) {
-        let block = self.arena.builder_block(block_id).clone();
-        let entries: Vec<xsh::frontend::syntax::arena::ArenaBuilderEntry> =
-            self.arena.builder_entries(block.entries).to_vec();
-        output.push('{');
-        if entries.is_empty() {
-            output.push('}');
-            return;
-        }
-        output.push('\n');
-        for (index, entry) in entries.iter().enumerate() {
-            if index > 0 {
-                output.push('\n');
-            }
-            self.write_builder_entry(entry, indent + 1, output);
-        }
-        output.push('\n');
-        self.write_indent(indent, output);
-        output.push('}');
-    }
-
-    fn write_builder_entry(
-        &mut self,
-        entry: &xsh::frontend::syntax::arena::ArenaBuilderEntry,
-        indent: usize,
-        output: &mut String,
-    ) {
-        if let ArenaBuilderEntryKind::Stmt(stmt) = entry.kind {
-            self.write_stmt(stmt, indent, output);
-            return;
-        }
-        self.write_indent(indent, output);
-        match &entry.kind {
-            ArenaBuilderEntryKind::Field { name, value } => {
-                output.push_str(name.as_str().as_str());
-                output.push_str(" = ");
-                self.write_expr(*value, END, output);
-            }
-            ArenaBuilderEntryKind::Entry { name, args, block } => {
-                output.push_str(name.as_str().as_str());
-                let tail = if block.is_some() { 2 } else { 0 };
-                let continuation = indent + 1 + usize::from(block.is_some());
-                self.write_command_args(*args, continuation, tail, output);
-                if let Some(block) = block {
-                    output.push(' ');
-                    self.write_builder_block(*block, indent, output);
-                }
-            }
-            ArenaBuilderEntryKind::Task { name, block } => {
-                output.push_str("task ");
-                output.push_str(name.as_str().as_str());
-                output.push_str("() ");
-                self.write_block(*block, indent, output);
-            }
-            ArenaBuilderEntryKind::Stmt(_) => unreachable!("written above"),
-        }
     }
 
     fn write_optional_type(&mut self, ty: Option<TypeExprId>, output: &mut String) {
@@ -5050,7 +4981,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -5110,7 +5040,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

@@ -201,7 +201,6 @@ impl Checker {
                 | ArenaExprKind::Run(_)
                 | ArenaExprKind::Spawn(_)
                 | ArenaExprKind::Wait(_)
-                | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Try(_)
                 | ArenaExprKind::Capture(_)
                 | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -248,7 +247,6 @@ impl Checker {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::Convert { .. }
             | ArenaExprKind::Collect { .. }
@@ -1620,9 +1618,6 @@ impl Checker {
             ArenaExprKind::Run(run_id) => self.check_run_expr_arena(arena, source, *run_id),
             ArenaExprKind::Spawn(form) => self.check_spawn_form_arena(arena, source, form),
             ArenaExprKind::Wait(form) => self.check_wait_form_arena(arena, source, form),
-            ArenaExprKind::BuilderCall { call, block } => {
-                self.check_builder_call_arena(arena, source, *call, *block, expr.span)
-            }
         };
         self.record_expr_type(expr.span, ty.clone());
         if ty == Type::Bool {
@@ -5344,10 +5339,7 @@ let enabled: Bool = name_of({name: true, version: 2})
     }
 
     #[test]
-    fn builder_and_structured_pipeline_are_native() {
-        assert_arena_matches_raised(
-            "let x = process.command {\n  cwd = Path(\"src\")\n  run echo ok\n}",
-        );
+    fn structured_pipeline_is_native() {
         assert_arena_matches_raised("let x = [1, 2, 3] |> map { . + 1 }");
         assert_arena_matches_raised("let x = \"a\\nb\" |> text.lines() |> count()");
     }

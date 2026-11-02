@@ -1050,10 +1050,7 @@ beta
     |> take(1)
   let total = [1, 2, 3] |> sum
   let unique = [1, 1, 2, 3] |> unique-by .
-  let command = process.command {
-    timeout = 2s
-    run --timeout=1s echo ok
-  }
+  let command = process.command_argv("echo", ["echo", "ok"], timeout: 2s)
   assert process.run(command)?.exited_with(0)
   assert mode == 493
   assert "493" in label

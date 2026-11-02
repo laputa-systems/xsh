@@ -199,7 +199,6 @@ pub(super) fn lower_const_param_default(
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

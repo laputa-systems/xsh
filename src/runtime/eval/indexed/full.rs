@@ -36,7 +36,7 @@ use crate::runtime::eval::{
     CheckedPatternField, LoweredBindingIdentity, RuntimeBindingIdentity, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportBinding, LoweredProcessCommandArgv,
-    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
+    LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunOption,
     LoweredRunOperands, LoweredRunPipelineSegment, LoweredRunRedirection,
     LoweredRunTailOperand, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
@@ -10606,7 +10606,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathRemove { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -11053,7 +11052,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathRemove { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -11957,7 +11955,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathRemove { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -12398,7 +12395,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::Loop { .. }
             | schema::ExprView::Retry { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -13529,7 +13525,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::SpawnCommand { .. }
             | schema::ExprView::Wait { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::ExternalCall { .. }
@@ -13876,7 +13871,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathRemove { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -15656,14 +15650,6 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::RunCapture(run) => { run!(&mut run.operands); }
             schema::ExprView::SpawnRun(run) => { run!(&mut run.operands); }
             schema::ExprView::RunPipeline { segments, .. } => { for segment in segments { let mut segment = segment?; run!(&mut segment.operands); } }
-            schema::ExprView::ProcessCommandBuilder { entries, .. } => {
-                for entry in entries {
-                    match entry? {
-                        decode::ProcessCommandBuilderEntryView::Field { value, .. } => operand!(value),
-                        decode::ProcessCommandBuilderEntryView::Run { mut operands, .. } => run!(&mut operands),
-                    }
-                }
-            }
             schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => {
                 for qualifier in qualifiers {
                     match qualifier? {
@@ -16582,7 +16568,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathRemove { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -17092,7 +17077,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PathRemove { .. }
             | schema::ExprView::ModuleCall { .. }
             | schema::ExprView::ProcessCommandArgv(_)
-            | schema::ExprView::ProcessCommandBuilder { .. }
             | schema::ExprView::Abort { .. }
             | schema::ExprView::Fail { .. }
             | schema::ExprView::Ok(_)
@@ -22718,7 +22702,6 @@ impl_vec_codec!(LoweredRunEnv, BLOCK_LIST);
 impl_vec_codec!(LoweredRunOption, BLOCK_LIST);
 impl_vec_codec!(LoweredRunTailOperand, BLOCK_LIST);
 impl_vec_codec!(LoweredRunPipelineSegment, BLOCK_LIST);
-impl_vec_codec!(LoweredProcessCommandBuilderEntry, BLOCK_LIST);
 impl_vec_codec!(ScanCheck, BLOCK_LIST);
 impl_vec_codec!(LoweredModuleExport, BLOCK_LIST);
 impl_vec_codec!(LoweredTopLevelSlot, BLOCK_LIST);
@@ -38480,7 +38463,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             ExprPathRemove
             ExprModuleCall
             ExprProcessCommandArgv
-            ExprProcessCommandBuilder
             ExprAbort
             ExprFail
             ExprOk
@@ -38539,8 +38521,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        let dead_ordinals = [43, 50, 64, 95, 96, 97, 98, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 153);
+        let dead_ordinals = [43, 50, 64, 95, 96, 97, 98, 101, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 152);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -38570,7 +38552,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
                         | FullTag::ExprSpawnCommand
                         | FullTag::ExprWait
                         | FullTag::ExprProcessCommandArgv
-                        | FullTag::ExprProcessCommandBuilder
                         | FullTag::StmtRun => {
                             EFFECT_PROCESS
                                 | EFFECT_CANCELLATION
@@ -43770,7 +43751,7 @@ pure foreign(payload, count: Int) {
     #[test]
     fn native_path_interpolation_executes_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/{value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command { stdin = fp\"before/{value}\"; stdout = fp\"{value}/after\"; run true \"--target=$value\" } }\n";
+            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/{value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command_argv(\"true\", [\"true\", fp\"--target={value}\"], stdin: fp\"before/{value}\", stdout: fp\"{value}/after\") }\n";
             let program = Arc::new(fixture("native-path-interpolation.xsh", source));
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));

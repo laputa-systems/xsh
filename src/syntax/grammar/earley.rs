@@ -16,7 +16,6 @@ enum Symbol {
     Rule(u32),
     Look(u32),
     NotContextScope,
-    ConditionBody { comma_terminator: bool },
     NameStatement(super::NameStatementForm),
     WordStart,
     End,
@@ -116,9 +115,6 @@ impl<'g> Compiler<'g> {
                 out.push(Symbol::Terminal(id));
             }
             Item::NotContextScope => out.push(Symbol::NotContextScope),
-            Item::ConditionBody { comma_terminator } => {
-                out.push(Symbol::ConditionBody { comma_terminator: *comma_terminator })
-            }
             Item::WordStart => out.push(Symbol::WordStart),
             Item::NameStatement(form) => out.push(Symbol::NameStatement(*form)),
             Item::Rule(name) => out.push(Symbol::Rule(self.rule_id(name, grouped))),
@@ -298,7 +294,7 @@ impl Recognizer {
                     let all = rhs.iter().all(|symbol| match symbol {
                         Symbol::Terminal(_) | Symbol::End => false,
                         Symbol::Rule(id) => empty[*id as usize],
-                        Symbol::Look(_) | Symbol::NotContextScope | Symbol::ConditionBody { .. } | Symbol::NameStatement(_) | Symbol::WordStart => !strict,
+                        Symbol::Look(_) | Symbol::NotContextScope | Symbol::NameStatement(_) | Symbol::WordStart => !strict,
                     });
                     if all {
                         empty[*lhs as usize] = true;
@@ -334,7 +330,7 @@ impl Recognizer {
                                 break;
                             }
                         }
-                        Symbol::Look(_) | Symbol::NotContextScope | Symbol::ConditionBody { .. } | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
+                        Symbol::Look(_) | Symbol::NotContextScope | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
                     }
                 }
                 let to = *lhs as usize * words;
@@ -370,7 +366,7 @@ impl Recognizer {
                             break;
                         }
                     }
-                    Symbol::Look(_) | Symbol::NotContextScope | Symbol::ConditionBody { .. } | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
+                    Symbol::Look(_) | Symbol::NotContextScope | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
                 }
             }
             production_may_be_empty[index] = empty;
@@ -547,11 +543,6 @@ impl Recognizer {
                     }
                     Symbol::NotContextScope => {
                         if super::context_scope_suffix_lookahead(|offset| tokens.get(position + offset).copied()).is_none() {
-                            add((dot + 1, origin), &mut current);
-                        }
-                    }
-                    Symbol::ConditionBody { comma_terminator } => {
-                        if !super::condition_body_follows_builder_callback(tokens, position, comma_terminator) {
                             add((dot + 1, origin), &mut current);
                         }
                     }

@@ -693,7 +693,7 @@ test test_api_block_strings_explains_exact_margin_source_boundaries_and_literal_
 }
 
 test test_api_process_commands_document_exact_bytes_stdin_ownership {
-  api(["api:process.command_argv", "api:process.command"])? |> assert_contains(
+  api(["api:process.command_argv"])? |> assert_contains(
     _,
     ["stdin: Bytes", "stdin: Path", "temporary file", "empty Bytes", "hello"],
   )

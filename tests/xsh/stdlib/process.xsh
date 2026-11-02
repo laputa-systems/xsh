@@ -23,9 +23,7 @@ test test_process_module {
   let status = process.run(command)?
   assert status.exited_with(7)
 
-  let ok_command = process.command {
-    run true
-  }
+  let ok_command = process.command_argv("true", ["true"])
 
   assert process.run(ok_command)?.exited_with(0)
   let sleeper = process.command_argv("sh", ["sh", "-c", "sleep 5"])
@@ -56,46 +54,16 @@ test test_process_command_argv_requires_argv0 { |ctx|
   )?
 }
 
-test test_process_command_builder_rejects_invalid_run_entries_before_execution { |ctx|
-  for case in [
-    {entries: "", code: "check.builder-check"},
-    {entries: "run true\nrun true", code: "check.builder-check"},
-    {entries: "run true\ntimeout = 1s\nrun true", code: "check.builder-check"},
-    {entries: "run true | run true", code: "check.builder-entry"},
-    {entries: "run true > p\"out\"", code: "check.builder-entry"},
-    {entries: "run.text true", code: "check.builder-entry"},
-    {entries: "run.capture --text true", code: "check.builder-entry"},
-    {entries: "run true ?", code: "check.builder-entry"},
-  ] {
+test test_process_command_builder_block_is_rejected_before_execution { |ctx|
+  for entries in ["", "run true", "timeout = 1s\nrun true", "run true | run true"] {
     for source in [
-      "let command = process.command {\n" + case.entries + "\n}\n",
-      "proc unused() [process, error] {\nlet command = process.command {\n" + case.entries + "\n}\n}\n",
+      "let command = process.command {\n" + entries + "\n}\n",
+      "proc unused() [process, error] {\nlet command = process.command {\n" + entries + "\n}\n}\n",
     ] {
-      let output = test.expect(ctx, "print \"started\"\n" + source, status: 2, stderr: [case.code])?
-      assert "compact.indexed-build" not in output.stderr, output.stderr
+      let output = test.expect(ctx, "print \"started\"\n" + source, status: 2, stderr: ["parse.builder-block"])?
       assert output.stdout == "", output.stdout
     }
   }
-}
-
-test test_process_command_builder_accepts_one_run_or_status_with_fields { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""let plain = process.command {
-  timeout = 1s
-  run true
-}
-let status = process.command {
-  run.status true
-  timeout = 1s
-}
-assert process.run(plain)?.exited_with(0)
-assert process.run(status)?.exited_with(0)
-print accepted
-""",
-    status: 0,
-  )?
-  assert output.stdout == "accepted\n", output.stdout
 }
 
 test test_process_command_construction_preserves_operand_order { |ctx|
@@ -115,11 +83,6 @@ let argv = process.command_argv(
   cwd: mark_path("argv-cwd", Path(".")),
   env: {XSH_COMMAND_VALUE: mark("argv-env", "ready")},
 )
-let builder = process.command {
-  cwd = mark_path("builder-cwd", Path("."))
-  env = {XSH_BUILDER_VALUE: mark("builder-env", "ready")}
-  run (mark("builder-target", "true")) (mark("builder-arg", "argument"))
-}
 print "constructed"
 """,
     status: 0,
@@ -129,10 +92,6 @@ argv-zero
 argv-one
 argv-cwd
 argv-env
-builder-cwd
-builder-env
-builder-target
-builder-arg
 constructed
 """, output.stdout
 }
@@ -183,11 +142,6 @@ test test_process_command_construction_supports_forced_frames { |ctx|
   cwd: Path("."),
   env: {XSH_COMMAND_VALUE: "ready"},
 )
-let builder = process.command {
-  cwd = Path(".")
-  env = {XSH_BUILDER_VALUE: "ready"}
-  run true
-}
 """,
     status: 0,
   )?
@@ -373,12 +327,8 @@ test test_process_command_redirections { |ctx|
   assert log.read_text()? == "from-stdinstderr-line"
 
   let builder_log = fp"{root}/builder.log"
-  let builder = process.command {
-    stdout = builder_log
-    stderr = builder_log
-    run sh -c "printf builder-out; printf builder-err >&2"
-  }
-  assert process.run(builder)?.exited_with(0)
+  let merged = process.command_argv("sh", ["sh", "-c", "printf builder-out; printf builder-err >&2"], stdout: builder_log, stderr: builder_log)
+  assert process.run(merged)?.exited_with(0)
   assert builder_log.read_text()? == "builder-outbuilder-err"
 }
 
@@ -572,7 +522,7 @@ test test_bytes_stdin_rejects_invalid_targets_and_sources { |ctx|
     """let payload: Result[Bytes] = Ok(b"input")
 run cat < (payload)
 """,
-    """let command = process.command {stdout = b"output"; run cat}
+    """let command = process.command_argv("cat", ["cat"], stdout: b"output")
 """,
   ] {
     let checked = test.run_xsh(ctx, source)?
@@ -641,7 +591,7 @@ io.write_stdout_bytes(io.stdin_bytes()?)?
 
 test test_bytes_stdin_reaches_command_plans_spawned_commands_and_streams { |ctx|
   let source = r"""let payload = b"cmd\0\xff"
-let command = process.command { stdin = payload; run cat }
+let command = process.command_argv("cat", ["cat"], stdin: payload)
 let _ = process.run(command)?
 let explicit = process.command_argv("cat", ["cat"], stdin: payload)
 let handle = spawn explicit?
@@ -728,12 +678,7 @@ test test_dropped_detached_process_keeps_running { |ctx|
 test test_process_spawn_options_and_kill_are_observable { |ctx|
   let root = test.temp_dir(ctx, name: "spawn-options")?
   let marker = fp"{root}/ready"
-  let command = process.command {
-    detach = true
-    new_session = true
-    ignore_hup = true
-    run sh -c "printf ready > $1; exec sleep 10" sh $marker
-  }
+  let command = process.command_argv("sh", ["sh", "-c", "printf ready > $1; exec sleep 10", "sh", marker], detach: true, new_session: true, ignore_hup: true)
 
   let spawned = process.spawn(command)?
   assert appears(marker)
@@ -766,13 +711,8 @@ test test_process_spawn_applies_file_redirections { |ctx|
 
   let combined = fp"{root}/com bined.log"
   let combined_done = fp"{root}/combined-done"
-  let builder = process.command {
-    stdin = b"bytes-in"
-    stdout = combined
-    stderr = combined
-    run sh -c "cat; printf builder-err >&2; : > $1" sh $combined_done
-  }
-  let _ = process.spawn(builder)?
+  let merged = process.command_argv("sh", ["sh", "-c", "cat; printf builder-err >&2; : > $1", "sh", combined_done], stdin: b"bytes-in", stdout: combined, stderr: combined)
+  let _ = process.spawn(merged)?
   assert appears(combined_done)
   assert combined.read_text()? == "bytes-inbuilder-err"
 }

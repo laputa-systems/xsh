@@ -4058,10 +4058,6 @@ fn process_module() -> ModuleSig {
                 RuntimeOp::ProcessSetSignalAction,
             ),
         ),
-        (
-            "command",
-            sig(Vec::new(), Type::Command, false, RuntimeOp::ProcessCommand),
-        ),
     ])
 }
 

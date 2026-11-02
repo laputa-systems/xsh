@@ -68,7 +68,6 @@ ARENA_ENUMS = (
     "ArenaCallArgInput",
     "ArenaCallArgKind",
     "ArenaPipeStageKind",
-    "ArenaBuilderEntryKind",
     "ArenaCommand",
     "ArenaRedirectionTarget",
     "ArenaRunTailOperand",

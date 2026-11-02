@@ -13,7 +13,7 @@ use crate::sema::types::merge_list_literal_item_ty;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun,
     ArenaFunctionDef, ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar,
-    AssignTargetId, BindingTargetId, BlockId, BuilderBlockId, DeferTrigger, ExprId, StmtId,
+    AssignTargetId, BindingTargetId, BlockId, DeferTrigger, ExprId, StmtId,
     TypeExprId,
 };
 use crate::syntax::node::{AssignOp, StreamStageKind};
@@ -606,37 +606,9 @@ fn child_control_flow(arena: &ArenaProgram, child: ArenaChild, facts: &FlowFacts
         ArenaChild::Expr(expr) => expr_control_flow(arena, expr, facts),
         ArenaChild::Block(block) => block_control_flow(arena, block, facts),
         ArenaChild::AssignTarget(target) => assign_target_control_flow(arena, target, facts),
-        ArenaChild::BuilderBlock(block) => builder_block_control_flow(arena, block, facts),
         ArenaChild::BindingTarget(_) | ArenaChild::Pattern(_) | ArenaChild::TypeExpr(_)
             => ControlFlow::NORMAL,
     }
-}
-
-fn builder_block_control_flow(
-    arena: &ArenaProgram,
-    id: BuilderBlockId,
-    facts: &FlowFacts<'_>,
-) -> ControlFlow {
-    let mut flow = ControlFlow::NORMAL;
-    arena.arena.for_each_builder_child(id, |child| {
-        if flow.completes {
-            // Builder task bodies are callbacks. Their exits target the
-            // callback's own scopes. A run entry describes the command being
-            // built; only its argument expressions execute at construction.
-            let child_flow = match child {
-                ArenaChild::Block(_) => ControlFlow::NORMAL,
-                ArenaChild::Stmt(stmt)
-                    if matches!(arena.arena.stmt(stmt).kind, ArenaStmtKind::Command(command)
-                        if matches!(arena.arena.command_stmt(command).command, crate::syntax::arena::ArenaCommand::Run(_))) =>
-                {
-                    stmt_children_flow(arena, stmt, facts)
-                }
-                _ => child_control_flow(arena, child, facts),
-            };
-            flow = flow.then(child_flow);
-        }
-    });
-    flow
 }
 
 fn assign_target_control_flow(
@@ -1742,7 +1714,6 @@ fn expression_cardinality_uncached(
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -2228,7 +2199,6 @@ fn expr_control_flow_inner(
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::ValueBlock(_)
@@ -5749,7 +5719,6 @@ impl Checker {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
             | ArenaExprKind::Convert { .. }
@@ -6835,7 +6804,6 @@ impl Checker {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -7114,7 +7082,6 @@ impl Checker {
                 | ArenaExprKind::Run(_)
                 | ArenaExprKind::Spawn(_)
                 | ArenaExprKind::Wait(_)
-                | ArenaExprKind::BuilderCall { .. }
                 | ArenaExprKind::Try(_)
                 | ArenaExprKind::Capture(_)
                 | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -7946,7 +7913,6 @@ impl Checker {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -8077,7 +8043,6 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
@@ -8241,7 +8206,6 @@ fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) 
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { schema: Some(_), .. }
         | ArenaExprKind::Convert { .. }

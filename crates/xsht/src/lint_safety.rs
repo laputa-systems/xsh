@@ -3,10 +3,10 @@ use xsh::frontend::syntax::arena::{
 };
 
 use super::{
-    ArenaBuilderEntryKind, ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaCommandArgKind,
+    ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaCommandArgKind,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaRange, ArenaRecordFieldKind,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaWordPart, AstArena, BinaryOp,
-    BlockId, BuilderBlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, FxHashMap, Label,
+    BlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, FxHashMap, Label,
     Linter, Name, Severity, Type, UnaryOp, is_module_call,
 };
 
@@ -73,7 +73,6 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -131,7 +130,6 @@ pub(super) fn expr_may_assign_local(
         ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
     ) && mentions_identifier(text, name);
     nested_statements
         || expr_child_blocks(arena, expr).into_iter().any(|block| {
@@ -252,7 +250,6 @@ pub(super) fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
@@ -326,7 +323,6 @@ fn arena_child_references_name(arena: &AstArena, child: ArenaChild, name: Name) 
         ArenaChild::Expr(expr) => expr_references_name(arena, expr, name),
         ArenaChild::Stmt(stmt) => stmt_references_name(arena, stmt, name),
         ArenaChild::Block(block) => block_references_name(arena, block, name),
-        ArenaChild::BuilderBlock(block) => builder_block_references_name(arena, block, name),
         ArenaChild::AssignTarget(target) => assign_target_references_name(arena, target, name),
         ArenaChild::Pattern(_) | ArenaChild::BindingTarget(_) | ArenaChild::TypeExpr(_) => false,
     }
@@ -340,22 +336,6 @@ fn block_references_name(arena: &AstArena, block: BlockId, name: Name) -> bool {
         }
     });
     referenced
-}
-
-fn builder_block_references_name(arena: &AstArena, block: BuilderBlockId, name: Name) -> bool {
-    let mut referenced = false;
-    arena.for_each_builder_child(block, |child| {
-        if !referenced {
-            referenced = arena_child_references_name(arena, child, name);
-        }
-    });
-    referenced
-        || arena
-            .builder_entries(arena.builder_block(block).entries)
-            .iter()
-            .any(|entry| {
-                matches!(entry.kind, ArenaBuilderEntryKind::Entry { args, .. } if arena.command_args(args).iter().any(|arg| command_arg_has_splice_name(arg, name)))
-            })
 }
 
 fn stmt_references_name(arena: &AstArena, stmt: super::StmtId, name: Name) -> bool {
@@ -546,7 +526,6 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
@@ -638,7 +617,6 @@ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
         | ArenaExprKind::Convert { .. }
         | ArenaExprKind::Capture(_)
@@ -817,7 +795,6 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
         | ArenaExprKind::Run(_)
         | ArenaExprKind::Spawn(_)
         | ArenaExprKind::Wait(_)
-        | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -882,7 +859,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Run(_)
             | ArenaExprKind::Spawn(_)
             | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::Capture(_)
             | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }

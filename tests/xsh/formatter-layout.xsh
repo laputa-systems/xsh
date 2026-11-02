@@ -164,10 +164,7 @@ let h=spawn run --cpumax=80 true ?
 let s=wait h?
 let hs=[spawn run true ?,spawn run false ?]
 let statuses=wait hs?
-let cmd=process.command {
-cpu_max=80
-run true
-}
+let cmd=process.command_argv("true",["true"],cpu_max:80)
 let h2=spawn (cmd)?
 h2.cancel(signal:"TERM",kill_after:0ms)?
 """
@@ -175,10 +172,7 @@ h2.cancel(signal:"TERM",kill_after:0ms)?
 let s = wait h?
 let hs = [spawn run true?, spawn run false?]
 let statuses = wait hs?
-let cmd = process.command {
-  cpu_max = 80
-  run true
-}
+let cmd = process.command_argv("true", ["true"], cpu_max: 80)
 let h2 = spawn cmd?
 h2.cancel(signal: "TERM", kill_after: 0ms)?
 """
@@ -1021,7 +1015,7 @@ test test_fmt_keeps_a_signature_cli_entry_declaration { |ctx|
 }
 
 test test_fmt_keeps_accept_policy_expressions { |ctx|
-  let source = "pure policy() -> List[Int] { [0,1] }\nlet codes = [0,1]\nrun.status --accept=(codes) sh --accept=[9]\nrun.status --accept=policy() --timeout=1s sh\nlet child = spawn run --timeout=1s --accept=[0,1] sh ?\nlet command = process.command {\naccept=[0,1]\nrun sh\n}\n"
+  let source = "pure policy() -> List[Int] { [0,1] }\nlet codes = [0,1]\nrun.status --accept=(codes) sh --accept=[9]\nrun.status --accept=policy() --timeout=1s sh\nlet child = spawn run --timeout=1s --accept=[0,1] sh ?\nlet command = process.command_argv(\"sh\", [\"sh\"], accept:[0,1])\n"
   let actual = formatted(ctx, source)?
   assert "--accept=codes sh --accept=[9]" in actual, actual
 }

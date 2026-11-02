@@ -1,8 +1,8 @@
 use super::{
-    Arc, ArenaBuilderEntryKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaWordPart, AstArena, BuildExprId, BuildExprRow,
+    Arc, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
+    ArenaSpawnTarget, ArenaWordPart, AstArena, BuildExprId, BuildExprRow,
     BuildScratch, BuildStmtId, BuildStmtRow, CommandWordRefSegment, CompactLowerConstructProbe,
-    CoreCommand, ExprId, LoweredFmtPart, LoweredProcessCommandBuilderEntry, LoweredRunArg,
+    CoreCommand, ExprId, LoweredFmtPart, LoweredRunArg,
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunOption, LoweredRunOperands, LoweredRunRedirection, LoweredRunTailOperand,
     LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp, SlotScope, Span,
@@ -1043,114 +1043,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             _ => None,
         }
-    }
-
-    pub(super) fn lower_process_command_builder(
-        &mut self,
-        call: ExprId,
-        block: crate::syntax::arena::BuilderBlockId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-        span: Span,
-    ) -> Option<BuildExprId> {
-        let (module, name, args) = match self.program.arena.expr(call).kind {
-            ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
-                    return None;
-                };
-                (module, name, None)
-            }
-            ArenaExprKind::Call { callee, args } => {
-                let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind
-                else {
-                    return None;
-                };
-                let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
-                    return None;
-                };
-                (module, name, Some(args))
-            }
-            _ => return None,
-        };
-        if module != "process" || name != "command" {
-            return None;
-        }
-        if args.is_some_and(|args| !self.program.arena.call_args(args).is_empty()) {
-            return None;
-        }
-
-        let entries = self
-            .program
-            .arena
-            .builder_entries(self.program.arena.builder_block(block).entries)
-            .to_vec();
-        let mut lowered = Vec::with_capacity(entries.len());
-        let mut run_seen = false;
-        for entry in entries {
-            match entry.kind {
-                ArenaBuilderEntryKind::Field { name, value } => {
-                    lowered.push(LoweredProcessCommandBuilderEntry::Field {
-                        name,
-                        value: self.lower_expr(value, slots, current_function, item_slot)?,
-                        span: self.program.arena.span(entry.span),
-                    });
-                }
-                ArenaBuilderEntryKind::Stmt(stmt) => {
-                    let ArenaStmtKind::Command(command) = self.program.arena.stmt(stmt).kind else {
-                        return None;
-                    };
-                    let command_stmt = self.program.arena.command_stmt(command);
-                    let ArenaCommand::Run(run) = command_stmt.command else {
-                        return None;
-                    };
-                    if command_stmt.propagate || run_seen {
-                        return None;
-                    }
-                    let run_form = self.program.arena.run_form(run);
-                    if run_form.propagate {
-                        return None;
-                    }
-                    let [segment] = self.program.arena.run_segments(run_form.segments) else {
-                        return None;
-                    };
-                    if !matches!(segment.kind, RunKind::Plain | RunKind::Status)
-                        || self
-                            .program
-                            .arena
-                            .run_tail_operands(segment.tail)
-                            .iter()
-                            .any(|operand| matches!(
-                                operand,
-                                crate::syntax::arena::ArenaRunTailOperand::Redirection(_)
-                            ))
-                    {
-                        return None;
-                    }
-                    let operands = self.lower_run_operands_in_domain(
-                        segment,
-                        slots,
-                        current_function,
-                        item_slot, &mut CommandLoweringDomain::Ordinary)?;
-                    lowered.push(LoweredProcessCommandBuilderEntry::Run {
-                        operands,
-                        span: self.program.arena.span(command_stmt.span),
-                    });
-                    run_seen = true;
-                }
-                ArenaBuilderEntryKind::Entry { .. } | ArenaBuilderEntryKind::Task { .. } => {
-                    return None;
-                }
-            }
-        }
-        Some(push_build_row!(
-            self,
-            expr,
-            BuildExprRow::ProcessCommandBuilder {
-                entries: lowered,
-                span,
-            }
-        ))
     }
 
     /// `e"NAME" = value` runs as an `EnvSet` call in statement position.

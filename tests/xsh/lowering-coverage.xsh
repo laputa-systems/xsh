@@ -222,18 +222,6 @@ print ${size()}
 """
 }
 
-test test_process_command_requires_builder_block { |ctx|
-  let output = test.run_script(
-    ctx,
-    """let command = process.command()
-print process.run(command)?.exited()
-""",
-  )?
-  assert ! output.success
-  assert "check.builder-call" in output.stderr, output.stderr
-  assert "compact.indexed-build" not in output.stderr, output.stderr
-}
-
 test test_members_without_a_checked_type_are_checker_errors { |ctx|
   # Each of these used to check as Unknown or Any, then failed preparation
   # with an internal encode error or ran into a runtime type error.

@@ -2551,7 +2551,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
             continue;
         }
         if matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand
-            | FullTag::ExprWait | FullTag::ExprProcessCommandArgv | FullTag::ExprProcessCommandBuilder)
+            | FullTag::ExprWait | FullTag::ExprProcessCommandArgv)
         { proof.producer_owner_contract(owner)?; }
         proof.expression(owner, instruction, Arc::new(Type::Any), false);
     }
@@ -3843,7 +3843,7 @@ impl<'a> ProducerProof<'a> {
                 let errors = self.captured_error_types(decoder, instruction)?;
                 Some(Type::Result(Box::new((*ok).clone()), Box::new(self.join_captured_errors(&errors)?)))
             }
-            schema::ExprView::ProcessCommandArgv(_) | schema::ExprView::ProcessCommandBuilder { .. } => FullDecoder::derive_registered_api_operation_return_type(super::super::RuntimeOp::ProcessCommandArgv)?,
+            schema::ExprView::ProcessCommandArgv(_) => FullDecoder::derive_registered_api_operation_return_type(super::super::RuntimeOp::ProcessCommandArgv)?,
             schema::ExprView::SpawnRun(_) | schema::ExprView::SpawnCommand { .. } => Some(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError))),
             schema::ExprView::Wait { target, .. } => Some(self.process_wait_contract(decoder, target.raw() as usize)?.1),
             schema::ExprView::RunCapture(run) => match run.kind {
@@ -6140,7 +6140,6 @@ impl<'a> ProducerProof<'a> {
                 self.expression(owner, target.raw() as usize, target_type, false);
                 Ok(())
             }
-            schema::ExprView::ProcessCommandBuilder { entries, .. } => self.verify_process_command_builder(&decoder, instruction, entries, &expected),
             schema::ExprView::RunPipeline { mut segments, propagate, .. } => {
                 let first = segments.next().transpose()?.ok_or_else(|| IrVerifyError::new("ground capture pipeline has no head"))?;
                 let result = Type::run_pipeline_output(first.kind, propagate).ok_or_else(|| IrVerifyError::new("ground pipeline head has no capture contract"))?;
@@ -7508,48 +7507,6 @@ impl<'a> ProducerProof<'a> {
         }
         if bytes_input && stdin_sources > 1 { return Err(IrVerifyError::new("process Bytes input competes with another stdin source")); }
         Ok(accepts)
-    }
-
-    fn verify_process_command_builder(&mut self, decoder: &FullDecoder<'a>, instruction: usize, entries: super::super::decode::ListView<'_, crate::runtime::eval::LoweredProcessCommandBuilderEntry>, expected: &Type) -> Result<(), IrVerifyError> {
-        use super::super::decode::ProcessCommandBuilderEntryView as E;
-        self.verify_process_command_contract(decoder, instruction, expected)?;
-        if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
-        self.budget.charge(1 + entries.len())?;
-        let mut fields = BTreeSet::new();
-        let mut runs = 0usize;
-        let mut field_accepts = false;
-        let mut run_accepts = false;
-        for entry in entries {
-            match entry? {
-                E::Run { mut operands, .. } => {
-                    runs += 1;
-                    let position = operands.tail.position();
-                    for operand in &mut operands.tail {
-                        self.budget.charge(1)?;
-                        if matches!(operand?, super::super::decode::RunTailOperandView::Redirection(_)) {
-                            return Err(IrVerifyError::new("command builder run contains a redirection"));
-                        }
-                    }
-                    operands.tail.resume(position)?;
-                    run_accepts |= self.verify_process_run_operands(decoder, operands)?;
-                }
-                E::Field { name, value, .. } => {
-                    if !fields.insert(name) { return Err(IrVerifyError::new("command builder repeats an option field")); }
-                    let name = name.as_str();
-                    if matches!(name.as_str(), "target" | "argv") { return Err(IrVerifyError::new("command builder has an unknown option field")); }
-                    field_accepts |= name.as_str() == "accept";
-                    let actual = self.need_context(decoder, value.raw() as usize)?;
-                    let parameter = self.process_option_contract(name.as_str(), actual.as_deref())?;
-                    let ty = actual.unwrap_or(parameter);
-                    self.budget.charge_clone(&ty)?;
-                    ensure_substitution_type(&ty)?;
-                    self.expression(decoder.owner, value.raw() as usize, ty, false);
-                }
-            }
-        }
-        if runs != 1 { return Err(IrVerifyError::new("command builder does not contain exactly one run entry")); }
-        if field_accepts && run_accepts { return Err(IrVerifyError::new("command builder repeats its completion policy")); }
-        Ok(())
     }
 
     fn verify_fresh_process_word_list(&mut self, decoder: &FullDecoder<'a>, source: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {

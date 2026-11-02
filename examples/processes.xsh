@@ -2,9 +2,7 @@ proc run_checks() [process, time, error] {
   let first = spawn run true ?
   let second = spawn run sh -c "exit 0" ?
   let statuses = wait [first, second]?
-  let command = process.command {
-    run true
-  }
+  let command = process.command_argv("true", ["true"])
   let measured = time.measure(command)?
   print f"commands {statuses[0].ok} {statuses[1].ok} {measured.status.ok} {measured.duration_ms >= 0}"
 }

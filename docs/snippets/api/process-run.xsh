@@ -1,5 +1,3 @@
 let status = process.run(
-  process.command {
-    run true
-  },
+  process.command_argv("true", ["true"]),
 )?

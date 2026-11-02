@@ -13,11 +13,12 @@ test test_wait_for_timeout_exits_unsuccessfully { |ctx|
 
 test test_wait_for_total_timeout_caps_long_poll_interval { |ctx|
   let output = test.temp_path(ctx, name: "wait-for-long-interval")
-  let command = process.command {
-    timeout = 3s
-    stdout = output
-    run "xsh" "showcase/wait-for.xsh" -- "unsupported://no-endpoint" --timeout 1 --interval 10
-  }
+  let command = process.command_argv(
+    "xsh",
+    ["xsh", "showcase/wait-for.xsh", "--", "unsupported://no-endpoint", "--timeout", "1", "--interval", "10"],
+    timeout: 3s,
+    stdout: output,
+  )
   let status = process.run(command)?
   assert status.exited_with(1), "the requested timeout must bound the poll interval"
   assert "timed out after 1s" in output.read_text()?

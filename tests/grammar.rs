@@ -63,7 +63,7 @@ fn rule_references(item: &Item, out: &mut Vec<&'static str>) {
             rule_references(inner, out)
         }
         Item::List { item, .. } => rule_references(item, out),
-        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => {}
+        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope => {}
     }
 }
 
@@ -79,7 +79,7 @@ fn words(item: &Item, out: &mut Vec<&'static str>) {
             words(inner, out)
         }
         Item::List { item, .. } => words(item, out),
-        Item::Rule(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => {}
+        Item::Rule(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope => {}
     }
     out.extend(terms.into_iter().filter_map(|term| match term.class {
         Class::Word(word) => Some(word),
@@ -213,10 +213,6 @@ fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, ta
                 let start = match target {
                     "collect_expression"
                     | "codec_schema_call"
-                    | "builder_call"
-                    | "builder_block"
-                    | "builder_compound_entry"
-                    | "builder_entry"
                     | "run_end" => "expression_statement",
                     _ => Grammar::START,
                 };
@@ -484,20 +480,12 @@ fn spawned_run_dispatch_does_not_capture_a_run_value_pipeline() {
 }
 
 #[test]
-fn boolean_guards_keep_terminal_builder_blocks_in_the_condition() {
+fn builder_blocks_are_rejected_by_parser_and_grammar() {
     for source in [
-        "guard process.command {} else { fail 1 }\n",
+        "let plan = process.command { run true }\n",
+        "let plan = process.command() { cwd = p\"build\"; run true }\n",
+        "process.spawn(process.command { run true })\n",
         "guard process.command {} else {}\n",
-        "guard x is E.V {} else { }\n",
-        "guard plan |> . == process.command { run true } else { fail 1 }\n",
-    ] {
-        assert_parser_and_grammar_agree(source, true);
-    }
-    for source in [
-        "guard process.command {} {}\n",
-        "guard [ -f file ] else {}\n",
-        "if process.command {} else fail 1\n",
-        "while process.command {} else {}\n",
     ] {
         assert_parser_and_grammar_agree(source, false);
     }
@@ -587,21 +575,14 @@ fn expression_suffixes_after_stages_allow_spaces() {
 }
 
 #[test]
-fn final_builder_blocks_can_belong_to_condition_heads() {
+fn a_brace_after_process_command_in_a_condition_head_is_the_body() {
     for source in [
         "if ready and process.command { }\n",
         "tempdir name at ready and process.command { }\n",
         "with x = ready and process.command { }\n",
-        "if process.command { } == true { 1 } else { 0 }\n",
-        "with x = process.command { }, y = other { }\n",
-        "wait until process.command { } within 5s\n",
     ] {
         assert_parser_and_grammar_agree(source, true);
     }
-    assert_parser_and_grammar_agree(
-        "export enum c: Str { b = with x = true and process.command { return }, }\n",
-        false,
-    );
 }
 
 #[test]
@@ -741,7 +722,7 @@ fn unknown_run_option_names_are_command_targets() {
 fn run_option_values_leave_following_words_as_command_arguments() {
     assert_parser_and_grammar_agree("run --accept= spawn - ! value? (\n@y ) ;\n", true);
     assert_parser_and_grammar_agree(
-        "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n",
+        "guard let items = run --accept= spawn process.command_argv(a, b) --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n",
         true,
     );
 }
@@ -969,7 +950,7 @@ for b in b ] | spawn run g"*.x" > & b"x" < b"x" g"*.x" | run.capture --text --cp
 ) [ process
 ] -> pure ( ) -> items as proc ( ) [ net , fs , process ] -> proc ( ) -> y &
 ! - ! value? <= ! items as b . c [ proc ( ) -> y , Module [ value ] ? , Thing [ ] , c [ ] ] ? >
-process.command { value ; } as pure ( ... x : x ) -> Set [ Thing ] [ ] as pure ( ... value : items , ... items : a , ... c : items ) -> proc ( ) -> Thing and
+process.command as pure ( ... x : x ) -> Set [ Thing ] [ ] as pure ( ... value : items , ... items : a , ... c : items ) -> proc ( ) -> Thing and
 b? as pure ( ... value : a , b : c , items : x , ) -> proc ( ) -> a as Set [ Module [ a ] [ ] ] [ b , value ] &
 
 

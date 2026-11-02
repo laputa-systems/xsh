@@ -18,11 +18,7 @@ test test_script_path_is_the_script_as_invoked { |ctx|
   assert aliased == f"{alias}\n", "a symlink alias must keep its own name"
 
   let stdout = fp"{root}/relative.txt"
-  let relative = process.command {
-    cwd = root
-    stdout = stdout
-    run ${ctx.xsh_bin} ./alias
-  }
+  let relative = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, "./alias"], cwd: root, stdout: stdout)
   assert process.run(relative)?.exited_with(0)
   assert stdout.read_text()? == "./alias\n", "a relative path must stay relative and unresolved"
 }

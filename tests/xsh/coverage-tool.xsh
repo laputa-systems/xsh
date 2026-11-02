@@ -24,12 +24,7 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
   let xsh = ctx.xsh_bin
   let xsht = fp"{ctx.xsh_bin.parent()}/xsht"
   let tool = fp"{repo}/tools/xsh-cov.xsh"
-  let command = process.command {
-    cwd = root
-    stdout = stdout
-    stderr = stderr
-    run $xsh $tool
-  }
+  let command = process.command_argv(xsh, [xsh, tool], cwd: root, stdout: stdout, stderr: stderr)
 
   env XSHT=$xsht XSH_COV_DIR=$out_dir XSH_COV_JSON=$report_path XSH_COV_REPORT=$text_path {
     let status = process.run(command)?

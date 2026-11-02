@@ -690,16 +690,7 @@ let shell = process.which("sh")?
 let sig = process.signal("TERM")?
 let _kill = process.kill(1, signal: "0")?
 let _unix_kill = unix.kill_all("xsh-test-helper", signal: "TERM")?
-let spawned = process.spawn(process.command {
-  detach = true
-  new_session = true
-  ignore_hup = true
-  stdout = Path("builder.out")
-  stderr = Path("builder.err")
-  stdout_append = true
-  stderr_append = true
-  run sh -c "true"
-})?
+let spawned = process.spawn(process.command_argv("sh", ["sh", "-c", "true"], detach: true, new_session: true, ignore_hup: true, stdout: Path("builder.out"), stderr: Path("builder.err"), stdout_append: true, stderr_append: true))?
 let argv_words = process.argv_words("true")?
 let command_from_str = process.command_argv("true", argv_words)
 let command_from_path = process.command_argv(Path("true"), ["true"], Path("."))
@@ -716,7 +707,7 @@ let elf_info = elf.inspect(p)?
 let _elf_needed: Str = elf_info.needed[0]
 let _elf_tag: Str = elf_info.dynamic_tags[0].tag
 let _written = io.write_stdout("typed")?
-let measured = time.measure(process.command { run true })?
+let measured = time.measure(process.command_argv("true", ["true"]))?
 pure parse_command(text: Str) -> Result[Command] {
   let words = process.argv_words(text)?
   process.command_argv("true", words)

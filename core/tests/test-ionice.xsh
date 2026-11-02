@@ -105,10 +105,7 @@ test test_ionice_ignored_class_data_warns { |ctx|
 }
 
 test test_ionice_reads_and_changes_other_processes { |ctx|
-  let handle = process.spawn(process.command {
-    new_session = true
-    run sleep 60
-  })?
+  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"], new_session: true))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
 
@@ -134,10 +131,7 @@ test test_ionice_reads_and_changes_other_processes { |ctx|
 }
 
 test test_ionice_changes_a_process_group { |ctx|
-  let handle = process.spawn(process.command {
-    new_session = true
-    run sleep 60
-  })?
+  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"], new_session: true))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
 
@@ -163,10 +157,7 @@ test test_ionice_reads_a_users_priority { |ctx|
 }
 
 test test_ionice_failures_follow_util_linux_wording { |ctx|
-  let handle = process.spawn(process.command {
-    new_session = true
-    run sleep 60
-  })?
+  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"], new_session: true))?
   let child = handle.pid
   defer process.kill(child, signal: "KILL")
 

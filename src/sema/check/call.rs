@@ -809,13 +809,6 @@ impl Checker {
                     } else {
                         name
                     };
-                    if module == "process" && name == "command" {
-                        self.error(
-                            span,
-                            "`process.command` requires a builder block with one `run` entry",
-                            DiagnosticCode::CheckBuilderCall,
-                        );
-                    }
                     for required in api_spec()
                         .module_required_effects(&module.as_str(), &canonical_name.as_str())
                     {

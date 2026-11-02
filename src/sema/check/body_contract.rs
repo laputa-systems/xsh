@@ -1140,7 +1140,6 @@ fn children(program: &ArenaProgram, node: ArenaChild) -> Vec<ArenaChild> {
         ArenaChild::Block(id) => arena.for_each_block_child(id, &mut visit),
         ArenaChild::BindingTarget(id) => arena.for_each_binding_target_child(id, &mut visit),
         ArenaChild::AssignTarget(id) => arena.for_each_assign_target_child(id, &mut visit),
-        ArenaChild::BuilderBlock(id) => arena.for_each_builder_child(id, &mut visit),
         ArenaChild::TypeExpr(_) => {}
     }
     children
@@ -1154,7 +1153,6 @@ fn node_span(program: &ArenaProgram, node: ArenaChild) -> Option<Span> {
         ArenaChild::Pattern(id) => Some(arena.span(arena.pattern(id).span)),
         ArenaChild::Block(id) => Some(arena.span(arena.block(id).span)),
         ArenaChild::BindingTarget(id) => arena.binding_target(id).span.map(|span| arena.span(span)),
-        ArenaChild::BuilderBlock(id) => Some(arena.span(arena.builder_block(id).span)),
         ArenaChild::AssignTarget(_) | ArenaChild::TypeExpr(_) => None,
     }
 }
