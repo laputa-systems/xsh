@@ -1810,7 +1810,6 @@ struct BoundaryContext {
     context_scope_tail_value: bool,
     // The effects enclosing `without` regions exclude, outermost first.
     excluded_effects: Vec<effect_bounds::ExcludedEffect>,
-    last_status_available: bool,
     /// The direct function tail consumes a Result[Unit] as a statement and
     /// propagates its failure rather than handing that failure back as data.
     result_unit_function_tail: Option<crate::syntax::arena::StmtId>,

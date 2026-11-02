@@ -50,7 +50,6 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         | ArenaExprKind::FmtString(_)
         | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::SetComp { .. }
@@ -230,7 +229,6 @@ pub(super) fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -533,7 +531,6 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
             .all(|part| matches!(part, ArenaFmtPart::Text(_))),
         ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -584,7 +581,6 @@ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvPathList => false,
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
@@ -804,7 +800,6 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
         | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::SetComp { .. }
@@ -869,7 +864,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::GlobStr(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }

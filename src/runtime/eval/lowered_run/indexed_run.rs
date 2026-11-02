@@ -336,7 +336,6 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprStrByteAt
             | FullTag::ExprStrPredicate
             | FullTag::ExprGlob
-            | FullTag::ExprLastStatus
             | FullTag::ExprAbort
             | FullTag::ExprFail
             | FullTag::ExprError
@@ -566,7 +565,7 @@ pub(super) fn indexed_frame_apply_child(
             command.span,
         ),
         ExprView::FunctionRef { .. } | ExprView::EmptyMap | ExprView::TargetVariant { .. }
-        | ExprView::Glob { .. } | ExprView::LastStatus { .. } => None,
+        | ExprView::Glob { .. } => None,
         ExprView::PathFrom { value, span } => {
             indexed_frame_apply_child_from_fields([(Some((value.raw(), None)))], position, *span)
         }
@@ -1336,16 +1335,6 @@ pub(super) fn indexed_frame_apply_value(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(LoweredValue::List(values))
         }
-        ExprView::LastStatus { span } => {
-            assert!(values.next().is_none(), "last status has no operands");
-            evaluator
-                .last_status
-                .clone()
-                .map(|status| LoweredValue::Status(Box::new(status)))
-                .ok_or_else(|| {
-                    RuntimeError::new("last-status", "`$?` is not set").with_span(span)
-                })
-        }
         ExprView::FsTempDir { span } => {
             assert!(values.next().is_none(), "temporary directory has no operands");
             indexed_frame_apply_module_call(evaluator, RuntimeOp::FsTempDir, Vec::new(), span)
@@ -1997,7 +1986,6 @@ impl Evaluator {
             ExprViewKind::StrMatchExpr |
             ExprViewKind::TagMatchExpr |
             ExprViewKind::Glob |
-            ExprViewKind::LastStatus |
             ExprViewKind::EmptyMap |
             ExprViewKind::Range |
             ExprViewKind::Tag |

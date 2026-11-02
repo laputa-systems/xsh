@@ -842,7 +842,6 @@ impl CanonicalWriter<'_> {
             }
             ArenaExprKind::Ident(name) => self.debug(name),
             ArenaExprKind::Item => self.put("item;"),
-            ArenaExprKind::LastStatus => self.put("status;"),
             ArenaExprKind::List(items) => {
                 self.put("list;");
                 for element in self.arena.list_elements(*items).collect::<Vec<_>>() {

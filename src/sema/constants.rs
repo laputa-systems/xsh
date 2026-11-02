@@ -396,7 +396,6 @@ impl LiteralConstant {
             | ArenaExprKind::FmtString(_)
             | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
             | ArenaExprKind::Set(_)
@@ -3938,7 +3937,6 @@ impl ConstantPreparation<'_> {
             | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
             | ArenaExprKind::SetComp { .. }

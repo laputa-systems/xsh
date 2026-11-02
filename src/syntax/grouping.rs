@@ -349,7 +349,6 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -505,7 +504,6 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::If { .. }
@@ -971,7 +969,6 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::Bytes(_)
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -1230,7 +1227,6 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -1316,7 +1312,6 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -1377,7 +1372,6 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -1528,7 +1522,6 @@ pub fn grouping_diagnostics_in_range(
                 | Tag::Regex
                 | Tag::Ident
                 | Tag::Item
-                | Tag::LastStatus
                 | Tag::List
                 | Tag::ListComp
                 | Tag::MapComp

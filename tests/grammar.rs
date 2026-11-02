@@ -453,7 +453,7 @@ fn typed_codec_calls_require_ordered_values_and_a_trailing_type() {
         "let value = codec.decode_as(\"ini\", \"value=1\", Int,)\n",
         "let value = codec.decode_as(\"ini\", \"value=1\", Int, Str)\n",
         "print codec. decode_as(\"ini\", \"value=1\", Union[Int, Float])\n",
-        "cd codec. read_as($?, $?, Thing) {}\n",
+        "cd codec. read_as(b, b, Thing) {}\n",
         "run --timeout=codec.decode_as(\"ini\", \"value=1\") true\n",
     ] {
         assert_parser_and_grammar_agree(source, false);
@@ -537,14 +537,14 @@ fn unannotated_pure_parameters_require_an_immediate_delimiter() {
         "pure identity(value\n, other) { value }\n",
         "pure rest(... values\n) { values }\n",
         "pure rest(... values\n, last: Int) { last }\n",
-        r#"pure items ( items = $? not in y or $? & $? < $? , ... items
+        r#"pure items ( items = b not in y or b & b < b , ... items
 ) { | c | } loop { | items , | } exit b or items - - b as c >= - Thing
 "#,
         r#"pure c ( y
 ) -> a . Thing [ proc ( ) [ ] -> y . y [ ] ? ] ? { ; error x { Thing (
 ) } }
 "#,
-        r#"cli main ( ) -> x . x ? { | items , | } test items [ ] { b /= $? not in $? not in value / $? ? ; pure items ( y
+        r#"cli main ( ) -> x . x ? { | items , | } test items [ ] { b /= b not in b not in value / b ? ; pure items ( y
 ) -> b . Thing [ proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> Thing ] ? { } } within 10ms { ; type c = exact module { } }
 "#,
     ] {
@@ -688,8 +688,8 @@ fn bare_minus_command_arguments_preserve_source_adjacency() {
     }
     assert_parser_and_grammar_agree("f - \n", false);
     for source in [
-        "let result = values |> drop - - $?\n",
-        "run.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - $?\n",
+        "let result = values |> drop - - b\n",
+        "run.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - b\n",
     ] {
         assert_parser_and_grammar_agree(source, true);
     }
@@ -771,8 +771,8 @@ fn duration_pattern_tests_are_recognized() {
 }
 
 #[test]
-fn last_status_statement_comparisons_are_recognized() {
-    assert_parser_and_grammar_agree("$? * $? > 0\n", true);
+fn last_status_expression_is_rejected_by_parser_and_grammar() {
+    assert_parser_and_grammar_agree("$? * $? > 0\n", false);
 }
 
 #[test]
@@ -780,56 +780,56 @@ fn deeper_generated_counterexamples_have_sound_recognition() {
     let recognizer = Recognizer::new(grammar());
     let mut disagreements = Vec::new();
     for (seed, accepted, source) in [
-        ("depth 12 seed 5571 target random", false, r####"fail - $? & - $? as Thing as value > ! Thing | ! $? as Thing as Thing as x * - $? as x and items * c - Thing * $? - Thing & $? * $? * $? | value not in Thing - $? == $? in $? not in $? | b + $? because - Thing / - $? * Thing? as x as Thing & ! y as c is value ? == - $? - - $? as value as c and - $? | $?? < ! $? > $? as b >= ! $? | - a as a as c | value as value as Thing as Thing and - b as items and $? + b not in c when a not in
+        ("depth 12 seed 5571 target random", false, r####"fail - b & - b as Thing as value > ! Thing | ! b as Thing as Thing as x * - b as x and items * c - Thing * b - Thing & b * b * b | value not in Thing - b == b in b not in b | b + b because - Thing / - b * Thing? as x as Thing & ! y as c is value ? == - b - - b as value as c and - b | b? < ! b > b as b >= ! b | - a as a as c | value as value as Thing as Thing and - b as items and b + b not in c when a not in
 
-c == $? +
+c == b +
 
 
-$? in a not in c is
+b in a not in c is
 Module [ a . c [ y ] ? ] ? ==
 
-a in $? |> c and
-$? is
+a in b |> c and
+b is
 
-Map [ y ] == $? not in $? |> $? < b and $? not in a is _ is items is _ is c is
+Map [ y ] == b not in b |> b < b and b not in a is _ is items is _ is c is
 y [ ] ? and x <=
 a ??
-$? in $? != $? != a |> bytes.chunks *
+b in b != b != a |> bytes.chunks *
 
-$? &
-a not in Thing == $? in value not in
-Thing in $?
+b &
+a not in Thing == b in value not in
+Thing in b
 "####),
-        ("depth 12 seed 8371 target random", false, r####"fail - x & ! $? or $? < value? ?? $? | $? | $? in $? & $? * $? % items | x % x - $? / $? * $? != $? & x + $? not in Thing - a is a . a [ Set [ Stream [ y ] [ ] ? ] [ value [ ] , Module [ a ] [ ] ? , pure ( ) -> c ] ] ? is c ? |> max as items % items | $? & b and b & a & b <= y | $? + $? % items <= $? - $? + Thing * c & $? | value & $? <= $? - $? or b / $? % value * $? > a < Thing and a | b / Thing - y + y and $? + items - $? in y - value and $? % $? % $? + $? + a / $? | value <= $? - b because $?? * - $? < x & $?? as y as value >= ! x & $? | $? * - $? as y < $? unless a is
+        ("depth 12 seed 8371 target random", false, r####"fail - x & ! b or b < value? ?? b | b | b in b & b * b % items | x % x - b / b * b != b & x + b not in Thing - a is a . a [ Set [ Stream [ y ] [ ] ? ] [ value [ ] , Module [ a ] [ ] ? , pure ( ) -> c ] ] ? is c ? |> max as items % items | b & b and b & a & b <= y | b + b % items <= b - b + Thing * c & b | value & b <= b - b or b / b % value * b > a < Thing and a | b / Thing - y + y and b + items - b in y - value and b % b % b + b + a / b | value <= b - b because b? * - b < x & b? as y as value >= ! x & b | b * - b as y < b unless a is
 
 
-value is proc ( Thing : y , ) -> proc ( ) -> c as Thing |> count ( x > x or $? < c ? ) . require (
+value is proc ( Thing : y , ) -> proc ( ) -> c as Thing |> count ( x > x or b < c ? ) . require (
 
 ) +
-value * x >= y - c * $? - $? -
+value * x >= y - c * b - b -
 
-$? or x in a is _ is Result [ x ] !=
+b or x in a is _ is Result [ x ] !=
 
-items in $? == value and items - $? -
-
-
-$? |
+items in b == value and items - b -
 
 
-$? and items + $? is Thing . c [ ] and
+b |
 
-$? <=
 
-$? - $? ??
+b and items + b is Thing . c [ ] and
 
-$? not in y and $? != x +
-$? | $? - $? and
+b <=
+
+b - b ??
+
+b not in y and b != x +
+b | b - b and
 
 
 y + b <=
 
 
-c or a + $? + $? +
+c or a + b + b +
 
 
 x <=
@@ -837,58 +837,58 @@ x <=
 
 x - y +
 
-$? |> bytes.chunks? %
+b |> bytes.chunks? %
 
 Thing - x & items &
 
 
-x - c > c & $? +
+x - c > c & b +
 
-Thing |> $? in $?
+Thing |> b in b
 "####),
         ("depth 12 seed 9 target set_comprehension", true, r####"guard let items : y [ List [ proc (
 ) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
 items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
-) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = $? and
+) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = b and
 
 
 Thing or Thing > c ??
 
 
-$? and Thing |> $? >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
+b and Thing |> b >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
 io ] -> pure ( ) -> b ] ? = run --accept= {
 
 x or
 Thing <= y
 
-for x in $? >= b |> flat-map } --timeout= c --cpumax= $? y = e"HOME" (
-( $? < Thing |> each ( ) |> Thing >= $? ??
-$? |> $? > a and $? >= $? ?? items >= $? and
-Thing or value and $? >= $? and b ) 2>> b"x" ) | run.stream --bytes (
-( x - $? and
+for x in b >= b |> flat-map } --timeout= c --cpumax= b y = e"HOME" (
+( b < Thing |> each ( ) |> Thing >= b ??
+b |> b > a and b >= b ?? items >= b and
+Thing or value and b >= b and b ) 2>> b"x" ) | run.stream --bytes (
+( x - b and
 
 
-$? - y | b >= value +
-value ?? b == c in value not in $? ?? c not in value and
+b - y | b >= value +
+value ?? b == c in value not in b ?? c not in value and
 
-c is items . x ? or $? |
+c is items . x ? or b |
 
 
 c >
 
 
-$? >=
+b >=
 
 
 items -
 
 value <
-$? +
-$? |
+b +
+b |
 
 c and value !=
 value not in
-$? ) ) ? else {
+b ) ) ? else {
 ; | x |
 }
 
@@ -896,127 +896,127 @@ $? ) ) ? else {
         ("depth 12 seed 9 target set_lead", true, r####"guard let items : y [ List [ proc (
 ) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
 items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
-) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = $? and
+) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = b and
 
 
 Thing or Thing > c ??
 
 
-$? and Thing |> $? >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
+b and Thing |> b >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
 io ] -> pure ( ) -> b ] ? = run --accept= {
 
 x or
 Thing <= y
 
-for x in $? >= b |> flat-map } --timeout= c --cpumax= $? y = e"HOME" (
-( $? < Thing |> each ( ) |> Thing >= $? ??
-$? |> $? > a and $? >= $? ?? items >= $? and
-Thing or value and $? >= $? and b ) 2>> b"x" ) | run.stream --bytes (
-( x - $? and
+for x in b >= b |> flat-map } --timeout= c --cpumax= b y = e"HOME" (
+( b < Thing |> each ( ) |> Thing >= b ??
+b |> b > a and b >= b ?? items >= b and
+Thing or value and b >= b and b ) 2>> b"x" ) | run.stream --bytes (
+( x - b and
 
 
-$? - y | b >= value +
-value ?? b == c in value not in $? ?? c not in value and
+b - y | b >= value +
+value ?? b == c in value not in b ?? c not in value and
 
-c is items . x ? or $? |
+c is items . x ? or b |
 
 
 c >
 
 
-$? >=
+b >=
 
 
 items -
 
 value <
-$? +
-$? |
+b +
+b |
 
 c and value !=
 value not in
-$? ) ) ? else {
+b ) ) ? else {
 ; | x |
 }
 "####),
-        ("depth 16 seed 3908 target random", false, r####"exit spawn run.stream --text c = fp"{a}/x" e"HOME" > & b"x" | run fp"{a}/x"? % - collect { } in - wait value. y?[ y ] & - $? as x . x ? as pure ( ) -> pure ( ) -> b |> sort-by
+        ("depth 16 seed 3908 target random", false, r####"exit spawn run.stream --text c = fp"{a}/x" e"HOME" > & b"x" | run fp"{a}/x"? % - collect { } in - wait value. y?[ y ] & - b as x . x ? as pure ( ) -> pure ( ) -> b |> sort-by
 "####),
         ("depth 16 seed 7212 target random", false, r####"a-b p"p"
 continue unless ! [ b
-for b in $? ] | spawn run g"*.x" > & b"x" < b"x" g"*.x" | run.capture --text --cpumax= Thing Thing = e"HOME" (
+for b in b ] | spawn run g"*.x" > & b"x" < b"x" g"*.x" | run.capture --text --cpumax= Thing Thing = e"HOME" (
 @g"*.x" ) | run.capture --text (
 @g"*.x" ) | run.capture --text --timeout= x --cpumax= 42 --accept= 10ms f"x" e"HOME"? as pure ( ) -> proc ( ) -> x as proc ( ... y : x , a : b
-) -> Thing as proc ( ) -> pure ( ) -> value - ! tempdir c at $? > $? {
+) -> Thing as proc ( ) -> pure ( ) -> value - ! tempdir c at b > b {
 } . value (
 ) ( ) + { } as Union [ Set [ a ] ] ? as proc (
 ) [ process
 ] -> pure ( ) -> items as proc ( ) [ net , fs , process ] -> proc ( ) -> y &
 ! - ! value? <= ! items as b . c [ proc ( ) -> y , Module [ value ] ? , Thing [ ] , c [ ] ] ? >
 process.command { value ; } as pure ( ... x : x ) -> Set [ Thing ] [ ] as pure ( ... value : items , ... items : a , ... c : items ) -> proc ( ) -> Thing and
-$?? as pure ( ... value : a , b : c , items : x , ) -> proc ( ) -> a as Set [ Module [ a ] [ ] ] [ b , value ] &
+b? as pure ( ... value : a , b : c , items : x , ) -> proc ( ) -> a as Set [ Module [ a ] [ ] ] [ b , value ] &
 
 
-! ! ! - $?
+! ! ! - b
 "####),
         ("depth 16 seed 7311 target random", false, r####"cli main ( ... items : Thing . Thing , value = ! ! a as proc ( ) -> b as proc (
-) [ ] -> items is Thing is y . Thing [ ] as y ) [ process ] -> value ? { fail - $? >= - b and ! items > ! a % ! $? <= - $? / $? as value as a as b | - $? & c - ! $? as Thing / ! c & ! $? + - $? as x as a / y? % y? as x as items & ! $? because ! $? as x | ! $? & Thing as y >= $?? + $? as a & ! c as c > $? as x unless Thing * $? >= value >= $? or value & $? & b +
+) [ ] -> items is Thing is y . Thing [ ] as y ) [ process ] -> value ? { fail - b >= - b and ! items > ! a % ! b <= - b / b as value as a as b | - b & c - ! b as Thing / ! c & ! b + - b as x as a / y? % y? as x as items & ! b because ! b as x | ! b & Thing as y >= b? + b as a & ! c as c > b as x unless Thing * b >= value >= b or value & b & b +
 
-$? - value is Map [ proc ( ) [ ] -> Thing , Result [ value ] ] [ ] and
+b - value is Map [ proc ( ) [ ] -> Thing , Result [ value ] ] [ ] and
 y is x . b ? is Union [ x . x , b ] and
 x % items - value <= x >= y } ; cli main ( ) { }
 "####),
-        ("depth 16 seed 8347 target random", true, r####"var { .. , x , .. } : proc ( b : proc ( ) -> Result [ NonEmpty [ pure ( ) -> items ] ? , Set [ items [ c ] ] ] [ ] ? = y | $? / a >= c &
+        ("depth 16 seed 8347 target random", true, r####"var { .. , x , .. } : proc ( b : proc ( ) -> Result [ NonEmpty [ pure ( ) -> items ] ? , Set [ items [ c ] ] ] [ ] ? = y | b / a >= c &
 value & items >=
 
-$? %
+b %
 
 
 value |
 
-$? % Thing |> max %
-$? != Thing not in $? is
+b % Thing |> max %
+b != Thing not in b is
 
-( . a ) as items as Thing is Result [ items ] [ ] and a + $? + b + $? is
+( . a ) as items as Thing is Result [ items ] [ ] and a + b + b + b is
 
-_ is proc ( ) -> y and $? >= $? ) -> Stream [ pure ( ) -> Stream [ proc ( ) -> pure ( ) -> c ] [ ] ? ] ? = run.stream --bytes --accept= Thing[ y |> $? ? ] items = $a @value | run --cpumax= 2m --timeout= {
+_ is proc ( ) -> y and b >= b ) -> Stream [ pure ( ) -> Stream [ proc ( ) -> pure ( ) -> c ] [ ] ? ] ? = run.stream --bytes --accept= Thing[ y |> b ? ] items = $a @value | run --cpumax= 2m --timeout= {
 
 
 value <= x and
 x ?
 
-, a >= $? and $? > $? and c |> $? |> flat-map (
-) |> x < $? ? }( b : a ? , ) --accept= 0o7 a = ( c |
+, a >= b and b > b and c |> b |> flat-map (
+) |> x < b ? }( b : a ? , ) --accept= 0o7 a = ( c |
 
-$? < c *
+b < c *
 
-$? or
+b or
 Thing % items / y and
-$? -
-y and $? >=
-$? / $? % $? % b and
+b -
+y and b >=
+b / b % b % b and
 
-$? <=
+b <=
 y /
-$? <= $? +
-$? &
-$? % a | $? or
+b <= b +
+b &
+b % a | b or
 a + x in y |
-$? != $? -
+b != b -
 
 a in
-$? -
+b -
 
 c not in c |
-$? | Thing |
-$? not in Thing ??
+b | Thing |
+b not in Thing ??
 c in
 
 b |
 
 
-$? - $? ==
-Thing | $? ) (
-( $? in items & $? %
+b - b ==
+Thing | b ) (
+( b in items & b %
 
 
 value & x - b not in
@@ -1024,38 +1024,38 @@ value & x - b not in
 b |
 
 
-a | $? -
-a & $? or $? | a * c % Thing & value in b in
+a | b -
+a & b or b | a * c % Thing & value in b in
 
 
-c == $? % items not in $? not in
+c == b % items not in b not in
 items |
-a | $? +
+a | b +
 
 
 b / b and
 
 b %
-$? & b - $? %
-$? % a %
+b & b - b %
+b % a %
 
 
-$? >= value >
+b >= value >
 
 
-$? and
+b and
 
 b - b |
-$? % $? <=
-$? +
+b % b <=
+b +
 items ?? c <=
-$? %
-x % x > $? / a |> $? not in b != x in $? !=
-$? in b != a not in Thing ?? Thing >
+b %
+x % x > b / a |> b not in b != x in b !=
+b in b != a not in Thing ?? Thing >
 value and
-items < $? >=
-$? >=
-$? and $? <= $? ??
+items < b >=
+b >=
+b and b <= b ??
 value is c . a as c ?? c >
 b ) ) ?
 "####),
@@ -1071,50 +1071,50 @@ c >=
 Thing and
 
 
-c == $? not in items in
-Thing and $? <= a and $? |> first >=
+c == b not in items in
+Thing and b <= a and b |> first >=
 
-$? >=
+b >=
 
-$? and
-$? for b in $? in $? is
+b and
+b for b in b in b is
 
 
-x [ ] ? == $? not in items is b"x" as items as b as x or $? in $? ?? Thing is b [ ] and $? <= $? and $? is
+x [ ] ? == b not in items is b"x" as items as b as x or b in b ?? Thing is b [ ] and b <= b and b is
 
 Set [ items ] [ ] ? and
 b not in c or
 a not in y is
-Module [ value ] [ ] ? and $? and
+Module [ value ] [ ] ? and b and
 
 
-$? <
+b <
 
-$? }?. require ( a . items [ x [ x [ a ] ? , b [ b ] ] ] ? )? --accept= x (
+b }?. require ( a . items [ x [ x [ a ] ? , b [ b ] ] ] ? )? --accept= x (
 ( - - y as proc ( ) -> items %
 
 
 . value?[ .. ] (
 ) ( ) as pure ( ) -> y is Thing . b . y { c , .. , ..
 } as c is
-value ? |> sort [ $? >= $? |> group-by { } ?. require ( ) or
-x or c ?? a >= $? ] ?. require ( ) or Thing *
-$? &
+value ? |> sort [ b >= b |> group-by { } ?. require ( ) or
+x or c ?? a >= b ] ?. require ( ) or Thing *
+b &
 y in items %
-$? /
-Thing / $? - $? / $? * $? not in
+b /
+Thing / b - b / b * b not in
 
 
-a is items . value ? != $? &
-$? *
+a is items . value ? != b &
+b *
 value * y |
 c not in
 
-items / $? % $? is 1.5 ) ) ? |> tee ( )
+items / b % b is 1.5 ) ) ? |> tee ( )
 "####),
-        ("normal depth 7 seed 1419", false, r####"cli main ( ) [ ] { ; exit $? >= $? when Thing } run.status --cpumax= 2m --timeout= 0o7 --accept= a (
+        ("normal depth 7 seed 1419", false, r####"cli main ( ) [ ] { ; exit b >= b when Thing } run.status --cpumax= 2m --timeout= 0o7 --accept= a (
 ""?.match?.y?[ .. ]
-) | run y = ( $? >= $? ) c = ( $? >= $? ) b = p"p"? (
+) | run y = ( b >= b ) c = ( b >= b ) b = p"p"? (
 f"x"?[ .. ] ) < b"x" ( b ) )
 "####),
     ] {

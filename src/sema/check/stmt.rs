@@ -1720,7 +1720,6 @@ fn expression_cardinality_uncached(
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -2194,7 +2193,6 @@ fn expr_control_flow_inner(
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList => ControlFlow::NORMAL,
         ArenaExprKind::FmtString(_)
@@ -5729,7 +5727,6 @@ impl Checker {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
@@ -6815,7 +6812,6 @@ impl Checker {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
@@ -7097,7 +7093,6 @@ impl Checker {
                 | ArenaExprKind::Regex(_)
                 | ArenaExprKind::Ident(_)
                 | ArenaExprKind::Item
-                | ArenaExprKind::LastStatus
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::ListComp { .. }
                 | ArenaExprKind::MapComp { .. }
@@ -7932,7 +7927,6 @@ impl Checker {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
@@ -8069,7 +8063,6 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
@@ -8233,7 +8226,6 @@ fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) 
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }

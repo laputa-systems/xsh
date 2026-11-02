@@ -7598,7 +7598,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ExprViewKind::PathFrom |
             ExprViewKind::Param |
             ExprViewKind::Glob |
-            ExprViewKind::LastStatus |
             ExprViewKind::EmptyMap |
             ExprViewKind::Range |
             ExprViewKind::Tag |

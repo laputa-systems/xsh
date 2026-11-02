@@ -618,7 +618,6 @@ fn expr_flow(arena: &AstArena, facts: &FlowFacts, expr: ExprId) -> FlowSummary {
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList => FlowSummary::fallthrough(),
     }

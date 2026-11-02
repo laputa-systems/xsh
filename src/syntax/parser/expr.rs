@@ -1753,11 +1753,15 @@ impl<'a> Parser<'a> {
             }
             (TokenTag::LastStatus, _) => {
                 self.bump();
-                Some(ArenaOnlyExpr {
-                    id: arena.push_last_status_expr(span),
-                    span,
-                    bare_ident: None,
-                })
+                self.diagnostics.push(
+                    Diagnostic::error("`$?` was removed")
+                        .with_code(DiagnosticCode::ParseLastStatus)
+                        .with_label(Label::primary(span, "no expression reads the last status"))
+                        .with_note(
+                            "bind the status that `run.status` returns: `let status = run.status COMMAND`",
+                        ),
+                );
+                None
             }
             (TokenTag::LBracket, _) => self.parse_list_arena_only(arena),
             (TokenTag::LBrace, _) if self.brace_starts_parameter_block() => {

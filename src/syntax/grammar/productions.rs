@@ -1762,7 +1762,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "primary",
             alt([
                 r("literal"),
-                t(T::LastStatus),
                 // `collect {` always begins a collect expression.
                 seq([
                     not([vec![word_term("collect", false), tag_term(T::LBrace)]]),

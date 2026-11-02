@@ -66,18 +66,6 @@ cd root {{
   assert output.stdout == ""
 }
 
-test test_expr_last_status_reads_process_state_without_child_operands { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""run.status false
-let status = $?
-assert status.exited_with(1)
-""",
-    status: 0,
-  )?
-  assert output.stdout == ""
-}
-
 test test_expr_record_evaluates_fields_in_source_order_once { |ctx|
   let output = test.expect(
     ctx,

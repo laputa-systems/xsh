@@ -418,7 +418,6 @@ impl Checker {
             for arg in arena.arena.command_args(args) {
                 self.check_command_arg_arena(arena, source, arg, None);
             }
-            self.boundary.last_status_available = true;
             return Type::Int;
         }
         let interned = Name::intern(name);
@@ -780,8 +779,6 @@ impl Checker {
                 DiagnosticCode::CheckPipelineCpumax,
             );
         }
-        self.boundary.last_status_available = true;
-
         match segments[0].kind {
             RunKind::Plain | RunKind::Status => {
                 if run.propagate {

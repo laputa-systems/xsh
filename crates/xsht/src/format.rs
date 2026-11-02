@@ -2878,7 +2878,6 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Bytes(value) => write_bytes(self.arena.bytes_literal(*value), output),
             ArenaExprKind::Ident(name) => output.push_str(&self.name_text(*name)),
             ArenaExprKind::Item => output.push('.'),
-            ArenaExprKind::LastStatus => output.push_str("$?"),
             ArenaExprKind::List(items) => self.write_list(expr_id, *items, ['[', ']'], output),
             ArenaExprKind::Set(items) => self.write_list(expr_id, *items, ['{', '}'], output),
             ArenaExprKind::ListComp { expr, qualifiers } => {
@@ -5115,7 +5114,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
@@ -5178,7 +5176,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }

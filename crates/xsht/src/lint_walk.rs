@@ -420,8 +420,7 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::EnvString(_)
             | ArenaExprKind::EnvPathList
-            | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus => {}
+            | ArenaExprKind::Item => {}
         }
     }
 

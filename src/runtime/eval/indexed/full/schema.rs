@@ -956,11 +956,6 @@ instruction_schema! {
             pattern: Arc<str>,
             span: Span,
         } => ExprGlob = 42 [0; Scheduled; FrameApply];
-        // The `$?` last-process-status expression. Reads the evaluator's tracked
-        // `last_status` at eval time, erroring if no process has run yet.
-        LastStatus {
-            span: Span,
-        } => ExprLastStatus = 43 [0; Scheduled; FrameApply];
         Record(entries: Vec<LoweredRecordEntry>) => ExprRecord = 44 [0; Operands; FrameControl];
         // A missing key identifies a Map spread; keyed entries evaluate key before value.
         MapLiteral(entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>) => ExprMapLiteral = 45 [0; Operands; FrameControl];
@@ -1666,7 +1661,6 @@ mod tests {
             "ExprFunctionRef",
             "ExprPathFrom",
             "ExprGlob",
-            "ExprLastStatus",
             "ExprEmptyMap",
             "ExprRange",
             "ExprTag",
@@ -1765,7 +1759,6 @@ mod tests {
                 "ExprPathFrom",
                 "ExprParam",
                 "ExprGlob",
-                "ExprLastStatus",
                 "ExprList",
                 "ExprListBuild",
                 "ExprEmptyMap",

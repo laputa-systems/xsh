@@ -178,7 +178,6 @@ impl Checker {
                 | ArenaExprKind::Bytes(_)
                 | ArenaExprKind::Regex(_)
                 | ArenaExprKind::Item
-                | ArenaExprKind::LastStatus
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::ListComp { .. }
                 | ArenaExprKind::MapComp { .. }
@@ -231,7 +230,6 @@ impl Checker {
             | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
@@ -1013,16 +1011,6 @@ impl Checker {
                 ty
             }
             ArenaExprKind::Item => self.check_item_arena(arena, id, expr.span),
-            ArenaExprKind::LastStatus => {
-                if !self.boundary.last_status_available {
-                    self.error(
-                        expr.span,
-                        "`$?` is not set",
-                        DiagnosticCode::CheckLastStatus,
-                    );
-                }
-                Type::Status
-            }
             ArenaExprKind::List(items) => {
                 self.check_list_arena(arena, source, id, *items, expected, expr.span)
             }

@@ -10510,7 +10510,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Record(_)
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::RecordUpdate { .. }
@@ -10965,7 +10964,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::RecordUpdate { .. }
             | schema::ExprView::List(_)
             | schema::ExprView::ListBuild(_)
@@ -11863,7 +11861,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Record(_)
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::RecordUpdate { .. }
@@ -12334,7 +12331,6 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::PreparedConstant(_)
             | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::List(_)
             | schema::ExprView::ListBuild(_)
@@ -13478,7 +13474,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Tag { .. }
             | schema::ExprView::TargetVariant { .. }
             | schema::ExprView::StrByteLen { .. }
@@ -13786,7 +13781,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Record(_)
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::RecordUpdate { .. }
@@ -16492,7 +16486,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Record(_)
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::RecordUpdate { .. }
@@ -17004,7 +16997,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
             | schema::ExprView::Glob { .. }
-            | schema::ExprView::LastStatus { .. }
             | schema::ExprView::Record(_)
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::RecordUpdate { .. }
@@ -36447,34 +36439,6 @@ assert paths([])? == []
     }
 
     #[test]
-    fn strict_result_producers_preserve_last_status_values() {
-        run_with_large_stack(|| {
-            let program = Arc::new(fixture("last-status-result-producer.xsh", r#"
-proc observed(wrong: Int) [process] -> Result[Status] { let _ = wrong; run.status false; Ok($?) }
-assert observed(0)?.exited_with(1)
-"#));
-            for force_frames in [false, true] {
-                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-                evaluator.force_frames = force_frames;
-                evaluator.indexed_program = Some(Arc::clone(&program));
-                for step in 0..program.driver_step_count().unwrap() {
-                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
-                }
-            }
-            let owner = scheme_fixture_root_function(&program, "observed");
-            let decoder = function_view_decoder(&program.store, owner);
-            let range = program.store.function_instruction_range(owner).unwrap();
-            let status = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprLastStatus).unwrap();
-            let wrong = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).unwrap();
-            let mut forged = (*program).clone();
-            forged.store.tags[status] = FullTag::ExprParam;
-            forged.store.data[status] = program.store.data[wrong];
-            let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{}", error.message);
-        });
-    }
-
-    #[test]
     fn strict_result_producers_ground_contextual_fold_seeds_inside_capture() {
         run_with_large_stack(|| {
             for source in [
@@ -38437,7 +38401,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprFmtString
             ExprPathFmtString
             ExprGlob
-            ExprLastStatus
             ExprRecord
             ExprMapLiteral
             ExprRecordUpdate

@@ -758,7 +758,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::Set(_)
             | ArenaExprKind::Unary { .. }
             | ArenaExprKind::ComparisonChain(_)

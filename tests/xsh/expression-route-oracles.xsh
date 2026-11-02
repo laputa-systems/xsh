@@ -541,11 +541,12 @@ test test_expr_index_from_end { |ctx|
   )?
 }
 
-test test_expr_last_status { |ctx|
+test test_last_status_expression_is_removed { |ctx|
   test.expect(
     ctx,
-    "run.status false\nlet status = $?\nassert status.exited_with(1)\n",
-    status: 0,
+    "run.status false\nlet status = $?\n",
+    status: 2,
+    stderr: ["[parse.last-status]", "let status = run.status COMMAND"],
   )?
 }
 

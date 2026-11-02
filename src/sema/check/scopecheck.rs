@@ -703,7 +703,7 @@ impl ScopeChecker<'_> {
             | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_)
             | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
-            | ArenaExprKind::LastStatus | ArenaExprKind::List(_)
+            | ArenaExprKind::List(_)
             | ArenaExprKind::Set(_) | ArenaExprKind::Unary { .. }
             | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. } | ArenaExprKind::ValuePipelineCall { .. }

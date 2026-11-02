@@ -440,9 +440,8 @@ test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
   assert tarball.metadata()?.size > 0
 }
 
-test test_plain_run_updates_last_status_and_direct_binding {
-  run.status false
-  let last = $?
+test test_status_run_and_plain_run_bind_their_results {
+  let last = run.status false
   assert last.exited_with(1)
   let bound = run sh -c "exit 7"
   assert bound.segments[0].code == 7

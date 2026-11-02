@@ -177,7 +177,6 @@ pub(super) fn lower_const_param_default(
         | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::Set(_)

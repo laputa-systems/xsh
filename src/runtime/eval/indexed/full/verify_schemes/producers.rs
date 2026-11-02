@@ -3805,7 +3805,6 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::PreparedRegex(_) => Some(Type::Regex),
             schema::ExprView::Path(_) => Some(Type::Path),
             schema::ExprView::Glob { .. } => Some(Type::List(Box::new(Type::Path))),
-            schema::ExprView::LastStatus { .. } => Some(Type::Status),
             schema::ExprView::Range { .. } => Some(Type::Stream(Box::new(Type::Int))),
             schema::ExprView::Ok(value) => {
                 let Some(payload) = self.need_context(decoder, value.raw() as usize)? else { return Ok(None) };
@@ -5569,7 +5568,7 @@ impl<'a> ProducerProof<'a> {
                     self.binding_slot(owner, binding, slot, actual.unwrap_or(expected))
                 }
             },
-            schema::ExprView::Glob { .. } | schema::ExprView::LastStatus { .. } => Ok(()),
+            schema::ExprView::Glob { .. } => Ok(()),
             schema::ExprView::Range { start, end, .. } => {
                 if !Type::Stream(Box::new(Type::Int)).matches_expected(&expected) { return Err(IrVerifyError::new("range producer has an incompatible stream contract")); }
                 self.expression(owner, start.raw() as usize, Arc::new(Type::Int), false);

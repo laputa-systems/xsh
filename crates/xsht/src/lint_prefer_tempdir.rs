@@ -500,7 +500,6 @@ pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> boo
         ArenaExprKind::GlobStr(_)
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::Set(_)

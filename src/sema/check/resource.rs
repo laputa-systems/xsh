@@ -732,7 +732,6 @@ impl Analyzer<'_> {
                 | ArenaExprKind::Regex(_)
                 | ArenaExprKind::Ident(_)
                 | ArenaExprKind::Item
-                | ArenaExprKind::LastStatus
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::Set(_)
                 | ArenaExprKind::Record(_)

@@ -3587,7 +3587,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::EnvString(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
@@ -4482,7 +4481,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::FmtString(_)
             | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
             | ArenaExprKind::Set(_)

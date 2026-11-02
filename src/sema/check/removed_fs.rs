@@ -66,7 +66,6 @@ pub fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Op
         | ArenaExprKind::Bytes(_)
         | ArenaExprKind::Regex(_)
         | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }

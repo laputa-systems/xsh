@@ -367,7 +367,6 @@ fn closed_scalar_expression(
                 | ArenaExprKind::Bytes(_)
                 | ArenaExprKind::Regex(_)
                 | ArenaExprKind::Item
-                | ArenaExprKind::LastStatus
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::ListComp { .. }
                 | ArenaExprKind::MapComp { .. }

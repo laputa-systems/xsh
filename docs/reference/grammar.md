@@ -299,7 +299,6 @@ argument = "." ~"." ~"." NEWLINE* expression
          | expression_item ;
 expression_item = expression ( "?" &( NEWLINE | ";" | "," | ")" | "]" | "}" ) )? ;
 primary = literal
-        | "$?"
         | !( "collect" "{" ) !( "codec" "." "decode_as" "(" | "codec" "." "read_as" "(" ) !context_scope_form IDENT
         | codec_schema_call
         | collect_expression

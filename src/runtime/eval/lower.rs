@@ -1784,7 +1784,6 @@ compact_expr_kind_catalog! {
     ArenaExprKind::Bytes(_) => (10, "bytes");
     ArenaExprKind::Ident(_) => (11, "ident");
     ArenaExprKind::Item => (12, "item");
-    ArenaExprKind::LastStatus => (13, "last_status");
     ArenaExprKind::List(_) => (14, "list");
     ArenaExprKind::ListComp { .. } => (15, "list_comp");
     ArenaExprKind::MapComp { .. } => (16, "map_comp");
@@ -8809,11 +8808,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
-            ArenaExprKind::LastStatus => Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::LastStatus { span }
-            )),
             ArenaExprKind::Run(run) => {
                 self.lower_run_binding_value(run, slots, current_function, item_slot)
             }
@@ -10334,7 +10328,6 @@ mod compact_expr_kind_tests {
             (10, "bytes"),
             (11, "ident"),
             (12, "item"),
-            (13, "last_status"),
             (14, "list"),
             (15, "list_comp"),
             (16, "map_comp"),

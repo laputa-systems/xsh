@@ -393,7 +393,7 @@ fn match_expr_structural(
         }
         ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_)
         | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
-        | ArenaExprKind::Item | ArenaExprKind::LastStatus | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::Item | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::SetComp { .. } | ArenaExprKind::If { .. }
         | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
@@ -838,7 +838,7 @@ fn build_replacement_text(
         | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_)
         | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus | ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. } | ArenaExprKind::Set(_) | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::If { .. } | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. } | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }

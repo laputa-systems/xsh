@@ -151,7 +151,7 @@ test test_stage_arguments_can_precede_grouped_inline_expressions { |ctx|
 test test_bare_minus_command_arguments_preserve_source_adjacency { |ctx|
   expect_parses(ctx, "f -\nf -#comment\nf -1\nf - 1\n")
   test.expect(ctx, "print -\nprint -#comment\n", status: 0, stdout: ["-", "-"])?
-  expect_parses(ctx, "let result = values |> drop - - \$?\nrun.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - \$?\n")
+  expect_parses(ctx, "let result = values |> drop - - value\nrun.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - value\n")
 }
 
 test test_run_option_values_leave_following_words_as_command_arguments { |ctx|
@@ -159,8 +159,8 @@ test test_run_option_values_leave_following_words_as_command_arguments { |ctx|
   expect_parses(ctx, "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n")
 }
 
-test test_block_parameters_duration_patterns_and_last_status_parse { |ctx|
-  for source in ["let block = { ; | c ,\n value | c }\n", "let matches = value is 10ms\n", "\$? * \$? > 0\n"] {
+test test_block_parameters_and_duration_patterns_parse { |ctx|
+  for source in ["let block = { ; | c ,\n value | c }\n", "let matches = value is 10ms\n"] {
     expect_parses(ctx, source)
   }
 }

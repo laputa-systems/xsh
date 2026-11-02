@@ -227,6 +227,7 @@ diagnostic_codes! {
         ParseIfExpressionElse = "parse.if-expression-else", error, "Reject an `if` expression without an `else` branch";
         ParseInferredVariantArm = "parse.inferred-variant-arm", error, "Reject a match arm head that begins with a target-typed `.Name` variant";
         ParseKeywordLabelBinding = "parse.keyword-label-binding", error, "Reject a field label that is a keyword used as an implicit binding name";
+        ParseLastStatus = "parse.last-status", error, "Reject the removed `$?` expression; bind the `Status` that `run.status` returns";
         ParseLegacyStderrRedirection = "parse.legacy-stderr-redirection", error, "Reject the legacy stderr redirection spelling in favor of `2>` or `2>>`";
         ParseLineContinuation = "parse.line-continuation", error, "Reject a `\\` line continuation that is not between the parts of a command";
         ParseListPatternRest = "parse.list-pattern-rest", error, "Reject a list pattern whose rest element is repeated or not last";
@@ -342,7 +343,6 @@ diagnostic_codes! {
         CheckIntLiteral = "check.int-literal", error, "Reject an integer literal outside the 64-bit signed range";
         CheckIrrefutablePatternCondition = "check.irrefutable-pattern-condition", error, "Reject a pattern condition that cannot fail over a subject that is not optional, instead of binding with `let`";
         CheckJsonCompatible = "check.json-compatible", error, "Reject a value that is not JSON-compatible, such as `Path`, `Bytes`, `Status`, or `Result`";
-        CheckLastStatus = "check.last-status", error, "Reject `$?` read before any status has been set";
         CheckLegacyTestProc = "check.legacy-test-proc", error, "Reject a legacy `test_` proc and require migrating it to a `test NAME { |ctx| ... }` declaration";
         CheckListSpliceType = "check.list-splice-type", error, "Reject a list literal splice whose operand is not a `List`";
         CheckListcompCondition = "check.listcomp-condition", error, "Reject a comprehension `if` condition that is not `Bool` or `Status`";

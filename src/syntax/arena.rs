@@ -4006,10 +4006,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::Item, span)
     }
 
-    pub fn push_last_status_expr(&mut self, span: Span) -> ExprId {
-        self.lowerer.push_expr_kind(ArenaExprKind::LastStatus, span)
-    }
-
     pub fn push_int_expr(&mut self, value: &IntLiteral, span: Span) -> ExprId {
         let value = self.lowerer.lower_int_literal(value);
         self.lowerer.push_expr_kind(ArenaExprKind::Int(value), span)
@@ -5002,7 +4998,7 @@ impl AstArena {
             | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_)
             | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_) | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_) | ArenaExprKind::Ident(_) | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus | ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList => {}
+            | ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList => {}
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in self.fmt_parts(parts) {
                     match part {
@@ -5983,7 +5979,6 @@ impl AstArena {
                 ArenaExprKind::Ident(Name::from_symbol(Symbol::from_raw(data.lhs)))
             }
             ArenaExprTag::Item => ArenaExprKind::Item,
-            ArenaExprTag::LastStatus => ArenaExprKind::LastStatus,
             ArenaExprTag::List => ArenaExprKind::List(ArenaListElementRange(range_from_data(data))),
             ArenaExprTag::ListComp => {
                 let raw = range_slice(&self.extra, range_from_data(data));
@@ -7868,7 +7863,6 @@ pub enum ArenaExprTag {
     Regex,
     Ident,
     Item,
-    LastStatus,
     List,
     ListComp,
     MapComp,
@@ -8049,7 +8043,6 @@ pub enum ArenaExprKind {
     Regex(RegexLiteralId),
     Ident(Name),
     Item,
-    LastStatus,
     List(ArenaListElementRange),
     ListComp {
         expr: ExprId,
@@ -9318,7 +9311,6 @@ impl ArenaLowerer<'_> {
                 ArenaExprData::new(name.symbol().raw(), 0),
             ),
             ArenaExprKind::Item => (ArenaExprTag::Item, ArenaExprData::ZERO),
-            ArenaExprKind::LastStatus => (ArenaExprTag::LastStatus, ArenaExprData::ZERO),
             ArenaExprKind::List(range) => (ArenaExprTag::List, range_data(range.0)),
             ArenaExprKind::ListComp { expr, qualifiers } => {
                 let data =
