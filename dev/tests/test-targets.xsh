@@ -62,7 +62,7 @@ test test_target_flags_native_selection_and_coverage_backend_policy {
   assert "-march=x86-64-v3" in x86_env.CFLAGS_x86_64_unknown_linux_musl.require(Str)?
   assert "target-feature=-sve,-sve2" in arm_env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS.require(Str)?
   assert darwin_env.MACOSX_DEPLOYMENT_TARGET == "27.0"
-  assert "linker-flavor=ld64.lld" in darwin_env.CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS.require(Str)?
+  assert "linker=rust-lld" not in darwin_env.CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS.require(Str)?
   assert target_policy.native_execution(x86_target, target_policy.Linux, target_policy.X86_64)
   assert ! target_policy.native_execution(x86_target, target_policy.Darwin, target_policy.X86_64)
   assert ! target_policy.native_execution(darwin_target, target_policy.Linux, target_policy.Aarch64)
