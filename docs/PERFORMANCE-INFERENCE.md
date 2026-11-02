@@ -256,9 +256,14 @@ bodies generalize past a match arm that returns. A forwarded Map read keyed by a
 text literal no longer waits for its receiver. Comprehension filters over an
 unresolved field constrain it to Bool. Repeated reads of one binding inside a
 guard scope verify against the single recorded guard read, which closes the
-`long_line` disagreement. The joint `ls` view then reaches `main`, where the
-verifier stops at its deterministic work bound for generic call type
-materialization; that bound is unchanged.
+`long_line` disagreement. The joint `ls` view then reaches `main`, where the verifier stopped at its
+deterministic work bound for generic call type materialization. The cause was
+repeated validation: each instantiated type re-validated the call's whole
+binder pack, so a callee with 2,466 binders and thousands of operations cost
+their product against a bound that scales linearly with the program. The
+substitution is now validated once per call and instantiation re-checks only
+that the scope has the validated binder pack and guard. The bound is
+unchanged; a 256-binder fixture fails the previous verifier and passes now.
 
 An inline record argument that holds an empty list now receives the same fresh
 item variables as a `let`-bound one, so `core/lsipc.xsh` `row_for.entry` passes.

@@ -201,8 +201,9 @@ impl PlanProof<'_, '_> {
         } else {
             let substitution = build_substitution(store, scope, types, rows, effects_rows, self.field_coverage)?;
             effects::verify_predicates(store, scheme, scope, &substitution.effects, None, self.budget)?;
-            self.leaf_bindings(scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, instance)?;
-            references::verify(store, target, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), claimed, self.budget)
+            let validated = super::ValidatedCallSubstitution::new(store, scope, &substitution, self.budget)?;
+            self.leaf_bindings(scheme, scope, applications::ApplicationSubstitution::Ground(&validated), None, instance)?;
+            references::verify(store, target, scheme, scope, applications::ApplicationSubstitution::Ground(&validated), claimed, self.budget)
         }
     }
 

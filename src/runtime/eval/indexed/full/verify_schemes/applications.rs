@@ -1,11 +1,11 @@
-use super::{CallSubstitution, SymbolicCallSubstitution, FullStore, SchemeScope, SchemeInstantiationBudget, SchemeType, IrVerifyError, decode_schema_with, SchemeTypeId, instantiate_scheme_type, substitute_scheme_type, decode_scheme_type, EffectContract, SchemeEffectParameterId, effects, IrRange, bounded, Name, body_types_equal, Type, body_type_matches, body_type_matches_ground, IrFunctionId, FullCallableContract, FullScheme, SchemeBinderEvidence, BTreeMap, BTreeSet, scheme_type_binders, FullSchemeTypeTag, scheme_list_item, SchemeTypeExpectation, verify_scheme_argument_evidence, FullDecoder, VerifiedSchemeScopes, ScopedEffectProof, schema};
+use super::{ValidatedCallSubstitution, SymbolicCallSubstitution, FullStore, SchemeScope, SchemeInstantiationBudget, SchemeType, IrVerifyError, decode_schema_with, SchemeTypeId, substitute_scheme_type, decode_scheme_type, EffectContract, SchemeEffectParameterId, effects, IrRange, bounded, Name, body_types_equal, Type, body_type_matches, body_type_matches_ground, IrFunctionId, FullCallableContract, FullScheme, SchemeBinderEvidence, BTreeMap, BTreeSet, scheme_type_binders, FullSchemeTypeTag, scheme_list_item, SchemeTypeExpectation, verify_scheme_argument_evidence, FullDecoder, VerifiedSchemeScopes, ScopedEffectProof, schema};
 use super::super::schemes::{FullApplicationArgumentKind, FullApplicationBinding, FullSchemeApplication};
 use crate::sema::arguments::{ArgumentParameterLayout, StaticArgumentKind};
 use crate::sema::callable_application::CallableKindRequirement;
 
 #[derive(Clone, Copy)]
 pub(super) enum ApplicationSubstitution<'a> {
-    Ground(&'a CallSubstitution),
+    Ground(&'a ValidatedCallSubstitution<'a>),
     Symbolic(&'a SymbolicCallSubstitution),
     Identity,
 }
@@ -17,7 +17,7 @@ impl ApplicationSubstitution<'_> {
 
     pub(super) fn ty(&self, store: &FullStore, scope: &SchemeScope, ty: SchemeTypeId, budget: &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVerifyError> {
         match self {
-            Self::Ground(substitution) => Ok(SchemeType::Ground(instantiate_scheme_type(store, scope, ty, substitution, budget, 0)?)),
+            Self::Ground(substitution) => Ok(SchemeType::Ground(substitution.instantiate(scope, ty, budget, 0)?)),
             Self::Symbolic(substitution) => substitute_scheme_type(&decode_scheme_type(store, scope, ty, budget, 0)?, scope, substitution, budget, 0),
             Self::Identity => decode_scheme_type(store, scope, ty, budget, 0),
         }
@@ -398,7 +398,7 @@ pub(super) fn extend_call_binder_evidence(
                         SchemeTypeExpectation::Ground(_) => continue,
                     }
                 } else { parameter.ty };
-                let actual = instantiate_scheme_type(store, scope, argument.ty, substitution, budget, 0)?;
+                let actual = substitution.instantiate(scope, argument.ty, budget, 0)?;
                 let mut projected = SchemeBinderEvidence::default();
                 verify_scheme_argument_evidence(store, scope, expected, &actual, substitution, &mut projected, budget, 0)?;
                 let output = projected.types.into_iter().map(|binder| (false, binder)).chain(projected.rows.into_iter().map(|binder| (true, binder))).collect::<BTreeSet<_>>();
@@ -612,6 +612,7 @@ pub(super) fn equivalent_contracts(store: &FullStore, left_scope: &SchemeScope, 
 mod tests {
     use super::super::{Arc, CallableMonotype, SchemeParameter, SchemeTypeParameterId, make_scope};
     use super::*;
+    use super::super::CallSubstitution;
     use crate::sema::callable_application::{CallableApplication, CallableApplicationArgument};
     use crate::sema::effects::{CheckedEffects, EffectSet};
     use crate::sema::schemes::{CallableRequirements, CallableScheme, TypeScheme};
@@ -646,6 +647,13 @@ mod tests {
             bounded(scheme.type_parameters, &store.scheme_type_parameters, "types").unwrap().to_vec(),
             Vec::new(), effects::EffectScope::new(bounded(scheme.effect_parameters,
                 &store.scheme_effect_parameters, "effects").unwrap().to_vec()).unwrap()).unwrap()
+    }
+
+    fn extend_ground(store: &FullStore, scheme: &FullScheme, substitution: &CallSubstitution, evidence: &mut SchemeBinderEvidence) -> Result<(), IrVerifyError> {
+        let scope = scope(store, scheme);
+        let mut budget = SchemeInstantiationBudget::new(store);
+        let validated = ValidatedCallSubstitution::new(store, &scope, substitution, &mut budget)?;
+        extend_call_binder_evidence(store, scheme, &scope, ApplicationSubstitution::Ground(&validated), evidence, &mut budget)
     }
 
     #[test]
@@ -736,13 +744,13 @@ mod tests {
             };
             let good = substitution(Type::Int);
             let mut evidence = SchemeBinderEvidence { types: BTreeSet::from([1]), rows: BTreeSet::new() };
-            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&good), &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            extend_ground(&builder.store, &scheme, &good, &mut evidence).unwrap();
             assert_eq!(evidence.types, BTreeSet::from([0, 1, 2]));
             let mut circular = SchemeBinderEvidence::default();
-            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&good), &mut circular, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            extend_ground(&builder.store, &scheme, &good, &mut circular).unwrap();
             assert!(circular.types.is_empty());
             let mut forged = SchemeBinderEvidence { types: BTreeSet::from([1]), rows: BTreeSet::new() };
-            assert!(extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution(Type::UInt)), &mut forged, &mut SchemeInstantiationBudget::new(&builder.store)).is_err());
+            assert!(extend_ground(&builder.store, &scheme, &substitution(Type::UInt), &mut forged).is_err());
         });
     }
 
@@ -768,10 +776,10 @@ mod tests {
             let map = Type::Map(Box::new(Type::UInt), Box::new(Type::List(Box::new(Type::Int))));
             let substitution = CallSubstitution { owner: None, types: vec![map.clone(), map], rows: Vec::new(), effects: Vec::new(), origin: Default::default() };
             let mut independent = SchemeBinderEvidence { types: BTreeSet::from([0]), rows: BTreeSet::new() };
-            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut independent, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            extend_ground(&builder.store, &scheme, &substitution, &mut independent).unwrap();
             assert_eq!(independent.types, BTreeSet::from([0, 1]));
             let mut unsupported = SchemeBinderEvidence::default();
-            extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut unsupported, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+            extend_ground(&builder.store, &scheme, &substitution, &mut unsupported).unwrap();
             assert!(unsupported.types.is_empty());
         });
     }
@@ -799,7 +807,7 @@ mod tests {
                 let scheme = *builder.store.scheme(id).unwrap();
                 let substitution = CallSubstitution { owner: None, types, rows: Vec::new(), effects: Vec::new(), origin: Default::default() };
                 let mut evidence = SchemeBinderEvidence { types: initial, rows: BTreeSet::new() };
-                extend_call_binder_evidence(&builder.store, &scheme, &scope(&builder.store, &scheme), ApplicationSubstitution::Ground(&substitution), &mut evidence, &mut SchemeInstantiationBudget::new(&builder.store)).unwrap();
+                extend_ground(&builder.store, &scheme, &substitution, &mut evidence).unwrap();
                 evidence.types
             };
             let wrapped = SchemeType::Result(Box::new(input.clone()), Box::new(SchemeType::Ground(Type::Error)));
@@ -839,8 +847,11 @@ mod tests {
             builder.store.call_application_slots.extend([0, 1, 0]);
             let bindings = [FullApplicationBinding::Selected { argument_slots: IrRange { start: 0, len: 1 }, omitted_slots: IrRange { start: 1, len: 1 } },
                 FullApplicationBinding::Selected { argument_slots: IrRange { start: 2, len: 1 }, omitted_slots: IrRange::default() }];
-            let verify = |substitution: &CallSubstitution, bindings: &[FullApplicationBinding]| verify_bindings(&builder.store, &scheme, &scope,
-                ApplicationSubstitution::Ground(substitution), None, bindings, &mut SchemeInstantiationBudget::new(&builder.store));
+            let verify = |substitution: &CallSubstitution, bindings: &[FullApplicationBinding]| {
+                let mut budget = SchemeInstantiationBudget::new(&builder.store);
+                let validated = ValidatedCallSubstitution::new(&builder.store, &scope, substitution, &mut budget)?;
+                verify_bindings(&builder.store, &scheme, &scope, ApplicationSubstitution::Ground(&validated), None, bindings, &mut budget)
+            };
             verify(&substitution, &bindings).unwrap();
             let mut wrong = bindings;
             wrong[0] = FullApplicationBinding::Selected { argument_slots: IrRange { start: 1, len: 1 }, omitted_slots: IrRange { start: 0, len: 1 } };

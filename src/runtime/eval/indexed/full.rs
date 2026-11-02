@@ -34887,6 +34887,19 @@ assert nullable_name == null
     }
 
     #[test]
+    fn full_verifier_work_stays_proportional_for_a_call_with_many_binders() {
+        run_with_large_stack(|| {
+            let width = 256;
+            let parameters = (0..width).map(|index| format!("a{index}")).collect::<Vec<_>>().join(", ");
+            let sums = (0..width).map(|index| format!("a{index} + a{index}")).collect::<Vec<_>>().join(", ");
+            let arguments = (0..width).map(|index| index.to_string()).collect::<Vec<_>>().join(", ");
+            let source = format!("pure wide({parameters}) {{ [{sums}] }}\nproc main() {{ assert wide({arguments}).len() == {width} }}\n");
+            let program = fixture("wide-binder-call.xsh", &source);
+            FullVerifier::verify(&program).unwrap();
+        });
+    }
+
+    #[test]
     fn full_verifier_rejects_forged_generic_tail_return_fact() {
         let program = fixture(
             "generic-tail-return-fact.xsh",

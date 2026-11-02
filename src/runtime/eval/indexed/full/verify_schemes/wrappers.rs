@@ -410,8 +410,10 @@ pub(super) fn verify_key_validation_site(
 }
 
 pub(super) fn verify_ground(store: &FullStore, scope: &SchemeScope, substitution: &CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let validated = super::ValidatedCallSubstitution::new(store, scope, substitution, budget)?;
+    let ground = ApplicationSubstitution::Ground(&validated);
     for encoded in bounded(scope.wrappers, &store.scheme_wrappers, "scheme wrapper range is invalid")? {
-        selection(store, scope, decode(store, scope, *encoded, &ApplicationSubstitution::Ground(substitution), budget)?, &ApplicationSubstitution::Ground(substitution), budget)?;
+        selection(store, scope, decode(store, scope, *encoded, &ground, budget)?, &ground, budget)?;
     }
     Ok(())
 }

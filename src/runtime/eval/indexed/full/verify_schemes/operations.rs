@@ -204,8 +204,9 @@ pub(super) fn symbolic_output_binders(
 }
 
 pub(super) fn verify_ground(store: &FullStore, scope: &SchemeScope, substitution: &CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    let validated = super::ValidatedCallSubstitution::new(store, scope, substitution, budget)?;
     for encoded in bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")? {
-        let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Ground(substitution), budget)?;
+        let operation = decode(store, scope, *encoded, &ApplicationSubstitution::Ground(&validated), budget)?;
         selection(&operation, budget)?;
     }
     Ok(())

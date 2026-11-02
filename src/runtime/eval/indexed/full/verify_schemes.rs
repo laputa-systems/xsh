@@ -3640,20 +3640,21 @@ fn verify_call_instantiations(
             let guard_evidence = guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &substitution,
                 &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage, &mut materialization)?;
             effects::verify_predicates(store, scheme, scope, &substitution.effects, None, &mut materialization)?;
+            let validated = ValidatedCallSubstitution::new(store, scope, &substitution, &mut materialization)?;
             applications::verify_bindings(store, scheme, scope,
-                applications::ApplicationSubstitution::Ground(&substitution), None,
+                applications::ApplicationSubstitution::Ground(&validated), None,
                 bounded(instantiation.arguments.application_bindings, &store.call_application_bindings, "generic call application binding range is invalid")?, &mut materialization)?;
             let operation_bindings = bounded(instantiation.arguments.operation_bindings, &store.call_operation_bindings, "generic call operation binding range is invalid")?;
-            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, operation_bindings, &mut materialization)?;
-            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, bounded(instantiation.arguments.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut materialization)?;
-            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&substitution), None, operation_bindings, bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut materialization)?;
+            operations::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&validated), None, operation_bindings, &mut materialization)?;
+            methods::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&validated), None, bounded(instantiation.arguments.method_bindings, &store.call_method_bindings, "generic call method binding range is invalid")?, &mut materialization)?;
+            wrappers::verify_bindings(store, scheme, scope, applications::ApplicationSubstitution::Ground(&validated), None, operation_bindings, bounded(instantiation.arguments.wrapper_bindings, &store.call_wrapper_bindings, "generic call wrapper binding range is invalid")?, &mut materialization)?;
             if reference {
                 let fact = checked_expression_type_id(store, instantiation.instruction)
                     .ok_or_else(|| IrVerifyError::new("callable reference has no checked type"))?;
                 let claimed = store.semantic.to_type_with_budget(fact, &mut materialization.semantic_types)?;
                 ensure_closed_type(&claimed)?;
                 references::verify(store, target_function, scheme, scope,
-                    applications::ApplicationSubstitution::Ground(&substitution), &SchemeType::Ground(claimed), &mut materialization)?;
+                    applications::ApplicationSubstitution::Ground(&validated), &SchemeType::Ground(claimed), &mut materialization)?;
                 continue;
             }
             requests.ground_arguments.extend(verify_instantiated_call_arguments(
@@ -3674,14 +3675,7 @@ fn verify_call_instantiations(
                 .semantic
                 .to_type_with_budget(result, &mut materialization.semantic_types)?;
             ensure_closed_type(&checked_result)?;
-            let expected_result = instantiate_scheme_type(
-                store,
-                scope,
-                scheme.return_type,
-                &substitution,
-                &mut materialization,
-                0,
-            )?;
+            let expected_result = validated.instantiate(scope, scheme.return_type, &mut materialization, 0)?;
             if checked_result != expected_result {
                 return Err(IrVerifyError::new(
                     "generic call result does not match its checked instantiation",
@@ -4919,7 +4913,7 @@ fn verify_instantiated_call_arguments(
         };
         let expected = expected_scheme_type
             .map(|id| {
-                validated.instantiate(id, materialization, 0)
+                validated.instantiate(scope, id, materialization, 0)
             })
             .transpose()?;
         let expected = expected
@@ -5011,7 +5005,7 @@ fn verify_instantiated_call_arguments(
                         scope,
                         *id,
                         actual,
-                        substitution,
+                        &validated,
                         &mut binder_evidence,
                         materialization,
                         0,
@@ -5046,7 +5040,7 @@ fn verify_instantiated_call_arguments(
                             scope,
                             item_id,
                             item,
-                            substitution,
+                            &validated,
                             &mut binder_evidence,
                             materialization,
                             0,
@@ -5082,7 +5076,7 @@ fn verify_instantiated_call_arguments(
                                     scope,
                                     item_id,
                                     item,
-                                    substitution,
+                                    &validated,
                                     &mut binder_evidence,
                                     materialization,
                                     0,
@@ -5098,7 +5092,7 @@ fn verify_instantiated_call_arguments(
                             scope,
                             *id,
                             &actual,
-                            substitution,
+                            &validated,
                             &mut binder_evidence,
                             materialization,
                             0,
@@ -5119,7 +5113,7 @@ fn verify_instantiated_call_arguments(
                         scope,
                         *id,
                         actual,
-                        substitution,
+                        &validated,
                         &mut binder_evidence,
                         materialization,
                         0,
@@ -5129,7 +5123,7 @@ fn verify_instantiated_call_arguments(
             CheckedArgumentType::EmptyList(None) | CheckedArgumentType::EmptyMap => {}
         }
     }
-    applications::extend_call_binder_evidence(store, scheme, scope, applications::ApplicationSubstitution::Ground(substitution), &mut binder_evidence, materialization)?;
+    applications::extend_call_binder_evidence(store, scheme, scope, applications::ApplicationSubstitution::Ground(&validated), &mut binder_evidence, materialization)?;
     for (expected, expected_scheme_type, _, actual) in &checked_arguments {
         let declared = match actual {
             CheckedArgumentType::EmptyList(declared) => {
@@ -6479,7 +6473,7 @@ fn verify_scheme_argument_evidence(
     scope: &SchemeScope,
     scheme_type: SchemeTypeId,
     actual: &Type,
-    substitution: &CallSubstitution,
+    substitution: &ValidatedCallSubstitution<'_>,
     evidence: &mut SchemeBinderEvidence,
     materialization: &mut SchemeInstantiationBudget,
     depth: usize,
@@ -6660,14 +6654,7 @@ fn verify_scheme_argument_evidence(
                 let mut best = None;
                 let mut best_evidence = evidence.types.len() + evidence.rows.len();
                 for child in children {
-                    let child_expected = instantiate_scheme_type(
-                        store,
-                        scope,
-                        *child,
-                        substitution,
-                        materialization,
-                        depth + 1,
-                    )?;
+                    let child_expected = substitution.instantiate(scope, *child, materialization, depth + 1)?;
                     if !actual_member.matches_expected(&child_expected) {
                         continue;
                     }
@@ -6744,13 +6731,23 @@ fn scheme_type_work_limit(store: &FullStore) -> usize {
         .saturating_add(SCHEME_TYPE_WORK_BASE)
 }
 
-struct ValidatedCallSubstitution<'a> {
+pub(super) struct ValidatedCallSubstitution<'a> {
     store: &'a FullStore,
     substitution: &'a CallSubstitution,
+    pack: guards::BinderPack,
+    active_guard: Option<crate::sema::guarded_requirements::GuardScopeId>,
+}
+
+impl std::ops::Deref for ValidatedCallSubstitution<'_> {
+    type Target = CallSubstitution;
+
+    fn deref(&self) -> &CallSubstitution {
+        self.substitution
+    }
 }
 
 impl<'a> ValidatedCallSubstitution<'a> {
-    fn new(store: &'a FullStore, scope: &'a SchemeScope, substitution: &'a CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
+    pub(super) fn new(store: &'a FullStore, scope: &SchemeScope, substitution: &'a CallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<Self, IrVerifyError> {
         let pack = scope.binding_pack()?;
         let same_owner = match (&substitution.origin, scope.active_guard) {
             (CallSubstitutionOrigin::Root, None) => true,
@@ -6765,30 +6762,22 @@ impl<'a> ValidatedCallSubstitution<'a> {
             return Err(IrVerifyError::new("generic call substitution does not match its binder scope"));
         }
         budget.charge(pack.types.len())?;
-        for (parameter, actual) in scope.type_parameters[pack.types].iter().zip(&substitution.types) {
+        for (parameter, actual) in scope.type_parameters[pack.types.clone()].iter().zip(&substitution.types) {
             ground_conversions(parameter, actual)?;
             if parameter.map_key && !actual.is_map_key() {
                 return Err(IrVerifyError::new("generic substitution violates its MapKey requirement"));
             }
         }
         verify_ground_iterations(store, scope, substitution, budget)?;
-        Ok(Self { store, substitution })
+        Ok(Self { store, substitution, pack, active_guard: scope.active_guard })
     }
 
-    fn instantiate(&self, id: SchemeTypeId, budget: &mut SchemeInstantiationBudget, depth: usize) -> Result<Type, IrVerifyError> {
+    pub(super) fn instantiate(&self, scope: &SchemeScope, id: SchemeTypeId, budget: &mut SchemeInstantiationBudget, depth: usize) -> Result<Type, IrVerifyError> {
+        if scope.active_guard != self.active_guard || scope.binding_pack()? != self.pack {
+            return Err(IrVerifyError::new("generic call substitution does not match its binder scope"));
+        }
         instantiate_bound_type(self.store, id, self.substitution, budget, depth)
     }
-}
-
-fn instantiate_scheme_type(
-    store: &FullStore,
-    scope: &SchemeScope,
-    id: SchemeTypeId,
-    substitution: &CallSubstitution,
-    budget: &mut SchemeInstantiationBudget,
-    depth: usize,
-) -> Result<Type, IrVerifyError> {
-    ValidatedCallSubstitution::new(store, scope, substitution, budget)?.instantiate(id, budget, depth)
 }
 
 pub(super) fn invocation_parameter_types(
@@ -7282,7 +7271,8 @@ mod tests {
             let budget = || SchemeInstantiationBudget { remaining: 64, semantic_types: TypeMaterializationBudget::default() };
             let mut work = budget();
             let validated = ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut work).unwrap();
-            assert_eq!(validated.instantiate(root, &mut work, 0).unwrap(), Type::Int);
+            assert_eq!(validated.instantiate(&scope, root, &mut work, 0).unwrap(), Type::Int);
+            assert!(validated.instantiate(&symbolic_substitution_test_scope(), root, &mut work, 0).is_err());
             let mut missing = substitution.clone();
             missing.types.pop();
             assert!(ValidatedCallSubstitution::new(&store, &scope, &missing, &mut budget()).is_err());
@@ -7314,7 +7304,7 @@ mod tests {
             assert!(ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut exhausted).is_err());
             let mut exhausted = SchemeInstantiationBudget { remaining: 2, semantic_types: TypeMaterializationBudget::default() };
             let validated = ValidatedCallSubstitution::new(&store, &scope, &substitution, &mut exhausted).unwrap();
-            assert!(validated.instantiate(root, &mut exhausted, 0).is_err());
+            assert!(validated.instantiate(&scope, root, &mut exhausted, 0).is_err());
         });
     }
 

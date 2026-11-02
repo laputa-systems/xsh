@@ -487,14 +487,15 @@ fn verify_ground_slot(
                 evidence.rows.extend(ancestor_pack.bindings.rows.clone());
                 ancestor = census.parent(ancestor_id)?;
             }
-            super::verify_scheme_argument_evidence(store, &local_scope, metadata.view, payload, &local, &mut evidence, budget, 0)?;
+            let validated = super::ValidatedCallSubstitution::new(store, &local_scope, &local, budget)?;
+            super::verify_scheme_argument_evidence(store, &local_scope, metadata.view, payload, &validated, &mut evidence, budget, 0)?;
             for read in super::bounded(metadata.reads, &store.scheme_guard_reads, "guard read range is invalid")? {
                 let actual = super::instantiate_bound_type(store, read.source, &parent, budget, 0)?;
                 let view = super::instantiate_bound_type(store, read.view, &local, budget, 0)?;
                 if actual != view { return Err(IrVerifyError::new("guard identity read changes its actual source type")); }
-                super::verify_scheme_argument_evidence(store, &local_scope, read.view, &actual, &local, &mut evidence, budget, 0)?;
+                super::verify_scheme_argument_evidence(store, &local_scope, read.view, &actual, &validated, &mut evidence, budget, 0)?;
             }
-            let substitution = super::applications::ApplicationSubstitution::Ground(&local);
+            let substitution = super::applications::ApplicationSubstitution::Ground(&validated);
             super::effects::verify_prepared_predicates(store, &local_scope, root, &local, budget)?;
             super::applications::verify_bindings(store, root, &local_scope, substitution, None,
                 super::bounded(local_arguments.application_bindings, &store.call_application_bindings, "guard application bindings are invalid")?, budget)?;
