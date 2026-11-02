@@ -2902,3 +2902,37 @@ print $rank(entries)
   assert output.success, output.stderr
   assert output.stdout == "132\n", output.stdout
 }
+
+test test_full_inference_string_literal_arms_match_an_optional_subject { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure find_style(text: Str, names: List[Str]) -> Str? {
+  for name in names {
+    return name when name == text
+  }
+  null
+}
+const STYLES = ["full-iso", "long-iso"]
+pure pick(options) -> Str {
+  match find_style(options.style, STYLES) {
+    "full-iso" => "full"
+    "long-iso" => "long"
+    else => "none"
+  }
+}
+pure pick_annotated(style: Str) -> Str {
+  match find_style(style, STYLES) {
+    "full-iso" => "full"
+    "long-iso" => "long"
+    else => "none"
+  }
+}
+for style in ["full-iso", "long-iso", "other"] {
+  assert pick({style: style}) == pick_annotated(style)
+  print pick({style: style})
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "full\nlong\nnone\n", output.stdout
+}

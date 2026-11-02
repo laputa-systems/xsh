@@ -911,6 +911,7 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
                 schema::PatternView::Literal(value) => {
                     if ty.is_none() && matches!(projected, Some(SchemeType::Optional(_) | SchemeType::Parameter(_))) && value.is_null()? { return Ok(()); }
                     let ty = ty.ok_or_else(|| IrVerifyError::new("generic literal pattern has no ground subject"))?;
+                    let ty = match ty { Type::Optional(payload) if !value.is_null()? => *payload, ty => ty };
                     value.with_scalar_view(|amount| work.borrow_mut().charge(amount), |value| {
                         if crate::runtime::eval::type_view::value_matches_static_type(value, &ty) { Ok(()) } else { Err(IrVerifyError::new("generic literal pattern disagrees with its subject")) }
                     })?;
@@ -5991,6 +5992,30 @@ test verify_completion_cleanup {
         }
         let mut changed = program.clone();
         changed.store.pattern_data[boolean.unwrap()] = program.store.pattern_data[integer.unwrap()];
+        assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic literal pattern disagrees with its subject");
+    }
+
+    #[test]
+    fn generic_literal_patterns_match_the_payload_of_an_optional_subject() {
+        let program = prepare("pure choose(value, name: Str?) -> Int { let _ = match 1 { 1 => 0; else => 0 }; let _ = value; match name { \"a\" => 1; else => 0 } }");
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let (owner, _) = generic_owner(&program);
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut text = None;
+        let mut integer = None;
+        for pattern in 0..program.store.patterns.len() {
+            if let schema::PatternView::Literal(value) = decoder.checked_pattern_view(pattern as u32).unwrap() {
+                match value.materialize().unwrap() {
+                    crate::runtime::eval::LoweredValue::Int(1) => integer = Some(pattern),
+                    crate::runtime::eval::LoweredValue::Str(_) => text = Some(pattern),
+                    _ => {}
+                }
+            }
+        }
+        let mut changed = program.clone();
+        changed.store.pattern_data[text.unwrap()] = program.store.pattern_data[integer.unwrap()];
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic literal pattern disagrees with its subject");
     }
 
