@@ -544,7 +544,7 @@ fn unannotated_pure_parameters_require_an_immediate_delimiter() {
 ) -> a . Thing [ proc ( ) [ ] -> y . y [ ] ? ] ? { ; error x { Thing (
 ) } }
 "#,
-        r#"cli Thing ( ) -> x . x ? { | items , | } test items [ ] { b /= $? not in $? not in value / $? ? ; pure items ( y
+        r#"cli main ( ) -> x . x ? { | items , | } test items [ ] { b /= $? not in $? not in value / $? ? ; pure items ( y
 ) -> b . Thing [ proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> proc ( ) [ ] -> Thing ] ? { } } within 10ms { ; type c = exact module { } }
 "#,
     ] {
@@ -594,11 +594,11 @@ fn context_scopes_cannot_supply_an_enclosing_scope_body() {
 
 #[test]
 fn mutated_fuzz_cli_source_is_a_grammar_sentence() {
-    assert_parser_and_grammar_agree("cli p() { }\n", true);
+    assert_parser_and_grammar_agree("cli p() { }\n", false);
     assert_parser_and_grammar_agree("cli main() { }\n", true);
     assert_parser_and_grammar_agree("cli main subcommand() { }\n", true);
     let source = r#"use fuzz_paths
-cli p(duration: UInt) {
+cli main(duration: UInt) {
   let messages = run.text cargo build --release -p xsh-fuzz --bin xsh-fuzz --message-format=json-render-diagnostics
   let binary = fuzz_paths.built_binary(messages)?
   let out = fuzz_paths.failure_dir(binary)?

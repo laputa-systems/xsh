@@ -1121,14 +1121,12 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "cli_entry",
             seq([
                 w("cli"),
-                alt([
-                    seq([w("main"), star(ident())]),
-                    ident(),
-                ]),
+                w("main"),
+                star(ident()),
                 signature(),
                 opt(r("effects")),
                 opt(returns()),
-                opt(seq([w("with"), r("expression")])),
+                opt(seq([w("with"), r("condition_expression")])),
                 block(),
             ]),
         ),

@@ -76,8 +76,6 @@ cli main(root: Path, jobs: Int = 4) [] { print "BODY-MARKER" }
 
 test test_signature_cli_rejects_invalid_declaration_shapes { |ctx|
   for source in [
-    """cli other() [] {}
-""",
     """cli main() [] {}
 cli main() [] {}
 """,
@@ -108,6 +106,15 @@ main()
       assert assertion_condition, assertion_message
     }
   }
+}
+
+test test_signature_cli_entry_named_other_than_main_names_the_survivor { |ctx|
+  test.expect(
+    ctx,
+    "cli other() [] {}\n",
+    status: 2,
+    stderr: ["[parse.cli-entry-name]", "cli main(...)", "cli main other(...)"],
+  )?
 }
 
 test test_signature_cli_prepared_defaults_alias_parsers_and_kebab_options { |ctx|

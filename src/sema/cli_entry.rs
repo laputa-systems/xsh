@@ -99,11 +99,7 @@ pub(crate) fn validate_cli_entry(
         let function = program.arena.function_def(definition);
         // The parser joins the entry's words with single spaces.
         let name = function.name.as_str();
-        let mut words = name.split(' ');
-        if words.next() != Some("main") {
-            error(statement.span, "a signature CLI entry must be named `main`");
-        }
-        let path = words.map(cli_word).collect::<Vec<_>>();
+        let path = name.split(' ').skip(1).map(cli_word).collect::<Vec<_>>();
         if entries.iter().any(|other| other.path == path) {
             error(statement.span, "this subcommand path is already declared; subcommand words must be unique after snake_case maps to kebab-case");
         }

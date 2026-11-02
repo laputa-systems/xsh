@@ -407,7 +407,9 @@ cli main(src: Path, dest: Path, jobs: UInt = 4, verbose = false) {
   initializer runs.
 - `cli main` is not callable or exportable, appears only at the entry script's
   top level, and cannot coexist with `proc main`. A `cli` entry in an imported
-  module is a check error (`check.cli-entry`).
+  module is a check error (`check.cli-entry`). `cli NAME(...)` with any other
+  name is `parse.cli-entry-name`; write `cli main(...)`, or `cli main NAME(...)`
+  for a subcommand.
 
 A script with several commands declares one entry per command, each named by a
 subcommand path after `main`:

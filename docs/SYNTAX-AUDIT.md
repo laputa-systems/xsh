@@ -606,6 +606,14 @@ Totals: 13 remove, 15 owner decision, 9 keep (37).
 
 Applied rules: one spelling per concept; sugar kept only when the core form costs more than one extra line or hides the intent (rule 2); a method over syntax (rule 3); no contextual words (rule 4); no collision-only rules (rule 5); no new syntax, so every survivor named above already exists (rule 6); same order, effects, and failures (rule 7).
 
+## Phase B status
+
+Items land in the order below. C10 and C13 are deferred by the owner; no D or K item is touched.
+
+| Item | Status | Error code | Notes |
+|---|---|---|---|
+| C08 | done | `parse.cli-entry-name` | `cli NAME(...)` for any other name than `main` is a parse error; the checker branch is gone |
+
 ## Owner decisions
 
 Each item marked "owner decision" above, with the choice needed.

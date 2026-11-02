@@ -185,6 +185,7 @@ diagnostic_codes! {
         ParseCaptureMode = "parse.capture-mode", error, "Reject a `run` capture mode other than `--text` or `--bytes`";
         ParseCaptureModeInterpolation = "parse.capture-mode-interpolation", error, "Reject an interpolated `run` capture mode instead of a literal `--text` or `--bytes`";
         ParseCdArity = "parse.cd-arity", error, "Reject `cd` with more than one path argument";
+        ParseCliEntryName = "parse.cli-entry-name", error, "Reject `cli NAME(...)` with a name other than `main`; write `cli main(...)`";
         ParseCliEntryScope = "parse.cli-entry-scope", error, "Reject `cli main` declared anywhere but the entry module's top level";
         ParseCommandCallExpr = "parse.command-call-expr", error, "Reject a call expression used as a command argument";
         ParseCompatibilityVocabulary = "parse.compatibility-vocabulary", error, "Reject a removed compatibility spelling such as `run.builtin`";

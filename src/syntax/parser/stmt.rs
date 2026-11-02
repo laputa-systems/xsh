@@ -1248,7 +1248,18 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
+        let name_span = self.current_span();
         let mut name = self.expect_proc_ident("expected proc name")?.to_string();
+        if name != "main" {
+            self.diagnostics.push(
+                Diagnostic::error(format!("`cli {name}(...)` declares no entry"))
+                    .with_code(DiagnosticCode::ParseCliEntryName)
+                    .with_label(Label::primary(name_span, "a signature CLI entry is named `main`"))
+                    .with_note(format!(
+                        "write `cli main(...)`, or `cli main {name}(...)` for a subcommand"
+                    )),
+            );
+        }
         while self.current_tag() == TokenTag::Ident {
             name.push(' ');
             name.push_str(&self.expect_ident("expected subcommand name")?.as_str());
@@ -1306,7 +1317,7 @@ impl<'a> Parser<'a> {
         };
         let metadata = if cli_entry && self.peek_keyword(0) == Some(Keyword::With) {
             self.bump();
-            Some(self.parse_expr_id_arena_only(arena)?)
+            Some(self.parse_condition_arena_only(arena)?.id)
         } else {
             None
         };
