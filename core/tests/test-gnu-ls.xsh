@@ -714,7 +714,7 @@ test test_gnu_ls_recursive_log { |ctx|
   uu.stdout_is(mixed, "f\n\nx:\n\ny:\n")
   uu.mkdir(s, [f"{i}" for i in range(1, 31)].join("/"))
   let argv = uu.argv(s, "ls", [p"-R", p"1"])?
-  let shell = process.which("sh")?
+  let shell = p"/bin/sh"
   let plan = process.command_argv(s.ctx.xsh_bin, [@argv[..3], shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"ls-depth", @argv[3..]], s.root, {}, b"", uu.at(s, "deep-out"), uu.at(s, "deep-err"), timeout: 10s)
   assert process.run(plan)?.exit_code()? == 0
   assert uu.read(s, "deep-out")?.count_lines() == 88
@@ -726,7 +726,7 @@ test test_gnu_ls_removed_directory_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "d")
   let argv = uu.argv(s, "ls", [])?
-  let shell = process.which("sh")?
+  let shell = p"/bin/sh"
   let plan = process.command_argv(shell, [shell, p"-c", p"rmdir ../d || exit 77; exec \"$@\"", p"removed-cwd"].extend(argv), uu.at(s, "d"), {}, b"", uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
   let status = process.run(plan)?.exit_code()?
   if status == 77 { test.skip("host cannot remove current directory") }
