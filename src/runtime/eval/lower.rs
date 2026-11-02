@@ -3659,7 +3659,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let block_data = self.program.arena.block(block);
         let statements = self.program.arena.stmt_ids(block_data.statements).map(|statement| self.program.arena.core_stmt_id(statement)).collect::<Vec<_>>();
-        let diverges = statements.last().is_some_and(|tail| matches!(self.program.arena.stmt(*tail).kind, ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(_))) | ArenaStmtKind::Exit(_)));
+        let diverges = statements.last().is_some_and(|tail| matches!(self.program.arena.stmt(*tail).kind, ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(_))) | ArenaStmtKind::Exit(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue));
         if !diverges { return self.lower_scheme_value_block(block, slots, current_function, facts, visited, lowered_types); }
         let saved = slots.enter();
         let mut body = Vec::new();

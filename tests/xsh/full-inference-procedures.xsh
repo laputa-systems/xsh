@@ -728,3 +728,55 @@ settle_annotated(bad)?
     stderr: ["[check.type-mismatch]", "`Int` and `Unit`"],
   )?
 }
+
+test test_full_inference_loop_transfer_fallback_handlers_match_their_annotated_twins { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure half(value: Int) -> Result[Int, Str] { if value % 2 == 0 { Ok(value / 2) } else { Err("odd") } }
+proc skipping(items) [process, error] {
+  for item in items {
+    let halved = half(item) ?? { |_|
+      continue
+    }
+    print $halved
+  }
+}
+proc skipping_annotated(items: List[Int]) [process, error] {
+  for item in items {
+    let halved = half(item) ?? { |_|
+      continue
+    }
+    print $halved
+  }
+}
+proc stopping(items) [process, error] {
+  for item in items {
+    let halved = half(item) ?? { |_|
+      break
+    }
+    print $halved
+  }
+}
+proc stopping_annotated(items: List[Int]) [process, error] {
+  for item in items {
+    let halved = half(item) ?? { |_|
+      break
+    }
+    print $halved
+  }
+}
+skipping([4, 3, 8])?
+skipping_annotated([4, 3, 8])?
+stopping([4, 3, 8])?
+stopping_annotated([4, 3, 8])?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n4\n2\n4\n2\n2\n"
+  test.expect(
+    ctx,
+    "pure half(value: Int) -> Result[Int, Str] { Ok(value) }\nproc outside(item) [process, error] {\n  let halved = half(item) ?? { |_|\n    continue\n  }\n  print $halved\n}\n",
+    status: 2,
+    stderr: ["[check.loop-control]"],
+  )?
+}

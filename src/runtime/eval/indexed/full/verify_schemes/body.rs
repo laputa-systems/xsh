@@ -1594,7 +1594,7 @@ pub(super) fn verify_body(
                 let Some(&instruction) = statements.get(position) else {
                     let diverges = match statements.last() {
                         Some(&last) => match decoder.statement_view(last)? {
-                            schema::StmtView::Return { .. } => true,
+                            schema::StmtView::Return { .. } | schema::StmtView::Break | schema::StmtView::BreakValue { .. } | schema::StmtView::Continue => true,
                             schema::StmtView::Expr { value, .. } => matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::Abort { .. }),
                             _ => false,
                         },

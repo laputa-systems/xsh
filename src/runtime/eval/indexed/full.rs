@@ -24276,6 +24276,36 @@ proc load(file) [fs, process, error, io] {
     }
 
     #[test]
+    fn a_diverging_fallback_handler_may_end_in_a_loop_transfer_only() {
+        run_with_large_stack(|| {
+            for (transfer, tag) in [("continue", FullTag::StmtContinue), ("break", FullTag::StmtBreak)] {
+                let source = format!(r#"
+pure half(value: Int) -> Result[Int, Str] {{ if value % 2 == 0 {{ Ok(value / 2) }} else {{ Err("odd") }} }}
+proc sweep(items) [process, error] {{
+    for item in items {{
+        let halved = half(item) ?? {{ |_|
+            {transfer}
+        }}
+        print "kept"
+    }}
+}}
+"#);
+                let program = fixture("diverging-loop-transfer-handler.xsh", &source);
+                FullVerifier::verify(&program).unwrap();
+                let transfers = function_instruction_indices(&program, "sweep", tag);
+                assert_eq!(transfers.len(), 1, "{transfer}");
+                let prints = function_instruction_indices(&program, "sweep", FullTag::StmtPrint);
+                assert_eq!(prints.len(), 1, "{transfer}");
+                let mut wrong = program.clone();
+                wrong.store.tags.swap(transfers[0], prints[0]);
+                wrong.store.data.swap(transfers[0], prints[0]);
+                let error = FullVerifier::verify(&wrong).unwrap_err();
+                assert!(error.message.contains("no terminal value"), "{transfer}: {}", error.message);
+            }
+        });
+    }
+
+    #[test]
     fn ground_calls_authenticate_closed_scoped_arithmetic_results() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("closed-scoped-arithmetic-result.xsh", r#"
