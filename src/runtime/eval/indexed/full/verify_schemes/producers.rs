@@ -1231,6 +1231,9 @@ impl ProducerOwner {
                     }
                 }
                 if !decoder.checked_condition_proves_nonnull_with_prefix(condition, when_true, is_boolean, instruction, target, payload, stability, prefix, source, charge)? { return Ok(false); }
+                if snapshot && matches!(payload, super::super::GuardedReadContract::NonNullRead) && key.is_none() {
+                    return Ok(self.visible_binding(decoder.store, decoder.owner, condition, target.0)? == Some(binding));
+                }
                 if let Some(key) = key {
                     if self.visible_binding(decoder.store, decoder.owner, condition, target.0)? != Some(binding) { return Ok(false); }
                     charge(1 + target.1.len())?;

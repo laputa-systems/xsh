@@ -8802,6 +8802,33 @@ pure label(opts) -> Str {
     }
 
     #[test]
+    fn a_snapshot_read_inside_a_loop_authenticates_its_dominating_null_guard() {
+        let program = prepare(r#"
+pure differs(left, right) -> Bool { left != right }
+pure total(record) -> Int? {
+  let id = record.id
+  if id == null { return null }
+  var sum = 0
+  for index in range(3) { sum += id + index }
+  sum
+}
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "total").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let comparison = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq, .. }))
+        }).expect("the null test survives lowering");
+        let comparison_words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let not_equal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Ne).unwrap();
+        let mut flipped = program.clone();
+        flipped.store.in_place.take();
+        assert!(flipped.store.in_place.get().is_none());
+        flipped.store.extra[comparison_words.start] = not_equal as u32;
+        let error = FullVerifier::verify(&flipped).expect_err("the guard that exits on non-null cannot narrow the loop read");
+        assert!(error.message.contains("guard") || error.message == "generic body expression disagrees with its checked type", "{error:?}");
+    }
+
+    #[test]
     fn guarded_requirements_authenticate_sources_polarity_scope_and_absence() {
         let mut program = prepare(r#"
 pure selected(value, other) -> Str {

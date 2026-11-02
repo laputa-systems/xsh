@@ -493,3 +493,43 @@ for options in [some, none] {
     )?
   }
 }
+
+test test_full_inference_null_guarded_local_read_inside_a_loop_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Slot = {id: Int?}
+pure total(slot) -> Int? {
+  let id = slot.id
+  if id == null { return null }
+  var sum = 0
+  for index in range(3) { sum += id + index }
+  sum
+}
+pure total_annotated(slot: Slot) -> Int? {
+  let id = slot.id
+  if id == null { return null }
+  var sum = 0
+  for index in range(3) { sum += id + index }
+  sum
+}
+let present: Slot = {id: 10}
+let absent: Slot = {id: null}
+for slot in [present, absent] {
+  let inferred = total(slot) ?? -1
+  let annotated = total_annotated(slot) ?? -1
+  assert inferred == annotated
+  print $inferred
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "33\n-1\n"
+  for header in ["pure total(slot)", "pure total(slot: Slot)"] {
+    test.expect(
+      ctx,
+      "type Slot = {id: Int?}\n" + header + " -> Int? {\n  let id = slot.id\n  var sum = 0\n  for index in range(3) { sum += id + index }\n  sum\n}\nlet present: Slot = {id: 10}\nlet checked = total(present)\n",
+      status: 2,
+      stderr: ["err["],
+    )?
+  }
+}
