@@ -33,6 +33,18 @@ def link_tree(source, destination):
     subprocess.run(["cp", "-al", str(source), str(destination)], check=True)
 
 
+def remove_scratch(path):
+    grant_directories(path)
+    shutil.rmtree(path)
+
+
+def grant_directories(path):
+    os.chmod(path, 0o700)
+    for entry in os.scandir(path):
+        if entry.is_dir(follow_symlinks=False):
+            grant_directories(entry.path)
+
+
 def replace_file(path, data):
     os.unlink(path)
     path.write_bytes(data)
@@ -162,7 +174,7 @@ def main(argv=None):
     try:
         singles, joint = measure(sites, roots, args.xsht, scratch, args.jobs, args.timeout)
     finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+        remove_scratch(scratch)
     summarize(singles, joint, sys.stdout)
 
 
