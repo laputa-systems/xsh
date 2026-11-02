@@ -373,6 +373,54 @@ pub(super) fn authenticates_read(
     Ok(false)
 }
 
+fn replace_record_field(record: &super::SchemeType, path: &[crate::symbol::Name], source: &super::SchemeType, view: &super::SchemeType) -> Option<super::SchemeType> {
+    let super::SchemeType::Record { fields, tail } = record else { return None; };
+    let (head, rest) = path.split_first()?;
+    let field = fields.get(head)?;
+    let replaced = if rest.is_empty() {
+        if !super::body_types_equal(field, source) { return None; }
+        view.clone()
+    } else {
+        replace_record_field(field, rest, source, view)?
+    };
+    let mut fields = fields.clone();
+    fields.insert(*head, replaced);
+    Some(super::SchemeType::Record { fields, tail: *tail })
+}
+
+pub(super) fn authenticates_record_read(
+    store: &super::FullStore, decoder: &super::FullDecoder<'_>, scope: &SchemeScope,
+    instruction: usize, actual: &super::SchemeType, claimed: &super::SchemeType,
+    prefix: Option<&super::ProducerPrefixContext<'_>>, budget: &mut super::SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    let GuardScopes::Scoped(census) = &scope.guards else { return Ok(false); };
+    let Some(prefix) = prefix else { return Ok(false); };
+    if !matches!(actual, super::SchemeType::Record { .. }) || !matches!(claimed, super::SchemeType::Record { .. }) { return Ok(false); }
+    let mut active = scope.active_guard;
+    let mut ancestry = Vec::new();
+    while let Some(id) = active {
+        budget.charge(1)?;
+        ancestry.push(id);
+        if ancestry.len() > crate::sema::constraints::MAX_TYPE_DEPTH { return Err(IrVerifyError::new("guard read ancestry is too deep")); }
+        active = census.parent(id)?;
+    }
+    budget.charge_scheme_clone(actual)?;
+    let mut proven = actual.clone();
+    for id in ancestry.into_iter().rev() {
+        let pack = census.scope(id)?;
+        let parent_scope = scope.with_guard(census.parent(id)?)?;
+        let local_scope = scope.with_guard(Some(id))?;
+        let Some(path) = prefix.guarded_record_field_read(decoder, instruction, pack.metadata.source_instruction as usize, &mut |amount| budget.charge(amount))? else { continue; };
+        let source = super::decode_scheme_type(store, &parent_scope, pack.metadata.source, budget, 0)?;
+        let view = super::decode_scheme_type(store, &local_scope, pack.metadata.view, budget, 0)?;
+        budget.charge_scheme_clone(&proven)?;
+        let Some(next) = replace_record_field(&proven, &path, &source, &view) else { continue; };
+        proven = next;
+        if super::body_types_equal(claimed, &proven) { return Ok(true); }
+    }
+    Ok(false)
+}
+
 pub(super) fn verify_ground_bindings(
     store: &super::FullStore, root: &super::FullScheme, scope: &SchemeScope,
     scopes: &[Option<SchemeScope>],

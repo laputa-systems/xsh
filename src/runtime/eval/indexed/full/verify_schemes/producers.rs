@@ -734,6 +734,20 @@ impl ProducerPrefixContext<'_> {
         Ok(false)
     }
 
+    pub(super) fn guarded_record_field_read(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<Option<Vec<Name>>, IrVerifyError> {
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_)) { return Ok(None); }
+        for through_declarations in [false, true] {
+            let Some(target) = self.guard_source_binding_path_through(decoder, source, instruction, through_declarations, charge)? else { continue };
+            if target.1.is_empty() { continue; }
+            let Some(read) = self.guard_value_binding_path(decoder, instruction, instruction, &target, charge)? else { continue };
+            if read.0 != target.0 || !read.1.is_empty() { continue; }
+            if self.guarded_nonnull_read_scope(decoder, instruction, source, target.clone(), charge)? { return Ok(Some(target.1)); }
+        }
+        Ok(None)
+    }
+
     pub(super) fn guard_identity_read_source(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {

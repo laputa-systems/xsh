@@ -457,3 +457,39 @@ classify(other)
     stderr: ["[check.type-mismatch]", "expected Error, found Int"],
   )?
 }
+
+test test_full_inference_whole_record_read_under_a_field_guard_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Options = {mnt: Str?, other: Int}
+pure persistent(opts) -> Str? {
+  let entry = {flag: "--mount", file: opts.mnt}
+  if let file = entry.file { let flag = entry.flag; return f"{flag}={file}" }
+  null
+}
+pure persistent_annotated(opts: Options) -> Str? {
+  let entry = {flag: "--mount", file: opts.mnt}
+  if let file = entry.file { let flag = entry.flag; return f"{flag}={file}" }
+  null
+}
+let some: Options = {mnt: "x", other: 1}
+let none: Options = {mnt: null, other: 1}
+for options in [some, none] {
+  let narrowed = persistent(options) ?? "-"
+  print $narrowed
+  let twin = persistent_annotated(options) ?? "-"
+  print $twin
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "--mount=x\n--mount=x\n-\n-\n"
+  for header in ["pure persistent(opts)", "pure persistent(opts: Options)"] {
+    test.expect(
+      ctx,
+      "type Options = {mnt: Str?, other: Int}\ntype Present = {flag: Str, file: Str}\n" + header + " -> Str? {\n  let entry = {flag: \"--mount\", file: opts.mnt}\n  if let file = entry.file { return file }\n  let stale: Present = entry\n  null\n}\nlet some: Options = {mnt: \"x\", other: 1}\nlet checked = persistent(some)\n",
+      status: 2,
+      stderr: ["[check.type-mismatch]"],
+    )?
+  }
+}

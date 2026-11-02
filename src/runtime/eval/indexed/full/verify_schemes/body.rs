@@ -8778,6 +8778,30 @@ pure bound(item) -> Bool { item.mark != null and (item.mark ?? -1) == 1 }
     }
 
     #[test]
+    fn a_whole_record_read_under_a_field_guard_authenticates_the_guarded_field() {
+        let mut program = prepare(r#"
+pure same(left, right) -> Bool { left == right }
+pure label(opts) -> Str {
+  let entry = {flag: "--mount", file: opts.mnt}
+  if entry.file != null { let kept = entry; f"{kept.flag}={kept.file}" } else { "none" }
+}
+"#);
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "label").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let comparison = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Ne, .. }))
+        }).expect("the null test survives lowering");
+        let comparison_words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let equal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Eq).unwrap();
+        let mut flipped = program.clone();
+        assert!(flipped.store.in_place.get().is_none());
+        flipped.store.extra[comparison_words.start] = equal as u32;
+        let error = FullVerifier::verify(&flipped).expect_err("the absent branch cannot narrow the record field");
+        assert!(error.message.contains("guard") || error.message == "generic body expression disagrees with its checked type", "{error:?}");
+    }
+
+    #[test]
     fn guarded_requirements_authenticate_sources_polarity_scope_and_absence() {
         let mut program = prepare(r#"
 pure selected(value, other) -> Str {

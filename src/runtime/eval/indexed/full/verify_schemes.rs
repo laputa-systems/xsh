@@ -2536,6 +2536,11 @@ fn verify_body_expression(
             {
                 budget.charge_scheme_clone(ty)?;
                 ty.clone()
+            } else if guards::authenticates_record_read(store, decoder, scheme_scope, instruction, actual, ty,
+                producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?.as_ref(), budget)?
+            {
+                budget.charge_scheme_clone(ty)?;
+                ty.clone()
             } else if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && !matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && body_type_matches(actual, ty, budget)?
