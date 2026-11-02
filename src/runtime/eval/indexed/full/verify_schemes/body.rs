@@ -1580,7 +1580,7 @@ pub(super) fn verify_body(
                                     result: &claimed, condition: &expression_type(types, condition.raw() as usize, budget)?,
                                     branch: &expression_type(types, value.raw() as usize, budget)?, fallback: &expression_type(types, else_value.raw() as usize, budget)?,
                                 }, budget)?;
-                            } else if !super::branch_value_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
+                            } else if !super::branch_value_matches(store, decoder.owner, &scheme_scope.at_instruction(value.raw() as usize)?, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
                             pending.push(Obligation::Expression(value.raw() as usize, inner));
                         }
                         if output.is_none() && !super::branch_value_matches(store, decoder.owner, scheme_scope, &expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
@@ -3966,6 +3966,42 @@ pure ordered(files: List[File], other: File) -> List[File] {
         let mut wrong_argument = program.clone();
         wrong_argument.store.scheme_types[argument.index()].tag = FullSchemeTypeTag::Ground;
         wrong_argument.store.scheme_types[argument.index()].first = ground.first;
+        reject(wrong_argument, "returned operand");
+    }
+
+    #[test]
+    fn guarded_pattern_branch_authenticates_the_assignment_of_its_guard() {
+        let program = prepare("pure pick(target, wrong: Str, flag: Bool) -> Path? { let _ = wrong; if let found = target { found } else if flag { null } else { null } }");
+        FullVerifier::verify(&program).unwrap();
+        let (_, scheme_id) = generic_owner(&program);
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let ground = program.store.scheme_types[program.store.scheme_params[parameters.start + 1].ty.index()];
+        assert_eq!(ground.tag, FullSchemeTypeTag::Ground);
+        let known = (0..program.store.scheme_applications.len()).filter_map(|index| match program.store.scheme_applications[index] {
+            super::super::super::schemes::FullSchemeApplication::KnownArguments { parameters, arguments } => Some((parameters, arguments)),
+            _ => None,
+        }).filter(|(parameters, _)| program.store.scheme_types[program.store.scheme_callable_parameters[parameters.start as usize].ty.index()].tag == FullSchemeTypeTag::Optional).collect::<Vec<_>>();
+        assert!(!known.is_empty(), "the guard owns an optional assignment requirement");
+        let reject = |changed: FullProgram, label: &str| {
+            let mut changed = changed;
+            changed.store.in_place.take();
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic pattern branch value disagrees with its result", "{label}");
+        };
+        let mut wrong_formal = program.clone();
+        for (parameters, _) in &known {
+            let formal = program.store.scheme_callable_parameters[parameters.start as usize].ty;
+            let payload = SchemeTypeId::from_raw(program.store.scheme_types[formal.index()].first).unwrap();
+            assert_eq!(wrong_formal.store.scheme_types[payload.index()].tag, FullSchemeTypeTag::Ground);
+            wrong_formal.store.scheme_types[payload.index()].first = ground.first;
+        }
+        reject(wrong_formal, "optional formal");
+        let mut wrong_argument = program.clone();
+        for (_, arguments) in &known {
+            let argument = program.store.scheme_application_arguments[arguments.start as usize].ty;
+            wrong_argument.store.scheme_types[argument.index()].tag = FullSchemeTypeTag::Ground;
+            wrong_argument.store.scheme_types[argument.index()].first = ground.first;
+        }
         reject(wrong_argument, "returned operand");
     }
 

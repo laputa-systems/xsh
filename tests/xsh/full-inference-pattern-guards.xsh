@@ -558,3 +558,32 @@ print $bound(absent)
     stderr: ["[check.type-mismatch]", "expected Int, found Null"],
   )?
 }
+
+test test_full_inference_guarded_payload_reaches_an_optional_annotation_through_else_if { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure choose(target, flag: Bool) -> Str {
+  let selected: Path? = if let found = target { found } else if flag { null } else { null }
+  if let chosen = selected { chosen.display() } else { "none" }
+}
+pure choose_annotated(target: Path?, flag: Bool) -> Str {
+  let selected: Path? = if let found = target { found } else if flag { null } else { null }
+  if let chosen = selected { chosen.display() } else { "none" }
+}
+pure either(first, second) -> Str {
+  let selected: Path? = if let found = first { found } else if let other = second { other } else { null }
+  if let chosen = selected { chosen.display() } else { "none" }
+}
+let present: Path? = fp"/present"
+let absent: Path? = null
+assert choose(present, true) == choose_annotated(present, true)
+assert choose(absent, true) == choose_annotated(absent, true)
+print $choose(present, false)
+print $choose(absent, false)
+print $either(absent, present)
+print $either(absent, absent)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "/present\nnone\n/present\nnone\n", output.stdout
+}
