@@ -4,7 +4,7 @@
 //! The statement is sugar. Its meaning is the expansion `expand_atomically`
 //! builds, under the rules every expansion keeps (`super::sugar`).
 
-use super::{Name, Parser, TokenTag};
+use super::{Keyword, Name, Parser, TokenTag};
 use crate::diagnostic::DiagnosticCode;
 use crate::source::Span;
 use crate::syntax::arena::{
@@ -12,9 +12,6 @@ use crate::syntax::arena::{
     BlockId, DeferTrigger, ExprId, StmtId, SugarForm,
 };
 
-/// The word that begins the statement. It stays an ordinary identifier
-/// everywhere else.
-const ATOMICALLY_WORD: &str = "atomically";
 /// The word that follows it and names what is done to the destination.
 const REPLACE_WORD: &str = "replace";
 /// The word between the destination and the name of the temporary path.
@@ -25,14 +22,9 @@ const DEST_LOCAL: &str = "%dest";
 
 impl Parser<'_> {
     /// Whether the statement at the cursor is `atomically replace DEST as
-    /// NAME {`.
-    ///
-    /// Neither word is reserved. The statement is recognized by the two
-    /// words that begin it, on one line: no other statement begins with the
-    /// name `atomically` directly followed by the name `replace`.
+    /// NAME {`. `atomically` is reserved; `replace` is a word only here.
     pub(super) fn lookahead_is_atomically(&self) -> bool {
-        self.current_name()
-            .is_some_and(|name| name == ATOMICALLY_WORD)
+        self.at_keyword(Keyword::Atomically)
             && self.peek_tag(1) == Some(TokenTag::Ident)
             && self.peek_name(1).is_some_and(|name| name == REPLACE_WORD)
     }
@@ -357,8 +349,9 @@ mod tests {
                 "atomically replace b -\nc |> d |> any ( ) {\n\n| Thing | }\n",
                 false,
             ),
+            // `atomically` is reserved, so it never begins a command.
+            ("atomically x\n", false),
             // Any other words are a command.
-            ("atomically x\n", true),
             ("tempdir a b\n", true),
             ("replace x y\n", true),
         ]);

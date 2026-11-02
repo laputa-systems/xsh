@@ -1412,31 +1412,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// `within DURATION {` on one line, where the duration is a duration
-    /// literal or a name with any `.field`s. `within` is contextual: it starts
-    /// a scope only before that operand and a block, so a name spelled
-    /// `within` stays usable everywhere else, a condition included.
-    pub(super) fn lookahead_is_within_scope(&self) -> bool {
-        if self.current_tag() != TokenTag::Ident
-            || !self.current_name().is_some_and(|name| name == "within")
-        {
-            return false;
-        }
-        let mut after = 2;
-        match self.peek_tag(1) {
-            Some(TokenTag::Duration) => {}
-            Some(TokenTag::Ident) => {
-                while self.peek_tag(after) == Some(TokenTag::Dot)
-                    && self.peek_tag(after + 1) == Some(TokenTag::Ident)
-                {
-                    after += 2;
-                }
-            }
-            _ => return false,
-        }
-        self.peek_tag(after) == Some(TokenTag::LBrace)
-    }
-
     /// `collect {` on one line. `collect` is contextual: the name directly
     /// before a `{` always begins the expression, wherever an expression may
     /// start, so a value named `collect` that a block follows is written
@@ -1453,7 +1428,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         self.bump();
-        let limit = self.parse_head_expr_arena_only(arena)?.id;
+        let limit = self.parse_duration_operand_arena_only("within", arena)?.expr;
         let block = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
         Some(ArenaOnlyExpr {
@@ -1600,7 +1575,7 @@ impl<'a> Parser<'a> {
         if self.lookahead_is_tempdir_scope() {
             return self.parse_tempdir_scope_arena_only(arena, true);
         }
-        if self.lookahead_is_within_scope() {
+        if self.at_keyword(Keyword::Within) {
             return self.parse_within_scope_arena_only(arena, true);
         }
         if self.lookahead_is_collect() {
@@ -2881,11 +2856,7 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         self.bump();
-        if self.current_tag() == TokenTag::Ident
-            && self
-                .current_name()
-                .is_some_and(|name| name == super::wait_until::BACKOFF_WORD)
-        {
+        if self.at_keyword(Keyword::Backoff) {
             return self.parse_retry_backoff_arena_only(start, arena);
         }
         self.expect(
@@ -2956,13 +2927,12 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
-        use super::wait_until::{BACKOFF_WORD, WITHIN_WORD};
         self.bump();
-        let first = self.parse_duration_operand_arena_only(BACKOFF_WORD, arena)?;
+        let first = self.parse_duration_operand_arena_only("backoff", arena)?;
         self.expect_backoff_range()?;
         let cap = self.parse_duration_operand_arena_only("..", arena)?;
         self.expect_within_word("the intervals of `retry backoff`")?;
-        let limit = self.parse_duration_operand_arena_only(WITHIN_WORD, arena)?;
+        let limit = self.parse_duration_operand_arena_only("within", arena)?;
         let pattern = self.parse_retry_selection_arena_only(arena)?;
         let block = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());

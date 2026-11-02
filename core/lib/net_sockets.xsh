@@ -805,12 +805,12 @@ export pure tcp_info_text(info: Bytes, congestion: Str?, state: Int, options: Bo
   let rcv_ooopack = u32(info, 224)
   let snd_wnd = u32(info, 228)
   let rcv_wnd = u32(info, 232)
-  let backoff = info.byte_at(4) ?? 0
+  let retransmit_backoff = info.byte_at(4) ?? 0
   let app_limited = (info.byte_at(7) ?? 0).bit_and(1) != 0
 
   if flags.bit_and(4) != 0 { out += [f"wscale:{wscale.bit_and(15)},{wscale / 16}"] }
   if rto != 0 and rto != 3000000 { out += [f"rto:{format_g(rto)}"] }
-  if backoff != 0 { out += [f"backoff:{backoff}"] }
+  if retransmit_backoff != 0 { out += [f"backoff:{retransmit_backoff}"] }
   if rtt != 0 { out += [f"rtt:{format_g(rtt)}/{format_g(rttvar)}"] }
   if ato != 0 { out += [f"ato:{format_g(ato)}"] }
   if mss != 0 { out += [f"mss:{mss}"] }

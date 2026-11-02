@@ -128,12 +128,12 @@ fn cases(form: SugarForm) -> &'static [Case] {
                     "let root = p\"/tmp\"\n{\n  let dest_1: Path = fp\"{root}/out\"\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer partial.remove(missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let dest_1: Path = { fp\"{partial}.d/inner\" }\n        let inner: Path = fs.temp_sibling(dest_1)?\n        defer inner.remove(missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n        inner.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n  partial.rename(to: dest_1, overwrite: true)?\n}\n",
                 ),
             },
-            // The words stay names: `atomically`, `replace`, and `as` as the
-            // destination, the bound name, and a match arm's statement.
+            // The words stay names: `replace` and `as` as the destination, the
+            // bound name, and a match arm's statement.
             Case {
-                sugar: "proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => atomically replace atomically as as { print $as }\n    else => {\n      atomically replace atomically as replace {\n        print $replace\n      }\n    }\n  }\n}\n",
+                sugar: "proc publish(target: Path, replace: Int) {\n  match replace {\n    0 => atomically replace target as as { print $as }\n    else => {\n      atomically replace target as replace {\n        print $replace\n      }\n    }\n  }\n}\n",
                 core: Core::Written(
-                    "proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => {\n      {\n        let dest_1: Path = atomically\n        let as: Path = fs.temp_sibling(dest_1)?\n        defer as.remove(missing_ok: true)\n        { print $as }\n        as.rename(to: dest_1, overwrite: true)?\n      }\n    }\n    else => {\n      {\n        let dest_1: Path = atomically\n        let replace: Path = fs.temp_sibling(dest_1)?\n        defer replace.remove(missing_ok: true)\n        {\n          print $replace\n        }\n        replace.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n}\n",
+                    "proc publish(target: Path, replace: Int) {\n  match replace {\n    0 => {\n      {\n        let dest_1: Path = target\n        let as: Path = fs.temp_sibling(dest_1)?\n        defer as.remove(missing_ok: true)\n        { print $as }\n        as.rename(to: dest_1, overwrite: true)?\n      }\n    }\n    else => {\n      {\n        let dest_1: Path = target\n        let replace: Path = fs.temp_sibling(dest_1)?\n        defer replace.remove(missing_ok: true)\n        {\n          print $replace\n        }\n        replace.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n}\n",
                 ),
             },
         ],
@@ -163,13 +163,6 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 sugar: "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  wait until n > 3 within limits.patience\n  match n {\n    0 => wait until { n += 1\n    n > 1 } within 5s every limits.step\n    else => {\n      wait until n is Int within limits.patience backoff limits.step..limits.patience\n    }\n  }\n}\n",
                 core: Core::Written(
                     "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  {\n    let delay_1: Duration = 100ms\n    (within limits.patience {\n      loop {\n        if n > 3 { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  match n {\n    0 => {\n      {\n        let delay_1: Duration = limits.step\n        (within 5s {\n          loop {\n            if { n += 1\n            n > 1 } { break }\n            time.sleep(delay_1)\n          }\n        })?\n      }\n    }\n    else => {\n      {\n        var delay_1: Duration = limits.step\n        let cap_1: Duration = limits.patience\n        (within limits.patience {\n          loop {\n            if n is Int { break }\n            time.sleep(delay_1)\n            delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n          }\n        })?\n      }\n    }\n  }\n}\n",
-                ),
-            },
-            // The words stay names.
-            Case {
-                sugar: "proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  wait until until within within every every\n  wait until until within within backoff every..backoff\n}\n",
-                core: Core::Written(
-                    "proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  {\n    let delay_1: Duration = every\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  {\n    var delay_1: Duration = every\n    let cap_1: Duration = backoff\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n        delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n      }\n    })?\n  }\n}\n",
                 ),
             },
         ],

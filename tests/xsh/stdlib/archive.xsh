@@ -682,6 +682,6 @@ test test_archive_lists_a_process_stream_by_draining_bodies_within_the_budget { 
   assert archive.list(counted, .Tar, max_entries: 3) is Err(ArchiveError.Limit {..})
   let sized = run.stream --bytes cat $many
   assert archive.list(sized, .Tar, max_output: 1024) is Err(ArchiveError.Limit {..})
-  let within = run.stream --bytes cat $many
-  assert archive.list(within, .Tar, max_entries: 6)?.collect().len() == 6
+  let whole = run.stream --bytes cat $many
+  assert archive.list(whole, .Tar, max_entries: 6)?.collect().len() == 6
 }

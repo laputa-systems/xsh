@@ -44,7 +44,7 @@ pure path_components(name: Bytes) -> List[Bytes] {
   parts
 }
 
-pure within(target_path: Bytes, base: Bytes) -> Bool {
+pure is_inside(target_path: Bytes, base: Bytes) -> Bool {
   return true when base == b"/"
   target_path == base or target_path.starts_with(bytes.concat([base, b"/"]))
 }
@@ -119,8 +119,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if let Ok(resolved_bytes) = result {
       let base_bytes = bytes.from_text(base)
       let to_bytes = bytes.from_text(to)
-      let inside_base = base == "" or base == "/" or within(resolved_bytes, base_bytes)
-      let to_inside_base = base == "" or base == "/" or within(to_bytes, base_bytes)
+      let inside_base = base == "" or base == "/" or is_inside(resolved_bytes, base_bytes)
+      let to_inside_base = base == "" or base == "/" or is_inside(to_bytes, base_bytes)
       let value = if to != "" and inside_base and to_inside_base { relative_path(resolved_bytes, to_bytes) } else { resolved_bytes }
       gnu.write_bytes(bytes.concat([value, if opts.zero { b"\0" } else { b"\n" }]))
     } else if let Err(failure) = result { failed = true; if ! opts.quiet { gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}") } }

@@ -436,7 +436,7 @@ pure draw_xid(machine: Machine) -> Draw {
   {machine: low.machine, value: if xid == 0 { 1 } else { xid }}
 }
 
-pure backoff(machine: Machine, attempt: Int) -> Draw {
+pure backoff_delay(machine: Machine, attempt: Int) -> Draw {
   let timing = machine.timing
   var base = timing.backoff_initial_ms
   var step = 0
@@ -481,7 +481,7 @@ pure offer_of(lease: Lease) -> Offer {
 pure begin_discovery(machine: Machine, now: Int) -> Step {
   let identified = draw_xid(machine)
   let started = {...identified.machine, state: Selecting, xid: identified.value, attempt: 0, began_at: now, request_sent_at: now, offer: null, candidate: null, probes_sent: 0, announces_left: 0}
-  let waiting = with_retry(backoff(started, 0), now)
+  let waiting = with_retry(backoff_delay(started, 0), now)
   step_of(waiting, [Send(packet(waiting, Discover, now, 0, 0, false))], "")
 }
 
@@ -493,7 +493,7 @@ pure begin_wait(machine: Machine, delay_ms: Int, now: Int, note: Str) -> Step {
 pure begin_reboot(machine: Machine, offer: Offer, now: Int) -> Step {
   let identified = draw_xid(machine)
   let started = {...identified.machine, state: InitReboot, xid: identified.value, attempt: 0, began_at: now, request_sent_at: now, offer: offer, candidate: null, probes_sent: 0, announces_left: 0}
-  let waiting = with_retry(backoff(started, 0), now)
+  let waiting = with_retry(backoff_delay(started, 0), now)
   step_of(waiting, [Send(packet(waiting, RequestInitReboot, now, offer.address, 0, false))], "")
 }
 
@@ -577,7 +577,7 @@ pure resend_bound_request(machine: Machine, lease: Lease, now: Int) -> Step {
 
 pure on_tick_discovering(machine: Machine, now: Int) -> Step {
   let attempt = machine.attempt + 1
-  let delay = backoff(machine, attempt)
+  let delay = backoff_delay(machine, attempt)
   let next = {...with_retry(delay, now), attempt: attempt}
   step_of(next, [Send(packet(next, Discover, now, 0, 0, false))], "")
 }
@@ -587,7 +587,7 @@ pure on_tick_requesting(machine: Machine, offer: Offer, now: Int) -> Step {
     return begin_discovery(machine, now)
   }
   let attempt = machine.attempt + 1
-  let delay = backoff(machine, attempt)
+  let delay = backoff_delay(machine, attempt)
   let next = {...with_retry(delay, now), attempt: attempt}
   step_of(next, [Send(packet(next, RequestSelecting, now, offer.address, offer.server, false))], "")
 }
@@ -597,7 +597,7 @@ pure on_tick_reboot(machine: Machine, offer: Offer, now: Int) -> Step {
     return begin_discovery(machine, now)
   }
   let attempt = machine.attempt + 1
-  let delay = backoff(machine, attempt)
+  let delay = backoff_delay(machine, attempt)
   let next = {...with_retry(delay, now), attempt: attempt}
   step_of(next, [Send(packet(next, RequestInitReboot, now, offer.address, 0, false))], "")
 }
@@ -717,7 +717,7 @@ pure on_received_selecting(machine: Machine, message: wire.Message, now: Int) ->
   let server = message.server_id ?? 0
   let offer = {address: message.yiaddr, server: server}
   let identified = {...machine, state: Requesting, offer: offer, attempt: 0, request_sent_at: now}
-  let waiting = with_retry(backoff(identified, 0), now)
+  let waiting = with_retry(backoff_delay(identified, 0), now)
   step_of(waiting, [Send(packet(waiting, RequestSelecting, now, offer.address, offer.server, false))], "")
 }
 

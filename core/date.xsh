@@ -254,10 +254,10 @@ pure persian_from_days(days: Int) -> CalendarDate {
 pure ethiopian_from_days(days: Int) -> CalendarDate {
   let number = days + 2440588 - 1724221
   let cycle = date_parse.floor_div(number, 1461)
-  let within = date_parse.positive_mod(number, 1461)
-  let index = if within < 365 { 0 } else if within < 730 { 1 } else if within < 1096 { 2 } else { 3 }
-  let start = if within < 365 { 0 } else if within < 730 { 365 } else if within < 1096 { 730 } else { 1096 }
-  let offset = within - start
+  let day_in_cycle = date_parse.positive_mod(number, 1461)
+  let index = if day_in_cycle < 365 { 0 } else if day_in_cycle < 730 { 1 } else if day_in_cycle < 1096 { 2 } else { 3 }
+  let start = if day_in_cycle < 365 { 0 } else if day_in_cycle < 730 { 365 } else if day_in_cycle < 1096 { 730 } else { 1096 }
+  let offset = day_in_cycle - start
   {year: cycle * 4 + index + 1, month: offset / 30 + 1, day: offset % 30 + 1}
 }
 

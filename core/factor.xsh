@@ -1016,7 +1016,7 @@ pure continuation(data: Bytes, at: Int) -> Bool {
   byte >= 128 and byte < 192
 }
 
-pure within(data: Bytes, at: Int, low: Int, high: Int) -> Bool {
+pure byte_in_range(data: Bytes, at: Int, low: Int, high: Int) -> Bool {
   let byte = data.byte_at(at) ?? 0
   byte >= low and byte <= high
 }
@@ -1026,13 +1026,13 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
 
   return 1 when lead < 128
   return 2 when lead >= 194 and lead <= 223 and continuation(data, at + 1)
-  return 3 when lead == 224 and within(data, at + 1, 160, 191) and continuation(data, at + 2)
+  return 3 when lead == 224 and byte_in_range(data, at + 1, 160, 191) and continuation(data, at + 2)
   return 3 when ((lead >= 225 and lead <= 236) or lead == 238 or lead == 239) and continuation(data, at + 1) and continuation(
     data,
     at + 2,
   )
-  return 3 when lead == 237 and within(data, at + 1, 128, 159) and continuation(data, at + 2)
-  return 4 when lead == 240 and within(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(
+  return 3 when lead == 237 and byte_in_range(data, at + 1, 128, 159) and continuation(data, at + 2)
+  return 4 when lead == 240 and byte_in_range(data, at + 1, 144, 191) and continuation(data, at + 2) and continuation(
     data,
     at + 3,
   )
@@ -1040,7 +1040,7 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
     data,
     at + 3,
   )
-  return 4 when lead == 244 and within(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(
+  return 4 when lead == 244 and byte_in_range(data, at + 1, 128, 143) and continuation(data, at + 2) and continuation(
     data,
     at + 3,
   )

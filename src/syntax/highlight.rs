@@ -423,9 +423,9 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "tempdir" | "at") && tempdir_head_word(source, tokens, at) {
         return Kind::Keyword;
     }
-    // `atomically`, `replace`, and `as` are ordinary names except in the head
-    // of an `atomically replace DEST as NAME {` statement.
-    if matches!(text, "atomically" | "replace" | "as") && atomically_head_word(source, tokens, at) {
+    // `replace` and `as` are ordinary names except in the head of an
+    // `atomically replace DEST as NAME {` statement.
+    if matches!(text, "replace" | "as") && atomically_head_word(source, tokens, at) {
         return Kind::Keyword;
     }
     // `print` is a statement form, not a reserved word, so only a bare use
@@ -438,19 +438,6 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "cd" | "env")
         && statement_start(previous, source)
         && next.is_some_and(|next| next.tag == TokenTag::LParen)
-    {
-        return Kind::Keyword;
-    }
-    // `within DURATION { ... }` opens a scope wherever an expression may
-    // start; the duration is a literal or a dotted name.
-    if text == "within" && !after_dot && within_head(tokens, at) {
-        return Kind::Keyword;
-    }
-    // `until`, `within`, `every`, and `backoff` are ordinary names except in
-    // the head of a `wait until` statement or a `retry backoff`.
-    if matches!(text, "until" | "within" | "every" | "backoff")
-        && !after_dot
-        && paced_head_word(source, tokens, at)
     {
         return Kind::Keyword;
     }
@@ -582,8 +569,8 @@ fn tempdir_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
     is_head(at) || at.checked_sub(2).is_some_and(is_head)
 }
 
-/// Whether `tokens[at]` is the `atomically`, the `replace`, or the `as` of a
-/// statement that begins `atomically replace`. The `as` is the one directly
+/// Whether `tokens[at]` is the `replace` or the `as` of a statement that
+/// begins `atomically replace`. The `as` is the one directly
 /// before the name and the `{` that end the head, on the line the statement
 /// starts on.
 fn atomically_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
@@ -599,7 +586,7 @@ fn atomically_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
             )
     };
     if text(&tokens[at]) != "as" {
-        return is_head(at) || at.checked_sub(1).is_some_and(is_head);
+        return at.checked_sub(1).is_some_and(is_head);
     }
     let ends_head = matches!(
         tokens.get(at + 1..at + 3),
@@ -611,60 +598,6 @@ fn atomically_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
         .map_or(0, |newline| newline + 1);
     // The destination sits between `replace` and this word.
     ends_head && at >= line_start + 3 && is_head(line_start)
-}
-
-/// Whether `tokens[at]` is a word of the head of `wait until CONDITION within
-/// LIMIT every INTERVAL` or of `retry backoff FIRST..CAP within LIMIT`:
-/// the word directly after `wait` or `retry`, or a later word of that line
-/// that a duration literal or a name follows.
-fn paced_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
-    let text = |token: &Token| &source[token.start..token.end];
-    let begins = |first: usize| {
-        matches!(
-            tokens.get(first..first + 2),
-            Some([keyword, word])
-                if word.tag == TokenTag::Ident
-                    && matches!(
-                        (text(keyword), text(word)),
-                        ("wait", "until") | ("retry", "backoff")
-                    )
-        )
-    };
-    if at.checked_sub(1).is_some_and(begins) {
-        return true;
-    }
-    if !matches!(
-        tokens.get(at + 1).map(|token| token.tag),
-        Some(TokenTag::Duration | TokenTag::Ident)
-    ) {
-        return false;
-    }
-    let line_start = tokens[..at]
-        .iter()
-        .rposition(|token| token.tag == TokenTag::Newline)
-        .map_or(0, |newline| newline + 1);
-    let head = (line_start..at).rev().find(|first| begins(*first));
-    match head {
-        // `every` belongs to `wait until` only.
-        Some(first) => text(&tokens[at]) != "every" || text(&tokens[first]) == "wait",
-        None => false,
-    }
-}
-
-/// Whether `tokens[at]` is the `within` of `within DURATION {`.
-fn within_head(tokens: &[Token], at: usize) -> bool {
-    let tag = |index: usize| tokens.get(index).map(|token| token.tag);
-    let mut next = match tag(at + 1) {
-        Some(TokenTag::Duration) => at + 2,
-        Some(TokenTag::Ident) => at + 2,
-        _ => return false,
-    };
-    if tag(at + 1) == Some(TokenTag::Ident) {
-        while tag(next) == Some(TokenTag::Dot) && tag(next + 1) == Some(TokenTag::Ident) {
-            next += 2;
-        }
-    }
-    tag(next) == Some(TokenTag::LBrace)
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -997,13 +930,12 @@ mod tests {
 
     #[test]
     fn atomically_head_words_are_keywords_only_in_an_atomically_statement() {
-        let source = "atomically replace as as replace {\n}\nlet atomically = replace\nlet replace = text.replace(a, b)\nuse a as b\n";
+        let source = "atomically replace as as replace {\n}\nlet replace = text.replace(a, b)\nuse a as b\n";
         assert_eq!(kind_of(source, "atomically replace"), Kind::Keyword);
         assert_eq!(kind_of(source, "replace as"), Kind::Keyword);
         assert_eq!(kind_of(source, "as as"), Kind::Plain);
         assert_eq!(kind_of(source, "as replace {"), Kind::Keyword);
         assert_eq!(kind_of(source, "replace {"), Kind::Plain);
-        assert_eq!(kind_of(source, "atomically ="), Kind::Plain);
         assert_eq!(kind_of(source, "replace = text"), Kind::Plain);
     }
 
@@ -1037,17 +969,14 @@ mod tests {
     }
 
     #[test]
-    fn the_words_of_a_paced_head_are_keywords_only_there() {
-        let source = "wait until ready() within 5s every cfg.step\nlet r = retry backoff 1s..5s within limit { 1 }\nlet until = every + backoff\nwait (until)\n";
+    fn the_words_of_a_paced_head_are_keywords() {
+        let source = "wait until ready() within 5s every cfg.step\nlet r = retry backoff 1s..5s within limit { 1 }\nlet row = cfg.until\n";
         assert_eq!(kind_of(source, "until ready"), Kind::Keyword);
         assert_eq!(kind_of(source, "within 5s"), Kind::Keyword);
         assert_eq!(kind_of(source, "every cfg"), Kind::Keyword);
         assert_eq!(kind_of(source, "backoff 1s"), Kind::Keyword);
         assert_eq!(kind_of(source, "within limit"), Kind::Keyword);
-        assert_eq!(kind_of(source, "until = every"), Kind::Plain);
-        assert_eq!(kind_of(source, "every + backoff"), Kind::Plain);
-        assert_eq!(kind_of(source, "backoff\nwait"), Kind::Plain);
-        assert_eq!(kind_of(source, "until)"), Kind::Plain);
+        assert_eq!(kind_of(source, "until\n"), Kind::Property);
     }
 
     #[test]
@@ -1056,16 +985,6 @@ mod tests {
         assert_eq!(kind_of(source, "collect {"), Kind::Keyword);
         assert_ne!(kind_of(source, "collect()"), Kind::Keyword);
         assert_eq!(kind_of(source, "collect = 2"), Kind::Plain);
-    }
-
-    #[test]
-    fn within_is_a_keyword_only_before_a_duration_and_block() {
-        let source =
-            "let r = within 5s { 1 }\nwithin cfg.limit { }\nlet within = 2\nif within (x) { }\n";
-        assert_eq!(kind_of(source, "within 5s"), Kind::Keyword);
-        assert_eq!(kind_of(source, "within cfg"), Kind::Keyword);
-        assert_eq!(kind_of(source, "within = 2"), Kind::Plain);
-        assert_ne!(kind_of(source, "within (x)"), Kind::Keyword);
     }
 
     #[test]

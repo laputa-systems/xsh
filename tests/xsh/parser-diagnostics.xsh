@@ -166,6 +166,14 @@ test test_command_scope_spellings_are_rejected_with_the_call_line { |ctx|
   expect_parses(ctx, "let dir = p\"/tmp\"\ncd (dir) { print here }\nenv ({A: \"1\"}) { print here }\n")
 }
 
+test test_clause_words_are_reserved_but_remain_labels_and_members { |ctx|
+  for word in ["until", "every", "backoff", "atomically", "within"] {
+    expect_rejected(ctx, f"let {word} = 1\n", "parse.expected-ident")
+    expect_rejected(ctx, f"pure {word}(value: Int) -> Int {{ value }}\n", "parse.expected-ident")
+  }
+  expect_parses(ctx, "let row = {until: 1, every: 2, backoff: 3, atomically: 4, within: 5}\nlet total = row.until + row.every + row.backoff + row.atomically + row.within\n")
+}
+
 test test_unterminated_regex_literals_are_lexical_errors { |ctx|
   for source in ["let pattern = rx\"abc", "let pattern = rx\"\"\"abc\n"] {
     expect_rejected(ctx, source, "lex.unterminated-string")

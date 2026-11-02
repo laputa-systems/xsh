@@ -1263,8 +1263,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     );
                     // A scope statement is the whole statement.
                     stops.extend([
-                        vec![word_term("within", false), tag_term(T::Duration)],
-                        vec![word_term("within", false), term(Class::Name, false)],
+                        vec![keyword_term(Keyword::Within)],
                         vec![
                             word_term("tempdir", false),
                             tag_term(T::Ident),
@@ -1350,8 +1349,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 block(),
             ]),
         ),
-        // `atomically`, `replace`, and `as` are contextual words: the
-        // statement is recognized by the two words that begin it.
+        // `replace` and `as` are contextual words: the statement is
+        // recognized by the two words that begin it.
         rule(
             Statements,
             "atomically_statement",
@@ -1679,11 +1678,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         seq([not([vec![keyword_term(Keyword::Run)]]), r("operand")]),
                     ]),
                 ]),
-                seq([
-                    kw(Keyword::Wait),
-                    not([vec![word_term("until", false)]]),
-                    r("operand"),
-                ]),
+                seq([kw(Keyword::Wait), r("operand")]),
                 seq([w("ctx"), line(r("condition_expression")), block()]),
                 r("context_scope"),
                 r("tempdir_scope"),
@@ -1933,8 +1928,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             ]),
         ),
         // The name before the brace is the block's parameter.
-        // `within` is contextual: it opens a scope only before a duration
-        // literal or a dotted name that the block follows on the same line.
         rule(
             Expressions,
             "within_scope",
@@ -2238,13 +2231,12 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Commands,
             "named_command",
             alt([
-                // The words that begin a `tempdir NAME at PATH` scope or an
-                // `atomically replace` statement always begin one: the parser
-                // decides on them alone, so a command cannot start that way.
+                // The words that begin a `tempdir NAME at PATH` scope always
+                // begin one: the parser decides on them alone, so a command
+                // cannot start that way.
                 seq([
                     not([
                         vec![word_term("tempdir", false), tag_term(T::Ident), word_term("at", false)],
-                        vec![word_term("atomically", false), word_term("replace", false)],
                         vec![word_term("exit", false)],
                         vec![word_term("fail", false)],
                         vec![word_term("test", false), tag_term(T::Ident)],

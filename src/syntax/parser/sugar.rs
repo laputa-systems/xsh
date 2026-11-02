@@ -940,20 +940,14 @@ mod tests {
                 "wait until x is Thing as t within t.limit backoff a.b..c.d\n",
                 true,
             ),
-            ("wait until until within within every every\n", true),
             // A set union in the condition ends at the word like any other.
             ("wait until key in a | b within 5s backoff 1ms..5ms\n", true),
             ("wait until (a | b).is_empty() within limit\n", true),
-            (
-                "wait until until within within backoff backoff .. backoff\n",
-                true,
-            ),
             (
                 "let r = retry backoff 1ms..limit within limit on (is Timeout) { 1 }\n",
                 true,
             ),
             ("let r = retry backoff a.b .. 5s within 5s { 1 }\n", true),
-            ("wait (until)\n", true),
             ("wait until.done\n", false),
             ("wait until\n", false),
             ("wait until ready()\n", false),

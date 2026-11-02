@@ -146,11 +146,30 @@ that names its survivor:
 - quoted record labels that are identifiers, `{"type": v}`; write `{type: v}`
   (C11)
 - the `prefer-method` rewrites of functions that no longer exist (C12)
+- `until`, `every`, `backoff`, `atomically`, and `within` as names: they are
+  reserved, so the forms they head need no rule to tell them from a binding
+  (D03)
 
 Keep sigils' meanings fixed: `$` and `${...}` interpolate command words, `@`
 splices argv, and `?` propagates a result. Do not reuse a sigil or add delimiter
 noise to work around a conflict. If no clear spelling exists, record the
 problem in `TODO.md` and wait.
+
+## Reserve every word a form needs
+
+A word is reserved everywhere or nowhere; the reserved list is in
+[SPEC 2.3](SPEC.md#23-keywords). A form that needs a word nobody can spell as a
+name gets that word reserved, and a form that cannot be written without a
+contextual word is redesigned.
+
+The contextual words that remain are the one documented exception. Reserving
+the clause words of `fail`, `exit`, `without`, `tempdir NAME at`, `ctx`,
+`replace`, `as`, `on`, `collect`, `nominal`, `exact`, and `optional` would
+rename hundreds of bindings or collide with common names, and the stage names
+after `|>` (`map`, `first`, `count`, `min`, `sort`, and the rest) cannot be
+reserved without new syntax. `repeat` and `times` stay contextual only so that
+the removed `repeat N times { }` is reported with its `for` loop. Do not add a
+contextual word: reserve it, or leave the form out.
 
 ## Make syntax searchable
 

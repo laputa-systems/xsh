@@ -13,16 +13,6 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::{AssignOp, BinaryOp, DurationLiteral, IntLiteral};
 
-/// The word after `wait` that begins the statement. It stays an ordinary
-/// identifier everywhere else.
-const UNTIL_WORD: &str = "until";
-/// The word between the condition and the limit, in this statement and in
-/// the head of a `retry backoff`.
-pub(super) const WITHIN_WORD: &str = "within";
-/// The word before a fixed interval.
-const EVERY_WORD: &str = "every";
-/// The word before a doubling interval, in this statement and after `retry`.
-pub(super) const BACKOFF_WORD: &str = "backoff";
 /// The interval between two tests when the statement names none.
 const DEFAULT_INTERVAL: &str = "100ms";
 /// The local that holds the interval the next sleep takes. No identifier can
@@ -39,13 +29,9 @@ pub(super) struct DurationOperand {
 }
 
 impl Parser<'_> {
-    /// Whether the cursor is on `wait until`. `wait` is reserved, and the
-    /// name `until` directly after it always begins this statement: a handle
-    /// that is named `until` is waited for as `wait (until)`.
+    /// Whether the cursor is on `wait until`.
     pub(super) fn lookahead_is_wait_until(&self) -> bool {
-        self.at_keyword(Keyword::Wait)
-            && self.peek_tag(1) == Some(TokenTag::Ident)
-            && self.peek_name(1).is_some_and(|name| name == UNTIL_WORD)
+        self.at_keyword(Keyword::Wait) && self.peek_keyword(1) == Some(Keyword::Until)
     }
 
     /// A duration written in a head that words follow: a duration literal,
@@ -113,9 +99,7 @@ impl Parser<'_> {
 
     /// The `within` word of a head, which must be there.
     pub(super) fn expect_within_word(&mut self, after: &str) -> Option<Span> {
-        if self.current_tag() == TokenTag::Ident
-            && self.current_name().is_some_and(|name| name == WITHIN_WORD)
-        {
+        if self.at_keyword(Keyword::Within) {
             return Some(self.bump());
         }
         self.diagnostic_here(
@@ -135,17 +119,14 @@ impl Parser<'_> {
         let condition = self.parse_head_expr_arena_only(arena)?.id;
         let condition_span = arena.expr_span(condition);
         let within = self.expect_within_word("the condition of `wait until`")?;
-        let limit = self.parse_duration_operand_arena_only(WITHIN_WORD, arena)?;
-        let word = (self.current_tag() == TokenTag::Ident)
-            .then(|| self.current_name())
-            .flatten();
-        let pace = if word.is_some_and(|name| name == EVERY_WORD) {
+        let limit = self.parse_duration_operand_arena_only("within", arena)?;
+        let pace = if self.at_keyword(Keyword::Every) {
             let every = self.bump();
-            let interval = self.parse_duration_operand_arena_only(EVERY_WORD, arena)?;
+            let interval = self.parse_duration_operand_arena_only("every", arena)?;
             Pace::Every { every, interval }
-        } else if word.is_some_and(|name| name == BACKOFF_WORD) {
+        } else if self.at_keyword(Keyword::Backoff) {
             let backoff = self.bump();
-            let first = self.parse_duration_operand_arena_only(BACKOFF_WORD, arena)?;
+            let first = self.parse_duration_operand_arena_only("backoff", arena)?;
             self.expect_backoff_range()?;
             let cap = self.parse_duration_operand_arena_only("..", arena)?;
             Pace::Backoff {

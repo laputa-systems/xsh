@@ -288,8 +288,8 @@ test sed_nul_bytes_are_ordinary_text_for_regexes { |ctx|
   let app = fp"{ctx.core_dir}/sed.xsh"
   let first = run.bytes ${ctx.xsh_bin} $app -- "s/woo/bang/" $file
   assert first == b"\0bang\0woo\0"
-  let every = run.bytes ${ctx.xsh_bin} $app -- "s/woo/bang/g" $file
-  assert every == b"\0bang\0bang\0"
+  let all_replaced = run.bytes ${ctx.xsh_bin} $app -- "s/woo/bang/g" $file
+  assert all_replaced == b"\0bang\0bang\0"
   let anchored = run.bytes ${ctx.xsh_bin} $app -- -n "/^woo/p" $file
   assert anchored == b"", "a NUL ends the text the anchor can match at the start of"
   let dots = test.temp_file(ctx, name: "dots", contents: b"\0a\0")?

@@ -323,17 +323,17 @@ test test_atomically_nests { |ctx|
   assert names(root)? == ["outer"]
 }
 
-test test_atomically_words_stay_ordinary_names { |ctx|
+test test_replace_and_as_stay_ordinary_names { |ctx|
   let base = test.temp_dir(ctx, name: "atomically-names")?
-  let atomically = fp"{base}/x"
+  let target = fp"{base}/x"
   var replace = 0
-  atomically replace atomically as as {
+  atomically replace target as as {
     replace += 1
     as.write("as")
   }
 
   assert replace == 1
-  assert atomically.read_text()? == "as"
+  assert target.read_text()? == "as"
   assert "a-b".replace("-", with: "+") == "a+b"
 }
 

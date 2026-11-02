@@ -130,12 +130,9 @@ test test_wait_until_reads_names_for_its_durations {
   } within patience backoff limits.first..limits.cap
   assert polls == 6
 
-  # The words stay names everywhere else.
-  let until = 1
-  let every = 2
-  let backoff = 3
-  let within = 4
-  assert until + every + backoff + within == 10
+  # The words are reserved, and stay usable as record labels and members.
+  let row = {until: 1, every: 2, backoff: 3, within: 4}
+  assert row.until + row.every + row.backoff + row.within == 10
 }
 
 test test_wait_until_sits_in_loops_and_blocks_that_defer {

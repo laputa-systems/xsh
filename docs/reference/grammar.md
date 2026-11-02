@@ -66,7 +66,7 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 Keywords:
 
 ```text
-and assert break const continue defer else enum errdefer export false for guard if in let loop match not null or proc pure retry return run spawn stream true try type unless use var wait when while with yield
+and assert atomically backoff break const continue defer else enum errdefer every export false for guard if in let loop match not null or proc pure retry return run spawn stream true try type unless until use var wait when while with within yield
 ```
 
 Every other quoted word is contextual: it is an ordinary identifier outside
@@ -230,7 +230,7 @@ continue_statement = "continue" postfix_guard? ;
 defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
 expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "exit" "?" | "fail" "?" ) &name_expression expression "?"? ;
-guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) &name_expression expression postfix_guard ;
+guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" | "tempdir" IDENT "{" ) &name_expression expression postfix_guard ;
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition block ;
@@ -311,7 +311,7 @@ primary = literal
         | retry_expression
         | run_form !( "?" "(" | "?" "[" ) ( "?" &"|>" | run_end )
         | "spawn" ( run_form !( "?" "(" ")" | "?" "[" ) run_end | !"run" operand )
-        | "wait" !"until" operand
+        | "wait" operand
         | "ctx" line(condition_expression) block
         | context_scope
         | tempdir_scope
@@ -459,7 +459,7 @@ type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 
 ```ebnf
 run_statement = run_form "?"? ( "|>" pipe_stage )* ;
-named_command = !( "tempdir" IDENT "at" | "atomically" "replace" | "exit" | "fail" | "test" IDENT | "test" PROC_IDENT ) &proc_command NAME ( "." NAME )* !( "." | "=" ) ( command_argument command_argument* )?
+named_command = !( "tempdir" IDENT "at" | "exit" | "fail" | "test" IDENT | "test" PROC_IDENT ) &proc_command NAME ( "." NAME )* !( "." | "=" ) ( command_argument command_argument* )?
               | "exit" &( NEWLINE | ";" | "}" )
               | "fail" &( NEWLINE | ";" | "}" | ~"," ) ;
 print_statement = !name_expression ( "print" | "eprint" ) !"=" ( !( "when" | "unless" ) command_argument ( !( "when" | "unless" ) command_argument )* )? "?"? postfix_guard? ;

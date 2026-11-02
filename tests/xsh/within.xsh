@@ -308,9 +308,7 @@ print "never"
   assert ":2:" in output.stderr
 }
 
-test test_within_is_contextual_and_checked { |ctx|
-  let within = 2
-  assert within + 1 == 3
+test test_within_is_checked { |ctx|
   let limit = 30s
   let limits = {short: limit}
   assert within limits.short { 1 } == Ok(1)

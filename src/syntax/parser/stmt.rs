@@ -36,6 +36,20 @@ impl<'a> Parser<'a> {
         if self.lookahead_is_wait_until() {
             return self.parse_wait_until_arena_only(start, arena);
         }
+        if self.at_keyword(Keyword::Within) {
+            let scope = self.parse_within_scope_arena_only(arena, false)?;
+            let value = if self.consume(TokenKindMatch::Question).is_some() {
+                arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
+            } else {
+                scope.id
+            };
+            let end = self.expect_terminator();
+            arena.push_expr_statement(value, self.span(start, end));
+            return Some(());
+        }
+        if self.lookahead_is_atomically() {
+            return self.parse_atomically_arena_only(start, arena);
+        }
         if let Some(form) = self.current_keyword().and_then(grammar::statement_form) {
             return match form {
                 StatementForm::Binding => {
@@ -71,9 +85,6 @@ impl<'a> Parser<'a> {
                 }
                 if self.lookahead_is_without() {
                     return self.parse_without_arena_only(start, arena);
-                }
-                if self.lookahead_is_atomically() {
-                    return self.parse_atomically_arena_only(start, arena);
                 }
                 if self.current_name().is_some_and(|name| name == "env")
                     && self.peek_tag(1) == Some(TokenTag::LBrace)
@@ -118,17 +129,6 @@ impl<'a> Parser<'a> {
                 }
                 if self.lookahead_is_tempdir_scope() {
                     let scope = self.parse_tempdir_scope_arena_only(arena, false)?;
-                    let value = if self.consume(TokenKindMatch::Question).is_some() {
-                        arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
-                    } else {
-                        scope.id
-                    };
-                    let end = self.expect_terminator();
-                    arena.push_expr_statement(value, self.span(start, end));
-                    return Some(());
-                }
-                if self.lookahead_is_within_scope() {
-                    let scope = self.parse_within_scope_arena_only(arena, false)?;
                     let value = if self.consume(TokenKindMatch::Question).is_some() {
                         arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
                     } else {

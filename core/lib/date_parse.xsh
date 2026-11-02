@@ -221,10 +221,10 @@ pure zone_suffix(text: Str) -> Result[Zoned] {
 export pure days_from_civil(year: Int, month: Int, day: Int) -> Int {
   let y = year - (if month <= 2 { 1 } else { 0 })
   let era = floor_div(y, 400)
-  let within = y - era * 400
+  let day_in_era = y - era * 400
   let m = month + (if month > 2 { -3 } else { 9 })
   let ordinal = (153 * m + 2) / 5 + day - 1
-  era * 146097 + within * 365 + within / 4 - within / 100 + ordinal - 719468
+  era * 146097 + day_in_era * 365 + day_in_era / 4 - day_in_era / 100 + ordinal - 719468
 }
 
 pure civil_from_days(days: Int) -> Civil {

@@ -98,30 +98,48 @@ error.
 Reserved keywords:
 
 ```text
-and assert break const continue defer else enum errdefer export false for
-guard if in let loop match not null or proc pure retry return run spawn stream
-true try type unless use var wait when while with yield
+and assert atomically backoff break const continue defer else enum errdefer
+every export false for guard if in let loop match not null or proc pure retry
+return run spawn stream true try type unless until use var wait when while with
+within yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
 `with` begins the resource scope (10.4); an `else` handler after its body is
-`parse.with-handler`.
+`parse.with-handler`. `wait until ... within ... every` and `backoff` (8.6,
+8.8), `atomically replace` (8.7), and `within` (10.4) are the forms of the
+words `until`, `every`, `backoff`, `atomically`, and `within`, which no
+binding, parameter, or function may be named. They stay usable as record
+labels and after a `.`: `{within: 5s}` and `cfg.until`.
 
 Contextual words keep their special meaning only in their syntactic position
-and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `tempdir`, `test`, `nominal` directly before `type` (4.7), `at` in the head of a
-`tempdir NAME at PATH` scope (10.4),
-`fail` at the start of a `fail` statement (8.6),
-`atomically` and `replace` at the start of an `atomically replace` statement
-and the `as` that ends its destination (8.7),
-`as` between a value and a type, where it is the conversion operator (6.11),
-`within` before the duration and block of a `within` scope (10.4),
-`until` directly after `wait`, and `within`, `every`, and `backoff` in the
-head of a `wait until` statement (8.6),
-`backoff` directly after `retry` and the `within` that follows its intervals
-(8.8),
-`collect` directly before the `{` of a `collect` expression (6.9),
-and the core commands `print` and `eprint`.
+and remain ordinary identifiers elsewhere. They are the one documented
+exception to reserving a word everywhere or nowhere: each is a common name
+that reserving would break across the corpus (`at`, `ctx`, `exact`, `fail`,
+`optional`, `as`, `on`, `replace`, `collect`, `without`, `exit`, `tempdir`,
+`nominal`), or a name that a form needs beside the language's own
+vocabulary (`cli`, `error`, `test`), and the stage names after `|>` cannot be
+reserved without new syntax:
+
+- declaration heads: `cli NAME(...)`, `error NAME = ...`, `test NAME {`, and
+  `on SIGNAL` (12.2) at the start of a statement, `nominal` directly before
+  `type` (4.7), `exact` directly before `module` and `optional` before a
+  contract entry (4.9);
+- statement heads: `fail` (8.6) and `exit` (8.9) followed on the same line by
+  their operand, `without EFFECT, ... {` (9.6), `tempdir NAME {` and the `at`
+  of `tempdir NAME at PATH {` (10.4), `ctx MESSAGE {` (8.8), and the
+  `replace` that follows `atomically` and the `as` that ends its destination
+  (8.7);
+- operators and clauses: `as` between a value and a type, where it is the
+  conversion operator (6.11), `is` in a pattern test, and `on (PATTERN)` of a
+  `retry` (8.8);
+- `collect` directly before the `{` of a `collect` expression (6.9);
+- the stage names after `|>`: a stage that begins with a stage name is a
+  stream stage, and any other stage is an expression (13.3);
+- the core commands `print` and `eprint`, and the scope heads `cd (PATH) {` and
+  `env (OVERLAY) {` (10.4), where `env` is also the standard module;
+- `repeat` and `times`, read only to report `parse.repeat-statement` for a
+  removed `repeat N times { }`.
 
 Builtin type and constructor names:
 
@@ -2760,9 +2778,8 @@ limit and each interval is a duration literal or a name with any `.field`s,
 read once when the statement starts; bind any other expression to a name
 first. The `..` of a backoff is two dots with nothing between them.
 
-`until` directly after `wait` always begins this statement, which has no
-value and takes no postfix guard. A process handle that is named `until` is
-waited for as `wait (until)` (11.7). `lint.prefer-wait-until` notes a `while`
+`until` directly after `wait` begins this statement, which has no value and
+takes no postfix guard. `lint.prefer-wait-until` notes a `while`
 loop that sleeps with `time.sleep` and counts its rounds. It is a note,
 and `--fix` never applies it, because no such loop is this
 statement: the loop fails with the error it wrote and counts sleeps, and the
@@ -3125,14 +3142,15 @@ value: a failed rename propagates like any other failure of the statement, so
 `error` effect where a failure can leave a restricted proc. The temporary name
 ends in `.tmp`, so a producer that chooses a format by file extension must be
 told the format. A statement is an `atomically replace` statement when it
-begins with the words `atomically` and `replace` on one line; no word of the
-head is reserved, and the destination is a head expression like the source of
+begins with the words `atomically` and `replace` on one line; `atomically`
+is reserved, `replace` is a word only there, and the destination is a head
+expression like the source of
 a `for`. It ends at the `as` that stands directly before the name and the `{`
 of the body, outside every bracket the destination opens: a pattern test
 there keeps an alias of its own only inside brackets or before that word
-(`atomically replace (kind is Image as image) as partial {`). Those two words,
-like the three that begin a `tempdir NAME at PATH` scope, never begin a
-command. `Path.write_atomic` (15) is the same publication for bytes the
+(`atomically replace (kind is Image as image) as partial {`). The words
+`atomically replace`, like the three that begin a `tempdir NAME at PATH`
+scope, never begin a command. `Path.write_atomic` (15) is the same publication for bytes the
 program already holds.
 
 ### 8.8 `try`, `retry`, and `ctx`
@@ -4261,9 +4279,8 @@ goes where it would go without the scope. The duration is a `Duration`
 evaluated once. The scope needs the `time` effect and is rejected in pure
 functions, and a `yield` inside it is rejected: a producer suspended there
 would keep the deadline open while its consumer runs. `within` starts a
-scope only when a duration literal or a name with any `.field`s follows it
-and the `{` follows that on the same line; bind any other expression to a
-name first. Everywhere else `within` is an ordinary name.
+scope, and a duration literal or a name with any `.field`s follows it; bind
+any other expression to a name first.
 
 The deadline is noticed at checkpoints, not at an arbitrary instant:
 
@@ -4706,8 +4723,8 @@ strings.
   readable after the child is gone. The first `wait` or `cancel` consumes the
   child; a later `wait` through any alias fails with `ProcessError.Unknown`,
   and a later `cancel` is the no-op above.
-- `wait until` begins the polling statement of 8.6, so the handle of a `wait`
-  cannot be the bare name `until`; write `wait (until)`.
+- `wait until` begins the polling statement of 8.6; `until` is reserved, so it
+  never names a handle.
 
 ### 11.8 Ownership of live resources
 
