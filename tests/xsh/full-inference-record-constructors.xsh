@@ -126,3 +126,17 @@ pure inferred(name) -> Chunk { Chunk(file: name) }
 let result = inferred(1)
 """, status: 2, stderr: ["[check.callable-mismatch]"])?
 }
+
+test test_generic_schema_constructors_accept_parameters_stored_in_optional_fields { |ctx|
+  let output = test.run_xsh(ctx, r"""type Box[T] = {item: T?, count: Int}
+pure annotated(value: Str, count: Int) -> Box[Str] { Box(item: value, count: count) }
+pure inferred(value, count) { Box(item: value, count: count) }
+assert inferred("y", 2) == annotated("y", 2)
+assert inferred(7, 3).item == 7
+""")?
+  assert output.success, output.stderr
+  test.expect(ctx, r"""type Box[T] = {item: T?, count: Int}
+pure inferred(value) -> Box[Str] { Box(item: value, count: 1) }
+let result = inferred(1)
+""", status: 2, stderr: ["[check.callable-mismatch]"])?
+}

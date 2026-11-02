@@ -3075,7 +3075,7 @@ fn verify_body_expression(
                 }
                 for (name, expected) in fields {
                     budget.charge(1)?;
-                    if !actual.get(name).map(|actual| body_type_matches(actual, expected, budget)).transpose()?.unwrap_or(false) {
+                    if !actual.get(name).map(|actual| body_assignment_matches(store, decoder.owner, scheme_scope, actual, expected, budget)).transpose()?.unwrap_or(false) {
                         return Err(IrVerifyError::new("scoped constructor disagrees with its actual field producers"));
                     }
                 }

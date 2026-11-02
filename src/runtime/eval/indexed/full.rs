@@ -23962,7 +23962,7 @@ assert forward({value: 7}, "kept") == 0
         run_with_large_stack(|| {
             let program = fixture("record-constructor-nullable-fields.xsh", r#"
 type Entry = {text: Str?, count: Int?}
-pure make(text, count) -> Entry { Entry(text:, count:) }
+pure make(text, count) { Entry(text:, count:) }
 assert make("kept", 3).text == "kept"
 "#);
             FullVerifier::verify(&program).unwrap();
@@ -23986,6 +23986,38 @@ assert make("kept", 3).text == "kept"
             swapped.store.scheme_callable_parameters[count].ty = text_domain;
             let error = FullVerifier::verify(&swapped).unwrap_err();
             assert_eq!(error.message, "generic record constructor disagrees with its actual field producers");
+        });
+    }
+
+    #[test]
+    fn scoped_record_constructors_require_the_nullable_target_proof_of_each_parameter_field() {
+        run_with_large_stack(|| {
+            let program = fixture("scoped-record-constructor-nullable-fields.xsh", r#"
+type Entry[T] = {text: T?, count: Int?}
+pure make(text, count) { Entry(text:, count:) }
+assert make("kept", 3).text == "kept"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let owner = scheme_fixture_root_function(&program, "make");
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("make retains its argument requirements") };
+            let scheme = program.store.schemes[scheme.index()];
+            let params = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            let parameter_of = |argument: schemes::SchemeTypeId| scheme.applications.bounds(program.store.scheme_applications.len()).unwrap().find_map(|index| {
+                let schemes::FullSchemeApplication::KnownArguments { parameters, arguments } = program.store.scheme_applications[index] else { return None };
+                let argument_index = arguments.bounds(program.store.scheme_application_arguments.len()).unwrap().start;
+                let actual = program.store.scheme_application_arguments[argument_index].ty;
+                (program.store.scheme_types[actual.index()] == program.store.scheme_types[argument.index()])
+                    .then(|| parameters.bounds(program.store.scheme_callable_parameters.len()).unwrap().start)
+            }).unwrap();
+            let text = parameter_of(program.store.scheme_params[params.start].ty);
+            let count = parameter_of(program.store.scheme_params[params.start + 1].ty);
+            let mut swapped = program.clone();
+            swapped.store.in_place.take();
+            let text_domain = swapped.store.scheme_callable_parameters[text].ty;
+            swapped.store.scheme_callable_parameters[text].ty = swapped.store.scheme_callable_parameters[count].ty;
+            swapped.store.scheme_callable_parameters[count].ty = text_domain;
+            let error = FullVerifier::verify(&swapped).unwrap_err();
+            assert_eq!(error.message, "scoped constructor disagrees with its actual field producers");
         });
     }
 
