@@ -1447,6 +1447,11 @@ impl Checker {
                 }
                 Err(error) => {
                     if self.covered_by_specific_error(site.source) { continue; }
+                    if self.diagnostics.iter().any(|diagnostic| diagnostic.message == "argument type needs an annotation"
+                        && diagnostic.labels.iter().any(|label| label.style == crate::diagnostic::LabelStyle::Primary
+                            && label.span.source_id == site.source.source_id
+                            && site.source.start() <= label.span.start() && label.span.end() <= site.source.end()))
+                    { continue; }
                     let code = match &error {
                         crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnsupportedMethodFamily) => DiagnosticCode::CheckTypeMismatch,
                         crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::AmbiguousMethodFamily) => DiagnosticCode::CheckAmbiguousOverload,

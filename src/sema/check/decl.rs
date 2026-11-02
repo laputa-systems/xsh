@@ -227,6 +227,45 @@ impl Checker {
         (*ty == Type::Tag(family)).then_some(node.span)
     }
 
+    fn report_unanchored_call_types(
+        &mut self,
+        program: &ArenaProgram,
+        owner: super::EffectDeclarationId,
+        component: &std::collections::BTreeSet<super::EffectDeclarationId>,
+        calls: &BTreeMap<crate::sema::schemes::InstantiationSite<Span>, crate::sema::value_materialization::InstantiationEvidence<Type, (Arc<crate::sema::schemes::CallableScheme>, crate::sema::constraints::InstantiatedScheme)>>,
+        body_types: &BTreeMap<ExprId, Type>,
+        formals: &[Type],
+        returned: Option<&Type>,
+    ) -> bool {
+        let anchors = formals.iter().chain(returned).cloned().collect::<Vec<_>>();
+        let users = body_types.iter()
+            .filter(|&(&expression, _)| matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty()))
+            .map(|(&expression, ty)| (expression, ty.clone())).collect::<Vec<_>>();
+        let mut reported = std::collections::BTreeSet::new();
+        for (site, evidence) in calls {
+            let holes = evidence.instances().flat_map(|(_, instance)| instance.type_arguments.values().cloned()).collect::<Vec<_>>();
+            let unanchored = match self.type_constraints.unanchored_type_users(owner, component, &holes, &anchors, &users) {
+                Ok(None) => continue,
+                Ok(Some(unanchored)) => unanchored,
+                Err(_) => continue,
+            };
+            let Some(span) = unanchored.into_iter()
+                .map(|expression| program.arena.expr(expression).span)
+                .filter(|span| span.start() >= site.source.start() && span.end() <= site.source.end())
+                .min_by_key(|span| (span.start(), span.end() - span.start()))
+            else { continue };
+            if !reported.insert(span) { continue; }
+            let label = "the item type of this empty list is not determined by anything in this function";
+            self.diagnostics.push(
+                crate::diagnostic::Diagnostic::error("argument type needs an annotation")
+                    .with_code(DiagnosticCode::CheckLocalInference)
+                    .with_label(crate::diagnostic::Label::primary(span, label))
+                    .with_note("annotate the value, for example `let words: List[Str] = []`, or the parameter it is passed to"),
+            );
+        }
+        reported.is_empty()
+    }
+
     pub(super) fn generalize_pending_function(
         &mut self,
         program: &ArenaProgram,
@@ -468,6 +507,7 @@ impl Checker {
             }
         }
         let calls = self.pending_call_instantiations.iter().filter(|(site, _)| expression_spans.contains(&site.source)).map(|(&site, evidence)| (site, evidence.clone())).collect::<BTreeMap<_, _>>();
+        if !self.report_unanchored_call_types(program, declaration.effect_declaration(), component, &calls, &body_types, &storage_inputs, types.last()) { return None; }
         let generalized = self.type_constraints.generalize_callable_body_with_calls_in_component(
             &types, &body_types, &tail_types, &calls, 0, declaration.effect_declaration(), component,
             &|site: crate::sema::schemes::InstantiationSite<Span>| self.constraint_scope_at(declaration.effect_declaration(), site.source),

@@ -214,6 +214,26 @@ impl TypeConstraints {
         }
     }
 
+    pub(crate) fn unanchored_type_users<K: Clone>(
+        &self,
+        owner: crate::sema::check::EffectDeclarationId,
+        component: &BTreeSet<crate::sema::check::EffectDeclarationId>,
+        holes: &[Type],
+        formals: &[Type],
+        users: &[(K, Type)],
+    ) -> Result<Option<Vec<K>>, ConstraintResolutionError> {
+        let holes = self.unresolved_input_variables(holes)?;
+        let bound = self.input_bound_variables(owner, component, formals)?;
+        let unbound = holes.types.iter().copied().filter(|variable| !bound.contains_type(*variable)).collect::<FxHashSet<_>>();
+        if unbound.is_empty() { return Ok(None); }
+        let mut found = Vec::new();
+        for (key, ty) in users {
+            let variables = self.unresolved_input_variables(std::slice::from_ref(ty))?;
+            if variables.types.iter().any(|variable| unbound.contains(variable)) { found.push(key.clone()); }
+        }
+        Ok(Some(found))
+    }
+
     pub(super) fn unresolved_input_variables(&self, types: &[Type]) -> Result<UnresolvedVariables, ConstraintResolutionError> {
         let mut variables = UnresolvedVariables::default();
         let mut pending = types.iter().map(|ty| self.resolve(ty).map(|ty| (ty, 0))).collect::<Result<Vec<_>, _>>()?;

@@ -176,3 +176,29 @@ pure count_quoted(files) -> Int { [file for file in files if file.quoted].len() 
 let rejected = count_quoted([{quoted: 1}])
 """, status: 2, stderr: ["[check.type-mismatch]"])?
 }
+
+test test_full_inference_empty_list_argument_without_an_anchor_names_the_value { |ctx|
+  test.expect(ctx, r"""
+pure selected(words) -> Bool { words[0] == "a" }
+pure usage(key: Int) -> Bool { selected([]) }
+""", status: 2, stderr: ["[check.local-inference]", "argument type needs an annotation", "the item type of this empty list"])?
+}
+
+test test_full_inference_empty_list_argument_is_accepted_when_the_callee_or_a_local_anchors_it { |ctx|
+  let output = test.run_xsh(ctx, r"""
+pure selected(words) -> Bool { words.is_empty() or words[0] == "a" }
+pure typed(words: List[Str]) -> Bool { words.is_empty() }
+pure annotated_local() -> Bool {
+  let words: List[Str] = []
+  selected(words)
+}
+pure anchored_callee() -> Bool { typed([]) and selected(["a"]) }
+pure forwarded(words) -> Bool { selected(words) }
+assert forwarded(["a"])
+assert annotated_local()
+assert anchored_callee()
+print "anchored"
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "anchored\n"
+}
