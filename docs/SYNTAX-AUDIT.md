@@ -56,7 +56,21 @@ Limits.
 | Grammar reference lines | 613 |
 | Corpus | 2,672 files, 600,760 lines |
 
-Phase B records the same table beside the final values in DESIGN.md.
+## Final metrics
+
+Measured after C01, C02, C04 to C09, C11, and C12 landed. C03 and the deferred C10 and C13 are not counted, so `repeat` and `times` are still contextual words.
+
+| Metric | Start | Final |
+|---|---|---|
+| Reserved keywords (SPEC 2.3) | 39 | 39 |
+| Contextual words named by SPEC 2.3 | 25 | 24 (`because` is gone) |
+| Contextual words, total | 33 | 32 |
+| Grammar productions (`docs/reference/grammar.md`) | 176 | 171 |
+| `prefer-*` lints | 74 | 71 |
+| SPEC.md lines | 7,107 | 7,078 |
+| Grammar reference lines | 613 | 602 |
+
+The three `prefer-*` lints removed are `prefer-method`, `prefer-bare-field-label`, and `prefer-match-else`; `set_literal`, `set_comprehension`, `set_expression`, and `set_lead` account for four of the five productions.
 
 ## Inventory
 
@@ -622,6 +636,7 @@ Items land in the order below. C10 and C13 are deferred by the owner; no D or K 
 | C11 | done | `parse.quoted-field-label` | `{"type": v}` and `{r"in": v}` are rejected in a record or map literal, with the bare field to write. The `prefer-bare-field-label` lint is deleted. The 33 Laputa sites were in `xinfra`; the xsh sites were three in `core/lsipc.xsh` and about thirty inside test scripts that the lint count could not see. Quoted labels remain for keys that are not identifiers |
 | C04 | done | `parse.match-wildcard-arm` | an unguarded `_ =>` arm is read as the catch-all so the rest of the file parses, then rejected with the `else =>` line; `_ if COND =>`, `(_) =>`, and `_` inside a pattern stay. The `prefer-match-else` lint and its linter hooks are deleted, and the grammar's `arm_head` excludes `_ =>`. The audit counted 90 sites; the repository held about 225 `_ =>` lines in 70 `.xsh` files (most inside script strings in `tests/xsh`), about 90 more in Rust test strings, and 47 in Laputa |
 | C02 | done | `parse.set-literal` | the audit counted 86 sites (0 in xsh source or Laputa); `tests/xsh` and Rust test strings held about 150 more, found by parsing every string literal that holds a brace. A brace set literal or comprehension is still read, as the list it would build, so the file keeps parsing, and is rejected with the `set.from([...])` call to write. `ArenaExprKind::Set`/`SetComp`, `set_literal`, `set_comprehension`, `set_expression`, `set_lead`, the typing rule that bare names are a set where a `Set[T]` is expected, and the mixed-entry error are gone. `set.from` over a list literal is admitted in `const` initializers, and generic bodies lower `set.from` through the `to_set` plan the literal used. No IR tag was removed: `set.from` and `set.empty()` still lower to the set instructions |
+| C03 | deferred | none | owner runs a one-off rewrite. About 230 sites: 194 `.xsh` lines in 112 files, 33 lines inside Rust test strings in 15 files, 9 documentation lines, and 1 in Laputa (the audit counted 190). The rewrite is the single substitution `repeat N times {` to `for _ in range(N) {`. The `\|> repeat(n)` stream stage is a different form and stays |
 
 ## Owner decisions
 

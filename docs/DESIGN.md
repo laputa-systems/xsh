@@ -124,8 +124,27 @@ form would be broader than the feature needs.
 ## Give each concept one spelling
 
 Two spellings for one operation split the corpus and make code reviews debate
-style. When a better spelling replaces an old one, add a lint and an autofix
-when the rewrite preserves behavior.
+style. When a better spelling replaces an old one, make the old one a check-time
+error whose diagnostic shows the rewritten line; do not leave it as a lint.
+
+The [syntax audit](SYNTAX-AUDIT.md) removed these spellings, each now an error
+that names its survivor:
+
+- command-style calls of standard APIs (`json.write out.json $x`); write the
+  call with typed arguments (C01)
+- set literals and comprehensions, `{"a", "b"}` and `{x for x in xs}`; write
+  `set.from([...])` (C02)
+- the unguarded `_ =>` match arm; write `else =>` (C04)
+- `guard COND else fail MSG`; write `guard COND else { fail MSG }` (C05)
+- `fail MSG because CAUSE`; return an `Err` that carries the cause (C06)
+- the `$?` last-status expression (C07)
+- `cli NAME(...)` for any name but `main` (C08)
+- `error NAME { ... }`; write `error NAME = A | B` (C09)
+- quoted record labels that are identifiers, `{"type": v}`; write `{type: v}`
+  (C11)
+- the `prefer-method` rewrites of functions that no longer exist (C12)
+
+`repeat N times { }` (C03) is next: its survivor is `for _ in range(N) { }`.
 
 Keep sigils' meanings fixed: `$` and `${...}` interpolate command words, `@`
 splices argv, and `?` propagates a result. Do not reuse a sigil or add delimiter
