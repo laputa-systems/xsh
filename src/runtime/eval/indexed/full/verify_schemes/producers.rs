@@ -1051,6 +1051,7 @@ pub(super) fn process_word_type(ty: &Type, spliced: bool, optional_splice: bool,
     Ok(bytes_input)
 }
 
+#[derive(PartialEq, Eq)]
 pub(super) enum ProcessWordRole {
     Argument,
     Environment,
@@ -3184,6 +3185,13 @@ impl<'a> ProducerProof<'a> {
         let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("scoped expression instruction is invalid"))?;
         let scopes = self.index.scheme_scopes(self.store)?;
         super::scoped_expression_type(self.store, decoder, instruction, &scopes.scopes, &mut self.budget)
+    }
+
+    fn scoped_word_conversion(&mut self, decoder: &FullDecoder<'a>, instruction: usize, conversion: super::ValueConversion) -> Result<Option<bool>, IrVerifyError> {
+        if !self.index.scheme_owners.contains_key(&decoder.owner) { return Ok(None); }
+        let instruction = u32::try_from(instruction).map_err(|_| IrVerifyError::new("scoped expression instruction is invalid"))?;
+        let scopes = self.index.scheme_scopes(self.store)?;
+        super::scoped_expression_conversion(self.store, decoder, instruction, &scopes.scopes, conversion, &mut self.budget)
     }
 
     fn scoped_value_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
@@ -7414,6 +7422,11 @@ impl<'a> ProducerProof<'a> {
         let ty = match self.need_context(decoder, value)? {
             Some(ty) => ty,
             None if (spliced || optional_splice) && matches!(decoder.expression_view(value)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_)) => Arc::new(Type::List(Box::new(Type::Str))),
+            None if role == ProcessWordRole::Argument => {
+                let conversion = if spliced { super::ValueConversion::ArgvList } else if optional_splice { super::ValueConversion::ArgvOrList } else { super::ValueConversion::Argv };
+                if self.scoped_word_conversion(decoder, value, conversion)? != Some(true) { return Err(IrVerifyError::new("process word has no executable conversion contract")); }
+                return Ok(false);
+            }
             None => return Err(IrVerifyError::new("process word has no executable conversion contract")),
         };
         self.budget.charge_clone(&ty)?;

@@ -6430,6 +6430,15 @@ fn scheme_type_binders(
 }
 
 pub(super) fn scoped_expression_type(store: &FullStore, decoder: &FullDecoder<'_>, instruction: u32, scopes: &[Option<SchemeScope>], budget: &mut SchemeInstantiationBudget) -> Result<Option<SchemeType>, IrVerifyError> {
+    Ok(scoped_expression_in_scope(store, decoder, instruction, scopes, budget)?.map(|(ty, _)| ty))
+}
+
+pub(super) fn scoped_expression_conversion(store: &FullStore, decoder: &FullDecoder<'_>, instruction: u32, scopes: &[Option<SchemeScope>], conversion: ValueConversion, budget: &mut SchemeInstantiationBudget) -> Result<Option<bool>, IrVerifyError> {
+    let Some((ty, scope)) = scoped_expression_in_scope(store, decoder, instruction, scopes, budget)? else { return Ok(None) };
+    scheme_conversion(&ty, conversion, &scope, budget).map(Some)
+}
+
+fn scoped_expression_in_scope(store: &FullStore, decoder: &FullDecoder<'_>, instruction: u32, scopes: &[Option<SchemeScope>], budget: &mut SchemeInstantiationBudget) -> Result<Option<(SchemeType, SchemeScope)>, IrVerifyError> {
     budget.charge(1)?;
     if !decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("scoped expression belongs to another executable owner")); }
     let super::ExecutableOwner::Function(function) = super::ExecutableOwner::from_raw(decoder.owner)? else { return Ok(None); };
@@ -6445,7 +6454,8 @@ pub(super) fn scoped_expression_type(store: &FullStore, decoder: &FullDecoder<'_
     let ty = fact.ty().ok_or_else(|| IrVerifyError::new("scoped expression fact has no semantic type"))?;
     let scope = scopes.get(id.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("scoped expression owner has no binder scope"))?;
     let scope = scope.at_instruction(instruction as usize)?;
-    decode_scheme_type(store, &scope, ty, budget, 0).map(Some)
+    let ty = decode_scheme_type(store, &scope, ty, budget, 0)?;
+    Ok(Some((ty, scope)))
 }
 
 fn scheme_callable_source_relationship(store: &FullStore, decoder: &FullDecoder<'_>, instruction: u32, scopes: &[Option<SchemeScope>], budget: &mut SchemeInstantiationBudget) -> Result<u32, IrVerifyError> {

@@ -3795,6 +3795,21 @@ test namespace_borrow {
     }
 
     #[test]
+    fn generic_spawned_argv_operations_authenticate_exact_physical_conversion_modes() {
+        for (argument, expected) in [("(value)", 2), ("$value", 4), ("@value", 8)] {
+            let program = prepare(&format!("proc send(value) [io, process, error] {{ let handle = spawn run echo {argument} ?; handle }}"));
+            FullVerifier::verify(&program).unwrap();
+            for mode in [0, 1, 128] {
+                let mut changed = program.clone();
+                let parameter = changed.store.scheme_type_parameters.iter_mut().find(|parameter| parameter.conversions != 0).unwrap();
+                assert_eq!(parameter.conversions, expected);
+                parameter.conversions = mode;
+                assert!(FullVerifier::verify(&changed).is_err(), "{argument}: {mode}");
+            }
+        }
+    }
+
+    #[test]
     fn generic_argv_operations_authenticate_exact_physical_conversion_modes() {
         for (argument, expected) in [("(value)", 2), ("$value", 4), ("@value", 8)] {
             let program = prepare(&format!("proc send(value) [io, process, error] {{ run echo {argument}; value }}"));

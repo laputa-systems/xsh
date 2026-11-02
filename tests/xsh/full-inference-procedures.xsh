@@ -780,3 +780,31 @@ stopping_annotated([4, 3, 8])?
     stderr: ["[check.loop-control]"],
   )?
 }
+
+test test_full_inference_spawned_command_words_match_their_annotated_twins { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc launch(word, flags) [process, env, error] -> Result[Status, Error] {
+  let handle = spawn run $word @flags ?
+  wait handle
+}
+proc launch_annotated(word: Str, flags: List[Str]) [process, env, error] -> Result[Status, Error] {
+  let handle = spawn run $word @flags ?
+  wait handle
+}
+let inferred = launch("true", ["unused"])?
+let annotated = launch_annotated("true", ["unused"])?
+assert inferred.ok
+assert annotated.ok
+print "launched"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "launched\n"
+  test.expect(
+    ctx,
+    "proc launch(word) [process, env, error] -> Result[Status, Error] {\n  let handle = spawn run $word ?\n  wait handle\n}\nlet rejected = launch({a: 1})?\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "command argument"],
+  )?
+}
