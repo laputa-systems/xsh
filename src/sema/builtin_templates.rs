@@ -425,6 +425,14 @@ fn json_encode_value_parameter(plan: &super::schemes::RegisteredCallPlan, slot: 
         && plan.signature.params.first().is_some_and(|parameter| parameter.ty == Type::Any)
 }
 
+fn path_strip_prefix_method(plan: &super::schemes::RegisteredCallPlan) -> bool {
+    plan.receiver == Some(crate::modules::MethodReceiver::Path)
+        && plan.signature.op == crate::modules::RuntimeOp::PathStripPrefix
+        && plan.signature.arg_check == crate::modules::signature::ApiArgCheck::PathLikeSingle
+        && plan.signature.params.len() == 1
+        && plan.signature.params[0].ty == Type::Path
+}
+
 fn result_context_method(plan: &super::schemes::RegisteredCallPlan) -> bool {
     plan.receiver == Some(crate::modules::MethodReceiver::Result)
         && plan.signature.op == crate::modules::RuntimeOp::ResultContext
@@ -449,7 +457,7 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
     let signature = plan.signature;
     if plan.argument_checks.len() != signature.params.len() || plan.argument_checks.iter().flatten().any(|check| matches!(check, super::schemes::RegisteredArgumentCheck::Unsigned(ty) if ty.contains_inference() || ty.contains_recovery())) { return false; }
     if !matches!(signature.binding, ImplBinding::Native)
-        || signature.arg_check != ApiArgCheck::Standard && !json_encode_value_parameter(plan, 0) && !result_context_method(plan)
+        || signature.arg_check != ApiArgCheck::Standard && !json_encode_value_parameter(plan, 0) && !result_context_method(plan) && !path_strip_prefix_method(plan)
         || signature.semantic_rule != SemanticRule::Standard && !registered_record_get(plan)
     { return false; }
     let slots = plan.argument_slots.iter().copied().collect::<std::collections::BTreeSet<_>>();

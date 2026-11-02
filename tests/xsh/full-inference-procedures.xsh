@@ -1,3 +1,36 @@
+test test_full_inference_path_strip_prefix_on_an_annotated_local_of_a_generic_field { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Roots = {sysfs_root: Path, label: Str}
+pure relative(roots, sysfs_path: Path) -> Bytes {
+  let root: Path = roots.sysfs_root
+  if let Ok(inside) = sysfs_path.strip_prefix(root) { inside.bytes() } else { sysfs_path.bytes() }
+}
+pure relative_annotated(roots: Roots, sysfs_path: Path) -> Bytes {
+  let root: Path = roots.sysfs_root
+  if let Ok(inside) = sysfs_path.strip_prefix(root) { inside.bytes() } else { sysfs_path.bytes() }
+}
+let roots: Roots = {sysfs_root: p"/sys", label: "sys"}
+for candidate in [p"/sys/class/net", p"/dev/console"] {
+  let inferred = relative(roots, candidate)
+  let annotated = relative_annotated(roots, candidate)
+  assert inferred == annotated
+  print $inferred.len()
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "9\n12\n"
+  for header in ["pure relative(roots, sysfs_path: Path)", "pure relative(roots: Roots, sysfs_path: Path)"] {
+    test.expect(
+      ctx,
+      "type Roots = {sysfs_root: Str, label: Str}\n" + header + " -> Bytes {\n  let root: Path = roots.sysfs_root\n  if let Ok(inside) = sysfs_path.strip_prefix(root) { inside.bytes() } else { sysfs_path.bytes() }\n}\nlet roots: Roots = {sysfs_root: \"/sys\", label: \"sys\"}\nlet checked = relative(roots, p\"/sys/class\")\n",
+      status: 2,
+      stderr: ["[check.type-mismatch]"],
+    )?
+  }
+}
+
 proc full_inference_procedure_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-procedure-modules")?
   let fixture = fp"{ctx.file.parent()}/../fixtures/modules/full-inference-procedures/wrappers.xsh"

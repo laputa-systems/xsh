@@ -39020,6 +39020,42 @@ proc read(token, file: Path, spare: Str) [fs] {
     }
 
     #[test]
+    fn generic_path_strip_prefix_plan_rejects_forged_contracts() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-path-strip-prefix-forgery.xsh", "pure relative(roots, sysfs_path: Path) -> Bytes {\n  let root: Path = roots.sysfs_root\n  if let Ok(inside) = sysfs_path.strip_prefix(root) { inside.bytes() } else { sysfs_path.bytes() }\n}\n");
+            FullVerifier::verify(&program).unwrap();
+            let (&call, plan) = program.store.registered_calls.iter().find(|(_, plan)| plan.name.as_ref() == "strip_prefix").unwrap();
+            assert_eq!(plan.receiver, Some(crate::modules::MethodReceiver::Path));
+
+            let mut missing = program.clone();
+            missing.store.registered_calls.remove(&call);
+            FullVerifier::verify(&missing).expect_err("a stripped prefix call keeps its registered plan");
+
+            for (receiver, name) in [(crate::modules::MethodReceiver::Path, "starts_with"), (crate::modules::MethodReceiver::Path, "relative_to"), (crate::modules::MethodReceiver::EnvPathList, "append")] {
+                let mut forged = program.clone();
+                let mut wrong = (**plan).clone();
+                wrong.receiver = Some(receiver);
+                wrong.name = Arc::from(name);
+                wrong.signature = &crate::modules::api_spec().method_overloads(receiver, name).unwrap()[0].sig;
+                forged.store.registered_calls.insert(call, Arc::new(wrong));
+                FullVerifier::verify(&forged).expect_err("another registry method cannot stand in for the stripped prefix call");
+            }
+
+            let mut layout = program.clone();
+            let mut wrong = (**plan).clone();
+            wrong.argument_slots = Arc::from([1]);
+            layout.store.registered_calls.insert(call, Arc::new(wrong));
+            FullVerifier::verify(&layout).expect_err("the prefix argument keeps its parameter slot");
+
+            let mut checks = program.clone();
+            let mut wrong = (**plan).clone();
+            wrong.argument_checks = Arc::from([Some(crate::sema::schemes::RegisteredArgumentCheck::Unsigned(Type::UInt))]);
+            checks.store.registered_calls.insert(call, Arc::new(wrong));
+            FullVerifier::verify(&checks).expect_err("the prefix argument carries no unsigned check");
+        });
+    }
+
+    #[test]
     fn generic_pure_unsigned_boundaries_preserve_failure_transport_and_spans() {
         run_with_large_stack(|| {
             for (return_type, body, helper, failure, local) in [
