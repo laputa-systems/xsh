@@ -1673,7 +1673,7 @@ mod tests {
             "ExprFail",
             "ExprError",
         ];
-        assert_eq!(scheduled_apply.len(), 15);
+        assert_eq!(scheduled_apply.len(), 14);
         for name in scheduled_apply {
             let tag = INSTRUCTION_TAGS
                 .iter()
