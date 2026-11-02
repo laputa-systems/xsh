@@ -808,3 +808,32 @@ print "launched"
     stderr: ["[check.type-mismatch]", "command argument"],
   )?
 }
+
+test test_full_inference_union_parameter_selects_the_member_with_the_argument_shape { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc run_it(event_env, node_name) [fs, process, env, error] -> Result[Status, Error] {
+  let environment = event_env.set("MDEV", node_name)
+  process.run(process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", p"true", p"sh"], env: environment))
+}
+proc run_annotated(event_env: Map[Str, Bytes], node_name: Bytes) [fs, process, env, error] -> Result[Status, Error] {
+  let environment = event_env.set("MDEV", node_name)
+  process.run(process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", p"true", p"sh"], env: environment))
+}
+let base: Map[Str, Bytes] = {}
+let inferred = run_it(base, b"node")?
+let annotated = run_annotated(base, b"node")?
+assert inferred.ok
+assert annotated.ok
+print "ran"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "ran\n"
+  test.expect(
+    ctx,
+    "proc run_it(event_env, node_name) [fs, process, env, error] -> Result[Status, Error] {\n  let items = event_env.set(\"MDEV\", node_name)\n  process.run(process.command_argv(p\"/bin/sh\", [p\"/bin/sh\", p\"-c\", p\"true\", p\"sh\"], env: [items]))\n}\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+}

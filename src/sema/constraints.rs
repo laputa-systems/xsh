@@ -4369,6 +4369,13 @@ impl TypeConstraints {
                         ));
                     }
                 }
+                (Type::Union(members), _)
+                    if !matches!(actual, Type::Union(_) | Type::Inference(_)) && actual.contains_inference()
+                        && members.iter().filter(|member| std::mem::discriminant(*member) == std::mem::discriminant(&actual)).count() == 1 =>
+                {
+                    let member = members.iter().find(|member| std::mem::discriminant(*member) == std::mem::discriminant(&actual)).expect("one member shares the actual head");
+                    pending.push((member.clone(), actual.clone(), depth + 1, stored));
+                }
                 _ if matches!(expected, Type::Any | Type::Unknown | Type::Invalid)
                     || matches!(actual, Type::Unknown | Type::Invalid) => {}
                 _ if actual.matches_expected(&expected) => {}
@@ -5435,6 +5442,26 @@ mod tests {
                 effects: crate::sema::types::CallableEffects::finite([]),
             },
         }))
+    }
+
+    #[test]
+    fn a_union_expectation_binds_the_one_member_with_the_actual_head() {
+        let record = Type::Record(Arc::new(BTreeMap::new()));
+        let union = Type::Union(vec![record.clone(), Type::Map(Box::new(Type::Str), Box::new(Type::Bytes))]);
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span(1));
+        constraints.constrain_context(&union, &Type::Map(Box::new(Type::Str), Box::new(item.clone())), span(2)).unwrap();
+        assert_eq!(constraints.resolve(&item).unwrap(), Type::Bytes);
+
+        let ambiguous = Type::Union(vec![Type::Map(Box::new(Type::Str), Box::new(Type::Bytes)), Type::Map(Box::new(Type::Str), Box::new(Type::Int))]);
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span(1));
+        assert!(constraints.constrain_context(&ambiguous, &Type::Map(Box::new(Type::Str), Box::new(item.clone())), span(2)).is_err());
+        assert!(matches!(constraints.resolve(&item).unwrap(), Type::Inference(_)));
+
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span(1));
+        assert!(constraints.constrain_context(&union, &Type::List(Box::new(item)), span(2)).is_err());
     }
 
     #[test]
