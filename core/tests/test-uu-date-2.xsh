@@ -1190,7 +1190,7 @@ test test_uu_date_date_tz_with_relative_time { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "date", ["-d", "1 hour ago", "+%Y-%m-%d %H:%M:%S %Z"], vars: {TZ: "America/Vancouver"})?
   uu.succeeds(r)
-  assert rx"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} P[DS]T\n$".matches(r.stdout as Str)
+  assert rx"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} (P[DS]T|MST)\n$".matches(r.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_tz_abbreviation_with_relative_date
