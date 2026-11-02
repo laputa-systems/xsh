@@ -364,6 +364,12 @@ impl Checker {
             Ok(false) => {}
             Err(error) => return Err(crate::sema::constraints::ConstraintConflict { expected: expected.clone(), actual: actual.clone(), initializer: None, established: None, contribution: span, resolution_error: Some(error) }),
         }
+        if self.prepared_nullable_seed(expected).is_some()
+            && self.type_constraints.resolve(actual).is_ok_and(|actual| matches!(actual, Type::Inference(_)))
+            && self.defer_optional_assignment(expected, actual, span)
+        {
+            return Ok(());
+        }
         if let Some(seed) = self.prepared_nullable_seed(expected) {
             if self.collecting_local_constraints() {
                 self.type_constraints

@@ -2968,3 +2968,40 @@ print "refused"
     stderr: ["[check.type-mismatch]", "expected Union[Record, Bytes], found Int"],
   )?
 }
+
+test test_full_inference_assignment_to_a_null_seed_waits_for_the_value_type { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure last_word(words) -> Str? {
+  var found = null
+  for word in words {
+    found = word
+    let measured: Str = word
+    let _ = measured.byte_len()
+  }
+  found
+}
+pure last_word_annotated(words: List[Str]) -> Str? {
+  var found = null
+  for word in words {
+    found = word
+    let measured: Str = word
+    let _ = measured.byte_len()
+  }
+  found
+}
+assert last_word(["a", "b"]) == last_word_annotated(["a", "b"])
+assert last_word([]) == null
+let shown = last_word(["a", "b"]) ?? "none"
+print $shown
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "b\n", output.stdout
+  test.expect(
+    ctx,
+    "pure last_word(words) -> Str? {\n  var found = null\n  for word in words {\n    found = word\n  }\n  found\n}\nlet _ = last_word([1])\n",
+    status: 2,
+    stderr: ["[check.callable-mismatch]", "expected `Str`, found `Int`"],
+  )?
+}
