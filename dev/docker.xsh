@@ -338,7 +338,7 @@ export proc run_internal(ctx: context.Context, operation: Str, privileged: Bool,
   stages.execute(internal_command(ctx, operation, privileged, extra)?)
 }
 
-## Returns ownership of the mounted target tree and gate evidence to the host user, then looks for a file that is still
+## Returns ownership of the mounted target tree, gate evidence, and consolidation metrics to the host user, then looks for a file that is still
 ## owned by anyone else. After a cancellation the hook repairs first and leaves a marker, because the deferred repair
 ## would run its chown as a child of a script that is already being cancelled; the deferred call skips on the marker.
 export proc repair_mounted_outputs(ctx: context.Context, after_cancellation: Bool = false) [fs, process, env, error, io] -> Result[Unit, Error] {
@@ -351,8 +351,8 @@ export proc repair_mounted_outputs(ctx: context.Context, after_cancellation: Boo
     marker.remove(missing_ok: true)?
     return
   }
-  let gate_evidence = fp"{ctx.root}/.work/gate"
-  let outputs = [output.display() for output in if gate_evidence.exists()? { [ctx.target_dir, gate_evidence] } else { [ctx.target_dir] }]
+  let container_written = [fp"{ctx.root}/.work/gate", fp"{ctx.root}/.work/consolidation"]
+  let outputs = [ctx.target_dir.display()] + [output.display() for output in container_written if output.exists()?]
   stages.execute(
     stages.command("container-ownership-repair", ctx.target.triple, "chown", ["chown", "-R", f"{uid}:{gid}", @outputs], ctx.root, {}),
   )

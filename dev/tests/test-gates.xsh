@@ -3337,7 +3337,7 @@ main()?
   let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)"], args: [], env: environment)?
 }
 
-test test_container_ownership_repair_returns_gate_evidence_to_the_host_user_and_is_verified { |ctx|
+test test_container_ownership_repair_returns_container_written_outputs_to_the_host_user_and_is_verified { |ctx|
   let root = test.temp_dir(ctx, name: "ownership-repair")?
   let tools = fp"{root}/tools"
   tools.mkdir()
@@ -3353,6 +3353,11 @@ printf '%s\\n' "$@" > "$CHOWN_ARGS"
     docker.repair_mounted_outputs(gate_ctx)?
   }
   assert log.read_lines()? == ["-R", "1000:1000", gate_ctx.target_dir.display(), fp"{checkout}/.work/gate".display()]
+  fp"{checkout}/.work/consolidation".mkdir()
+  env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: ""}) {
+    docker.repair_mounted_outputs(gate_ctx)?
+  }
+  assert log.read_lines()? == ["-R", "1000:1000", gate_ctx.target_dir.display(), fp"{checkout}/.work/gate".display(), fp"{checkout}/.work/consolidation".display()]
   env ({PATH: tools, HOST_UID: "1000", HOST_GID: "1000", CHOWN_ARGS: log, STRAY: "/work/target/x"}) {
     match docker.repair_mounted_outputs(gate_ctx) {
       Ok(_) => test.fail("a file still owned by root was reported repaired")
