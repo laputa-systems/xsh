@@ -31,6 +31,51 @@ for candidate in [p"/sys/class/net", p"/dev/console"] {
   }
 }
 
+test test_full_inference_result_local_returned_as_the_tail_of_a_result_unit_proc { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Event = {action: Int}
+proc inner(event: Event) [error] -> Result[Unit] {
+  if event.action == 1 { return Err(error.failure("bad")) }
+  Ok()
+}
+proc outer(event) [error] -> Result[Unit] {
+  let result = inner(event)
+  result
+}
+proc outer_annotated(event: Event) [error] -> Result[Unit] {
+  let result = inner(event)
+  result
+}
+proc show(label: Str, outcome: Result[Unit]) {
+  match outcome {
+    Ok(_) => { print f"{label} ok" }
+    Err(failure) => { print f"{label} {failure.message}" }
+  }
+}
+for action in [0, 1] {
+  let event: Event = {action: action}
+  show("inferred", outer(event))
+  show("annotated", outer_annotated(event))
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "inferred ok\nannotated ok\ninferred bad\nannotated bad\n"
+  test.expect(
+    ctx,
+    "type Event = {action: Int}\nproc outer(event: Event) [error] -> Result[Unit] {\n  let result = event.action\n  result\n}\n",
+    status: 2,
+    stderr: ["[check.ignored-result]"],
+  )?
+  test.expect(
+    ctx,
+    "type Event = {action: Int}\nproc outer(event) [error] -> Result[Unit] {\n  let result = event.action\n  result\n}\nlet event: Event = {action: 1}\nlet checked = outer(event)\n",
+    status: 2,
+    stderr: ["err["],
+  )?
+}
+
 proc full_inference_procedure_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-procedure-modules")?
   let fixture = fp"{ctx.file.parent()}/../fixtures/modules/full-inference-procedures/wrappers.xsh"

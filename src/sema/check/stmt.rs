@@ -7183,6 +7183,11 @@ impl Checker {
             self.statement_positions
                 .insert(stmt.span, super::StatementPosition::Statement);
             self.check_stmt_arena(arena, source, id);
+            if let ArenaStmtKind::TailBareIdent(name) = stmt.kind
+                && let super::ValueBindingLookup::Found(binding) = self.lookup_value_binding_for_tail(name, id)
+            {
+                self.record_expr_type(stmt.span, binding.ty.clone());
+            }
             return Type::Unit;
         }
         match stmt.kind {
