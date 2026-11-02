@@ -387,8 +387,8 @@ pub(super) fn verify_ground_bindings(
     budget.charge(substitution.types.len() + substitution.rows.iter().map(BTreeMap::len).sum::<usize>() + substitution.effects.len())?;
     let original_owner = census.owner;
     let mut computed = super::SchemeBinderEvidence::default();
-    let mut pending = vec![(census.owner, None, arguments, Arc::new(substitution.clone()))];
-    while let Some((owner, parent_id, arguments, parent)) = pending.pop() {
+    let mut pending = vec![(census.owner, None, arguments, Arc::new(substitution.clone()), None)];
+    while let Some((owner, parent_id, arguments, parent, mut local_evidence)) = pending.pop() {
         budget.charge(1)?;
         let root = store.scheme(owner)?;
         let scope = scopes.get(owner.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("guard target has no verified callable scope"))?;
@@ -402,11 +402,19 @@ pub(super) fn verify_ground_bindings(
             let (resolved, output_evidence) = super::guard_calls::resolve_with_output_evidence(store, *call, u32::try_from(ordinal).map_err(|_| IrVerifyError::new("guard call ordinal is invalid"))?, Arc::clone(&parent), budget)?;
             let target_root = store.scheme(resolved.owner)?;
             let target_scope = scopes.get(resolved.owner.index()).and_then(Option::as_ref).ok_or_else(|| IrVerifyError::new("guard call target has no verified scope"))?;
-            if let Some((arguments, local)) = verify_ground_slot(store, target_root, target_scope, resolved.scope, resolved.metadata, *binding, resolved.parent, type_coverage, row_coverage, field_coverage, budget)? {
-                pending.push((resolved.owner, Some(resolved.scope), arguments, local));
+            if let Some((arguments, local, evidence)) = verify_ground_slot(store, target_root, target_scope, resolved.scope, resolved.metadata, *binding, resolved.parent, type_coverage, row_coverage, field_coverage, budget)? {
+                pending.push((resolved.owner, Some(resolved.scope), arguments, local, Some(evidence)));
             }
             if owner == original_owner && parent_id.is_none() && let Some(evidence) = output_evidence {
                 evidence.extend(owner, &active, &mut computed)?;
+            } else if let (Some(evidence), Some(local)) = (output_evidence, local_evidence.as_mut()) {
+                evidence.extend(owner, &active, local)?;
+            }
+        }
+        if let (Some(id), Some(evidence)) = (parent_id, local_evidence.as_ref()) {
+            let bindings = &census.scope(id)?.bindings;
+            if !bindings.types.clone().all(|binder| evidence.types.contains(&binder)) || !bindings.rows.clone().all(|binder| evidence.rows.contains(&binder)) {
+                return Err(IrVerifyError::new("guard local substitution has no independently checked input evidence"));
             }
         }
         let children = census.children.get(&parent_id).map(Vec::as_slice).unwrap_or(&[]);
@@ -422,7 +430,7 @@ pub(super) fn verify_ground_bindings(
                     computed.rows.extend(rows);
                 }
             }
-            if let Some((arguments, local)) = local { pending.push((owner, Some(id), arguments, local)); }
+            if let Some((arguments, local, evidence)) = local { pending.push((owner, Some(id), arguments, local, Some(evidence))); }
         }
     }
     Ok(computed)
@@ -433,7 +441,7 @@ fn verify_ground_slot(
     id: GuardScopeId, metadata: FullGuardScope, binding: super::super::guard_schemes::FullGuardBinding,
     parent: Arc<super::CallSubstitution>, type_coverage: &mut [bool], row_coverage: &mut [bool], field_coverage: &mut [bool],
     budget: &mut super::SchemeInstantiationBudget,
-) -> Result<Option<(super::super::schemes::FullInstantiation, Arc<super::CallSubstitution>)>, IrVerifyError> {
+) -> Result<Option<(super::super::schemes::FullInstantiation, Arc<super::CallSubstitution>, super::SchemeBinderEvidence)>, IrVerifyError> {
     use super::super::guard_schemes::FullGuardBinding;
     use crate::sema::guarded_requirements::{non_null_source, NonNullSource};
     let GuardScopes::Scoped(census) = &scope.guards else { return Err(IrVerifyError::new("guard slot has no callable-owned census")); };
@@ -497,10 +505,7 @@ fn verify_ground_slot(
             super::wrappers::verify_bindings(store, root, &local_scope, substitution, None, operation_bindings,
                 super::bounded(local_arguments.wrapper_bindings, &store.call_wrapper_bindings, "guard wrapper bindings are invalid")?, budget)?;
             super::applications::extend_call_binder_evidence(store, root, &local_scope, substitution, &mut evidence, budget)?;
-            if !pack.bindings.types.clone().all(|binder| evidence.types.contains(&binder))
-                || !pack.bindings.rows.clone().all(|binder| evidence.rows.contains(&binder))
-            { return Err(IrVerifyError::new("guard local substitution has no independently checked input evidence")); }
-    Ok(Some((local_arguments, Arc::new(local))))
+    Ok(Some((local_arguments, Arc::new(local), evidence)))
 }
 
 fn verify_output(store: &super::FullStore, metadata: FullGuardScope, output: super::super::guard_schemes::FullGuardOutput, parent: &super::CallSubstitution, local: Option<&super::CallSubstitution>, budget: &mut super::SchemeInstantiationBudget) -> Result<(), IrVerifyError> {

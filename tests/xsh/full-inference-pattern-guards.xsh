@@ -164,3 +164,31 @@ print "defined"
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "defined\n"
 }
+
+test test_inferred_guard_calls_inside_a_guard_resolve_their_local_binders_from_the_call_output { |ctx|
+  let body = r"""type Options = {output: Path?, output_nocache: Bool, ibs: Int}
+pure quoted_path(file_path: Path) -> Str { file_path.display() }
+pure discard_caches(OPTS) -> Bool {
+  var failed = false
+  if opts.output_nocache {
+    let label = if let output = opts.output { quoted_path(output) } else { "standard output" }
+    if label == "" { failed = true }
+  }
+  failed
+}
+pure plain_copy(OPTS, limit: Int) -> Bool {
+  if opts.output != null and limit > 1 { return discard_caches(opts) }
+  discard_caches(opts)
+}
+let standard: Options = {output: null, output_nocache: true, ibs: 512}
+let named: Options = {output: p"/dev/null", output_nocache: true, ibs: 512}
+print $plain_copy(standard, 0)
+print $plain_copy(named, 2)
+"""
+  let inferred = test.run_xsh(ctx, body.replace("OPTS", with: "opts"))?
+  let annotated = test.run_xsh(ctx, body.replace("OPTS", with: "opts: Options"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "false\nfalse\n"
+  assert annotated.stdout == inferred.stdout
+}

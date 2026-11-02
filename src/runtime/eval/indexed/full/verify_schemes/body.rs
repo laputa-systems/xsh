@@ -9195,6 +9195,50 @@ observe()?
     }
 
     #[test]
+    fn guard_local_binders_of_a_nested_guarded_call_take_evidence_from_its_output() {
+        use super::super::super::guard_schemes::FullGuardBinding;
+        let mut program = prepare(r#"
+type Options = {output: Path?, output_nocache: Bool, ibs: Int}
+pure quoted_path(file_path: Path) -> Str { file_path.display() }
+pure discard_caches(opts) -> Bool {
+    var failed = false
+    if opts.output_nocache {
+        let label = if let output = opts.output { quoted_path(output) } else { "standard output" }
+        if label == "" { failed = true }
+    }
+    failed
+}
+pure plain_copy(opts, limit: Int) -> Bool {
+    if opts.output != null and limit > 1 { return discard_caches(opts) }
+    discard_caches(opts)
+}
+proc observe() -> Result[Unit] {
+    let named: Options = {output: p"/dev/null", output_nocache: true, ibs: 512}
+    assert plain_copy(named, 2) == false
+    Ok()
+}
+observe()?
+"#);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let observe = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "observe").unwrap();
+        let range = program.store.function_instruction_range(observe).unwrap();
+        let call = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 1).unwrap();
+        let binding = call.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap().start;
+        let (FullGuardBinding::NonNull(local) | FullGuardBinding::Optional(local)) = program.store.call_guard_bindings[binding] else { panic!("the named output is a live guard source") };
+        let arguments = local.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+        assert!(arguments.len() >= 3, "the guard owns its view and its nested call's binders");
+        let int = program.store.call_type_arguments[arguments.start].ty;
+        for index in arguments {
+            let node = program.store.call_type_arguments[index].ty;
+            if node == int { continue; }
+            let mut forged = program.clone();
+            forged.store.scheme_types[node.index()] = forged.store.scheme_types[int.index()];
+            assert!(FullVerifier::verify(&forged).is_err(), "local type argument {index} cannot be chosen freely");
+        }
+    }
+
+    #[test]
     fn forwarded_runtime_guard_packets_retain_caller_and_callsite_provenance() {
         let program = prepare(r#"
 pure render(value) -> Str { if value == null { "" } else { f"{value}" } }
