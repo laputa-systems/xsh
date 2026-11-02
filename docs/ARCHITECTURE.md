@@ -1185,9 +1185,7 @@ generic calls use the instruction's checked invocation substitution to classify
 error flow; Ground calls retain their verified signature authority, including
 embedded script calls without an auxiliary target row.
 A terminal Proc command completes with Unit through the ordinary Result envelope.
-With initializers see only preceding success bindings. Its handler sees the
-outer scope and its failure binding. A Guard handler must diverge before success
-bindings become visible. The body and producer verifiers preserve these same
+A Guard handler must diverge before success bindings become visible. The body and producer verifiers preserve these same
 regions. Argument queries sample actual checked guards and closed conditional
 arms; incomplete runtime guards still require independent proof of their inputs.
 A closed List type from an actual arm can supply another arm's missing producer

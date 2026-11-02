@@ -374,7 +374,6 @@ fn stmt_direct_run_has_splice_name(arena: &AstArena, stmt: super::StmtId, name: 
         | ArenaStmtKind::If { .. }
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Loop { .. }
         | ArenaStmtKind::Sugar { .. }
         | ArenaStmtKind::Assert { .. }

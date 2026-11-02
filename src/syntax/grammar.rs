@@ -412,11 +412,10 @@ impl StatementForm {
             Self::Stream => "stream_declaration",
             Self::Use => "use_statement",
             Self::Guard => "guard_statement",
-            Self::With => "with_statement",
             Self::Enum => "enum_declaration",
             Self::Type => "type_declaration",
             Self::Run => "run_statement",
-            Self::Export => return None,
+            Self::With | Self::Export => return None,
         })
     }
 
@@ -433,7 +432,6 @@ impl StatementForm {
                 | Self::Pure
                 | Self::Stream
                 | Self::Guard
-                | Self::With
         )
     }
 }

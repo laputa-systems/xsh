@@ -104,9 +104,8 @@ true try type unless use var wait when while with yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
-`with` begins two forms that its `else` tells apart: with an `else` block it
-groups fallible bindings under one handler (8.6), and without one it is a
-resource scope (10.4).
+`with` begins the resource scope (10.4); an `else` handler after its body is
+`parse.with-handler`.
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
@@ -2204,7 +2203,7 @@ A callback block receives one item: a stream stage block (13.1) other than
 (`where .size > 0`, `sort-by .path`) is the same block. `.` always names the
 item of the innermost callback block: a stage block or handler nested in a
 callback has its own item, while the branch, loop, scope, `try`, `defer`, and
-`guard` or `with` else blocks inside a callback see the callback's item.
+`guard` else blocks inside a callback see the callback's item.
 
 ```xsh
 {{.spec.item_shorthand.source}}
@@ -2972,18 +2971,20 @@ An optional binding also narrows its subject (5.4): after
 by `if let name = subject` or `while let name = subject`, a `subject` that is
 a binding or a known field path has type `T`, as after `subject != null`.
 
-`with` binds several fallible values with one error handler:
+Several fallible initializers share one handler by capturing them with `try`
+(8.8) and matching the result; only the initializers sit inside the capture, so
+a failure of the code that follows is not caught:
 
 ```xsh
-{{.spec.with_else.source}}
+{{.spec.try_match_setup.source}}
 ```
 
-Each binding sees the earlier ones. If any initializer fails, the `else` block
-runs with the error (the common nominal type, or `Error` for mixed families).
-Bindings are not visible in the handler. This statement always has its `else`,
-on the line of the closing brace or a later one; the same head without an
-`else` is a resource scope (10.4). Which form a `with` is depends on that
-word only, never on the types of its values.
+A `with` takes no `else` handler, and one is rejected with
+`parse.with-handler`:
+
+```xsh
+{{.spec.with_handler.source}}
+```
 
 Parameterized blocks always put the parameters inside the brace:
 `{ |name| ... }`, except a `tempdir` scope (10.4), whose name after the word
@@ -4286,7 +4287,7 @@ under the outer deadline.
 `wait until condition within limit` (8.6) is this scope around a polling
 loop, and `retry backoff first..cap within limit` (8.8) uses the word for a
 limit on its delays that interrupts nothing.
-`with NAME = VALUE { ... }`, without an `else`, is the scope for a resource
+`with NAME = VALUE { ... }` is the scope for a resource
 that has to be released: it binds the value, runs the body, and releases the
 value however the body ends.
 

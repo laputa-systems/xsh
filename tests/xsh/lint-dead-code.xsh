@@ -150,13 +150,13 @@ test test_lint_reports_dead_code_after_match_without_a_normal_no_arm_path { |ctx
   assert "dead.xsh:5:3\n" in reported.stderr, reported.stderr
 }
 
-test test_lint_reports_dead_code_after_all_with_paths_exit { |ctx|
+test test_lint_reports_dead_code_after_all_match_arms_exit { |ctx|
   let reported = dead_code(
     ctx,
-    "proc work() {\n  with value = Ok(1) {\n    return\n  } else {\n    return\n  }\n  print \"unreachable\"\n}\n",
+    "proc work() {\n  match Ok(1) {\n    Ok(value) => { return }\n    Err(_) => { return }\n  }\n  print \"unreachable\"\n}\n",
   )?
   assert headers(reported.stderr) == [unreachable], reported.stderr
-  assert "dead.xsh:7:3\n" in reported.stderr, reported.stderr
+  assert "dead.xsh:6:3\n" in reported.stderr, reported.stderr
 }
 
 test test_lint_reports_dead_code_after_exit { |ctx|

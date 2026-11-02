@@ -387,7 +387,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if !self
             .scratch
             .borrow_mut()
-            .record_checked_expr_type(value, ty, false)
+            .record_checked_expr_type(value, ty)
         {
             self.last_blocker_detail = Some((
                 span,
@@ -878,7 +878,6 @@ mod named_spread_lowering_tests {
             scratch: std::rc::Rc::new(std::cell::RefCell::new(
                 super::super::BuildScratch::default(),
             )),
-            with_error_source_exprs: crate::runtime::eval::lower::FxHashMap::default(),
         };
         crate::mem_track::enable_tracking();
         crate::mem_track::begin_stage();

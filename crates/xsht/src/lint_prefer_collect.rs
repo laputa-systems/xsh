@@ -387,7 +387,6 @@ impl Scan<'_> {
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::YieldDelegate(_)
             | ArenaStmtKind::Defer(..)
-            | ArenaStmtKind::With { .. }
             | ArenaStmtKind::Guard { .. }
             | ArenaStmtKind::Exit(_)
             | ArenaStmtKind::TailBareIdent(_) => {

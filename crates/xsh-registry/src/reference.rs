@@ -864,7 +864,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "block-parameters" => (
             "Defines one lexical block-header convention.",
-            "Parameterized blocks use { |parameters| ... }, after optional whitespace and comments. With and guard-let error handlers accept zero or one immutable error parameter; _ discards it. Guard handlers retain the exact Result error type; With handlers retain a shared nominal initializer error type or use Error for differing families. Plain conditional, boolean-guard and defer blocks receive no input. Headers retain lexical return, loop and cleanup targets without a callable frame. Outside-brace handler headers are migration errors; lint.block-header moves safe headers and rechecks source.",
+            "Parameterized blocks use { |parameters| ... }, after optional whitespace and comments. Guard-let error handlers accept zero or one immutable error parameter; _ discards it, and the parameter retains the exact Result error type. Plain conditional, boolean-guard and defer blocks receive no input. Headers retain lexical return, loop and cleanup targets without a callable frame. Outside-brace handler headers are migration errors; lint.block-header moves safe headers and rechecks source.",
         ),
         "defer" => (
             "Registers lexical cleanup actions without executing them.",

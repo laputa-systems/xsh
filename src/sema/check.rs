@@ -1762,8 +1762,6 @@ struct BoundaryContext {
     expected_schema: Option<super::constants::SchemaExpectation>,
     /// The `collect` expression a `yield` here appends to.
     collect_scope: Option<collect::CollectScope>,
-    // Only propagation evaluated while initializing the current With reaches its handler.
-    with_initializer_errors: Option<Vec<Type>>,
     error_boundary_errors: Vec<Vec<(super::wrapper_operation::WrapperErrorContribution<Type>, Span)>>,
     retry_attempt_depth: usize,
     /// `retry` attempts are a subset of the error boundaries.
@@ -2016,7 +2014,6 @@ impl Checker {
         // Callback failures still occur inside the lexical error boundary;
         // its accumulated error types survive checking the callback body.
         enclosing.error_boundary_errors = std::mem::take(&mut self.boundary.error_boundary_errors);
-        enclosing.with_initializer_errors = self.boundary.with_initializer_errors.take();
         self.boundary = enclosing;
     }
 

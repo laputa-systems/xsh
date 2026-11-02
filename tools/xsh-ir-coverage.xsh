@@ -1101,8 +1101,6 @@ pure script_shape(line: Str) -> Str {
 
   return "Guard" when normalized.starts_with("guard ")
 
-  return "With" when normalized.starts_with("with ")
-
   return "Loop" when normalized.starts_with("loop ")
 
   return "Return" when normalized.starts_with("return")

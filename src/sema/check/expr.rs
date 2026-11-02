@@ -5117,7 +5117,6 @@ mod arena_tests {
         );
         assert_stmts_arena_match_raised("var x = 0\nwhile x < 3 {\n  x += 1\n}");
         assert_stmts_arena_match_raised("for i in [1, 2, 3] {\n  let y = i\n}");
-        assert_stmts_arena_match_raised("with x = Ok(1) {\n  let y = x\n} else {\n  let z = 1\n}");
         assert_stmts_arena_match_raised("guard let x = Ok(1) else {\n  let z = 1\n}\nlet y = x");
         assert_stmts_arena_match_raised(
             "guard let x = Ok(1) else { |e|\n  let z = e\n}\nlet y = x",

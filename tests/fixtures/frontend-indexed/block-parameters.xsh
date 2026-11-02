@@ -5,9 +5,10 @@ pure failed() -> Result[Int, HeaderError] {
 }
 
 proc selected() [] -> Int {
-  with first = Ok(1), second = first + 1 {
-    return second
-  } else { |_| return 0 }
+  match Ok(1) {
+    Ok(first) => { return first + 1 }
+    Err(_) => { return 0 }
+  }
 }
 
 proc main() [] {

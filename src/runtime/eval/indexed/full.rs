@@ -412,7 +412,6 @@ struct FullCheckedExprType {
 enum FullCheckedExprPurpose {
     CheckedContract {
         function_ref: Option<(FunctionName, CallableKind)>,
-        with_error_source: bool,
     },
     ProducerContext(ExecutableOwner),
     CapturedErrorContract(ExecutableOwner),
@@ -442,16 +441,12 @@ impl FullCheckedExprType {
         }
     }
 
-    fn with_error_source(self) -> bool {
-        matches!(self.purpose, FullCheckedExprPurpose::CheckedContract { with_error_source: true, .. })
-    }
-
     fn is_contract(self) -> bool {
         matches!(self.purpose, FullCheckedExprPurpose::CheckedContract { .. })
     }
 
     fn authenticates_result_constructor(self, tag: FullTag, ty: &Type) -> Result<bool, IrVerifyError> {
-        if ty.contains_typed_callable() || self.with_error_source()
+        if ty.contains_typed_callable()
             || !matches!(tag, FullTag::ExprOk | FullTag::ExprErr) || !matches!(ty, Type::Result(_, _)) {
             return Ok(false);
         }
@@ -7323,8 +7318,6 @@ impl InstructionParentContext<'_> {
 
 }
 
-enum WithErrorSource { Initializer(usize), Propagation(usize) }
-
 pub(in crate::runtime::eval::indexed::full) enum ImmutableCallableSource {
     Instruction(usize),
     ImportedFunction(decode::FunctionNameView),
@@ -9282,22 +9275,6 @@ impl<'a> FullDecoder<'a> {
                 if self.visit_comp_target_written_slots(target, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
                 if let Some(slot) = else_param_slot { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } }
             }
-            schema::StmtView::With {
-                mut bindings,
-                else_param_slot,
-                mut captures,
-                ..
-            } => {
-                for binding in &mut bindings {
-                    charge(1)?;
-                    if visit(binding?.0)? { return Ok((true, initializer, scalar_writer)); }
-                }
-                if let Some(slot) = else_param_slot { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } }
-                for capture in &mut captures {
-                    charge(1)?;
-                    if visit(capture?)? { return Ok((true, initializer, scalar_writer)); }
-                }
-            }
             schema::StmtView::PatternIf { mut branches, .. } => {
                 for branch in &mut branches {
                     charge(1)?;
@@ -10123,45 +10100,6 @@ impl<'a> FullDecoder<'a> {
         Ok(self.return_analysis()?.uncaught_try_roots.contains(&root))
     }
 
-    fn checked_with_error_source_instructions(&self) -> Result<BTreeSet<usize>, IrVerifyError> {
-        let mut initializer_roots = BTreeSet::new();
-        for instruction in self.instruction_range.clone() {
-            if self.store.tags[instruction] != FullTag::StmtWith {
-                continue;
-            }
-            let schema::StmtView::With {
-                mut bindings, ..
-            } = self.statement_view(instruction)?
-            else {
-                unreachable!("With instruction tag and generated view disagree")
-            };
-            for binding in &mut bindings {
-                let (_, value) = binding?;
-                initializer_roots.insert(value.raw() as usize);
-            }
-        }
-        let mut sources = initializer_roots.clone();
-        for instruction in self.instruction_range.clone() {
-            if self.store.tags[instruction] != FullTag::ExprTry {
-                continue;
-            }
-            let schema::ExprView::Try { value, .. } = self.expression_view(instruction)? else {
-                unreachable!("Try instruction tag and generated view disagree")
-            };
-            let mut current = instruction;
-            loop {
-                if initializer_roots.contains(&current) {
-                    sources.insert(value.raw() as usize);
-                    break;
-                }
-                let Some(parent) = self.instruction_parent_of(current)? else {
-                    break;
-                };
-                current = parent;
-            }
-        }
-        Ok(sources)
-    }
 
     fn function_reference_contract(
         &self,
@@ -12613,20 +12551,19 @@ impl<'a> FullDecoder<'a> {
             && matches!(ty, Type::Result(_, _));
         let checked_result_constructor = fact.authenticates_result_constructor(self.store.tags[instruction], &ty)?;
         if checked_capture_result {
-            if fact.function_ref().is_some() || fact.with_error_source() {
+            if fact.function_ref().is_some() {
                 return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
             }
             verify_schemes::ensure_closed_type(&ty)?;
         }
         if checked_result_control_flow {
-            if fact.function_ref().is_some() || fact.with_error_source() {
+            if fact.function_ref().is_some() {
                 return Err(IrVerifyError::new("Result control-flow contract carries unrelated evidence"));
             }
             verify_schemes::ensure_closed_type(&ty)?;
         }
         if !ty.contains_typed_callable()
             && crate::runtime::eval::stream_return_item(&ty).is_none()
-            && !fact.with_error_source()
             && !matches!(ty, Type::ErrorVariant { .. })
             && !generic_call_result
             && !checked_unsigned_integer_literal
@@ -12679,23 +12616,23 @@ impl<'a> FullDecoder<'a> {
         match view {
             schema::ExprView::CheckedValue { check: ValueCheckView::MapKey(_) | ValueCheckView::FatalUIntKey, .. } => return reject_producer(),
             schema::ExprView::CheckedValue { value, check: ValueCheckView::MembershipKey(_), .. } => {
-                if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("membership key carries unrelated contract evidence")); }
+                if fact.function_ref().is_some() { return Err(IrVerifyError::new("membership key carries unrelated contract evidence")); }
                 require_child(value.raw() as usize, &ty)?;
             }
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Materialization(id), .. } => {
-                if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("materialization fact carries unrelated authority")); }
+                if fact.function_ref().is_some() { return Err(IrVerifyError::new("materialization fact carries unrelated authority")); }
                 let mut budget = verify_schemes::SchemeInstantiationBudget::new(self.store);
                 let (source, destination) = verify_schemes::materialization_endpoints(self.store, id, instruction, &mut budget)?;
                 if destination != ty { return Err(IrVerifyError::new("materialization fact disagrees with its destination")); }
                 require_child(value.raw() as usize, &source)?;
             }
             schema::ExprView::CheckedValue { value, check: ValueCheckView::RecordConstructor(_), .. } => {
-                if fact.function_ref().is_some() || fact.with_error_source() { return Err(IrVerifyError::new("record constructor fact carries unrelated authority")); }
+                if fact.function_ref().is_some() { return Err(IrVerifyError::new("record constructor fact carries unrelated authority")); }
                 require_child(value.raw() as usize, &ty)?;
             }
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } => {
                 let checked = check.ty.materialize()?;
-                if fact.function_ref().is_some() || fact.with_error_source()
+                if fact.function_ref().is_some()
                     || check.schema.is_some() || checked != ty
                 { return Err(IrVerifyError::new("checked optional payload carries unrelated contract evidence")); }
                 if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
@@ -12711,7 +12648,7 @@ impl<'a> FullDecoder<'a> {
             }
 
             schema::ExprView::PreparedConstant(value) => {
-                if fact.function_ref().is_some() || fact.with_error_source() {
+                if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
                 }
                 verify_schemes::ensure_substitution_type(&ty)?;
@@ -12922,7 +12859,7 @@ impl<'a> FullDecoder<'a> {
                 exact_type(self.function_return_type_at(instruction, function.index())?)?;
             }
             schema::ExprView::DynamicCall { .. } if generic_call_result => {
-                if fact.function_ref().is_some() || fact.with_error_source() || !self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok() { return Err(IrVerifyError::new("scheme callable result fact has no actual instantiation")); }
+                if fact.function_ref().is_some() || !self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok() { return Err(IrVerifyError::new("scheme callable result fact has no actual instantiation")); }
             }
             schema::ExprView::TypedCall { signature, .. } => {
                 let Type::Callable(callable) = signature.materialize()? else {
@@ -13542,7 +13479,6 @@ impl<'a> FullDecoder<'a> {
         stream_read: &mut dyn FnMut(usize, usize, &Type) -> Result<bool, IrVerifyError>,
     ) -> Result<(), IrVerifyError> {
         let facts = &self.store.checked_expr_types;
-        let with_error_sources = self.checked_with_error_source_instructions()?;
         let first = facts
             .partition_point(|fact| (fact.instruction as usize) < self.instruction_range.start);
         let last = facts
@@ -13551,19 +13487,6 @@ impl<'a> FullDecoder<'a> {
         for fact in &facts[first..last] {
             if !fact.is_contract() { continue; }
             let instruction = fact.instruction as usize;
-            let ty = self.store.semantic.to_type(fact.type_id)?;
-            if fact.with_error_source() && !with_error_sources.contains(&instruction) {
-                return Err(IrVerifyError::new(
-                    "checked With error source fact has no initializer producer",
-                ));
-            }
-            if fact.with_error_source()
-                && !matches!(ty, Type::Result(_, _) | Type::Any | Type::Unknown)
-            {
-                return Err(IrVerifyError::new(
-                    "checked With error source fact is not a result value",
-                ));
-            }
             self.verify_checked_expression_producer(instruction, *fact, &mut constant_budget, stream_read)?;
         }
         for instruction in self.instruction_range.clone() {
@@ -14060,18 +13983,6 @@ impl<'a> FullDecoder<'a> {
                 else {
                     unreachable!("guard statement tag and generated view disagree")
                 };
-                charge(else_body.len())?;
-                blocks.push(self.checked_statement_ids(else_body)?);
-            }
-            FullTag::StmtWith => {
-                let schema::StmtView::With {
-                    body, else_body, ..
-                } = self.statement_view(instruction)?
-                else {
-                    unreachable!("with statement tag and generated view disagree")
-                };
-                charge(body.len())?;
-                blocks.push(self.checked_statement_ids(body)?);
                 charge(else_body.len())?;
                 blocks.push(self.checked_statement_ids(else_body)?);
             }
@@ -15555,10 +15466,6 @@ impl<'a> FullDecoder<'a> {
                     let schema::StmtView::WhileBool { condition, .. } = self.statement_view(parent)? else { unreachable!() };
                     operand!(condition);
                 }
-                FullTag::StmtWith => {
-                    let schema::StmtView::With { bindings, .. } = self.statement_view(parent)? else { unreachable!() };
-                    for binding in bindings { let (_, value) = binding?; operand!(value); }
-                }
                 FullTag::StmtEnv => {
                     let schema::StmtView::Env { env, .. } = self.statement_view(parent)? else { unreachable!() };
                     for entry in env { argument!(entry?.value); }
@@ -16119,100 +16026,8 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    fn checked_with_initializer_error_types(&self) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
-        self.with_initializer_error_types_with(|source| Ok(match match source {
-            WithErrorSource::Initializer(instruction) => self.checked_expression_type(instruction)?,
-            WithErrorSource::Propagation(instruction) => self.derive_checked_expression_type(instruction)?,
-        } {
-            Some(Type::Result(_, error)) => Some(*error),
-            _ => None,
-        }), Type::Error, Self::merge_with_error_type, |_| Ok(()))
-    }
 
-    fn with_initializer_error_types_with<E: Clone>(
-        &self,
-        mut source_error: impl FnMut(WithErrorSource) -> Result<Option<E>, IrVerifyError>,
-        fallback: E,
-        mut merge: impl FnMut(&mut Option<E>, E),
-        mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<BTreeMap<usize, E>, IrVerifyError> {
-        let mut initializer_owners = BTreeMap::new();
-        let mut error_types = BTreeMap::new();
-        for instruction in self.instruction_range.clone() {
-            charge(1)?;
-            if self.store.tags[instruction] != FullTag::StmtWith {
-                continue;
-            }
-            let schema::StmtView::With {
-                mut bindings,
-                ..
-            } = self.statement_view(instruction)? else {
-                unreachable!("With instruction tag and generated view disagree")
-            };
-            let mut error_type = None;
-            for binding in &mut bindings {
-                charge(1)?;
-                let (_, value) = binding?;
-                let initializer = value.raw() as usize;
-                if initializer_owners.insert(initializer, instruction).is_some() {
-                    return Err(IrVerifyError::new(
-                        "checked With initializer has multiple owners",
-                    ));
-                }
-                if let Some(error) = source_error(WithErrorSource::Initializer(initializer))?
-                {
-                    merge(&mut error_type, error);
-                }
-            }
-            error_types.insert(instruction, error_type);
-        }
-        for instruction in self.instruction_range.clone() {
-            charge(1)?;
-            if self.store.tags[instruction] != FullTag::ExprTry {
-                continue;
-            }
-            let mut current = instruction;
-            let mut with_instruction = None;
-            loop {
-                charge(1)?;
-                if let Some(owner) = initializer_owners.get(&current) {
-                    with_instruction = Some(*owner);
-                    break;
-                }
-                let Some(parent) = self.instruction_parent_of(current)? else {
-                    break;
-                };
-                if self.store.tags[parent] == FullTag::StmtDefer {
-                    break;
-                }
-                current = parent;
-            }
-            let Some(with_instruction) = with_instruction else {
-                continue;
-            };
-            let Some(error_type) = error_types.get_mut(&with_instruction) else {
-                continue;
-            };
-            let schema::ExprView::Try { value, .. } = self.expression_view(instruction)? else {
-                unreachable!("Try instruction tag and generated view disagree")
-            };
-            let value_instruction = value.raw() as usize;
-            let error = source_error(WithErrorSource::Propagation(value_instruction))?.ok_or_else(|| IrVerifyError::new("checked With propagation source is not a Result"))?;
-            merge(error_type, error);
-        }
-        Ok(error_types
-            .into_iter()
-            .map(|(instruction, error_type)| (instruction, error_type.unwrap_or_else(|| fallback.clone())))
-            .collect())
-    }
 
-    fn merge_with_error_type(error_type: &mut Option<Type>, next: Type) {
-        *error_type = Some(match error_type.take() {
-            None => next,
-            Some(previous) if previous == next => previous,
-            Some(_) => Type::Error,
-        });
-    }
 
     fn verify_comp_target_writer_type(
         &self,
@@ -16704,7 +16519,6 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn verify_callable_slot_initializers(&self) -> Result<(), IrVerifyError> {
-        let with_error_types = self.checked_with_initializer_error_types()?;
         for instruction in self.instruction_range.clone() {
             let instruction_kind = self.store.tags[instruction].kind();
             if instruction_kind == schema::InstructionKind::Expr {
@@ -16892,28 +16706,6 @@ impl<'a> FullDecoder<'a> {
                                 Self::checked_result_payload_type(Some(value_type), false)
                             });
                         self.verify_callable_slot_writer_type(slot, failure_type.as_ref())?;
-                    }
-                }
-                schema::StmtView::With {
-                    mut bindings,
-                    else_param_slot,
-                    ..
-                } => {
-                    for binding in &mut bindings {
-                        let (slot, value) = binding?;
-                        let value = value.raw() as usize;
-                        let value_type = self.checked_expression_type(value)?;
-                        let bound_type = value_type.map(|value_type| match value_type {
-                            Type::Result(ok, _) => ok.as_ref().clone(),
-                            other => other,
-                        });
-                        self.verify_callable_slot_writer_type(slot, bound_type.as_ref())?;
-                    }
-                    if let Some(slot) = else_param_slot {
-                        let error_type = with_error_types.get(&instruction).ok_or_else(|| {
-                            IrVerifyError::new("checked With error type is missing")
-                        })?;
-                        self.verify_callable_slot_writer_type(slot, Some(error_type))?;
                     }
                 }
                 schema::StmtView::Match { value, mut arms, .. } => {
@@ -17181,35 +16973,6 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    /// A With binding and its error parameter are distinct source bindings,
-    /// even though only one branch writes each slot at runtime.
-    fn verify_with_shape(&self, instruction: usize) -> Result<(), IrVerifyError> {
-        let schema::StmtView::With {
-            mut bindings,
-            else_param_slot,
-            ..
-        } = self.statement_view(instruction)?
-        else {
-            return Err(IrVerifyError::new("With instruction tag and view disagree"));
-        };
-        let mut slots = BTreeSet::new();
-        for binding in &mut bindings {
-            let (slot, _) = binding?;
-            if !slots.insert(slot) {
-                return Err(IrVerifyError::new(
-                    "With success bindings share a source slot",
-                ));
-            }
-        }
-        if let Some(slot) = else_param_slot
-            && !slots.insert(slot)
-        {
-            return Err(IrVerifyError::new(
-                "With success and error bindings share a source slot",
-            ));
-        }
-        Ok(())
-    }
 
     fn finish_instruction(&self, index: usize) {
         if let Some(proof) = &self.instruction_proof {
@@ -18956,24 +18719,6 @@ fn indexed_statement_may_propagate(
             decoder.expression_has_checked_result(iter.raw() as usize)?
                 || decoder.subtree_has_uncaught_try(iter.raw() as usize)?
         }
-        StmtView::With {
-            bindings,
-            body,
-            else_body,
-            ..
-        } => {
-            let mut else_reachable = false;
-            for binding in bindings {
-                let (_, value) = binding?;
-                let value = value.raw() as usize;
-                else_reachable |= decoder.expression_has_checked_result(value)?
-                    || decoder.subtree_has_uncaught_try(value)?
-                    || decoder.expression_has_checked_error_effect(value)?;
-            }
-            indexed_block_may_propagate(decoder, body.block_identity())?
-                || (else_reachable
-                    && indexed_block_may_propagate(decoder, else_body.block_identity())?)
-        }
         StmtView::Guard {
             value, else_body, ..
         } => {
@@ -19135,41 +18880,6 @@ fn indexed_stmt_can_return_with_decoder(
                 chain_can_return
             } else {
                 chain_can_return && else_returns
-            }
-        }
-        FullTag::StmtWith => {
-            if let Some(decoder) = decoder {
-                let schema::StmtView::With {
-                    bindings,
-                    body,
-                    else_body,
-                    ..
-                } = decoder.statement_view(instruction)?
-                else {
-                    return Err(IrVerifyError::new("return-analysis with view is invalid"));
-                };
-                let mut else_reachable = false;
-                for binding in bindings {
-                    let (_, value) = binding?;
-                    let value = value.raw() as usize;
-                    else_reachable |= decoder.expression_has_checked_result(value)?
-                        || decoder.subtree_has_uncaught_try(value)?
-                        || decoder.expression_has_checked_error_effect(value)?;
-                }
-                let body_returns = indexed_block_can_return_with_decoder(
-                    store,
-                    body.block_identity(),
-                    Some(decoder),
-                )?;
-                body_returns
-                    && (!else_reachable
-                        || indexed_block_can_return_with_decoder(
-                            store,
-                            else_body.block_identity(),
-                            Some(decoder),
-                        )?)
-            } else {
-                false
             }
         }
         FullTag::StmtMatch => {
@@ -19370,19 +19080,6 @@ fn indexed_stmt_operand_cannot_complete(
             let mut cannot_complete = false;
             for arg in args {
                 if expression_cannot_complete(arg?.raw())? {
-                    cannot_complete = true;
-                    break;
-                }
-            }
-            cannot_complete
-        }
-        schema::StmtView::With { bindings, .. } => {
-            let mut cannot_complete = false;
-            for binding in bindings {
-                let (_, value) = binding?;
-                if expression_cannot_complete(value.raw())?
-                    && !decoder.subtree_has_uncaught_try(value.raw() as usize)?
-                {
                     cannot_complete = true;
                     break;
                 }
@@ -19942,19 +19639,19 @@ impl FullVerifier {
                 && matches!(ty, Type::Result(_, _));
             let checked_result_constructor = fact.authenticates_result_constructor(store.tags[instruction], &ty)?;
             if checked_capture_result {
-                if fact.function_ref().is_some() || fact.with_error_source() {
+                if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
                 }
                 verify_schemes::ensure_closed_type(&ty)?;
             }
             if checked_result_control_flow {
-                if fact.function_ref().is_some() || fact.with_error_source() {
+                if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("Result control-flow contract carries unrelated evidence"));
                 }
                 verify_schemes::ensure_closed_type(&ty)?;
             }
             if checked_prepared_constant {
-                if fact.function_ref().is_some() || fact.with_error_source() {
+                if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
                 }
                 verify_schemes::ensure_substitution_type(&ty)?;
@@ -19968,7 +19665,6 @@ impl FullVerifier {
             }
             if !ty.contains_typed_callable()
                 && crate::runtime::eval::stream_return_item(&ty).is_none()
-                && !fact.with_error_source()
                 && !structured_error
                 && !generic_call_result
                 && !checked_unsigned_integer_literal
@@ -22395,7 +22091,7 @@ macro_rules! impl_build_id_codec {
                         ));
                     }
                     let purpose = match ty.purpose {
-                        crate::runtime::eval::CheckedExprPurpose::CheckedContract { function_ref, with_error_source } => Some(FullCheckedExprPurpose::CheckedContract { function_ref, with_error_source }),
+                        crate::runtime::eval::CheckedExprPurpose::CheckedContract { function_ref } => Some(FullCheckedExprPurpose::CheckedContract { function_ref }),
                         crate::runtime::eval::CheckedExprPurpose::CapturedErrorContract => {
                             let owner = builder.current_owner.ok_or_else(|| IrBuildError::format("captured_error_owner", None, 0, instruction))?;
                             let owner = ExecutableOwner::from_raw(owner).map_err(|error| IrBuildError::format("captured_error_owner", None, 0, instruction).with_detail(Some(error.message.clone())))?;
@@ -26854,11 +26550,14 @@ assert labels(4, "wrong")? == "123"
     fn strict_result_producers_prepare_nested_schema_native_test() {
         run_with_large_stack(|| {
             let program = fixture("nested-schema-native-preparation.xsh", r####"
-const with_error_handler = r"""proc main(...argv: List[Str]) [error] -> Result[Unit] {
-  with value = fallible() {
-    print ${value}
-  } else { |err|
-    return Err(err)
+const result_match_handler = r"""proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  match fallible() {
+    Ok(value) => {
+      print ${value}
+    }
+    Err(err) => {
+      return Err(err)
+    }
   }
   return Ok()
 }
@@ -27068,7 +26767,7 @@ assert hits == 2
                     let at = prepared.store.checked_expr_types.partition_point(|fact| fact.instruction < constructor as u32);
                     prepared.store.checked_expr_types.insert(at, FullCheckedExprType {
                         instruction: constructor as u32, type_id: ty,
-                        purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+                        purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
                     });
                     assert_eq!(verify_schemes::GroundProducerIndex::new(&prepared.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
                     FullVerifier::verify(&prepared).expect("a closed constructor contract on a noncompleting driver context has no function return owner");
@@ -27365,9 +27064,10 @@ assert pipeline_result()? == "pipeline"
             let program = fixture("strict-result-open-callback.xsh", r#"
 type Scale = pure(n: Int) -> Int
 proc from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
-    with mapped = callbacks.get("double") {
-        return Ok(mapped(1))
-    } else { |failure| return Err(failure) }
+    match callbacks.get("double") {
+        Ok(mapped) => { return Ok(mapped(1)) }
+        Err(failure) => { return Err(failure) }
+    }
 }
 let alternate = false
 "#);
@@ -28649,7 +28349,6 @@ assert apply(40) == 42
             let original = program.store.checked_expr_types[fact];
             assert_eq!(program.store.semantic.to_type(original.type_id).unwrap(), Type::Stream(Box::new(Type::Int)));
             assert!(original.function_ref().is_none());
-            assert!(!original.with_error_source());
             let schema::ExprView::Range { start, end, .. } = decoder.expression_view(range).unwrap() else { unreachable!() };
             assert!(matches!(decoder.expression_view(start.raw() as usize), Ok(schema::ExprView::Param(0))));
             assert!(matches!(decoder.expression_view(end.raw() as usize), Ok(schema::ExprView::Param(1))));
@@ -32862,7 +32561,7 @@ pure invoke(n: Int) -> Int { f(n) }
         forged.store.extra[function_ref_payload + 1] = Name::intern("bad").symbol().raw();
         forged.store.checked_expr_types[original_fact_index].type_id = bad_fact.type_id;
         forged.store.checked_expr_types[original_fact_index].purpose =
-            FullCheckedExprPurpose::CheckedContract { function_ref: Some((FunctionName::name(Name::intern("bad")), CallableKind::Pure)), with_error_source: false };
+            FullCheckedExprPurpose::CheckedContract { function_ref: Some((FunctionName::name(Name::intern("bad")), CallableKind::Pure)) };
         assert!(FullVerifier::verify(&forged).is_err());
     }
 
@@ -34243,7 +33942,7 @@ assert nullable_name == null
         let forged_literal_fact = FullCheckedExprType {
             instruction: scalar_literal as u32,
             type_id: uint_type,
-            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
         };
         assert!(forged_scalar
             .store
@@ -34294,7 +33993,7 @@ assert nullable_name == null
         let forged_literal_fact = FullCheckedExprType {
             instruction: list_literal as u32,
             type_id: uint_type,
-            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
         };
         assert!(forged_list
             .store
@@ -36857,104 +36556,6 @@ let _ = relay(failing(good, bad))
         assert!(error.message.contains("private bridge declaration differs from its native contract"), "{error:?}");
     }
 
-    #[test]
-    fn typed_callable_driver_with_binding_matches_its_result_payload() {
-        let program = fixture(
-            "typed-callable-driver-with-binding.xsh",
-            r#"type Scale = pure(n: Int) -> Int
-type Measure = pure(text: Str) -> Int
-pure double(n: Int) -> Int { n * 2 }
-pure measure(text: Str) -> Int { text.byte_len() }
-let value: Result[Scale] = Ok(double)
-let other: Measure = measure
-assert other("abc") == 3
-with selected = value {
-  assert selected(4) == 8
-} else { |failure|
-  assert false
-}
-"#,
-        );
-        FullVerifier::verify(&program).unwrap();
-
-        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
-            program
-                .store
-                .payload(program.store.data[instruction].range())
-                .unwrap()
-        }
-        // The call through `selected` is the typed call whose callee reads the
-        // step's only temporary slot; the call through `other` supplies a
-        // second signature.
-        let (step, temporary_row, temporary_slot) = program
-            .store
-            .driver_steps
-            .iter()
-            .enumerate()
-            .find_map(|(index, step)| {
-                let slots = step.slots.bounds(program.store.driver_slots.len())?;
-                let row = slots.clone().find(|row| {
-                    program.store.driver_slots[*row].flags & DRIVER_SLOT_TEMPORARY != 0
-                })?;
-                Some((index, row, program.store.driver_slots[row].slot))
-            })
-            .expect("a top-level with binding of a typed callable is a temporary driver slot");
-        let calls_through = |step: usize, slot: u32| {
-            program
-                .store
-                .driver_instruction_range(step)
-                .unwrap()
-                .find_map(|instruction| {
-                    if program.store.tags[instruction] != FullTag::ExprTypedCall {
-                        return None;
-                    }
-                    let callee = payload(&program, instruction)[0] as usize;
-                    (program.store.tags[callee] == FullTag::ExprParam
-                        && payload(&program, callee).first().copied() == Some(slot))
-                    .then_some((instruction, callee))
-                })
-        };
-        let selected_call = calls_through(step, temporary_slot)
-            .expect("the with body calls its binding through the temporary slot");
-        let alternate_signature = program
-            .store
-            .driver_steps
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| *index != step)
-            .find_map(|(index, _)| {
-                program
-                    .store
-                    .driver_instruction_range(index)
-                    .unwrap()
-                    .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
-                    .map(|instruction| payload(&program, instruction)[2])
-            })
-            .expect("a second callable signature is called at top level");
-        let callee_fact = program
-            .store
-            .checked_expr_types
-            .iter()
-            .position(|fact| fact.instruction as usize == selected_call.1)
-            .expect("the callee has an exact checker fact");
-
-        let mut forged = program.clone();
-        let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
-        forged.store.driver_slots[temporary_row].type_id = alternate_signature;
-        forged.store.checked_expr_types[callee_fact].type_id = alternate_signature;
-        let call_signature = forged.store.data[selected_call.0].range().start as usize + 2;
-        forged.store.extra[call_signature] = alternate_signature.raw();
-
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error
-                .message
-                .contains("local callable slot type fact disagrees with its writer producer"),
-            "{}",
-            error.message
-        );
-    }
-
     /// The temporary driver slot rows of one step, as indices into the table.
     fn temporary_rows(program: &FullProgram, step: usize) -> Vec<usize> {
         let slots = program.store.driver_steps[step]
@@ -36976,23 +36577,6 @@ with selected = value {
             .expect("the program has a statement-local callable slot")
     }
 
-    #[test]
-    fn full_verifier_requires_read_authority_for_temporary_driver_slots() {
-        let program = fixture("typed-callable-driver-temp-read.xsh", TOP_LEVEL_WITH_RECORD);
-        FullVerifier::verify(&program).unwrap();
-        let (step, slot) = first_temporary_step(&program);
-        let row = temporary_rows(&program, step)
-            .into_iter()
-            .find(|row| program.store.driver_slots[*row].slot == slot)
-            .unwrap();
-        let mut forged = program.clone();
-        forged.store.driver_slots[row].flags &= !DRIVER_SLOT_READ;
-        assert_eq!(
-            FullVerifier::verify(&forged).unwrap_err().message,
-            "driver slot is invalid"
-        );
-    }
-
     /// The first instruction of `tag` in a driver step.
     fn step_instruction(program: &FullProgram, step: usize, tag: FullTag) -> usize {
         program
@@ -37011,102 +36595,6 @@ with selected = value {
     /// The first word of the block with raw id `block` in the extra table.
     fn block_start(program: &FullProgram, block: u32) -> usize {
         program.store.blocks[block as usize - 1].instructions.start as usize
-    }
-
-    const TOP_LEVEL_WITH_RECORD: &str = r#"type Scale = pure(n: Int) -> Int
-pure double(n: Int) -> Int { n * 2 }
-let value: Result[Scale] = Ok(double)
-with selected = value {
-  var rec = {n: "a"}
-  rec.n = "b"
-  assert selected(4) == 8
-} else { |failure|
-  assert false
-}
-"#;
-
-    /// Retarget the `with` binding of [`TOP_LEVEL_WITH_RECORD`] to the
-    /// record local, so the binding no longer writes the temporary slot. The
-    /// `with` still lists the temporary slot among its captures.
-    fn with_binding_moved_to_record_local(
-        program: &FullProgram,
-    ) -> (FullProgram, usize, u32, usize, u32) {
-        let (step, temporary) = first_temporary_step(program);
-        let with = step_instruction(program, step, FullTag::StmtWith);
-        let record_local = {
-            let local = step_instruction(program, step, FullTag::StmtLet);
-            program.store.extra[payload_start(program, local)]
-        };
-        let bindings = block_start(program, program.store.extra[payload_start(program, with)]);
-        // A binding list is a count followed by (slot, initializer) pairs.
-        assert_eq!(program.store.extra[bindings + 1], temporary);
-        let mut forged = program.clone();
-        forged.store.extra[bindings + 1] = record_local;
-        (forged, step, temporary, bindings, record_local)
-    }
-
-    #[test]
-    fn typed_callable_driver_temporary_without_a_writer_is_rejected() {
-        let program = fixture("typed-callable-driver-no-writer.xsh", TOP_LEVEL_WITH_RECORD);
-        FullVerifier::verify(&program).unwrap();
-        let (forged, ..) = with_binding_moved_to_record_local(&program);
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error.message.contains("temporary driver slot has no writer"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn typed_callable_driver_temporary_is_not_written_by_a_field_assignment() {
-        // The `with` still lists the slot among its captures, and a field
-        // assignment now names it as its root; neither compares a type.
-        let program = fixture("typed-callable-driver-field-writer.xsh", TOP_LEVEL_WITH_RECORD);
-        let (mut forged, step, temporary, ..) = with_binding_moved_to_record_local(&program);
-        let assignment = step_instruction(&forged, step, FullTag::StmtAssignField);
-        let slot_word = payload_start(&forged, assignment);
-        assert_ne!(forged.store.extra[slot_word], temporary);
-        forged.store.extra[slot_word] = temporary;
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error.message.contains("temporary driver slot has no writer"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn typed_callable_driver_temporary_is_not_written_by_an_integer_field_or_path_assignment() {
-        for (statement, tag) in [
-            ("rec.n = 2", FullTag::StmtAssignFieldInt),
-            ("rec.items[0] = 2", FullTag::StmtAssignPath),
-        ] {
-            let source = format!(
-                r#"type Scale = pure(n: Int) -> Int
-pure double(n: Int) -> Int {{ n * 2 }}
-let value: Result[Scale] = Ok(double)
-with selected = value {{
-  var rec = {{n: 1, items: [1]}}
-  {statement}
-  assert selected(4) == 8
-}} else {{ |failure|
-  assert false
-}}
-"#
-            );
-            let program = fixture("typed-callable-driver-int-writer.xsh", &source);
-            let (mut forged, step, temporary, ..) = with_binding_moved_to_record_local(&program);
-            let assignment = step_instruction(&forged, step, tag);
-            let slot_word = payload_start(&forged, assignment);
-            forged.store.extra[slot_word] = temporary;
-            let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(
-                error.message.contains("temporary driver slot has no writer"),
-                "{statement}: {}",
-                error.message
-            );
-        }
     }
 
     #[test]
@@ -38479,7 +37967,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             ExprProcCallResult
             StmtLet
             StmtGuard
-            StmtWith
             StmtLetInt
             StmtLetBool
             StmtAssign
@@ -38521,8 +38008,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        let dead_ordinals = [43, 50, 64, 95, 96, 97, 98, 101, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 152);
+        let dead_ordinals = [43, 50, 64, 95, 96, 97, 98, 101, 117, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 151);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -38587,8 +38074,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
                         | FullTag::ExprPathMkdir
                         | FullTag::ExprPathRemove
                         | FullTag::ExprTry
-                        | FullTag::StmtGuard
-                        | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,
+                        | FullTag::StmtGuard => EFFECT_PROPAGATE | EFFECT_TRACE,
                         FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
                         FullTag::ExprLoop
                         | FullTag::StmtLoop
@@ -39817,15 +39303,6 @@ proc read(token, file: Path, spare: Str) [fs] {
     }
 
     #[test]
-    fn generic_ground_helper_with_bound_arithmetic_retains_producer_proof() {
-        run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int {
-  with value = Ok(1) { return value + 6 } else { |_| return 0 }
-}
-pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
-"###));
-    }
-
-    #[test]
     fn generic_ground_helper_comprehension_retains_ordinary_behavior() {
         run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { let values = [value for value in [7]]; values[0] }
 pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
@@ -39991,20 +39468,6 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     #[test]
     fn generic_ground_helper_transfer_pattern_while_retains_ordinary_behavior() {
         run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { var result = 0; let value: Result[Int] = Ok(7); while let Ok(found) = value { result = found; break }; result }
-pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
-"###));
-    }
-
-    #[test]
-    fn generic_ground_helper_transfer_with_success_retains_ordinary_behavior() {
-        run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { with value = Ok(7) { return value } else { |_| return 0 } }
-pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
-"###));
-    }
-
-    #[test]
-    fn generic_ground_helper_transfer_with_error_retains_ordinary_behavior() {
-        run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { with value = Err(error.failure("bad")) { return 0 } else { |failure| return failure.message.byte_len() + 4 } }
 pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
 "###));
     }
@@ -40391,15 +39854,6 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     }
 
     #[test]
-    fn generic_ground_helper_transfer_typed_with_retains_ordinary_behavior() {
-        run_with_large_stack(|| assert_ordinary_ground_helper(r###"type Action = pure(value: Int) -> Int
-pure target(value: Int) -> Int { value }
-pure helper() -> Int { let first: Action = target; with action = Ok(first) { return action(7) } else { |_| return 0 } }
-pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
-"###));
-    }
-
-    #[test]
     fn generic_ground_helper_transfer_typed_slice_retains_ordinary_behavior() {
         run_with_large_stack(|| assert_ordinary_ground_helper(r###"type Action = pure(value: Int) -> Int
 pure target(value: Int) -> Int { value }
@@ -40513,25 +39967,6 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             reached.store.tags[integer(7)] = FullTag::ExprStr;
             reached.store.data[integer(7)] = program.store.data[text];
             FullVerifier::verify(&reached).expect_err("the actual outer-loop break must retain its Int contract");
-        });
-    }
-
-    #[test]
-    fn generic_ground_with_fallthrough_preserves_later_return_obligations() {
-        run_with_large_stack(|| {
-            let source = "pure helper() -> Int { with held = 1 { let marker = \"value\"; let ignored = held } else {}; 7 }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n";
-            let program = ordinary_ground_fixture("producer-with-fallthrough.xsh", source);
-            assert_ordinary_ground_program(Arc::new(program.clone()));
-            let helper = scheme_fixture_root_function(&program, "helper");
-            let decoder = function_view_decoder(&program.store, helper);
-            let returned = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [7, 0]).unwrap();
-            let text = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::ExprStr).unwrap();
-            let mut bad = program.clone();
-            bad.store.in_place.take();
-            assert!(bad.store.in_place.get().is_none());
-            bad.store.tags[returned] = FullTag::ExprStr;
-            bad.store.data[returned] = program.store.data[text];
-            FullVerifier::verify(&bad).expect_err("a falling-through with body cannot erase a later return obligation");
         });
     }
 
@@ -40779,7 +40214,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let mut wrong_purpose = (*program).clone();
             wrong_purpose.store.in_place.take();
             assert!(wrong_purpose.store.in_place.get().is_none());
-            wrong_purpose.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false };
+            wrong_purpose.store.checked_expr_types[context].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None };
             assert!(FullVerifier::verify(&wrong_purpose).is_err());
             let mut changed_type = (*program).clone();
             changed_type.store.in_place.take();
@@ -44376,44 +43811,6 @@ pure foreign(payload, count: Int) {
         let mut missing = program.clone();
         missing.store.extra[range.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
-    }
-
-    #[test]
-    fn verifier_checks_with_binding_slots_and_both_branch_returns() {
-        let source =
-            include_str!("../../../../tests/fixtures/frontend-indexed/block-parameters.xsh");
-        let program = fixture("block-parameters.xsh", source);
-        FullVerifier::verify(&program).unwrap();
-        let row = program
-            .store
-            .tags
-            .iter()
-            .position(|tag| *tag == FullTag::StmtWith)
-            .unwrap();
-        let payload = program.store.data[row]
-            .range()
-            .bounds(program.store.extra.len())
-            .unwrap();
-        let bindings = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
-        let bindings = program.store.blocks[bindings.index()]
-            .instructions
-            .bounds(program.store.extra.len())
-            .unwrap();
-        let mut bad_slot = program.clone();
-        bad_slot.store.extra[bindings.start + 1] = u32::MAX;
-        assert!(
-            FullVerifier::verify(&bad_slot)
-                .unwrap_err()
-                .message
-                .contains("slot")
-        );
-        let decoder = return_analysis_decoder(&program, "selected");
-        assert!(indexed_stmt_can_return_with_decoder(
-            &program.store,
-            row,
-            Some(&decoder),
-        )
-        .unwrap());
     }
 
     #[test]
@@ -48080,7 +47477,7 @@ assert model[key] == 17
             let boolean = SemanticPoolBuilder::default().intern_type(&mut wrong_result.store.semantic, &Type::Bool).unwrap();
             wrong_result.store.checked_expr_types.push(FullCheckedExprType {
                 instruction: index as u32, type_id: boolean,
-                purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+                purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
             });
             wrong_result.store.checked_expr_types.sort_unstable_by_key(|fact| fact.instruction);
             assert!(FullVerifier::verify(&wrong_result).is_err(), "module projection result must match its actual scalar export");
@@ -49872,7 +49269,7 @@ assert carried(opaque)? == opaque
             }).expect("top-level capture instruction");
             let contract = program.store.checked_expr_types.iter().position(|fact| fact.instruction as usize == capture).expect("capture contract");
             assert!(program.store.checked_expr_types[contract].is_contract());
-            assert!(matches!(program.store.checked_expr_types[contract].purpose, FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false }));
+            assert!(matches!(program.store.checked_expr_types[contract].purpose, FullCheckedExprPurpose::CheckedContract { function_ref: None }));
             let mut missing_context = (*program).clone();
             missing_context.store.checked_expr_types.remove(contract);
             assert!(FullVerifier::verify(&missing_context).is_err());
@@ -52806,7 +52203,6 @@ print $value
                 type_id,
                 purpose: FullCheckedExprPurpose::CheckedContract {
                     function_ref: None,
-                    with_error_source: false,
                 },
             };
             let insert = forged.store.checked_expr_types
@@ -52829,9 +52225,10 @@ pure typed_map_value() -> Int {
 }
 proc callback_from_literal_map() [error] -> Result[Int] {
   let callbacks: Map[Str, Scale] = {["double"]: double}
-  with selected = callbacks.get("double") {
-    return Ok(selected(4))
-  } else { |failure| return Err(failure) }
+  match callbacks.get("double") {
+    Ok(selected) => { return Ok(selected(4)) }
+    Err(failure) => { return Err(failure) }
+  }
 }
 pure map_value() -> Int {
   let callbacks: Map[Str, Pure] = {["label"]: label_length}
@@ -52914,7 +52311,7 @@ test test_typed_callable_literal_containers {
             let fact = FullCheckedExprType {
                 instruction: instruction as u32,
                 type_id,
-                purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+                purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
             };
             let insert = forged
                 .store
@@ -52947,7 +52344,7 @@ test test_typed_callable_literal_containers {
         let fact = FullCheckedExprType {
             instruction: noncallable_map[0] as u32,
             type_id,
-            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
         };
         let insert = forged
             .store
@@ -53018,7 +52415,7 @@ test test_typed_callable_literal_containers {
         let fact = FullCheckedExprType {
             instruction: empty_map[0] as u32,
             type_id,
-            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+            purpose: FullCheckedExprPurpose::CheckedContract { function_ref: None },
         };
         let insert = forged
             .store
@@ -53242,262 +52639,6 @@ pure apply_result(n: Int) -> Int {
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(
             error.message.contains("checked return type disagrees with the function signature"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn with_fallible_path_results_match_their_registered_types() {
-        let source = r#"type Scale = pure(n: Int) -> Int
-type Label = pure(text: Str) -> Int
-pure double(n: Int) -> Int { n * 2 }
-pure label_length(text: Str) -> Int { text.byte_len() }
-
-proc from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
-  with mapped = callbacks.get("double") {
-    return Ok(mapped(1))
-  } else { |failure| return Err(failure) }
-}
-
-type CallbackRecord = {double: Scale}
-proc from_record(callbacks: CallbackRecord) [error] -> Result[Int] {
-  with mapped = callbacks.get("double") {
-    return Ok(mapped(1))
-  } else { |failure| return Err(failure) }
-}
-
-test test_with_fallible_path_results_match_their_registered_types {
-  let source_path = fp"source"
-  with raw_content = source_path.read_bytes()? {
-    let _ = raw_content
-  } else { |failure| let _ = failure.message }
-  with present = source_path.exists()? {
-    let _ = present
-  } else { |failure| let _ = failure.message }
-  with executable = source_path.executable()? {
-    let _ = executable
-  } else { |failure| let _ = failure.message }
-  with size = source_path.du()? {
-    let _ = size
-  } else { |failure| let _ = failure.message }
-  with entry = source_path.metadata()? {
-    let _ = entry
-  } else { |failure| let _ = failure.message }
-  with resolved_path = source_path.resolve()? {
-    let _ = resolved_path.display()
-  } else { |failure| let _ = failure.message }
-  with target_path = source_path.readlink()? {
-    let _ = target_path.display()
-  } else { |failure| let _ = failure.message }
-  with written = source_path.write("contents")? {
-    let _ = written
-  } else { |failure| let _ = failure.message }
-  with atomically_written = source_path.write_atomic("contents")? {
-    let _ = atomically_written
-  } else { |failure| let _ = failure.message }
-  with created = source_path.mkdir()? {
-    let _ = created
-  } else { |failure| let _ = failure.message }
-  with removed = source_path.remove()? {
-    let _ = removed
-  } else { |failure| let _ = failure.message }
-  with relative_path = source_path.strip_prefix(source_path)? {
-    let _ = relative_path
-  } else { |failure| let _ = failure.message }
-  with children = fs.children(source_path)? {
-    let _ = children
-  } else { |failure| let _ = failure.message }
-  with files = fs.files(source_path)? {
-    let _ = files
-  } else { |failure| let _ = failure.message }
-  with walked = fs.walk(source_path)? {
-    let _ = walked
-  } else { |failure| let _ = failure.message }
-  with root = fs.tempdir()? {
-    let _ = root
-  } else { |failure| let _ = failure.message }
-  with tar_result = archive.create(source_path, source_path, [source_path], .Tar)? {
-    let _ = tar_result
-  } else { |failure| let _ = failure.message }
-  with contents = source_path.read_text()? {
-    let _ = contents
-  } else { |failure| let _ = failure.message }
-  let callbacks: List[Scale] = [double]
-  with listed = callbacks.get(0)? {
-    let _ = listed(1)
-  } else { |failure| let _ = failure.message }
-  let callback_result: Result[Scale] = Ok(double)
-  with contextual = callback_result.context("typed-callee")? {
-    let _ = contextual(1)
-  } else { |failure| let _ = failure.message }
-  with parsed = "12".parse_int()? {
-    let _ = parsed
-  } else { |failure| let _ = failure.message }
-}
-"#;
-        let program = fixture("typed-callable-path-result-producer.xsh", source);
-        FullVerifier::verify(&program).unwrap();
-
-        let read_text_fact = program
-            .store
-            .checked_expr_types
-            .iter()
-            .find(|fact| {
-                program.store.tags[fact.instruction as usize] == FullTag::ExprPathReadText
-            })
-            .expect("read_text error source has a checked result type");
-        let alternate_type = read_text_fact.type_id;
-        let resolve_type = program
-            .store
-            .checked_expr_types
-            .iter()
-            .find(|fact| {
-                program.store.tags[fact.instruction as usize] == FullTag::ExprPathResolve
-            })
-            .expect("resolve error source has a checked result type")
-            .type_id;
-
-        for (tag, forged_type, expected_message) in [
-            (
-                FullTag::ExprPathReadText,
-                resolve_type,
-                "checked path read result disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathReadBytes,
-                alternate_type,
-                "checked path byte read disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathExists,
-                alternate_type,
-                "checked path existence result disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathExecutable,
-                alternate_type,
-                "checked path executable result disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathDu,
-                alternate_type,
-                "checked path disk usage disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathMetadata,
-                alternate_type,
-                "checked path metadata disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathResolve,
-                alternate_type,
-                "checked path resolve result disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathReadlink,
-                alternate_type,
-                "checked path readlink result disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathWrite,
-                alternate_type,
-                "checked path write disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathMkdir,
-                alternate_type,
-                "checked path directory creation disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprPathRemove,
-                alternate_type,
-                "checked path removal disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprMethod,
-                alternate_type,
-                "checked method result disagrees with its receiver's registry signature",
-            ),
-            (
-                FullTag::ExprFsList,
-                alternate_type,
-                "checked filesystem listing disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprFsFiles,
-                alternate_type,
-                "checked filesystem file scan disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprFsWalk,
-                alternate_type,
-                "checked filesystem walk disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprFsTempDir,
-                alternate_type,
-                "checked temporary-directory result disagrees with its registry signature",
-            ),
-        ] {
-            let fact_indices = program
-                .store
-                .checked_expr_types
-                .iter()
-                .enumerate()
-                .filter_map(|(index, fact)| {
-                    (program.store.tags[fact.instruction as usize] == tag).then_some(index)
-                })
-                .collect::<Vec<_>>();
-            assert!(!fact_indices.is_empty(), "{tag:?} has no checked source fact");
-            for fact_index in fact_indices {
-                let mut forged = program.clone();
-                forged.store.checked_expr_types[fact_index].type_id = forged_type;
-
-                let error = FullVerifier::verify(&forged).unwrap_err();
-                assert!(error.message.contains(expected_message), "{}", error.message);
-            }
-        }
-
-        for (tag, expected_message) in [
-            (
-                FullTag::ExprFsFiles,
-                "checked filesystem file scan disagrees with its registry signature",
-            ),
-            (
-                FullTag::ExprFsWalk,
-                "checked filesystem walk disagrees with its registry signature",
-            ),
-        ] {
-            let instruction = program
-                .store
-                .tags
-                .iter()
-                .position(|actual| *actual == tag)
-                .expect("wrapped filesystem scan producer");
-            let payload = program.store.data[instruction].range();
-            let wrapped_flag = payload.start as usize + 5;
-            assert_eq!(program.store.extra[wrapped_flag], 1);
-            let mut forged = program.clone();
-            forged.store.extra[wrapped_flag] = 0;
-
-            let error = FullVerifier::verify(&forged).unwrap_err();
-            assert!(error.message.contains(expected_message), "{}", error.message);
-        }
-
-        let fs_list = program
-            .store
-            .tags
-            .iter()
-            .position(|actual| *actual == FullTag::ExprFsList)
-            .expect("filesystem child-list producer");
-        let op_index = program.store.extra[program.store.data[fs_list].range().start as usize]
-            as usize;
-        let mut forged = program.clone();
-        forged.store.runtime_ops[op_index] = RuntimeOp::FsDirs;
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error.message.contains("filesystem list operation is not `fs.children`"),
             "{}",
             error.message
         );
@@ -54231,287 +53372,6 @@ pure use_failure(result: Result[Int, Scale]) -> Int {
             error
                 .message
                 .contains("local callable slot type fact disagrees with its writer producer"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn typed_callable_with_error_binding_matches_its_result_payload() {
-        let source = r#"type Scale = pure(n: Int) -> Int
-type Measure = pure(value: Int) -> Int
-
-pure double(n: Int) -> Int { n * 2 }
-pure measure(value: Int) -> Int { value }
-
-pure use_failure(
-  result: Result[Int, Scale],
-  second: Result[Int, Scale],
-) -> Result[Int, Scale] {
-  var value = 0
-  with direct = result, left = result?, right = second? {
-    value = direct + left + right
-  } else { |failure| return Ok(failure(4)) }
-  Ok(value)
-}
-
-pure other(callback: Measure) -> Int { callback(7) }
-"#;
-        let program = fixture("typed-callable-with-error.xsh", source);
-        FullVerifier::verify(&program).unwrap();
-
-        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
-            program
-                .store
-                .payload(program.store.data[instruction].range())
-                .unwrap()
-        }
-        let use_failure = program
-            .store
-            .functions
-            .iter()
-            .position(|function| program.store.string(function.name).unwrap() == "use_failure")
-            .expect("With function exists");
-        let other = program
-            .store
-            .functions
-            .iter()
-            .position(|function| program.store.string(function.name).unwrap() == "other")
-            .expect("alternate callable function exists");
-        let range = program
-            .store
-            .function_instruction_range(use_failure)
-            .unwrap();
-        let with = range
-            .clone()
-            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtWith)
-            .expect("With row exists");
-        let execution = schema_execution_with_owner(
-            &program.store,
-            IrFunctionId::new(use_failure).unwrap().raw(),
-            program.store.functions[use_failure].slot_count,
-        );
-        let (tag, payload_view) = execution
-            .instruction_id(u32::try_from(with).unwrap())
-            .expect("With instruction exists");
-        let schema::StmtView::With {
-            else_param_slot: Some(failure_slot),
-            ..
-        } = schema::StmtView::decode(&execution, tag, payload_view).unwrap()
-        else {
-            panic!("With binds its failure parameter");
-        };
-        let call = range
-            .clone()
-            .find_map(|instruction| {
-                if program.store.tags[instruction] != FullTag::ExprTypedCall {
-                    return None;
-                }
-                let callee = payload(&program, instruction)[0] as usize;
-                (program.store.tags.get(callee) == Some(&FullTag::ExprParam)
-                    && payload(&program, callee).first().copied()
-                        == Some(failure_slot as u32))
-                .then_some((instruction, callee))
-            })
-            .expect("the With failure value is called");
-        let alternate_signature = program
-            .store
-            .function_instruction_range(other)
-            .unwrap()
-            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
-            .map(|instruction| payload(&program, instruction)[2])
-            .expect("alternate signature call exists");
-        let callee_fact = program
-            .store
-            .checked_expr_types
-            .iter()
-            .position(|fact| fact.instruction as usize == call.1)
-            .expect("With failure parameter has an exact checker fact");
-        let slot_facts = program.store.functions[use_failure]
-            .slot_type_facts
-            .bounds(program.store.slot_type_facts.len())
-            .unwrap();
-
-        let mut forged = program.clone();
-        forged.store.slot_type_facts[slot_facts.start + failure_slot] = alternate_signature;
-        let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
-        forged.store.checked_expr_types[callee_fact].type_id = alternate_signature;
-        let call_signature = forged.store.data[call.0].range().start as usize + 2;
-        forged.store.extra[call_signature] = alternate_signature.raw();
-
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error
-                .message
-                .contains("local callable slot type fact disagrees with its writer producer"),
-            "{}",
-            error.message
-        );
-
-    }
-
-    #[test]
-    fn typed_callable_with_binding_cannot_be_retyped_from_an_any_initializer() {
-        let source = r#"type Scale = pure(n: Int) -> Int
-
-pure double(n: Int) -> Int { n * 2 }
-
-pure use_callback(result: Result[Scale, Scale], dynamic: Result[Any, Scale]) -> Int {
-  with callback = result, opaque = dynamic {
-    return callback(4)
-  } else { |failure| return failure(4) }
-}
-"#;
-        let program = fixture("typed-callable-with-any-with-binding.xsh", source);
-        FullVerifier::verify(&program).unwrap();
-
-        let owner = program
-            .store
-            .functions
-            .iter()
-            .position(|function| program.store.string(function.name).unwrap() == "use_callback")
-            .expect("With function exists");
-        let mut range = program.store.function_instruction_range(owner).unwrap();
-        let with = range
-            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtWith)
-            .expect("With row exists");
-        let with_payload = program.store.data[with]
-            .range()
-            .bounds(program.store.extra.len())
-            .unwrap();
-        let bindings_block = IrBlockId::from_raw(program.store.extra[with_payload.start])
-            .expect("With bindings block exists");
-        let bindings = program.store.blocks[bindings_block.index()]
-            .instructions
-            .bounds(program.store.extra.len())
-            .unwrap();
-        assert_eq!(program.store.extra[bindings.start], 2);
-        let callback_initializer = program.store.extra[bindings.start + 2] as usize;
-        let opaque_initializer = program.store.extra[bindings.start + 4] as usize;
-        assert_eq!(program.store.tags[callback_initializer], FullTag::ExprParam);
-        assert_eq!(program.store.tags[opaque_initializer], FullTag::ExprParam);
-        assert_ne!(callback_initializer, opaque_initializer);
-
-        let mut forged = program.clone();
-        forged.store.extra[bindings.start + 2] = opaque_initializer as u32;
-        forged.store.extra[bindings.start + 4] = callback_initializer as u32;
-
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error.message.contains("callable") || error.message.contains("checked type"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn typed_callable_with_error_slot_cannot_alias_a_different_success_type() {
-        let source = r#"type Count = pure(text: Str) -> Int
-type Measure = pure(value: Int) -> Int
-
-pure count(text: Str) -> Int { text.byte_len() }
-pure measure(value: Int) -> Int { value }
-
-pure use_failure(result: Result[Count, Measure]) -> Int {
-  var value = 0
-  with candidate = result {
-    value = candidate("success")
-  } else { |failure| value = failure(4) }
-  value
-}
-"#;
-        let program = fixture("typed-callable-with-error-slot-alias.xsh", source);
-        FullVerifier::verify(&program).unwrap();
-
-        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
-            program
-                .store
-                .payload(program.store.data[instruction].range())
-                .unwrap()
-        }
-        fn call_for_slot(
-            program: &FullProgram,
-            range: std::ops::Range<usize>,
-            slot: usize,
-        ) -> (usize, usize) {
-            range
-                .into_iter()
-                .find_map(|instruction| {
-                    if program.store.tags[instruction] != FullTag::ExprTypedCall {
-                        return None;
-                    }
-                    let callee = payload(program, instruction)[0] as usize;
-                    (program.store.tags.get(callee) == Some(&FullTag::ExprParam)
-                        && payload(program, callee).first().copied() == Some(slot as u32))
-                    .then_some((instruction, callee))
-                })
-                .expect("typed call through the selected With binding exists")
-        }
-
-        let owner = program
-            .store
-            .functions
-            .iter()
-            .position(|function| program.store.string(function.name).unwrap() == "use_failure")
-            .expect("With function exists");
-        let range = program.store.function_instruction_range(owner).unwrap();
-        let with = range
-            .clone()
-            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtWith)
-            .expect("With row exists");
-        let execution = schema_execution_with_owner(
-            &program.store,
-            IrFunctionId::new(owner).unwrap().raw(),
-            program.store.functions[owner].slot_count,
-        );
-        let (tag, payload_view) = execution
-            .instruction_id(u32::try_from(with).unwrap())
-            .expect("With instruction exists");
-        let schema::StmtView::With {
-            mut bindings,
-            else_param_slot: Some(failure_slot),
-            ..
-        } = schema::StmtView::decode(&execution, tag, payload_view).unwrap()
-        else {
-            panic!("With binds its failure parameter");
-        };
-        let (success_slot, _) = bindings
-            .next()
-            .expect("With success binding exists")
-            .unwrap();
-        assert_ne!(success_slot, failure_slot);
-        let (success_call, _) = call_for_slot(&program, range.clone(), success_slot);
-        let (failure_call, failure_callee) = call_for_slot(&program, range.clone(), failure_slot);
-        let checked_fact = program
-            .store
-            .checked_expr_types
-            .iter()
-            .position(|fact| fact.instruction as usize == failure_callee)
-            .expect("failure parameter has an exact checker fact");
-        let success_signature = payload(&program, success_call)[2];
-
-        let mut forged = program.clone();
-        let with_payload = forged.store.data[with]
-            .range()
-            .bounds(forged.store.extra.len())
-            .unwrap();
-        assert_eq!(forged.store.extra[with_payload.start + 2], 1);
-        forged.store.extra[with_payload.start + 3] = success_slot as u32;
-        let callee_payload = forged.store.data[failure_callee]
-            .range()
-            .bounds(forged.store.extra.len())
-            .unwrap();
-        forged.store.extra[callee_payload.start] = success_slot as u32;
-        let signature = TypeId::from_raw(success_signature).unwrap();
-        forged.store.checked_expr_types[checked_fact].type_id = signature;
-        let call_signature = forged.store.data[failure_call].range().start as usize + 2;
-        forged.store.extra[call_signature] = success_signature;
-
-        let error = FullVerifier::verify(&forged).unwrap_err();
-        assert!(
-            error
-                .message
-                .contains("With success and error bindings share a source slot"),
             "{}",
             error.message
         );

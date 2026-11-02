@@ -181,18 +181,16 @@ test test_collection_updates_keep_the_callables_they_store {
   assert extended[0](4) == 8
   let by_name: Map[Str, Scale] = {}
   let stored = by_name.set("twice", twice)
-  with selected = stored.get("twice")? {
-    assert selected(4) == 8
-  } else { |failure| test.fail(failure.message) }
+  let selected = stored.get("twice")?
+  assert selected(4) == 8
 }
 
-test test_with_binds_a_relative_path_result_and_proc_call_is_dynamic { |ctx|
+test test_relative_path_result_binds_and_proc_call_is_dynamic { |ctx|
   let root = test.temp_dir(ctx, name: "verifier-witness")?
   let link = fp"{root}/link"
   var relative = ""
-  with stripped = link.strip_prefix(root)? {
-    relative = stripped.display()
-  } else { |failure| test.fail(failure.message) }
+  let stripped = link.strip_prefix(root)?
+  relative = stripped.display()
   assert relative == "link"
   assert call_dynamic(bump, 1) is Ok(_)
 }

@@ -26,15 +26,14 @@ print ${choose(7)} ${choose(null)}
   )?
 }
 
-test test_stmt_with { |ctx|
+test test_stmt_match_result { |ctx|
   test.expect(
     ctx,
     r"""proc load() -> Result[Int] { return Ok(7) }
 proc show() [io] {
-  with value = load() {
-    print $value
-  } else { |failure|
-    print $failure.message
+  match load() {
+    Ok(value) => { print $value }
+    Err(failure) => { print $failure.message }
   }
 }
 show()

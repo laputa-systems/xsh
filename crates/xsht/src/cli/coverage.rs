@@ -663,18 +663,6 @@ fn collect_statement(
             add_expr(program, sources, condition, by_source);
             collect_block(program, sources, block, by_source);
         }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-            ..
-        } => {
-            for binding in program.arena.with_bindings(bindings) {
-                add_span(sources, program.arena.span(binding.span), by_source);
-            }
-            collect_block(program, sources, body, by_source);
-            collect_block(program, sources, else_block, by_source);
-        }
         ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
         // A `guard` is counted as one statement, as a `guard let` is.
         ArenaStmtKind::Sugar { form, operands, .. }

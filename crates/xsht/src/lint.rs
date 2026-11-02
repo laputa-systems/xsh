@@ -6305,7 +6305,6 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
-            | ArenaStmtKind::With { .. }
             | ArenaStmtKind::Loop { .. }
             | ArenaStmtKind::Guard { .. }
             | ArenaStmtKind::Sugar { .. }
@@ -6331,7 +6330,6 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
         | ArenaStmtKind::If { .. }
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Loop { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Sugar { .. }

@@ -1471,19 +1471,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "guard_condition",
             seq([not(shell_test_leads()), r("expression")]),
         ),
-        rule(
-            Statements,
-            "with_statement",
-            seq([
-                kw(Keyword::With),
-                list(seq([ident(), t(T::Equals), r("condition_expression")])),
-                block(),
-                nl(),
-                kw(Keyword::Else),
-                nl(),
-                block(),
-            ]),
-        ),
         // Expressions.
         rule(
             Expressions,

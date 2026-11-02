@@ -106,9 +106,8 @@ true try type unless use var wait when while with yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
-`with` begins two forms that its `else` tells apart: with an `else` block it
-groups fallible bindings under one handler (8.6), and without one it is a
-resource scope (10.4).
+`with` begins the resource scope (10.4); an `else` handler after its body is
+`parse.with-handler`.
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
@@ -124,8 +123,7 @@ head of a `wait until` statement (8.6),
 `backoff` directly after `retry` and the `within` that follows its intervals
 (8.8),
 `collect` directly before the `{` of a `collect` expression (6.9),
-the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
-as `run` inside a builder block.
+and the core commands `print`, `eprint`, `cd`, and `env`.
 
 Builtin type and constructor names:
 
@@ -1535,8 +1533,7 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
   `shell_code() -> Result[Int]`, the code a shell reports: the exit code, or
   128 plus the signal. `!status` is `!status.ok`.
 - `ProcessHandle` is a live child started by `spawn` (see 11.7).
-- `Command` is a typed process plan from `process.command { ... }` or
-  `process.command_argv(...)`. The `env:` option of `process.command_argv` accepts a record or a
+- `Command` is a typed process plan from `process.command_argv(...)`. The `env:` option of `process.command_argv` accepts a record or a
   `Map[Str, Bytes]`; byte map values overlay inherited entries losslessly and
   share record environment-name and NUL validation. It is not a block literal and runs only when
   passed to `spawn`, `process.run`, or `process.spawn`.
@@ -2756,7 +2753,7 @@ A callback block receives one item: a stream stage block (13.1) other than
 (`where .size > 0`, `sort-by .path`) is the same block. `.` always names the
 item of the innermost callback block: a stage block or handler nested in a
 callback has its own item, while the branch, loop, scope, `try`, `defer`, and
-`guard` or `with` else blocks inside a callback see the callback's item.
+`guard` else blocks inside a callback see the callback's item.
 
 ```xsh
 let by_url = hits |> count { .url }
@@ -3652,22 +3649,31 @@ An optional binding also narrows its subject (5.4): after
 by `if let name = subject` or `while let name = subject`, a `subject` that is
 a binding or a known field path has type `T`, as after `subject != null`.
 
-`with` binds several fallible values with one error handler:
+Several fallible initializers share one handler by capturing them with `try`
+(8.8) and matching the result; only the initializers sit inside the capture, so
+a failure of the code that follows is not caught:
 
 ```xsh
-with config = read_config()?, db = connect(config)? {
-  serve(db)
-} else { |failure|
-  eprint f"setup failed: {failure.message}"
+let setup = try {
+  let config = read_config()?
+  connect(config)?
+}
+match setup {
+  Ok(db) => { serve(db) }
+  Err(failure) => { eprint f"setup failed: {failure.message}" }
 }
 ```
 
-Each binding sees the earlier ones. If any initializer fails, the `else` block
-runs with the error (the common nominal type, or `Error` for mixed families).
-Bindings are not visible in the handler. This statement always has its `else`,
-on the line of the closing brace or a later one; the same head without an
-`else` is a resource scope (10.4). Which form a `with` is depends on that
-word only, never on the types of its values.
+A `with` takes no `else` handler, and one is rejected with
+`parse.with-handler`:
+
+```xsh
+with value = Ok(1) {
+  print $value
+} else { |failure| # error: parse.with-handler
+  print $failure.message
+}
+```
 
 Parameterized blocks always put the parameters inside the brace:
 `{ |name| ... }`, except a `tempdir` scope (10.4), whose name after the word
@@ -5146,7 +5152,7 @@ under the outer deadline.
 `wait until condition within limit` (8.6) is this scope around a polling
 loop, and `retry backoff first..cap within limit` (8.8) uses the word for a
 limit on its delays that interrupts nothing.
-`with NAME = VALUE { ... }`, without an `else`, is the scope for a resource
+`with NAME = VALUE { ... }` is the scope for a resource
 that has to be released: it binds the value, runs the body, and releases the
 value however the body ends.
 
@@ -5373,7 +5379,7 @@ A spliced target, `run @argv` or `run @(expr)`, is a whole command vector: its
 first element is the target, resolved by the rules above exactly as a target
 written in its place; the remaining elements lead the arguments, ahead of any
 written after the splice. Every run form accepts it, as do the segments of a byte
-pipeline, `spawn run`, and the `run` entry of `process.command`.
+pipeline, and `spawn run`.
 
 ```xsh
 let compile = ["cc", "-O2", "-c", "main.c"]
@@ -5382,10 +5388,7 @@ run @compile @extra
 let status = run.status @compile -fsyntax-only
 let version = run.text @(["cc", "--version"])
 let job = spawn run @compile ?
-let plan = process.command {
-  cwd = p"build"
-  run @compile
-}
+let plan = process.command_argv(compile[0], compile, cwd: p"build")
 ```
 
 An empty vector names no program. The run form fails with
@@ -5487,8 +5490,7 @@ Every place that hands bytes to the operating system converts this way, so a
 `Path` goes there as itself: an item of `process.command_argv`'s `argv` and
 its `target`, the name given to `process.which`, an item of the `args` of
 `test.run_script` and `test.expect`, a value of an `env` scope overlay, and a
-value of the `env` of a command plan (`process.command`,
-`process.command_argv`) or of a native test run (`test.run_script`,
+value of the `env` of a command plan (`process.command_argv`) or of a native test run (`test.run_script`,
 `test.run_xsh`, `test.run_xsht_trace`). `.display()` before such a sink only
 replaces the bytes that are not UTF-8.
 
@@ -5660,28 +5662,35 @@ fan-out, not an async runtime: there are no futures, asynchronous callbacks,
 channels, or `await`. `process.wait_any` waits for one of the supplied process
 handles.
 
-### 11.9 Command plans and builder blocks
+### 11.9 Command plans
 
 ```xsh
-let plan = process.command {
-  cwd = p"/srv/app"
-  env = {RUST_LOG: "info"}
-  timeout = 30s
-  run /srv/app/server --port 8080
-}
+let plan = process.command_argv(
+  "/srv/app/server",
+  ["/srv/app/server", "--port", "8080"],
+  cwd: p"/srv/app",
+  env: {RUST_LOG: "info"},
+  timeout: 30s,
+)
 let status = process.run(plan)?
 ```
 
-A builder block is accepted only by an API whose signature declares one.
-Inside it, `name = expr` sets a builder field (not a variable), `let` and `var`
-declare locals, and entries such as `run` are interpreted by the API. Unknown,
-duplicate, missing, or invalid fields are check-time errors located in the
-block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
-`stdout`, `stderr`, `stdout_append`, `stderr_append`, `timeout`, `cpu_max`,
-`accept`, `detach`, `new_session`, `ignore_hup`, `same_group`, and exactly one
-`run` or `run.status` entry. Missing or multiple run entries are rejected with
-`check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
-`argv` includes `argv[0]`. An unannotated wrapper retains the requirement that
+`process.command_argv(target, argv)` builds a plan from data; its `argv`
+includes `argv[0]`. Named arguments set the plan's `cwd`, `env`, `stdin`
+(`Path` or `Bytes`), `stdout`, `stderr`, `stdout_append`, `stderr_append`,
+`timeout`, `cpu_max`, `accept`, `detach`, `new_session`, `ignore_hup`, and
+`same_group`; an unknown, duplicate, or invalid argument is a check-time error.
+A `process.command { ... }` block is not a call argument and is rejected with
+`parse.builder-block`:
+
+```xsh
+let plan = process.command { # error: parse.builder-block
+  cwd = p"build"
+  run true
+}
+```
+
+An unannotated wrapper retains the requirement that
 its target and each argv item are `Str` or `Path`; separate calls may use either
 domain. An unannotated stdin parameter likewise accepts either `Path` or `Bytes`
 at separate calls. This does not widen list storage or admit ordinary argv conversions such
@@ -5690,7 +5699,7 @@ the command (`run @argv`, 11.1); `command_argv` is for an executable that
 intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
 Pipelines, captures, propagation, and redirection syntax are not plan inputs;
-use the builder fields for redirections. `same_group` applies to `spawn`: the
+use the `stdin`, `stdout`, and `stderr` arguments for redirections. `same_group` applies to `spawn`: the
 child stays in the caller's process group instead of leading its own, so
 cancelling its handle signals only its pid, and it conflicts with `detach` and
 `new_session`.

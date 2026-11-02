@@ -1075,7 +1075,6 @@ fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
         | ArenaStmtKind::If { .. }
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Loop { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Sugar { .. }

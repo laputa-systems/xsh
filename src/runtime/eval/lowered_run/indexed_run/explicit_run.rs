@@ -215,7 +215,6 @@ fn statement_print_argument(
     Ok((argument.raw(), args.position()))
 }
 
-type StatementWithBindingPosition = ListPosition<(usize, BuildExprId)>;
 type CallArgumentPosition = ListPosition<LoweredCallArg>;
 type MethodArgumentPosition = ListPosition<BuildExprId>;
 type ModuleArgumentPosition = ListPosition<Option<BuildExprId>>;
@@ -255,30 +254,6 @@ enum StatementIfPosition {
     Bool(StatementIfBoolPosition),
 }
 
-fn statement_with_binding(
-    execution: &FullExecution<'_>,
-    statement: u32,
-    position: StatementWithBindingPosition,
-    span: Span,
-) -> Result<(Option<(usize, u32)>, StatementWithBindingPosition), RuntimeError> {
-    let (tag, payload) = execution
-        .instruction_id(statement)
-        .map_err(|error| indexed_error(error, span))?;
-    let StmtView::With { mut bindings, .. } = StmtView::decode(execution, tag, payload)
-        .map_err(|error| indexed_error(error, span))?
-    else {
-        unreachable!("statement ID and borrowed with row agree")
-    };
-    bindings
-        .resume(position)
-        .map_err(|error| indexed_error(error, span))?;
-    let binding = bindings
-        .next()
-        .transpose()
-        .map_err(|error| indexed_error(error, span))?
-        .map(|(slot, value)| (slot, value.raw()));
-    Ok((binding, bindings.position()))
-}
 
 fn statement_if_branch(
     execution: &FullExecution<'_>,
@@ -1901,15 +1876,6 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
-    WithBinding {
-        instruction: u32,
-        position: StatementWithBindingPosition,
-        slot: usize,
-        body: u32,
-        else_param_slot: Option<usize>,
-        else_body: u32,
-        span: Span,
-    },
     GuardInput {
         target: LoweredCompTarget,
         else_param_slot: Option<usize>,
@@ -2352,8 +2318,7 @@ impl FrameContinuation {
     ) {
         use FrameContinuation as C;
         match self {
-            C::WithBinding { .. }
-            | C::GuardInput { .. }
+            C::GuardInput { .. }
             | C::Store(_)
             | C::StoreTarget { .. }
             | C::ParameterDefault { .. }
@@ -2508,71 +2473,6 @@ impl FrameContinuation {
                 next.visit_retained_values(visitor);
             }
         }
-    }
-}
-
-// Propagated initializer errors stop compound evaluation at the existing With
-// handler. Explicit returns and loop transfers retain their separate targets.
-fn with_initializer_handler(
-    mut continuation: &FrameContinuation,
-) -> Option<(Option<usize>, u32, Span)> {
-    loop {
-        continuation = match continuation {
-            FrameContinuation::WithBinding {
-                else_param_slot,
-                else_body,
-                span,
-                ..
-            } => return Some((*else_param_slot, *else_body, *span)),
-            FrameContinuation::Field { next, .. }
-            | FrameContinuation::IndexBase { next, .. }
-            | FrameContinuation::IndexValue { next, .. }
-            | FrameContinuation::IndexLiteral { next, .. }
-            | FrameContinuation::ModuleArguments { next, .. }
-            | FrameContinuation::UtilsCacheResult { next, .. }
-            | FrameContinuation::ComparisonLeft { next, .. }
-            | FrameContinuation::ComparisonRight { next, .. }
-            | FrameContinuation::BinaryLeft { next, .. }
-            | FrameContinuation::BinaryRight { next, .. }
-            | FrameContinuation::BoolBinaryRight { next, .. }
-            | FrameContinuation::ApplyOperands { next, .. }
-            | FrameContinuation::ProcessRun { next, .. }
-            | FrameContinuation::SpawnCommand { next, .. }
-            | FrameContinuation::Wait { next, .. }
-            | FrameContinuation::TypedBoolNot { next, .. }
-            | FrameContinuation::TypedIntByteAtIndex { next, .. }
-            | FrameContinuation::TypedIntByteAtFallback { next, .. }
-            | FrameContinuation::IfExpr { next, .. }
-            | FrameContinuation::MatchExprValue { next, .. }
-            | FrameContinuation::StrTagMatch { next, .. }
-            | FrameContinuation::MatchExprGuard { next, .. }
-            | FrameContinuation::CallArguments { next, .. }
-            | FrameContinuation::DynamicCallee { next, .. }
-            | FrameContinuation::DynamicArguments { next, .. }
-            | FrameContinuation::Try { next, .. }
-            | FrameContinuation::CodecSchemaFormat { next, .. } | FrameContinuation::CodecSchemaInput { next, .. } | FrameContinuation::Require { next, .. }
-            | FrameContinuation::CheckedValue { next, .. }
-            | FrameContinuation::StreamContract { next, .. }
-            | FrameContinuation::SchemeCallable { next, .. }
-            | FrameContinuation::MethodReceiver { next, .. }
-            | FrameContinuation::MethodArg { next, .. }
-            | FrameContinuation::FmtValue { next, .. }
-            | FrameContinuation::ResultFallback { next, .. }
-            | FrameContinuation::ListItems { next, .. }
-            | FrameContinuation::MapLiteralItems { next, .. }
-            | FrameContinuation::RecordItems { next, .. }
-            | FrameContinuation::ListCompIter { next, .. }
-            | FrameContinuation::ListCompCondition { next, .. }
-            | FrameContinuation::ListCompKey { next, .. }
-            | FrameContinuation::ListCompValue { next, .. }
-            | FrameContinuation::RetryDelay(_, next)
-            | FrameContinuation::WrapErr { next, .. }
-            | FrameContinuation::AttachErrCause { next, .. }
-            | FrameContinuation::WrapOk(next)
-            | FrameContinuation::ProcCallResult(next) => next,
-            FrameContinuation::ExprPatternIf { next, .. } => next,
-            _ => return None,
-        };
     }
 }
 
@@ -5771,59 +5671,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            StmtView::With {
-                mut bindings,
-                body,
-                else_param_slot,
-                else_body,
-                captures,
-                span: value_span,
-            } => {
-                let span = value_span;
-                bindings
-                    .preflight()
-                    .map_err(|error| indexed_error(error, span))?;
-                let captures = captures
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| indexed_error(error, span))?;
-                let (first_binding, binding_position) = statement_with_binding(
-                    &execution,
-                    instruction,
-                    bindings.position(),
-                    span,
-                )?;
-                let body = body.block_id();
-                let else_body = else_body.block_id();
-                let scope_id = self.evaluator.enter_owned_host_scope();
-                let defer_offset = self.calls[index].defers.len();
-                self.calls[index].block_scopes.push(scope_id);
-                self.calls[index].block_defer_offsets.push(defer_offset);
-                self.calls[index].work.push(FrameWork::Statements {
-                    cursor: StatementCursor::empty(),
-                    complete_call: false,
-                    scope_id: Some(scope_id),
-                });
-                self.calls[index].work.push(FrameWork::ClearSlots(captures));
-                if let Some((slot, value)) = first_binding {
-                    self.push_expr(
-                        index,
-                        value,
-                        span,
-                        FrameContinuation::WithBinding {
-                            instruction,
-                            position: binding_position,
-                            slot,
-                            body,
-                            else_param_slot,
-                            else_body,
-                            span,
-                        },
-                    );
-                    Ok(())
-                } else {
-                    self.push_statement_block(index, body, span)
-                }
-            }
             StmtView::Guard {
                 target,
                 value,
@@ -6482,14 +6329,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             match flow {
                 ControlFlow::Continue(value) => {
                     self.push_value(index, FrameValue::Value(value), next);
-                }
-                ControlFlow::Break(value)
-                    if matches!(&value, LoweredValue::ResultErr(_))
-                        && matches!(self.evaluator.pending_value_block_flow, None | Some(StmtFlow::Propagate(_)))
-                        && with_initializer_handler(&next).is_some() =>
-                {
-                    // In-place propagation must still reach the active With initializer handler.
-                    self.push_value(index, FrameValue::Break(value), next);
                 }
                 ControlFlow::Break(value) => self.complete_expression_escape(index, value)?,
             }
@@ -7811,33 +7650,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if matches!(&next, FrameContinuation::CleanupAction) {
             return self.continue_cleanup_action(index, value);
         }
-        if matches!(value, FrameValue::Break(LoweredValue::ResultErr(_)))
-            && matches!(
-                self.evaluator.pending_value_block_flow,
-                None | Some(StmtFlow::Propagate(_))
-            )
-            && let Some((else_param_slot, else_body, span)) = with_initializer_handler(&next)
-        {
-            let FrameValue::Break(LoweredValue::ResultErr(error)) = value else {
-                unreachable!("checked propagated Result error")
-            };
-            self.evaluator.pending_value_block_flow = None;
-            self.evaluator.pending_traceback = None;
-            if let Some(slot) = else_param_slot {
-                self.calls[index].slots[slot] = lowered_value_from_runtime_any(error.as_ref())
-                    .ok_or_else(|| {
-                        RuntimeError::new(
-                            "type-error",
-                            format!(
-                                "with error payload cannot be lowered from {}",
-                                error.type_name()
-                            ),
-                        )
-                        .with_span(span)
-                    })?;
-            }
-            return self.push_statement_block(index, else_body, span);
-        }
         if let Some(flow) = self.evaluator.pending_value_block_flow.take() {
             if let Some(boundary) = self.cleanup_flow_boundary(index, &flow) {
                 return self.schedule_cleanup_flow(index, boundary, flow);
@@ -7965,69 +7777,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 };
                 self.push_value(index, value, *next);
-            }
-            FrameContinuation::WithBinding {
-                instruction,
-                position,
-                slot,
-                body,
-                else_param_slot,
-                else_body,
-                span,
-            } => {
-                let value = match value {
-                    FrameValue::Value(value) => value,
-                    FrameValue::Break(value) => {
-                        return self.complete_call(index, StmtFlow::Propagate(value));
-                    }
-                };
-                let value = match value {
-                    LoweredValue::ResultErr(error) => {
-                        self.evaluator.pending_traceback = None;
-                        if let Some(slot) = else_param_slot {
-                            self.calls[index].slots[slot] =
-                                lowered_value_from_runtime_any(error.as_ref()).ok_or_else(|| {
-                                    RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "with error payload cannot be lowered from {}",
-                                            error.type_name()
-                                        ),
-                                    )
-                                    .with_span(span)
-                                })?;
-                        }
-                        return self.push_statement_block(index, else_body, span);
-                    }
-                    LoweredValue::ResultOk(value) => *value,
-                    value => value,
-                };
-                self.calls[index].slots[slot] = value;
-                self.declare_slot(index, slot);
-                let (binding, position) = statement_with_binding(
-                    &self.calls[index].execution,
-                    instruction,
-                    position,
-                    span,
-                )?;
-                if let Some((slot, value)) = binding {
-                    self.push_expr(
-                        index,
-                        value,
-                        span,
-                        FrameContinuation::WithBinding {
-                            instruction,
-                            position,
-                            slot,
-                            body,
-                            else_param_slot,
-                            else_body,
-                            span,
-                        },
-                    );
-                } else {
-                    self.push_statement_block(index, body, span)?;
-                }
             }
             FrameContinuation::GuardInput {
                 target,

@@ -53,10 +53,13 @@ pure triple(n: Int) -> Int {
 
 pure parse_number(value: Int) -> Int {
   var parsed_value = 0
-  with parsed = f"{value}".parse_int() {
-    parsed_value = parsed
-  } else { |failure|
-    parsed_value = -1
+  match f"{value}".parse_int() {
+    Ok(parsed) => {
+      parsed_value = parsed
+    }
+    Err(failure) => {
+      parsed_value = -1
+    }
   }
   parsed_value
 }
@@ -68,41 +71,56 @@ pure empty_callback_count() -> Int {
 
 pure floor_computed_float(value: Float) -> Int {
   var result = 0
-  with rounded = (value + 0.5).floor() {
-    result = rounded
-  } else { |failure|
-    result = -1
+  match (value + 0.5).floor() {
+    Ok(rounded) => {
+      result = rounded
+    }
+    Err(failure) => {
+      result = -1
+    }
   }
   result
 }
 
 pure parse_computed_string(value: Int) -> Int {
   var result = 0
-  with parsed = (f"{value}" + "").parse_int() {
-    result = parsed
-  } else { |failure|
-    result = -1
+  match (f"{value}" + "").parse_int() {
+    Ok(parsed) => {
+      result = parsed
+    }
+    Err(failure) => {
+      result = -1
+    }
   }
   result
 }
 
 proc callback_from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
-  with selected = callbacks.get("double") {
-    return Ok(selected(4))
-  } else { |failure| return Err(failure) }
+  match callbacks.get("double") {
+    Ok(selected) => {
+      return Ok(selected(4))
+    }
+    Err(failure) => { return Err(failure) }
+  }
 }
 
 proc callback_from_literal_map() [error] -> Result[Int] {
   let callbacks: Map[Str, Scale] = {["double"]: double}
-  with selected = callbacks.get("double") {
-    return Ok(selected(4))
-  } else { |failure| return Err(failure) }
+  match callbacks.get("double") {
+    Ok(selected) => {
+      return Ok(selected(4))
+    }
+    Err(failure) => { return Err(failure) }
+  }
 }
 
 proc callback_from_record(callbacks: CallbackRecord) [error] -> Result[Int] {
-  with selected = callbacks.get("double") {
-    return Ok(selected(4))
-  } else { |failure| return Err(failure) }
+  match callbacks.get("double") {
+    Ok(selected) => {
+      return Ok(selected(4))
+    }
+    Err(failure) => { return Err(failure) }
+  }
 }
 
 pure join(left: Str, right: Str) -> Str {
@@ -313,9 +331,10 @@ pure recover_with_typed_with_failure(
   second: Result[Int, Scale],
 ) -> Result[Int, Scale] {
   var value = 0
-  with direct = first, left = first?, right = second? {
-    value = direct + left + right
-  } else { |failure| return Ok(failure(4)) }
+  guard let direct = first else { |failure| return Ok(failure(4)) }
+  guard let left = first else { |failure| return Ok(failure(4)) }
+  guard let right = second else { |failure| return Ok(failure(4)) }
+  value = direct + left + right
   Ok(value)
 }
 
@@ -501,9 +520,12 @@ pure byte_count(text: Str) -> Int {
 
 pure use_with_callbacks(result: Result[Count, Scale]) -> Int {
   var value = 0
-  with candidate = result {
-    value = candidate("success")
-  } else { |failure| value = failure(4) }
+  match result {
+    Ok(candidate) => {
+      value = candidate("success")
+    }
+    Err(failure) => { value = failure(4) }
+  }
   value
 }
 
@@ -514,10 +536,13 @@ test test_typed_callable_with_success_and_error_slots_keep_their_own_types {
 
 test test_typed_callable_success_value_binds_with_direct_with {
   let result: Result[Scale] = Ok(double)
-  with selected = result {
-    assert selected(4) == 8
-  } else { |failure|
-    fail failure.message
+  match result {
+    Ok(selected) => {
+      assert selected(4) == 8
+    }
+    Err(failure) => {
+      fail failure.message
+    }
   }
 }
 
@@ -547,10 +572,13 @@ let value: Result[Scale] = Ok(double)
 let scales: List[Scale] = [double, triple]
 let maybe: Scale? = double
 
-with selected = value {
-  assert selected(4) == 8
-} else { |failure|
-  assert false, failure.message
+match value {
+  Ok(selected) => {
+    assert selected(4) == 8
+  }
+  Err(failure) => {
+    assert false, failure.message
+  }
 }
 
 var total = 0
@@ -632,9 +660,12 @@ test test_typed_callable_container_methods_keep_their_element_types {
 
   let by_name: Map[Str, Scale] = {}
   let stored = by_name.set("double", double)
-  with selected = stored.get("double")? {
-    assert selected(4) == 8
-  } else { |failure| test.fail(failure.message) }
+  match stored.get("double") {
+    Ok(selected) => {
+      assert selected(4) == 8
+    }
+    Err(failure) => { test.fail(failure.message) }
+  }
 }
 
 test test_registered_method_checks_intrinsic_formatted_string_receiver {
@@ -1120,16 +1151,22 @@ test test_path_read_accepts_paths_returned_by_methods_and_try { |ctx|
   # The receiver expressions have no stored callable fact; their Path type
   # comes from the Path method and fs.cwd() result contracts.
   var parent_read = ""
-  with text = file.normalize().read_text() {
-    parent_read = text
-  } else { |failure|
-    parent_read = failure.message
+  match file.normalize().read_text() {
+    Ok(text) => {
+      parent_read = text
+    }
+    Err(failure) => {
+      parent_read = failure.message
+    }
   }
   var current_directory_read = ""
-  with text = fs.cwd()?.read_text() {
-    current_directory_read = text
-  } else { |failure|
-    current_directory_read = failure.message
+  match fs.cwd()?.read_text() {
+    Ok(text) => {
+      current_directory_read = text
+    }
+    Err(failure) => {
+      current_directory_read = failure.message
+    }
   }
   assert parent_read == "contents"
   assert current_directory_read != ""
@@ -1141,101 +1178,134 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   file.write("contents")
 
   var conditional = ""
-  with text = (if true { fp"{root}/note" } else { fp"{root}/note" }).read_text() {
-    conditional = text
-  } else { |failure|
-    conditional = failure.message
+  match (if true { fp"{root}/note" } else { fp"{root}/note" }).read_text() {
+    Ok(text) => {
+      conditional = text
+    }
+    Err(failure) => {
+      conditional = failure.message
+    }
   }
   assert conditional == "contents"
 
   var selected = ""
-  with text = (match "selected" {
+  match (match "selected" {
     "other" => fp"{root}/other"
     else => fp"{root}/note"
   }).read_text() {
-    selected = text
-  } else { |failure|
-    selected = failure.message
+    Ok(text) => {
+      selected = text
+    }
+    Err(failure) => {
+      selected = failure.message
+    }
   }
   assert selected == "contents"
 
   let maybe_file: Path? = null
   var fallback = ""
-  with text = (maybe_file ?? fp"{root}/note").read_text() {
-    fallback = text
-  } else { |failure|
-    fallback = failure.message
+  match (maybe_file ?? fp"{root}/note").read_text() {
+    Ok(text) => {
+      fallback = text
+    }
+    Err(failure) => {
+      fallback = failure.message
+    }
   }
   assert fallback == "contents"
 
   var resolved = ""
-  with text = (file.resolve() ?? fp"{root}/note").read_text() {
-    resolved = text
-  } else { |failure|
-    resolved = failure.message
+  match (file.resolve() ?? fp"{root}/note").read_text() {
+    Ok(text) => {
+      resolved = text
+    }
+    Err(failure) => {
+      resolved = failure.message
+    }
   }
   assert resolved == "contents"
 
   var projected = ""
-  with text = {path: fp"{root}/note"}.path.read_text() {
-    projected = text
-  } else { |failure|
-    projected = failure.message
+  match {path: fp"{root}/note"}.path.read_text() {
+    Ok(text) => {
+      projected = text
+    }
+    Err(failure) => {
+      projected = failure.message
+    }
   }
   assert projected == "contents"
 
   var updated_projection = ""
-  with text = {...{path: fp"{root}/other"}, path: fp"{root}/note"}.path.read_text() {
-    updated_projection = text
-  } else { |failure|
-    updated_projection = failure.message
+  match {...{path: fp"{root}/other"}, path: fp"{root}/note"}.path.read_text() {
+    Ok(text) => {
+      updated_projection = text
+    }
+    Err(failure) => {
+      updated_projection = failure.message
+    }
   }
   assert updated_projection == "contents"
 
   let checked_holder: PathHolder = PathHolder(fp"{root}/note")
   var checked_projection = ""
-  with text = checked_holder.path.read_text() {
-    checked_projection = text
-  } else { |failure|
-    checked_projection = failure.message
+  match checked_holder.path.read_text() {
+    Ok(text) => {
+      checked_projection = text
+    }
+    Err(failure) => {
+      checked_projection = failure.message
+    }
   }
   assert checked_projection == "contents"
 
   let indexed_paths = [fp"{root}/note"]
   var indexed = ""
-  with text = indexed_paths[0].read_text() {
-    indexed = text
-  } else { |failure|
-    indexed = failure.message
+  match indexed_paths[0].read_text() {
+    Ok(text) => {
+      indexed = text
+    }
+    Err(failure) => {
+      indexed = failure.message
+    }
   }
   assert indexed == "contents"
 
   let named_paths: Map[Str, Path] = {note: fp"{root}/note"}
   var mapped = ""
-  with text = named_paths["note"].read_text() {
-    mapped = text
-  } else { |failure|
-    mapped = failure.message
+  match named_paths["note"].read_text() {
+    Ok(text) => {
+      mapped = text
+    }
+    Err(failure) => {
+      mapped = failure.message
+    }
   }
   assert mapped == "contents"
 
   var mutable_path: Path = fp"{root}/other"
   mutable_path = fp"{root}/note"
   var mutable_read = ""
-  with text = mutable_path.read_text() {
-    mutable_read = text
-  } else { |failure|
-    mutable_read = failure.message
+  match mutable_path.read_text() {
+    Ok(text) => {
+      mutable_read = text
+    }
+    Err(failure) => {
+      mutable_read = failure.message
+    }
   }
   assert mutable_read == "contents"
 }
 
 test test_with_keeps_registry_results_for_environment_path_methods {
   var outcome = ""
-  with popped = env.PATH.pop() {
-    outcome = popped.display()
-  } else { |failure|
-    outcome = failure.message
+  match env.PATH.pop() {
+    Ok(popped) => {
+      outcome = popped.display()
+    }
+    Err(failure) => {
+      outcome = failure.message
+    }
   }
   assert outcome != ""
 }
@@ -1248,42 +1318,60 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
   link.symlink(to: file)
 
   var resolved = ""
-  with resolved_path = link.resolve()? {
-    resolved = resolved_path.display()
-  } else { |failure|
-    resolved = failure.message
+  match link.resolve() {
+    Ok(resolved_path) => {
+      resolved = resolved_path.display()
+    }
+    Err(failure) => {
+      resolved = failure.message
+    }
   }
   assert resolved == file.resolve()?.display()
 
   var link_target = ""
-  with target_path = link.readlink()? {
-    link_target = target_path.display()
-  } else { |failure|
-    link_target = failure.message
+  match link.readlink() {
+    Ok(target_path) => {
+      link_target = target_path.display()
+    }
+    Err(failure) => {
+      link_target = failure.message
+    }
   }
   assert link_target == file.display()
 
   var relative_link = ""
-  with stripped = link.strip_prefix(root)? {
-    relative_link = stripped.display()
-  } else { |failure|
-    relative_link = failure.message
+  match link.strip_prefix(root) {
+    Ok(stripped) => {
+      relative_link = stripped.display()
+    }
+    Err(failure) => {
+      relative_link = failure.message
+    }
   }
   assert relative_link == "link"
 
   let callbacks: List[Scale] = [double]
-  with listed = callbacks.get(0)? {
-    assert listed(4) == 8
-  } else { |failure| test.fail(failure.message) }
+  match callbacks.get(0) {
+    Ok(listed) => {
+      assert listed(4) == 8
+    }
+    Err(failure) => { test.fail(failure.message) }
+  }
 
   let callback_result: Result[Scale] = Ok(double)
-  with contextual = callback_result.context("typed-callee")? {
-    assert contextual(4) == 8
-  } else { |failure| test.fail(failure.message) }
+  match callback_result.context("typed-callee") {
+    Ok(contextual) => {
+      assert contextual(4) == 8
+    }
+    Err(failure) => { test.fail(failure.message) }
+  }
 
-  with parsed = "12" as Int {
-    assert parsed == 12
-  } else { |failure| test.fail(failure.message) }
+  match try { "12" as Int } {
+    Ok(parsed) => {
+      assert parsed == 12
+    }
+    Err(failure) => { test.fail(failure.message) }
+  }
 }
 
 test test_long_callback_forwarding_chain_verifies_its_producers { |ctx|

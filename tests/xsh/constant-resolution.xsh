@@ -1,74 +1,9 @@
-test test_with_initializers_read_the_previous_binding_instead_of_a_constant { |ctx|
-  test.expect(
-    ctx,
-    r"""const item = 1
-with item = Ok(2), copied = Ok(item) {
-  assert copied == 2
-} else {
-  assert false
-}
-assert item == 1
-""",
-    status: 0,
-  )?
-}
-
-test test_with_initializers_keep_the_type_of_the_previous_binding { |ctx|
-  test.expect(
-    ctx,
-    r"""const item = 1
-with item = Ok("runtime"), copied = Ok(item) {
-  assert copied.upper() == "RUNTIME"
-} else {
-  assert false
-}
-""",
-    status: 0,
-  )?
-}
-
 test test_resource_initializers_resolve_preceding_handles { |ctx|
   test.expect(
     ctx,
     r"""const root = p"/not-a-resource"
 with root = fs.tempdir()?, view = fs.open_root(root.host_path()?)? {
   assert view.exists(p".")?
-}
-""",
-    status: 0,
-  )?
-}
-
-test test_nested_with_bindings_restore_each_enclosing_identity { |ctx|
-  test.expect(
-    ctx,
-    r"""const item = "outer"
-with item = Ok("middle"), copied = Ok(item) {
-  with item = Ok("inner"), leaf = Ok(item) {
-    assert leaf == "inner"
-  } else {
-    assert false
-  }
-  assert item == "middle"
-  assert copied == "middle"
-} else {
-  assert false
-}
-assert item == "outer"
-""",
-    status: 0,
-  )?
-}
-
-test test_runtime_bindings_shadow_constant_enum_constructors { |ctx|
-  test.expect(
-    ctx,
-    r"""enum State { Ready }
-const fallback = Ready
-with Ready = Ok(9), copied = Ok(Ready) {
-  assert copied == 9
-} else {
-  assert false
 }
 """,
     status: 0,

@@ -1357,7 +1357,7 @@ impl FullBuilder {
         self.store.checked_expr_types.push(super::FullCheckedExprType {
             instruction,
             type_id,
-            purpose: super::FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false },
+            purpose: super::FullCheckedExprPurpose::CheckedContract { function_ref: None },
         });
         Ok(())
     }

@@ -412,19 +412,6 @@ impl CanonicalWriter<'_> {
                 self.expr(*iter);
                 self.block(*block);
             }
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_block,
-            } => {
-                self.put("with;");
-                for binding in self.arena.with_bindings(*bindings) {
-                    self.debug(&binding.name);
-                    self.expr(binding.initializer);
-                }
-                self.block(*body);
-                self.block(*else_block);
-            }
             ArenaStmtKind::Loop { block } => {
                 self.put("loop;");
                 self.block(*block);

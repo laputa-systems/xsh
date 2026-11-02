@@ -3560,25 +3560,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         ArenaRange::new(start, bindings.len())
     }
 
-    pub fn push_with(
-        &mut self,
-        bindings: ArenaRange,
-        body: BlockId,
-        else_block: BlockId,
-        span: Span,
-    ) -> StmtId {
-        let id = self.lowerer.push_stmt_kind(
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_block,
-            },
-            span,
-        );
-        self.push_current_statement(id);
-        id
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn push_guard(
         &mut self,
@@ -4817,11 +4798,6 @@ impl AstArena {
                 visit(Child::BindingTarget(target));
                 visit(Child::Block(block));
             }
-            ArenaStmtKind::With { bindings, body, else_block } => {
-                self.for_each_with_child(bindings, &mut visit);
-                visit(Child::Block(body));
-                visit(Child::Block(else_block));
-            }
             ArenaStmtKind::Loop { block } => visit(Child::Block(block)),
             ArenaStmtKind::Guard { target, ty, initializer, else_block } => {
                 visit(Child::BindingTarget(target));
@@ -5720,14 +5696,6 @@ impl AstArena {
                     target: BindingTargetId::new(raw[0] as usize),
                     iter: ExprId::new(raw[1] as usize),
                     block: BlockId::new(raw[2] as usize),
-                }
-            }
-            ArenaStmtTag::With => {
-                let raw = range_slice(&self.extra, range_from_stmt_data(data));
-                ArenaStmtKind::With {
-                    bindings: ArenaRange::new(raw[0] as usize, raw[1] as usize),
-                    body: BlockId::new(raw[2] as usize),
-                    else_block: BlockId::new(raw[3] as usize),
                 }
             }
             ArenaStmtTag::Loop => ArenaStmtKind::Loop {
@@ -6992,7 +6960,6 @@ pub enum ArenaStmtTag {
     IfElse,
     While,
     For,
-    With,
     Loop,
     Guard,
     Sugar,
@@ -7078,11 +7045,6 @@ pub enum ArenaStmtKind {
         target: BindingTargetId,
         iter: ExprId,
         block: BlockId,
-    },
-    With {
-        bindings: ArenaRange,
-        body: BlockId,
-        else_block: BlockId,
     },
     Loop {
         block: BlockId,
@@ -8868,19 +8830,6 @@ impl ArenaLowerer<'_> {
                     raw_block_id(block),
                 ]);
                 (ArenaStmtTag::For, data)
-            }
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_block,
-            } => {
-                let data = self.push_stmt_extra(&[
-                    bindings.start,
-                    bindings.len,
-                    raw_block_id(body),
-                    raw_block_id(else_block),
-                ]);
-                (ArenaStmtTag::With, data)
             }
             ArenaStmtKind::Loop { block } => (
                 ArenaStmtTag::Loop,

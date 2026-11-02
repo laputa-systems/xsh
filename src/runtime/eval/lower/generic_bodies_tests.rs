@@ -3314,30 +3314,6 @@ fn generic_proc_cleanup_run_preserves_order_and_failure_status() {
 }
 
 #[test]
-fn generic_with_guard_with_bindings_keep_order_and_scopes() {
-    for generic in [false, true] {
-        let annotation = if generic { "" } else { ": Int" };
-        let source = format!("error BindingFailure = Missing(message: Str)\nvar trace = \"\"\nproc step(value: Int, valid: Bool) [] -> Result[Int, BindingFailure] {{ trace = trace + \"i\"; if valid {{ Ok(value) }} else {{ Err(BindingFailure.Missing(message: \"stopped\")) }} }}\nproc keep(value{annotation}, valid: Bool) [] {{ var total = 0; with first = step(3, valid), second = step(first + 1, true) {{ total = first + second; trace = trace + \"b\" }} else {{ |failure| let _ = failure; total = -1; trace = trace + \"e\" }}; {{value, total}} }}\nproc number(valid: Bool) [] {{ keep(7, valid) }}\nproc observe() [] -> Str {{ trace }}\n");
-        let (program, sources, source_id) = record_form_program(&source);
-        for force_frames in [false, true] {
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
-            evaluator.force_frames = force_frames;
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            let span = Span::at(source_id, 0);
-            for step in 0..program.driver_step_count().unwrap() { evaluator.eval_indexed_driver_step(step, span).unwrap().unwrap(); }
-            let (number, observe) = program.symbol_owner().with_current(|| (LoweredFunctionKey::Name(Name::intern("number")), LoweredFunctionKey::Name(Name::intern("observe"))));
-            for (valid, total, trace) in [(true, 7, "iib"), (false, -1, "iibie")] {
-                let Value::Result(ResultValue::Ok(value)) = evaluator.call_indexed_direct(number, CallableKind::Proc, &[Value::Bool(valid)], span).unwrap().unwrap() else { panic!("With handles its failed initializer locally") };
-                let Value::Record(fields) = *value else { panic!("the generic payload and branch result retain their record") };
-                assert_eq!(fields.get("value"), Some(&Value::Int(7)));
-                assert_eq!(fields.get("total"), Some(&Value::Int(total)));
-                assert_eq!(evaluator.call_indexed_direct(observe, CallableKind::Proc, &[], span).unwrap().unwrap(), Value::Str(Arc::from(trace)), "generic={generic} frames={force_frames}");
-            }
-        }
-    }
-}
-
-#[test]
 fn generic_with_guard_guards_keep_result_optional_and_destructuring() {
     for generic in [false, true] {
         let annotation = if generic { "" } else { ": Int" };

@@ -111,7 +111,6 @@ struct ProducerOwner {
     following_declarations: BTreeMap<usize, Vec<usize>>,
     region_bindings: BTreeMap<(usize, usize), ProducerBinding>,
     pattern_sources: BTreeMap<ProducerBinding, PatternProducer>,
-    with_errors: BTreeMap<usize, Type>,
     comprehension_sources: BTreeMap<ProducerBinding, (usize, usize)>,
     pipeline_sources: BTreeMap<ProducerBinding, PipelineProducer>,
     callback_returns: BTreeMap<usize, Vec<usize>>,
@@ -1471,7 +1470,7 @@ impl ProducerOwner {
                         if let Some(previous) = end.checked_sub(1) { break 'resolve Some(declarations[previous].1); }
                     }
                     let Some(parent) = self.parents[root - self.range.start] else { break 'resolve self.header_binding(store, owner, slot)? };
-                    if !matches!(store.tags[parent], FullTag::StmtWith | FullTag::StmtGuard)
+                    if store.tags[parent] != FullTag::StmtGuard
                         && self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot)) {
                         break 'resolve Some(ProducerBinding::ScopedDeclaration(parent, slot));
                     }
@@ -1492,7 +1491,7 @@ impl ProducerOwner {
             }
             let Some(parent) = self.parents[root - self.range.start] else { break 'resolve self.header_binding(store, owner, slot)? };
             if self.statement_positions.contains_key(&root)
-                && !matches!(store.tags[parent], FullTag::StmtWith | FullTag::StmtGuard)
+                && store.tags[parent] != FullTag::StmtGuard
                 && self.declarations.get(&parent).is_some_and(|slots| slots.contains(&slot))
             {
                 break 'resolve Some(ProducerBinding::ScopedDeclaration(parent, slot));
@@ -1794,7 +1793,7 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), immutable_initializers: RefCell::default(), guard_scope_conditions: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), with_errors: decoder.checked_with_initializer_error_types()?, comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: BTreeMap::new(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: BTreeMap::new(), lexical_slots: BTreeMap::new(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: BTreeMap::new(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), immutable_initializers: RefCell::default(), guard_scope_conditions: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: BTreeMap::new(), pattern_sources: BTreeMap::new(), comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: BTreeMap::new(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
@@ -1811,7 +1810,7 @@ impl GroundProducerIndex {
             if matches!(decoder.store.tags[instruction], FullTag::StmtMatch | FullTag::ExprMatch
                 | FullTag::ExprPatternIf | FullTag::StmtPatternIf | FullTag::StmtPatternWhile
                 | FullTag::ExprListComp | FullTag::ExprMapComp | FullTag::ExprPipeline
-                | FullTag::StmtWith | FullTag::StmtGuard)
+                | FullTag::StmtGuard)
             {
                 work.borrow_mut().charge(1)?;
                 pattern_instructions.push(instruction);
@@ -1924,24 +1923,6 @@ impl GroundProducerIndex {
                 }
             }
             match decoder.store.tags[instruction] {
-                FullTag::StmtWith => {
-                    let schema::StmtView::With { mut bindings, body, else_body, else_param_slot, .. } = decoder.statement_view(instruction)? else { unreachable!() };
-                    let mut preceding = Vec::new();
-                    for binding in &mut bindings {
-                        let (slot, value) = binding?;
-                        work.borrow_mut().charge(1 + preceding.len())?;
-                        for &(previous, binding) in &preceding { owner.region_bindings.insert((value.raw() as usize, previous), binding); }
-                        preceding.push((slot, ProducerBinding::ScopedDeclaration(instruction, slot)));
-                    }
-                    let roots = owner.block_statements.get(&body.block_identity().index()).cloned().unwrap_or_default();
-                    work.borrow_mut().charge(roots.len().saturating_mul(preceding.len()))?;
-                    for root in roots { for &(slot, binding) in &preceding { owner.region_bindings.insert((root, slot), binding); } }
-                    if let Some(slot) = else_param_slot {
-                        let roots = owner.block_statements.get(&else_body.block_identity().index()).cloned().unwrap_or_default();
-                        work.borrow_mut().charge(roots.len())?;
-                        for root in roots { owner.region_bindings.insert((root, slot), ProducerBinding::ScopedDeclaration(instruction, slot)); }
-                    }
-                }
                 FullTag::StmtGuard => {
                     let schema::StmtView::Guard { else_body, else_param_slot, .. } = decoder.statement_view(instruction)? else { unreachable!() };
                     if let Some(slot) = else_param_slot {
@@ -2318,8 +2299,6 @@ impl GroundProducerIndex {
                     + owner.pattern_sources.len() * size_of::<(ProducerBinding, PatternProducer)>()
                     + owner.pattern_sources.values().map(|source| source.preceding.capacity() * size_of::<(u32, bool)>()).sum::<usize>()
                     + owner.comprehension_sources.len() * size_of::<(ProducerBinding, (usize, usize))>()
-                    + owner.with_errors.len() * size_of::<(usize, Type)>()
-                    + owner.with_errors.values().map(Type::retained_bytes).sum::<usize>()
                     + owner.pipeline_sources.len() * size_of::<(ProducerBinding, PipelineProducer)>()
                     + owner.yield_sites.capacity() * size_of::<usize>()
                     + owner.callback_returns.len() * size_of::<(usize, Vec<usize>)>()
@@ -3371,21 +3350,6 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::StmtView::LetInt { .. } => Ok(Some(Arc::new(Type::Int))),
                 schema::StmtView::LetBool { .. } => Ok(Some(Arc::new(Type::Bool))),
-                schema::StmtView::With { mut bindings, else_param_slot, .. } => {
-                    if else_param_slot == Some(slot) {
-                        return Ok(self.index.owners[&decoder.owner].with_errors.get(&declaration).cloned().map(Arc::new));
-                    }
-                    for binding in &mut bindings {
-                        self.budget.charge(1)?;
-                        let (bound, value) = binding?;
-                        if bound != slot { continue; }
-                        return Ok(self.need_context(decoder, value.raw() as usize)?.map(|source| match source.unvalidated() {
-                            Type::Result(ok, _) => Arc::new((**ok).clone()),
-                            _ => source,
-                        }));
-                    }
-                    Ok(None)
-                }
                 _ => Ok(None),
             };
         }
@@ -4694,26 +4658,6 @@ impl<'a> ProducerProof<'a> {
                                             if !optional { path.push(FunctionProjection::ResultPayload(true)); }
                                         }
                                         pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
-                                    }
-                                    schema::StmtView::With { bindings, else_param_slot, .. } => {
-                                        let failure = else_param_slot == Some(slot);
-                                        let mut found = failure;
-                                        for binding in bindings {
-                                            self.budget.charge(1)?;
-                                            let (bound, value) = binding?;
-                                            if bound != slot && !failure { continue; }
-                                            found = true;
-                                            let source = self.need_context(&decoder, value.raw() as usize)?;
-                                            if failure && !source.as_ref().is_some_and(|ty| ty.is_result()) { continue; }
-                                            let mut path = path.clone();
-                                            if source.as_ref().is_some_and(|ty| ty.is_result()) { path.push(FunctionProjection::ResultPayload(!failure)); }
-                                            pending.push((owner, CallableProducer::Expression(value.raw() as usize), path));
-                                        }
-                                        if !found { return Err(IrVerifyError::new("callable with binder has no value producer")); }
-                                        if failure {
-                                            let contract = self.index.owners[&owner].with_errors.get(&writer).ok_or_else(|| IrVerifyError::new("callable With failure has no verified error contract"))?;
-                                            if contract.contains_typed_callable() { has_contract_source = true; }
-                                        }
                                     }
                                     _ => return Err(IrVerifyError::new("ground callable lexical writer is not a value transfer")),
                                 }
@@ -8643,24 +8587,6 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::StmtView::AssignField { .. } | schema::StmtView::AssignFieldInt { .. } | schema::StmtView::AssignPath { .. } => {
                     self.verify_storage_statement(decoder, writer, slot, expected)?;
-                }
-                schema::StmtView::With { mut bindings, else_param_slot, .. } => {
-                    let failure = else_param_slot == Some(slot);
-                    if failure {
-                        let actual = self.index.owners[&owner].with_errors.get(&writer).ok_or_else(|| IrVerifyError::new("ground With failure has no verified error contract"))?;
-                        if !actual.matches_expected(&expected) { return Err(IrVerifyError::new("ground With failure binding disagrees with its producer contract")); }
-                    }
-                    let mut found = failure;
-                    for binding in &mut bindings {
-                        let (bound, value) = binding?;
-                        if bound != slot && !failure { continue; }
-                        let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground With binding has no producer contract"))?;
-                        let payload = match ty.unvalidated() { Type::Result(ok, _) => ok.as_ref(), _ => ty.as_ref() };
-                        if !failure && !payload.matches_expected(&expected) { return Err(IrVerifyError::new("ground With writer disagrees with its slot contract")); }
-                        self.expression(owner, value.raw() as usize, ty, false);
-                        found = true;
-                    }
-                    if !found { return Err(IrVerifyError::new("ground With capture has no typed source writer")); }
                 }
                 schema::StmtView::Match { value, mut arms, .. } => {
                     let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground match has no subject contract"))?;

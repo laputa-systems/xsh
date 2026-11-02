@@ -974,16 +974,6 @@ pub(super) struct BodyProof {
     pub(super) callable_projections: Vec<(usize, Type)>,
 }
 
-fn with_error_types(decoder: &FullDecoder<'_>, types: &BTreeMap<usize, SchemeType>, budget: &mut SchemeInstantiationBudget) -> Result<BTreeMap<usize, SchemeType>, IrVerifyError> {
-    let work = RefCell::new(&mut *budget);
-    decoder.with_initializer_error_types_with(|source| {
-        let instruction = match source { super::super::WithErrorSource::Initializer(instruction) | super::super::WithErrorSource::Propagation(instruction) => instruction };
-        let ty = types.get(&instruction).ok_or_else(|| IrVerifyError::new("generic With source has no checked expression contract"))?;
-        BodyTypeRef::Scheme(ty).result_parts().map(|(_, error)| error.materialize(&mut work.borrow_mut())).transpose()
-    }, SchemeType::Ground(Type::Error), |current, next| {
-        *current = Some(match current.take() { None => next, Some(previous) if previous == next => previous, Some(_) => SchemeType::Ground(Type::Error) });
-    }, |amount| work.borrow_mut().charge(amount))
-}
 
 fn context_scope_has_known_escape(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
     let mut pending = vec![ty];
@@ -1026,7 +1016,6 @@ pub(super) fn verify_body(
     slots: BTreeMap<usize, InitialBinding>, scheme_scope: &SchemeScope, effect_scopes: &VerifiedSchemeScopes, expected_return: &SchemeType, completion_group: Option<u32>, statements: Vec<usize>,
     analysis: &super::super::IndexedReturnAnalysis, producer_index: &super::producers::GroundProducerIndex, registered: &mut BTreeSet<u32>, budget: &mut SchemeInstantiationBudget, constant_budget: &mut SchemeInstantiationBudget,
 ) -> Result<BodyProof, IrVerifyError> {
-    let mut with_errors = None;
     let mut checked_accumulators = Vec::new();
     let slot_count = decoder.slot_count as usize;
     for binding in slots.values() { budget.charge_scheme_clone(&binding.ty)?; }
@@ -1879,44 +1868,6 @@ pub(super) fn verify_body(
                             stream_iterations.push((super::producers::StreamProducer::Value(value.raw() as usize), scopes.function_boundary.clone()));
                         }
                         expressions.push(value.raw() as usize);
-                    }
-                    schema::StmtView::With { mut bindings, body, else_body, else_param_slot, captures: captured, .. } => {
-                        if with_errors.is_none() { with_errors = Some(with_error_types(decoder, types, budget)?); }
-                        let error = with_errors.as_ref().unwrap().get(&instruction).ok_or_else(|| IrVerifyError::new("generic With has no actual failure-source proof"))?;
-                        budget.charge_scheme_clone(error)?;
-                        let error = error.clone();
-                        let mut current = branch_scope(&scope, &mut scopes, budget)?;
-                        current.error_boundary = Some(scopes.error_boundaries.len());
-                        budget.charge_scheme_clone(&error)?;
-                        scopes.error_boundaries.push(PropagationBoundary::ResultError(Arc::new(error.clone())));
-                        let mut slots = BTreeSet::new();
-                        for binding in &mut bindings {
-                            let (slot, value) = binding?;
-                            let actual = expression_type(types, value.raw() as usize, budget)?;
-                            let success = match BodyTypeRef::Scheme(&actual).result_parts() { Some((ok, _)) => ok.materialize(budget)?, None => actual };
-                            budget.charge_scheme_clone(&success)?;
-                            if slot >= slot_count || writers.insert(slot, success.clone()).is_some() || !slots.insert(slot) { return Err(IrVerifyError::new("generic With binding is duplicated or out of bounds")); }
-                            nested.push(Obligation::Expression(value.raw() as usize, current));
-                            let next = branch_scope(&current, &mut scopes, budget)?;
-                            declare(&next, &mut scopes, slot, success, false, None, budget)?;
-                            current = next;
-                        }
-                        current.error_boundary = scope.error_boundary;
-                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(statements.len())?;
-                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: current, value: None });
-                        let handler = branch_scope(&scope, &mut scopes, budget)?;
-                        if let Some(slot) = else_param_slot {
-                            budget.charge_scheme_clone(&error)?;
-                            if slot >= slot_count || writers.insert(slot, error.clone()).is_some() || !slots.insert(slot) { return Err(IrVerifyError::new("generic With failure binding is duplicated or out of bounds")); }
-                            declare(&handler, &mut scopes, slot, error, false, None, budget)?;
-                        }
-                        let physical = captured.collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(physical.len())?;
-                        if physical.len() != slots.len() || physical.into_iter().collect::<BTreeSet<_>>() != slots { return Err(IrVerifyError::new("generic With capture slots disagree with its actual declarations")); }
-                        let statements = else_body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(statements.len())?;
-                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: handler, value: None });
                     }
                     schema::StmtView::Guard { target, value, else_body, else_param_slot, optional, .. } => {
                         let actual = expression_type(types, value.raw() as usize, budget)?;
@@ -2952,7 +2903,7 @@ driver()?
         missing.store.checked_expr_types.remove(fact);
         assert_eq!(FullVerifier::verify(&missing).unwrap_err().message, "capture or retry has no checked Result contract");
         let mut wrong_role = program.clone();
-        wrong_role.store.checked_expr_types[fact].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None, with_error_source: false };
+        wrong_role.store.checked_expr_types[fact].purpose = FullCheckedExprPurpose::CheckedContract { function_ref: None };
         let error = FullVerifier::verify(&wrong_role).unwrap_err();
         assert_eq!(error.message, "checked expression type row is neither callable, a structured error, nor a With error source");
         let broad = program.store.functions.iter().find(|function| program.store.string(function.name).unwrap() == "broad_error").unwrap();
@@ -5361,27 +5312,6 @@ proc check_completions() -> Result[Bool] {
 
     fn declaration(program: &FullProgram) -> usize {
         program.store.scheme_body_facts.iter().position(|fact| fact.kind() == FullSchemeBodyFactKind::LocalMutable).unwrap()
-    }
-
-    #[test]
-    fn generic_with_bindings_authenticate_order_and_handler_isolation() {
-        let program = prepare("proc keep(value, selected: Result[Int]) [] { with first = selected, second = if first > 0 { selected } else { selected } { let _ = second } else { |failure| let _ = failure }; value }");
-        let (owner, _) = generic_owner(&program);
-        let decoder = decoder_for_function(&program.store, owner).unwrap();
-        let (slots, failure) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| match decoder.statement_view(instruction) {
-            Ok(schema::StmtView::With { bindings, else_param_slot: Some(failure), .. }) => Some((bindings.map(|binding| binding.unwrap().0).collect::<Vec<_>>(), failure)),
-            _ => None,
-        }).unwrap();
-        assert_eq!(slots.len(), 2);
-        for (source, target) in [(slots[0], slots[1]), (slots[1], failure), (failure, slots[0])] {
-            let reads = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slot == source)).collect::<Vec<_>>();
-            assert_eq!(reads.len(), 1);
-            let mut forged = program.clone();
-            let payload = forged.store.data[reads[0]].range().bounds(forged.store.extra.len()).unwrap();
-            assert_eq!(payload.len(), 1);
-            forged.store.extra[payload.start] = target as u32;
-            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic body reads an uninitialized slot");
-        }
     }
 
     #[test]

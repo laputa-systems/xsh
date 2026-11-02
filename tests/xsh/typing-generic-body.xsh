@@ -30,9 +30,10 @@ pure helper(flag: Bool) -> Int {
   let values = source.push(2)
   let actions: List[Action] = [target]
   let selected: List[Action] = [action for action in actions]
-  with value = Ok(selected[0](values[0])) {
-    return value + rest(offset(), @[3])
-  } else { |_| return 0 }
+  match Ok(selected[0](values[0])) {
+    Ok(value) => { return value + rest(offset(), @[3]) }
+    Err(_) => { return 0 }
+  }
 }
 pure read(row) -> Int { let ignored = row.anchor; helper(true).bit_or(0) }
 assert read({anchor: false}) == 7

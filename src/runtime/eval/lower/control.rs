@@ -1373,7 +1373,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             closing.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
             let outcome = self.scope_expression(BuildExprRow::Capture { body: closing, span }, finished_type.clone(), domain);
             if let (ScopeLoweringDomain::Ordinary, SchemeType::Ground(ty)) = (&*domain, &finished_type)
-                && !self.scratch.borrow_mut().record_checked_expr_type(outcome, ty.clone(), false) { return None; }
+                && !self.scratch.borrow_mut().record_checked_expr_type(outcome, ty.clone()) { return None; }
             body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }));
             Some(self.scope_expression(BuildExprRow::ValueBlock { body, span }, finished_type, domain))
         })();

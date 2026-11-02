@@ -413,19 +413,6 @@ test test_with_without_else_is_rejected_in_a_pure_function { |ctx|
   assert pure_scope.stdout == "", pure_scope.stdout
 }
 
-test test_with_else_still_groups_fallible_bindings { |ctx|
-  let dir = test.temp_dir(ctx, name: "with-else")?
-  fp"{dir}/a".write("1")
-  var message = ""
-  with a = fp"{dir}/a".read_text()?, b = fp"{dir}/b".read_text()? {
-    message = a + b
-  } else { |failure|
-    message = "handled"
-  }
-
-  assert message == "handled"
-}
-
 test test_with_formats_on_one_line_or_one_binding_to_a_line { |ctx|
   let unformatted = """
     proc sizes(dir: Path) [fs, error] -> Result[Int] {

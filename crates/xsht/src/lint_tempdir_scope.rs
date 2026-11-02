@@ -282,7 +282,6 @@ fn site(
         | ArenaStmtKind::Defer(_, _)
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Sugar { .. }
         | ArenaStmtKind::Assert { .. }

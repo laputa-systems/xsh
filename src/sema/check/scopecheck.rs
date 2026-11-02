@@ -526,13 +526,6 @@ impl ScopeChecker<'_> {
                 self.block(block);
                 self.scopes.pop();
             }
-            ArenaStmtKind::With { bindings, body, else_block } => {
-                self.scopes.push(FxHashMap::default());
-                self.with_bindings(bindings);
-                self.block(body);
-                self.scopes.pop();
-                self.block(else_block);
-            }
             ArenaStmtKind::If { branches, else_block } => {
                 for branch in self.program.arena.if_branches(branches) {
                     self.expr(branch.condition);
@@ -878,7 +871,7 @@ mod tests {
 
     #[test]
     fn sequential_with_initializers_publish_runtime_identity() {
-        check("const value = 0\nwith value = Ok(1), copied = Ok(value) { assert copied == value } else { assert value == 0 }\n", |facts| {
+        check("const value = 0\nwith value = Ok(1), copied = Ok(value) { assert copied == value }\nassert value == 0\n", |facts| {
             let uses: Vec<_> = facts.expressions.values().map(|id| facts.declarations[id].kind).collect();
             assert_eq!(uses.iter().filter(|kind| matches!(kind, BindingKind::Runtime)).count(), 3);
             assert_eq!(uses.iter().filter(|kind| matches!(kind, BindingKind::Constant(_))).count(), 1);

@@ -267,6 +267,7 @@ diagnostic_codes! {
         ParseUnsupportedIntegerDivision = "parse.unsupported-integer-division", error, "Reject a `//` or `div` integer-division operator; use `/` on Int operands";
         ParseUnsupportedThen = "parse.unsupported-then", error, "Reject the `then` keyword after an `if`, `while`, or `for` head";
         ParseUnterminatedInterpolation = "parse.unterminated-interpolation", error, "Reject a string interpolation or f-string `{` with no closing delimiter";
+        ParseWithHandler = "parse.with-handler", error, "Reject the removed `with ... { } else { |error| ... }` handler; capture the initializers with `try` and `match` the failure";
         ParseForIndex = "parse.for-index", error, "Reject a destructured index in `for INDEX, ITEM in SOURCE`";
         ParseNestingDepth = "parse.nesting-depth", error, "Reject a construct nested more deeply than the limit every later pass is sized for";
         ParseTextPatternHole = "parse.text-pattern-hole", error, "Reject a hole of an f-string pattern that is not a name, `_`, or a name with a spec";

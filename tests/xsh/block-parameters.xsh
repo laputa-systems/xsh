@@ -12,74 +12,17 @@ proc guarded() [] -> Str {
   f"{value}"
 }
 print ${guarded()}
-with value = fail() {} else { |failure|
-  print ${message(failure)}
-}
 """,
     status: 0,
   )?
   assert output.stdout == """nominal
-nominal
-"""
-}
-
-test test_with_bindings_are_sequential_and_stop_at_the_first_error { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""
-error HeaderError = failed(message: Str)
-proc reached(value: Int) [] -> Result[Int] { print $value; Ok(value) }
-pure failed() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "stop")) }
-with first = reached(1), second = reached(first + 1)? {
-  print $second
-} else { |_| print unreachable }
-with first = reached(3), second = failed()?, third = reached(4) {
-  print unreachable
-} else { |failure| print ${failure.message} }
-print after
-""",
-    status: 0,
-  )?
-  assert output.stdout == """1
-2
-2
-3
-stop
-after
-"""
-}
-
-test test_error_headers_accept_comments_newlines_omission_and_discard { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""
-error HeaderError = failed(message: Str)
-pure failed() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "inside")) }
-let failure = "outside"
-with value = failed() {} else {
-  # The header remains the first block construct.
-  |failure|
-  print ${failure.message}
-}
-with value = failed() {} else { print omitted }
-with value = failed() {} else { |_| print discarded }
-with direct = 4, next = direct + 1 { print $next } else { print unreachable }
-print $failure
-""",
-    status: 0,
-  )?
-  assert output.stdout == """inside
-omitted
-discarded
-5
-outside
 """
 }
 
 test test_error_headers_reject_missing_inputs_and_invalid_bindings { |ctx|
   for {source, code} in [
     {
-      source: """with value = Ok(1) {} else { |a, b| print $a $b }
+      source: """proc bad() [] { guard let value = Ok(1) else { |a, b| return }; print $value }
 """,
       code: "check.handler-block-params",
     },
@@ -89,28 +32,27 @@ test test_error_headers_reject_missing_inputs_and_invalid_bindings { |ctx|
       code: "check.duplicate-name",
     },
     {
-      source: """with value = Ok(1) {} else { |failure| failure = 2 }
+      source: """proc bad() [] { guard let value = Ok(1) else { |failure| failure = 2; return }; print $value }
 """,
       code: "check.assign-let",
     },
     {
-      source: """with value = Ok(1) {} else { |failure| let failure = 2 }
+      source: """proc bad() [] { guard let value = Ok(1) else { |failure| let failure = 2; return }; print $value }
 """,
       code: "check.duplicate-name",
     },
     {
-      source: """with value = Ok(1) {} else { |failure| print $failure }
-print $failure
+      source: """proc bad() [] { guard let value = Ok(1) else { |failure| print $failure; return }; print $failure }
 """,
       code: "check.unresolved-name",
     },
     {
-      source: """with value = Ok(1) {} else { |failure| print $value }
+      source: """proc bad() [] { guard let value = Ok(1) else { |failure| print $value; return } }
 """,
       code: "check.unresolved-name",
     },
     {
-      source: """with value = Ok(1) {} else { |fs| print $fs }
+      source: """proc bad() [] { guard let value = Ok(1) else { |fs| print $fs; return } }
 """,
       code: "check.standard-module-shadow",
     },
@@ -129,11 +71,6 @@ print $failure
 """,
       code: "check.block-params",
     },
-    {
-      source: """with value = Ok(1) { |_| print bad } else {}
-""",
-      code: "check.block-params",
-    },
   ] {
     let output = test.run_script(ctx, source)?
     assert ! output.success, source
@@ -144,9 +81,6 @@ print $failure
 test test_outside_error_headers_are_rejected_before_execution { |ctx|
   for source in [
     """print reached
-with value = Ok(1) {} else |failure| { print $failure }
-""",
-    """print reached
 proc bad() [] { guard let value = Ok(1) else |_| { return }; print $value }
 """,
   ] {
@@ -155,65 +89,6 @@ proc bad() [] { guard let value = Ok(1) else |_| { return }; print $value }
     assert output.stdout == ""
     assert "parse.block-header-migration" in output.stderr
     assert "inside the block" in output.stderr
-  }
-}
-
-test test_with_headers_preserve_cleanup_and_lexical_transfers { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""
-proc exercise() [] -> Int {
-  defer { print outer }
-  for item in [1, 2] {
-    with value = Ok(item) {
-      defer { print f"cleanup:{value}" }
-      print $value
-      continue when value == 1
-      return value
-    } else { |_| print unreachable }
-  }
-  0
-}
-proc escape() [] -> Int {
-  let result: Result[Int] = "bad".parse_int()
-  with value = result ?? { |_| return 8 } { print unreachable } else {}
-  0
-}
-print ${exercise()} ${escape()}
-""",
-    status: 0,
-  )?
-  assert output.stdout == """1
-cleanup:1
-2
-cleanup:2
-outer
-2 8
-"""
-}
-
-test test_with_handler_errors_and_body_propagation_keep_their_identity { |ctx|
-  for {body, expected} in [
-    {
-      body: "with value = failed() {} else { |_| defer { print cleanup }; Err(HeaderError.handler(message: \"handler\"))? }",
-      expected: "handler",
-    },
-    {
-      body: "with value = Ok(1) { defer { print cleanup }; failed()? } else { |_| print wrongly_caught }",
-      expected: "primary",
-    },
-  ] {
-    let source = """error HeaderError = primary(message: Str) | handler(message: Str)
-pure failed() -> Result[Unit, HeaderError] { Err(HeaderError.primary(message: "primary")) }
-proc exercise() [error] {
-""" + body + """\n}
-exercise()?
-"""
-    let output = test.run_script(ctx, source)?
-    assert ! output.success, output.stderr
-    assert output.stdout == """cleanup
-"""
-    assert expected in output.stderr
   }
 }
 
@@ -257,10 +132,10 @@ test test_block_header_migration_refuses_header_comments_and_unrelated_errors { 
 }
 print ${recover()}
 """,
-    """with value = Ok(1) {} else |failure| { print $failure }
+    """proc bad() [] { guard let value = Ok(1) else |failure| { print $failure; return }; print $value }
 let broken = )
 """,
-    """with value = Ok(1) {} else |failure| { print $failure }
+    """proc bad() [] { guard let value = Ok(1) else |failure| { print $failure; return }; print $value }
 let broken: Int = "wrong"
 """,
   ] {
@@ -275,14 +150,6 @@ test test_error_headers_suspend_in_streams_and_cleanup_on_cancellation { |ctx|
   let output = test.expect(
     ctx,
     r"""
-stream values() [] -> Stream[Int] {
-  with value = Ok(1) {
-    defer { print closed }
-    yield value
-    print unread
-  } else { |_| yield 0 }
-}
-for value in values() { print $value; break }
 stream guarded() [] -> Stream[Int] {
   guard let value = "bad".parse_int() else { |_|
     defer { print guarded_closed }
@@ -296,29 +163,9 @@ print ${result[0]}
 """,
     status: 0,
   )?
-  assert output.stdout == """1
-closed
-guarded_closed
+  assert output.stdout == """guarded_closed
 7
 """
-}
-
-proc header_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
-  with
-    root = fs.open_root(root_path)
-  {
-    return root
-  } else { |failure|
-    return Err(failure)
-  }
-}
-
-test test_with_headers_preserve_escaping_owned_prefix_values { |ctx|
-  let root_path = test.temp_dir(ctx, name: "header-root")?
-  let root = header_open_root(root_path)?
-  root.write(p"value", "retained")
-  assert root.read_text(p"value")? == "retained"
-  root.close()
 }
 
 test test_block_header_migration_rechecks_imports_and_deduplicates_edits { |ctx|
@@ -351,38 +198,19 @@ print recover()
   assert shared.read_text()? == rewritten
 }
 
-test test_with_initializers_use_the_existing_heap_frame_stack { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""
-proc count(depth: Int) [] -> Int {
-  if depth == 0 { return 0 }
-  with next = count(depth - 1) { return next + 1 } else { |_| return 0 }
-}
-print count(2000)
+test test_with_handler_is_rejected_with_the_match_to_write { |ctx|
+  for source in [
+    """with value = Ok(1) {} else { |failure| print $failure }
 """,
-    status: 0,
-  )?
-  assert output.stdout == """2000
-"""
+    """with value = Ok(1) {
+  print $value
 }
-
-test test_with_compound_initializers_keep_nominal_errors { |ctx|
-  let output = test.expect(
-    ctx,
-    r"""
-error HeaderError = failed(message: Str)
-pure failed() -> Result[Int, HeaderError] { Err(HeaderError.failed(message: "compound")) }
-pure message(failure: HeaderError) -> Str { failure.message }
-proc selected() [error] -> Str {
-  with value = 1 + failed()? { return f"{value}" } else { |failure| return message(failure) }
-}
-print ${selected()}
-with value = 1 + failed()? { print unreachable } else { |failure| print ${message(failure)} }
+else { print omitted }
 """,
-    status: 0,
-  )?
-  assert output.stdout == """compound
-compound
-"""
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert ! output.success, source
+    assert "parse.with-handler" in output.stderr
+    assert "match try" in output.stderr
+  }
 }

@@ -502,7 +502,6 @@ fn collect_exported_top_level_binding_name(
         | ArenaStmtKind::If { .. }
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Loop { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Sugar { .. }

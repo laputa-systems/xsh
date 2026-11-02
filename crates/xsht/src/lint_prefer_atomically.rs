@@ -613,7 +613,6 @@ fn leaves_nothing_behind(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
         | ArenaStmtKind::Yield(_)
         | ArenaStmtKind::YieldDelegate(_)
         | ArenaStmtKind::Defer(..)
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Exit(_)
         | ArenaStmtKind::TailBareIdent(_) => false,

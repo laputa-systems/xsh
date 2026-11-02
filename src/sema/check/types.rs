@@ -106,11 +106,6 @@ impl Checker {
         if self.boundary.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
-        if let Some(errors) = &mut self.boundary.with_initializer_errors
-            && let Some((_, error)) = result_types(ty)
-        {
-            errors.push(error.clone());
-        }
         if matches!(ty, Type::Unknown | Type::Invalid) {
             return ty.clone();
         }
@@ -133,7 +128,7 @@ impl Checker {
             );
             return Type::Unknown;
         };
-        if matches!(err.unvalidated(), Type::Any) && self.boundary.with_initializer_errors.is_none() {
+        if matches!(err.unvalidated(), Type::Any) {
             let target = match &self.boundary.current_return {
                 Some(super::ReturnContext::Function(Type::Result(_, error))) => Some((**error).clone()),
                 Some(super::ReturnContext::Function(Type::Unknown)) if self.inferred_returns.is_some() => None,

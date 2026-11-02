@@ -266,12 +266,6 @@ fn stmt_flow(arena: &AstArena, facts: &FlowFacts, stmt: StmtId) -> FlowSummary {
         ArenaStmtKind::For { iter, block, .. } => {
             zero_or_more_loop(facts.expression(iter), facts.block(block))
         }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-            ..
-        } => with_stmt_flow(arena, facts, bindings, body, else_block),
         ArenaStmtKind::Loop { block } => loop_summary(facts.block(block)),
         ArenaStmtKind::Guard {
             initializer,
@@ -371,19 +365,6 @@ pub(super) fn if_stmt_flow(
     flow
 }
 
-pub(super) fn with_stmt_flow(
-    arena: &AstArena,
-    facts: &FlowFacts,
-    bindings: ArenaRange,
-    body: BlockId,
-    else_block: BlockId,
-) -> FlowSummary {
-    let mut bindings_flow = FlowSummary::fallthrough();
-    for binding in arena.with_bindings(bindings) {
-        bindings_flow = bindings_flow.then(facts.expression(binding.initializer));
-    }
-    bindings_flow.then(facts.block(body).union(facts.block(else_block)))
-}
 
 fn loop_summary(body: FlowSummary) -> FlowSummary {
     FlowSummary {

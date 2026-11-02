@@ -324,7 +324,6 @@ impl ExprPositions {
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
-            | ArenaStmtKind::With { .. }
             | ArenaStmtKind::Loop { .. }
             | ArenaStmtKind::Break { .. }
             | ArenaStmtKind::Continue

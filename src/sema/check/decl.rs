@@ -1444,7 +1444,6 @@ impl Checker {
                 | ArenaStmtKind::If { .. }
                 | ArenaStmtKind::While { .. }
                 | ArenaStmtKind::For { .. }
-                | ArenaStmtKind::With { .. }
                 | ArenaStmtKind::Loop { .. }
                 | ArenaStmtKind::Guard { .. }
                 | ArenaStmtKind::Sugar { .. }
@@ -1935,7 +1934,6 @@ impl Checker {
                         | ArenaStmtKind::If { .. }
                         | ArenaStmtKind::While { .. }
                         | ArenaStmtKind::For { .. }
-                        | ArenaStmtKind::With { .. }
                         | ArenaStmtKind::Loop { .. }
                         | ArenaStmtKind::Guard { .. }
                         | ArenaStmtKind::Sugar { .. }
@@ -2010,7 +2008,6 @@ impl Checker {
                 | ArenaStmtKind::If { .. }
                 | ArenaStmtKind::While { .. }
                 | ArenaStmtKind::For { .. }
-                | ArenaStmtKind::With { .. }
                 | ArenaStmtKind::Loop { .. }
                 | ArenaStmtKind::Guard { .. }
                 | ArenaStmtKind::Sugar { .. }

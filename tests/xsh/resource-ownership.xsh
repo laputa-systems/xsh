@@ -42,10 +42,9 @@ proc resource_borrow_root(root: FsRoot) [fs, error] {
 }
 
 proc resource_fail_with_root() [fs, error] -> Result[FsRoot, ResourceRootError] {
-  with root = fs.tempdir() {
-    fail .Owned(root:)
-  } else {
-    fail .Unavailable()
+  match fs.tempdir() {
+    Ok(root) => { fail .Owned(root:) }
+    Err(_) => { fail .Unavailable() }
   }
 }
 
@@ -374,14 +373,15 @@ test resource_outer_assignment_moves_root_out_of_nested_scope {
   assert root.exists(p".")?
 }
 
-test resource_fail_payload_survives_with_else {
+test resource_fail_payload_survives_match_arm {
   var escaped = null
-  with value = resource_fail_with_root() {
-    escaped = value
-  } else { |failure|
-    match failure {
-      ResourceRootError.Owned {root} => escaped = root
-      ResourceRootError.Unavailable => {}
+  match resource_fail_with_root() {
+    Ok(value) => { escaped = value }
+    Err(failure) => {
+      match failure {
+        ResourceRootError.Owned {root} => escaped = root
+        ResourceRootError.Unavailable => {}
+      }
     }
   }
   let root = escaped.require(FsRoot)?

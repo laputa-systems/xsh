@@ -675,7 +675,6 @@ impl Analyzer<'_> {
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
-            | ArenaStmtKind::With { .. }
             | ArenaStmtKind::Loop { .. }
             | ArenaStmtKind::Guard { .. }
             | ArenaStmtKind::Sugar { .. }

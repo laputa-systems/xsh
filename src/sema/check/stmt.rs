@@ -420,43 +420,6 @@ fn stmt_control_flow_inner(
             }
             subject.then(arms_flow)
         }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-        } => {
-            let mut successful_inputs = ControlFlow::NORMAL;
-            let mut error_inputs = ControlFlow::NONE;
-            for binding in arena.arena.with_bindings(bindings) {
-                if !successful_inputs.completes {
-                    break;
-                }
-                let initializer = expr_control_flow(arena, binding.initializer, facts);
-                let has_error_path = initializer.propagates
-                    || matches!(
-                        expression_type(arena, binding.initializer, facts),
-                        Some(Type::Result(_, _))
-                    );
-                let before_initializer = successful_inputs;
-                if has_error_path {
-                    let error_path = if initializer.propagates {
-                        handle_propagation(initializer)
-                    } else {
-                        ControlFlow::NORMAL
-                    };
-                    error_inputs = error_inputs.either(before_initializer.then(error_path));
-                }
-                let mut success_path = initializer;
-                success_path.propagates = false;
-                successful_inputs = successful_inputs.then(success_path);
-            }
-            let success = successful_inputs.then(block_control_flow(arena, body, facts));
-            if error_inputs.completes {
-                success.either(error_inputs.then(block_control_flow(arena, else_block, facts)))
-            } else {
-                success
-            }
-        }
         ArenaStmtKind::Guard { else_block, .. } => {
             let inputs = stmt_expression_children_flow(arena, id, facts);
             inputs.then(ControlFlow::NORMAL.either(block_control_flow(arena, else_block, facts)))
@@ -3701,13 +3664,6 @@ impl Checker {
                     );
                 }
             }
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_block,
-            } => {
-                self.check_with_arena(arena, source, bindings, body, else_block, stmt.span);
-            }
             ArenaStmtKind::Guard {
                 target,
                 ty,
@@ -4556,61 +4512,6 @@ impl Checker {
         );
     }
 
-    fn check_with_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        bindings: ArenaRange,
-        body: BlockId,
-        else_block: BlockId,
-        _span: Span,
-    ) {
-        self.push_scope();
-        let mut error_ty = None;
-        for binding in arena.arena.with_bindings(bindings) {
-            let previous_errors = self.boundary.with_initializer_errors.replace(Vec::new());
-            let ty = self.check_expr_arena(arena, source, binding.initializer, None);
-            let mut errors = self.boundary.with_initializer_errors.take().unwrap_or_default();
-            self.boundary.with_initializer_errors = previous_errors;
-            if let Type::Result(_, error) = &ty {
-                errors.push((**error).clone());
-            }
-            for error in errors {
-                error_ty = Some(match error_ty {
-                    None => error,
-                    Some(previous) if previous == error => previous,
-                    Some(_) => Type::Error,
-                });
-            }
-            let origin = self.stream_success_origin(arena, binding.initializer, &ty);
-            let value_ty = match ty {
-                Type::Result(ok, _) => *ok,
-                other => other,
-            };
-            let binding_span = arena.arena.span(binding.span);
-            if self.current_scope().contains_key(&binding.name) {
-                self.error(
-                    binding_span,
-                    "duplicate name in scope",
-                    DiagnosticCode::CheckDuplicateName,
-                );
-            }
-            if binding.name.as_str() != "_" {
-                let mut value = Binding::new(value_ty, false);
-                value.stream_origins = origin;
-                self.define(binding.name, value, binding_span);
-            }
-        }
-        self.check_block_arena(arena, source, body);
-        self.pop_scope();
-        let error_ty = error_ty.unwrap_or(Type::Error);
-        self.handler_input_types.insert(
-            arena.arena.span(arena.arena.block(else_block).span),
-            error_ty.clone(),
-        );
-        self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
-    }
-
     pub(super) fn check_guard_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -4917,7 +4818,7 @@ impl Checker {
                 | ArenaStmtKind::StreamDef(_) | ArenaStmtKind::SignalHook(_)
                 | ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_)
                 | ArenaStmtKind::Defer(..) | ArenaStmtKind::While { .. }
-                | ArenaStmtKind::For { .. } | ArenaStmtKind::With { .. }
+                | ArenaStmtKind::For { .. }
                 | ArenaStmtKind::Loop { .. } | ArenaStmtKind::Guard { .. }
                 | ArenaStmtKind::Sugar { .. } | ArenaStmtKind::Assert { .. } => false,
             };
@@ -6524,7 +6425,6 @@ impl Checker {
         {
             let saved_capture_scopes = self.scopes.clone();
             let mut cleanup = self.boundary.clone();
-            cleanup.with_initializer_errors = None;
             cleanup.in_defer_block = true;
             cleanup.loop_depth = 0;
             cleanup.value_loops.clear();
@@ -6734,12 +6634,6 @@ impl Checker {
                     && arms
                         .iter()
                         .all(|arm| self.block_definitely_exits_arena(arena, arm.block))
-            }
-            ArenaStmtKind::With {
-                body, else_block, ..
-            } => {
-                self.block_definitely_exits_arena(arena, body)
-                    && self.block_definitely_exits_arena(arena, else_block)
             }
             ArenaStmtKind::Loop { block } => !block_has_exit_point_ast(arena, block),
             ArenaStmtKind::While { condition, block }
@@ -7034,12 +6928,6 @@ impl Checker {
                 self.return_inference_stmt_returns(arena, expansion)
             }
             ArenaStmtKind::Return(_) => true,
-            ArenaStmtKind::With {
-                body, else_block, ..
-            } => {
-                self.return_inference_block_returns(arena, body)
-                    && self.return_inference_block_returns(arena, else_block)
-            }
             ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
                 ArenaExprKind::ErrorContext { block, .. } => {
                     self.return_inference_block_returns(arena, block)
@@ -7710,7 +7598,7 @@ impl Checker {
             | ArenaStmtKind::StreamDef(_) | ArenaStmtKind::SignalHook(_)
             | ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_)
             | ArenaStmtKind::Defer(..) | ArenaStmtKind::While { .. }
-            | ArenaStmtKind::For { .. } | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Loop { .. } | ArenaStmtKind::Guard { .. }
             | ArenaStmtKind::Sugar { .. } => {
                 self.check_stmt_arena(arena, source, id);
@@ -9227,8 +9115,6 @@ shared = wrapper(failing(initial))
             ("fallible-nested-record-producer", "for box in nested(failing(other)) { for item in box.rows { let _ = item } }; 7", Some("box.rows")),
             ("safe-delegated-producer", "for item in delegated(safe(other)) { let _ = item }; 7", Some("delegated(safe(other))")),
             ("fallible-delegated-producer", "for item in delegated(failing(other)) { let _ = item }; 7", Some("delegated(failing(other))")),
-            ("safe-with-stream", "with rows = wrapper(safe(other)) { for item in rows { let _ = item } } else {}; 7", None),
-            ("fallible-with-stream", "with rows = wrapper(failing(other)) { for item in rows { let _ = item } } else {}; 7", Some("rows")),
             ("safe-guard-stream", "guard let rows = wrapper(safe(other)) else { return Ok(7) }; for item in rows { let _ = item }; 7", None),
             ("fallible-guard-stream", "guard let rows = wrapper(failing(other)) else { return Ok(7) }; for item in rows { let _ = item }; 7", Some("rows")),
             ("safe-immutable-capture", "for item in read_immutable() { let _ = item }; 7", None),

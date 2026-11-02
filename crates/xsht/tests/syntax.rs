@@ -2161,7 +2161,7 @@ fn error_handler_headers_have_one_authoritative_parameter_range() {
     for raw in 0..parsed.arena.arena.stmt_tags.len() {
         let statement = parsed.arena.arena.stmt(StmtId::from_index(raw));
         let block = match statement.kind {
-            ArenaStmtKind::With { else_block, .. } | ArenaStmtKind::Guard { else_block, .. } => {
+            ArenaStmtKind::Guard { else_block, .. } => {
                 else_block
             }
             _ => continue,
@@ -2174,11 +2174,11 @@ fn error_handler_headers_have_one_authoritative_parameter_range() {
         let parameter = parsed.arena.arena.span(params[0].span);
         assert_eq!(
             &source[parameter.start()..parameter.end()],
-            if handlers == 0 { "_" } else { "failure" }
+            "failure"
         );
         handlers += 1;
     }
-    assert_eq!(handlers, 2);
+    assert_eq!(handlers, 1);
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(
         formatted.diagnostics.is_empty(),

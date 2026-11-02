@@ -1,8 +1,7 @@
-const with_error_handler = r"""proc main(...argv: List[Str]) [error] -> Result[Unit] {
-  with value = fallible() {
-    print ${value}
-  } else { |err|
-    return Err(err)
+const result_match_handler = r"""proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  match fallible() {
+    Ok(value) => { print ${value} }
+    Err(err) => { return Err(err) }
   }
   return Ok()
 }
@@ -408,8 +407,8 @@ test test_check_ignores_xshi_config_aliases { |ctx|
   assert ! fp"{home}/.local/share/xshi/history".exists()?
 }
 
-test test_check_accepts_indexed_with_error_handlers { |ctx|
-  expect_clean_check(ctx, {"main.xsh": with_error_handler}, "main.xsh")
+test test_check_accepts_indexed_result_match_handlers { |ctx|
+  expect_clean_check(ctx, {"main.xsh": result_match_handler}, "main.xsh")
 }
 
 # These assert rendered source locations across files.
@@ -485,7 +484,7 @@ test test_check_explicit_directory_does_not_expand_parent_config_includes { |ctx
 }
 
 test test_check_summary_groups_directory_failures_by_code { |ctx|
-  let root = project(ctx, {"project/parse.xsh": "let value =\n", "project/lower.xsh": with_error_handler})?
+  let root = project(ctx, {"project/parse.xsh": "let value =\n", "project/lower.xsh": result_match_handler})?
   cd $root {
     let checked = run.capture --text "xsht" check --summary project
     assert checked.status.exited_with(2), checked.stderr
@@ -496,8 +495,8 @@ test test_check_summary_groups_directory_failures_by_code { |ctx|
   }
 }
 
-test test_check_directory_accepts_indexed_with_error_handlers { |ctx|
-  expect_clean_check(ctx, {"project/ok.xsh": "let value = 1\n", "project/bad.xsh": with_error_handler}, "project")
+test test_check_directory_accepts_indexed_result_match_handlers { |ctx|
+  expect_clean_check(ctx, {"project/ok.xsh": "let value = 1\n", "project/bad.xsh": result_match_handler}, "project")
 }
 
 test test_check_top_level_user_imports_are_skippable_for_lowerability { |ctx|

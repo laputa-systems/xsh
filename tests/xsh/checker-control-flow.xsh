@@ -289,12 +289,12 @@ test test_error_capture_retry_and_cleanup_keep_exit_paths { |ctx|
       },
       {
         name: "captured-with-propagation-does-not-exit-loop",
-        source: "pure choose(result: Result[Int, Error]) -> Result[Int, Error] { loop { with value = result? {} else { |_| {} } } }\n",
-        diagnostics: ["check.ignored-result", "check.loop-no-break"],
+        source: "pure choose(result: Result[Int, Error]) -> Result[Int, Error] { loop { match try { result? } { Ok(value) => {}, Err(_) => {} } } }\n",
+        diagnostics: ["check.loop-no-break"],
       },
       {
         name: "return-through-error-boundaries-remains-an-exit",
-        source: "pure choose() -> Int { loop { let value: Result[Int, Error] = try { return 1; 2 } } }\nproc choose_with(result: Result[Int, Error]) [error] -> Int { loop { with value = result? { return value } else { |_| return 0 } } }\nproc leave() [process] { loop { exit 0 } }\n",
+        source: "pure choose() -> Int { loop { let value: Result[Int, Error] = try { return 1; 2 } } }\nproc choose_with(result: Result[Int, Error]) [error] -> Int { loop { match try { result? } { Ok(value) => { return value }, Err(_) => { return 0 } } } }\nproc leave() [process] { loop { exit 0 } }\n",
         diagnostics: [],
       },
       {
@@ -670,8 +670,8 @@ pure choose_guard(stop: Bool) -> Int {
         diagnostics: ["check.missing-return"],
       },
       {
-        name: "error-boundaries-and-unit-with-keep-explicit-exits",
-        source: "pure choose() -> Int { with value = 1 { return value } else {} }\npure choose_captured_with() -> Int { let ignored: Result[Unit, Error] = try { with value = 1 { return 1 } else { assert false } } }\nproc spin_run() [process, error] { loop { run true ? } }\nproc spin_text() [process, error] { loop { let output = run.text printf \"ok\" } }\nproc unit_result() -> Result[Unit, Error] { return Ok() }\nproc spin_unit_result() [error] { loop { unit_result() } }\nproc spin_cd() [env, error] { loop { cd \".\" {} } }\n",
+        name: "error-boundaries-and-unit-keep-explicit-exits",
+        source: "proc spin_run() [process, error] { loop { run true ? } }\nproc spin_text() [process, error] { loop { let output = run.text printf \"ok\" } }\nproc unit_result() -> Result[Unit, Error] { return Ok() }\nproc spin_unit_result() [error] { loop { unit_result() } }\nproc spin_cd() [env, error] { loop { cd \".\" {} } }\n",
         diagnostics: [],
       },
       {
@@ -685,8 +685,8 @@ pure choose_guard(stop: Bool) -> Int {
         diagnostics: [],
       },
       {
-        name: "unhandled-propagation-in-with-else-exits-outer-loop",
-        source: "proc spin(source: Result[Int, Error]) [error] { loop { with item = source {} else { |_| let ignored = source? } } }\n",
+        name: "unhandled-propagation-in-match-handler-exits-outer-loop",
+        source: "proc spin(source: Result[Int, Error]) [error] { loop { match try { source? } { Ok(item) => {}, Err(_) => { let ignored = source? } } } }\n",
         diagnostics: [],
       },
       {

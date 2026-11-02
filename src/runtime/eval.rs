@@ -868,7 +868,6 @@ struct CheckedExprType {
 enum CheckedExprPurpose {
     CheckedContract {
         function_ref: Option<(FunctionName, CallableKind)>,
-        with_error_source: bool,
     },
     ProducerContext,
     CapturedErrorContract,
@@ -1116,7 +1115,6 @@ impl BuildScratch {
         &mut self,
         id: BuildExprId,
         ty: Type,
-        with_error_source: bool,
     ) -> bool {
         let Some(fact) = self.checked_expr_types.get_mut(id.index()) else {
             return false;
@@ -1127,7 +1125,7 @@ impl BuildScratch {
         };
         let checked = CheckedExprType {
             ty,
-            purpose: CheckedExprPurpose::CheckedContract { function_ref, with_error_source },
+            purpose: CheckedExprPurpose::CheckedContract { function_ref },
         };
         match fact {
             Some(existing) if existing.ty == checked.ty && existing.purpose == CheckedExprPurpose::ProducerContext => {
@@ -8507,7 +8505,6 @@ fn compact_top_level_stmt_is_skippable(
         | ArenaStmtKind::If { .. }
         | ArenaStmtKind::While { .. }
         | ArenaStmtKind::For { .. }
-        | ArenaStmtKind::With { .. }
         | ArenaStmtKind::Loop { .. }
         | ArenaStmtKind::Guard { .. }
         | ArenaStmtKind::Sugar { .. }

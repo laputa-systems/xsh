@@ -292,7 +292,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut scratch = self.scratch.borrow_mut();
         if !scratch.record_call_instantiation(lowered, instantiation.clone())
             || !scratch.record_checked_call_target(lowered, key)
-            || !scratch.record_checked_expr_type(lowered, checked_type.clone(), false)
+            || !scratch.record_checked_expr_type(lowered, checked_type.clone())
         { return None; }
         Some(lowered)
     }
@@ -406,7 +406,6 @@ mod tests {
             stdlib_linkage: super::super::StdlibLowerLinkage::Local,
             function_defs: Rc::new(std::cell::RefCell::new(None)),
             scratch: Rc::new(std::cell::RefCell::new(super::super::BuildScratch::default())),
-            with_error_source_exprs: super::super::FxHashMap::default(),
         }
     }
 

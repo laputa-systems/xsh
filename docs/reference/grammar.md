@@ -150,7 +150,6 @@ compound_statement = if_statement
                    | pure_declaration
                    | stream_declaration
                    | guard_statement
-                   | with_statement
                    | signal_hook
                    | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
                    | without_statement
@@ -230,16 +229,16 @@ wait_until_statement = "wait" "until" condition_expression "within" head_duratio
 continue_statement = "continue" postfix_guard? ;
 defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
-expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" ) &name_expression expression "?"? ;
-guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) &name_expression expression postfix_guard ;
-if_statement = "if" condition !builder_callback_before_condition_body block ( "else" "if" condition !builder_callback_before_condition_body block )* ( "else" block )? ;
+expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "exit" "?" | "fail" "?" ) &name_expression expression "?"? ;
+guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "nominal" "type" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) &name_expression expression postfix_guard ;
+if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
-while_statement = "while" condition !builder_callback_before_condition_body block ;
-for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression !builder_callback_before_condition_body block ;
+while_statement = "while" condition block ;
+for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
 atomically_statement = "atomically" "replace" condition_expression "as" IDENT block ;
-match_statement = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
+match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
 arm_head = !( "." IDENT ) !( "_" "=>" ) pattern ( "if" expression )? "=>" ;
 else_arm_head = "else" "=>" ;
 arm_body = ( block | compound_statement ) ","?
@@ -249,7 +248,6 @@ arm_statement = !"{" simple_statement
               | &( "{" "." "." | "{" "[" | "{" LABEL ":" | "{" LABEL "." | "{" STRING ":" | "{" NEWLINE "." "." | "{" NEWLINE "[" | "{" NEWLINE LABEL ":" | "{" NEWLINE LABEL "." | "{" NEWLINE STRING ":" ) record_expression "?"? ;
 guard_statement = "guard" ( !"let" guard_condition "else" block | "let" binding_target ( ":" type_expr )? "=" ( expression_item | run_form "?" ) "else" NEWLINE* block ) ;
 guard_condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) expression ;
-with_statement = "with" list(IDENT "=" condition_expression) !builder_callback_before_condition_body block NEWLINE* "else" NEWLINE* block ;
 ```
 
 ## Expressions
@@ -314,12 +312,11 @@ primary = literal
         | run_form !( "?" "(" | "?" "[" ) ( "?" &"|>" | run_end )
         | "spawn" ( run_form !( "?" "(" ")" | "?" "[" ) run_end | !"run" operand )
         | "wait" !"until" operand
-        | "ctx" line(condition_expression) !builder_callback_before_condition_body block
+        | "ctx" line(condition_expression) block
         | context_scope
         | tempdir_scope
         | within_scope
         | resource_scope
-        | builder_call
         | item_expression ;
 codec_schema_call = "codec" "." "decode_as" "(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "text" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")"
                   | "codec" "." "read_as" "(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "path" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")" ;
@@ -345,8 +342,8 @@ record_field = "." ~"." ~"." expression
              | ( LABEL | QUOTED_KEY ) ( "." LABEL )* ":" expression_item
              | IDENT ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
-if_expression = "if" condition !builder_callback_before_condition_body block ( "else" "if" condition !builder_callback_before_condition_body block )* "else" block ;
-match_expression = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
+if_expression = "if" condition block ( "else" "if" condition block )* "else" block ;
+match_expression = "match" condition_expression "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
 match_expression_arm = arm_head arm_value ;
 arm_value = block | !"{" expression_item | record_expression "?"? ;
 record_expression = ( record_literal | map_comprehension ) postfix* logical_tail ( "|>" pipe_stage )* ;
@@ -357,26 +354,8 @@ within_scope = "within" ( DURATION | IDENT ( "." IDENT )* ) block ;
 collect_expression = "collect" block ;
 head_duration = DURATION | IDENT ( "." IDENT )* ;
 backoff_range = head_duration "." ~"." head_duration ;
-tempdir_scope = "tempdir" IDENT ( "at" condition_expression )? !builder_callback_before_condition_body "{" separator* statements "}" ;
-resource_scope = "with" list1(IDENT "=" condition_expression) !builder_callback_before_condition_body block ;
-builder_call = ( "process" ~"." ~"command" ) ( ~"(" call_arguments ")" )? builder_block ;
-builder_block = "{" ( separator | builder_compound_entry | builder_entry separator )* builder_entry? "}" ;
-builder_compound_entry = if_statement
-                       | while_statement
-                       | for_statement
-                       | loop_statement
-                       | guard_statement
-                       | match_statement
-                       | "task" NAME ( "(" parameters ")" )? block
-                       | NAME command_argument* builder_block ;
-builder_entry = binding
-              | return_statement
-              | defer_statement
-              | break_statement
-              | continue_statement
-              | run_statement
-              | IDENT "=" expression
-              | NAME !"=" command_argument* ;
+tempdir_scope = "tempdir" IDENT ( "at" condition_expression )? "{" separator* statements "}" ;
+resource_scope = "with" list1(IDENT "=" condition_expression) block ;
 item_expression = "." ( MEMBER | !( MEMBER | "." ) ) ;
 multiplicative_tail = conversion_tail ( ( "*" | "/" | "%" | "&" ) NEWLINE* conversion )* ;
 additive_tail = multiplicative_tail ( ( "+" | "-" | "|" ) NEWLINE* multiplicative )* ;

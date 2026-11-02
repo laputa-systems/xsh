@@ -18,9 +18,12 @@ proc serve(db: Path) [io] {
 }
 
 # begin example
-with config = read_config()?, db = connect(config)? {
-  serve(db)
-} else { |failure|
-  eprint f"setup failed: {failure.message}"
+let setup = try {
+  let config = read_config()?
+  connect(config)?
+}
+match setup {
+  Ok(db) => { serve(db) }
+  Err(failure) => { eprint f"setup failed: {failure.message}" }
 }
 # end example

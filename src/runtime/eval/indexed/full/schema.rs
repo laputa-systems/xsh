@@ -798,9 +798,6 @@ macro_rules! instruction_schema {
                         let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
                         decoder.verify_guard_shape(payload)?;
                     }
-                    if tag == FullTag::StmtWith {
-                        decoder.verify_with_shape(instruction)?;
-                    }
                     if tag == FullTag::ExprIndex { decoder.verify_index_operand_kind(instruction)?; }
                     if tag == FullTag::ExprTypedCall {
                         let payload = decoder.cursor(
@@ -1290,14 +1287,6 @@ instruction_schema! {
             span: Span,
             optional: bool,
         } => StmtGuard = 116 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameControl];
-        With {
-            bindings: Vec<(usize, BuildExprId)>,
-            body: Vec<BuildStmtId>,
-            else_param_slot: Option<usize>,
-            else_body: Vec<BuildStmtId>,
-            captures: Vec<usize>,
-            span: Span,
-        } => StmtWith = 117 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameControl];
         LetInt {
             slot: usize,
             value: BuildIntId,

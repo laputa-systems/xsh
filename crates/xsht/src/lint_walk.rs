@@ -872,7 +872,6 @@ impl<'a> Linter<'a> {
                 | ArenaStmtKind::For { .. }
                 | ArenaStmtKind::Loop { .. }
                 | ArenaStmtKind::Sugar { .. }
-                | ArenaStmtKind::With { .. }
                 | ArenaStmtKind::Guard { .. }
                 | ArenaStmtKind::Match { .. } => true,
                 ArenaStmtKind::Use(_)
@@ -1252,38 +1251,6 @@ impl<'a> Linter<'a> {
                 }
                 rules::statement(self, stmt_id, rules::StatementSite::CoreAssert, exported);
                 self.lint_expr(expr);
-            }
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_block,
-                ..
-            } => {
-                let old_regex_context = self.regex_recovery_context;
-                self.regex_recovery_context = true;
-                if let Some(edges) = &mut self.callable_edges {
-                    edges.push_scope();
-                }
-                for binding in self.arena.with_bindings(bindings).to_vec() {
-                    self.lint_expr_or_run(&ArenaExprOrRun::Expr(binding.initializer));
-                    if binding.name.as_str() != "_"
-                        && let Some(edges) = &mut self.callable_edges
-                    {
-                        edges.define(binding.name);
-                    }
-                }
-                self.propagation_boundary_depth += 1;
-                self.lint_block(body);
-                if let Some(edges) = &mut self.callable_edges {
-                    edges.pop_scope();
-                    edges.push_scope();
-                }
-                self.lint_block(else_block);
-                if let Some(edges) = &mut self.callable_edges {
-                    edges.pop_scope();
-                }
-                self.propagation_boundary_depth -= 1;
-                self.regex_recovery_context = old_regex_context;
             }
         }
     }

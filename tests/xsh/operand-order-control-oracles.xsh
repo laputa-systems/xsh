@@ -375,14 +375,18 @@ proc guarded() [io] {
 }
 guarded()
 
-with first = parsed("with:first", true), second = parsed("with:second", false), third = parsed("with:skipped", true) {
-  print f"with:wrong:{first},{second},{third}"
-} else { |failure| print f"with:else:{failure.message}" }
+match try { {first: parsed("with:first", true)?, second: parsed("with:second", false)?, third: parsed("with:skipped", true)?} } {
+  Ok(bound) => { print f"with:wrong:{bound.first},{bound.second},{bound.third}" }
+  Err(failure) => { print f"with:else:{failure.message}" }
+}
 
-with value = parsed("with:body-binding", true) {
-  print "with:body:first"
-  print "with:body:second"
-} else { |failure| print f"with:body-error:{failure.message}" }
+match try { parsed("with:body-binding", true)? } {
+  Ok(value) => {
+    print "with:body:first"
+    print "with:body:second"
+  }
+  Err(failure) => { print f"with:body-error:{failure.message}" }
+}
 
 if flag("if:dynamic-condition", true) { print "if:dynamic-body" } else { print "if:wrong" }
 let enabled = true

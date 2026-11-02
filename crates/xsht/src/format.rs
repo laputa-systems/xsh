@@ -852,62 +852,6 @@ impl<'a> Writer<'a> {
                 output.push(' ');
                 self.write_block(*block, indent, output);
             }
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_block,
-            } => {
-                let bindings = self.arena.with_bindings(*bindings).to_vec();
-                let len = bindings.len();
-                let body_start = self.arena.span(self.arena.block(*body).span).start();
-                // Bindings the author wrote on the `with` line stay there
-                // when they fit.
-                let one_line = self
-                    .source
-                    .get(stmt.span.start()..body_start)
-                    .is_some_and(|header| !header.contains('\n'));
-                let flat = one_line
-                    && !self.has_comment_in(stmt.span.start(), body_start)
-                    && self.try_write_flat(output, |writer, line| {
-                        line.push_str("with ");
-                        for (index, binding) in bindings.iter().enumerate() {
-                            if index > 0 {
-                                line.push_str(", ");
-                            }
-                            line.push_str(binding.name.as_str().as_str());
-                            line.push_str(" = ");
-                            writer.write_expr(
-                                binding.initializer,
-                                if index + 1 < len { CLOSE } else { BRACE },
-                                line,
-                            );
-                        }
-                        line.push_str(" {");
-                    });
-                if flat {
-                    output.pop();
-                } else {
-                    output.push_str("with\n");
-                    for (index, binding) in bindings.iter().enumerate() {
-                        self.write_indent(indent + 1, output);
-                        output.push_str(binding.name.as_str().as_str());
-                        output.push_str(" = ");
-                        self.write_expr(
-                            binding.initializer,
-                            if index + 1 < len { CLOSE } else { END },
-                            output,
-                        );
-                        if index + 1 < len {
-                            output.push(',');
-                        }
-                        output.push('\n');
-                    }
-                    self.write_indent(indent, output);
-                }
-                self.write_block(*body, indent, output);
-                output.push_str(" else ");
-                self.write_block(*else_block, indent, output);
-            }
             ArenaStmtKind::Loop { block } => {
                 output.push_str("loop ");
                 self.write_block(*block, indent, output);
@@ -1549,7 +1493,6 @@ impl<'a> Writer<'a> {
                         | ArenaStmtKind::While { .. }
                         | ArenaStmtKind::For { .. }
                         | ArenaStmtKind::Match { .. }
-                        | ArenaStmtKind::With { .. }
                 ) || matches!(stmt.kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound());
                 let write_arm = |writer: &mut Self, line: &mut String| {
                     // An initializer's nested statements have ordinary block
@@ -2080,7 +2023,6 @@ impl<'a> Writer<'a> {
                 ArenaStmtKind::If { .. }
                     | ArenaStmtKind::While { .. }
                     | ArenaStmtKind::For { .. }
-                    | ArenaStmtKind::With { .. }
                     | ArenaStmtKind::Loop { .. }
                     | ArenaStmtKind::Match { .. }
             ) || matches!(
@@ -5185,7 +5127,6 @@ fn is_top_level_section(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }
-            | ArenaStmtKind::With { .. }
     ) || matches!(kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound())
 }
 

@@ -53,7 +53,6 @@ pub(super) fn captures_child_error(decoder: &FullDecoder<'_>, parent: usize, chi
     Ok(match decoder.store.tags[parent] {
         FullTag::ExprCapture => true,
         FullTag::ExprRetry => decoder.store.tags[child].kind() != schema::InstructionKind::Expr,
-        FullTag::StmtWith => decoder.store.tags[child].kind() == schema::InstructionKind::Expr,
         _ => false,
     })
 }

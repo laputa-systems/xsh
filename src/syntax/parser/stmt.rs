@@ -2116,9 +2116,29 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump(); // consume `with`
         let bindings = self.parse_with_bindings_arena_only(arena)?;
+        if bindings.is_empty() {
+            self.expect_ident("expected binding name in `with`")?;
+        }
         let body = self.parse_block_arena_only(arena)?;
-        // Without an `else` the statement is a resource scope. The `else`
-        // may stand on a later line, so it is looked for past line breaks.
+        self.skip_removed_with_handler_arena_only(start, arena);
+        let span = self.span(start, self.previous_end());
+        let bindings_range = arena.push_with_bindings(&bindings);
+        let scope = arena.push_resource_scope_expr(bindings_range, body, false, span);
+        let value = if self.consume(TokenKindMatch::Question).is_some() {
+            arena.push_try_expr(scope, self.span(start, self.previous_end()))
+        } else {
+            scope
+        };
+        let end = self.expect_terminator();
+        arena.push_expr_statement(value, self.span(start, end));
+        Some(())
+    }
+
+    pub(super) fn skip_removed_with_handler_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) {
         let mut offset = 0;
         while matches!(
             self.peek_tag(offset),
@@ -2126,28 +2146,29 @@ impl<'a> Parser<'a> {
         ) {
             offset += 1;
         }
-        let has_else = self.peek_tag(offset) == Some(TokenTag::Keyword)
-            && self.peek_keyword(offset) == Some(Keyword::Else);
-        if !has_else && !bindings.is_empty() {
-            let span = self.span(start, self.previous_end());
-            let bindings_range = arena.push_with_bindings(&bindings);
-            let scope = arena.push_resource_scope_expr(bindings_range, body, false, span);
-            let value = if self.consume(TokenKindMatch::Question).is_some() {
-                arena.push_try_expr(scope, self.span(start, self.previous_end()))
-            } else {
-                scope
-            };
-            let end = self.expect_terminator();
-            arena.push_expr_statement(value, self.span(start, end));
-            return Some(());
+        let at_handler = self.peek_tag(offset) == Some(TokenTag::Keyword)
+            && self.peek_keyword(offset) == Some(Keyword::Else)
+            && self.peek_tag(offset + 1) == Some(TokenTag::LBrace);
+        if !at_handler {
+            return;
         }
         self.skip_newlines();
-        self.expect_keyword(Keyword::Else, "expected `else` after `with` body")?;
-        let else_block = self.parse_error_handler_block_arena_only(arena)?;
-        let span = self.span(start, self.previous_end());
-        let bindings_range = arena.push_with_bindings(&bindings);
-        arena.push_with(bindings_range, body, else_block, span);
-        Some(())
+        let head = self.span(start, self.previous_end());
+        let else_start = self.current_start();
+        self.bump();
+        if self.parse_block_arena_only(arena).is_none() {
+            return;
+        }
+        let handler = self.span(else_start, self.previous_end());
+        self.diagnostics.push(
+            Diagnostic::error("`with` takes no `else` handler")
+                .with_code(DiagnosticCode::ParseWithHandler)
+                .with_label(Label::primary(handler, "a resource scope ends at its body"))
+                .with_label(Label::secondary(head, "this `with`"))
+                .with_note(
+                    "capture the initializers and match the failure: `match try { INITIALIZER } { Ok(name) => { BODY }, Err(error) => { HANDLER } }`; the body then fails outside the match, as it did under `with`",
+                ),
+        );
     }
 
     /// The `NAME = VALUE, ...` list of a `with` head, up to the `{` of its

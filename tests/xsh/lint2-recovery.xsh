@@ -155,8 +155,7 @@ print ${dynamic.matches("x")} ${recovered.matches("x")} ${contextual.matches("x"
 test test_regex_literal_keeps_compile_calls_in_result_recovery_branches { |ctx|
   let file = script(
     ctx,
-    r"""with value = regex.compile("(") { print ${value.matches("x")} } else { let fallback = regex.compile(".*")?; print ${fallback.matches("x")} }
-let recovered = regex.compile("(") ?? regex.compile(".*")?
+    r"""let recovered = regex.compile("(") ?? regex.compile(".*")?
 let matched = match regex.compile("(") {
   Ok(value) => value,
   Err(_) => regex.compile(".*")?,
