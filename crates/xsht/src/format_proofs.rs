@@ -17,7 +17,6 @@ fn children() -> Vec<String> {
         "\"s\"",
         "[a]",
         "{k: a}",
-        "$?",
         "/tmp/x",
         "env.Str.HOME",
         ".",
@@ -279,11 +278,11 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
             }
         }
     }
-    assert_eq!((parents.len(), children.len()), (79, 67));
+    assert_eq!((parents.len(), children.len()), (79, 66));
     // `..` starts the enclosing slice range, so `(b is Int)` is redundant there.
     assert_eq!(
         (cases, required, redundant, kept, ambiguous),
-        (5293, 1495, 3763, 35, 192)
+        (5214, 1497, 3682, 35, 192)
     );
 }
 

@@ -810,7 +810,11 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
         ArenaExprKind::Convert { .. } => follow.is_suffix(),
         ArenaExprKind::Item => {
             matches!(follow.token, FollowToken::Word | FollowToken::WordOperator)
-                || (follow.adjacent && follow.token == FollowToken::DotDot)
+                || (follow.adjacent
+                    && matches!(
+                        follow.token,
+                        FollowToken::Dot | FollowToken::Require | FollowToken::DotDot
+                    ))
         }
         // Before a block `{`, a last stage that takes a block, or a builder
         // call, would take the block as its own.
