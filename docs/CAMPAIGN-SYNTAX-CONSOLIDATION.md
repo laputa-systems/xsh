@@ -17,7 +17,7 @@ are written, never what they do.
 The [design principles](DESIGN.md#give-each-concept-one-spelling) already say
 "Give each concept one spelling." The language has drifted from that:
 
-- [The lint reference](reference/lints.md) has 74 `lint.prefer-*` lints. Each
+- [The lint reference](reference/lints.md) has 74 `prefer-*` lints. Each
   marks a concept with two legal spellings. Adding a lint and keeping the old
   shape has collected duplicates instead of removing them.
 - Contextual words such as `until`, `within`, `every`, `backoff`, and `ctx` are
@@ -59,7 +59,7 @@ Write `docs/SYNTAX-AUDIT.md` with:
 - Every keyword, contextual keyword, operator, and statement or expression
   form. Classify each as core, sugar, or duplicate, list its spellings, and give
   corpus counts per spelling.
-- Every `lint.prefer-*` lint: its two spellings, the proposed survivor, the
+- Every `prefer-*` lint: its two spellings, the proposed survivor, the
   site counts, and whether the rewrite to the survivor is mechanical.
 - Every disambiguation or special-case rule in the [SPEC](SPEC.md) and the
   [grammar reference](reference/grammar.md), with the collision it resolves.

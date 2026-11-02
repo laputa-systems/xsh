@@ -4,7 +4,7 @@ Phase A of the [syntax consolidation campaign](CAMPAIGN-SYNTAX-CONSOLIDATION.md)
 
 ## Summary
 
-- The language has 39 reserved keywords, 25 contextual words named by SPEC 2.3 (33 once the grammar is read), 176 grammar productions, 74 `lint.prefer-*` lints, and a 7,107-line SPEC.
+- The language has 39 reserved keywords, 25 contextual words named by SPEC 2.3 (33 once the grammar is read), 176 grammar productions, 74 `prefer-*` lints, and a 7,107-line SPEC.
 - Of the 74 `prefer-*` lints, 5 name a real duplicate that can become a check error, 10 need an owner choice, and 59 are idioms, annotations, or advice that are not second spellings of a form. Most of the 74 do not collapse the grammar.
 - The grammar-sized wins are elsewhere: command-style standard-API calls (1 site), set literals (86 sites, none in xsh source or Laputa), `repeat N times` (190 sites), builder blocks (36 sites, a lookahead in 10 productions), bare path literals (986 sites), and `with ... else` (37 sites, none outside tests and one snippet).
 - 20 of the 74 `prefer-*` lints report no site in either repository, and `lint.prefer-in` guards a spelling that no longer exists (no membership method is left in the API).
@@ -51,7 +51,7 @@ Limits.
 | Grammar productions (`docs/reference/grammar.md`) | 176 in 7 sections; 15 of them are `condition*` copies of expression productions |
 | Grammar lookaheads (approximate) | about 94 negative (`!`), 20 positive (`&`), 217 no-space glue marks (`~`) |
 | Sugar forms with a defined expansion (`SugarForm`) | 9: `repeat`, `when`, `unless`, `guard`, `fail`, `atomically`, for-index, `guard ... else fail`, `wait until` |
-| `lint.prefer-*` lints | 74 (of 145 `lint.*` codes; 10 more `check.*` codes carry fixes) |
+| `prefer-*` lints | 74 (of 145 `lint.*` codes; 10 more `check.*` codes carry fixes) |
 | SPEC.md lines | 7,107 |
 | Grammar reference lines | 613 |
 | Corpus | 2,672 files, 600,760 lines |
@@ -378,7 +378,7 @@ Actions. **remove** promotes the old spelling to a check error whose diagnostic 
 
 "Fix when proved" is `FixPolicy::ProducerProof`: `--fix` rewrites a site only when checked facts show the rewrite preserves behavior, and declines otherwise. Where this table says mechanical it means this and nothing stronger.
 
-| Lint (`lint.prefer-` +) | Kind | Old spelling | Proposed survivor | Default | Fix | Old sites S/T/D/L (from lint) | Survivor sites S/T/D/L (from syntax) | Action | Why |
+| Lint (`prefer-` after `lint.`) | Kind | Old spelling | Proposed survivor | Default | Fix | Old sites S/T/D/L (from lint) | Survivor sites S/T/D/L (from syntax) | Action | Why |
 |---|---|---|---|---|---|---|---|---|---|
 | `atomically-replace` | shape | manual `fs.temp_sibling` or temp path, `defer remove`, `rename(to: DEST, overwrite: true)` | `atomically replace DEST as NAME { }` | on | fix when proved | 1 (0/0/0/1) | 34 (0/19/2/13) | keep | the manual form is five or more ordinary lines; the sugar earns its place by the one-extra-line budget. Its contextual words are D03 |
 | `bare-field-label` | syntax | `{"name": v}` with an identifier-shaped label | `{name: v}` | on | fix when proved | 36 (3/0/0/33) | 57171 (23767/23160/177/10067) | remove | C12: promote to a check error; quoted labels stay for non-identifier keys |
@@ -575,7 +575,7 @@ Order: removals that delete the most rules per migrated site first, then the own
 | 9 | C09 | `error NAME { A newline B }` (brace spelling) | remove | 30 (11/11/5/3) | one alternative of `error_declaration`; the `"error" NAME "{"` exclusions in both statement-start lists; SPEC sentence | yes: `error NAME = A \| B`, which allows line breaks after each `\|` | Pipe spelling has 253 sites against 30. |
 | 10 | C10 | Bare path literals (`/usr/bin/cc`, `./out`, `../x` in expression position) | remove | 986 (201/321/18/446) | `bare_path`, `PATH_PART`, the `!~"/"` lookahead of `item_expression`; rules S21 (path half) and S29; SPEC 2.6 sentence | yes: wrap the token as `p"..."` | `p"..."` has 8650 sites against 986. The largest remove item; 446 of the sites are in Laputa. Command words such as `./configure` are words, not literals, and are untouched. |
 | 11 | C11 | Quoted labels that are identifier-shaped (`{"type": v}`) | remove | 36 (3/0/0/33) | `lint.prefer-bare-field-label` becomes the diagnostic; no grammar change | yes | Quoted labels stay for keys that are not identifiers. |
-| 12 | C12 | Module-function form of a receiver method (`lint.prefer-method`) | remove | 0 | `lint.prefer-method` becomes the diagnostic; the module-function entries become removed functions, as `check.removed-fs-function` and `check.removed-set-function` did | yes where the receiver is the first argument | An API removal, not syntax. Included because rule 3 prefers the method. |
+| 12 | C12 | Module-function form of a receiver method (`prefer-method`) | remove | 0 | `prefer-method` becomes the diagnostic; the module-function entries become removed functions, as `check.removed-fs-function` and `check.removed-set-function` did | yes where the receiver is the first argument | An API removal, not syntax. Included because rule 3 prefers the method. |
 | 13 | C13 | `for INDEX, ITEM in SRC` | remove | 19 (1/11/1/6) | the `( IDENT "," )?` alternative of `for_statement`; `SugarForm::ForIndex`; `parse.for-index`; SPEC paragraph (`lint.prefer-for-index` loses its target; it must be rewritten to suggest `\|> enumerate()` or deleted) | yes: `for {index: i, value: v} in SRC \|> enumerate()`, the SPEC's own expansion | 19 sites against 31 `enumerate` loops. Weakest remove item: the survivor reads worse. Move it to owner decision if that matters. |
 | 14 | D01 | Postfix `when` and `unless` | owner decision | 5803 (4658/324/23/798) | reserved words `when` and `unless`; `postfix_guard` (used in 7 productions); rule S20 (five special cases); part of S5, S19, S38; SPEC 8.6 paragraphs; `lint.prefer-guard` retargets | yes: `if C { STMT }` and `if C {} else { STMT }`, one line each | Largest cluster in the corpus: 5803 sites, 4658 in S. DESIGN.md names `return cached when cached != null` and `continue unless ...` as the model sugar, so removal reverses a stated principle. Rule 2 says the core form costs no extra line. |
 | 15 | D02 | `guard COND else { }` | owner decision | 1141 (373/230/5/533) | `guard_statement`'s condition half; rule S14; `check.guard-fallthrough`; `lint.prefer-guard`, `lint.boolean-guard` | yes: `if !COND { }` or `if COND {} else { }` | 1141 sites. Decide D01 and D02 together: three spellings of an early exit are `if COND { return }` (3984 sites), a postfix guard, and `guard`. |
@@ -616,7 +616,7 @@ Items land in the order below. C10 and C13 are deferred by the owner; no D or K 
 | C07 | done | `parse.last-status` | the audit counted one site; the expression was also an IR node with tag `ExprLastStatus`, a checker rule, and four native tests, all removed. The evaluator still tracks the last status for the interactive shell |
 | C05 | done | `parse.guard-else-fail` | `SugarForm::GuardFail`, its formatter, flow, and highlight branches, and the `guard_fail_statement` production are gone. The generated-sentence suite then reached two latent grammar and parser disagreements about a run form's `?` followed by `( )` or `[`; the productions now reject them as the parser does |
 | C06 | done | `parse.fail-because` | `lint.prefer-fail` no longer respells a returned `Err` that carries `cause:`; the cause operand of `SugarForm::Fail` and the `because` highlight rule are gone |
-| C12 | done | none | every function `lint.prefer-method` named (`list`, `map`, `text`) is already gone from the API and resolves as `check.unresolved-name` or `check.unknown-module-api`, so the lint had nothing to report and is deleted without a replacement diagnostic |
+| C12 | done | none | every function `prefer-method` named (`list`, `map`, `text`) is already gone from the API and resolves as `check.unresolved-name` or `check.unknown-module-api`, so the lint had nothing to report and is deleted without a replacement diagnostic |
 
 ## Owner decisions
 
