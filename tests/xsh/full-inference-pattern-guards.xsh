@@ -424,3 +424,36 @@ for socket in [present, other, absent] {
     stderr: ["[check.result-fallback]", "UnsupportedSource"],
   )?
 }
+
+test test_full_inference_error_variant_tests_infer_a_plain_error_subject { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""error CopyError = Invalid
+proc report(failure) {
+  if let CopyError.Invalid {message} = failure { print $message } else { print "other" }
+}
+proc classify(failure) {
+  if failure is CopyError.Invalid { print "invalid" } else { print "other" }
+}
+proc report_annotated(failure: Error) {
+  if let CopyError.Invalid {message} = failure { print $message } else { print "other" }
+}
+let invalid: Error = CopyError.Invalid("bad copy")
+let other: Error = error.failure("plain")
+report(invalid)
+report(other)
+report_annotated(invalid)
+report_annotated(other)
+classify(invalid)
+classify(other)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "bad copy\nother\nbad copy\nother\ninvalid\nother\n"
+  test.expect(
+    ctx,
+    "error CopyError = Invalid\nproc classify(failure) {\n  if failure is CopyError.Invalid { print \"invalid\" } else { print \"other\" }\n}\nclassify(5)\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "expected Error, found Int"],
+  )?
+}

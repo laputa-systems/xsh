@@ -1565,6 +1565,7 @@ impl Checker {
                         value_ty
                     }
                 };
+                let subject_ty = self.constrain_error_test_subject(arena, &subject_ty, pattern, arena.arena.expr(*value).span);
                 self.push_scope();
                 self.check_pattern_arena(arena, source, pattern, &subject_ty, &self.stream_expr_origin(arena, *value));
                 self.pop_scope();
@@ -1573,6 +1574,7 @@ impl Checker {
             ArenaExprKind::PatternTest { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
+                let value_ty = self.constrain_error_test_subject(arena, &value_ty, pattern, arena.arena.expr(*value).span);
                 self.check_nonbinding_pattern_arena(arena, source, pattern, &value_ty);
                 Type::Bool
             }

@@ -39,6 +39,27 @@ impl Checker {
         patterns: impl Iterator<Item = PatternId>,
         span: Span,
     ) -> Type {
+        self.constrain_error_subject(arena, value, patterns, span, false)
+    }
+
+    pub(super) fn constrain_error_test_subject(
+        &mut self,
+        arena: &ArenaProgram,
+        value: &Type,
+        pattern: PatternId,
+        span: Span,
+    ) -> Type {
+        self.constrain_error_subject(arena, value, std::iter::once(pattern), span, true)
+    }
+
+    fn constrain_error_subject(
+        &mut self,
+        arena: &ArenaProgram,
+        value: &Type,
+        patterns: impl Iterator<Item = PatternId>,
+        span: Span,
+        general: bool,
+    ) -> Type {
         let resolved = self.resolve_pattern_subject_type(value, span);
         if !matches!(resolved, Type::Inference(_)) {
             return resolved;
@@ -71,7 +92,8 @@ impl Checker {
             family = Some(name);
         }
         if let Some(family) = family {
-            self.expect_type(&Type::ErrorFamily(family), value, span);
+            let subject = if general { Type::Error } else { Type::ErrorFamily(family) };
+            self.expect_type(&subject, value, span);
             self.resolve_pattern_subject_type(value, span)
         } else {
             resolved
