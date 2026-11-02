@@ -57,20 +57,20 @@ test test_fmt_split_only_handles_a_paragraph_longer_than_one_buffer { |ctx|
 test test_fmt_width_and_goal_diagnostics { |ctx|
   let script = fp"{ctx.core_dir}/fmt.xsh"
   for flag in ["-w", "-g"] {
-    let invalid = run.capture --text ${ctx.xsh_bin} $script -- $flag "invalid"
+    let invalid = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- $flag "invalid"
     assert invalid.status.exited_with(1)
     assert invalid.stdout == ""
     assert invalid.stderr == "fmt: invalid width: 'invalid'\n", invalid.stderr
-    let overflow = run.capture --text ${ctx.xsh_bin} $script -- $flag "267672676527678256"
+    let overflow = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- $flag "267672676527678256"
     assert overflow.status.exited_with(1)
     let reason = if flag == "-w" { "Numerical result out of range" } else { "Value too large for defined data type" }
     assert overflow.stderr == f"fmt: invalid width: '267672676527678256': {reason}\n", overflow.stderr
   }
-  let too_wide = run.capture --text ${ctx.xsh_bin} $script -- -w 2501
+  let too_wide = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- -w 2501
   assert too_wide.status.exited_with(1)
   assert too_wide.stderr == "fmt: invalid width: '2501': Numerical result out of range\n", too_wide.stderr
   for args in [["-g", "76"], ["-w", "8", "-g", "9"]] {
-    let result = run.capture --text ${ctx.xsh_bin} $script -- @args
+    let result = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- @args
     assert result.status.exited_with(1)
     assert result.stderr == f"fmt: invalid width: '{args[-1]}': Value too large for defined data type\n", result.stderr
   }
