@@ -6019,6 +6019,30 @@ test verify_completion_cleanup {
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic literal pattern disagrees with its subject");
     }
 
+    #[test]
+    fn generic_union_parameter_members_authenticate_the_native_call_contract() {
+        let program = prepare("proc connect_inferred(fd: Int, target, options) [net, process, error] { return linux.connect(fd, target) when options.timeout < 0\n linux.connect(fd, target) }\nproc main() [net, process, error] { let _ = connect_inferred(-1, {family: \"inet\", address: \"127.0.0.1\", port: 9}, {timeout: 1}) }\n");
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "connect_inferred").unwrap();
+        let FullCallableContract::Scheme(scheme_id) = program.store.functions[owner].contract else { panic!("connect_inferred is generic") };
+        let scheme = program.store.scheme(scheme_id).unwrap();
+        let parameters = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+        let integer = program.store.scheme_types[program.store.scheme_params[parameters.start].ty.index()];
+        let union = program.store.scheme_types[program.store.scheme_params[parameters.start + 1].ty.index()];
+        assert_eq!(union.tag, FullSchemeTypeTag::Union);
+        let members = union.children.bounds(program.store.scheme_children.len()).unwrap();
+        let mut forged = program.clone();
+        for member in &program.store.scheme_children[members] {
+            let node = &mut forged.store.scheme_types[member.index()];
+            assert_eq!(node.tag, FullSchemeTypeTag::Ground);
+            node.first = integer.first;
+        }
+        forged.store.in_place.take();
+        assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic body expression disagrees with its checked type");
+    }
+
     fn literal_patterns(program: &FullProgram, owner: usize) -> BTreeMap<&'static str, usize> {
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let mut found = BTreeMap::new();

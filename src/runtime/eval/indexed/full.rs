@@ -6472,11 +6472,7 @@ fn scheme_type_physical_kind(
         schema::FullSchemeTypeTag::Set => Some(LoweredType::Set),
         schema::FullSchemeTypeTag::Result => Some(LoweredType::Result),
         schema::FullSchemeTypeTag::Optional => Some(LoweredType::Any),
-        schema::FullSchemeTypeTag::Union => {
-            return Err(IrVerifyError::new(
-                "scheme type has no supported physical parameter kind",
-            ));
-        }
+        schema::FullSchemeTypeTag::Union => Some(LoweredType::Any),
         schema::FullSchemeTypeTag::Record => Some(LoweredType::Record),
         schema::FullSchemeTypeTag::Validated => {
             let inner = SchemeTypeId::new(node.first as usize)

@@ -529,9 +529,8 @@ fn lowered_scheme_physical_type(mut ty: &SchemeType) -> Option<LoweredType> {
         SchemeType::Set(_) => Some(LoweredType::Set),
         SchemeType::Record { .. } => Some(LoweredType::Record),
         SchemeType::Result(_, _) => Some(LoweredType::Result),
-        SchemeType::Optional(_) => Some(LoweredType::Any),
+        SchemeType::Optional(_) | SchemeType::Union(_) => Some(LoweredType::Any),
         SchemeType::Parameter(_)
-        | SchemeType::Union(_)
         | SchemeType::Validated(_, _) => None,
     }
 }

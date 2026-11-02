@@ -2936,3 +2936,35 @@ for style in ["full-iso", "long-iso", "other"] {
   assert output.success, output.stderr
   assert output.stdout == "full\nlong\nnone\n", output.stdout
 }
+
+test test_full_inference_union_parameter_of_a_native_function_generalizes_the_callable { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Options = {timeout: Int}
+proc connect_inferred(fd: Int, target, options) [net, process, error] {
+  return linux.connect(fd, target) when options.timeout < 0
+  linux.connect(fd, target)
+}
+proc connect_annotated(fd: Int, target, options: Options) [net, process, error] {
+  return linux.connect(fd, target) when options.timeout < 0
+  linux.connect(fd, target)
+}
+let target = {family: "inet", address: "127.0.0.1", port: 9}
+let first = connect_inferred(-1, target, {timeout: -1})
+let second = connect_inferred(-1, target, {timeout: 5})
+let twin = connect_annotated(-1, target, {timeout: 5})
+assert first is Err(_)
+assert second is Err(_)
+assert twin is Err(_)
+print "refused"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "refused\n", output.stdout
+  test.expect(
+    ctx,
+    "proc connect_inferred(fd: Int, target, options) [net, process, error] {\n  return linux.connect(fd, target) when options.timeout < 0\n  linux.connect(fd, target)\n}\nlet _ = connect_inferred(-1, 5, {timeout: 1})\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "expected Union[Record, Bytes], found Int"],
+  )?
+}
