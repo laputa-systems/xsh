@@ -166,8 +166,7 @@ and the binary operators other than `-` and `/`), none of which can begin a
 statement.
 
 So a line never silently extends the previous one: a line beginning with `-`
-(negation), `/` (an absolute path), `is`, `./`, or `../` starts a new
-statement. Inside an item expression, which cannot begin such a line, `.name`
+(negation) or `is` starts a new statement. Inside an item expression, which cannot begin such a line, `.name`
 is always postfix. A line that ends with a binary operator or `is`, or inside
 an open bracket, also continues; so to split around `-` or `/`, leave the
 operator at the end of the first line. `else` is not a continuation token:
@@ -269,12 +268,22 @@ patterns built at runtime.
 **Paths.** `p"..."` produces a `Path` and supports string escapes but no
 interpolation; an unescaped `${` in a `p` literal is an error. `fp"..."`
 interpolates `{expr}` like `f"..."`: `Path` fragments contribute their native
-bytes and other values their UTF-8 display text. A token that begins with `/`, `./`, or `../` and
-contains no whitespace or delimiters is also a path literal:
+bytes and other values their UTF-8 display text. `p"..."` is the only path
+literal:
 
 ```xsh
 {{.spec.path_literals.source}}
 ```
+
+A token that begins with `/`, `./`, or `../` in expression position is
+`parse.bare-path-literal`, reported with the `p"..."` line to write:
+
+```xsh
+{{.spec.bare_path_literal.source}}
+```
+
+A word of a command, such as `ls /var/log` or `run ./configure`, is a word and
+not a literal.
 
 **Globs.** `g"..."` expands against the current directory and produces
 `List[Path]`. Globbing requires the `fs` effect and is not allowed in pure

@@ -83,12 +83,12 @@ assert ! unix.isatty(fd)
 }
 
 test test_open_fd_flags_are_a_closed_set_and_reach_open {
-  test.error_kind(unix.open_fd(/dev/null, flags: ["cloexec"]), "invalid-argument")
+  test.error_kind(unix.open_fd(p"/dev/null", flags: ["cloexec"]), "invalid-argument")
 
   # directory fails on a file, and a name that is a directory opens with it.
-  let refused = unix.open_fd(/dev/null, nonblock: false, flags: ["directory"])
+  let refused = unix.open_fd(p"/dev/null", nonblock: false, flags: ["directory"])
   assert errno_of(refused) == 20
-  let directory = unix.open_fd(/dev, nonblock: false, flags: ["directory"])?
+  let directory = unix.open_fd(p"/dev", nonblock: false, flags: ["directory"])?
   unix.close_fd(directory)
 
   # A direct descriptor moves bytes through an aligned buffer, so a script's

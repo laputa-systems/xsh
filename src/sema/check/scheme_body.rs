@@ -347,7 +347,7 @@ mod ordinary_body_tests {
     fn generic_construction_formats_checked_path_operands() {
         accepts(
             "pure keep(value, root: Path, name: Str) { let _ = fp\"{root}/{name}\"; value }",
-            "let number: Int = keep(7, /tmp, \"item\")\nlet text: Str = keep(\"value\", /tmp, \"other\")",
+            "let number: Int = keep(7, p\"/tmp\", \"item\")\nlet text: Str = keep(\"value\", p\"/tmp\", \"other\")",
         );
     }
 

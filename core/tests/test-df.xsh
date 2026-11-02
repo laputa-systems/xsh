@@ -42,7 +42,7 @@ test test_df_matches_alpine_kp { |ctx|
     test.skip("live coreutils comparison disabled")
   }
 
-  let alpine_release = /etc/alpine-release
+  let alpine_release = p"/etc/alpine-release"
 
   if ! alpine_release.exists() {
     test.skip("Alpine-only df comparison")

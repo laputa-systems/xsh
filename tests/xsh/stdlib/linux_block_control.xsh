@@ -106,13 +106,13 @@ test test_linux_fstrim_zero_length_is_rejected_before_open { |ctx|
 
 test test_linux_block_control_checks_typed_boundaries { |ctx|
   for source in [
-    "linux.fstrim(/definitely-not-present, offset: -1)",
-    "linux.fstrim(/definitely-not-present, length: -1)",
-    "linux.fstrim(/definitely-not-present, minlen: -1)",
+    "linux.fstrim(p\"/definitely-not-present\", offset: -1)",
+    "linux.fstrim(p\"/definitely-not-present\", length: -1)",
+    "linux.fstrim(p\"/definitely-not-present\", minlen: -1)",
     "linux.umount(1)",
     "linux.blockdev_info(1)",
-    "linux.blockdev_set_read_only(/definitely-not-present, 1)",
-    "linux.fsfreeze(/definitely-not-present, 1)",
+    "linux.blockdev_set_read_only(p\"/definitely-not-present\", 1)",
+    "linux.fsfreeze(p\"/definitely-not-present\", 1)",
   ] {
     let failed = test.run_script(ctx, source)?
     assert ! failed.success, "invalid block-control argument passed checking"

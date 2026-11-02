@@ -371,10 +371,10 @@ beta """.trim()
 
 test test_env_path_membership_matches_exact_entries {
   env PATH="/opt/xsh-membership/bin:/opt/xsh-other" {
-    assert /opt/xsh-membership/bin in env.PATH
-    assert /opt/xsh-other in env.PATH
-    assert /opt/xsh-membership not in env.PATH
-    assert /opt/xsh-membership/bin/tool not in env.PATH
+    assert p"/opt/xsh-membership/bin" in env.PATH
+    assert p"/opt/xsh-other" in env.PATH
+    assert p"/opt/xsh-membership" not in env.PATH
+    assert p"/opt/xsh-membership/bin/tool" not in env.PATH
   }
 }
 
@@ -432,14 +432,14 @@ test test_env_string_assignment_converts_like_an_overlay_value {
     e"XSH_ESTR_PORT" = 8080
     e"XSH_ESTR_ON" = true
     e"XSH_ESTR_GRACE" = 90s
-    e"XSH_ESTR_DIR" = /tmp/xsh-estr
+    e"XSH_ESTR_DIR" = p"/tmp/xsh-estr"
     let count = 3
     e"XSH_ESTR_COUNT" = count + 1
     assert e"XSH_ESTR_WORD"? == "hello world"
     assert e"XSH_ESTR_PORT"? == "8080"
     assert e"XSH_ESTR_ON"? == "true"
     assert e"XSH_ESTR_GRACE"? == "90s"
-    assert env.Path.XSH_ESTR_DIR? == /tmp/xsh-estr
+    assert env.Path.XSH_ESTR_DIR? == p"/tmp/xsh-estr"
     assert e"XSH_ESTR_COUNT"? == "4"
 
     # Reassignment replaces the value, including one an overlay set.

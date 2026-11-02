@@ -73,7 +73,7 @@ test test_target_flags_native_selection_and_coverage_backend_policy {
 }
 
 test test_docker_argv_is_direct_and_carries_mount_environment_policy {
-  let ctx = fixtures.linux_aarch64_context(/repo, "dev")?
+  let ctx = fixtures.linux_aarch64_context(p"/repo", "dev")?
   let argv = docker_workflows.internal_argv(
     ctx,
     "xsh-test",
@@ -103,7 +103,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
 }
 
 test test_docker_argv_applies_split_resource_limits_before_the_image {
-  let ctx = fixtures.linux_aarch64_context(/repo, "dev")?
+  let ctx = fixtures.linux_aarch64_context(p"/repo", "dev")?
   for operation in ["test-linux-split", "test-linux-ci-split"] {
     let argv = docker_workflows.internal_argv(
       ctx,
@@ -137,7 +137,7 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
 
 test test_linux_test_docker_argv_isolates_products_and_keeps_registry_cache {
   let ctx = {
-    ...fixtures.linux_context(/repo, "verification")?,
+    ...fixtures.linux_context(p"/repo", "verification")?,
     target_dir: p"/repo/custom-target",
   }
   for operation in ["test-linux", "test-linux-ci", "test-linux-split", "test-linux-ci-split"] {
@@ -479,8 +479,8 @@ test test_unsupported_target_remains_a_structured_error {
 }
 
 test test_context_paths_and_missing_tools_have_named_failures {
-  assert lifecycle.repo_path(/repo, "target/custom") == "/repo/target/custom"
-  assert lifecycle.repo_path(/repo, "/tmp/custom") == "/tmp/custom"
+  assert lifecycle.repo_path(p"/repo", "target/custom") == "/repo/target/custom"
+  assert lifecycle.repo_path(p"/repo", "/tmp/custom") == "/tmp/custom"
 
   match stages.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
     Ok(_) => test.fail("missing tool unexpectedly resolved")
@@ -648,7 +648,7 @@ print \${(bench.command_prefix(ctx)?).join("|")}
 
 
 test test_gate_docker_argv_mounts_worktree_git_before_the_image {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", ["src/sema/check/records.rs"], git_common_dir: p"/common/.git")?
   assert "/common/.git:/common/.git:ro" in argv
   assert argv[0] == "docker"
@@ -657,7 +657,7 @@ test test_gate_docker_argv_mounts_worktree_git_before_the_image {
 }
 
 test test_namespace_confinement_swaps_only_the_seccomp_profile {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let confined = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], confinement: docker_workflows.Namespaces)?
   assert "seccomp=/repo/dev/gate-namespaces.seccomp.json" in confined
   assert "--privileged" not in confined and "--cap-add" not in confined
@@ -667,7 +667,7 @@ test test_namespace_confinement_swaps_only_the_seccomp_profile {
 }
 
 test test_isolated_confinement_only_removes_the_network {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let isolated = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], confinement: docker_workflows.Isolated)?
   assert "--network" in isolated and "none" in isolated
   assert "--privileged" not in isolated and "--cap-add" not in isolated
@@ -677,7 +677,7 @@ test test_isolated_confinement_only_removes_the_network {
 }
 
 test test_gate_docker_argv_names_a_cidfile_so_the_container_can_be_removed_by_id {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], cidfile: p"/repo/.work/tmp/x/container.cid")?
   assert "--cidfile" in argv and "/repo/.work/tmp/x/container.cid" in argv
   let without = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
@@ -685,7 +685,7 @@ test test_gate_docker_argv_names_a_cidfile_so_the_container_can_be_removed_by_id
 }
 
 test test_a_gate_container_runs_the_built_xsh_directly_so_signals_reach_its_hooks {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", ["--case", "x"])?
   assert "cargo" not in argv and "sh" not in argv
   assert argv[argv.len() - 7..] == ["/work/target/x86_64-unknown-linux-musl/debug/xsh", "dev/main.xsh", "--", "internal", "gate-lane", "--case", "x"]
@@ -696,13 +696,13 @@ test test_a_gate_container_runs_the_built_xsh_directly_so_signals_reach_its_hook
 }
 
 test test_gate_docker_argv_mounts_the_shared_lease_directory_read_write {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], git_common_dir: p"/common/.git", shared_lease_dir: p"/common/.work/consolidation/infra")?
   assert "/common/.work/consolidation/infra:/common/.work/consolidation/infra" in argv
 }
 
 test test_gate_docker_bootstrap_selects_the_target_explicitly {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
   let build = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [], build_only: true)?
   assert "TARGET=x86_64-unknown-linux-musl" in argv
@@ -711,7 +711,7 @@ test test_gate_docker_bootstrap_selects_the_target_explicitly {
 }
 
 test test_gate_docker_mounts_mold_and_kache_with_the_pinned_abi_flags {
-  let ctx = fixtures.linux_context(/repo, "verification")?
+  let ctx = fixtures.linux_context(p"/repo", "verification")?
   let argv = docker_workflows.internal_argv(
     ctx,
     "docker",

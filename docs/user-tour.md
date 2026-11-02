@@ -72,7 +72,7 @@ const host = "db-01"
 const port = 5432
 const load = 0.75
 const grace = 90s
-const conf = /etc/postgresql/postgresql.conf
+const conf = p"/etc/postgresql/postgresql.conf"
 const replicas = ["db-02", "db-03"]
 const limits = {cpu: 2, memory_mb: 4096}
 const owner: Str? = null
@@ -197,7 +197,7 @@ bytes, so a filename that is not valid UTF-8 still round-trips to `run`
 untouched.
 
 ```xsh
-const log_dir = /var/log/nginx
+const log_dir = p"/var/log/nginx"
 const today = p"access.log"
 let rotated = fp"{log_dir}/{today}.1"
 
@@ -243,7 +243,7 @@ proc backup(src: Path, dest: Path) {
   print "backup written"
 }
 
-backup(/var/lib/app, /backups/app.tgz)
+backup(p"/var/lib/app", p"/backups/app.tgz")
 ```
 
 ```text
@@ -924,7 +924,7 @@ proc mount_of(target: Path) {
 let worst = hottest(inventory)?
 print f"{worst.mount} at {usage(worst)}%"
 print f"anything at 100%: {hottest(inventory, over: 100) is Ok(_)}"
-print f"root has capacity: {mount_of(/)?.size > 0}"
+print f"root has capacity: {mount_of(p"/")?.size > 0}"
 ```
 
 <!-- expected-output -->
@@ -1644,7 +1644,7 @@ export pure set_option(text: Str, key: Str, value: Str) -> Str {
 # file: bin/harden.xsh
 use sshd
 
-cli main(config = /etc/ssh/sshd_config) {
+cli main(config = p"/etc/ssh/sshd_config") {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {

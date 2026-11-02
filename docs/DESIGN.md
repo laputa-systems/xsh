@@ -138,6 +138,8 @@ that names its survivor:
 - the unguarded `_ =>` match arm; write `else =>` (C04)
 - `guard COND else fail MSG`; write `guard COND else { fail MSG }` (C05)
 - `fail MSG because CAUSE`; return an `Err` that carries the cause (C06)
+- bare path literals in expression position, `/usr/bin/cc` and `./out`; write
+  `p"/usr/bin/cc"` (C10)
 - the `$?` last-status expression (C07)
 - `cli NAME(...)` for any name but `main` (C08)
 - `error NAME { ... }`; write `error NAME = A | B` (C09)

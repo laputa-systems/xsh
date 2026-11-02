@@ -147,7 +147,7 @@ run printf "%s\n" @g"src/*.rs" ?
 let choice = if count > 1 { "many" } else { "one" }
 let value = match Ok(count) { Ok(n) => n, Err(_) => 0 }
 p"tmp".remove(missing_ok: true)?
-let slash = /tmp/xsh
+let slash = p"/tmp/xsh"
 let multiline = "alpha\nbeta"
 let quoted_multiline = "alpha\n\"\"\"\nbeta"
 """
@@ -844,10 +844,10 @@ test test_fmt_keeps_a_path_method_receiver_quoted { |ctx|
   let actual = formatted(ctx, source)?
   assert actual == """proc patch_path() [fs, error] -> Result[Path] {
   if p"../pkg/files/x86-jump-label-patch.c".exists()? {
-    return ../pkg/files/x86-jump-label-patch.c
+    return p"../pkg/files/x86-jump-label-patch.c"
   }
 
-  return ../pkg/files/default.c
+  return p"../pkg/files/default.c"
 }
 """, actual
 }

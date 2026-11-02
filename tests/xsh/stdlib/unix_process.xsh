@@ -117,7 +117,7 @@ test test_unix_redirect_read_and_write_only_stdin { |ctx|
 unix.exec(process.command_argv("cat", ["cat"]))?
 """, status: 0, args: [input])?
   assert read.stdout == "readable"
-  let refused = test.run_script(ctx, r"""unix.redirect_fd(0, /dev/null, write: true)?
+  let refused = test.run_script(ctx, r"""unix.redirect_fd(0, p"/dev/null", write: true)?
 unix.exec(process.command_argv("cat", ["cat"]))?
 """)?
   assert ! refused.success

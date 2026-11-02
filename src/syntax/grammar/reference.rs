@@ -20,7 +20,6 @@ pub fn terminal_text(class: &Class) -> String {
         Class::QuotedKey => "QUOTED_KEY".to_string(),
         Class::WordPart(_) => "WORD_PART".to_string(),
         Class::GroupedEnd(_) => "GROUP_END".to_string(),
-        Class::PathPart => "PATH_PART".to_string(),
     }
 }
 
@@ -55,7 +54,7 @@ fn tag_name(tag: TokenTag) -> String {
 }
 
 /// The terminals named in EBNF text, with what each stands for.
-pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 21] = [
+pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 20] = [
     (
         "IDENT",
         "an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword",
@@ -95,7 +94,6 @@ pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 21] = [
         "WORD_PART",
         "any other token that can be part of a bare command word",
     ),
-    ("PATH_PART", "a token made only of bare-path characters"),
     ("GROUP_END", "a closing parenthesis owned by an expression group"),
     ("KEYWORD", "a reserved keyword"),
 ];

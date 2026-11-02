@@ -13,7 +13,7 @@ proc inventory(opts: Options, argv: List[Str]) {
   let _ = hardware.pci_selector(opts.slot)?
   let _ = hardware.id_selector(opts.ids)?
   let labels = if opts.database != null { hardware.parse_ids(opts.database.read_text()?)? } else { hardware.load_labels([p"/usr/share/hwdata/pci.ids", p"/usr/share/misc/pci.ids"])? }
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   let collected = pci.collect(root)
   if ! collected.status.enumeration_succeeded { gnu.error("cannot enumerate PCI devices"); exit 1 }

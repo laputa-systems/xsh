@@ -67,7 +67,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     gnu.extra_operand(opts.files[1])
   }
 
-  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { /var/run/utmp }
+  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { p"/var/run/utmp" }
   let listed = read_sessions(file)
   let sessions = if opts.files.len() == 1 { listed } else { drop_dead_sessions(listed) }
   let names = [entry.user for entry in sessions if entry.kind == "user_process" and entry.user != ""]

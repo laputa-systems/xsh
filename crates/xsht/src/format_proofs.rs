@@ -17,7 +17,7 @@ fn children() -> Vec<String> {
         "\"s\"",
         "[a]",
         "{k: a}",
-        "/tmp/x",
+        "p\"/tmp/x\"",
         "env.Str.HOME",
         ".",
         ".f",
@@ -282,7 +282,7 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
     // `..` starts the enclosing slice range, so `(b is Int)` is redundant there.
     assert_eq!(
         (cases, required, redundant, kept, ambiguous),
-        (5214, 1497, 3682, 35, 192)
+        (5214, 1492, 3687, 35, 192)
     );
 }
 
@@ -300,7 +300,7 @@ impl Generator {
     /// A random expression whose every operand is parenthesized, so it parses
     /// to the tree it was built as.
     fn expr(&mut self, depth: usize) -> String {
-        const LEAVES: [&str; 8] = ["a", "b", "1", "\"s\"", "[a, 2]", "{k: a}", "/tmp/x", "."];
+        const LEAVES: [&str; 8] = ["a", "b", "1", "\"s\"", "[a, 2]", "{k: a}", "p\"/tmp/x\"", "."];
         if depth == 0 || self.next(4) == 0 {
             return LEAVES[self.next(LEAVES.len())].to_string();
         }

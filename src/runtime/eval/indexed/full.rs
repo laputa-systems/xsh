@@ -57287,7 +57287,7 @@ proc early(marker) [fs, error] -> Result[Path] {
     }
     return Ok(directory)
   }
-  Ok(/)
+  Ok(p"/")
 }
 proc body_failure(marker, target: Path) [fs, error] -> Result[Unit] {
   let _ = marker

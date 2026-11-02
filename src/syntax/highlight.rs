@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn every_kind_appears() {
-        let source = "## doc\n# note\nlet n = 5s ?? null\nproc f(a: Path) {\n  run.text --accept=[0, 1] grep -c x ${a} $?\n  print f\"{n:>4}\" @xs\n}\nconst r = rx\"a\"\nconst p = /etc/hosts\nconst t = p\"x\"\nlet o = Ok(1).field\n";
+        let source = "## doc\n# note\nlet n = 5s ?? null\nproc f(a: Path) {\n  run.text --accept=[0, 1] grep -c x ${a} $?\n  print f\"{n:>4}\" @xs\n}\nconst r = rx\"a\"\nconst p = p\"/etc/hosts\"\nconst t = p\"x\"\nlet o = Ok(1).field\n";
         let seen: Vec<Kind> = highlight(source).iter().map(|run| run.kind).collect();
         for kind in Kind::ALL {
             assert!(
@@ -1094,7 +1094,7 @@ mod tests {
 
     #[test]
     fn bare_paths_are_paths_and_division_is_not() {
-        let source = "const a = /etc/hosts\nconst b = ./x/../y\nlet c = n / 2\nlet d = m/2\nrun ls /var/log\n";
+        let source = "const a = p\"/etc/hosts\"\nconst b = p\"./x/../y\"\nlet c = n / 2\nlet d = m/2\nrun ls /var/log\n";
         assert_eq!(kind_of(source, "/etc/hosts"), Kind::Path);
         assert_eq!(kind_of(source, "./x/../y"), Kind::Path);
         assert_eq!(kind_of(source, "/var/log"), Kind::Path);

@@ -29,7 +29,7 @@ proc account_files(ctx: TestContext, accounts: List[Account]) [fs, process, erro
 }
 
 test test_su_runs_command_as_target_user { |ctx|
-  let files = account_files(ctx, [{name: "nobody", shell: /bin/sh}])?
+  let files = account_files(ctx, [{name: "nobody", shell: p"/bin/sh"}])?
   let switched = run.capture --text XSH_PASSWD_FILE=${files.passwd} XSH_SHADOW_FILE=${files.shadow} ${ctx.xsh_bin} \
     fp"{ctx.core_dir}/su.xsh" -- -s /bin/sh nobody -c $print_user
   assert switched.status.exited_with(0), switched.stderr
@@ -37,7 +37,7 @@ test test_su_runs_command_as_target_user { |ctx|
 }
 
 test test_su_login_mode_resets_home { |ctx|
-  let files = account_files(ctx, [{name: "root", shell: /bin/sh}])?
+  let files = account_files(ctx, [{name: "root", shell: p"/bin/sh"}])?
   let switched = run.capture --text HOME=/tmp/original XSH_PASSWD_FILE=${files.passwd} \
     XSH_SHADOW_FILE=${files.shadow} ${ctx.xsh_bin} fp"{ctx.core_dir}/su.xsh" -- "-" root -c $print_home
   assert switched.status.exited_with(0), switched.stderr
@@ -45,7 +45,7 @@ test test_su_login_mode_resets_home { |ctx|
 }
 
 test test_su_preserve_environment_keeps_home { |ctx|
-  let files = account_files(ctx, [{name: "root", shell: /bin/sh}])?
+  let files = account_files(ctx, [{name: "root", shell: p"/bin/sh"}])?
   let switched = run.capture --text HOME=/tmp/original XSH_PASSWD_FILE=${files.passwd} \
     XSH_SHADOW_FILE=${files.shadow} ${ctx.xsh_bin} fp"{ctx.core_dir}/su.xsh" -- -m root -c $print_home
   assert switched.status.exited_with(0), switched.stderr

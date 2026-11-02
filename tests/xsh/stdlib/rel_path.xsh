@@ -53,7 +53,7 @@ test test_rel_path_literals_are_judged_where_written {
   let listed: List[RelPath] = ["x", p"y/z"]
   assert listed.len() == 2
   assert "x" in listed
-  assert /x not in listed
+  assert p"/x" not in listed
 }
 
 test test_interpolating_literal_joins_rel_paths {
@@ -147,7 +147,7 @@ test test_validation_runs_once_at_the_explicit_boundary {
   let checked = computed.require(RelPath)?
   assert checked.parent() == "share"
 
-  for rejected in [p"", /, /etc, p"..", p"a/../..", p"a/b/../../../c"] {
+  for rejected in [p"", p"/", p"/etc", p"..", p"a/../..", p"a/b/../../../c"] {
     match rejected.require(RelPath) {
       Ok(_) => assert false, f"{rejected} was validated"
       Err(error) => assert "expected RelPath, found a path that is empty, absolute, or climbs above where it starts" in error.message, error.message
@@ -156,7 +156,7 @@ test test_validation_runs_once_at_the_explicit_boundary {
     assert ! (rejected is RelPath)
   }
 
-  for accepted in [p".", p"a", p"a/..", ./a//b/, p"..."] {
+  for accepted in [p".", p"a", p"a/..", p"./a//b/", p"..."] {
     assert accepted is RelPath, accepted.display()
   }
 
@@ -168,7 +168,7 @@ test test_validation_runs_once_at_the_explicit_boundary {
   assert described == "share/doc"
 
   assert validated(p"a/b")? == "a/b"
-  assert validated(/a) is Err(_)
+  assert validated(p"/a") is Err(_)
   assert validated("a/b") is Err(_)
 
   let word: Union[RelPath, Int] = checked
@@ -178,12 +178,12 @@ test test_validation_runs_once_at_the_explicit_boundary {
 # `strip_prefix` returns what is left beneath the prefix as a RelPath, and
 # fails wherever that remainder would not be confined.
 test test_strip_prefix_returns_a_rel_path_or_fails {
-  let file = /srv/tree/share/doc
+  let file = p"/srv/tree/share/doc"
   let rel: RelPath = file.strip_prefix("/srv/tree")?
   assert rel == "share/doc"
   let whole: RelPath = p"/srv/tree".strip_prefix("/srv/tree")?
   assert whole == "."
-  let beneath_root = file.strip_prefix(/)?
+  let beneath_root = file.strip_prefix(p"/")?
   assert beneath_root == "srv/tree/share/doc"
 
   # A `..` that stays beneath the prefix is kept as written.
@@ -195,8 +195,8 @@ test test_strip_prefix_returns_a_rel_path_or_fails {
   assert prefix_failure(file, p"") == "prefix is empty"
   assert prefix_failure(p"share/doc", p"") == "prefix is empty"
   # A `..` after the prefix would leave it.
-  assert prefix_failure(/srv/tree/../../etc, "/srv") == "remainder climbs above the prefix"
-  assert prefix_failure(/srv/.., "/srv") == "remainder climbs above the prefix"
+  assert prefix_failure(p"/srv/tree/../../etc", "/srv") == "remainder climbs above the prefix"
+  assert prefix_failure(p"/srv/..", "/srv") == "remainder climbs above the prefix"
   assert prefix_failure(file, "/srv/tr") == "path does not start with prefix"
 
   # The result is a plain path wherever one is expected.
@@ -379,7 +379,7 @@ pure named_paths(paths: Map[Path]) -> Int {
 }
 
 pure or_root(found: Path?) -> Path {
-  found ?? /
+  found ?? p"/"
 }
 
 pure beneath_prefix(file: Path, root: Path) -> Result[RelPath] {
@@ -405,8 +405,8 @@ pure text_or_paths(value: Union[Str, List[Path]]) -> Int {
 # shared once it is passed, so a structure of validated values is read as the
 # same structure of base values wherever that is expected.
 test test_structure_of_rel_paths_fits_the_structure_of_paths {
-  let root = /srv/tree
-  let files = [/srv/tree/b/two, /srv/tree/a/one]
+  let root = p"/srv/tree"
+  let files = [p"/srv/tree/b/two", p"/srv/tree/a/one"]
   let manifest = files |> map .strip_prefix(root)? |> sort-by .display()
   assert display_all(manifest) == ["a/one", "b/two"]
 
@@ -420,14 +420,14 @@ test test_structure_of_rel_paths_fits_the_structure_of_paths {
   assert named_paths(named) == 1
   let maybe: RelPath? = "opt"
   assert or_root(maybe) == "opt"
-  assert as_path(/srv/tree/a, root)? == "a"
+  assert as_path(p"/srv/tree/a", root)? == "a"
   assert text_or_paths(rels) == 2
   let nested: List[List[Path]] = [rels]
   assert nested[0][0] == "x"
 
   # The widened copy is an ordinary list of paths; the original keeps its type.
   var grown: List[Path] = rels
-  grown += [/etc]
+  grown += [p"/etc"]
   assert grown.len() == 3
   assert rels.len() == 2
 }

@@ -139,19 +139,19 @@ test fs_root_methods_reject_paths_independently { |ctx|
 
   let invalid_literal_cases = [
     r"""proc read(root: FsRoot) [fs, error] -> Result[Str] {
-  root.read_text(/tmp)
+  root.read_text(p"/tmp")
 }
 """,
     r"""proc read(root: FsRoot) [fs, error] -> Result[Str] {
-  root.read_text(../secret.txt)
+  root.read_text(p"../secret.txt")
 }
 """,
     r"""proc exists(root: FsRoot) [fs, error] -> Result[Bool] {
-  root.exists(../escape)
+  root.exists(p"../escape")
 }
 """,
     r"""proc readlink(root: FsRoot) [fs, error] {
-  root.readlink_result(../escape)
+  root.readlink_result(p"../escape")
 }
 """,
     r"""proc readlink(root: FsRoot) [fs, error] {
@@ -159,11 +159,11 @@ test fs_root_methods_reject_paths_independently { |ctx|
 }
 """,
     r"""proc stat(root: FsRoot) [fs, error] {
-  root.stat(../outside)
+  root.stat(p"../outside")
 }
 """,
     r"""proc symlink(root: FsRoot, target: Path) [fs, error] {
-  root.symlink(target: target, path: ../escape)
+  root.symlink(target: target, path: p"../escape")
 }
 """,
   ]

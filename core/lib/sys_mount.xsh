@@ -327,7 +327,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
           if target == "/" {
             usage_path = p"."
           } else {
-            if let Ok(relative_path) = fp"{target}".strip_prefix(/) {
+            if let Ok(relative_path) = fp"{target}".strip_prefix(p"/") {
               usage_path = relative_path
             } else {
               usage_path = null

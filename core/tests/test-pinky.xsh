@@ -118,9 +118,9 @@ test test_pinky_names_select_sessions { |ctx|
 
 test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
-  let open_line = /tmp/xsh-pinky-open
-  let shut_line = /tmp/xsh-pinky-shut
-  let old_line = /tmp/xsh-pinky-old
+  let open_line = p"/tmp/xsh-pinky-open"
+  let shut_line = p"/tmp/xsh-pinky-shut"
+  let old_line = p"/tmp/xsh-pinky-old"
   for line in [open_line, shut_line, old_line] {
     line.write("")
   }
@@ -267,7 +267,7 @@ test test_pinky_reports_a_full_device { |ctx|
   }
 
   let w = sessions(ctx)?
-  let result = pinky_run(ctx, [], w, sink: /dev/full)?
+  let result = pinky_run(ctx, [], w, sink: p"/dev/full")?
   assert result.status == 1
   assert result.stderr == "pinky: write error: No space left on device\n", result.stderr
 }

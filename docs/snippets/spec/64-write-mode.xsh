@@ -1,4 +1,4 @@
-const key = /tmp/xsh-spec-write-mode/host.key
+const key = p"/tmp/xsh-spec-write-mode/host.key"
 const secret = "not a real key\n"
 
 # begin example

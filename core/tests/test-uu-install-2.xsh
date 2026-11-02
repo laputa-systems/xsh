@@ -459,7 +459,7 @@ test test_uu_install_install_target_without_splice_support { |ctx|
     tool
   } else {
     test.skip("strace is not installed")
-    /usr/bin/strace
+    p"/usr/bin/strace"
   }
   let source = ctx.xsh_bin
   let words = uu.argv(s, "install", [source, p"target_file"])?

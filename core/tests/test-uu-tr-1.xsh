@@ -452,7 +452,7 @@ test test_uu_tr_delete_multi { |ctx|
 # origin: uutils test_tr::test_failed_write_is_reported
 test test_uu_tr_failed_write_is_reported { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "tr", ["e", "a"], stdin: b"hello", stdout: /dev/full)?
+  let r = uu.invoke(s, "tr", ["e", "a"], stdin: b"hello", stdout: p"/dev/full")?
   uu.fails(r)
   uu.stderr_is(r, "tr: write error: No space left on device\n")
 }

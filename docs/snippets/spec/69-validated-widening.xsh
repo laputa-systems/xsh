@@ -15,4 +15,4 @@ proc listing(tree: Path, files: List[Path]) [error] -> Result[List[Str]] {
 
 # end example
 
-print listing(/srv/tree, [/srv/tree/share/doc/README, /srv/tree/bin/sh])?.join(" ")
+print listing(p"/srv/tree", [p"/srv/tree/share/doc/README", p"/srv/tree/bin/sh"])?.join(" ")

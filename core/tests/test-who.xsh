@@ -249,8 +249,8 @@ test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
 test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let root = test.temp_dir(ctx, name: "who-tty")?
-  let writable = /tmp/xsh-who-writable
-  let closed = /tmp/xsh-who-closed
+  let writable = p"/tmp/xsh-who-writable"
+  let closed = p"/tmp/xsh-who-closed"
   defer writable.remove()
   defer closed.remove()
   writable.write("")
@@ -336,7 +336,7 @@ test test_who_reports_a_full_device { |ctx|
   }
 
   for flags in [[], ["-q"], ["--heading"]] {
-    let result = who_run(ctx, flags.extend([fixture(ctx)?.display()]), sink: /dev/full)?
+    let result = who_run(ctx, flags.extend([fixture(ctx)?.display()]), sink: p"/dev/full")?
     assert result.status == 1
     assert result.stderr == "who: write error: No space left on device\n", result.stderr
   }

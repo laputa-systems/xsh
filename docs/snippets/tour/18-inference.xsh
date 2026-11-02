@@ -25,4 +25,4 @@ proc mount_of(target: Path) {
 let worst = hottest(inventory)?
 print f"{worst.mount} at {usage(worst)}%"
 print f"anything at 100%: {hottest(inventory, over: 100) is Ok(_)}"
-print f"root has capacity: {mount_of(/)?.size > 0}"
+print f"root has capacity: {mount_of(p"/")?.size > 0}"

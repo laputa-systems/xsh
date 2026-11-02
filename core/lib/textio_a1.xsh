@@ -30,7 +30,7 @@ export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
 ## Open an operand: resolve symlinks and classify the file. A failure is the
 ## operating-system error of the missing, looping, unreachable, or unreadable name.
 export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
-  return Ok({name: name, path: /dev/stdin, mode: "stdin", kind: 0, size: 0}) when name == "-"
+  return Ok({name: name, path: p"/dev/stdin", mode: "stdin", kind: 0, size: 0}) when name == "-"
 
   source_of(name, fp"{name}".resolve()?)
 }

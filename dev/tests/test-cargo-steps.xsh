@@ -64,13 +64,13 @@ test test_empty_override_disables_the_preload { |ctx|
 }
 
 test test_a_test_step_builds_under_the_preload_and_runs_without_it {
-  let library = /usr/lib/libjemalloc.so.2
+  let library = p"/usr/lib/libjemalloc.so.2"
   let spec = stages.command(
     "test-rust",
     musl_host,
     "cargo",
     ["cargo", "test", "--release", "--test", "integration", "syntax::", "--", "--test-threads=1"],
-    /repo,
+    p"/repo",
     {XSH_OS_STRESS_REPEAT: "25"},
   )
   assert cargo_steps.test_steps(spec, null, "") == [cargo_steps.Step(spec:, preload: null)]

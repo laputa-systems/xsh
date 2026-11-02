@@ -256,7 +256,7 @@ test test_uu_mv_acl { |ctx|
     tool
   } else {
     test.skip("setfacl is not installed")
-    /usr/bin/setfacl
+    p"/usr/bin/setfacl"
   }
   # The original command resolves a outside the scene. Its failed setup skips.
   let setup = process.run(process.command_argv(setter, [setter, "-m", "group::rwx", "a"], stdout: uu.at(s, "acl-out"), stderr: uu.at(s, "acl-err")))?

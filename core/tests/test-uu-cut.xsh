@@ -534,7 +534,7 @@ test test_uu_cut_equal_as_delimiter { |ctx|
 test test_uu_cut_failed_write_is_reported { |ctx|
   let s = uu.scene(ctx)?
   {
-    let r = uu.invoke(s, "cut", ["-d=", "-f1"] , stdin: b"key=value", stdout: /dev/full)?
+    let r = uu.invoke(s, "cut", ["-d=", "-f1"] , stdin: b"key=value", stdout: p"/dev/full")?
     uu.fails(r)
     uu.stderr_is(r, "cut: write error: No space left on device\n")
   }

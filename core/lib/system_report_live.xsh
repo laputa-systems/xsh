@@ -5414,7 +5414,7 @@ export proc collect_live(
     )
   }
 
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   let units = system.execution_units()?
   var collected = collect_from_root(

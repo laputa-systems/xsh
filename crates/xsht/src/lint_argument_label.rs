@@ -261,11 +261,11 @@ mod tests {
 
     #[test]
     fn fs_symlink_becomes_the_method_where_the_order_cannot_be_observed() {
-        let source = "proc stage(root: Path, target: Path, to: Path) [fs, error] {\n  let entry = {link: root}\n  fs.symlink(target, fp\"{root}/link\")\n  fs.symlink(\"../shared\", entry.link)\n  fs.symlink(to, root)\n  fs.symlink(path: root, target: target)\n  fs.symlink(root.parent(), \"literal-link\")\n  fs.symlink(/etc/hosts, root)\n}\n";
+        let source = "proc stage(root: Path, target: Path, to: Path) [fs, error] {\n  let entry = {link: root}\n  fs.symlink(target, fp\"{root}/link\")\n  fs.symlink(\"../shared\", entry.link)\n  fs.symlink(to, root)\n  fs.symlink(path: root, target: target)\n  fs.symlink(root.parent(), \"literal-link\")\n  fs.symlink(p\"/etc/hosts\", root)\n}\n";
         assert_eq!(lint(source).len(), 6);
         assert_eq!(
             fixed(source),
-            "proc stage(root: Path, target: Path, to: Path) [fs, error] {\n  let entry = {link: root}\n  fp\"{root}/link\".symlink(to: target)\n  entry.link.symlink(to: \"../shared\")\n  root.symlink(to:)\n  root.symlink(to: target)\n  p\"literal-link\".symlink(to: root.parent())\n  root.symlink(to: /etc/hosts)\n}\n"
+            "proc stage(root: Path, target: Path, to: Path) [fs, error] {\n  let entry = {link: root}\n  fp\"{root}/link\".symlink(to: target)\n  entry.link.symlink(to: \"../shared\")\n  root.symlink(to:)\n  root.symlink(to: target)\n  p\"literal-link\".symlink(to: root.parent())\n  root.symlink(to: p\"/etc/hosts\")\n}\n"
         );
     }
 

@@ -230,7 +230,7 @@ test test_expr_stdout_write_error_uses_status_three { |ctx|
     root,
     {LC_ALL: "C"},
     b"",
-    /dev/full,
+    p"/dev/full",
     stderr,
     timeout: 2s,
   )

@@ -219,7 +219,7 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
     process.command_argv(
       executable,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{name}",
       stderr: fp"{scratch_path}/{name}-error",
@@ -285,7 +285,7 @@ export proc compare_live_cpupower(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",

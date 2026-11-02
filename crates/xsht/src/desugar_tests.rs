@@ -191,7 +191,7 @@ fn a_comment_inside_a_body_stays_in_the_expanded_block() {
     let source = "atomically replace p\"/tmp/out\" as partial {\n  print \"first\"\n  # produce\n  partial.write(\"x\")\n}\n";
     assert_eq!(
         desugar(source),
-        "{\n  let dest_1: Path = /tmp/out\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer partial.remove(missing_ok: true)\n  {\n    print \"first\"\n    # produce\n    partial.write(\"x\")\n  }\n  partial.rename(to: dest_1, overwrite: true)?\n}\n"
+        "{\n  let dest_1: Path = p\"/tmp/out\"\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer partial.remove(missing_ok: true)\n  {\n    print \"first\"\n    # produce\n    partial.write(\"x\")\n  }\n  partial.rename(to: dest_1, overwrite: true)?\n}\n"
     );
 }
 

@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
         crate::symbol::Name::intern(&name)
     }
 
-    pub(super) fn starts_bare_path_literal(&self) -> bool {
+    pub(super) fn starts_removed_bare_path_literal(&self) -> bool {
         literal::scan_bare_path_at(self.source, self.current_start()).is_some()
     }
 

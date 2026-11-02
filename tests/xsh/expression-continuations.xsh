@@ -48,8 +48,8 @@ test test_leading_operators_continue_only_when_they_cannot_start_a_statement { |
   -1
 }
 pure root(scratch: Bool) -> Path {
-  return /tmp/scratch when scratch
-  /tmp/continuation
+  return p"/tmp/scratch" when scratch
+  p"/tmp/continuation"
 }
 let total = 1
   + 2

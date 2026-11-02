@@ -1614,7 +1614,6 @@ pub fn grouping_diagnostics_in_range(
                 || ((context.slot != Slot::Open || context.follow.is_suffix())
                     && !matches!(arena.expr(*expr).kind, ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::ValuePipelineCall { .. })
                     && spells_pipeline(&source[spans[0].start() + 1..spans[0].end() - 1]))
-                || bare_path_absorbs_suffix(source, spans[0])
                 // A spaced `?` applies to a command only as the last token
                 // before a delimiter; the printer writes `(command)?` instead.
                 || (matches!(arena.expr(*expr).kind, ArenaExprKind::Try(_))
@@ -1787,20 +1786,6 @@ fn removal_breaks_children(
         }
     });
     broken
-}
-
-/// Whether a bare path spelled in `group` would take in the text after it once
-/// the parentheses are gone; the printer quotes such a path instead.
-fn bare_path_absorbs_suffix(source: &str, group: Span) -> bool {
-    let inner = &source[group.start() + 1..group.end() - 1];
-    let after = &source[group.end()..];
-    let joined = format!(
-        "{inner}{}",
-        &after[..after.find('\n').unwrap_or(after.len())]
-    );
-    crate::syntax::literal::scan_bare_path_at(inner, 0) == Some(inner.len())
-        && crate::syntax::literal::scan_bare_path_at(&joined, 0)
-            .is_some_and(|end| end > inner.len())
 }
 
 /// Whether `text` has an ungrouped `|>`. Method-call stages are rebuilt as

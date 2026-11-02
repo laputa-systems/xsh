@@ -1725,11 +1725,11 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 })
             }
-            (TokenTag::Slash, _) => self.parse_bare_path_arena_only(arena),
-            (TokenTag::Dot, _) if self.starts_bare_path_literal() => {
-                self.parse_bare_path_arena_only(arena)
+            (TokenTag::Slash, _) => self.parse_removed_bare_path_arena_only(arena),
+            (TokenTag::Dot, _) if self.starts_removed_bare_path_literal() => {
+                self.parse_removed_bare_path_arena_only(arena)
             }
-            (TokenTag::Dot, _) if !self.starts_bare_path_literal() => {
+            (TokenTag::Dot, _) if !self.starts_removed_bare_path_literal() => {
                 self.bump();
                 let item_id = arena.push_item_expr(span);
                 if self.current_member_name().is_some() {
@@ -1851,7 +1851,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bare_path_arena_only(
+    fn parse_removed_bare_path_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
@@ -1868,11 +1868,33 @@ impl<'a> Parser<'a> {
             self.bump();
         }
         let span = self.span(start, end);
+        self.report_bare_path_literal(span);
         Some(ArenaOnlyExpr {
             id: arena.push_path_str_expr(&value, span),
             span,
             bare_ident: None,
         })
+    }
+
+    fn report_bare_path_literal(&mut self, path: Span) {
+        let line_start = self.source[..path.start()]
+            .rfind('\n')
+            .map_or(0, |newline| newline + 1);
+        let line_end = self.source[path.end()..]
+            .find('\n')
+            .map_or(self.source.len(), |newline| path.end() + newline);
+        let rewritten = format!(
+            "{}p\"{}\"{}",
+            &self.source[line_start..path.start()],
+            &self.source[path.start()..path.end()],
+            &self.source[path.end()..line_end]
+        );
+        self.diagnostics.push(
+            Diagnostic::error("a path literal is written `p\"...\"`")
+                .with_code(DiagnosticCode::ParseBarePathLiteral)
+                .with_label(Label::primary(path, "write this path as `p\"...\"`"))
+                .with_note(format!("write `{}`", rewritten.trim())),
+        );
     }
 
     fn parse_list_arena_only(

@@ -124,7 +124,7 @@ test test_btop_headless_replay_syscall_trace_has_no_child_or_sleep { |ctx|
 test test_btop_live_source_syscall_trace_has_no_child_process { |ctx|
   let source = """
 use core.lib.btop_source as source
-let root = fs.open_root(/)?
+let root = fs.open_root(p"/")?
 defer root.close()
 let units = system.execution_units()?
 let observation = source.capture(root, "live-trace", time.monotonic()?, units.page_size_bytes, units.clock_ticks_per_second)?

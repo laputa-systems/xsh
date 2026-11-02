@@ -1229,7 +1229,7 @@ fn generic_construction_values_execute_after_frontend_disposal() {
          "pure keep(value) { {item: value, formatted: f\"item:{2:03}\"} }", "Number", "Text",
          record(Value::Int(7), "formatted", Value::Str(Arc::from("item:002"))), record(Value::Str(Arc::from("value")), "formatted", Value::Str(Arc::from("item:002")))),
         ("type Number = {item: Int, path: Path}\ntype Text = {item: Str, path: Path}",
-         "pure keep(value) { {item: value, path: fp\"{/tmp}/{\"item\"}\"} }", "Number", "Text",
+         "pure keep(value) { {item: value, path: fp\"{p\"/tmp\"}/{\"item\"}\"} }", "Number", "Text",
          record(Value::Int(7), "path", Value::Path(PathValue::from_text("/tmp/item").unwrap())), record(Value::Str(Arc::from("value")), "path", Value::Path(PathValue::from_text("/tmp/item").unwrap()))),
         ("", "pure keep(value) { [@[value], value] }", "List[Int]", "List[Str]",
          Value::List(vec![Value::Int(7), Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value")), Value::Str(Arc::from("value"))])),

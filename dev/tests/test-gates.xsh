@@ -137,7 +137,7 @@ test test_source_observation_ignores_user_git_excludes { |ctx|
 }
 
 test test_result_reconciler_changes_select_its_tests {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let result_owner = gates.plan_paths(ctx, tests.Verification, ["dev/performance/results.py"], [], gates.Change)?
   assert [entry.id for entry in result_owner.cases] == ["verification/results", "verification/core-workloads", "verification/performance-check", "verification/laputa-adapter"]
   assert result_owner.products.is_empty()
@@ -493,7 +493,7 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
 }
 
 test test_cargo_callers_select_their_exact_native_tests_and_products {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let cases = [
     {
       path: "dev/cargo_steps.xsh",
@@ -565,7 +565,7 @@ test test_current_metric_attestation_changes_select_both_native_contracts {
     "dev/consolidation/metric-observer-successor.json",
     @files,
   ]
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   for changed_path in paths {
     let selected = gates.select([changed_path])?
     assert selected.areas.is_empty()
@@ -583,7 +583,7 @@ test test_current_metric_attestation_changes_select_both_native_contracts {
 }
 
 test test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let selection = gates.select(["src/runtime/eval/route_witness.rs"])?
   assert selection.areas == [gates.RouteWitness]
   assert selection.native_files.is_empty()
@@ -630,7 +630,7 @@ test test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases {
 }
 
 test test_route_witness_selector_preserves_broad_shared_runtime_gates {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let selected = gates.select(["src/runtime/eval.rs"])?
   assert selected.areas == [gates.Runtime]
   let plan = gates.lane_plan(ctx, tests.Verification, selected)?
@@ -641,7 +641,7 @@ test test_route_witness_selector_preserves_broad_shared_runtime_gates {
 }
 
 test test_sema_gate_runs_the_library_unit_tests_of_the_files_it_owns {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
 
   let plan = gates.lane_plan(ctx, tests.Verification, gates.select(["src/sema/builtin_templates.rs"])?)?
   let unit = [spec for spec in plan |> where .stage == "test-sema-unit"]
@@ -749,7 +749,7 @@ proc declared_harnesses(directory: Path) [fs, error] -> Result[List[RustHarness]
 }
 
 test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let owners = [
     {path: "src/syntax/token.rs", stage: "test-syntax-unit", words: ["-p", "xsh", "--lib", "syntax::"], debug: true},
     {path: "src/modules/json.rs", stage: "test-modules-unit", words: ["-p", "xsh", "--lib", "modules::", "--skip", "modules::linux::real::netlink::tests::live_raw_reply_capture_or_replay_uses_the_network_decoder"], debug: true},
@@ -793,7 +793,7 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
 }
 
 test test_compile_residual_cases_skip_only_prefixes_another_case_runs {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.lane_plan(ctx, tests.Verification, gates.select(harness_owner_paths)?)?
   for residual in [spec for spec in plan if spec.stage in ["test-core-unit", "test-core-integration"]] {
     let harness_word = if "--lib" in residual.argv { "--lib" } else { "integration" }
@@ -811,7 +811,7 @@ test test_compile_residual_cases_skip_only_prefixes_another_case_runs {
 
 test test_every_workspace_rust_harness_has_a_change_case {
   let repository = fs.cwd()?
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.lane_plan(ctx, tests.Verification, gates.select(harness_owner_paths)?)?
   let owned = planned_harnesses(plan)
   let root = toml.read(fp"{repository}/Cargo.toml")?.require(Record)?
@@ -831,7 +831,7 @@ test test_every_workspace_rust_harness_has_a_change_case {
 }
 
 test test_soundness_leaf_gates_skip_product_builds {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
 
   let soundness = gates.lane_plan(ctx, tests.Verification, gates.select(["crates/xsh-fuzz/src/driver.rs"])?)?
   assert [spec.stage for spec in soundness] == ["test-soundness", "test-fuzz-unit", "test-effect-oracle"]
@@ -841,7 +841,7 @@ test test_soundness_leaf_gates_skip_product_builds {
 }
 
 test test_memory_and_documentation_gates_build_only_their_cli_products {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
 
   let memory = gates.lane_plan(ctx, tests.Verification, gates.select(["src/frontend_stats.rs"])?)?
   assert [spec.stage for spec in memory] == ["test-products", "test-frontend-memory", "frontend-memory-report"]
@@ -859,7 +859,7 @@ test test_memory_and_documentation_gates_build_only_their_cli_products {
 }
 
 test test_route_witness_selector_avoids_duplicate_cli_and_native_runs {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let selected = gates.select([
     "src/runtime/eval/route_witness.rs",
     "crates/xsht/tests/cli.rs",
@@ -874,7 +874,7 @@ test test_route_witness_selector_avoids_duplicate_cli_and_native_runs {
 }
 
 test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
-  for ctx in [fixtures.linux_context(/repo)?, fixtures.linux_aarch64_context(/repo)?] {
+  for ctx in [fixtures.linux_context(p"/repo")?, fixtures.linux_aarch64_context(p"/repo")?] {
     for profile in [tests.Verification, tests.Release] {
       let plan = tests.rust_plan(ctx, profile, privileged: true)?
       let stages = [spec.stage for spec in plan]
@@ -932,7 +932,7 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
 }
 
 test test_lane_native_selection_never_requests_a_full_native_suite {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let selection = gates.select(["src/sema/check/records.rs", "tests/xsh/retry.xsh"])?
   let plan = gates.lane_plan(ctx, tests.Verification, selection)?
   let native = [spec for spec in plan |> where .executable.ends_with("/xsht")]
@@ -953,7 +953,7 @@ test test_lane_native_selection_never_requests_a_full_native_suite {
 }
 
 test test_core_test_files_select_one_file_and_shared_paths_keep_core_coverage {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   for test_file in ["core/tests/test-taskset.xsh", "core/tests/test-lsmem.xsh"] {
     let leaf = gates.select([test_file])?
     assert leaf.areas.is_empty()
@@ -999,7 +999,7 @@ test test_fixtures_select_their_owner_instead_of_running_as_native_modules {
 }
 
 test test_catalog_and_xsht_exclusions_preserve_the_selected_verification_scope {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let selected = gates.select(["src/stdlib.rs", "crates/xsht/src/lint.rs", "crates/xsht/tests/syntax.rs"])?
   let plan = gates.lane_plan(ctx, tests.Verification, selected)?
   let catalog = [spec for spec in plan |> where .stage == "test-stdlib-catalog"]
@@ -1028,7 +1028,7 @@ test test_catalog_and_xsht_exclusions_preserve_the_selected_verification_scope {
 }
 
 test test_batch_automatic_checks_use_retained_repository_gates {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let checks = gates.batch_checks(ctx, tests.Verification)
   assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff", "batch-ratchets"]
   let ratchets = checks[3]
@@ -1139,7 +1139,7 @@ main()?
 }
 
 test test_focused_catalogue_rejects_manual_closure_cycles_and_missing_cases {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let command = gates.CatalogCase(
     id: "safe", tier: gates.Change, limit: gates.RuntimeSeconds(30),
     products: [tests.Xsht], prerequisite_ids: [], reasons: ["fixture"],
@@ -1183,7 +1183,7 @@ test test_gate_request_rejects_all_nonliteral_full_routes {
 }
 
 test test_catalogue_plans_tokei_without_showcase_fallback_and_marks_unknown_scope {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification,
     ["showcase/tokei.xsh", "unknown/import.xsh"], [], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["showcase/tokei/correctness"]
@@ -1268,7 +1268,7 @@ main()?
 }
 
 test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let heavy = "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_upstream_x86_64_16g"
   let module_tests = [line for line in fp"{fs.cwd()?}/core/tests/test-lsmem.xsh".read_text()?.split("\n") if line.starts_with("test ")]
   var expected = ["test"]
@@ -1289,7 +1289,7 @@ test test_catalogue_core_case_keeps_product_dependencies_separate_from_ownership
 }
 
 test test_lsmem_change_adds_the_exact_native_tests_outside_its_own_module {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/lsmem.xsh"], [], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["core/lsmem/correctness", "core/lsmem/heavy-inventory", "core/lsmem/consumers"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -1331,7 +1331,7 @@ test test_core_change_selects_the_applet_module_and_reports_shared_paths_as_gaps
 }
 
 test test_corpus_wide_xsht_tests_are_scenarios_outside_the_change_cases {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let sugar = gates.plan_paths(ctx, tests.Verification, ["crates/xsht/src/desugar.rs"], [], gates.Change)?
   assert "test-desugar-corpus" not in [entry.id for entry in sugar.cases]
   assert "test-desugar-corpus" in sugar.available_scenarios
@@ -1370,7 +1370,7 @@ test test_lane_scope_tables_name_declared_tests_once {
 }
 
 test test_root_and_namespace_groups_are_separate_scenarios_each_selected_alone {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   for pair in [{id: "lane/root-native", tests: gate_lane.root_tests}, {id: "lane/namespace-native", tests: gate_lane.namespace_tests}] {
     let plan = gates.plan_paths(ctx, tests.Verification, [], [pair.id], gates.Change)?
     assert [entry.id for entry in plan.cases] == [pair.id]
@@ -1542,7 +1542,7 @@ test test_a_native_file_with_no_unprivileged_lane_test_is_a_gap_not_a_case {
 }
 
 test test_catalogue_preserves_documentation_verification_and_products {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["docs/TESTING.md"], [], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["check-docs"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -1550,7 +1550,7 @@ test test_catalogue_preserves_documentation_verification_and_products {
 }
 
 test test_catalogue_preserves_combined_route_witness_exclusions {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification,
     ["src/runtime/eval/route_witness.rs", "crates/xsht/src/commands.rs", "tests/xsh/stdlib/env.xsh"], [], gates.Change)?
   let ids = [entry.id for entry in plan.cases]
@@ -1563,7 +1563,7 @@ test test_catalogue_preserves_combined_route_witness_exclusions {
 }
 
 test test_edit_rejects_change_only_cases_before_execution {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   for changed_path in ["src/sema/check/records.rs", "docs/TESTING.md"] {
     match gates.plan_paths(ctx, tests.Verification, [changed_path], [], gates.Edit) {
       Ok(_) => test.fail("Edit admitted a Change-only case")
@@ -1579,7 +1579,7 @@ test test_edit_rejects_change_only_cases_before_execution {
 }
 
 test test_soundness_fuzzing_is_an_explicit_scenario_offered_for_semantic_changes {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let semantic = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/records.rs"], [], gates.Change)?
   assert "test-soundness" not in [entry.id for entry in semantic.cases]
   assert semantic.available_scenarios == ["test-soundness"]
@@ -2077,7 +2077,7 @@ test test_native_file_case_discovery_rejects_symlink_escapes { |ctx|
 }
 
 test test_full_catalogue_validates_alias_dependency_and_product_closure {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let command = {stage: "substitute", target: ctx.target.triple, executable: "never-start",
     argv: ["never-start"], cwd: ctx.root, environment: {}}
   let base = gates.CatalogCase(id: "prepare", tier: gates.Change, limit: gates.ManualOwner,
@@ -2109,7 +2109,7 @@ test test_full_catalogue_validates_alias_dependency_and_product_closure {
 }
 
 test test_full_catalogue_preserves_the_existing_batch_owner_sequence {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let rust = tests.rust_plan(ctx, tests.Verification, privileged: true)?
   let plan = gates.full_plan(ctx, tests.Verification)?
   let commands = collect {
@@ -2179,7 +2179,7 @@ proc main(...arguments: List[Str]) [fs, process, env, time, error, io] {{
 }
 
 test test_internal_full_rejects_automatic_operation_identity_before_effects {
-  let ctx = fixtures.linux_context(/path-that-must-not-be-created)?
+  let ctx = fixtures.linux_context(p"/path-that-must-not-be-created")?
   for operation in ["", "gate-lane", "test-linux", "plan.json"] {
     match container_internal.gate_full(ctx, operation) {
       Ok(_) => test.fail("an automatic or serialized operation acquired Full authority")
@@ -2226,7 +2226,7 @@ test test_laputa_root_is_explicit_and_scoped {
     }
   }
   let _ = gates.parse_request(["--plan", "--case", "laputa/pm.make/plan", "--laputa-root", "/laputa"])?
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   let selected = gates.plan_paths(context, tests.Verification, [], ["laputa/pm.make/plan"], gates.Change)?
   assert [entry.id for entry in selected.cases] == ["laputa/pm.make/plan"]
   assert selected.cases[0].tier == gates.Scenario
@@ -2246,7 +2246,7 @@ test test_laputa_kbuild_discovery_is_an_explicit_scenario {
     }
   }
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
@@ -2259,7 +2259,7 @@ test test_laputa_root_composition_is_an_explicit_scenario {
     Err(error) => assert error.message == "PlanError.Invalid"
   }
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
@@ -2272,7 +2272,7 @@ test test_laputa_package_inventory_is_an_explicit_scenario {
     Err(error) => assert error.message == "PlanError.Invalid"
   }
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
@@ -2285,7 +2285,7 @@ test test_laputa_kbuild_graph_cache_is_an_explicit_scenario {
     Err(error) => assert error.message == "PlanError.Invalid"
   }
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
@@ -2298,7 +2298,7 @@ test test_laputa_world_host_plan_is_an_explicit_scenario {
     Err(error) => assert error.message == "PlanError.Invalid"
   }
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
@@ -2311,7 +2311,7 @@ test test_laputa_kbuild_make_semantics_is_an_explicit_scenario {
     Err(error) => assert error.message == "PlanError.Invalid"
   }
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht]
@@ -2359,12 +2359,12 @@ main()?
 test test_laputa_pm_reuse_is_an_explicit_separate_scenario {
   let id = "laputa/pm.execute/reuse-count"
   let _ = gates.parse_request(["--plan", "--case", id, "--laputa-root", "/laputa"])?
-  let selected = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], [id], gates.Change)?
+  let selected = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
   assert selected.cases[0].tier == gates.Scenario
   assert selected.cases[0].products == [tests.Xsh, tests.Xsht, tests.Xshi]
-  let pm = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], ["laputa/pm.make/plan"], gates.Change)?
-  let kbuild = gates.plan_paths(fixtures.linux_context(/repo)?, tests.Verification, [], ["laputa/kbuild/discovery"], gates.Change)?
+  let pm = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], ["laputa/pm.make/plan"], gates.Change)?
+  let kbuild = gates.plan_paths(fixtures.linux_context(p"/repo")?, tests.Verification, [], ["laputa/kbuild/discovery"], gates.Change)?
   assert pm.cases[0].products == [tests.Xsh, tests.Xsht]
   assert kbuild.cases[0].products == [tests.Xsh, tests.Xsht]
   match gates.parse_request(["--case", id]) {
@@ -2385,7 +2385,7 @@ test test_laputa_and_json_n_must_be_selected_separately {
 }
 
 test test_core_workload_scenarios_require_explicit_selection {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   for id in ["performance/core-json-small/correctness", "performance/core-json-medium/correctness", "performance/core-json-large/correctness"] {
     let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in selected.cases] == [id]
@@ -2420,7 +2420,7 @@ test test_core_workload_scenarios_require_explicit_selection {
 }
 
 test test_inference_corpus_changes_do_not_select_unrelated_native_tests {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   for changed_path in ["dev/performance/corpus/check.sh", "dev/performance/corpus/check_views.sh", "dev/performance/corpus/witnesses/source-read.erased.xsh"] {
     let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert selected.cases.is_empty()
@@ -2435,7 +2435,7 @@ test test_an_adapter_stopped_by_sigint_or_sigterm_is_cancelled_not_failed {
 }
 
 test test_compile_only_cases_do_not_report_a_runtime_budget {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["Cargo.toml"], [], gates.Change)?
   let compile = [entry for entry in plan.cases |> where .id == "check-compile"]
   assert compile.len() == 1
@@ -2449,7 +2449,7 @@ test test_compile_only_cases_do_not_report_a_runtime_budget {
 }
 
 test test_frozen_witness_tool_changes_select_their_contract_tests {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   for changed_path in ["dev/performance/corpus/frozen_witnesses.py", "dev/performance/corpus/test_frozen_witnesses.py"] {
     let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in selected.cases] == ["verification/frozen-witnesses"]
@@ -2459,7 +2459,7 @@ test test_frozen_witness_tool_changes_select_their_contract_tests {
 }
 
 test test_annotation_erasure_tool_changes_select_their_contract_tests {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   for changed_path in ["dev/performance/corpus/erase_sites.py", "dev/performance/corpus/test_erase_sites.py"] {
     let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in selected.cases] == ["verification/erase-sites"]
@@ -2475,7 +2475,7 @@ test test_annotation_erasure_tool_changes_select_their_contract_tests {
 }
 
 test test_frontend_disposal_scenarios_select_exact_runtime_controls {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   for id in ["compiler/frontend-disposal/schemes", "compiler/frontend-disposal/compact-entry"] {
     let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
     assert [entry.id for entry in selected.cases] == [id]
@@ -2489,7 +2489,7 @@ test test_frontend_disposal_scenarios_select_exact_runtime_controls {
 }
 
 test test_frontend_scenario_and_owner_are_explicit {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   let id = "performance/frontend-edit/correctness"
   let scenario = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in scenario.cases] == [id]
@@ -2504,7 +2504,7 @@ test test_frontend_scenario_and_owner_are_explicit {
 }
 
 test test_inference_workload_changes_select_their_python_contracts {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   for changed_path in ["dev/performance/inference_measurement.py", "dev/performance/test_inference_measurement.py", "dev/performance/inference_workloads.py", "dev/performance/test_inference_workloads.py"] {
     let selected = gates.plan_paths(context, tests.Verification, [changed_path], [], gates.Change)?
     assert [entry.id for entry in selected.cases] == ["verification/inference-workloads"]
@@ -2513,7 +2513,7 @@ test test_inference_workload_changes_select_their_python_contracts {
 }
 
 test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   let id = "performance/json-n/correctness"
   let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
   assert [entry.id for entry in selected.cases] == [id]
@@ -2526,7 +2526,7 @@ test test_json_n_case_has_correctness_only_scope_and_requires_explicit_selection
 }
 
 test test_performance_python_owners_select_contract_tests {
-  let context = fixtures.linux_context(/repo)?
+  let context = fixtures.linux_context(p"/repo")?
   let harness = gates.plan_paths(context, tests.Verification, ["bench/consolidation/run.py"], [], gates.Change)?
   assert [entry.id for entry in harness.cases] == ["verification/consolidation-harness", "verification/core-workloads"]
   for changed_path in ["bench/consolidation/test_harness.py", "bench/consolidation/fixtures.py", "bench/consolidation/prepare.py"] {
@@ -2846,7 +2846,7 @@ main()?
 }
 
 test test_local_inference_case_owns_only_its_compiler_source_and_exact_tests {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let id = "compiler/local-inference/correctness"
   let plan = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/local_inference.rs"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == [id]
@@ -2877,7 +2877,7 @@ test test_local_inference_case_owns_only_its_compiler_source_and_exact_tests {
 
 
 test test_imported_inference_case_owns_scheme_source_and_exact_tests {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let id = "compiler/imported-inference/correctness"
   let plan = gates.plan_paths(ctx, tests.Verification, ["src/sema/schemes.rs"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == [id]
@@ -2905,7 +2905,7 @@ test test_imported_inference_case_owns_scheme_source_and_exact_tests {
 
 
 test test_inference_work_case_owns_collection_source_and_exact_unit_test {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let id = "compiler/inference-work/correctness"
   let plan = gates.plan_paths(ctx, tests.Verification, ["src/sema/inference_work.rs"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == [id]
@@ -2931,7 +2931,7 @@ test test_inference_work_case_owns_collection_source_and_exact_unit_test {
 }
 
 test test_cat_edit_selects_bounded_byte_stream_and_error_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/cat.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/cat/byte-stream"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -2949,7 +2949,7 @@ test test_cat_edit_selects_bounded_byte_stream_and_error_contracts {
 }
 
 test test_cat_change_selects_its_module_and_exact_external_consumers {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["core/cat.xsh"], [], gates.Change)?
   assert [entry.id for entry in plan.cases] == ["core/cat/full-module", "core/cat/external-consumers"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -3097,7 +3097,7 @@ test test_awk_edit_selects_record_and_program_contracts {
 }
 
 test test_json_edit_selects_structured_data_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["src/modules/json.rs"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["runtime/json/structured-data"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -3118,7 +3118,7 @@ test test_json_edit_selects_structured_data_contracts {
 }
 
 test test_effect_inference_edit_selects_capability_contracts {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification, ["src/sema/check/infer_effects.rs"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["compiler/effect-inference/correctness"]
   assert plan.products == [tests.Xsh, tests.Xsht]
@@ -3138,7 +3138,7 @@ test test_effect_inference_edit_selects_capability_contracts {
 }
 
 test test_frontend_retention_edit_selects_exact_measurement_contract {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let id = "compiler/frontend-retention/correctness"
   let plan = gates.plan_paths(ctx, tests.Verification, ["src/frontend_stats.rs"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == [id]
@@ -3154,7 +3154,7 @@ test test_frontend_retention_edit_selects_exact_measurement_contract {
 }
 
 test test_constraint_solver_edit_selects_reference_continuations {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let id = "compiler/constraint-solver/correctness"
   for source_path in ["src/sema/constraints.rs", "src/sema/constraints/operations.rs"] {
     let plan = gates.plan_paths(ctx, tests.Verification, [source_path], [], gates.Edit)?
@@ -3172,7 +3172,7 @@ test test_constraint_solver_edit_selects_reference_continuations {
 }
 
 test test_source_edit_cases_deduplicate_and_preserve_unresolved_paths {
-  let ctx = fixtures.linux_context(/repo)?
+  let ctx = fixtures.linux_context(p"/repo")?
   let plan = gates.plan_paths(ctx, tests.Verification,
     ["core/uniq.xsh", "core/find.xsh", "core/uniq.xsh", "unknown/example.xsh"], [], gates.Edit)?
   assert [entry.id for entry in plan.cases] == ["core/uniq/records", "core/find/traversal"]

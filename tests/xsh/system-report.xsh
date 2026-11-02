@@ -190,7 +190,7 @@ test test_system_report_class_parent_retains_independent_fallback_and_link_failu
   assert directory.state == .Observed
   assert directory.target == null
 
-  root.symlink(target: ../../devices/pci0000:00/0000:03:00.0/drm/card1, path: p"sys/class/drm/card1")
+  root.symlink(target: p"../../devices/pci0000:00/0000:03:00.0/drm/card1", path: p"sys/class/drm/card1")
   let fallback = collector.class_parent_target(root, p"sys/class/drm/card1")
   assert fallback.state == .Observed
   assert collector.usb_parent_address(fallback.target.require()?) == "0000:03:00.0"
@@ -280,8 +280,8 @@ test test_system_report_device_classes_keep_sound_and_input_without_drm {
     """fixture keyboard
 """,
   )
-  root.symlink(target: ../../../devices/virtual/sound/card0, path: p"sys/class/sound/card0/device")
-  root.symlink(target: ../../../devices/virtual/input/input0, path: p"sys/class/input/input0/device")
+  root.symlink(target: p"../../../devices/virtual/sound/card0", path: p"sys/class/sound/card0/device")
+  root.symlink(target: p"../../../devices/virtual/input/input0", path: p"sys/class/input/input0/device")
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
@@ -348,7 +348,7 @@ test test_system_report_usb_controller_link_distinguishes_directories_disappeara
   assert directory.state == .Observed
   assert directory.address == null
 
-  root.symlink(target: ../../../devices/pci0000:00/0000:04:00.4/usb4/4-2, path: p"sys/bus/usb/devices/4-2")
+  root.symlink(target: p"../../../devices/pci0000:00/0000:04:00.4/usb4/4-2", path: p"sys/bus/usb/devices/4-2")
   let linked = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-2")
   assert linked.state == .Observed
   assert linked.address == "0000:04:00.4"
@@ -413,7 +413,7 @@ test test_system_report_network_device_links_keep_absence_separate_from_failures
   assert absent.issues == []
   assert absent.links[0].parent_pci_function_index == null
 
-  root.symlink(target: ../../../devices/pci0000:00/0001:02:03.0, path: p"sys/class/net/eth0/device")
+  root.symlink(target: p"../../../devices/pci0000:00/0001:02:03.0", path: p"sys/class/net/eth0/device")
   let linked = collector.link_network_device_sources(root, source, snapshot.pci.functions, [])
   assert linked.status.state == .Complete
   assert linked.links[0].parent_pci_function_index == 1
@@ -1835,9 +1835,9 @@ test test_system_report_pci_and_usb_source_parsers {
   test.error_kind(collectors.parse_pci_address("0000:00:01.8"), "SystemReportSourceError.InvalidPciAddress")
   test.error_kind(collectors.parse_pci_address("00:00:01.0"), "SystemReportSourceError.InvalidPciAddress")
   test.error_kind(collectors.parse_pci_hex_value("0x10xz"), "SystemReportSourceError.InvalidPciId")
-  assert collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, "0001:02:03.0") == "0001:02:01.0"
-  assert collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:03.0, "0001:02:03.0") == null
-  assert collectors.pci_parent_address(../../../devices/pci0001:02/0001:02:01.0, "0001:02:03.0") == null
+  assert collectors.pci_parent_address(p"../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0", "0001:02:03.0") == "0001:02:01.0"
+  assert collectors.pci_parent_address(p"../../../devices/pci0001:02/0001:02:03.0", "0001:02:03.0") == null
+  assert collectors.pci_parent_address(p"../../../devices/pci0001:02/0001:02:01.0", "0001:02:03.0") == null
 
   let descriptors = collectors.parse_usb_descriptor_stream(b"\x03\x99B\x02\xfe")?
   assert descriptors.len() == 2
@@ -1858,8 +1858,8 @@ test test_system_report_pci_collection_links_a_child_to_its_bridge {
   let child_path: RelPath = p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0"
   root.mkdir(child_path, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
-  root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0, path: p"sys/bus/pci/devices/0001:02:01.0")
-  root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, path: p"sys/bus/pci/devices/0001:02:03.0")
+  root.symlink(target: p"../../../devices/pci0001:02/0001:02:01.0", path: p"sys/bus/pci/devices/0001:02:01.0")
+  root.symlink(target: p"../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0", path: p"sys/bus/pci/devices/0001:02:03.0")
   let device_paths: List[RelPath] = [parent_path, child_path]
   for device_path in device_paths {
     root.write(
@@ -1980,8 +1980,8 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
     )
   }
 
-  root.symlink(target: ../../../devices/pci0000:01/0000:01:02.0, path: p"sys/bus/pci/devices/0000:01:02.0")
-  root.symlink(target: ../../../devices/pci0000:01/0000:01:02.1, path: p"sys/bus/pci/devices/0000:01:02.1")
+  root.symlink(target: p"../../../devices/pci0000:01/0000:01:02.0", path: p"sys/bus/pci/devices/0000:01:02.0")
+  root.symlink(target: p"../../../devices/pci0000:01/0000:01:02.1", path: p"sys/bus/pci/devices/0000:01:02.1")
   root.write(
     fp"{first_path}/current_link_speed",
     """8.0 GT/s PCIe
@@ -2078,8 +2078,8 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
 
 test test_system_report_usb_controller_path_handles_pci_and_platform_roots {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
-  assert collector.usb_parent_address(../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2) == "0000:04:00.4"
-  assert collector.usb_parent_address(../../../devices/platform/soc/usb1/1-2) == null
+  assert collector.usb_parent_address(p"../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2") == "0000:04:00.4"
+  assert collector.usb_parent_address(p"../../../devices/platform/soc/usb1/1-2") == null
 }
 
 test test_system_report_usb_parent_join_handles_root_hubs_sorted_last {
@@ -2311,8 +2311,8 @@ test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes {
 
 test test_system_report_block_class_path_identifies_its_pci_controller {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
-  assert collector.pci_address_in_target(../../devices/pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1) == "0000:01:00.0"
-  assert collector.pci_address_in_target(../../devices/virtual/block/loop0) == null
+  assert collector.pci_address_in_target(p"../../devices/pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1") == "0000:01:00.0"
+  assert collector.pci_address_in_target(p"../../devices/virtual/block/loop0") == null
 }
 
 test test_system_report_assembles_network_links_addresses_routes_and_rules {
@@ -4719,8 +4719,8 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
 """,
   )
   assert root.children(p"sys/bus/pci/devices")?.children.len() == 1
-  root.symlink(target: ../../devices/pci0001:02/0001:02:03.0/block/nvme0n1, path: p"sys/class/block/nvme0n1")
-  root.symlink(target: ../../nvme0, path: p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")
+  root.symlink(target: p"../../devices/pci0001:02/0001:02:03.0/block/nvme0n1", path: p"sys/class/block/nvme0n1")
+  root.symlink(target: p"../../nvme0", path: p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")
   root.write(
     p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/dev",
     """259:0
@@ -5172,8 +5172,8 @@ test test_system_report_storage_links_layered_block_devices_by_identity {
     """253:0
 """,
   )
-  root.symlink(target: ../../dm-0, path: p"sys/class/block/sda/holders/dm-0")
-  root.symlink(target: ../../sda, path: p"sys/class/block/dm-0/slaves/sda")
+  root.symlink(target: p"../../dm-0", path: p"sys/class/block/sda/holders/dm-0")
+  root.symlink(target: p"../../sda", path: p"sys/class/block/dm-0/slaves/sda")
   root.mkdir(p"proc/self", parents: true)
   root.write(p"proc/self/mountinfo", "")
 
@@ -5210,7 +5210,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
     """1024
 """,
   )
-  root.symlink(target: ../../devices/pci0000:00/0000:00:01.0/block/sda, path: p"sys/class/block/sda")
+  root.symlink(target: p"../../devices/pci0000:00/0000:00:01.0/block/sda", path: p"sys/class/block/sda")
   for number in [1, 3] {
     let name = f"sda{number}"
     let name_path: RelPath = fp"{name}".require(RelPath)?
@@ -6288,7 +6288,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let pci_path: RelPath = p"sys/devices/pci0000:00/0000:00:1f.3"
   root.mkdir(pci_path, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
-  root.symlink(target: ../../../devices/pci0000:00/0000:00:1f.3, path: p"sys/bus/pci/devices/0000:00:1f.3")
+  root.symlink(target: p"../../../devices/pci0000:00/0000:00:1f.3", path: p"sys/bus/pci/devices/0000:00:1f.3")
   for field in [
     {
       name: "vendor",
@@ -6324,7 +6324,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
     root.write(fp"{pci_path}/{field.name}".require(RelPath)?, field.value)
   }
 
-  root.symlink(target: ../../../devices/pci0000:00/0000:00:1f.3, path: p"sys/class/hwmon/hwmon0/device")
+  root.symlink(target: p"../../../devices/pci0000:00/0000:00:1f.3", path: p"sys/class/hwmon/hwmon0/device")
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?

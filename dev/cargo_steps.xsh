@@ -6,7 +6,7 @@ use targets as target_policy
 ## A `rustc` built for a musl host allocates through musl's allocator, and a
 ## thin-LTO build then spends most of its time in the kernel. Preloading this
 ## jemalloc into the compiler makes a release rebuild several times faster.
-export const jemalloc_library = /usr/lib/libjemalloc.so.2
+export const jemalloc_library = p"/usr/lib/libjemalloc.so.2"
 
 ## Names another library to preload into build steps; set to the empty string,
 ## it disables the preload.

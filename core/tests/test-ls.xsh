@@ -455,7 +455,7 @@ test test_ls_indicator_takes_types_from_the_directory_read { |ctx|
 test test_ls_recursive_stops_at_directory_cycles { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/loop".mkdir()
-  fp"{work}/loop/sub".symlink(to: ../loop)
+  fp"{work}/loop/sub".symlink(to: p"../loop")
 
   let result = ls_in(ctx, work, ["-RL", "loop"])?
   assert result.status == 2

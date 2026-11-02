@@ -163,7 +163,7 @@ print "done"
 
 # Literals and width boundaries: keep string escapes and quoted words, and do not split long literals, paths, or formatted strings.
 let fmt_source_url = "https://downloads.example.test/releases/xsh/generated/source-index/2026/07/30/package-with-a-deliberately-unbreakable-name.tar.zst"
-let fmt_source_path_literal = /var/lib/xsh/cache/generated/source-index/2026/07/30/package-with-a-deliberately-unbreakable-name.tar.zst
+let fmt_source_path_literal = p"/var/lib/xsh/cache/generated/source-index/2026/07/30/package-with-a-deliberately-unbreakable-name.tar.zst"
 let fmt_label_text = f"source: {fmt_source_path_literal.display()}"
 let fmt_escaped_lines = "first\nsecond\n"
 print "-j${fmt_items.len()}"

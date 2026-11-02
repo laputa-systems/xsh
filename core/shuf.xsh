@@ -448,7 +448,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
   }
 
-  let device_path = if opts.source != null { fp"{opts.source}" } else { /dev/urandom }
+  let device_path = if opts.source != null { fp"{opts.source}" } else { p"/dev/urandom" }
 
   if wide_range != null {
     let wide = wide_range
@@ -561,7 +561,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     # reservoir of that many lines: each later line draws a slot and replaces
     # its line when the slot is inside the reservoir (and a last draw is spent
     # at the end), then the survivors are permuted as usual.
-    let place = if name == "-" { /dev/stdin } else { input }
+    let place = if name == "-" { p"/dev/stdin" } else { input }
     let regular = if let Ok(found) = fs.stat(place, follow_symlinks: true) { found.kind == "file" } else { false }
 
     if ! opts.repeat and ! regular and head < tio.MAX_COUNT and total >= head {

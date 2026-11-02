@@ -60,7 +60,6 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 | `DOLLAR_NAME` | `$name` in a command word |
 | `NEWLINE` | a line break that ends a statement (see Line continuation) |
 | `WORD_PART` | any other token that can be part of a bare command word |
-| `PATH_PART` | a token made only of bare-path characters |
 | `GROUP_END` | a closing parenthesis owned by an expression group |
 | `KEYWORD` | a reserved keyword |
 
@@ -122,8 +121,8 @@ these tokens, none of which can begin a statement (the item expression
 
 `??` `or` `and` `==` `!=` `<` `<=` `>` `>=` `in` `not in` `+` `*` `%` `.` `|>`
 
-A line that starts with `-` (negation) or `/` (an absolute path) starts a new
-statement; to split around them, end the first line with the operator.
+A line that starts with `-` (negation) starts a new statement; to split
+around `-` or `/`, end the first line with the operator.
 
 ## Expressions before a block
 
@@ -319,8 +318,7 @@ primary = literal
         | within_scope
         | resource_scope
         | builder_call
-        | item_expression
-        | bare_path ;
+        | item_expression ;
 codec_schema_call = "codec" "." "decode_as" "(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "text" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")"
                   | "codec" "." "read_as" "(" group(NEWLINE* !( "@" | "." ) ( "format" ":" NEWLINE* )? expression_item "," NEWLINE* !( "@" | "." ) ( "path" ":" NEWLINE* )? expression_item "," NEWLINE* type_expr NEWLINE*) ")" ;
 literal = "null"
@@ -377,8 +375,7 @@ builder_entry = binding
               | run_statement
               | IDENT "=" expression
               | NAME !"=" command_argument* ;
-item_expression = "." ( MEMBER | !( MEMBER | "." | ~"/" ) ) ;
-bare_path = ( "/" | "." ~"/" | "." ~"." ~"/" ) ~PATH_PART* !~PATH_PART ;
+item_expression = "." ( MEMBER | !( MEMBER | "." ) ) ;
 multiplicative_tail = conversion_tail ( ( "*" | "/" | "%" | "&" ) NEWLINE* conversion )* ;
 additive_tail = multiplicative_tail ( ( "+" | "-" | "|" ) NEWLINE* multiplicative )* ;
 stage_end = &( NEWLINE | ";" | "}" | "|>" | ")" | "]" | "," ) ;

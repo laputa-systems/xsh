@@ -2040,7 +2040,7 @@ mod tests {
     #[test]
     fn nested_aggregate_heterogeneous_literals_preserve_dynamic_item_domain() {
         with_checked_local_source(
-            "pure sample() -> Int { var state = {items: [\"first\", /first]}; state = {items: [/second, \"second\"]}; 7 }",
+            "pure sample() -> Int { var state = {items: [\"first\", p\"/first\"]}; state = {items: [p\"/second\", \"second\"]}; 7 }",
             |output| {
                 assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
                 let ty = output.local_binding_types.values().next().expect("state binding");

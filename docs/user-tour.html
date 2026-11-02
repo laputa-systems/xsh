@@ -410,7 +410,7 @@ tr:last-child td { border-bottom: 0; }
 <span class="hl-keyword">const</span> port <span class="hl-operator">=</span> <span class="hl-number">5432</span>
 <span class="hl-keyword">const</span> load <span class="hl-operator">=</span> <span class="hl-number">0.75</span>
 <span class="hl-keyword">const</span> grace <span class="hl-operator">=</span> <span class="hl-number">90s</span>
-<span class="hl-keyword">const</span> conf <span class="hl-operator">=</span> <span class="hl-path">/etc/postgresql/postgresql.conf</span>
+<span class="hl-keyword">const</span> conf <span class="hl-operator">=</span> <span class="hl-path">p"/etc/postgresql/postgresql.conf"</span>
 <span class="hl-keyword">const</span> replicas <span class="hl-operator">=</span> <span class="hl-punctuation">[</span><span class="hl-string">"db-02"</span><span class="hl-punctuation">,</span> <span class="hl-string">"db-03"</span><span class="hl-punctuation">]</span>
 <span class="hl-keyword">const</span> limits <span class="hl-operator">=</span> <span class="hl-punctuation">{</span><span class="hl-property">cpu</span><span class="hl-punctuation">:</span> <span class="hl-number">2</span><span class="hl-punctuation">,</span> <span class="hl-property">memory_mb</span><span class="hl-punctuation">:</span> <span class="hl-number">4096</span><span class="hl-punctuation">}</span>
 <span class="hl-keyword">const</span> owner<span class="hl-punctuation">:</span> <span class="hl-type">Str</span><span class="hl-operator">?</span> <span class="hl-operator">=</span> <span class="hl-constant">null</span>
@@ -471,7 +471,7 @@ after the block: (unset)</code></pre></figure>
 <section class="chapter">
 <h2 id="paths"><a class="anchor" href="#paths">Paths</a></h2>
 <p>Paths are a type, not strings that happen to contain slashes. They hold native bytes, so a filename that is not valid UTF-8 still round-trips to <code>run</code> untouched.</p>
-<figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">const</span> log_dir <span class="hl-operator">=</span> <span class="hl-path">/var/log/nginx</span>
+<figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-keyword">const</span> log_dir <span class="hl-operator">=</span> <span class="hl-path">p"/var/log/nginx"</span>
 <span class="hl-keyword">const</span> today <span class="hl-operator">=</span> <span class="hl-path">p"access.log"</span>
 <span class="hl-keyword">let</span> rotated <span class="hl-operator">=</span> <span class="hl-path">fp"</span><span class="hl-interpolation">{</span>log_dir<span class="hl-interpolation">}</span><span class="hl-path">/</span><span class="hl-interpolation">{</span>today<span class="hl-interpolation">}</span><span class="hl-path">.1"</span>
 
@@ -497,7 +497,7 @@ as gzip: /var/log/nginx/access.log.gz</code></pre></figure>
   <span class="hl-keyword">print</span> <span class="hl-string">"backup written"</span>
 <span class="hl-punctuation">}</span>
 
-<span class="hl-function">backup</span><span class="hl-punctuation">(</span><span class="hl-path">/var/lib/app</span><span class="hl-punctuation">,</span> <span class="hl-path">/backups/app.tgz</span><span class="hl-punctuation">)</span></code></pre></figure>
+<span class="hl-function">backup</span><span class="hl-punctuation">(</span><span class="hl-path">p"/var/lib/app"</span><span class="hl-punctuation">,</span> <span class="hl-path">p"/backups/app.tgz"</span><span class="hl-punctuation">)</span></code></pre></figure>
 <figure class="code code-text"><figcaption><span class="lang">text</span></figcaption><pre><code>tar: Failed to open '/backups/app.tgz'
 err: `tar` exited 1
 executable: /usr/local/bin/xsh
@@ -938,7 +938,7 @@ rejected: schema check failed at port: expected Int, found Str
 <span class="hl-keyword">let</span> worst <span class="hl-operator">=</span> <span class="hl-function">hottest</span><span class="hl-punctuation">(</span>inventory<span class="hl-punctuation">)</span><span class="hl-operator">?</span>
 <span class="hl-keyword">print</span> <span class="hl-string">f"</span><span class="hl-interpolation">{</span>worst<span class="hl-punctuation">.</span><span class="hl-property">mount</span><span class="hl-interpolation">}</span><span class="hl-string"> at </span><span class="hl-interpolation">{</span><span class="hl-function">usage</span><span class="hl-punctuation">(</span>worst<span class="hl-punctuation">)</span><span class="hl-interpolation">}</span><span class="hl-string">%"</span>
 <span class="hl-keyword">print</span> <span class="hl-string">f"anything at 100%: </span><span class="hl-interpolation">{</span><span class="hl-function">hottest</span><span class="hl-punctuation">(</span>inventory<span class="hl-punctuation">,</span> <span class="hl-property">over</span><span class="hl-punctuation">:</span> <span class="hl-number">100</span><span class="hl-punctuation">)</span> is <span class="hl-type">Ok</span><span class="hl-punctuation">(</span>_<span class="hl-punctuation">)</span><span class="hl-interpolation">}</span><span class="hl-string">"</span>
-<span class="hl-keyword">print</span> <span class="hl-string">f"root has capacity: </span><span class="hl-interpolation">{</span><span class="hl-function">mount_of</span><span class="hl-punctuation">(</span><span class="hl-operator">/</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span><span class="hl-punctuation">.</span><span class="hl-property">size</span> <span class="hl-operator">&gt;</span> <span class="hl-number">0</span><span class="hl-interpolation">}</span><span class="hl-string">"</span></code></pre></figure>
+<span class="hl-keyword">print</span> <span class="hl-string">f"root has capacity: </span><span class="hl-interpolation">{</span><span class="hl-function">mount_of</span><span class="hl-punctuation">(</span><span class="hl-path">p"/"</span><span class="hl-punctuation">)</span><span class="hl-operator">?</span><span class="hl-punctuation">.</span><span class="hl-property">size</span> <span class="hl-operator">&gt;</span> <span class="hl-number">0</span><span class="hl-interpolation">}</span><span class="hl-string">"</span></code></pre></figure>
 <figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>/var at 99%
 anything at 100%: false
 root has capacity: true</code></pre></figure>
@@ -1425,7 +1425,7 @@ executable: /usr/local/bin/xsh
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-comment"># file: bin/harden.xsh</span>
 <span class="hl-keyword">use</span> sshd
 
-<span class="hl-keyword">cli</span> <span class="hl-function">main</span><span class="hl-punctuation">(</span>config <span class="hl-operator">=</span> <span class="hl-path">/etc/ssh/sshd_config</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
+<span class="hl-keyword">cli</span> <span class="hl-function">main</span><span class="hl-punctuation">(</span>config <span class="hl-operator">=</span> <span class="hl-path">p"/etc/ssh/sshd_config"</span><span class="hl-punctuation">)</span> <span class="hl-punctuation">{</span>
   <span class="hl-keyword">let</span> before <span class="hl-operator">=</span> config<span class="hl-punctuation">.</span><span class="hl-function">read_text</span><span class="hl-punctuation">()</span><span class="hl-operator">?</span>
   <span class="hl-keyword">let</span> after <span class="hl-operator">=</span> sshd<span class="hl-punctuation">.</span><span class="hl-function">set_option</span><span class="hl-punctuation">(</span>before<span class="hl-punctuation">,</span> <span class="hl-string">"PermitRootLogin"</span><span class="hl-punctuation">,</span> <span class="hl-string">"no"</span><span class="hl-punctuation">)</span>
   <span class="hl-keyword">if</span> after <span class="hl-operator">!=</span> before <span class="hl-punctuation">{</span>

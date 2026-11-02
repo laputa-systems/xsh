@@ -117,13 +117,13 @@ pure measure_present(payload: Payload?) -> Str {
 
 test test_method_on_a_narrowed_union_slot_is_the_narrowed_member_s {
   assert measure("  padded ") == "text padded"
-  assert measure(/srv/data.txt) == "file data.txt"
+  assert measure(p"/srv/data.txt") == "file data.txt"
   assert measure(["a", "b"]) == "list a+b"
   assert measure(bytes.from_text("abc")) == "bytes 3"
 
   assert measure_present(null) == "absent"
   assert measure_present(bytes.from_text("abcd")) == "bytes 4"
-  assert measure_present(/srv/data.txt) == "data.txt"
+  assert measure_present(p"/srv/data.txt") == "data.txt"
   assert measure_present(" padded ") == "padded"
   assert measure_present(["a", "b", "c"]) == "list 3"
 }
@@ -146,7 +146,7 @@ test test_union_word_list_splices_into_argv { |ctx|
 }
 
 test test_union_narrows_on_both_sides_of_a_type_test {
-  let items: List[Item] = [{name: "n", size: 2}, ["a", "b"], 2, "s", /tmp/p]
+  let items: List[Item] = [{name: "n", size: 2}, ["a", "b"], 2, "s", p"/tmp/p"]
   assert [show(item) for item in items] == [
     "named n 3",
     "list 2 a ab",
@@ -175,23 +175,23 @@ test test_tag_patterns_match_a_member_of_a_narrowed_union_slot {
 # a guarded statement, `if let`, and a null test before the type test.
 test test_union_narrows_through_guards_pattern_conditions_and_optionals {
   assert file_name_or_marked("a") == "a!"
-  assert file_name_or_marked(/tmp/b) == "b"
+  assert file_name_or_marked(p"/tmp/b") == "b"
   assert pick(null) == "default"
   assert pick("s") == "S"
-  assert pick(/tmp/q) == "q"
-  assert pick(null, /tmp/z) == "z"
-  assert path_name_bytes(["a", /tmp/abc, /tmp/de]) == 5
+  assert pick(p"/tmp/q") == "q"
+  assert pick(null, p"/tmp/z") == "z"
+  assert path_name_bytes(["a", p"/tmp/abc", p"/tmp/de"]) == 5
 
   var holder = Holder(word: "a", level: 1)
   holder.level = "high"
-  holder.word = /tmp/x
+  holder.word = p"/tmp/x"
   assert holder.level == "high"
-  assert holder.word == /tmp/x
+  assert holder.word == p"/tmp/x"
 }
 
 test test_union_match_covers_every_member {
   assert describe("all") == "text all"
-  assert describe(/src/main.c) == "file main.c"
+  assert describe(p"/src/main.c") == "file main.c"
 
   var current: Item = 1
   current = "later"
@@ -240,7 +240,7 @@ test test_require_and_type_tests_validate_a_dynamic_value_as_a_union {
   let mixed = json.decode("[\"make\", 1]")?.require(List[Word])
   assert mixed is Err(_)
 
-  let file: Any = /x
+  let file: Any = p"/x"
   let number: Any = 1
   let narrowed = if let word is Word = file { describe(word) } else { "other" }
   assert narrowed == "file x"
@@ -442,7 +442,7 @@ print ${consume("a")?}
 # binding's type, so `--fix` leaves the file alone, and the suggested type
 # then checks and runs.
 test test_lint_names_the_union_of_a_list_any_filled_from_typed_literals { |ctx|
-  let source = "proc compile(cc: Path, flags: List[Str]) [process, error] {\n  var argv: List[Any] = [\"-c\", cc]\n  argv = [@argv, @flags]\n  argv += [\"-o\", /dev/null]\n  print f\"{argv.len()}\"\n}\n\ncompile(/usr/bin/cc, [\"-O2\"])?\n"
+  let source = "proc compile(cc: Path, flags: List[Str]) [process, error] {\n  var argv: List[Any] = [\"-c\", cc]\n  argv = [@argv, @flags]\n  argv += [\"-o\", p\"/dev/null\"]\n  print f\"{argv.len()}\"\n}\n\ncompile(p\"/usr/bin/cc\", [\"-O2\"])?\n"
   let file = test.temp_file(ctx, name: "argv.xsh", contents: bytes.from_text(source))?
   let reported = run.capture --text "xsht" lint --only lint.list-any-union $file
   assert count(reported.stderr, "warn[lint.list-any-union]") == 1, reported.stderr

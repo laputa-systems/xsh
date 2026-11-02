@@ -7,7 +7,7 @@ test test_spliced_target_runs_the_vector {
   let more = ["four", "five"]
   let spliced = run.text @argv @more
   assert spliced == "one|four|five"
-  let paths = [/bin/sh, p"-c", p"printf path"]
+  let paths = [p"/bin/sh", p"-c", p"printf path"]
   let from_paths = run.text @paths
   assert from_paths == "path"
 }

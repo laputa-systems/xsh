@@ -50,7 +50,7 @@ test test_sys_pci_collect_links_a_function_to_its_bridge_by_index {
   root.write(p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0/max_link_width", "4\n")
   root.mkdir(p"sys/bus/pci/drivers/nvme", parents: true)
   root.symlink(
-    target: ../../../../../../bus/pci/drivers/nvme,
+    target: p"../../../../../../bus/pci/drivers/nvme",
     path: p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0/driver",
   )
 
@@ -104,11 +104,11 @@ test test_sys_pci_collect_reports_an_absent_bus_as_absent_not_empty_success {
 }
 
 test test_sys_pci_path_helpers_resolve_addresses_and_indexes {
-  let target = ../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2
+  let target = p"../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2"
   assert pci.address_in_target(target) == "0000:04:00.4"
-  assert pci.address_in_target(../../../devices/platform/soc/usb1/1-2) == null
-  assert pci.parent_bridge_address(../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, "0001:02:03.0") == "0001:02:01.0"
-  assert pci.parent_bridge_address(../../../devices/pci0001:02/0001:02:03.0, "0001:02:03.0") == null
+  assert pci.address_in_target(p"../../../devices/platform/soc/usb1/1-2") == null
+  assert pci.parent_bridge_address(p"../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0", "0001:02:03.0") == "0001:02:01.0"
+  assert pci.parent_bridge_address(p"../../../devices/pci0001:02/0001:02:03.0", "0001:02:03.0") == null
 
   let root = fs.tempdir()?
   defer root.close()

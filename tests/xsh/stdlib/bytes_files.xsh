@@ -13,11 +13,11 @@ assert bytes.resize(fifo, 1, regular: true) is Err(_)
     [ctx.xsh_bin, script, "--", fifo], timeout: 2s))?
   assert status.ok
   assert fs.stat(fifo)?.kind == "fifo"
-  assert bytes.read_at(/dev/null, 0, 1, regular: true) is Err(_)
-  assert bytes.write_at(/dev/null, 0, b"x", regular: true) is Err(_)
-  assert bytes.zero_at(/dev/null, 0, 1, regular: true) is Err(_)
-  assert bytes.resize(/dev/null, 1, regular: true) is Err(_)
-  assert fs.stat(/dev/null)?.kind == "char"
+  assert bytes.read_at(p"/dev/null", 0, 1, regular: true) is Err(_)
+  assert bytes.write_at(p"/dev/null", 0, b"x", regular: true) is Err(_)
+  assert bytes.zero_at(p"/dev/null", 0, 1, regular: true) is Err(_)
+  assert bytes.resize(p"/dev/null", 1, regular: true) is Err(_)
+  assert fs.stat(p"/dev/null")?.kind == "char"
 }
 
 test test_bytes_resize_preserves_existing_data_and_zero_fills_extension { |ctx|
@@ -60,7 +60,7 @@ test test_bytes_file_guards_follow_read_symlinks_and_refuse_mutating_symlinks { 
   assert bytes.resize(link, 1, regular: true) is Err(_)
   assert target.read_text()? == "original"
   let null_link = fp"{root}/null-link"
-  null_link.symlink(to: /dev/null)
+  null_link.symlink(to: p"/dev/null")
   assert bytes.read_at(null_link, 0, 1, regular: true) is Err(_)
 }
 

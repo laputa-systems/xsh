@@ -313,7 +313,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
 
   fail "cargo llvm-lines failed" unless captured.status.ok
 
-  var artifact_path = /tmp/xsh-llvm-lines.txt
+  var artifact_path = p"/tmp/xsh-llvm-lines.txt"
 
   if artifact == "" {
     let pid = process.current_pid()?

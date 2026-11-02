@@ -179,6 +179,7 @@ diagnostic_codes! {
         LexUnterminatedString = "lex.unterminated-string", error, "Reject a string literal with no closing quote";
     }
     Parse {
+        ParseBarePathLiteral = "parse.bare-path-literal", error, "Reject a bare path literal in expression position; write `p\"...\"`";
         ParseBlockHeaderMigration = "parse.block-header-migration", error, "Reject error-handler parameters written before the block instead of inside it";
         ParseBlockParams = "parse.block-params", error, "Reject a block that has two parameter headers";
         ParseBlockStringMargin = "parse.block-string-margin", error, "Reject a block string line that lacks the closing delimiter's exact indentation";

@@ -379,7 +379,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
     run_hook(command, physical, stanza, "pre-down", verbose)
   }
 
-  run_parts(/etc/network/if-pre-down.d, physical, stanza, "pre-down", verbose)
+  run_parts(p"/etc/network/if-pre-down.d", physical, stanza, "pre-down", verbose)
 
   match stanza.method {
     "loopback" | "manual" => {
@@ -399,7 +399,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
     run_hook(command, physical, stanza, "post-down", verbose)
   }
 
-  run_parts(/etc/network/if-post-down.d, physical, stanza, "post-down", verbose)
+  run_parts(p"/etc/network/if-post-down.d", physical, stanza, "post-down", verbose)
   state_remove_iface(state_path, physical)
 }
 

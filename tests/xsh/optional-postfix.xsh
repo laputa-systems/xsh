@@ -7,7 +7,7 @@ type OptionalPostfixConfig = {server: OptionalPostfixServer?}
 type OptionalPostfixObservation = {target: Path?, state: Str}
 
 proc optional_postfix_observation(present: Bool) [] -> OptionalPostfixObservation {
-  return {target: /dev/example, state: "observed"} when present
+  return {target: p"/dev/example", state: "observed"} when present
 
   {target: null, state: "observed"}
 }

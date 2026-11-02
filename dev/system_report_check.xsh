@@ -16903,7 +16903,7 @@ export pure compare_kernel_parameters(
 proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[KernelParameterReference]] {
   let reference: List[KernelParameterReference] = collect {
     for source in kernel_parameter_sources() {
-      let relative = source.path.strip_prefix(/)?
+      let relative = source.path.strip_prefix(p"/")?
       let raw = bundle.read_result(relative, max_bytes: 4096)?
       if raw.state == "absent" and ! raw.truncated and raw.data == null {
         yield {
@@ -16960,7 +16960,7 @@ export proc capture_kernel_parameters_bundle(
 
   let sources = kernel_parameter_sources()
   for item in sources {
-    let relative = item.path.strip_prefix(/)?
+    let relative = item.path.strip_prefix(p"/")?
     if bundle.exists(relative) {
       return Err(check_failure("kernel parameter capture destination contains a source file"))
     }
@@ -16970,7 +16970,7 @@ export proc capture_kernel_parameters_bundle(
   var saved_bytes = []
   var complete = true
   for item in sources {
-    let relative = item.path.strip_prefix(/)?
+    let relative = item.path.strip_prefix(p"/")?
     let raw = source.read_result(relative, max_bytes: 4096)?
     if raw.state not in ["observed", "absent"] or raw.truncated or (raw.state == "observed" and raw.data == null) or (raw.state == "absent" and raw.data != null) {
       complete = false
@@ -17006,7 +17006,7 @@ export proc capture_kernel_parameters_bundle(
 
   var stable = true
   for index in range(sources.len()) {
-    let relative = sources[index].path.strip_prefix(/)?
+    let relative = sources[index].path.strip_prefix(p"/")?
     let again = source.read_result(relative, max_bytes: 4096)?
     let first = observations[index]
     if again.state != first.state or again.truncated != first.truncated or again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
@@ -17059,7 +17059,7 @@ export proc validate_kernel_parameters_bundle(
 
   for index in range(sources.len()) {
     let expected = capture.sources[index]
-    let relative = sources[index].path.strip_prefix(/)?
+    let relative = sources[index].path.strip_prefix(p"/")?
     if expected.path != relative or expected.truncated {
       return Err(check_failure("kernel parameter capture source identity or completeness differs from metadata"))
     }
@@ -21716,7 +21716,7 @@ proc audit_no_subprocess_case(
   let command = process.command_argv(
     strace,
     argv,
-    cwd: /,
+    cwd: p"/",
     env: {
       HOME: "/nonexistent",
       PATH: "/nonexistent",
@@ -21886,7 +21886,7 @@ proc read_uname_reference(
     process.command_argv(
       "/bin/uname",
       ["uname", flag],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: output_path,
     ),
@@ -21916,7 +21916,7 @@ proc read_uptime_reference(
     process.command_argv(
       "/bin/cat",
       ["cat", "/proc/uptime"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
     ),
@@ -21943,7 +21943,7 @@ proc read_os_release_reference(
     process.command_argv(
       "/bin/cat",
       ["cat", source_path],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
     ),
@@ -21980,7 +21980,7 @@ export proc read_device_tree_raw_reference(
     process.command_argv(
       "/usr/bin/od",
       ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path.display()],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
     ),
@@ -22020,7 +22020,7 @@ proc read_namespace_reference(
     process.command_argv(
       "/usr/bin/readlink",
       ["readlink", source_path],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_path}",
       stderr: fp"{scratch_path}/{error_path}",
@@ -22054,7 +22054,7 @@ proc read_reference_tool_version(
     process.command_argv(
       binary,
       [argv_name, "--version"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
       stderr: fp"{scratch_path}/{error_name}",
@@ -22091,7 +22091,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
   let scratch = fs.tempdir()?
   defer scratch.close()
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let before_release = read_uname_reference("-r", scratch, "release-before")?
   let before_architecture = read_uname_reference("-m", scratch, "architecture-before")?
@@ -22103,13 +22103,13 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
   let before_device_tree_model = read_device_tree_raw_reference(
     scratch,
-    /sys/firmware/devicetree/base/model,
+    p"/sys/firmware/devicetree/base/model",
     4096,
     "device-tree-model-before",
   )?
   let before_device_tree_compatible = read_device_tree_raw_reference(
     scratch,
-    /sys/firmware/devicetree/base/compatible,
+    p"/sys/firmware/devicetree/base/compatible",
     16384,
     "device-tree-compatible-before",
   )?
@@ -22121,7 +22121,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "identity", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -22138,13 +22138,13 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
   let after_device_tree_model = read_device_tree_raw_reference(
     scratch,
-    /sys/firmware/devicetree/base/model,
+    p"/sys/firmware/devicetree/base/model",
     4096,
     "device-tree-model-after",
   )?
   let after_device_tree_compatible = read_device_tree_raw_reference(
     scratch,
-    /sys/firmware/devicetree/base/compatible,
+    p"/sys/firmware/devicetree/base/compatible",
     16384,
     "device-tree-compatible-after",
   )?
@@ -22365,7 +22365,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "identity", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -22425,7 +22425,7 @@ proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, erro
     process.command_argv(
       "/bin/cat",
       ["cat", "/proc/meminfo"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
       stderr: fp"{scratch_path}/{error_name}",
@@ -22472,7 +22472,7 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -22521,7 +22521,7 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
         process.command_argv(
           "/bin/cat",
           ["cat", source_path],
-          cwd: /,
+          cwd: p"/",
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
           stdout: fp"{scratch_path}/{output_path}",
           stderr: fp"{scratch_path}/{error_path}",
@@ -22569,7 +22569,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -22746,7 +22746,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -22759,7 +22759,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -22827,7 +22827,7 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
         process.command_argv(
           "/bin/cat",
           ["cat", source_path],
-          cwd: /,
+          cwd: p"/",
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
           stdout: fp"{scratch_path}/{output_path}",
           stderr: fp"{scratch_path}/{error_path}",
@@ -22875,7 +22875,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -22941,7 +22941,7 @@ proc read_vulnerability_reference(
   scratch: FsRoot,
   label: Str,
 ) [fs, process, time, error] -> Result[VulnerabilityObservation] {
-  let source_root = fs.open_root(/sys/devices/system/cpu)?
+  let source_root = fs.open_root(p"/sys/devices/system/cpu")?
     let started = time.now()
   let listing = source_root.children(p"vulnerabilities", max_entries: 256)?
   if listing.state == "absent" {
@@ -22970,7 +22970,7 @@ proc read_vulnerability_reference(
         process.command_argv(
           "/bin/cat",
           ["cat", source_path],
-          cwd: /,
+          cwd: p"/",
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
           stdout: fp"{scratch_path}/{output_path}",
           stderr: fp"{scratch_path}/{error_path}",
@@ -23020,7 +23020,7 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -23090,7 +23090,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/swapon-before",
       stderr: fp"{scratch_path}/swapon-before-error",
@@ -23108,7 +23108,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -23124,7 +23124,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/swapon-after",
       stderr: fp"{scratch_path}/swapon-after-error",
@@ -23214,7 +23214,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       binary,
       ["lspci", "--version"],
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lspci-version",
       stderr: fp"{scratch_path}/lspci-version-error",
@@ -23231,7 +23231,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lspci-before",
       stderr: fp"{scratch_path}/lspci-before-error",
@@ -23249,7 +23249,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -23265,7 +23265,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lspci-after",
       stderr: fp"{scratch_path}/lspci-after-error",
@@ -23300,7 +23300,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23314,7 +23314,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23350,7 +23350,7 @@ proc compare_live_usb_topology(
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23364,7 +23364,7 @@ proc compare_live_usb_topology(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23406,7 +23406,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23420,7 +23420,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23453,7 +23453,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23467,7 +23467,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23503,7 +23503,7 @@ proc compare_live_usb_interfaces(
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23517,7 +23517,7 @@ proc compare_live_usb_interfaces(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23553,7 +23553,7 @@ proc compare_live_power_supplies(
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23567,7 +23567,7 @@ proc compare_live_power_supplies(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "power", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23600,7 +23600,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23614,7 +23614,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "power", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23650,7 +23650,7 @@ proc compare_live_device_classes(
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23668,7 +23668,7 @@ proc compare_live_device_classes(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "devices", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23705,7 +23705,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23723,7 +23723,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23763,7 +23763,7 @@ proc compare_live_pci_bindings(
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23777,7 +23777,7 @@ proc compare_live_pci_bindings(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23810,7 +23810,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -23824,7 +23824,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -23892,7 +23892,7 @@ proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> 
     process.command_argv(
       binary,
       ["ip", "-Version"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/ip-version",
       stderr: fp"{scratch_path}/ip-version-error",
@@ -23922,7 +23922,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
   defer scratch.close()
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
@@ -23932,7 +23932,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/ip-before",
       stderr: fp"{scratch_path}/ip-before-error",
@@ -23953,7 +23953,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -23973,7 +23973,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/ip-after",
       stderr: fp"{scratch_path}/ip-after-error",
@@ -24041,7 +24041,7 @@ proc compare_live_ip_addresses(
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/ip-address-before",
       stderr: fp"{scratch_path}/ip-address-before-error",
@@ -24059,7 +24059,7 @@ proc compare_live_ip_addresses(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24075,7 +24075,7 @@ proc compare_live_ip_addresses(
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/ip-address-after",
       stderr: fp"{scratch_path}/ip-address-after-error",
@@ -24133,7 +24133,7 @@ proc read_ip_rule_family(
     process.command_argv(
       binary,
       network_rule_argv(family),
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
       stderr: fp"{scratch_path}/{output_name}-error",
@@ -24168,7 +24168,7 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24223,7 +24223,7 @@ proc read_ip_route_family(
     process.command_argv(
       binary,
       network_route_argv(family),
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
       stderr: fp"{scratch_path}/{output_name}-error",
@@ -24261,7 +24261,7 @@ proc compare_live_ip_routes(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "network", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24339,7 +24339,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lsblk-before",
       stderr: fp"{scratch_path}/lsblk-before-error",
@@ -24357,7 +24357,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24373,7 +24373,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lsblk-after",
       stderr: fp"{scratch_path}/lsblk-after-error",
@@ -24448,7 +24448,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
   defer scratch.close()
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch_path = scratch.host_path()?
   let before_started = time.now()
@@ -24456,7 +24456,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lsblk-queue-before",
       stderr: fp"{scratch_path}/lsblk-queue-before-error",
@@ -24475,7 +24475,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24491,7 +24491,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lsblk-queue-after",
       stderr: fp"{scratch_path}/lsblk-queue-after-error",
@@ -24587,7 +24587,7 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/findmnt-before",
       stderr: fp"{scratch_path}/findmnt-before-error",
@@ -24604,7 +24604,7 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24620,7 +24620,7 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
     process.command_argv(
       binary,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/findmnt-after",
       stderr: fp"{scratch_path}/findmnt-after-error",
@@ -24689,7 +24689,7 @@ proc read_mount_usage_references(
         process.command_argv(
           binary,
           argv,
-          cwd: /,
+          cwd: p"/",
           env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
           stdout: fp"{scratch_path}/{output_path}",
           stderr: fp"{scratch_path}/{error_path}",
@@ -24756,7 +24756,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
     process.command_argv(
       binary,
       inventory_argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/usage-inventory-before",
       stderr: fp"{scratch_path}/usage-inventory-before-error",
@@ -24774,7 +24774,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "storage", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/usage-candidate",
       stderr: fp"{scratch_path}/usage-candidate-error",
@@ -24790,7 +24790,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
     process.command_argv(
       binary,
       inventory_argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/usage-inventory-after",
       stderr: fp"{scratch_path}/usage-inventory-after-error",
@@ -24847,7 +24847,7 @@ proc read_kernel_module_reference(
     process.command_argv(
       binary,
       ["lsmod"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{lsmod_path}",
       stderr: fp"{scratch_path}/{lsmod_error_path}",
@@ -24861,7 +24861,7 @@ proc read_kernel_module_reference(
     process.command_argv(
       "/bin/cat",
       ["cat", "/proc/modules"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{proc_path}",
       stderr: fp"{scratch_path}/{proc_error_path}",
@@ -24909,7 +24909,7 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "kernel", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -24961,7 +24961,7 @@ proc read_kernel_command_line_reference(
     process.command_argv(
       "/bin/cat",
       ["cat", "/proc/cmdline"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_path}",
       stderr: fp"{scratch_path}/{error_path}",
@@ -25000,7 +25000,7 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "kernel", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/cmdline-sensitive",
       stderr: fp"{scratch_path}/cmdline-sensitive-error",
@@ -25016,7 +25016,7 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "kernel", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/cmdline-redacted",
       stderr: fp"{scratch_path}/cmdline-redacted-error",
@@ -25053,47 +25053,47 @@ pure kernel_parameter_sources() -> List[KernelParameterSource] {
     {
       name: "kernel.pid_max",
       source: "sysctl",
-      path: /proc/sys/kernel/pid_max,
+      path: p"/proc/sys/kernel/pid_max",
     },
     {
       name: "kernel.threads-max",
       source: "sysctl",
-      path: /proc/sys/kernel/threads-max,
+      path: p"/proc/sys/kernel/threads-max",
     },
     {
       name: "vm.swappiness",
       source: "sysctl",
-      path: /proc/sys/vm/swappiness,
+      path: p"/proc/sys/vm/swappiness",
     },
     {
       name: "vm.overcommit_memory",
       source: "sysctl",
-      path: /proc/sys/vm/overcommit_memory,
+      path: p"/proc/sys/vm/overcommit_memory",
     },
     {
       name: "net.ipv4.ip_forward",
       source: "sysctl",
-      path: /proc/sys/net/ipv4/ip_forward,
+      path: p"/proc/sys/net/ipv4/ip_forward",
     },
     {
       name: "net.ipv6.conf.all.forwarding",
       source: "sysctl",
-      path: /proc/sys/net/ipv6/conf/all/forwarding,
+      path: p"/proc/sys/net/ipv6/conf/all/forwarding",
     },
     {
       name: "usbcore.autosuspend",
       source: "module",
-      path: /sys/module/usbcore/parameters/autosuspend,
+      path: p"/sys/module/usbcore/parameters/autosuspend",
     },
     {
       name: "nvme_core.default_ps_max_latency_us",
       source: "module",
-      path: /sys/module/nvme_core/parameters/default_ps_max_latency_us,
+      path: p"/sys/module/nvme_core/parameters/default_ps_max_latency_us",
     },
     {
       name: "intel_pstate.no_turbo",
       source: "module",
-      path: /sys/module/intel_pstate/parameters/no_turbo,
+      path: p"/sys/module/intel_pstate/parameters/no_turbo",
     },
   ]
 }
@@ -25123,7 +25123,7 @@ proc read_kernel_parameter_reference(
         process.command_argv(
           binary,
           argv,
-          cwd: /,
+          cwd: p"/",
           env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
           stdout: fp"{scratch_path}/{output_path}",
           stderr: fp"{scratch_path}/{error_path}",
@@ -25183,7 +25183,7 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "kernel", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/parameters-candidate",
       stderr: fp"{scratch_path}/parameters-candidate-error",
@@ -25230,7 +25230,7 @@ proc read_proc_status_affinity_reference(
     process.command_argv(
       "/bin/cat",
       ["cat", "/proc/self/status"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
       stderr: fp"{scratch_path}/{error_name}",
@@ -25269,7 +25269,7 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
 
   let scratch = fs.tempdir()?
   defer scratch.close()
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let affinity_before = read_proc_status_affinity_reference(scratch, "cpu-scope-before")?
   let cgroup_before = read_cpu_scope_cgroup_reference(source)?
@@ -25281,7 +25281,7 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -25332,7 +25332,7 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -25345,7 +25345,7 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -25397,7 +25397,7 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -25411,7 +25411,7 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -25471,7 +25471,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       "/usr/bin/lscpu",
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/before",
     ),
@@ -25492,7 +25492,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -25507,7 +25507,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
     process.command_argv(
       "/usr/bin/lscpu",
       argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/after",
     ),
@@ -25550,7 +25550,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -25564,7 +25564,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -25617,7 +25617,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -25631,7 +25631,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -25670,10 +25670,10 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   for source_path in [
-    /sys/devices/system/cpu/possible,
-    /sys/devices/system/cpu/present,
-    /sys/devices/system/cpu/online,
-    /sys/devices/system/cpu/offline,
+    p"/sys/devices/system/cpu/possible",
+    p"/sys/devices/system/cpu/present",
+    p"/sys/devices/system/cpu/online",
+    p"/sys/devices/system/cpu/offline",
   ] {
     guard source_path.exists() else {
       print "cpu.sets: reference unavailable (a kernel CPU set file is absent)"
@@ -25697,7 +25697,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       "/usr/bin/lscpu",
       reference_argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lscpu-before",
     ),
@@ -25712,7 +25712,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "cpu", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -25727,7 +25727,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       "/usr/bin/lscpu",
       reference_argv,
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lscpu-after",
     ),
@@ -25745,7 +25745,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     process.command_argv(
       "/usr/bin/lscpu",
       ["lscpu", "--version"],
-      cwd: /,
+      cwd: p"/",
       env: reference_env,
       stdout: fp"{scratch_path}/lscpu-version",
     ),
@@ -25793,7 +25793,7 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -25810,7 +25810,7 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "processes", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
       stderr: fp"{scratch_path}/candidate-error",
@@ -26641,7 +26641,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_cpu_set_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
@@ -26680,7 +26680,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_cpufreq_bundle(source, bundle, "live_capture")
     let capture = decode_cpufreq_capture(bundle.read_text(p"capture.json")?)?
@@ -26726,7 +26726,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_cpu_topology_bundle(source, bundle, "live_capture")
     let capture = decode_cpu_topology_capture(bundle.read_text(p"capture.json")?)?
@@ -26758,7 +26758,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_memory_bundle(source, bundle, "live_capture")
     let capture = decode_memory_capture(bundle.read_text(p"capture.json")?)?
@@ -26800,7 +26800,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_cgroup2_bundle(source, bundle, "live_capture")
     let capture = decode_cgroup2_capture(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?
@@ -26833,7 +26833,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     let units = system.execution_units()?
     capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)
@@ -26867,7 +26867,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_power_supply_bundle(source, bundle, "live_capture")
     let capture = decode_power_supply_capture(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?
@@ -26904,7 +26904,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_pressure_bundle(source, bundle, "live_capture")
     let capture = decode_pressure_capture(bundle.read_text(p"capture.json")?)?
@@ -26939,7 +26939,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_proc_swaps_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
@@ -26974,7 +26974,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_os_release_bundle(source, bundle, "live_capture")
     let capture = decode_os_release_capture(bundle.read_text(p"capture.json")?)?
@@ -27009,7 +27009,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_uptime_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
@@ -27045,7 +27045,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_dmi_identity_bundle(source, bundle, "live_capture")
     let capture = decode_dmi_identity_capture(bundle.read_text(p"capture.json")?)?
@@ -27080,7 +27080,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_device_tree_bundle(source, bundle, "live_capture")
     let capture = decode_device_tree_capture(bundle.read_text(p"capture.json")?)?
@@ -27115,7 +27115,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_kernel_command_line_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
@@ -27150,7 +27150,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_kernel_modules_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
@@ -27185,7 +27185,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_vulnerabilities_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
@@ -27220,7 +27220,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_mountinfo_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
@@ -27255,7 +27255,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_kernel_parameters_bundle(source, bundle, "live_capture")
     let capture = decode_kernel_parameters_capture(bundle.read_text(p"capture.json")?)?
@@ -27290,7 +27290,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_thermal_bundle(source, bundle, "live_capture")
     let capture = decode_thermal_capture(bundle.read_text(p"capture.json")?)?
@@ -27323,7 +27323,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_hwmon_bundle(source, bundle, "live_capture")
     let capture = decode_hwmon_capture(bundle.read_text(p"capture.json")?)?
@@ -27365,7 +27365,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_block_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(BlockBundleCapture)?
@@ -27400,7 +27400,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_powercap_bundle(source, bundle, "live_capture")
     let capture = decode_powercap_capture(bundle.read_text(p"capture.json")?)?
@@ -27433,7 +27433,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_pci_bundle(source, bundle, "live_capture")
     let capture = decode_pci_capture(bundle.read_text(p"capture.json")?)?
@@ -27474,7 +27474,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     capture_usb_bundle(source, bundle, "live_capture")
     let capture = decode_usb_capture(bundle.read_text(p"capture.json")?)?
@@ -27516,7 +27516,7 @@ export proc validate_and_run(
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()
-    let source = fs.open_root(/)?
+    let source = fs.open_root(p"/")?
     defer source.close()
     let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let captured = smbios_module.capture_smbios_bundle(source, bundle, "live_capture")?

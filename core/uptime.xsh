@@ -153,7 +153,7 @@ proc boot_from_file(file: Path, now: Int) [fs, process, env, error] -> Boot {
 proc boot_from_host() [fs, process, env, error] -> Boot {
   var users = 0
 
-  if let Ok(records) = read_sessions(/var/run/utmp) {
+  if let Ok(records) = read_sessions(p"/var/run/utmp") {
     users = [entry for entry in records if entry.kind == "user_process" and entry.user != ""].len()
   }
 

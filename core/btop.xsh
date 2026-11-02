@@ -257,7 +257,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] {
   let session = terminal.begin()?
   defer { terminal.finish(session) }
 
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   let units = system.execution_units()?
   var previous: model.Observation? = null

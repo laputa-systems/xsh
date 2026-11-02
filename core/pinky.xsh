@@ -198,7 +198,7 @@ proc read_accounts() [fs, env, error] -> List[auth.PasswdEntry] {
 proc utmp_path() [env] -> Path {
   let named = env_text("XSH_UTMP_FILE") ?? ""
 
-  if named == "" { /var/run/utmp } else { fp"{named}" }
+  if named == "" { p"/var/run/utmp" } else { fp"{named}" }
 }
 
 # User sessions only. A missing or unreadable file lists nobody, as glibc does,

@@ -49,7 +49,7 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   root.write(fp"sys/devices/{disk}/queue/scheduler", "[none] mq-deadline\n")
   root.write(fp"sys/devices/{disk}/stat", "1 2 3 4 5 6 7 8 9 10 11\n")
   add_device(root, "dm-0", "virtual/block/dm-0", "253:0", "512")
-  root.symlink(target: ../../../../../../../../virtual/block/dm-0, path: fp"sys/devices/{disk}/nvme0n1p2/holders/dm-0")
+  root.symlink(target: p"../../../../../../../../virtual/block/dm-0", path: fp"sys/devices/{disk}/nvme0n1p2/holders/dm-0")
   root.symlink(target: fp"../../../../{disk}/nvme0n1p2", path: p"sys/devices/virtual/block/dm-0/slaves/nvme0n1p2")
 
   let inventory = block.collect(root)

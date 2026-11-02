@@ -116,7 +116,7 @@ proc mark(value: Str) -> Str {
 env XSH_STATEMENT_A=${mark("first")} XSH_STATEMENT_B=${mark("second")} {
   print e"XSH_STATEMENT_A"? e"XSH_STATEMENT_B"?
 }
-let search_paths = [/one, /two]
+let search_paths = [p"/one", p"/two"]
 env XSH_STATEMENT_PATHS=$search_paths {
   assert env.PathList.XSH_STATEMENT_PATHS? == search_paths
 }

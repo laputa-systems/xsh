@@ -3470,7 +3470,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
 
   if hyper {
     host = system.hostname() ?? ""
-    cwd = (fs.cwd() ?? /).display()
+    cwd = (fs.cwd() ?? p"/").display()
   }
 
   let formats = if long { time_formats(cfg) } else { ["%b %e  %Y", "%b %e %H:%M"] }

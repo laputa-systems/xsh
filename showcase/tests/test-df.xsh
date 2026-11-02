@@ -1,5 +1,5 @@
 test test_showcase_df_root {
-  let root_mount = fs.mount_for(/)?
+  let root_mount = fs.mount_for(p"/")?
   let output = run.text "xsh" "showcase/df.xsh" -- /
   assert "Filesystem" in output
   assert "Mounted on" in output

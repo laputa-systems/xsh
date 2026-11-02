@@ -189,7 +189,7 @@ test test_io_flush_stdout_reports_full_device { |ctx|
   if ! (p"/dev/full".exists() ?? false) {
     test.skip("/dev/full is unavailable")
   }
-  assert fs.stat(/dev/full)?.kind == "char", "/dev/full must be a device"
+  assert fs.stat(p"/dev/full")?.kind == "char", "/dev/full must be a device"
   let root = test.temp_dir(ctx)?
   let script = fp"{root}/full-stdout.xsh"
   script.write("""

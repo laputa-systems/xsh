@@ -225,7 +225,7 @@ export proc compare_live_sensors_json(
     process.command_argv(
       executable,
       [executable, "-v"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/version",
       stderr: fp"{scratch_path}/version-error",
@@ -251,7 +251,7 @@ export proc compare_live_sensors_json(
     process.command_argv(
       executable,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/before",
       stderr: fp"{scratch_path}/before-error",
@@ -262,7 +262,7 @@ export proc compare_live_sensors_json(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),
@@ -271,7 +271,7 @@ export proc compare_live_sensors_json(
     process.command_argv(
       executable,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/after",
       stderr: fp"{scratch_path}/after-error",

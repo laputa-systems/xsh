@@ -30,7 +30,7 @@ pure parse_getty_args(argv: List[Str]) -> Result[GettyOptions] {
       issue_file: {
         form: "-f --issue-file FILE",
         kind: "Path",
-        default: /etc/issue,
+        default: p"/etc/issue",
       },
       login: {
         form: "-l --login-program PROGRAM",

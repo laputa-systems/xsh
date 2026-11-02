@@ -568,7 +568,7 @@ test test_stty_reports_a_full_device { |ctx|
   let pty = with_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
-  let result = stty_plain(ctx, ["--file", pty.name], sink: /dev/full)?
+  let result = stty_plain(ctx, ["--file", pty.name], sink: p"/dev/full")?
   assert result.status == 1
   assert result.stderr == "stty: write error: No space left on device\n", result.stderr
 }

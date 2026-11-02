@@ -915,7 +915,7 @@ test test_filesystem_package_policy_apis { |ctx|
   assert removed.removed == 1
   assert removed.pruned_dirs == 2
   assert ! installed.exists()?
-  test.error_kind(fs.remove_manifest(fp"{root}/image", [../escape], missing_ok: true), "fs-remove-manifest")
+  test.error_kind(fs.remove_manifest(fp"{root}/image", [p"../escape"], missing_ok: true), "fs-remove-manifest")
   test.error_kind(fs.copy_tree(src, fp"{root}/copy"), "fs-copy-tree")
 }
 

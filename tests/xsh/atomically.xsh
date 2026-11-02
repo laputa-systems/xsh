@@ -136,7 +136,7 @@ test test_fs_temp_sibling_names_an_unused_hidden_path_and_creates_nothing { |ctx
   let relative = fs.temp_sibling(p"missing-directory/out")?
   assert relative.parent() == p"missing-directory"
   assert fs.temp_sibling(p"out")?.parent() == p"out".parent()
-  assert fs.temp_sibling(/) is Err(_)
+  assert fs.temp_sibling(p"/") is Err(_)
 }
 
 proc publish(dest: Path, how: Str) [fs, error] -> Result[Str] {

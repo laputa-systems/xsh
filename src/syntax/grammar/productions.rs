@@ -1725,7 +1725,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("resource_scope"),
                 r("builder_call"),
                 r("item_expression"),
-                r("bare_path"),
             ]),
         ),
         rule(Expressions, "codec_schema_call", codec_schema_call(false)),
@@ -2099,22 +2098,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     not([
                         vec![term(Class::Member, false)],
                         vec![tag_term(T::Dot)],
-                        vec![glued_tag_term(T::Slash)],
                     ]),
                 ]),
-            ]),
-        ),
-        rule(
-            Expressions,
-            "bare_path",
-            seq([
-                alt([
-                    t(T::Slash),
-                    seq([t(T::Dot), g(T::Slash)]),
-                    seq([t(T::Dot), g(T::Dot), g(T::Slash)]),
-                ]),
-                star(gclass(Class::PathPart)),
-                not([vec![term(Class::PathPart, true)]]),
             ]),
         ),
         rule(

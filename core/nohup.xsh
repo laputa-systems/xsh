@@ -67,7 +67,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let output_terminal = unix.isatty(1)
   let error_terminal = unix.isatty(2)
   if input_terminal {
-    if let Err(failure) = unix.redirect_fd(0, /dev/null, write: true) {
+    if let Err(failure) = unix.redirect_fd(0, p"/dev/null", write: true) {
       gnu.error(f"failed to render standard input unusable: {gnu.strerror(failure)}")
       exit failure_status
     }

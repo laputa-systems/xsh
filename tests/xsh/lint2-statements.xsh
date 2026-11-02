@@ -267,7 +267,7 @@ let dashed = env.get("NOT-AN-IDENT") ?? ""
 let key = "HOME"
 let computed = env.get(key) ?? ""
 let fallback = env.get_or("HOME", "/")?
-let dir = env.Path.HOME ?? /
+let dir = env.Path.HOME ?? p"/"
 print $home $login $named $nested $dashed $computed $fallback $dir
 """,
   )?
@@ -285,7 +285,7 @@ let dashed = env.get("NOT-AN-IDENT") ?? ""
 let key = "HOME"
 let computed = env.get(key) ?? ""
 let fallback = env.get_or("HOME", "/")?
-let dir = env.Path.HOME ?? /
+let dir = env.Path.HOME ?? p"/"
 print $home $login $named $nested $dashed $computed $fallback $dir
 """
   assert_checked(file)

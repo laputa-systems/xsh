@@ -6,10 +6,10 @@ test test_linux_fake_covers_module_surface { |ctx|
   seed.write("seed")
 
   test.linux_fake(ctx, {log: log})
-  linux.write_device(/dev/urandom, seed)
-  linux.read_device(/dev/urandom, random, bytes: 4)
-  linux.mount(b"proc", /proc, fstype: "proc", options: ["nosuid"])
-  linux.mount(b"proc\xff", /proc, fstype: "proc")
+  linux.write_device(p"/dev/urandom", seed)
+  linux.read_device(p"/dev/urandom", random, bytes: 4)
+  linux.mount(b"proc", p"/proc", fstype: "proc", options: ["nosuid"])
+  linux.mount(b"proc\xff", p"/proc", fstype: "proc")
   linux.mount_all()
   linux.umount_all(types: ["tmpfs"])
   linux.swapon_all()
@@ -36,8 +36,8 @@ test test_linux_fake_covers_module_surface { |ctx|
   assert linux.meminfo()?.total > 0
   assert linux.modules()?.collect()[0].name == "xsh_demo"
   assert "xsh" in linux.dmesg()?.collect()[0]
-  assert linux.is_mountpoint(/proc)?
-  assert linux.disk_usage(/)?.collect()[0].device == "rootfs"
+  assert linux.is_mountpoint(p"/proc")?
+  assert linux.disk_usage(p"/")?.collect()[0].device == "rootfs"
   assert linux.block_devices()?.collect()[0].name == "vda"
   let sysctl_value = linux.sysctl_get("kernel.pid_max")?
   assert sysctl_value == "1"
@@ -52,7 +52,7 @@ test test_linux_fake_covers_module_surface { |ctx|
   linux.insmod(fp"{root}/demo.ko", params: "debug=1")
   linux.rmmod("demo", force: true)
   linux.pivot_root(root, fp"{root}/oldroot")
-  linux.switch_root(root, /sbin/init)
+  linux.switch_root(root, p"/sbin/init")
   let epoch_ms = linux.hwclock()?
   linux.set_hwclock(epoch_ms)
   linux.set_system_clock(epoch_ms)
@@ -87,7 +87,7 @@ test test_linux_fake_covers_module_surface { |ctx|
     break
   }
 
-  linux.sysctl_load_dirs([/etc/sysctl.d], fallback: /etc/sysctl.conf)
+  linux.sysctl_load_dirs([p"/etc/sysctl.d"], fallback: p"/etc/sysctl.conf")
   linux.kill_all(signal: "TERM", except_pid1: true)
   linux.halt()
   linux.poweroff()
@@ -188,7 +188,7 @@ test test_linux_fake_text_values_and_log { |ctx|
 test test_linux_fake_disk_usage_and_sysctl_records { |ctx|
   test.linux_fake(ctx, {sysctl_value: "65535"})
   let root_usage = linux.disk_usage()?.collect()
-  let tmp_usage = linux.disk_usage(/tmp)?.collect()
+  let tmp_usage = linux.disk_usage(p"/tmp")?.collect()
   assert root_usage[0].device == "rootfs"
   assert root_usage[0].mount == "/"
   assert root_usage[0].fstype == "tmpfs"
@@ -196,8 +196,8 @@ test test_linux_fake_disk_usage_and_sysctl_records { |ctx|
   assert root_usage[0].used == 268435456
   assert root_usage[0].available == 805306368
   assert tmp_usage[0].mount == "/tmp"
-  assert linux.is_mountpoint(/proc)?
-  assert ! linux.is_mountpoint(/tmp)?
+  assert linux.is_mountpoint(p"/proc")?
+  assert ! linux.is_mountpoint(p"/tmp")?
   assert linux.sysctl_get("kernel.pid_max")? == "65535"
 }
 
@@ -246,7 +246,7 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
   }
 
   for flags in [-1, 4294967296] {
-    match linux.set_file_attrs(/tmp/file, flags) {
+    match linux.set_file_attrs(p"/tmp/file", flags) {
       Ok(_) => assert false, "invalid file attribute flags were accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-file-attrs")
@@ -255,7 +255,7 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
     }
   }
 
-  match linux.set_file_version(/tmp/file, -1) {
+  match linux.set_file_version(p"/tmp/file", -1) {
     Ok(_) => assert false, "invalid file version was accepted"
     Err(failure) => {
       test.error_kind(failure, "linux-file-version")
@@ -264,7 +264,7 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
   }
 
   test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")
-  match linux.mknod(/tmp/file, "socket", 0, 0) {
+  match linux.mknod(p"/tmp/file", "socket", 0, 0) {
     Ok(_) => assert false, "invalid node kind was accepted"
     Err(failure) => {
       test.error_kind(failure, "linux-mknod")

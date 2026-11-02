@@ -489,9 +489,9 @@ fn parser_accepts_path_literals_and_expr_env_blocks() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
         "\
-let root = ./src
-let cc = /usr/bin/cc
-let parent = ../src/main.c
+let root = p\"./src\"
+let cc = p\"/usr/bin/cc\"
+let parent = p\"../src/main.c\"
 env ({
   HOME: root,
   JOBS: cpu.count(),
@@ -531,10 +531,10 @@ fn parser_keeps_bare_paths_contextual_with_division() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
         "\
-let rel = ./x
-let parent = ../x
-let root=/tmp
-let paths = [/tmp/a, /tmp/b]
+let rel = p\"./x\"
+let parent = p\"../x\"
+let root=p\"/tmp\"
+let paths = [p\"/tmp/a\", p\"/tmp/b\"]
 let ratio = 1/2
 let spaced = 1 / 2
 ",

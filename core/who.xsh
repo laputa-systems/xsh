@@ -432,7 +432,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     hard_time: hard_time_locale(),
   )
 
-  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { /var/run/utmp }
+  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { p"/var/run/utmp" }
   let listed = read_sessions(file)
   let sessions = if opts.files.len() == 1 { listed } else { with_boot_record(drop_dead_sessions(listed), file) }
 

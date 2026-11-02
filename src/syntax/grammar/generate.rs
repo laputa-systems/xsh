@@ -565,17 +565,6 @@ impl<'g> Generator<'g> {
                 let (tag, text) = options[self.below(length)];
                 (tag, None, text.to_string())
             }
-            Class::PathPart => {
-                let options: [(TokenTag, &str); 5] = [
-                    (TokenTag::Ident, "usr"),
-                    (TokenTag::Ident, "bin"),
-                    (TokenTag::Slash, "/"),
-                    (TokenTag::Int, "1"),
-                    (TokenTag::Dot, "."),
-                ];
-                let (tag, text) = options[self.below(options.len())];
-                (tag, None, text.to_string())
-            }
         }
     }
 }

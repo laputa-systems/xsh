@@ -379,7 +379,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
     run_hook(command, physical, stanza, "pre-up", verbose)
   }
 
-  run_parts(/etc/network/if-pre-up.d, physical, stanza, "pre-up", verbose)
+  run_parts(p"/etc/network/if-pre-up.d", physical, stanza, "pre-up", verbose)
 
   match stanza.method {
     "loopback" | "manual" => {
@@ -399,7 +399,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
     run_hook(command, physical, stanza, "post-up", verbose)
   }
 
-  run_parts(/etc/network/if-up.d, physical, stanza, "post-up", verbose)
+  run_parts(p"/etc/network/if-up.d", physical, stanza, "post-up", verbose)
   mark_configured(state_path, physical, stanza.logical)
 }
 

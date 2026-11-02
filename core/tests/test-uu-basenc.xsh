@@ -39,7 +39,7 @@ test test_uu_basenc_base16_decode_lowercase { |ctx|
 test test_uu_basenc_base16_write_error_is_reported { |ctx|
   let s = uu.scene(ctx)?
   # Buffered output must report the write error when it is flushed.
-  let r = uu.invoke(s, "basenc", ["--base16"], stdin: b"Hello, World!", stdout: /dev/full)?
+  let r = uu.invoke(s, "basenc", ["--base16"], stdin: b"Hello, World!", stdout: p"/dev/full")?
   uu.fails(r)
   uu.stderr_is(r, "basenc: write error: No space left on device\n")
 }

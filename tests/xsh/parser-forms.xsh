@@ -91,8 +91,6 @@ test test_newline_without_an_operator_ends_the_statement { |ctx|
 test test_line_starting_with_a_statement_token_starts_a_new_statement { |ctx|
   let cases = [
     {line: "-1", carets: "^^", code: "check.ignored-result"},
-    {line: "/tmp/x", carets: "^^^^^^", code: "check.ignored-result"},
-    {line: "./x", carets: "^^^", code: "check.ignored-result"},
     {line: "is_ok(1)", carets: "^^^^^^^^", code: "check.bool-statement"},
   ]
   for {line, carets, code} in cases {
@@ -104,6 +102,12 @@ test test_line_starting_with_a_statement_token_starts_a_new_statement { |ctx|
     assert f"err[{code}]" in stderr, f"{line}: {stderr}"
     assert f":3:1\n  {line}\n  {carets} " in stderr, f"{line}: {stderr}"
     assert stderr.split("err[").len() == 2, f"{line}: {stderr}"
+  }
+  for {line, carets} in [{line: "/tmp/x", carets: "^^^^^^"}, {line: "./x", carets: "^^^"}] {
+    let stderr = check_output(ctx, f"let value = 1\n{line}\nlet same: Int = value\n")?
+    assert stderr.split("err[").len() == 2, f"{line}: {stderr}"
+    assert "err[parse.bare-path-literal]" in stderr, f"{line}: {stderr}"
+    assert f":2:1\n  {line}\n  {carets} " in stderr, f"{line}: {stderr}"
   }
 }
 

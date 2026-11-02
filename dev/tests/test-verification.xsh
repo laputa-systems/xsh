@@ -53,7 +53,7 @@ test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
 }
 
 test test_distribution_product_paths_are_stable {
-  let target_dir = /repo/target
+  let target_dir = p"/repo/target"
   assert distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh") == "/repo/target/x86_64-unknown-linux-musl/release/xsh"
   assert distributions.distribution_product_path(target_dir, "aarch64-unknown-linux-musl", "xsht") == "/repo/target/aarch64-unknown-linux-musl/dist/xsht"
 }

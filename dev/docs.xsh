@@ -254,7 +254,7 @@ proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -
     let stdout = fp"{capture.host_path()?}/stdout"
   let stderr = fp"{capture.host_path()?}/stderr"
   let argv = ["-i", f"PATH={search_path}", xsh.display(), file.display()]
-  let plan = process.command_argv(/usr/bin/env, argv, cwd: sandbox.host_path()?, stdout:, stderr:, timeout: 60s)
+  let plan = process.command_argv(p"/usr/bin/env", argv, cwd: sandbox.host_path()?, stdout:, stderr:, timeout: 60s)
   guard process.run(plan)?.ok else {
     return Err(DocsError.Snippet(f"{file.name()} failed: {stderr.read_text()?.trim()}"))
   }

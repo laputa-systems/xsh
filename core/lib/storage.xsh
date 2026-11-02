@@ -433,7 +433,7 @@ export pure type_matches(filesystem: Str, filter: Str) -> Bool {
 }
 
 proc mount_table() -> mounts.MountTable {
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   let table = mounts.collect(root)
   if table.source_state != .Observed { gnu.error("cannot read mount table"); exit 1 }
@@ -554,7 +554,7 @@ export proc findmnt_from_root(root: FsRoot, argv: List[Str]) {
 }
 
 proc findmnt(argv: List[Str]) {
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   findmnt_from_root(root, argv)
 }
@@ -659,7 +659,7 @@ export proc lsblk_from_root(root: FsRoot, argv: List[Str]) {
 }
 
 proc lsblk(argv: List[Str]) {
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   lsblk_from_root(root, argv)
 }

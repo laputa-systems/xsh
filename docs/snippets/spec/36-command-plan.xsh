@@ -1,5 +1,5 @@
 let plan = process.command {
-  cwd = /srv/app
+  cwd = p"/srv/app"
   env = {RUST_LOG: "info"}
   timeout = 30s
   run /srv/app/server --port 8080

@@ -172,7 +172,7 @@ test test_uptime_reports_a_full_device { |ctx|
     test.skip("/dev/full is not available")
   }
 
-  let result = uptime_run(ctx, [], sink: /dev/full)?
+  let result = uptime_run(ctx, [], sink: p"/dev/full")?
   assert result.status == 1
   assert result.stderr == "uptime: write error: No space left on device\n", result.stderr
 }

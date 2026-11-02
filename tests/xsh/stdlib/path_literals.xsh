@@ -29,8 +29,8 @@ test test_string_literal_is_a_path_where_a_path_is_expected {
   assert leaf("c/d") == "d"
   assert fixed_path() == p"ret/urn"
   assert under() == "dir"
-  assert install_prefix == /usr/local
-  assert search_roots == [/a, /b]
+  assert install_prefix == p"/usr/local"
+  assert search_roots == [p"/a", p"/b"]
 
   let many: List[Path] = ["x/1", "x/2"]
   assert many[1].name() == "2"
@@ -40,7 +40,7 @@ test test_string_literal_is_a_path_where_a_path_is_expected {
   assert (absent ?? "fall/back") == p"fall/back"
 
   let layout = Layout(label: "x")
-  assert layout.root == /srv
+  assert layout.root == p"/srv"
   let explicit = Layout(root: "/opt", label: "y")
   assert explicit.root.name() == "opt"
 }
@@ -140,8 +140,8 @@ test test_path_display_equality_lint_drops_the_conversion { |ctx|
   print $repo $other $lossy
 }
 
-show(/repo/x)
-show(/repo/y)
+show(p"/repo/x")
+show(p"/repo/y")
 show(Path.parse_bytes(b"bad\xffname")?)
 """
   let candidate = test.temp_file(ctx, name: "path-display-equality.xsh", contents: bytes.from_text(source))?
@@ -160,8 +160,8 @@ show(Path.parse_bytes(b"bad\xffname")?)
   print $repo $other $lossy
 }
 
-show(/repo/x)
-show(/repo/y)
+show(p"/repo/x")
+show(p"/repo/y")
 show(Path.parse_bytes(b"bad\xffname")?)
 """
   let before = test.run_script(ctx, source)?

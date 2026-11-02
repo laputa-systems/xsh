@@ -1147,7 +1147,7 @@ export proc corroborate_smbios_bundle(
     process.command_argv(
       executable,
       version_argv,
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/version",
       stderr: fp"{scratch_path}/version-error",
@@ -1200,7 +1200,7 @@ export proc corroborate_smbios_bundle(
     process.command_argv(
       executable,
       argv,
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/output",
       stderr: fp"{scratch_path}/error",
@@ -1297,7 +1297,7 @@ export proc compare_live_smbios(
     return Err(smbios_check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let source = fs.open_root(/)?
+  let source = fs.open_root(p"/")?
   defer source.close()
   let scratch = fs.tempdir()?
   defer scratch.close()
@@ -1311,7 +1311,7 @@ export proc compare_live_smbios(
     process.command_argv(
       xsh_bin,
       [xsh_bin, script, "--", "--section", "firmware", "--sensitive", "--json"],
-      cwd: /,
+      cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/candidate",
     ),

@@ -23,7 +23,7 @@ proc inventory(opts: Options) {
   if selector.class != null or selector.program != null { gnu.usage_error("USB identifiers accept vendor:product only") }
   if opts.tree and (opts.ids != "" or slot != "") { gnu.usage_error("USB tree output cannot be combined with device selectors") }
   let names = hardware.load_labels([p"/usr/share/hwdata/usb.ids", p"/usr/share/misc/usb.ids", p"/var/lib/usbutils/usb.ids"])?
-  let root = fs.open_root(/)?
+  let root = fs.open_root(p"/")?
   defer root.close()
   let collected = usb.collect(root)
   if ! collected.enumeration_succeeded { gnu.error("cannot enumerate USB devices"); exit 1 }

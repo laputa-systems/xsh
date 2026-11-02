@@ -1,4 +1,4 @@
-const log_dir = /var/log/nginx
+const log_dir = p"/var/log/nginx"
 const today = p"access.log"
 let rotated = fp"{log_dir}/{today}.1"
 

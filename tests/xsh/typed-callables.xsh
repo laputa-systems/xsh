@@ -39,7 +39,7 @@ proc inferred_build(root: Path) -> Result[Str] {
   Ok(f"inferred {root} {present}")
 }
 
-proc defaulted_build(root = /default) [error] -> Result[Str] {
+proc defaulted_build(root = p"/default") [error] -> Result[Str] {
   Ok(f"defaulted {root}")
 }
 
@@ -254,9 +254,9 @@ proc run_top_level(root: Path) [fs, process, error] -> Result[Str] {
 test test_typed_callable_selected_by_if_is_called_with_checked_arguments {
   let debug: Builder = if true { debug_build } else { release_build }
   let release: Builder = if false { debug_build } else { release_build }
-  assert debug(/src)? == "debug /src"
-  assert release(/src)? == "release /src false"
-  assert release(root: /src)? == "release /src false"
+  assert debug(p"/src")? == "debug /src"
+  assert release(p"/src")? == "release /src false"
+  assert release(root: p"/src")? == "release /src false"
   # A string literal takes the parameter's `Path` type, as in a call by name.
   assert debug("/literal")? == "debug /literal"
 }
@@ -352,26 +352,26 @@ test test_typed_callable_with_initial_failure_binding_keeps_its_checked_type {
 }
 
 test test_typed_callable_is_returned_passed_and_stored {
-  assert choose(true)(/a)? == "debug /a"
-  assert choose_by_name("inferred")(/a)? == "inferred /a false"
-  assert run_with(choose(false), /b)? == "release /b false"
-  assert run_with(debug_build, root: /c)? == "debug /c"
-  assert run_inferred(inferred_build, /d)? == "inferred /d false"
-  assert run_default(/e)? == "debug /e"
-  assert run_default(/e, build: release_build)? == "release /e false"
-  assert run_top_level(/f)? == "release /f false"
+  assert choose(true)(p"/a")? == "debug /a"
+  assert choose_by_name("inferred")(p"/a")? == "inferred /a false"
+  assert run_with(choose(false), p"/b")? == "release /b false"
+  assert run_with(debug_build, root: p"/c")? == "debug /c"
+  assert run_inferred(inferred_build, p"/d")? == "inferred /d false"
+  assert run_default(p"/e")? == "debug /e"
+  assert run_default(p"/e", build: release_build)? == "release /e false"
+  assert run_top_level(p"/f")? == "release /f false"
 
   let chosen = choose(true)
-  assert chosen(/g)? == "debug /g"
+  assert chosen(p"/g")? == "debug /g"
 
   var current: Builder = debug_build
   current = release_build
-  assert current(/h)? == "release /h false"
+  assert current(p"/h")? == "release /h false"
 
   let builders: List[Builder] = [debug_build, release_build, inferred_build]
   var seen = []
   for build in builders {
-    seen = [@seen, build(/i)?]
+    seen = [@seen, build(p"/i")?]
   }
 
   assert seen == ["debug /i", "release /i false", "inferred /i false"]
@@ -397,15 +397,15 @@ test test_typed_callable_record_field_is_called_like_a_method {
   assert updated.nested.callback(4) == 8
 
   let step = Step(name: "release", build: release_build, scale: double)
-  assert step.build(/a)? == "release /a false"
+  assert step.build(p"/a")? == "release /a false"
   assert step.scale(21) == 42
 
   let debug = Step(name: "debug", build: debug_build, scale: triple)
-  assert debug.build(root: /b)? == "debug /b"
+  assert debug.build(root: p"/b")? == "debug /b"
   assert debug.scale(n: 2) == 6
 
   let field = step.build
-  assert field(/c)? == "release /c false"
+  assert field(p"/c")? == "release /c false"
 }
 
 test test_typed_callable_fields_on_narrowed_optional_records {
@@ -608,13 +608,13 @@ test test_typed_callable_is_called_inside_stage_blocks {
 
 test test_function_with_defaults_fits_and_is_called_with_every_argument {
   let build: Builder = defaulted_build
-  assert build(/explicit)? == "defaulted /explicit"
+  assert build(p"/explicit")? == "defaulted /explicit"
 }
 
 test test_typed_callable_fits_the_dynamic_handle_of_its_kind {
   let build: Builder = debug_build
   let dynamic: Proc = build
-  let text = dynamic.call(/a)?.require(Str)?
+  let text = dynamic.call(p"/a")?.require(Str)?
   assert text == "debug /a"
 
   let scale: Scale = double
@@ -699,15 +699,15 @@ test test_alias_that_kept_its_signature_fits_a_callable_type {
   let alias = release_build
   let build: Builder = alias
   let chosen: Builder = if true { alias } else { debug_build }
-  assert build(/a)? == "release /a false"
-  assert chosen(/b)? == "release /b false"
+  assert build(p"/a")? == "release /a false"
+  assert chosen(p"/b")? == "release /b false"
 }
 
 test test_record_spread_keeps_a_compatible_callable_field {
   let specific: SpecificBuilderRecord = SpecificBuilderRecord(release_build)
   let spread = {...specific}
   let widened: BuilderRecord = spread
-  assert widened.build(/a)? == "release /a false"
+  assert widened.build(p"/a")? == "release /a false"
 }
 
 proc check_errors(ctx: TestContext, source: Str) [fs, process, env, error] -> Result[Str] {

@@ -21,7 +21,6 @@ use xsh::frontend::syntax::grammar;
 use xsh::frontend::syntax::grouping::{self, Context, Follow, FollowToken};
 use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
-use xsh::frontend::syntax::literal;
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, FormatSpecKind, RedirectionKind, RunKind, UnaryOp,
 };
@@ -2787,17 +2786,8 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaExprKind::PathStr(value) => {
-                let value = self.arena.string_literal(*value);
-                // A bare path takes in an adjacent suffix.
-                if let Some(path) = bare_path_literal_text(value).filter(|_| {
-                    !context.follow.adjacent
-                        && !matches!(context.slot, grouping::Slot::CommandTarget { .. })
-                }) {
-                    output.push_str(path);
-                } else {
-                    output.push('p');
-                    write_quoted(value, output);
-                }
+                output.push('p');
+                write_quoted(self.arena.string_literal(*value), output);
             }
             ArenaExprKind::GlobStr(value) => {
                 output.push('g');
@@ -5604,14 +5594,6 @@ fn should_escape_dollar(next: Option<char>, command_shorthand: bool) -> bool {
 
 fn is_identifier_start(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphabetic()
-}
-
-fn bare_path_literal_text(value: &str) -> Option<&str> {
-    if literal::can_be_bare_path_literal(value) {
-        Some(value)
-    } else {
-        None
-    }
 }
 
 fn write_bytes(value: &[u8], output: &mut String) {

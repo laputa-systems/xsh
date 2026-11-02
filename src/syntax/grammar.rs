@@ -95,8 +95,8 @@ pub struct BinaryOperator {
     pub associativity: Associativity,
     pub family: OperatorFamily,
     /// Whether a line that begins with this operator continues the previous
-    /// line's expression. `-` (negation) and `/` (an absolute path) can begin
-    /// a statement, so a line starting with them never continues.
+    /// line's expression. `-` (negation) can begin a statement, and `/` never
+    /// continues a line, so a line starting with either starts a statement.
     pub continues_line: bool,
 }
 
@@ -910,8 +910,6 @@ pub enum Class {
     WordPart(bool),
     /// A closing parenthesis usable as a run boundary inside an expression group.
     GroupedEnd(bool),
-    /// A token made only of bare-path characters.
-    PathPart,
 }
 
 impl Class {
@@ -941,13 +939,6 @@ impl Class {
             }
             Self::WordPart(grouped) => is_word_part(token.tag, grouped),
             Self::GroupedEnd(grouped) => grouped && token.tag == TokenTag::RParen,
-            Self::PathPart => {
-                !token.text.is_empty()
-                    && token
-                        .text
-                        .chars()
-                        .all(crate::syntax::literal::is_bare_path_literal_char)
-            }
         }
     }
 }

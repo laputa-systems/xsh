@@ -57,7 +57,7 @@ test test_env_path_takes_a_string_literal_as_a_path { |ctx|
     assert "/opt/xsh-appended" in env.PATH
     assert "/usr/bin" in env.PATH
     assert "/usr" not in env.PATH
-    assert /opt/xsh-prepended in env.PATH
+    assert p"/opt/xsh-prepended" in env.PATH
   }
 
   # Text that is not a literal is not a path.

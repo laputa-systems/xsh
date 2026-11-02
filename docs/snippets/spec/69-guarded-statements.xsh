@@ -8,4 +8,4 @@ proc stage(src: Path, tmp: Path, verbose: Bool) -> Result[Int] {
   Ok(copied)
 }
 
-print ${stage(/tmp/guarded-src, /tmp/guarded-tmp, true)?}
+print ${stage(p"/tmp/guarded-src", p"/tmp/guarded-tmp", true)?}

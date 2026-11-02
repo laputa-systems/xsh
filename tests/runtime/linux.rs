@@ -246,8 +246,8 @@ copy.write(b"------")?
   test.ok(linux.meminfo()?.total > 0)?
   let modules = linux.modules()?.collect()
   test.ok(modules.len() >= 0)?
-  test.ok(linux.is_mountpoint(/)?)?
-  test.ok(linux.disk_usage(/)?.collect()[0].total > 0)?
+  test.ok(linux.is_mountpoint(p"/")?)?
+  test.ok(linux.disk_usage(p"/")?.collect()[0].total > 0)?
   let all_usage = linux.disk_usage()?.collect()
   test.ok(all_usage.len() > 0)?
   test.ok(linux.root_device()?.trim() != "")?

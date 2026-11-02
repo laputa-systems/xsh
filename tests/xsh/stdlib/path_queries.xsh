@@ -1,22 +1,22 @@
 test test_path_starts_with_and_ends_with_compare_whole_components {
-  let library = /usr/lib/libz.so
-  assert library.starts_with(/usr)
-  assert library.starts_with(/usr/lib)
+  let library = p"/usr/lib/libz.so"
+  assert library.starts_with(p"/usr")
+  assert library.starts_with(p"/usr/lib")
   assert library.starts_with(library)
-  assert ! library.starts_with(/us)
+  assert ! library.starts_with(p"/us")
   assert ! library.starts_with(p"usr")
   assert library.display().starts_with("/us")
   assert library.ends_with(p"libz.so")
   assert library.ends_with(p"lib/libz.so")
   assert library.ends_with(library)
   assert ! library.ends_with(p"z.so")
-  assert ! library.ends_with(/lib/libz.so)
+  assert ! library.ends_with(p"/lib/libz.so")
   assert ! library.ends_with(p"so")
 
   # A root prefix is the absolute-path test.
-  assert library.starts_with(/)
-  assert ! p"usr/lib".starts_with(/)
-  assert ! p"".starts_with(/)
+  assert library.starts_with(p"/")
+  assert ! p"usr/lib".starts_with(p"/")
+  assert ! p"".starts_with(p"/")
 
   # Components are read as strip_prefix reads them.
   assert p"lib//x/".starts_with(p"lib/")
@@ -24,8 +24,8 @@ test test_path_starts_with_and_ends_with_compare_whole_components {
   assert p"lib/./x".ends_with(p"lib/x")
   assert ! p"./lib/x".starts_with(p"lib")
   assert p"a/../b".starts_with(p"a/..")
-  assert agrees_with_strip_prefix(/a/b, /a)
-  assert agrees_with_strip_prefix(/a/b, /b)
+  assert agrees_with_strip_prefix(p"/a/b", p"/a")
+  assert agrees_with_strip_prefix(p"/a/b", p"/b")
   assert agrees_with_strip_prefix(p"a", p"a/b")
   assert agrees_with_strip_prefix(p"a/b", p"a/b")
   assert agrees_with_strip_prefix(p"a//b/", p"a/")
@@ -45,9 +45,9 @@ test test_path_component_queries_keep_native_bytes {
 }
 
 test test_path_component_queries_on_a_validated_dynamic_receiver {
-  let library: Any = /usr/lib/libz.so
-  assert library.require(Path)?.starts_with(/usr)
-  assert ! library.require(Path)?.starts_with(/us)
+  let library: Any = p"/usr/lib/libz.so"
+  assert library.require(Path)?.starts_with(p"/usr")
+  assert ! library.require(Path)?.starts_with(p"/us")
   assert library.require(Path)?.ends_with(p"lib/libz.so")
   assert ! library.require(Path)?.ends_with(p"z.so")
   let text: Any = "/usr/lib"
@@ -56,10 +56,10 @@ test test_path_component_queries_on_a_validated_dynamic_receiver {
 
 test test_path_component_queries_on_a_dynamic_receiver { |ctx|
   for source in [
-    "let library: Any = /usr/lib/libz.so\nassert library.starts_with(/usr)",
-    "let library: Any = /usr/lib/libz.so\nassert ! library.starts_with(/us)",
-    "let library: Any = /usr/lib/libz.so\nassert library.ends_with(p\"lib/libz.so\")",
-    "let library: Any = /usr/lib/libz.so\nassert ! library.ends_with(p\"z.so\")",
+    "let library: Any = p\"/usr/lib/libz.so\"\nassert library.starts_with(p\"/usr\")",
+    "let library: Any = p\"/usr/lib/libz.so\"\nassert ! library.starts_with(p\"/us\")",
+    "let library: Any = p\"/usr/lib/libz.so\"\nassert library.ends_with(p\"lib/libz.so\")",
+    "let library: Any = p\"/usr/lib/libz.so\"\nassert ! library.ends_with(p\"z.so\")",
     "let text: Any = \"/usr/lib\"\nassert text.starts_with(\"/us\")",
   ] {
     test.expect(ctx, source, status: 2, stderr: ["check.dynamic-boundary"])?
@@ -128,13 +128,13 @@ false false false
 }
 
 test test_path_components_split_as_the_component_queries_read {
-  assert p"/usr/lib/libz.so".components() == [/, p"usr", p"lib", p"libz.so"]
+  assert p"/usr/lib/libz.so".components() == [p"/", p"usr", p"lib", p"libz.so"]
   assert p"usr/lib".components() == [p"usr", p"lib"]
-  assert p"/".components() == [/]
+  assert p"/".components() == [p"/"]
   assert p"".components() == []
 
   # Repeated and trailing separators and an inner `.` are not components.
-  assert p"/usr//lib/".components() == [/, p"usr", p"lib"]
+  assert p"/usr//lib/".components() == [p"/", p"usr", p"lib"]
   assert p"a/./b".components() == [p"a", p"b"]
   assert p"./a/../b".components() == [p".", p"a", p"..", p"b"]
 
@@ -142,7 +142,7 @@ test test_path_components_split_as_the_component_queries_read {
   assert p"/usr//lib/".display().split("/") == ["", "usr", "", "lib", ""]
 
   # A leading run of the components is exactly a component prefix.
-  let whole = /srv/data/set/a.bin
+  let whole = p"/srv/data/set/a.bin"
   let parts = whole.components()
   assert whole.starts_with(fp"{parts[0]}{parts[1]}/{parts[2]}")
   assert parts[-1].display() == whole.name()

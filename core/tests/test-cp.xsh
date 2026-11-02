@@ -701,7 +701,7 @@ test test_cp_hardlink_source_dereference_and_existing_destination { |ctx|
 test test_cp_virtual_zero_size_files_are_copied_to_eof { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("procfs is Linux-specific") }
   let root = test.temp_dir(ctx, name: "cp-virtual")?
-  let source = /proc/version
+  let source = p"/proc/version"
   assert fs.stat(source)?.size == 0
   let dest = fp"{root}/dest"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- $source $dest

@@ -675,7 +675,7 @@ test test_ioctl_is_guarded {
   test.error_kind(linux.ioctl(fd, c.SIOCETHTOOL, ifname("lo")?, 0), "invalid-argument")
   test.error_kind(linux.ioctl(-1, c.SIOCGIFFLAGS, b"lo", 40), "invalid-argument")
 
-  let devnull = unix.open_fd(/dev/null)?
+  let devnull = unix.open_fd(p"/dev/null")?
   defer unix.close_fd(devnull)
   assert errno_of(linux.ioctl(devnull, c.SIOCGIFFLAGS, ifname("lo")?, 40)) == 25
 }

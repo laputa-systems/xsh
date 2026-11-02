@@ -3248,7 +3248,7 @@ print ${name}
                 .collect::<String>()
         );
         assert!(!text.contains("Path("), "{text}");
-        assert!(text.contains("const target_path = /srv/xsh"), "{text}");
+        assert!(text.contains("const target_path = p\"/srv/xsh\""), "{text}");
         assert_eq!(
             xsh::frontend::stdlib_preparation::parsed_modules(),
             3,

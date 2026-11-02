@@ -110,7 +110,7 @@ test test_users_reports_a_full_device { |ctx|
   }
 
   let file = session_file(ctx, [utmp_record(7, 1, "tty1", "alice")?])?
-  let result = users_run(ctx, [file.display()], sink: /dev/full)?
+  let result = users_run(ctx, [file.display()], sink: p"/dev/full")?
   assert result.status == 1
   assert result.stderr == "users: write error: No space left on device\n", result.stderr
 }

@@ -3,11 +3,11 @@ proc tempdir_early_return() [fs, error] -> Result[Path] {
     fp"{dir}/kept".write("x")
     return Ok(dir)
   }
-  Ok(/)
+  Ok(p"/")
 }
 
 test test_tempdir_binds_a_fresh_directory_removed_after_the_body {
-  var seen = /
+  var seen = p"/"
   var cleanup = ""
   tempdir dir {
     defer {
@@ -49,7 +49,7 @@ test test_tempdir_removes_on_return_loop_control_and_failure {
     assert ! dir.exists()?
   }
 
-  var failed_dir = /
+  var failed_dir = p"/"
   let failed = try {
     tempdir dir {
       failed_dir = dir
@@ -57,7 +57,7 @@ test test_tempdir_removes_on_return_loop_control_and_failure {
     }
   }
   assert failed is Err(_)
-  assert failed_dir != /
+  assert failed_dir != p"/"
   assert ! failed_dir.exists()?
 }
 

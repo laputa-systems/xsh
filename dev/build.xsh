@@ -10,8 +10,8 @@ use test_workflows as tests
 export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit, Error] {
   return when ctx.host_os != .Linux or ! ctx.target.static_musl
 
-  let libc = /usr/lib/libc.so
-  let libgcc = /usr/lib/libgcc_s.so.1
+  let libc = p"/usr/lib/libc.so"
+  let libgcc = p"/usr/lib/libgcc_s.so.1"
 
   return when ! libc.exists() or ! libgcc.exists()
 

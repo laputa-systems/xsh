@@ -275,7 +275,7 @@ export proc read_link(s: Scene, name: Str) [fs, error] -> Result[Str, Error] {
 
 ## Appends UTF-8 text without reading or truncating the file, creating it if absent.
 export proc append(s: Scene, name: Str, content: Str) [fs, process, io, error] -> Result[Unit, Error] {
-  let fd = unix.open_fd(/dev/null)?
+  let fd = unix.open_fd(p"/dev/null")?
   var open = true
   defer { if open { unix.close_fd(fd) } }
   unix.redirect_fd(fd, fp"{s.root}/{name}", write: true, append: true)

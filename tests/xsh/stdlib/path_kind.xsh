@@ -30,7 +30,7 @@ test test_path_kind_predicates_ask_what_the_path_itself_is { |ctx|
   assert fp"{to_dir}/..".is_dir()?
 
   # Any other kind of entry is none of the three.
-  let device = /dev/null
+  let device = p"/dev/null"
   assert device.metadata()?.kind == "other"
   assert ! device.is_file()?
   assert ! device.is_dir()?
@@ -45,7 +45,7 @@ test test_path_kind_predicates_agree_with_metadata_kind { |ctx|
   dir.mkdir()
   file.write("text")
   link.symlink(to: file)
-  for entry in [dir, file, link, /dev/null] {
+  for entry in [dir, file, link, p"/dev/null"] {
     let kind = entry.metadata()?.kind
     assert entry.is_dir()? == (kind == "dir")
     assert entry.is_file()? == (kind == "file")

@@ -740,10 +740,6 @@ pub(crate) fn scan_bare_path_at(source: &str, start: usize) -> Option<usize> {
     (end > start).then_some(end)
 }
 
-pub fn can_be_bare_path_literal(value: &str) -> bool {
-    scan_bare_path_at(value, 0).is_some_and(|end| end == value.len())
-}
-
 pub(crate) fn is_escaped(bytes: &[u8], offset: usize) -> bool {
     let mut index = offset;
     let mut count = 0usize;

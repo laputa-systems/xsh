@@ -30,7 +30,7 @@ with item = Ok("runtime"), copied = Ok(item) {
 test test_resource_initializers_resolve_preceding_handles { |ctx|
   test.expect(
     ctx,
-    r"""const root = /not-a-resource
+    r"""const root = p"/not-a-resource"
 with root = fs.tempdir()?, view = fs.open_root(root.host_path()?)? {
   assert view.exists(p".")?
 }

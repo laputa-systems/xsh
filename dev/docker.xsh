@@ -20,7 +20,7 @@ proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTo
   return null when ctx.host_os != .Linux or ctx.host_arch != .X86_64
   return null when ctx.target.triple != "x86_64-unknown-linux-musl"
 
-  let mold = /usr/local/bin/mold
+  let mold = p"/usr/local/bin/mold"
   let cargo_home = env.get_or("CARGO_HOME", "")?.trim()
   let kache = if cargo_home == "" {
     fp"{env.get_or("HOME", "")?}/.cargo/bin/kache"

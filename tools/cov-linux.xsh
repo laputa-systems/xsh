@@ -28,7 +28,7 @@ proc cargo_bin_dir(root: Path) [process, env, error] -> Result[Path] {
     return cargo.parent()
   }
 
-  /root/.cargo/bin
+  p"/root/.cargo/bin"
 }
 
 proc rust_host() [process, error] -> Result[Str] {
@@ -152,7 +152,7 @@ proc main() [fs, process, env, error, io] {
     |> where . != ""
     |> collect()).join(" ")
 
-  let child_path = join_path([shim_dir, cargo_bin, /root/.cargo/bin, /bin, /usr/bin, /usr/local/bin, /sbin])
+  let child_path = join_path([shim_dir, cargo_bin, p"/root/.cargo/bin", p"/bin", p"/usr/bin", p"/usr/local/bin", p"/sbin"])
 
   env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path \
       RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {

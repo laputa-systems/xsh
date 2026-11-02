@@ -91,8 +91,8 @@ these tokens, none of which can begin a statement (the item expression
 
 {{.grammar.continuation}}
 
-A line that starts with `-` (negation) or `/` (an absolute path) starts a new
-statement; to split around them, end the first line with the operator.
+A line that starts with `-` (negation) starts a new statement; to split
+around `-` or `/`, end the first line with the operator.
 
 ## Expressions before a block
 

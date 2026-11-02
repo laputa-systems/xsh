@@ -21,7 +21,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   let uname = system.uname()?
   let uptime = unix.uptime_seconds()?
   let memory = system.memory()?
-  let root = fs.mount_for(/)?
+  let root = fs.mount_for(p"/")?
   let mem_used = memory.total - memory.available
   print f"{current.name}@{host}"
   print f"OS      {os.pretty_name}"

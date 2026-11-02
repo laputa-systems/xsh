@@ -46,7 +46,7 @@ pure returned(value: Str) -> Result[Str] {
 }
 
 proc path_value() -> Result[Path] {
-  ./target/value
+  p"./target/value"
 }
 
 let one = label("ok")?

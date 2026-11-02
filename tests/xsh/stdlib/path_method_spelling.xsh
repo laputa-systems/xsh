@@ -40,7 +40,7 @@ proc publish(root: Path) [fs, error] {
   print $order $moved $kept $kind $mode $runnable
   fs.write_atomic("ROOT/literal", "text")
   fs.remove(
-    /ROOT_BARE/literal,
+    p"/ROOT_BARE/literal",
   )
   fs.remove(fp"{root}/moved")
   fs.remove(fp"{log}.copy")

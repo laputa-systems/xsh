@@ -173,7 +173,7 @@ test test_seq_option_errors_and_infinite_sequences_stream { |ctx|
     root,
     {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"},
     b"",
-    /dev/full,
+    p"/dev/full",
     stderr,
     timeout: 2s,
   )
@@ -193,7 +193,7 @@ test test_seq_reports_stdout_errors_before_expanding_the_remaining_numbers { |ct
     root,
     {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"},
     b"",
-    /dev/full,
+    p"/dev/full",
     stderr,
     timeout: 2s,
   )

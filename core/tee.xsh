@@ -136,13 +136,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     resolve_mode(opts.output_error)
   }
 
-  let original = unix.open_fd(/dev/null)?
+  let original = unix.open_fd(p"/dev/null")?
   unix.dup_fd(1, original)
   var outputs: List[Output] = [{name: "standard output", fd: original, active: true, pollable: output_pollable(original)?}]
   var failed = false
 
   for name in opts.files {
-    let descriptor = unix.open_fd(/dev/null)?
+    let descriptor = unix.open_fd(p"/dev/null")?
     if let Err(failure) = unix.redirect_fd(descriptor, fp"{name}", write: true, append: opts.append) {
       unix.close_fd(descriptor)
       gnu.name_error(name, failure)

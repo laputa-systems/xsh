@@ -27,7 +27,7 @@ test test_labeled_arguments_read_as_a_sentence { |ctx|
   # The target is stored as written and need not exist.
   let dangling = fp"{root}/dangling"
   dangling.symlink(to: "../absent")
-  assert dangling.readlink()? == ../absent
+  assert dangling.readlink()? == p"../absent"
   test.error_kind(dangling.symlink(to: file), "fs-symlink")
 
   assert "a-b-c".replace("-", with: "+") == "a+b+c"

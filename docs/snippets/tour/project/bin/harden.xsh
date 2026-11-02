@@ -1,6 +1,6 @@
 use sshd
 
-cli main(config = /etc/ssh/sshd_config) {
+cli main(config = p"/etc/ssh/sshd_config") {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {
