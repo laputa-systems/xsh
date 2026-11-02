@@ -368,3 +368,34 @@ assert !absent({k: 1})
 """, status: 0)?
   assert good.stderr == "", good.stderr
 }
+
+test test_inferred_ordering_inside_a_guard_keeps_its_operand_domain { |ctx|
+  let body = r"""type Policy = {threshold: Int?, negative: Bool}
+pure outside(SIZE, policy) -> Bool {
+  if let threshold = policy.threshold {
+    return (! policy.negative and size < threshold) or (policy.negative and size > threshold)
+  }
+  false
+}
+let unset: Policy = {threshold: null, negative: false}
+let below: Policy = {threshold: 5, negative: false}
+let above: Policy = {threshold: 5, negative: true}
+print $outside(3, unset)
+print $outside(3, below)
+print $outside(9, below)
+print $outside(9, above)
+print $outside(3, above)
+"""
+  let inferred = test.run_xsh(ctx, body.replace("SIZE", with: "size"))?
+  let annotated = test.run_xsh(ctx, body.replace("SIZE", with: "size: Int"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "false\ntrue\nfalse\ntrue\nfalse\n"
+  assert annotated.stdout == inferred.stdout
+  test.expect(ctx, r"""pure outside(size, policy) -> Bool {
+  if let threshold = policy.threshold { return size < threshold }
+  false
+}
+assert outside({kind: 1}, {threshold: {kind: 2}})
+""", status: 2, stderr: ["[check."])?
+}

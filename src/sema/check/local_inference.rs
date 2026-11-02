@@ -48,6 +48,7 @@ enum FixedStorageInput {
 #[derive(Clone)]
 struct PipelineKeyCheck {
     owner: Option<super::EffectDeclarationId>,
+    scope: crate::sema::constraints::CallableApplicationScope,
     domain: crate::sema::sealed_operation::TypeDomain,
     subject: Type,
     contribution: Span,
@@ -468,7 +469,7 @@ impl Checker {
         let checks = self.local_inference.pipeline_key_checks.drain(enclosing.pipeline_key_start..).collect::<Vec<_>>();
         for check in checks {
             assert_eq!(check.owner, self.stream_origin_owner);
-            self.validate_pipeline_key_domain(check.domain, &check.subject, check.contribution);
+            self.validate_pipeline_key_domain(check.scope, check.domain, &check.subject, check.contribution);
         }
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         match self.type_constraints.source_list_from_end_indexes(owner) {
@@ -480,7 +481,7 @@ impl Checker {
 
     pub(super) fn defer_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, subject: &Type, contribution: Span) -> bool {
         if !self.local_inference.collecting || !subject.contains_inference() { return false; }
-        self.local_inference.pipeline_key_checks.push(PipelineKeyCheck { owner: self.stream_origin_owner, domain, subject: subject.clone(), contribution });
+        self.local_inference.pipeline_key_checks.push(PipelineKeyCheck { owner: self.stream_origin_owner, scope: self.constraint_scope(), domain, subject: subject.clone(), contribution });
         true
     }
 

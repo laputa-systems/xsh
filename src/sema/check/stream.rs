@@ -726,10 +726,10 @@ impl Checker {
     }
 
     pub(super) fn require_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
-        if !self.defer_pipeline_key_domain(domain, key, span) { self.validate_pipeline_key_domain(domain, key, span); }
+        if !self.defer_pipeline_key_domain(domain, key, span) { self.validate_pipeline_key_domain(self.constraint_scope(), domain, key, span); }
     }
 
-    pub(super) fn validate_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
+    pub(super) fn validate_pipeline_key_domain(&mut self, scope: crate::sema::constraints::CallableApplicationScope, domain: crate::sema::sealed_operation::TypeDomain, key: &Type, span: Span) {
         let key = match self.type_constraints.resolve(key) {
             Ok(key) => key,
             Err(error) => { self.error(span, &format!("pipeline key cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference); return; }
@@ -745,8 +745,7 @@ impl Checker {
             return;
         }
         if !key.contains_inference() { return; }
-        let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
-        if let Err(error) = self.type_constraints.require_type_predicate(owner, domain, &key, span) {
+        if let Err(error) = self.type_constraints.require_type_predicate(scope, domain, &key, span) {
             self.error(span, &error.to_string(), code);
         }
     }
