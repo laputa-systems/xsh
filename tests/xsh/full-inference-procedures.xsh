@@ -675,3 +675,56 @@ relay([7, 8])
   assert inferred.stdout == "7\na\n"
   assert annotated.stdout == "7\n"
 }
+
+test test_full_inference_empty_completion_branches_match_their_annotated_twins { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc quiet(flag, value) [process, error] {
+  if flag {
+  } else {
+    print $value
+  }
+}
+proc quiet_annotated(flag: Bool, value: Str) [process, error] {
+  if flag {
+  } else {
+    print $value
+  }
+}
+proc settle(outcome) [process, error] {
+  match outcome {
+    Ok(_) => {}
+    Err(failure) => {
+      print f"failed: {failure}"
+    }
+  }
+}
+proc settle_annotated(outcome: Result[Int, Str]) [process, error] {
+  match outcome {
+    Ok(_) => {}
+    Err(failure) => {
+      print f"failed: {failure}"
+    }
+  }
+}
+let good: Result[Int, Str] = Ok(1)
+let bad: Result[Int, Str] = Err("bad")
+quiet(true, "skipped")?
+quiet(false, "shown")?
+quiet_annotated(true, "skipped")?
+quiet_annotated(false, "shown")?
+settle(good)?
+settle(bad)?
+settle_annotated(good)?
+settle_annotated(bad)?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "shown\nshown\nfailed: bad\nfailed: bad\n"
+  test.expect(
+    ctx,
+    "proc mixed(value) { if value == 1 { } else { 2 } }\nlet rejected = mixed(1)?\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "`Int` and `Unit`"],
+  )?
+}

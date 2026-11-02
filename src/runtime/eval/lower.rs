@@ -3231,7 +3231,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let block_data = self.program.arena.block(block);
         if !block_data.params.is_empty() { return None; }
         let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
-        let (&tail, prefix) = statements.split_last()?;
+        let Some((&tail, prefix)) = statements.split_last() else {
+            let value = push_build_row!(self, expr, BuildExprRow::Unit);
+            lowered_types.insert(value, SchemeType::Ground(Type::Unit));
+            let (returned, _) = self.lower_scheme_completion_return(value, self.program.arena.span(block_data.span),
+                transfer.unwrap_or(ResourceTransferSite::BlockValue(block)), None, facts, lowered_types)?;
+            return Some(vec![returned]);
+        };
         let mut body = Vec::new();
         for &statement in prefix {
             self.lower_scheme_statement(statement, slots, current_function, facts, visited, lowered_types, &mut body)?;
