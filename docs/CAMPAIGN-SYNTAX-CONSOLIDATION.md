@@ -1,8 +1,13 @@
 # Consolidate XSH syntax without removing features
 
-**Status:** next, high priority. Starts when the inference corpus lanes and the
-Asterinas campaign's current slices finish. Phase A has not started. Nothing is
-removed before the owner approves the Phase A list.
+**Status:** complete. Phase A produced [the audit](SYNTAX-AUDIT.md); the owner
+approved it and decided every item in its
+[Owner decisions](SYNTAX-AUDIT.md#owner-decisions). Phase B landed each decided
+removal and reservation in its own commit, and the audit's
+[Phase B status](SYNTAX-AUDIT.md#phase-b-status) and
+[final metrics](SYNTAX-AUDIT.md#final-metrics) record them. Items the owner kept
+(C13, D01, D02, D04, D05, D08, D09, D11, D14) changed nothing. Any further
+consolidation starts a new audit.
 
 ## Goal
 

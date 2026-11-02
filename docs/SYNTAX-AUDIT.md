@@ -58,19 +58,23 @@ Limits.
 
 ## Final metrics
 
-Measured after C01, C02, C04 to C09, C11, and C12 landed. C03 and the deferred C10 and C13 are not counted, so `repeat` and `times` are still contextual words.
+Measured after every decided item landed: C01 to C12 except the kept C13, and D03, D06, D07, D10, D12, and D13. The kept items (C13, D01, D02, D04, D05, D08, D09, D11, D14) changed no count.
 
 | Metric | Start | Final |
 |---|---|---|
-| Reserved keywords (SPEC 2.3) | 39 | 39 |
-| Contextual words named by SPEC 2.3 | 25 | 24 (`because` is gone) |
-| Contextual words, total | 33 | 32 |
-| Grammar productions (`docs/reference/grammar.md`) | 176 | 171 |
-| `prefer-*` lints | 74 | 71 |
-| SPEC.md lines | 7,107 | 7,078 |
-| Grammar reference lines | 613 | 602 |
+| Reserved keywords (SPEC 2.3 and grammar reference) | 39 | 44 (`until`, `every`, `backoff`, `atomically`, `within` added) |
+| Contextual words named by SPEC 2.3 | 25 | 23 (the five reserved words and `because` are gone; `exit`, `without`, `exact`, and `optional` are now named) |
+| Contextual words in the grammar but not in SPEC 2.3 | 8 | 4 (`main`, `module`, `range`, `task`) |
+| Contextual words, total | 33 | 27 |
+| Grammar productions (`docs/reference/grammar.md`) | 176 | 164 |
+| Sugar forms with a defined expansion (`SugarForm`) | 9 | 7 (`repeat` and `guard ... else fail` are gone) |
+| `prefer-*` lints | 74 | 69 |
+| SPEC.md lines | 7,107 | 7,119 |
+| Grammar reference lines | 613 | 576 |
 
-The three `prefer-*` lints removed are `prefer-method`, `prefer-bare-field-label`, and `prefer-match-else`; `set_literal`, `set_comprehension`, `set_expression`, and `set_lead` account for four of the five productions.
+The five `prefer-*` lints removed are `prefer-method`, `prefer-bare-field-label`, `prefer-match-else`, `prefer-repeat`, and the comparison-chain lint. `lint.env-scope` stays: it migrates the `env { NAME = value }` spelling, not the command spelling D13 removed. SPEC.md grew by 12 lines because the removals are now documented where they were: each rejected form has a paragraph and a snippet, and SPEC 2.3 lists every contextual word with its position and the reason it cannot be reserved.
+
+Removing a form removed instruction tags as well: `StmtWith`, `StmtCd`, `StmtEnv`, `ExprComparisonChain`, and `ExprProcessCommandBuilder` are dead ordinals, and 148 tags remain from 153. The indexed-IR verifier and the explicit-run machine lost the continuation states that served them.
 
 ## Inventory
 

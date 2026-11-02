@@ -24,7 +24,7 @@ instructions, and open items.
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | Reuse system-report for remote inspection and redacted diagnostics; the util-linux resource rerun remains XSH-1. |
 | 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | planned, after rows 2 to 4 | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | Starts when Pyramid and inference close and Lean's G1b slice lands; see [Sequence](#sequence). |
 | 10 | Archive and compression consolidation (XSH-57) | done | [XSH-57 RFC](rfc/XSH-57-archive-and-compression.md) | Landed on `master`; Laputa call sites migrated. Follow-ups are listed in the RFC outcome: an `xsht api` enum-variant query, macOS and privileged coverage, and GNU tar and bsdtar interoperability. |
-| 11 | Syntax consolidation without feature removal | next, high priority; starts when the current inference and Asterinas lanes finish | [CAMPAIGN-SYNTAX-CONSOLIDATION.md](CAMPAIGN-SYNTAX-CONSOLIDATION.md) | Phase A audit (`docs/SYNTAX-AUDIT.md`), then stop for owner approval before any removal. |
+| 11 | Syntax consolidation without feature removal | done | [CAMPAIGN-SYNTAX-CONSOLIDATION.md](CAMPAIGN-SYNTAX-CONSOLIDATION.md) | Every decided removal and reservation landed; see the audit's [Phase B status](SYNTAX-AUDIT.md#phase-b-status) and [final metrics](SYNTAX-AUDIT.md#final-metrics). |
 
 When inference changes a Pyramid input or contract, rerun the affected checks.
 Lean's source-bound correspondence uses the qualified source available after

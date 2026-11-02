@@ -146,6 +146,14 @@ that names its survivor:
 - quoted record labels that are identifiers, `{"type": v}`; write `{type: v}`
   (C11)
 - the `prefer-method` rewrites of functions that no longer exist (C12)
+- `with N = V { } else { |e| ... }`; capture the initializers with `try` and
+  `match` the result (D06)
+- `process.command { ... }` builder blocks; write `process.command_argv(...)`
+  (D07)
+- ordering chains, `a < b < c`; write `a < b and b < c`, binding a middle
+  operand that is not a name or a literal first (D10)
+- `cd PATH { }` and `env A=B { }`; write the call spelling `cd (p"...") { }`
+  and `env ({A: "B"}) { }` (D13)
 - `until`, `every`, `backoff`, `atomically`, and `within` as names: they are
   reserved, so the forms they head need no rule to tell them from a binding
   (D03)
