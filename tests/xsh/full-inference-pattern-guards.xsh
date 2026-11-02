@@ -587,3 +587,34 @@ print $either(absent, absent)
   assert output.success, output.stderr
   assert output.stdout == "/present\nnone\n/present\nnone\n", output.stdout
 }
+
+test test_full_inference_guard_with_equal_closed_branches_is_displayable_in_a_later_interpolation { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure length_line(total, kind) -> Str {
+  let label = if let type_name = kind { f" [{type_name}]" } else { "" }
+  if let size = total {
+    return f"Length: {size}{label}\n"
+  }
+  f"Length: unspecified{label}\n"
+}
+pure length_annotated(total: Int?, kind: Str?) -> Str {
+  let label = if let type_name = kind { f" [{type_name}]" } else { "" }
+  if let size = total {
+    return f"Length: {size}{label}\n"
+  }
+  f"Length: unspecified{label}\n"
+}
+let size: Int? = 7
+let none: Int? = null
+let kind: Str? = "text"
+let nothing: Str? = null
+assert length_line(size, kind) == length_annotated(size, kind)
+assert length_line(none, nothing) == length_annotated(none, nothing)
+print $length_line(size, kind)
+print $length_line(none, nothing)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "Length: 7 [text]\n\nLength: unspecified\n\n", output.stdout
+}

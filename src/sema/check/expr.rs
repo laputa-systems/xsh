@@ -2395,6 +2395,13 @@ impl Checker {
         Type::Record(record.into())
     }
 
+    fn closed_type_shared_by(&self, present: &Type, absent: &Type) -> Option<Type> {
+        match (self.type_constraints.resolve(present), self.type_constraints.resolve(absent)) {
+            (Ok(present), Ok(absent)) if !present.contains_inference() && !absent.contains_inference() && present == absent => Some(present),
+            _ => None,
+        }
+    }
+
     pub(super) fn check_if_expr_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -2519,8 +2526,10 @@ impl Checker {
                 && present != Type::Unknown && absent != Type::Unknown
                 && (expectation.is_none() || self.type_constraints.resolve(&present).is_ok_and(|present| present.contains_inference()))
             {
+                let shared_closed_type = self.closed_type_shared_by(&present, &absent);
                 match self.type_constraints.register_guard_output(guard, output_parent, arena.arena.expr(condition).span, crate::sema::guarded_requirements::GuardOutputSite::Expression(arena.arena.expr(expression).span), present, absent, nonnull_when, self.callable_solver_level()) {
                     Ok(Some(outward)) => {
+                        if let Some(shared) = shared_closed_type { self.expect_type(&shared, &outward, arena.arena.expr(expression).span); }
                         if let Some(expectation) = expectation { self.expect_type(expectation.context(), &outward, arena.arena.expr(expression).span); }
                         return outward;
                     }

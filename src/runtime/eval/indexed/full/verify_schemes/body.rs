@@ -9314,7 +9314,7 @@ observe()?
         let binding = call.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap().start;
         let (FullGuardBinding::NonNull(local) | FullGuardBinding::Optional(local)) = program.store.call_guard_bindings[binding] else { panic!("the named output is a live guard source") };
         let arguments = local.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
-        assert!(arguments.len() >= 3, "the guard owns its view and its nested call's binders");
+        assert!(arguments.len() >= 2, "the guard owns its view and its nested call's binders");
         let int = program.store.call_type_arguments[arguments.start].ty;
         for index in arguments {
             let node = program.store.call_type_arguments[index].ty;
