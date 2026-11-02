@@ -1474,3 +1474,17 @@ fn a_test_name_head_is_a_declaration_never_a_command() {
     assert_parser_and_grammar_agree("test b ( a < c )\n", false);
     assert_parser_and_grammar_agree("test b\n", false);
 }
+
+#[test]
+fn a_wait_operand_reads_a_typed_codec_call() {
+    assert_parser_and_grammar_agree("let x = wait codec.read_as(f, p, Str)\n", true);
+    assert_parser_and_grammar_agree("let x = wait codec.read_as(f, p, Str).items\n", true);
+    assert_parser_and_grammar_agree(
+        r####"export stream y (
+) { ; ; ; | x , Thing , value | e"HOME" = run ( c is Thing ? ) | run.status (
+( b ) ) ? } e"HOME" = run.status -- timeout = 0o7 -- accept = items -- cpumax = wait codec . read_as ( format : y > Thing ? , path : c <= Thing ? ,
+pure ( ) -> proc ( ) -> a ). items @g"*.x" ? unless ! c < ! ! - Thing
+"####,
+        true,
+    );
+}

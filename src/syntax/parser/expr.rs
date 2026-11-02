@@ -3014,6 +3014,15 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 };
             } else if self.consume(TokenKindMatch::LParen).is_some() {
+                if let ArenaExprKind::Field { base, name } = arena.expr_kind(left.id)
+                    && matches!(arena.expr_kind(base), ArenaExprKind::Ident(module) if module == "codec")
+                    && let Some(kind) = xsh_registry::signature::CodecSchemaIntrinsic::parse(&name.as_str())
+                {
+                    let (format, input, schema) = self.parse_codec_schema_args(arena, kind)?;
+                    let span = self.span(left.span.start(), self.previous_end());
+                    left = ArenaOnlyExpr { id: arena.push_codec_schema_expr(kind, format, input, schema, span), span, bare_ident: None };
+                    continue;
+                }
                 let args = self.parse_call_args_arena_only(arena);
                 self.expect(TokenKindMatch::RParen, "expected `)` after call arguments");
                 let span = self.span(left.span.start(), self.previous_end());
