@@ -94,8 +94,9 @@ pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullS
     let target_calls = bounded(callee_scope.guard_calls, &store.scheme_guard_calls, "forwarded target call range is invalid")?;
     if roots.len() != physical.len() || target_calls.len() != residual.len() { return Err(IrVerifyError::new("forwarded guard bindings are incomplete")); }
     if physical.iter().chain(residual).any(|binding| *binding == FullGuardBinding::Recursive) {
-        if !residual.is_empty() || physical.iter().any(|binding| *binding != FullGuardBinding::Recursive) { return Err(IrVerifyError::new("recursive guard binding is mixed with another binding")); }
-        budget.charge(physical.len())?;
+        if physical.iter().chain(residual).any(|binding| *binding != FullGuardBinding::Recursive) { return Err(IrVerifyError::new("recursive guard binding is mixed with another binding")); }
+        budget.charge(physical.len() + residual.len())?;
+        if matches!(recursion, Recursion::Peer { .. }) && !residual.is_empty() { return Err(IrVerifyError::new("component peer call forwards a guard call")); }
         match recursion {
             Recursion::Own(substitution) => if !substitution.is_identity(callee_scope) { return Err(IrVerifyError::new("recursive guard binding has a non-identity call substitution")); },
             Recursion::Peer { caller: caller_scheme, substitution } => verify_component_correspondence(store, (callee, callee_scope), (caller_scheme, caller_root), substitution, budget)?,

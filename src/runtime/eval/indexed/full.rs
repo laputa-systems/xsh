@@ -1778,7 +1778,11 @@ impl FullProgram {
         let substitution = Arc::new(substitution);
         let scheme = self.store.scheme(id)?;
         let mut layouts = self.invocation_layouts(instance.application_bindings, caller, &mut budget)?;
-        layouts.guard_calls = self.prepare_guard_calls(scheme.guard_calls, instance.guard_call_bindings, Arc::clone(&substitution), caller, source, &mut budget)?;
+        layouts.guard_calls = if self.store.call_guard_bindings.get(instance.guard_call_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared guard call bindings are invalid"))?).is_some_and(|bindings| bindings.contains(&guard_schemes::FullGuardBinding::Recursive)) {
+            self.reuse_own_guard_calls(id, scheme.guard_calls, &substitution, enclosing.ok_or_else(|| IrVerifyError::new("prepared recursive guard call has no enclosing invocation"))?, &mut budget)?
+        } else {
+            self.prepare_guard_calls(scheme.guard_calls, instance.guard_call_bindings, Arc::clone(&substitution), caller, source, &mut budget)?
+        };
         let guards = scheme.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("prepared guard range is invalid"))?;
         let rows = &self.store.scheme_guards[guards];
         layouts.guards = if self.store.call_guard_bindings.get(instance.guard_bindings.bounds(self.store.call_guard_bindings.len()).ok_or_else(|| IrVerifyError::new("prepared guard bindings are invalid"))?).is_some_and(|bindings| bindings.contains(&guard_schemes::FullGuardBinding::Recursive)) {
@@ -1951,6 +1955,19 @@ impl FullProgram {
         layouts.guard_calls = self.prepare_guard_calls(guard.guard_calls, arguments.guard_call_bindings, Arc::clone(&substitution), caller, source, budget)?;
         let packet = PreparedInvocationBindings { substitution, layouts: Arc::new(layouts) };
         Ok(Some((packet, Some(arguments))))
+    }
+
+    fn reuse_own_guard_calls(&self, owner: schemes::FullSchemeId, requirements: IrRange, parent: &Arc<verify_schemes::CallSubstitution>, enclosing: &PreparedInvocationBindings, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<Vec<PreparedGuardCall>, IrVerifyError> {
+        if enclosing.substitution.prepared_owner() != Some(owner) || enclosing.substitution.prepared_guard().is_some() { return Err(IrVerifyError::new("prepared recursive guard call belongs to another callable")); }
+        let requirements = &self.store.scheme_guard_calls[requirements.bounds(self.store.scheme_guard_calls.len()).ok_or_else(|| IrVerifyError::new("prepared guard call range is invalid"))?];
+        if requirements.len() != enclosing.layouts.guard_calls.len() { return Err(IrVerifyError::new("prepared recursive guard calls disagree with their enclosing invocation")); }
+        requirements.iter().zip(&enclosing.layouts.guard_calls).enumerate().map(|(ordinal, (requirement, packet))| {
+            let ordinal = u32::try_from(ordinal).map_err(|_| IrVerifyError::new("prepared guard call ordinal is invalid"))?;
+            let target = verify_schemes::resolve_guard_call(&self.store, *requirement, ordinal, Arc::clone(parent), budget)?;
+            self.forwarded_guard_scope(packet, target.owner, target.metadata, &target.parent, budget)?;
+            if packet.origin != self.guard_call_origin(parent, ordinal as usize, *requirement)? { return Err(IrVerifyError::new("prepared recursive guard call has another origin")); }
+            Ok(packet.clone())
+        }).collect()
     }
 
     fn transport_component_guards(&self, owner: schemes::FullSchemeId, rows: &[guard_schemes::FullGuardScope], parent: &Arc<verify_schemes::CallSubstitution>, enclosing: &PreparedInvocationBindings, budget: &mut verify_schemes::SchemeInstantiationBudget) -> Result<BTreeMap<crate::sema::guarded_requirements::GuardScopeId, Option<PreparedInvocationBindings>>, IrVerifyError> {

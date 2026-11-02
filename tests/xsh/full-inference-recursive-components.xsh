@@ -442,3 +442,28 @@ print "walked"
   assert inferred.stdout == "left a\nleft none\nright b\nwalked\n"
   assert inferred.stdout == annotated.stdout
 }
+
+test test_full_inference_self_recursive_proc_forwards_a_callee_guard { |ctx|
+  let source = r"""pure show(value: NAME) -> Str {
+  if let found = value { f"got {found}" } else { "none" }
+}
+pure walk(value: NAME, depth: Int) -> Str {
+  if depth > 0 { return walk(value, depth - 1) }
+  show(value)
+}
+proc visit(target: NAME, depth: Int) [error] {
+  if depth > 0 { visit(target, depth - 1) }
+  assert show(target).byte_len() > 3
+}
+print walk("a", 2)
+print walk(null, 1)
+visit("deep", 2)
+visit(null, 1)
+"""
+  let inferred = test.run_xsh(ctx, source.replace("value: NAME", with: "value").replace("target: NAME", with: "target"))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "got a\nnone\n"
+  assert inferred.stdout == annotated.stdout
+}

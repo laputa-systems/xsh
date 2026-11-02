@@ -71,7 +71,8 @@ impl Checker {
             let callee_owner = self.effect_declaration_id(program, program.arena.function_def(callee.definition).body);
             let instance = &instances[&callee_owner];
             let substitution = match self.type_constraints.generalize_scoped_call_instantiation(
-                &caller.callable, &caller.scope, &callee.callable, instance, true,
+                &caller.callable, &caller.scope, &callee.callable, instance,
+                if owner == callee_owner { crate::sema::constraints::ComponentCall::Own } else { crate::sema::constraints::ComponentCall::Peer },
             ) {
                 Ok(substitution) => substitution,
                 Err(error) => {

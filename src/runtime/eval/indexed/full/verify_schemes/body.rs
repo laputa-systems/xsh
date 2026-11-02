@@ -9239,6 +9239,46 @@ observe()?
     }
 
     #[test]
+    fn recursive_guard_call_bindings_require_the_calls_own_identity() {
+        use super::super::super::guard_schemes::FullGuardBinding;
+        let mut program = prepare(r#"
+pure show(value) -> Str {
+    if let found = value { f"got {found}" } else { "none" }
+}
+pure walk(value, depth: Int) -> Str {
+    if depth > 0 { return walk(value, depth - 1) }
+    show(value)
+}
+proc observe() -> Result[Unit] {
+    assert walk("a", 2) == "got a"
+    assert walk(null, 1) == "none"
+    Ok()
+}
+observe()?
+"#);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let walk = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "walk").unwrap();
+        let range = program.store.function_instruction_range(walk).unwrap();
+        let recursive = program.store.call_instantiations.iter().position(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_call_bindings.len == 1
+            && program.store.call_guard_bindings[instance.arguments.guard_call_bindings.start as usize] == FullGuardBinding::Recursive).unwrap();
+        let binding = program.store.call_instantiations[recursive].arguments.guard_call_bindings.start as usize;
+
+        let mut concrete = program.clone();
+        concrete.store.call_guard_bindings[binding] = FullGuardBinding::Null;
+        assert!(FullVerifier::verify(&concrete).is_err(), "a recursive guard call slot cannot be replaced by a concrete classification");
+
+        let mut shifted = program.clone();
+        let types = shifted.store.call_instantiations[recursive].arguments.type_arguments.bounds(shifted.store.call_type_arguments.len()).unwrap();
+        let super::super::super::FullCallableContract::Scheme(scheme) = shifted.store.functions[walk].contract else { panic!("walk is generic") };
+        let ground = shifted.store.scheme_params[shifted.store.schemes[scheme.index()].params.bounds(shifted.store.scheme_params.len()).unwrap()][1].ty;
+        let argument = shifted.store.call_type_arguments[types.start].ty;
+        shifted.store.scheme_types[argument.index()] = shifted.store.scheme_types[ground.index()];
+        let error = FullVerifier::verify(&shifted).unwrap_err();
+        assert_eq!(error.message, "recursive guard binding has a non-identity call substitution", "{error:?}");
+    }
+
+    #[test]
     fn component_guard_slots_are_authenticated_against_the_peer_callable() {
         use super::super::super::guard_schemes::FullGuardBinding;
         use super::super::super::schemes::FullSchemeBodyFactValue;

@@ -452,13 +452,13 @@ impl TypeConstraints {
         }).collect()
     }
 
-    pub(super) fn recursive_guard_packets(&self, requirements: &crate::sema::schemes::CallableRequirements, instance: &super::InstantiatedRequirements) -> Result<crate::sema::guarded_requirements::GuardBindings, SchemeOperationError> {
-        if !instance.guards.is_empty() || !instance.guard_calls.is_empty() || !requirements.guard_calls.is_empty() {
+    pub(super) fn recursive_guard_packets(&self, requirements: &crate::sema::schemes::CallableRequirements, instance: &super::InstantiatedRequirements, component: super::ComponentCall) -> Result<crate::sema::guarded_requirements::GuardBindings, SchemeOperationError> {
+        if !instance.guards.is_empty() || !instance.guard_calls.is_empty() || component == super::ComponentCall::Peer && !requirements.guard_calls.is_empty() {
             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope));
         }
         Ok(crate::sema::guarded_requirements::GuardBindings {
             scopes: vec![crate::sema::guarded_requirements::GuardBinding::Recursive; requirements.guards.len()],
-            calls: Vec::new(),
+            calls: vec![crate::sema::guarded_requirements::GuardBinding::Recursive; requirements.guard_calls.len()],
         })
     }
 

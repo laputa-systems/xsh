@@ -714,8 +714,11 @@ for a self call only under the identity substitution, and for another target onl
 when both guard tables have one shape and each callee row, under the call
 substitution extended by position to guard-local binders, equals the caller row:
 source, view, reads, output, effects, local binder domains, and local requirements
-without guard calls. Runtime moves the enclosing packets into the callee's
-namespace after rechecking each actual source classification.
+without guard calls. A self call also binds each forwarded guard call slot to the
+caller's slot; a peer call cannot forward a guard call. Runtime moves the
+enclosing packets into the callee's namespace after rechecking each actual source
+classification, and a self call reuses its forwarded guard call packets after
+rechecking their origin, parent and classification.
 Callable contract comparison preserves each guard's source, view, local domains,
 and nested requirements under a separate ancestor-visible binder map. Physical
 source positions do not determine contract equivalence. A target correspondence
