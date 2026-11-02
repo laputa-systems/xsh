@@ -1161,12 +1161,13 @@ pub fn context_scope_suffix_lookahead<'s>(
     Some(matches!(
         suffix.tag,
         TokenTag::PipeGt | TokenTag::Dot | TokenTag::LBracket | TokenTag::LParen
-    ) || binary_operator_at(
-        suffix.tag,
-        suffix.keyword,
-        peek(offset + 1).and_then(|token| token.keyword),
-    )
-    .is_some())
+    ) || (suffix.tag == TokenTag::Ident && matches!(suffix.text, "as" | "is"))
+        || binary_operator_at(
+            suffix.tag,
+            suffix.keyword,
+            peek(offset + 1).and_then(|token| token.keyword),
+        )
+        .is_some())
 }
 
 /// Whether a builder API's following block is still the condition body rather

@@ -1458,3 +1458,11 @@ fn bytes_redirection_targets_leave_the_run_its_propagation() {
     assert_parser_and_grammar_agree("atomically replace run.bytes x > b\"x\"? as y { }\n", false);
     assert_parser_and_grammar_agree("let a = run.bytes x > b\"x\"?\n", true);
 }
+
+#[test]
+fn context_scopes_followed_by_conversions_and_pattern_tests_are_values() {
+    for source in ["env (t)\n{ } as L\n", "cd (t)\n{ } is L\n", "env (t) { }? as L\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    assert_parser_and_grammar_agree("env (t)\n{ } as L { }\n", false);
+}
