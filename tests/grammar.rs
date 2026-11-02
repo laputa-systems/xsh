@@ -1488,3 +1488,13 @@ pure ( ) -> proc ( ) -> a ). items @g"*.x" ? unless ! c < ! ! - Thing
         true,
     );
 }
+
+#[test]
+fn a_run_form_propagation_does_not_continue_with_a_member() {
+    assert_parser_and_grammar_agree("let v = run a ?. x\n", false);
+    assert_parser_and_grammar_agree("defer run a ?. x\n", false);
+    assert_parser_and_grammar_agree("let v = (run a ?).x\n", true);
+    assert_parser_and_grammar_agree("let v = run a ? |> count()\n", true);
+    assert_parser_and_grammar_agree("let v = run a |> count() ?\n", true);
+    assert_parser_and_grammar_agree("for line in run.text @words?.lines() { }\n", true);
+}

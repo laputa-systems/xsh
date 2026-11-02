@@ -1506,8 +1506,21 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Expressions,
             "expression_or_run",
             alt([
-                r("expression_item"),
+                seq([not([vec![keyword_term(Keyword::Run)]]), r("expression_item")]),
                 seq([r("run_form"), opt(t(T::Question))]),
+                seq([
+                    r("run_form"),
+                    opt(t(T::Question)),
+                    plus(seq([t(T::PipeGt), r("pipe_stage")])),
+                    opt(seq([
+                        t(T::Question),
+                        Item::Peek(
+                            super::TRAILING_TRY_END.into_iter()
+                                .filter(|tag| *tag != T::Eof)
+                                .map(|tag| vec![tag_term(tag)]).collect(),
+                        ),
+                    ])),
+                ]),
             ]),
         ),
         rule(
