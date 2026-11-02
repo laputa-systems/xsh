@@ -36,7 +36,7 @@ stream failing_aggregate(value) [error] {
 
 proc generic_aggregates() -> Result[Unit] {
   assert total([1, 2, 3]) == typed_total([1, 2, 3])
-  assert total({1, 2, 3}) == 6
+  assert total(set.from([1, 2, 3])) == 6
   let wrapped: Result[List[Int], Str] = Ok([2, 3])
   assert total(wrapped) == 5
   let opaque: Result[Int, Str] = Err("data")

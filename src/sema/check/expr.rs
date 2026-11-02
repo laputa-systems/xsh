@@ -181,8 +181,6 @@ impl Checker {
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::ListComp { .. }
                 | ArenaExprKind::MapComp { .. }
-                | ArenaExprKind::Set(_)
-                | ArenaExprKind::SetComp { .. }
                 | ArenaExprKind::Record(_)
                 | ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
@@ -233,8 +231,6 @@ impl Checker {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
@@ -1017,13 +1013,6 @@ impl Checker {
             ArenaExprKind::Record(fields) => {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
             }
-            ArenaExprKind::Set(items) => {
-                self.check_set_literal_arena(arena, source, *items, expected)
-            }
-            ArenaExprKind::SetComp {
-                expr: body,
-                qualifiers,
-            } => self.check_set_comp_arena(arena, source, *body, *qualifiers, expected),
             ArenaExprKind::ErrorContext { message, block } => {
                 let ty = self.check_expr_with_schema_arena(
                     arena,
@@ -1275,15 +1264,6 @@ impl Checker {
                 self.pop_scope();
                 self.boundary.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
-            }
-            ArenaExprKind::ValueBlock(block)
-                if self
-                    .block_written_for_set(arena, *block, expected)
-                    .is_some() =>
-            {
-                let actual = self.check_block_written_for_set_arena(arena, source, *block, expected, expr.span);
-                self.publish_value_block_exit_arena(arena, id);
-                actual
             }
             ArenaExprKind::ValueBlock(block) => {
                 if let Some(param) = arena
@@ -2245,9 +2225,6 @@ impl Checker {
             .any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. }))
         {
             return self.check_record_update_arena(arena, source, range, span);
-        }
-        if let Some(set) = self.check_set_of_names_arena(arena, range, expected, span) {
-            return set;
         }
         if matches!(expected, Some(Type::Map(_, _)))
             || fields

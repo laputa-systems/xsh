@@ -398,8 +398,6 @@ impl LiteralConstant {
             | ArenaExprKind::Item
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
             | ArenaExprKind::PatternTest { .. }
@@ -3084,6 +3082,27 @@ pub(crate) fn cli_constant_value(
 impl ConstantPreparation<'_> {
     /// The enum variant a leading-dot `.name` selects from an expected enum
     /// type, by the enum's nominal identity rather than a visible spelling.
+    fn set_from_argument(&self, callee: ExprId, args: crate::syntax::arena::ArenaRange) -> Option<ExprId> {
+        use crate::syntax::arena::ArenaCallArgKind;
+        let arena = &self.program.arena;
+        let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+            return None;
+        };
+        let ArenaExprKind::Ident(module) = arena.expr(base).kind else {
+            return None;
+        };
+        if module != "set" || name != "from" || self.bindings.expressions.contains_key(&base) {
+            return None;
+        }
+        match arena.call_args(args) {
+            [arg] => match arg.kind {
+                ArenaCallArgKind::Positional(items) => Some(items),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn inferred_tag_constructor(
         &self,
         callee: ExprId,
@@ -3531,42 +3550,6 @@ impl ConstantPreparation<'_> {
                 }
                 LiteralConstant::List(Arc::new(values))
             }
-            // A set literal over constants. Each element is stored as the
-            // key it is, so a repeated element is held once.
-            ArenaExprKind::Set(items) => {
-                let element_ty = match expected.map(Type::unvalidated) {
-                    Some(Type::Set(element)) => Some(element.as_ref()),
-                    _ => None,
-                };
-                let mut elements = BTreeSet::new();
-                for item in arena.list_elements(items) {
-                    if item.splice_span.is_some() {
-                        return Err(failure());
-                    }
-                    let value = self.expression(item.value, namespace, element_ty, depth + 1)?;
-                    elements.insert(value.map_key().ok_or_else(failure)?);
-                }
-                LiteralConstant::Set(Arc::new(elements))
-            }
-            // Braces of bare names where a set is expected: the names are
-            // the elements, as they are for a runtime set.
-            ArenaExprKind::Record(fields)
-                if matches!(expected.map(Type::unvalidated), Some(Type::Set(_)))
-                    && !arena.record_fields(fields).is_empty()
-                    && arena.record_fields(fields).iter().all(|field| {
-                        matches!(field.kind, ArenaRecordFieldKind::Shorthand { .. })
-                    }) =>
-            {
-                let mut elements = BTreeSet::new();
-                for field in arena.record_fields(fields) {
-                    let ArenaRecordFieldKind::Shorthand { name, .. } = field.kind else {
-                        return Err(failure());
-                    };
-                    let value = self.reference(self.bindings.at(expr.span, name), expr.span, depth + 1)?;
-                    elements.insert(value.map_key().ok_or_else(failure)?);
-                }
-                LiteralConstant::Set(Arc::new(elements))
-            }
             ArenaExprKind::Record(fields) => {
                 let map = matches!(expected, Some(Type::Map(_, _)))
                     || arena
@@ -3695,6 +3678,22 @@ impl ConstantPreparation<'_> {
                 }
             }
             ArenaExprKind::Call { callee, args } => {
+                if let Some(items) = self.set_from_argument(callee, args) {
+                    let list_expected = match expected.map(Type::unvalidated) {
+                        Some(Type::Set(element)) => Some(Type::List(element.clone())),
+                        _ => None,
+                    };
+                    let LiteralConstant::List(values) =
+                        self.expression(items, namespace, list_expected.as_ref(), depth + 1)?
+                    else {
+                        return Err(failure());
+                    };
+                    let mut elements = BTreeSet::new();
+                    for value in values.iter() {
+                        elements.insert(value.map_key().ok_or_else(failure)?);
+                    }
+                    return Ok(LiteralConstant::Set(Arc::new(elements)));
+                }
                 if let Some((family, variant, fields)) = self
                     .inferred_tag_constructor(callee, expected)
                     .or_else(|| self.tag_constructor(callee, namespace))
@@ -3939,7 +3938,6 @@ impl ConstantPreparation<'_> {
             | ArenaExprKind::Item
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
             | ArenaExprKind::PatternTest { .. }

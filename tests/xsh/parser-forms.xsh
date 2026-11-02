@@ -269,11 +269,12 @@ test test_type_pattern_arms_follow_unbraced_arm_values { |ctx|
   )
 }
 
-test test_multiline_set_entries_continue_after_operators { |ctx|
+test test_multiline_set_entries_are_one_set_literal_error { |ctx|
   for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n"] {
-    expect_parses(ctx, source)
+    let rejected = test.run_script(ctx, source)?
+    assert ! rejected.success, source
+    assert "err[parse.set-literal]" in rejected.stderr, source + rejected.stderr
   }
-  test.expect(ctx, "let values = {x +\n1 for x in [1, 2]}\nprint \$values.len()\n", status: 0, stdout: ["2"])?
 }
 
 test test_command_words_and_empty_env_scopes_parse { |ctx|

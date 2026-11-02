@@ -174,13 +174,13 @@ mod tests {
 
     #[test]
     fn a_set_length_compared_with_zero_becomes_an_emptiness_test() {
-        let source = "pure probe(tags: Set[Str]) -> Bool {\n  let a = tags.len() == 0\n  let b = 0 < (tags | {\"x\",}).len()\n  a and b\n}\n";
+        let source = "pure probe(tags: Set[Str]) -> Bool {\n  let a = tags.len() == 0\n  let b = 0 < (tags | set.from([\"x\"])).len()\n  a and b\n}\n";
         let diagnostics = length_tests(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "pure probe(tags: Set[Str]) -> Bool {\n  let a = tags.is_empty()\n  let b = ! (tags | {\"x\",}).is_empty()\n  a and b\n}\n"
+            "pure probe(tags: Set[Str]) -> Bool {\n  let a = tags.is_empty()\n  let b = ! (tags | set.from([\"x\"])).is_empty()\n  a and b\n}\n"
         );
         assert!(length_tests(&fixed).is_empty());
     }

@@ -502,8 +502,6 @@ pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> boo
         | ArenaExprKind::Item
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
         | ArenaExprKind::PatternTest { .. }

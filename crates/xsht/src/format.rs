@@ -48,15 +48,6 @@ const BRACE: Context = Context::open(Follow::BRACE);
 /// Before a keyword.
 const WORD: Context = Context::open(Follow::WORD);
 
-/// The context of an element written between `open` and its closing
-/// delimiter: a set's elements are read by how they begin.
-const fn element_context(open: char) -> Context {
-    if open == '{' {
-        Context::set_element(Follow::CLOSE)
-    } else {
-        CLOSE
-    }
-}
 const MULTILINE_SCHEMA_FIELD_THRESHOLD: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2842,18 +2833,11 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Ident(name) => output.push_str(&self.name_text(*name)),
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::List(items) => self.write_list(expr_id, *items, ['[', ']'], output),
-            ArenaExprKind::Set(items) => self.write_list(expr_id, *items, ['{', '}'], output),
             ArenaExprKind::ListComp { expr, qualifiers } => {
                 output.push('[');
                 self.write_expr(*expr, child(*expr), output);
                 self.write_comp_qualifiers(*qualifiers, None, output);
                 output.push(']');
-            }
-            ArenaExprKind::SetComp { expr, qualifiers } => {
-                output.push('{');
-                self.write_expr(*expr, child(*expr), output);
-                self.write_comp_qualifiers(*qualifiers, None, output);
-                output.push('}');
             }
             ArenaExprKind::MapComp {
                 key,
@@ -3417,7 +3401,7 @@ impl<'a> Writer<'a> {
             })
     }
 
-    /// A list literal, or with braces a set literal.
+    /// A list literal.
     fn write_list(
         &mut self,
         expr_id: ExprId,
@@ -3460,7 +3444,7 @@ impl<'a> Writer<'a> {
                 if elements[index].splice_span.is_some() {
                     line.push('@');
                 }
-                writer.write_expr_safe_in(elements[index].value, element_context(open), line);
+                writer.write_expr_safe_in(elements[index].value, CLOSE, line);
             });
         output.push(open);
         output.push('\n');
@@ -3471,7 +3455,7 @@ impl<'a> Writer<'a> {
             if item.splice_span.is_some() {
                 output.push('@');
             }
-            self.write_expr_safe_in(item.value, element_context(open), output);
+            self.write_expr_safe_in(item.value, CLOSE, output);
             self.force_collection_expanded = previous_force;
             output.push_str(",\n");
         }
@@ -3523,7 +3507,6 @@ impl<'a> Writer<'a> {
     ) {
         output.push(open);
         let elements = self.arena.list_elements(items).collect::<Vec<_>>();
-        let count = elements.len();
         for (index, item) in elements.into_iter().enumerate() {
             if index > 0 {
                 output.push_str(", ");
@@ -3531,12 +3514,7 @@ impl<'a> Writer<'a> {
             if item.splice_span.is_some() {
                 output.push('@');
             }
-            self.write_expr_safe_in(item.value, element_context(open), output);
-        }
-        // Braces around one expression are a block; the comma makes them a
-        // one-element set.
-        if open == '{' && count == 1 {
-            output.push(',');
+            self.write_expr_safe_in(item.value, CLOSE, output);
         }
         output.push(close);
     }
@@ -4643,7 +4621,6 @@ impl<'a> Writer<'a> {
             ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
                 | ArenaExprKind::ListComp { .. }
-                | ArenaExprKind::SetComp { .. }
                 | ArenaExprKind::MapComp { .. }
         ) {
             return self.write_expr(expr_id, context, output);
@@ -4685,7 +4662,6 @@ impl<'a> Writer<'a> {
                 self.write_match_expr_multiline(value, arms, close, output)
             }
             ArenaExprKind::ListComp { qualifiers, .. }
-            | ArenaExprKind::SetComp { qualifiers, .. }
             | ArenaExprKind::MapComp { qualifiers, .. }
                 if !fits
                     || self
@@ -4699,7 +4675,7 @@ impl<'a> Writer<'a> {
             {
                 if matches!(
                     kind,
-                    ArenaExprKind::ListComp { .. } | ArenaExprKind::SetComp { .. }
+                    ArenaExprKind::ListComp { .. }
                 ) {
                     self.write_list_comp_multiline(expr_id, output);
                 } else {
@@ -4724,7 +4700,7 @@ impl<'a> Writer<'a> {
                 let close = self.arena.expr(expr_id).span.end().saturating_sub(1);
                 self.write_match_expr_multiline(*value, *arms, close, output)
             }
-            ArenaExprKind::ListComp { .. } | ArenaExprKind::SetComp { .. } => {
+            ArenaExprKind::ListComp { .. } => {
                 self.write_list_comp_multiline(expr_id, output)
             }
             ArenaExprKind::MapComp { .. } => self.write_map_comp_multiline(expr_id, output),
@@ -4764,7 +4740,6 @@ impl<'a> Writer<'a> {
     fn write_list_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
         let (expr, qualifiers, [open, close]) = match self.arena.expr(expr_id).kind {
             ArenaExprKind::ListComp { expr, qualifiers } => (expr, qualifiers, ['[', ']']),
-            ArenaExprKind::SetComp { expr, qualifiers } => (expr, qualifiers, ['{', '}']),
             _ => return self.write_expr(expr_id, CLOSE, output),
         };
         let indent = indent_for_expr(output);
@@ -4772,12 +4747,7 @@ impl<'a> Writer<'a> {
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
-        let body = if open == '{' {
-            Context::set_element(Follow::END)
-        } else {
-            END
-        };
-        self.write_expr_safe_in(expr, body, output);
+        self.write_expr_safe_in(expr, END, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);
@@ -5080,8 +5050,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
@@ -5142,8 +5110,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }

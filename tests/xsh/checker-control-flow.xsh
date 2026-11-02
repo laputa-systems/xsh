@@ -342,7 +342,7 @@ proc comp_map(source: Result[Map[Str, Int], Error]) [error] { loop { let ignored
 proc comp_text(source: Result[Str, Error]) [error] { loop { let ignored = [item for item in source] } }
 proc comp_bytes(source: Result[Bytes, Error]) [error] { loop { let ignored = [item for item in source] } }
 proc comp_list(source: Result[List[Int], Error]) [error] { loop { let ignored = [item for item in source] } }
-proc comp_set(source: Result[Set[Int], Error]) [error] { loop { let ignored = {item for item in source} } }
+proc comp_set(source: Result[Set[Int], Error]) [error] { loop { let ignored = set.from([item for item in source]) } }
 proc comp_stream(source: Result[Stream[Int], Error]) [error] { loop { let ignored = [item for item in source] } }
 """,
         diagnostics: [],
@@ -424,7 +424,7 @@ test test_comprehension_cardinality_and_clause_order { |ctx|
       {
         name: "nonempty-list-set-map-comprehensions",
         source: r"""pure choose_list() -> Int { for item in [item for item in [1]] { return item } }
-pure choose_set() -> Int { for item in {item for item in [1]} { return item } }
+pure choose_set() -> Int { for item in set.from([item for item in [1]]) { return item } }
 pure choose_map() -> Int { for item in {key: key for key in [1]} { return item.value } }
 pure choose_nonempty_bytes() -> Int { for byte in b"\x01" { return byte } }
 """,

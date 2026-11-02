@@ -16,8 +16,8 @@ let list_expected = 7 in [7, 8]
 assert has(7, [7, 8]) == list_expected
 assert has("word", ["word"]) and lacks("absent", ["word"])
 assert !lacks(7, [7, 8])
-let set_expected = 2 in {1, 2}
-assert has(2, {1, 2}) == set_expected
+let set_expected = 2 in set.from([1, 2])
+assert has(2, set.from([1, 2])) == set_expected
 assert has("key", {["key"]: null})
 assert has(-1, signed)
 assert has(1, unsigned) and lacks(0, unsigned)

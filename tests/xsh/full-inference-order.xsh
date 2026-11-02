@@ -341,8 +341,8 @@ let first_map: Map[Str, Int] = {first: 1}
 let second_map: Map[Str, Int] = {second: 2}
 let maps = rotate(null, first_map, second_map)
 assert maps.left == first_map and maps.middle == second_map and maps.right == null
-let sets = rotate(null, {1, 2}, {3, 4})
-assert sets.left == {1, 2} and sets.middle == {3, 4} and sets.right == null
+let sets = rotate(null, set.from([1, 2]), set.from([3, 4]))
+assert sets.left == set.from([1, 2]) and sets.middle == set.from([3, 4]) and sets.right == null
 pure linked(first, second, third, fourth) {
   var a = first; a = second
   var b = second; b = first; b = third
@@ -375,7 +375,7 @@ let _ = replace([1], ["wrong"])
   for inputs in [
     "let integers: List[Int] = [1]\nlet nullable: List[Int?] = [null]\nlet _ = rotate(null, integers, nullable)\n",
     "let integers: Map[Str, Int] = {name: 1}\nlet nullable: Map[Str, Int?] = {name: null}\nlet _ = rotate(null, integers, nullable)\n",
-    "let signed: Set[Int] = {1, 2}\nlet unsigned: Set[UInt] = {3, 4}\nlet _ = rotate(null, signed, unsigned)\n",
+    "let signed: Set[Int] = set.from([1, 2])\nlet unsigned: Set[UInt] = set.from([3, 4])\nlet _ = rotate(null, signed, unsigned)\n",
     "let dynamic: Any = 3\nlet _ = rotate(null, dynamic, null)\n",
   ] {
     let containers = test.run_xsh(ctx, r"""pure rotate(first, second, third) {

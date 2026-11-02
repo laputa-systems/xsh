@@ -165,7 +165,6 @@ impl LintExprVisitor<'_, '_> {
         match arena.expr(expr).kind {
             ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::List(_)
-            | ArenaExprKind::Set(_)
             | ArenaExprKind::Unary { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::ComparisonChain(_)
@@ -215,8 +214,7 @@ impl LintExprVisitor<'_, '_> {
                     }
                 }
             }
-            ArenaExprKind::ListComp { expr, qualifiers }
-            | ArenaExprKind::SetComp { expr, qualifiers } => {
+            ArenaExprKind::ListComp { expr, qualifiers } => {
                 let scopes = self.visit_comp_qualifiers(qualifiers);
                 self.visit_expr(expr);
                 for _ in 0..scopes {

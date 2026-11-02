@@ -1,24 +1,21 @@
 # begin example
-const KINDS = {"file", "dir"}
+const KINDS = set.from(["file", "dir"])
 
 pure allowed(kind: Str, extra: Set[Str]) -> Bool {
   kind in KINDS | extra
 }
 
 proc report(words: List[Str]) [error] {
-  # An element that is not a bare name makes braces a set.
-  let stop = {"a", "the"}
+  let stop = set.from(["a", "the"])
   let first = "one"
-  let named = {first, "two"}
+  let named = set.from([first, "two"])
 
-  # Bare names alone are a record unless a set is expected.
   let second = "two"
-  let pair: Set[Str] = {first, second}
+  let pair: Set[Str] = set.from([first, second])
   assert pair == named
 
-  # A set has no empty or one-element form of its own without a comma.
   var seen: Set[Str] = set.empty()
-  let only = {"one",}
+  let only = set.from(["one"])
   for word in words {
     if word not in stop {
       seen = seen.add(word)
@@ -26,12 +23,12 @@ proc report(words: List[Str]) [error] {
   }
 
   # Sets iterate in key order, whatever order built them.
-  let lengths = {word.byte_len() for word in seen}
+  let lengths = set.from([word.byte_len() for word in seen])
   assert (seen & only).to_list() == ["one"]
   assert (seen - only).len() + 1 == seen.len()
   assert words.to_set() - stop == seen
   print (json.encode(seen)?) (json.encode(lengths)?)
-  assert allowed("link", {"link",})
+  assert allowed("link", set.from(["link"]))
 }
 
 # end example

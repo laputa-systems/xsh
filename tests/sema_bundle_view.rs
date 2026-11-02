@@ -488,8 +488,8 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
 #[test]
 fn grouping_diagnostics_match_standalone_sources_in_a_shared_arena() {
     let entry_source = "let root_value = (1 + 2)\n";
-    let module_source = "pure calculate(x: Int) -> Int {\n  let values = {(x + 1) for item in [1, 2]}\n  let selected = match x {\n    0 => ((2 + 3)),\n    else => (4 + 5),\n  }\n  return (selected + x) when x > 0\n}\n";
-    let unrelated_source = "let foreign = {(1 + 2), (3 + 4)}\nif true { let nested = (5 + 6) }\n";
+    let module_source = "pure calculate(x: Int) -> Int {\n  let values = set.from([(x + 1) for item in [1, 2]])\n  let selected = match x {\n    0 => ((2 + 3)),\n    else => (4 + 5),\n  }\n  return (selected + x) when x > 0\n}\n";
+    let unrelated_source = "let foreign = set.from([(1 + 2), (3 + 4)])\nif true { let nested = (5 + 6) }\n";
     let entry_id = SourceId::new(0);
     let module_id = SourceId::new(1);
     let unrelated_id = SourceId::new(2);

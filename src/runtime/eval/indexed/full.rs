@@ -33818,7 +33818,7 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
                         identity(values)\n\
                       }\n\
                       pure use_set() -> Any {\n\
-                        let values: Set[Int] = {1,}\n\
+                        let values: Set[Int] = set.from([1])\n\
                         identity(values)\n\
                       }\n\
                       pure use_optional(value: Int?) -> Any {\n\
@@ -39390,7 +39390,7 @@ proc read(token, file: Path, spare: Str) [fs] {
                  let list_empty = empty(empty_words)\n\
                  let mapping: Map[Str, Int] = {{[\"key\"]: 1}}\n\
                  let map_nonempty = empty(mapping)\n\
-                 let set_nonempty = empty({{1, 2}})\n\
+                 let set_nonempty = empty(set.from([1, 2]))\n\
                  let text_nonempty = empty(\"x\")\n\
                  let bytes_nonempty = empty(b\"x\")\n\
                  let text_path = \"{}\"\n\
@@ -48767,14 +48767,14 @@ assert last(keyed) == "negative"
             let program = Arc::new(fixture("generic-record-overrides.xsh", r#"
 pure rebuild(row) {
   let _ = row.name
-  {...row, name: "changed", index: 7, unique: {1, 2}}
+  {...row, name: "changed", index: 7, unique: set.from([1, 2])}
 }
 pure relay(row) { rebuild(row) }
 let rebuild_alias = relay
 let first = rebuild_alias({name: "old", extra: 9, index: "before", unique: false})
 let second = rebuild_alias({name: "old", extra: "ready", index: false, unique: 3})
-assert first == {name: "changed", extra: 9, index: 7, unique: {1, 2}}
-assert second == {name: "changed", extra: "ready", index: 7, unique: {1, 2}}
+assert first == {name: "changed", extra: 9, index: 7, unique: set.from([1, 2])}
+assert second == {name: "changed", extra: "ready", index: 7, unique: set.from([1, 2])}
 "#));
             FullVerifier::verify(&program).unwrap();
             for force_frames in [false, true] {
@@ -48847,7 +48847,7 @@ pure rebuild(row) {
   let copied = [item for item in items]
   var indexed = {[0]: copied[0]}
   indexed[1] = copied[1]
-  let unique = {item for item in copied}
+  let unique = set.from([item for item in copied])
   {...row, name: name.upper(), items: copied.push(copied[0]), index: indexed, unique: unique}
 }
 let numbers = rebuild({name: "nums", items: [3, 1], extra: 7, index: "old", unique: false})
@@ -48855,12 +48855,12 @@ let words = rebuild({name: "words", items: ["b", "a"], extra: "retained", index:
 assert numbers.name == "NUMS"
 assert numbers.items == [3, 1, 3]
 assert numbers.index[1] == 1
-assert numbers.unique == {1, 3}
+assert numbers.unique == set.from([1, 3])
 assert numbers.extra == 7
 assert words.name == "WORDS"
 assert words.items == ["b", "a", "b"]
 assert words.index[1] == "a"
-assert words.unique == {"a", "b"}
+assert words.unique == set.from(["a", "b"])
 assert words.extra == "retained"
 "#));
             FullVerifier::verify(&program).unwrap();
@@ -51816,7 +51816,7 @@ let failed = count([negative()])
   let _ = "is_empty"
   let nested: List[List[Str]] = [[]]
   let _ = nested
-  let neighbor: Set[Str] = {"member",}
+  let neighbor: Set[Str] = set.from(["member"])
   let _ = neighbor
   let empty: Set[Str] = set.empty()
   if wrong { Ok(empty) } else { Ok(neighbor) }

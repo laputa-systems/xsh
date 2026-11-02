@@ -6530,7 +6530,7 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         let changed = retarget_construction_operand(&program, owner, scheme, operand, true);
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic list splice disagrees with its item contract");
 
-        let program = prepare("pure keep(value, unsigned: UInt) { let _ = {-1, 2}; value }");
+        let program = prepare("pure keep(value, unsigned: UInt) { let _ = set.from([-1, 2]); value }");
         let (owner, scheme) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let range = program.store.function_instruction_range(owner).unwrap();
@@ -7659,7 +7659,7 @@ let _ = build(7, "ok")
 
     #[test]
     fn sealed_binary_operation_schemes_preserve_domains_after_frontend_disposal() {
-        let program = Arc::new(prepare("pure combine(a, b) { a + b }\npure divide(a, b) { a / b }\npure subtract(a, b) { a - b }\npure relay(a, b) { combine(a, b) }\npure check_domains() -> Bool {\nlet number: Int = relay(1, 2)\nlet text: Str = relay(\"one\", \" two\")\nlet joined: List[Int] = combine([1], [2])\nlet remaining: Set[Int] = subtract({1, 2, 3, 4}, {3, 4})\nlet ratio: Int = divide(4s, 2s)\nlet scaled: Duration = divide(4s, 2)\nnumber == 3 and text == \"one two\" and joined == [1, 2] and remaining == {1, 2} and ratio == 2 and scaled == 2s\n}"));
+        let program = Arc::new(prepare("pure combine(a, b) { a + b }\npure divide(a, b) { a / b }\npure subtract(a, b) { a - b }\npure relay(a, b) { combine(a, b) }\npure check_domains() -> Bool {\nlet number: Int = relay(1, 2)\nlet text: Str = relay(\"one\", \" two\")\nlet joined: List[Int] = combine([1], [2])\nlet remaining: Set[Int] = subtract(set.from([1, 2, 3, 4]), set.from([3, 4]))\nlet ratio: Int = divide(4s, 2s)\nlet scaled: Duration = divide(4s, 2)\nnumber == 3 and text == \"one two\" and joined == [1, 2] and remaining == set.from([1, 2]) and ratio == 2 and scaled == 2s\n}"));
         for force_frames in [false, true] {
             let mut evaluator = crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.force_frames = force_frames;
@@ -7688,8 +7688,8 @@ let _ = build(7, "ok")
 
     #[test]
     fn sealed_binary_operations_retain_set_item_key_requirements() {
-        prepare("pure remove(values: Set[Int]) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
-        prepare("pure remove(values) { values - {1, 2} }\npure remaining() -> Set[Int] { remove({1, 2, 3}) }");
+        prepare("pure remove(values: Set[Int]) { values - set.from([1, 2]) }\npure remaining() -> Set[Int] { remove(set.from([1, 2, 3])) }");
+        prepare("pure remove(values) { values - set.from([1, 2]) }\npure remaining() -> Set[Int] { remove(set.from([1, 2, 3])) }");
     }
 
     #[test]
@@ -10266,13 +10266,13 @@ pure probe(values: List[Path]) -> Int { let spare = values; nonempty(7, [p"/head
 
     #[test]
     fn typed_set_operators_authenticate_operand_domains_results_and_owners() {
-        let mut program = prepare(r#"const KINDS = {"file", "dir"}
+        let mut program = prepare(r#"const KINDS = set.from(["file", "dir"])
 pure allowed(kind: Str, extra: Set[Str], numbers: Set[Int], erased: Any) -> Bool { kind in KINDS | extra }
 pure merged(left: Set[Str], right: Set[Str]) -> Set[Str] { left | right }
 pure wrong_result(left: Set[Str], right: Set[Str]) -> Set[Int] { let _ = left; let _ = right; set.empty() }
 pure other(value: Set[Str]) -> Set[Str] { value }
-assert allowed("file", {"link",}, {1, 2}, "erased")
-assert "file" in merged(KINDS, {"link",})
+assert allowed("file", set.from(["link"]), set.from([1, 2]), "erased")
+assert "file" in merged(KINDS, set.from(["link"]))
 "#);
         assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
         program.store.in_place.take();

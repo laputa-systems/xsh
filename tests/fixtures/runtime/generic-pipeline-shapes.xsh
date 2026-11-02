@@ -54,7 +54,7 @@ proc generic_shapes() -> Result[Unit] {
   assert zipped("left", 9) == [{left: "left", right: 9}]
   assert zipped(retained, true) == [{left: retained, right: true}]
   assert zipped_sources([7], ["right"]) == [{left: 7, right: "right"}]
-  assert zipped_sources({2, 1}, {"b", "a"}) == [{left: 1, right: "a"}, {left: 2, right: "b"}]
+  assert zipped_sources(set.from([2, 1]), set.from(["b", "a"])) == [{left: 1, right: "a"}, {left: 2, right: "b"}]
   let wrapped: Result[List[Str], Str] = Ok(["right"])
   assert zipped_sources([7], wrapped) == [{left: 7, right: "right"}]
   assert repeated(7, 8, 2) == typed_repeat([7, 8], 2)

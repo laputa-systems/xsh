@@ -199,11 +199,11 @@ print block.upper() f"{body}"
 
 test test_fmt_keeps_literal_word_field_labels_as_fields_and_converges { |ctx|
   let source = r"""let row = {gnu:{status:2},  null :{form:"-0", default:false}, true:1,false : null,if:{match:true}}
-let words = { true,false }
+let words = set.from([ true,false ])
 print $row.null.form $row.true ${words.len()}
 """
   let formatted = r"""let row = {gnu: {status: 2}, null: {form: "-0", default: false}, true: 1, false: null, if: {match: true}}
-let words = {true, false}
+let words = set.from([true, false])
 print $row.null.form $row.true ${words.len()}
 """
   let file = test.temp_file(ctx, name: "literal-word-labels.xsh", contents: bytes.from_text(source))?

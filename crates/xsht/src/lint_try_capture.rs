@@ -370,8 +370,6 @@ fn closed_scalar_expression(
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::ListComp { .. }
                 | ArenaExprKind::MapComp { .. }
-                | ArenaExprKind::Set(_)
-                | ArenaExprKind::SetComp { .. }
                 | ArenaExprKind::Record(_)
                 | ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }

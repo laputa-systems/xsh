@@ -863,7 +863,7 @@ x - c > c & b +
 
 Thing |> b in b
 "####),
-        ("depth 12 seed 9 target set_comprehension", true, r####"guard let items : y [ List [ proc (
+        ("depth 12 seed 9 target set_comprehension", false, r####"guard let items : y [ List [ proc (
 ) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
 items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
 ) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = b and
@@ -910,7 +910,7 @@ b ) ) ? else {
 }
 
 "####),
-        ("depth 12 seed 9 target set_lead", true, r####"guard let items : y [ List [ proc (
+        ("depth 12 seed 9 target set_lead", false, r####"guard let items : y [ List [ proc (
 ) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
 items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
 ) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = b and
@@ -982,7 +982,7 @@ b - value is Map [ proc ( ) [ ] -> Thing , Result [ value ] ] [ ] and
 y is x . b ? is Union [ x . x , b ] and
 x % items - value <= x >= y } ; cli main ( ) { }
 "####),
-        ("depth 16 seed 8347 target random", true, r####"var { .. , x , .. } : proc ( b : proc ( ) -> Result [ NonEmpty [ pure ( ) -> items ] ? , Set [ items [ c ] ] ] [ ] ? = y | b / a >= c &
+        ("depth 16 seed 8347 target random", false, r####"var { .. , x , .. } : proc ( b : proc ( ) -> Result [ NonEmpty [ pure ( ) -> items ] ? , Set [ items [ c ] ] ] [ ] ? = y | b / a >= c &
 value & items >=
 
 b %
@@ -1076,7 +1076,7 @@ b and b <= b ??
 value is c . a as c ?? c >
 b ) ) ?
 "####),
-        ("depth 16 seed 9215 target random", true, r####"on 1 [ process ,
+        ("depth 16 seed 9215 target random", false, r####"on 1 [ process ,
 error ] { | value , x , items
 | enum y { y ( ) } ; tempdir value { } ; } run.bytes --timeout= { a <=
 
@@ -1173,11 +1173,11 @@ fn discarded_lookahead_attempts_do_not_change_generated_derivations() {
 }
 
 #[test]
-fn multiline_sets_and_command_word_boundaries_are_recognized() {
-    for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n", "run --timeout= spawn (x) cmd\n", "env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n", "let value = (spawn run fp\"{a}/x\")? % - collect {}\n", "f(spawn run a?)\n", "(f(spawn run a))\n", "let value = { f\ng }\n"] {
+fn multiline_command_word_boundaries_are_recognized() {
+    for source in ["run --timeout= spawn (x) cmd\n", "env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n", "let value = (spawn run fp\"{a}/x\")? % - collect {}\n", "f(spawn run a?)\n", "(f(spawn run a))\n", "let value = { f\ng }\n"] {
         assert_parser_and_grammar_agree(source, true);
     }
-    for source in ["fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n", "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "f(spawn run a)\n", "f a-b(1)\n", "run (\n cmd ) out )\n", "run --timeout=fp\"x\"[] cmd\n", "run --timeout= spawn (x)\n", "guard let items = run -- ? else { }\n", "{ } ; cd { { }\n", "let value = match x { E => \"\" 0 => 4 }\n"] {
+    for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n", "fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n", "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "f(spawn run a)\n", "f a-b(1)\n", "run (\n cmd ) out )\n", "run --timeout=fp\"x\"[] cmd\n", "run --timeout= spawn (x)\n", "guard let items = run -- ? else { }\n", "{ } ; cd { { }\n", "let value = match x { E => \"\" 0 => 4 }\n"] {
         assert_parser_and_grammar_agree(source, false);
     }
 }

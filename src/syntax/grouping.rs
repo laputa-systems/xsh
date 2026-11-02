@@ -211,9 +211,6 @@ pub enum Lead {
     /// A `let`, assignment, `return`, `yield`, or `defer` value, where a
     /// leading `run` is a run form rather than an expression.
     Initializer,
-    /// An entry of a set literal or the body of a set comprehension, where
-    /// a leading `[` starts a computed map key.
-    SetElement,
 }
 
 /// The operator or construct that holds an expression.
@@ -302,13 +299,6 @@ impl Context {
         }
     }
 
-    pub const fn set_element(follow: Follow) -> Self {
-        Self {
-            lead: Some(Lead::SetElement),
-            ..Self::open(follow)
-        }
-    }
-
     /// The context of a parenthesized expression's contents.
     pub const fn group(self) -> Self {
         Self::open(Follow::spaced(FollowToken::RParen))
@@ -352,8 +342,6 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -477,8 +465,6 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
         current = match arena.expr(current).kind {
             ArenaExprKind::Record(_)
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::ValueBlock(_)
             | ArenaExprKind::Pipeline { .. }
             | ArenaExprKind::StructuredPipeline { .. }
@@ -895,14 +881,6 @@ fn comparison_mixes(op: BinaryOp, kind: &ArenaExprKind) -> bool {
 
 /// Statement and arm-body dispatch on the expression's own first token.
 fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context: Context) -> bool {
-    // After `{` or an entry's `,`, the brace-literal parser reads `[` as a
-    // computed key, so a list that begins an element is grouped.
-    if lead == Lead::SetElement {
-        return matches!(
-            kind,
-            ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
-        );
-    }
     let statement = matches!(lead, Lead::Statement { .. } | Lead::ArmStatement);
     match kind {
         ArenaExprKind::ValueBlock(_) if lead == Lead::ArmStatement => true,
@@ -920,7 +898,6 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         ),
         // An arm statement that starts with `{` is the arm's block unless
         // its first entry is a written field.
-        ArenaExprKind::Set(_) | ArenaExprKind::SetComp { .. } if lead == Lead::ArmStatement => true,
         ArenaExprKind::Record(_) | ArenaExprKind::MapComp { .. } if lead != Lead::Initializer => {
             !brace_reads_as_record(arena, kind)
         }
@@ -977,8 +954,6 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::Record(_)
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
@@ -1206,8 +1181,6 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         }
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
-        ArenaExprKind::SetComp { expr, .. } if expr == child => Context::set_element(Follow::WORD),
-        ArenaExprKind::Set(_) => Context::set_element(Follow::CLOSE),
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
             let has_spec = arena
                 .fmt_parts(parts)
@@ -1234,7 +1207,6 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -1319,8 +1291,6 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -1379,8 +1349,6 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -1484,7 +1452,6 @@ pub fn grouping_diagnostics_in_range(
     }
     let mut parents: FxHashMap<ExprId, ExprId> = FxHashMap::default();
     let mut arm_bodies = Vec::new();
-    let mut set_elements = Vec::new();
     let mut diagnostics = Vec::new();
     let source_rows = arena.source_rows();
     for parent in source_rows.expr_ids(source_id) {
@@ -1494,16 +1461,6 @@ pub fn grouping_diagnostics_in_range(
         // they hold nothing and no source text follows them.
         if arena.expr_is_synthetic(parent) {
             continue;
-        }
-        // Delimited, so held by no operator, but read by where they begin.
-        if !grouped.is_empty() {
-            match arena.expr(parent).kind {
-                ArenaExprKind::Set(items) => {
-                    set_elements.extend(arena.list_elements(items).map(|item| item.value));
-                }
-                ArenaExprKind::SetComp { expr, .. } => set_elements.push(expr),
-                _ => {}
-            }
         }
         let logical = matches!(
             tag,
@@ -1529,8 +1486,6 @@ pub fn grouping_diagnostics_in_range(
                 | Tag::List
                 | Tag::ListComp
                 | Tag::MapComp
-                | Tag::Set
-                | Tag::SetComp
                 | Tag::Record
                 | Tag::If
                 | Tag::Run
@@ -1590,11 +1545,6 @@ pub fn grouping_diagnostics_in_range(
         groups
             .statements
             .extend(arm_bodies.into_iter().map(|body| (body, Lead::ArmBody)));
-        groups.statements.extend(
-            set_elements
-                .into_iter()
-                .map(|element| (element, Lead::SetElement)),
-        );
         for statement in source_rows.stmt_ids(source_id) {
             if let ArenaStmtKind::Let {
                 initializer: value, ..

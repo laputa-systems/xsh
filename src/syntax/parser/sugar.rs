@@ -915,7 +915,7 @@ mod tests {
             ("let n = collect { yield 1 }.len() + 1\n", true),
             ("let both = collect { yield 1 } |> collect()\n", true),
             (
-                "let either = set.from(collect { yield 1 }) | {2, 3}\n",
+                "let either = set.from(collect { yield 1 }) | set.from([2, 3])\n",
                 true,
             ),
             ("if collect { yield 1 } == [] { print \"x\" }\n", true),

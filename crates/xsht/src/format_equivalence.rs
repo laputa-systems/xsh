@@ -854,17 +854,6 @@ impl CanonicalWriter<'_> {
                 self.expr(*expr);
                 self.comp_qualifiers(*qualifiers);
             }
-            ArenaExprKind::Set(items) => {
-                self.put("set;");
-                for element in self.arena.list_elements(*items).collect::<Vec<_>>() {
-                    self.expr(element.value);
-                }
-            }
-            ArenaExprKind::SetComp { expr, qualifiers } => {
-                self.put("set-comp;");
-                self.expr(*expr);
-                self.comp_qualifiers(*qualifiers);
-            }
             ArenaExprKind::MapComp {
                 key,
                 value,

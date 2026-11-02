@@ -5,7 +5,7 @@ test test_full_inference_pipeline_inputs_keep_independent_container_domains { |c
 pure collect_values(source) { source |> collect }
 pure text_source() -> Result[List[Str], Str] { Ok(["a", "b"]) }
 assert collect_values([1, 2]) == [1, 2]
-assert collect_values({2, 1}) == [1, 2]
+assert collect_values(set.from([2, 1])) == [1, 2]
 assert collect_values(values()) == [1, 2]
 assert collect_values(text_source()) == ["a", "b"]
 let wrapped: Result[Stream[Int]] = Ok(values())

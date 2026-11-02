@@ -322,12 +322,12 @@ test test_literal_word_labels_are_fields_beside_the_sets_of_those_words { |ctx|
   assert nested.row.true == 8
   assert nested.row.false == 3
 
-  assert {true, false}.to_list() == [false, true]
-  assert {false, true, false}.len() == 2
-  let flags: Set[Bool] = {true,}
+  assert set.from([true, false]).to_list() == [false, true]
+  assert set.from([false, true, false]).len() == 2
+  let flags: Set[Bool] = set.from([true])
   assert true in flags
-  assert {"a", "b"}.to_list() == ["a", "b"]
-  let chosen = {if leading.null == 1 { "one" } else { "other" }, "two"}
+  assert set.from(["a", "b"]).to_list() == ["a", "b"]
+  let chosen = set.from([if leading.null == 1 { "one" } else { "other" }, "two"])
   assert chosen.to_list() == ["one", "two"]
 
   for source in [
@@ -338,6 +338,6 @@ test test_literal_word_labels_are_fields_beside_the_sets_of_those_words { |ctx|
   ] {
     let rejected = test.run_script(ctx, source)?
     assert ! rejected.success, source
-    assert "parse.brace-literal-mixed" in rejected.stderr, source + rejected.stderr
+    assert "parse.set-literal" in rejected.stderr, source + rejected.stderr
   }
 }

@@ -1,13 +1,13 @@
-# `Set[T]` holds distinct elements of one key type in key order. Braces are
-# a set where an entry is not a bare name or where a `Set[T]` is expected.
+# `Set[T]` holds distinct elements of one key type in key order. `set.from`
+# builds one from a list.
 
 type Inventory = {name: Str, tags: Set[Str]}
 
-const known_words = {"pear", "apple", "pear"}
+const known_words = set.from(["pear", "apple", "pear"])
 const first_word = "fig"
-const named_words: Set[Str] = {first_word, first_word}
-const known_paths: Set[Path] = {"b/c", "a"}
-const word_groups = {sizes: [{2, 1}], words: known_words}
+const named_words: Set[Str] = set.from([first_word, first_word])
+const known_paths: Set[Path] = set.from(["b/c", "a"])
+const word_groups = {sizes: [set.from([2, 1])], words: known_words}
 
 type Search = {among: Set[Str] = known_words, word: Str}
 
@@ -24,53 +24,50 @@ pure both(left: Set[Str], right: Set[Str]) -> Set[Str] {
 }
 
 pure tags_of(names: List[Str]) -> Set[Str] {
-  {name.lower() for name in names if ! name.is_empty()}
+  set.from([name.lower() for name in names if ! name.is_empty()])
 }
 
-test test_set_literals_hold_each_element_once_in_key_order {
-  let words = {"pear", "apple", "pear", "fig"}
+test test_sets_hold_each_element_once_in_key_order {
+  let words = set.from(["pear", "apple", "pear", "fig"])
   assert words.len() == 3
   assert words.to_list() == ["apple", "fig", "pear"]
-  assert {3, 1, 2, 1}.to_list() == [1, 2, 3]
-  assert {true, false}.to_list() == [false, true]
-  assert {2s, 500ms}.to_list() == [500ms, 2s]
-  assert {"only",}.len() == 1
+  assert set.from([3, 1, 2, 1]).to_list() == [1, 2, 3]
+  assert set.from([true, false]).to_list() == [false, true]
+  assert set.from([2s, 500ms]).to_list() == [500ms, 2s]
+  assert set.from(["only"]).len() == 1
 
-  let multiline = {
+  let multiline = set.from([
     "one",
     "two",
-  }
-  assert multiline == {"two", "one"}
+  ])
+  assert multiline == set.from(["two", "one"])
 }
 
-test test_one_entry_that_is_not_a_bare_name_makes_braces_a_set {
+test test_set_elements_are_any_expression_and_bare_names_stay_a_record {
   let first = "a"
   let second = "b"
-  let mixed = {first, "b"}
-  assert mixed == {"a", "b"}
-  assert {first, second.upper()} == {"a", "B"}
+  let mixed = set.from([first, "b"])
+  assert mixed == set.from(["a", "b"])
+  assert set.from([first, second.upper()]) == set.from(["a", "B"])
 
-  # Bare names alone are a record, and a set only where one is expected.
   let record = {first, second}
   assert record.first == "a"
-  let expected: Set[Str] = {first, second}
+  let expected: Set[Str] = set.from([first, second])
   assert expected == mixed
-  assert both({first, second}, {second}) == {"b",}
-
-  # Where `Any` is expected the spelling alone decides.
-  let dynamic: Any = {first, "b"}
+  assert both(set.from([first, second]), set.from([second])) == set.from(["b"])
+  let dynamic: Any = set.from([first, "b"])
   assert dynamic is Set[Str]
   let plain: Any = {first, second}
   assert ! (plain is Set[Str])
 }
 
 test test_set_operators_and_methods_return_new_sets {
-  let left = {"a", "b", "c"}
-  let right = {"b", "c", "d"}
-  assert left | right == {"a", "b", "c", "d"}
-  assert left & right == {"b", "c"}
-  assert left - right == {"a",}
-  assert left | right & {"d",} == {"a", "b", "c", "d"}
+  let left = set.from(["a", "b", "c"])
+  let right = set.from(["b", "c", "d"])
+  assert left | right == set.from(["a", "b", "c", "d"])
+  assert left & right == set.from(["b", "c"])
+  assert left - right == set.from(["a"])
+  assert left | right & set.from(["d"]) == set.from(["a", "b", "c", "d"])
   assert "a" in left
   assert "d" not in left
   assert "d" in left | right
@@ -87,12 +84,12 @@ test test_set_operators_and_methods_return_new_sets {
   assert none.len() < 1
   assert none | left == left
   let numbers: Set[Int] = set.from([3, 1, 3])
-  assert numbers == {1, 3}
+  assert numbers == set.from([1, 3])
   assert [3, 1, 3].to_set() == numbers
 }
 
 test test_sets_are_sources_of_loops_comprehensions_and_pipelines {
-  let words = {"pear", "apple", "fig"}
+  let words = set.from(["pear", "apple", "fig"])
   var seen = ""
   for word in words {
     seen += word + ","
@@ -100,7 +97,7 @@ test test_sets_are_sources_of_loops_comprehensions_and_pipelines {
 
   assert seen == "apple,fig,pear,"
   assert [word.byte_len() for word in words] == [5, 3, 4]
-  assert {word.byte_len() for word in words if word != "fig"} == {4, 5}
+  assert set.from([word.byte_len() for word in words if word != "fig"]) == set.from([4, 5])
   assert (words |> map .upper() |> collect()) == ["APPLE", "FIG", "PEAR"]
   assert tags_of(["B", "", "a", "b"]).to_list() == ["a", "b"]
 
@@ -112,15 +109,15 @@ test test_sets_are_sources_of_loops_comprehensions_and_pipelines {
   assert total.to_list() == [3, 5]
 }
 
-# A set literal over constants is a constant: prepared once, held in key
+# `set.from` over constants is a constant: prepared once, held in key
 # order, and usable wherever a set is, including as a default.
-test test_set_literals_over_constants_are_constants {
-  const local_sizes: Set[Int] = {3, 1, 3}
+test test_set_from_over_constants_is_a_constant {
+  const local_sizes: Set[Int] = set.from([3, 1, 3])
   assert known_words.to_list() == ["apple", "pear"]
-  assert named_words == {"fig",}
+  assert named_words == set.from(["fig"])
   assert p"a" in known_paths
   assert local_sizes.to_list() == [1, 3]
-  assert word_groups.sizes[0] == {1, 2}
+  assert word_groups.sizes[0] == set.from([1, 2])
   assert word_groups.words == known_words
 
   assert is_known("pear")
@@ -138,12 +135,12 @@ test test_set_literals_over_constants_are_constants {
 test test_constant_sets_reject_what_is_not_constant_data { |ctx|
   let output = test.expect(
     ctx,
-    """const ratios = {1.5, 2.5}
-const wrong: Set[Int] = {"a", "b"}
+    """const ratios = set.from([1.5, 2.5])
+const wrong: Set[Int] = set.from(["a", "b"])
 const none: Set[Str] = set.empty()
-const built = {"a".upper(), "b"}
-const base = {"a", "b"}
-const joined = base | {"c",}
+const built = set.from(["a".upper(), "b"])
+const base = set.from(["a", "b"])
+const joined = base | set.from(["c"])
 print \${ratios.len()} \${wrong.len()} \${none.len()} \${built.len()} \${joined.len()}
 """,
     status: 2,
@@ -155,16 +152,16 @@ print \${ratios.len()} \${wrong.len()} \${none.len()} \${built.len()} \${joined.
 }
 
 test test_sets_cross_json_as_sorted_arrays {
-  let inventory = Inventory("core", {"b", "a"})
+  let inventory = Inventory("core", set.from(["b", "a"]))
   let text = json.encode(inventory)?
   assert text == r"""{"name":"core","tags":["a","b"]}"""
   let decoded = json.decode(text)?.require(Inventory)?
-  assert decoded.tags == {"a", "b"}
+  assert decoded.tags == set.from(["a", "b"])
   assert decoded == inventory
 
-  let paths: Set[Path] = {"b/c", "a"}
+  let paths: Set[Path] = set.from(["b/c", "a"])
   assert p"a" in paths
-  assert json.decode("[2, 1]")?.require(Set[Int])? == {1, 2}
+  assert json.decode("[2, 1]")?.require(Set[Int])? == set.from([1, 2])
 
   # A validation boundary does not drop data: a repeated element fails.
   let repeated = json.decode(r"""["a", "a"]""")?.require(Set[Str])
@@ -178,41 +175,51 @@ test test_sets_cross_json_as_sorted_arrays {
 test test_set_misuse_is_rejected_by_the_checker { |ctx|
   let output = test.expect(
     ctx,
-    """let ratios = {1.5, 2.5}
+    """let ratios = set.from([1.5, 2.5])
 let nested: Set[List[Str]] = set.empty()
 let rows = [[1], [2]].to_set()
-let words = {"a", "b"}
+let words = set.from(["a", "b"])
 let ready = true | false
 let joined = words & ["c"]
-let mixed = {"a", 1}
+let mixed = set.from(["a", 1])
 let none: Set[Str] = {}
-let one: Set[Str] = {"a"}
 let first = words[0]
 print \${ratios.len()} \${nested.len()} \${rows.len()} \$ready \${joined.len()}
-print \${mixed.len()} \${none.len()} \${one.len()} \$first
+print \${mixed.len()} \${none.len()} \$first
 """,
     status: 2,
   )?
   assert output.stdout == ""
   assert count(output.stderr, "err[check.set-element-type]") == 3, output.stderr
   assert count(output.stderr, "err[check.set-operator]") == 2, output.stderr
-  assert count(output.stderr, "err[check.type-mismatch]") == 3, output.stderr
+  assert count(output.stderr, "err[check.type-mismatch]") == 2, output.stderr
   assert count(output.stderr, "err[check.index-type]") == 1, output.stderr
   assert "the boolean operator is `or`" in output.stderr, output.stderr
-  assert "the empty set is `set.empty()`" in output.stderr, output.stderr
-  assert "a one-element set has a comma after its element" in output.stderr, output.stderr
 }
 
-test test_fields_and_elements_do_not_mix_in_one_literal { |ctx|
-  let output = test.expect(
+test test_brace_sets_are_rejected_with_the_set_from_call { |ctx|
+  let literal = test.expect(
     ctx,
-    """let name = "core"
-let entry = {"kind", name: name}
-print \${entry.len()}
+    """let first = "a"
+let words = {first, "b"}
+let one = {"only",}
+print \${words.len()} \${one.len()}
 """,
     status: 2,
   )?
-  assert count(output.stderr, "err[parse.brace-literal-mixed]") == 1, output.stderr
+  assert count(literal.stderr, "err[parse.set-literal]") == 2, literal.stderr
+  assert "write `set.from([first, \"b\"])`" in literal.stderr, literal.stderr
+  assert "write `set.from([\"only\",])`" in literal.stderr, literal.stderr
+
+  let comprehension = test.expect(
+    ctx,
+    """let squares = {n * n for n in [1, 2]}
+print \${squares.len()}
+""",
+    status: 2,
+  )?
+  assert count(comprehension.stderr, "err[parse.set-literal]") == 1, comprehension.stderr
+  assert "write `set.from([n * n for n in [1, 2]])`" in comprehension.stderr, comprehension.stderr
 
   let doubled = test.expect(
     ctx,
@@ -224,17 +231,19 @@ if ready || ready { print "yes" }
   assert count(doubled.stderr, "err[parse.unsupported-boolean-operator]") == 1, doubled.stderr
 }
 
-# The formatter keeps the spellings that make braces a set.
-test test_formatter_keeps_set_literals_sets { |ctx|
+# `set.from` over a list the formatter keeps in its own layout.
+test test_formatter_keeps_set_from_stable { |ctx|
   let source = """let a = "x"
-let one = {"only",}
-let mixed = {a, "y"}
-let squares = {n * n for n in [1, 2]}
-let wide = {
-  "alpha-alpha-alpha-alpha-alpha-alpha",
-  "beta-beta-beta-beta-beta-beta-beta",
-  "gamma-gamma-gamma-gamma-gamma-gamma",
-}
+let one = set.from(["only"])
+let mixed = set.from([a, "y"])
+let squares = set.from([n * n for n in [1, 2]])
+let wide = set.from(
+  [
+    "alpha-alpha-alpha-alpha-alpha-alpha",
+    "beta-beta-beta-beta-beta-beta-beta",
+    "gamma-gamma-gamma-gamma-gamma-gamma",
+  ],
+)
 print \${one.len()} \${mixed.len()} \${squares.len()} \${wide.len()}
 """
   let candidate = test.temp_file(ctx, name: "sets.xsh", contents: bytes.from_text(source))?
@@ -242,39 +251,6 @@ print \${one.len()} \${mixed.len()} \${squares.len()} \${wide.len()}
   assert stable.status.exited_with(0), stable.stdout + stable.stderr
   let output = test.expect(ctx, source, status: 0)?
   assert output.stdout == "1 2 2 3\n"
-}
-
-# After `{` or an entry's `,`, a `[` starts a computed map key, so a set
-# element that begins with a list has the list in parentheses. Those
-# parentheses are required, and the formatter writes them.
-test test_a_set_element_that_begins_with_a_list_is_grouped { |ctx|
-  let sizes = {([1, 2]).len(), 3, ([n for n in [4, 5, 6]]).len()}
-  assert sizes == {2, 3}
-  assert {([n, n]).len() + n for n in [1, 2]} == {3, 4}
-
-  let source = """let sizes = {([1, 2].len()), 3}
-let later = {7, ([1, 2, 3]).len()}
-print \${sizes.len()} \${later.len()}
-"""
-  let output = test.expect(ctx, source, status: 0)?
-  assert output.stdout == "2 2\n"
-  let candidate = test.temp_file(ctx, name: "grouped.xsh", contents: bytes.from_text(source))?
-  run.capture --text --accept=[0, 1] "xsht" fmt $candidate
-  let formatted = candidate.read_text()?
-  assert "let sizes = {([1, 2]).len(), 3}\n" in formatted, formatted
-  assert "let later = {7, ([1, 2, 3]).len()}\n" in formatted, formatted
-  let stable = run.capture --text "xsht" fmt --check $candidate
-  assert stable.status.exited_with(0), stable.stdout + stable.stderr
-
-  # Parentheses that no entry needs are still redundant.
-  let redundant = test.expect(
-    ctx,
-    """let sizes = {(1 + 2), 3}
-print \${sizes.len()}
-""",
-    status: 2,
-  )?
-  assert count(redundant.stderr, "err[check.redundant-parens]") == 1, redundant.stderr
 }
 
 # The migration lint makes a local map of `true` a set in one fix, and the
@@ -374,7 +350,7 @@ show({a: 1}, ["b", "a", "b"])
 # them.
 test test_set_module_constructs_sets_and_names_the_removed_functions { |ctx|
   let sizes = set.from([3, 1, 3])
-  assert sizes == {1, 3}
+  assert sizes == set.from([1, 3])
   let paths: Set[Path] = set.from(["b", "a"])
   assert paths.to_list() == [p"a", p"b"]
   assert set.from(["x", "x"]).add("y").len() == 2

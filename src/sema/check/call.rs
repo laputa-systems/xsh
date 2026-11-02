@@ -2407,6 +2407,9 @@ impl Checker {
                 let instance = crate::sema::builtin_templates::BuiltinInstantiation::from_result(signature, &set, &mut self.type_constraints, span);
                 self.publish_api_call(arena, args, span, None, signature, &instance.signature);
             }
+            if name == "from" && matches!(set, Type::Set(_)) {
+                self.cardinality_preserving_collection_calls.insert(span);
+            }
             return set;
         }
         if module == "env" && name == "get_path" {

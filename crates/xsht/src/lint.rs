@@ -2435,7 +2435,7 @@ impl<'a> Linter<'a> {
                 .get(self.arena.expr(value).span.range())
                 .and_then(xsh::frontend::syntax::literal::dotted_names_if_formatted)
                 .is_some(),
-            ArenaExprKind::List(items) | ArenaExprKind::Set(items) => self
+            ArenaExprKind::List(items) => self
                 .arena
                 .list_elements(items)
                 .any(|item| self.holds_missing_f_prefix(item.value)),
@@ -3584,8 +3584,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
@@ -4477,8 +4475,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Item
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
@@ -4900,7 +4896,7 @@ impl<'a> Linter<'a> {
                     parts.push((true, expr));
                 }
             }
-            ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
+            ArenaExprKind::List(items) => {
                 *literal = true;
                 let Type::List(element) = expected else {
                     return None;

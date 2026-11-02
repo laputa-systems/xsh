@@ -248,7 +248,7 @@ assert collect([1, 2]) == [1, 2]
 assert collect(["a"]) == ["a"]
 assert collect("ab") == ["a", "b"]
 assert collect(b"ab") == [97, 98]
-assert collect({1, 2}) == [1, 2]
+assert collect(set.from([1, 2])) == [1, 2]
 assert collect({["key"]: 7}) == [{key: "key", value: 7}]
 """,
     status: 0,

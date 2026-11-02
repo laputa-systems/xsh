@@ -716,8 +716,7 @@ impl Analyzer<'_> {
                 | ArenaExprKind::ContextScope { .. }
                 | ArenaExprKind::Loop { .. }
                 | ArenaExprKind::ListComp { .. }
-                | ArenaExprKind::MapComp { .. }
-                | ArenaExprKind::SetComp { .. } => true,
+                | ArenaExprKind::MapComp { .. } => true,
                 ArenaExprKind::Null
                 | ArenaExprKind::Bool(_)
                 | ArenaExprKind::Int(_)
@@ -733,7 +732,6 @@ impl Analyzer<'_> {
                 | ArenaExprKind::Ident(_)
                 | ArenaExprKind::Item
                 | ArenaExprKind::List(_)
-                | ArenaExprKind::Set(_)
                 | ArenaExprKind::Record(_)
                 | ArenaExprKind::Unary { .. }
                 | ArenaExprKind::Call { .. }

@@ -386,21 +386,21 @@ test test_full_inference_sealed_binary_arithmetic_preserves_dimensions_and_colle
 pure divide(a, b) { a / b }
 pure subtract(a, b) { a - b }
 pure relay(a, b) { combine(a, b) }
-pure remove(values) { values - {1, 2} }
+pure remove(values) { values - set.from([1, 2]) }
 let number: Int = relay(1, 2)
 let text: Str = relay("one", " two")
 let joined: List[Int] = combine([1], [2])
-let remaining: Set[Int] = subtract({1, 2, 3, 4}, {3, 4})
+let remaining: Set[Int] = subtract(set.from([1, 2, 3, 4]), set.from([3, 4]))
 let ratio: Int = divide(4s, 2s)
 let scaled: Duration = divide(4s, 2)
-let filtered: Set[Int] = remove({1, 2, 3, 4})
+let filtered: Set[Int] = remove(set.from([1, 2, 3, 4]))
 assert number == 3
 assert text == "one two"
 assert joined == [1, 2]
-assert remaining == {1, 2}
+assert remaining == set.from([1, 2])
 assert ratio == 2
 assert scaled == 2s
-assert filtered == {3, 4}
+assert filtered == set.from([3, 4])
 """,
     status: 0,
   )?

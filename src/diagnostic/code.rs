@@ -251,6 +251,7 @@ diagnostic_codes! {
         ParseRequiredValue = "parse.required-value", error, "Reject `yield` without a value";
         ParseRestDefault = "parse.rest-default", error, "Reject a default value on a rest parameter";
         ParseRunOption = "parse.run-option", error, "Reject a duplicate `run` option such as `--timeout`";
+        ParseSetLiteral = "parse.set-literal", error, "Reject a brace set literal or comprehension; build a set with `set.from` over a list";
         ParseSignalHook = "parse.signal-hook", error, "Reject a malformed `on SIGNAL` hook: missing signal, effect list, or bad option";
         ParseStdlibCatalog = "parse.stdlib-catalog", error, "Reject an import of a standard-library module missing from the embedded catalog";
         ParseStreamMode = "parse.stream-mode", error, "Reject a `run.stream` mode other than `--text` or `--bytes`";
@@ -267,7 +268,6 @@ diagnostic_codes! {
         ParseForIndex = "parse.for-index", error, "Reject a destructured index in `for INDEX, ITEM in SOURCE`";
         ParseNestingDepth = "parse.nesting-depth", error, "Reject a construct nested more deeply than the limit every later pass is sized for";
         ParseTextPatternHole = "parse.text-pattern-hole", error, "Reject a hole of an f-string pattern that is not a name, `_`, or a name with a spec";
-        ParseBraceLiteralMixed = "parse.brace-literal-mixed", error, "Reject a brace literal that writes both `key: value` fields and set elements";
     }
     Check {
         CheckAcceptPolicy = "check.accept-policy", error, "Reject an invalid `accept` exit-code list: empty, outside 0..255, or with duplicates";

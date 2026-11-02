@@ -179,8 +179,6 @@ pub(super) fn lower_const_param_default(
         | ArenaExprKind::Item
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
         | ArenaExprKind::PatternTest { .. }

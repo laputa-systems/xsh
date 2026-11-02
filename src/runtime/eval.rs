@@ -1004,7 +1004,7 @@ impl ProducerDemand {
         statements.chain(declarations.bodies.expr_types.keys().filter_map(move |expression| {
             let expression = program.arena.expr(*expression);
             matches!(expression.kind, E::If { .. } | E::Match { .. } | E::PatternTest { .. }
-                | E::ListComp { .. } | E::MapComp { .. } | E::SetComp { .. }
+                | E::ListComp { .. } | E::MapComp { .. }
                 | E::Pipeline { .. } | E::StructuredPipeline { .. }).then_some(expression.span)
         }))
     }

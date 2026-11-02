@@ -1821,8 +1821,6 @@ compact_expr_kind_catalog! {
     ArenaExprKind::ContextScope { .. } => (45, "context_scope");
     ArenaExprKind::TempDirScope { .. } => (46, "tempdir_scope");
     ArenaExprKind::Convert { .. } => (47, "convert");
-    ArenaExprKind::Set(_) => (48, "set");
-    ArenaExprKind::SetComp { .. } => (49, "set_comp");
     ArenaExprKind::Collect { .. } => (50, "collect");
     ArenaExprKind::ResourceScope { .. } => (51, "resource_scope");
 }
@@ -4687,20 +4685,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body))
     }
 
-    fn lower_scheme_set_value(
-        &mut self, values: Vec<BuildExprId>, ty: &SchemeType, span: Span,
-        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
-    ) -> Option<BuildExprId> {
-        let item = match ty {
-            SchemeType::Set(item) => (**item).clone(),
-            SchemeType::Ground(Type::Set(item)) => SchemeType::Ground((**item).clone()),
-            _ => return None,
-        };
-        let list = push_build_row!(self, expr, BuildExprRow::List(values));
-        lowered_types.insert(list, SchemeType::List(Box::new(item)));
-        self.lower_scheme_set_of_list(list, span)
-    }
-
     fn lower_scheme_set_of_list(&mut self, list: BuildExprId, span: Span) -> Option<BuildExprId> {
         let [method] = api_spec().method_overloads(crate::modules::MethodReceiver::List, "to_set")? else { return None };
         let plan = Arc::new(crate::sema::schemes::RegisteredCallPlan {
@@ -5483,13 +5467,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if splice { push_build_row!(self, expr, BuildExprRow::ListBuild(values)) }
                 else { push_build_row!(self, expr, BuildExprRow::List(values.into_iter().map(|(_, value, _)| value).collect())) }
             }
-            ArenaExprKind::Set(items) => {
-                let mut values = Vec::new();
-                for value in self.program.arena.list_elements(items).map(|item| item.value).collect::<Vec<_>>() {
-                    values.push(self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?);
-                }
-                self.lower_scheme_set_value(values, &ty, span, lowered_types)?
-            }
             ArenaExprKind::Record(fields) => {
                 let fields = self.program.arena.record_fields(fields).to_vec();
                 if fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
@@ -5516,13 +5493,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         updates.push((path, value, field_span));
                     }
                     push_build_row!(self, expr, BuildExprRow::RecordUpdate { base, updates: LoweredRecordUpdates(updates), span })
-                } else if let SchemeType::Set(item) = &ty {
-                    let mut values = Vec::new();
-                    for field in fields {
-                        let ArenaRecordFieldKind::Shorthand { name, span } = field.kind else { return self.block_scheme_lowering_expr(expression) };
-                        values.push(self.lower_scheme_shorthand(self.program.arena.span(span), name, (**item).clone(), slots, lowered_types, body)?);
-                    }
-                    self.lower_scheme_set_value(values, &ty, span, lowered_types)?
                 } else if matches!(ty, SchemeType::Map(_, _)) {
                     let SchemeType::Map(ref key_type, _) = ty else { unreachable!() };
                     let key_type = key_type.closed_ground_type()?;
@@ -5578,21 +5548,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     push_build_row!(self, expr, BuildExprRow::Record(entries))
                 }
             }
-            ArenaExprKind::ListComp { expr: projection, qualifiers } | ArenaExprKind::SetComp { expr: projection, qualifiers } => {
+            ArenaExprKind::ListComp { expr: projection, qualifiers } => {
                 let saved = slots.enter();
                 let qualifiers = self.lower_scheme_comp_qualifiers(qualifiers, slots, current_function, facts, visited, lowered_types)?;
                 let value = self.lower_scheme_lazy_expression(projection, slots, current_function, facts, visited, lowered_types)?;
                 slots.exit(saved);
-                let list = push_build_row!(self, expr, BuildExprRow::ListComp { value, qualifiers, span });
-                if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::SetComp { .. }) {
-                    let item = match &ty {
-                        SchemeType::Set(item) => (**item).clone(),
-                        SchemeType::Ground(Type::Set(item)) => SchemeType::Ground((**item).clone()),
-                        _ => return self.block_scheme_lowering_expr(expression),
-                    };
-                    lowered_types.insert(list, SchemeType::List(Box::new(item)));
-                    self.lower_scheme_set_of_list(list, span)?
-                } else { list }
+                push_build_row!(self, expr, BuildExprRow::ListComp { value, qualifiers, span })
             }
             ArenaExprKind::StructuredPipeline { input, stages } => self.lower_scheme_pipeline(expression, input, stages, slots, current_function, facts, visited, lowered_types)?,
             ArenaExprKind::MapComp { key, value, qualifiers } => {
@@ -5718,6 +5679,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         crate::sema::check::CheckedBuiltinCall::Path => push_build_row!(self, expr, BuildExprRow::PathFrom { value, span }),
                         _ => push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::EnvGet, args: vec![Some(value)], span }),
                     };
+                    return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
+                }
+                if let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind
+                    && name == "from"
+                    && matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "set")
+                    && !self.bodies.resolved_bindings.expressions.contains_key(&base)
+                {
+                    let arguments = self.program.arena.call_args(args).to_vec();
+                    let [argument] = arguments.as_slice() else { return self.block_scheme_lowering_expr(expression) };
+                    let ArenaCallArgKind::Positional(items) = argument.kind else { return self.block_scheme_lowering_expr(expression) };
+                    for namespace in [callee, base] { if facts.expression_types().contains_key(&namespace) { visited.insert(namespace); } }
+                    let list = self.lower_scheme_expression(items, slots, current_function, facts, visited, lowered_types, body)?;
+                    let value = self.lower_scheme_set_of_list(list, span)?;
                     return Some(self.publish_scheme_expression(value, ty, slots, lowered_types, body));
                 }
                 if self.bodies.checked_control_flow.builtin_calls.get(&span) == Some(&crate::sema::check::CheckedBuiltinCall::PathParseBytes) {
@@ -8831,52 +8805,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
-            ArenaExprKind::Set(items) => {
-                let items = self.program.arena.list_elements(items).collect::<Vec<_>>();
-                let mut lowered = Vec::with_capacity(items.len());
-                for item in items {
-                    lowered.push(self.lower_expr(
-                        item.value,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-                Some(self.list_as_set(lowered, span))
-            }
-            ArenaExprKind::SetComp {
-                expr: body,
-                qualifiers,
-            } => {
-                let saved = slots.enter();
-                let qualifiers =
-                    self.lower_comp_qualifiers(qualifiers, slots, current_function, item_slot)?;
-                let value = self.lower_expr(body, slots, current_function, item_slot)?;
-                slots.exit(saved);
-                let list = push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::ListComp {
-                        value,
-                        qualifiers,
-                        span
-                    }
-                );
-                Some(self.set_of_list(list, span))
-            }
-            // Braces of bare names that the checker read as a set.
-            ArenaExprKind::Record(fields)
-                if matches!(self.bodies.expr_types.get(&id), Some(Type::Set(_))) =>
-            {
-                let mut lowered = Vec::new();
-                for field in self.program.arena.record_fields(fields).to_vec() {
-                    let ArenaRecordFieldKind::Shorthand { name, span } = field.kind else {
-                        return None;
-                    };
-                    lowered.push(self.lower_bare_ident_at(self.program.arena.span(span), name, slots)?);
-                }
-                Some(self.list_as_set(lowered, span))
-            }
             ArenaExprKind::Record(fields) => {
                 if self
                     .program
@@ -10374,8 +10302,6 @@ mod compact_expr_kind_tests {
             (45, "context_scope"),
             (46, "tempdir_scope"),
             (47, "convert"),
-            (48, "set"),
-            (49, "set_comp"),
             (50, "collect"),
             (51, "resource_scope"),
         ];

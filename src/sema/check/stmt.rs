@@ -1648,7 +1648,6 @@ fn expression_cardinality_uncached(
     match arena.arena.expr(expr).kind {
         ArenaExprKind::List(elements) => list_literal_cardinality(arena, elements, facts),
         ArenaExprKind::ListComp { qualifiers, .. }
-        | ArenaExprKind::SetComp { qualifiers, .. }
         | ArenaExprKind::MapComp { qualifiers, .. } => {
             comprehension_cardinality(arena, qualifiers, facts)
         }
@@ -1681,18 +1680,22 @@ fn expression_cardinality_uncached(
         {
             expression_cardinality(arena, base, facts)
         }
+        ArenaExprKind::Call { callee, args }
+            if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
+                && name.as_str() == "from"
+                && matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(module) if module.as_str() == "set")
+                && let [crate::syntax::arena::ArenaCallArg { kind: crate::syntax::arena::ArenaCallArgKind::Positional(items), .. }] = arena.arena.call_args(args)
+                && facts
+                    .cardinality_preserving_collection_calls
+                    .is_some_and(|calls| calls.contains(&arena.arena.expr(expr).span)) =>
+        {
+            expression_cardinality(arena, *items, facts)
+        }
         ArenaExprKind::Record(fields)
             if expression_type(arena, expr, facts)
                 .is_some_and(|ty| matches!(ty.unvalidated(), Type::Map(_, _))) =>
         {
             map_literal_cardinality(arena, fields)
-        }
-        ArenaExprKind::Set(elements) => {
-            if arena.arena.list_element_exprs(elements).next().is_some() {
-                StreamCardinality::NonEmpty
-            } else {
-                StreamCardinality::Empty
-            }
         }
         ArenaExprKind::Str(value) => {
             if arena.arena.string_literal(value).is_empty() {
@@ -2051,8 +2054,7 @@ fn expr_control_flow_inner(
                 completes: body.breaks_target,
             }
         }
-        ArenaExprKind::ListComp { expr, qualifiers }
-        | ArenaExprKind::SetComp { expr, qualifiers } => {
+        ArenaExprKind::ListComp { expr, qualifiers } => {
             comprehension_control_flow(arena, qualifiers, &[expr], facts)
         }
         ArenaExprKind::MapComp { key, value, qualifiers } => {
@@ -2198,7 +2200,6 @@ fn expr_control_flow_inner(
         ArenaExprKind::FmtString(_)
         | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::List(_)
-        | ArenaExprKind::Set(_)
         | ArenaExprKind::Record(_)
         | ArenaExprKind::Unary { .. }
         | ArenaExprKind::Binary {
@@ -5730,8 +5731,6 @@ impl Checker {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
@@ -6815,8 +6814,6 @@ impl Checker {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
@@ -7096,8 +7093,6 @@ impl Checker {
                 | ArenaExprKind::List(_)
                 | ArenaExprKind::ListComp { .. }
                 | ArenaExprKind::MapComp { .. }
-                | ArenaExprKind::Set(_)
-                | ArenaExprKind::SetComp { .. }
                 | ArenaExprKind::Record(_)
                 | ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
@@ -7930,8 +7925,6 @@ impl Checker {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }
@@ -8066,8 +8059,6 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
@@ -8229,8 +8220,6 @@ fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) 
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }

@@ -43,7 +43,7 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         | ArenaExprKind::Float(_)
         | ArenaExprKind::Bytes(_)
         | ArenaExprKind::Regex(_) => true,
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena
+        ArenaExprKind::List(items) => arena
             .list_element_exprs(items)
             .all(|item| list_update_argument_stable(arena, item)),
         ArenaExprKind::GlobStr(_)
@@ -52,7 +52,6 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         | ArenaExprKind::Item
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -232,8 +231,6 @@ pub(super) fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -504,7 +501,7 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::GlobStr(_)
         | ArenaExprKind::Bytes(_)
         | ArenaExprKind::Regex(_) => true,
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena
+        ArenaExprKind::List(items) => arena
             .list_element_exprs(items)
             .all(|item| is_safe_const_expr(arena, item)),
         ArenaExprKind::Record(fields) => {
@@ -532,7 +529,6 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::ListComp { .. }
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
@@ -585,7 +581,7 @@ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
             .any(|part| matches!(part, ArenaFmtPart::Expr(expr, _) if expr_may_have_effects(arena, expr))),
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena.list_element_exprs(items).any(|item| expr_may_have_effects(arena, item)),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(|item| expr_may_have_effects(arena, item)),
         ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().any(|field| match field.kind {
             ArenaRecordFieldKind::Computed { key, value, .. } => expr_may_have_effects(arena, key) || expr_may_have_effects(arena, value),
             ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => expr_may_have_effects(arena, value),
@@ -635,7 +631,6 @@ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
                 })
         }
         ArenaExprKind::ListComp { .. }
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::EnvString(_)
         | ArenaExprKind::Pipeline { .. }
@@ -779,7 +774,7 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::Bytes(_)
         | ArenaExprKind::Regex(_) => true,
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
+        ArenaExprKind::List(items) => {
             arena.list_elements(items).all(|item| {
                 item.splice_span.is_none() && inert_constant_initializer(arena, item.value)
             })
@@ -802,7 +797,6 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
         | ArenaExprKind::Item
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
         | ArenaExprKind::PatternTest { .. }
@@ -867,8 +861,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
             | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::Record(_)
             | ArenaExprKind::If { .. }
             | ArenaExprKind::Match { .. }

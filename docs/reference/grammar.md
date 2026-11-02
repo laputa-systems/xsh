@@ -304,8 +304,6 @@ primary = literal
         | list_literal
         | record_literal
         | map_comprehension
-        | set_literal
-        | set_comprehension
         | block
         | "(" group(NEWLINE* expression_item NEWLINE*) ")"
         | if_expression
@@ -348,19 +346,12 @@ record_field = "." ~"." ~"." expression
              | "[" NEWLINE* expression NEWLINE* "]" ":" expression_item
              | ( LABEL | QUOTED_KEY ) ( "." LABEL )* ":" expression_item
              | IDENT ;
-set_literal = "{" NEWLINE* set_lead expression_item NEWLINE* "," list(!( "[" | LABEL ":" | STRING ":" ) expression_item) "}" ;
-set_lead = &( STRING | PATH | FMT_STRING | PATH_FMT | ENV_STRING | INT | FLOAT | DURATION | BYTES | "(" | "-" | "!" | "true" | "false" | "null" | "not" | "if" | "match" | NAME ~"(" | NAME ~"." | NAME ~"[" | NAME ~"?" | NAME "??" | NAME "or" | NAME "and" | NAME "==" | NAME "!=" | NAME "<" | NAME "<=" | NAME ">" | NAME ">=" | NAME "in" | NAME "not" | NAME "+" | NAME "-" | NAME "*" | NAME "/" | NAME "%" | NAME "|" | NAME "&" | NAME "is" | NAME "as" | NAME "|>" | NAME "as" | NAME "," | NAME "for" ) ;
-set_comprehension = "{" NEWLINE* set_lead expression NEWLINE* comprehension "}" ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
 if_expression = "if" condition !builder_callback_before_condition_body block ( "else" "if" condition !builder_callback_before_condition_body block )* "else" block ;
 match_expression = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | match_expression_arm ( "," | separator ) )* ( match_expression_arm | else_arm_head arm_value ","? separator* )? "}" ;
 match_expression_arm = arm_head arm_value ;
-arm_value = block
-          | !"{" expression_item
-          | record_expression "?"?
-          | set_expression "?"? ;
+arm_value = block | !"{" expression_item | record_expression "?"? ;
 record_expression = ( record_literal | map_comprehension ) postfix* logical_tail ( "|>" pipe_stage )* ;
-set_expression = ( set_literal | set_comprehension ) postfix* logical_tail ( "|>" pipe_stage )* ;
 retry_expression = "retry" ( "[" list(expression) "]" | "backoff" backoff_range "within" head_duration ) ( "on" "(" NEWLINE* pattern NEWLINE* ")" ( "as" IDENT )* )? block ;
 operand = ( ( "!" | "-" ) unary | primary ( ~"." MEMBER | ~"[" index "]" | ~"(" call_arguments ")" )* ) !( "." MEMBER | "[" | "(" ) ;
 context_scope = ( "cd" | "env" ) "(" expression ")" NEWLINE* block ;

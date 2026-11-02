@@ -633,14 +633,14 @@ imports in exported signatures.
 
 `const NAME = expr` declares prepared, immutable data. The initializer may use
 literals, other constants (including exported constants of imported modules),
-record, list, map, set, and tag constructors over constants, and primitive
-operators. It may not use runtime bindings, calls, methods, blocks,
+record, list, map, and tag constructors over constants, `set.from` over a list
+of constants, and primitive operators. It may not use runtime bindings, calls, methods, blocks,
 comprehensions, or propagation. Cycles are errors, and invalid arithmetic is
 reported at check time. Empty containers need a type annotation; `Any` and
 resource values cannot be constants. Constants are bounded in size and nesting.
-A constant set is a set literal (6.4) over constants, so it has at least one
-element: the empty set is the call `set.empty()`, and the set operators
-build sets at run time.
+A constant set is `set.from` over a list literal of constants, so it has at
+least one element: the empty set is the call `set.empty()`, and the set
+operators build sets at run time.
 
 `let` at module level runs its initializer at load time. Prefer `const` for
 literal configuration data (`lint.prefer-const`).
@@ -957,30 +957,27 @@ elements. `.add(x)` and `.remove(x)` return a new set, and adding an element
 the set holds or removing one it does not returns an equal set. `.len()` and
 `.is_empty()` count elements, and `list.to_set()` drops a list's repeated
 elements. The operators are `in`, `not in`, `|`, `&`, and `-` (6.2); the
-literal is in 6.4. A set is not indexed. A set literal over constants is a
-constant (3.4).
+constructors are `set.empty()` and `set.from(list)`. A set is not indexed.
+`set.from` over a list literal of constants is a constant (3.4).
 
 ```xsh
-const KINDS = {"file", "dir"}
+const KINDS = set.from(["file", "dir"])
 
 pure allowed(kind: Str, extra: Set[Str]) -> Bool {
   kind in KINDS | extra
 }
 
 proc report(words: List[Str]) [error] {
-  # An element that is not a bare name makes braces a set.
-  let stop = {"a", "the"}
+  let stop = set.from(["a", "the"])
   let first = "one"
-  let named = {first, "two"}
+  let named = set.from([first, "two"])
 
-  # Bare names alone are a record unless a set is expected.
   let second = "two"
-  let pair: Set[Str] = {first, second}
+  let pair: Set[Str] = set.from([first, second])
   assert pair == named
 
-  # A set has no empty or one-element form of its own without a comma.
   var seen: Set[Str] = set.empty()
-  let only = {"one",}
+  let only = set.from(["one"])
   for word in words {
     if word not in stop {
       seen = seen.add(word)
@@ -988,33 +985,32 @@ proc report(words: List[Str]) [error] {
   }
 
   # Sets iterate in key order, whatever order built them.
-  let lengths = {word.byte_len() for word in seen}
+  let lengths = set.from([word.byte_len() for word in seen])
   assert (seen & only).to_list() == ["one"]
   assert (seen - only).len() + 1 == seen.len()
   assert words.to_set() - stop == seen
   print (json.encode(seen)?) (json.encode(lengths)?)
-  assert allowed("link", {"link",})
+  assert allowed("link", set.from(["link"]))
 }
 ```
 
 Each of these is rejected where it is written:
 
 ```xsh
-let ratios = {1.5, 2.5} # error: check.set-element-type
+let ratios = set.from([1.5, 2.5]) # error: check.set-element-type
 let nested: Set[List[Str]] = set.empty() # error: check.set-element-type
 let rows = [[1], [2]].to_set() # error: check.set-element-type
-let words = {"a", "b"}
-let mixed = {"a", 1} # error: check.type-mismatch
+let words = set.from(["a", "b"])
+let mixed = set.from(["a", 1]) # error: check.type-mismatch
 let ready = true | false # error: check.set-operator
 let joined = words | ["c"] # error: check.set-operator
-let ints = {1, 2}
+let ints = set.from([1, 2])
 let numbers = words & ints # error: check.type-mismatch
 let less = words - "a" # error: check.type-mismatch
 let none: Set[Str] = {} # error: check.type-mismatch
-let one: Set[Str] = {"a"} # error: check.type-mismatch
 let first = words[0] # error: check.index-type
 print ${ratios.len()} ${nested.len()} ${rows.len()} ${mixed.len()} $ready
-print ${joined.len()} ${numbers.len()} ${less.len()} ${none.len()} ${one.len()} $first
+print ${joined.len()} ${numbers.len()} ${less.len()} ${none.len()} $first
 ```
 
 `xsht lint` rewrites a local `Map[K, Bool]` that only ever stores `true` and
@@ -2413,7 +2409,7 @@ requirement; such a call reports `check.ambiguous-overload` or
 the requirement; a caller only selects one of its members and never widens or
 narrows it.
 
-### 6.4 List, record, map, and set literals
+### 6.4 List, record, and map literals, and sets
 
 ```xsh
 let argv = ["cc", @flags, "-o", output]
@@ -2438,36 +2434,18 @@ let merged = {...defaults, ...overrides}
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace
   earlier ones, though every entry still evaluates, key before value.
-- **Sets.** Braces are a set literal in two cases, and only these:
-  1. *An entry is not a bare name.* `{"a", "b"}`, `{1, 2}`, and
-     `{f(x), y.z}` are sets. One such entry is enough: in `{a, "b"}` the name
-     `a` is an element too, so the literal is a set of the value of `a` and
-     `"b"`. This is decided by how the braces are written, so it holds
-     everywhere, including where `Any` is expected: there `{"a", "b"}` is a
-     `Set[Str]` and `{a, b}` is a record.
-  2. *A `Set[T]` is expected* (an annotated binding, a `Set[T]` parameter,
-     field, or return, or the other operand of a set operator) and every
-     entry is a bare name: `let s: Set[Str] = {a, b}`. Anywhere else `{a, b}`
-     is the record `{a: a, b: b}`.
-
-  `{}` is always the empty record or map; the empty set is `set.empty()`,
-  written where a `Set[T]` is expected. Braces around one expression are a
-  block (6.9), so a one-element set has a comma after its element: `{"a",}`.
-  Writing `{}` or `{"a"}` where a set is expected is `check.type-mismatch`,
-  with a fix. The first entry of a set literal is not a bare name followed by
-  a command word (that is a block whose first statement is a command). No
-  entry begins with `[`: after `{` or an entry's `,`, a `[` starts a computed
-  map key (`[key]: value`), and braces are told apart by how each entry
-  begins, not by what follows its closing `]`. An element that begins with a
-  list has the list in parentheses, `{([1, 2]).len(), 3}`, which
-  `check.redundant-parens` accepts and `xsht fmt` keeps. Elements share one type, from context when present, evaluate
-  once in order, and a repeated element is held once. A literal that writes
-  both `key: value` entries and set elements is an error
-  (`parse.brace-literal-mixed`):
+- **Sets.** There is no brace form. `set.from([a, "b"])` builds a set from a
+  list, and `set.from([f(x) for x in xs])` from a comprehension; `set.empty()`
+  is the empty set, written where a `Set[T]` is expected. Elements share one
+  type, from context when present, evaluate once in order, and a repeated
+  element is held once. Braces hold fields only: `{a, b}` is always the record
+  `{a: a, b: b}`, and `{"a", "b"}` and `{x for x in xs}` are
+  `parse.set-literal`, reported with the `set.from` call to write:
 
   ```xsh
-  let entry = {"kind", name: name} # error: parse.brace-literal-mixed
-let later = {name: name, "kind"} # error: parse.brace-literal-mixed
+  let entry = {"kind", name: name} # error: parse.set-literal
+let words = {"a", "b"} # error: parse.set-literal
+let lengths = {word.len() for word in words} # error: parse.set-literal
   ```
 
 - **Functional update.** `{...config, build.jobs: 8, build.flags.debug: true}`
@@ -2498,9 +2476,10 @@ are `Bool` values, never assertions. A failed comprehension exposes no partial
 result. A map comprehension is the only entry in its braces; an entry or
 spread before it is an error (`parse.map-comprehension-entries`).
 
-Braces around a projection without a `key:` are a set comprehension:
-`{word.lower() for word in words}` is the `Set[Str]` of the projected values,
-each held once. A set is also a source: its elements arrive in key order.
+A set is built from a comprehension with `set.from([word.lower() for word in
+words])`, which holds each projected value once. A set is also a source: its
+elements arrive in key order. Braces around a projection without a `key:` are
+`parse.set-literal`.
 
 ### 6.6 Indexing and slicing
 
@@ -2699,8 +2678,7 @@ arm, and a `_` inside a pattern, stay.
 
 A bare `{ ... }` is a block when its first entry is a statement and a record or
 map literal when its first entry looks like a field (`{}`, `{name}`,
-`{name: v}`, `{[k]: v}`, `{...r}`). It is a set literal or set comprehension
-when its first entry is an expression followed by `,` or `for` (6.4, 6.5). Write `{ (value) }` for a block whose only
+`{name: v}`, `{[k]: v}`, `{...r}`). Write `{ (value) }` for a block whose only
 content is a single name. A block introduces a lexical and cleanup scope but
 no function, error, or loop boundary. In statement position it runs as
 statements; in value position its tail is its value.
@@ -4077,7 +4055,7 @@ It excludes the other iteration domains. Sources keep their ordinary order,
 lazy pulls, error transport, and cleanup; a pipeline does not impose a `for`
 loop's enclosing Result error bound on those inputs.
 List and map comprehensions retain the item or value relationship to quantified
-parameters. Set comprehensions require a checked scalar key domain. Qualifiers
+parameters. Qualifiers
 keep their ordinary sequential scope, lazy source evaluation, filter behavior,
 and cleanup. A single unfiltered mapping of a `NonEmpty` list preserves that
 validation; filters and additional sources do not.
@@ -4210,8 +4188,8 @@ their types. Replacements may have different types from the source fields.
 The source must satisfy every field read in the body. An opaque `Any` does not
 establish the record domain. Computed map keys keep a checked scalar key domain;
 map values may retain the callable's type parameters.
-Map spreads preserve both domains. Scalar-key set literals use the ordinary
-set conversion and remove duplicates. Text and path interpolation use the
+Map spreads preserve both domains. `set.from` over scalar keys uses the ordinary
+set conversion and removes duplicates. Text and path interpolation use the
 ordinary display and formatting rules. An inferred operand retains the display
 requirement imposed by interpolation or `print`. Each concrete call must satisfy
 that requirement. Generic forwarding preserves it with the same type parameter.

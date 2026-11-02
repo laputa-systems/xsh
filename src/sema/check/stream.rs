@@ -1783,7 +1783,7 @@ assert match observed[0] { Ok(_) => false, Err(message) => message == "data" }
 
     #[test]
     fn typed_set_pipeline_input_keeps_its_existing_domain() {
-        accepts_collect("pure collect_values(values: Set[Int]) -> List[Int] { values |> collect }", "{1, 2}");
+        accepts_collect("pure collect_values(values: Set[Int]) -> List[Int] { values |> collect }", "set.from([1, 2])");
     }
 
     #[test]

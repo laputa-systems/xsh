@@ -373,8 +373,8 @@ fn match_expr_structural(
             *bindings = local;
             true
         }
-        ArenaExprKind::List(pi) | ArenaExprKind::Set(pi) => {
-            let (ArenaExprKind::List(ti) | ArenaExprKind::Set(ti)) = target else { return false; };
+        ArenaExprKind::List(pi) => {
+            let ArenaExprKind::List(ti) = target else { return false; };
             let pitems: Vec<_> = p.list_elements(*pi).collect();
             let titems: Vec<_> = t.list_elements(*ti).collect();
             if pitems.len() != titems.len() {
@@ -395,7 +395,7 @@ fn match_expr_structural(
         | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::Item | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::SetComp { .. } | ArenaExprKind::If { .. }
+        | ArenaExprKind::If { .. }
         | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. }
@@ -839,7 +839,7 @@ fn build_replacement_text(
         | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
         | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) | ArenaExprKind::Item
         | ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
-        | ArenaExprKind::MapComp { .. } | ArenaExprKind::Set(_) | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::If { .. } | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. } | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(_)

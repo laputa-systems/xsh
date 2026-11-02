@@ -432,13 +432,12 @@ fn expr_flow(arena: &AstArena, facts: &FlowFacts, expr: ExprId) -> FlowSummary {
                 ArenaFmtPart::Expr(expr, _) => flow.then(facts.expression(expr)),
                 ArenaFmtPart::Text(_) => flow,
             }),
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena
+        ArenaExprKind::List(items) => arena
             .list_element_exprs(items)
             .fold(FlowSummary::fallthrough(), |flow, item| {
                 flow.then(facts.expression(item))
             }),
         ArenaExprKind::ListComp { qualifiers, .. }
-        | ArenaExprKind::SetComp { qualifiers, .. }
         | ArenaExprKind::MapComp { qualifiers, .. } => {
             let first = arena
                 .comp_qualifiers(qualifiers)

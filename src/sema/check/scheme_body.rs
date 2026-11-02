@@ -378,7 +378,7 @@ mod ordinary_body_tests {
     #[test]
     fn generic_construction_sets_retain_the_checked_scalar_domain() {
         accepts(
-            "pure keep(value, item: Int) { let _ = {1, item}; value }",
+            "pure keep(value, item: Int) { let _ = set.from([1, item]); value }",
             "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)",
         );
     }
@@ -777,7 +777,7 @@ mod ordinary_body_tests {
 
     #[test]
     fn generic_comprehension_set_items_keep_the_closed_key_domain() {
-        accepts("pure copy(value, items: List[Int]) { let unique = {item for item in items}; {value, unique} }", "let number = copy(7, [1, 2])\nlet text = copy(\"value\", [2, 3])");
+        accepts("pure copy(value, items: List[Int]) { let unique = set.from([item for item in items]); {value, unique} }", "let number = copy(7, [1, 2])\nlet text = copy(\"value\", [2, 3])");
     }
 
     #[test]
@@ -973,12 +973,12 @@ mod ordinary_body_tests {
 
     #[test]
     fn generic_operators_membership_preserves_closed_key_domains() {
-        accepts("pure keep(value, keys: Map[UInt, Int], key: UInt, elements: Set[Int]) { let _ = key in keys; let _ = 1 not in elements; let _ = \"a\" in \"value\"; value }", "let number: Int = keep(7, {}, 1, {1, 2})\nlet text: Str = keep(\"value\", {}, 2, {2, 3})");
+        accepts("pure keep(value, keys: Map[UInt, Int], key: UInt, elements: Set[Int]) { let _ = key in keys; let _ = 1 not in elements; let _ = \"a\" in \"value\"; value }", "let number: Int = keep(7, {}, 1, set.from([1, 2]))\nlet text: Str = keep(\"value\", {}, 2, set.from([2, 3]))");
     }
 
     #[test]
     fn generic_operators_set_algebra_keeps_the_element_domain() {
-        accepts("pure keep(value, left: Set[Int], right: Set[Int]) { let _ = left | right; let _ = left & right; let _ = left - right; value }", "let number: Int = keep(7, {1, 2}, {2, 3})\nlet text: Str = keep(\"value\", {2, 3}, {3, 4})");
+        accepts("pure keep(value, left: Set[Int], right: Set[Int]) { let _ = left | right; let _ = left & right; let _ = left - right; value }", "let number: Int = keep(7, set.from([1, 2]), set.from([2, 3]))\nlet text: Str = keep(\"value\", set.from([2, 3]), set.from([3, 4]))");
     }
 
     #[test]
@@ -999,11 +999,6 @@ mod ordinary_body_tests {
     #[test]
     fn generic_record_forms_map_shorthand_keeps_the_payload_domain() {
         accepts("pure copy(value) { {[\"other\"]: value, value} }", "let number: Map[Str, Int] = copy(7)\nlet text: Map[Str, Str] = copy(\"value\")");
-    }
-
-    #[test]
-    fn generic_record_forms_set_shorthand_keeps_the_checked_domain() {
-        accepts("pure keep(value, first: Int, second: Int) { let items: Set[Int] = {first, second}; let _ = items; value }", "let number: Int = keep(7, 1, 2)\nlet text: Str = keep(\"value\", 2, 3)");
     }
 
     #[test]

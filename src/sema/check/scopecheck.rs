@@ -659,7 +659,7 @@ impl ScopeChecker<'_> {
                 self.block(block);
                 self.scopes.pop();
             }
-            ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
+            ArenaExprKind::ListComp { expr, qualifiers } => {
                 self.comprehension(qualifiers, &[expr]);
             }
             ArenaExprKind::MapComp { key, value, qualifiers } => {
@@ -704,7 +704,7 @@ impl ScopeChecker<'_> {
             | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
             | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::List(_)
-            | ArenaExprKind::Set(_) | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::Unary { .. }
             | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. } | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Field { .. } | ArenaExprKind::NullSafeField { .. }

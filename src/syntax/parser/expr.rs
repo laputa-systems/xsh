@@ -2045,7 +2045,7 @@ impl<'a> Parser<'a> {
                 let element = self.parse_precedence_arena_only(0, arena)?;
                 self.skip_comp_layout();
                 if entries.is_empty() && self.at_keyword(Keyword::For) {
-                    return self.parse_set_comp_tail_arena_only(arena, start, element.id);
+                    return self.parse_set_comp_tail_arena_only(arena, start, element.id, element.span);
                 }
                 entries.push(BraceEntry::Element {
                     value: element.id,
@@ -2160,8 +2160,7 @@ impl<'a> Parser<'a> {
                 bare_ident: None,
             });
         };
-        // One element that is not a bare name makes the braces a set, and
-        // the bare names beside it are then elements too.
+        self.report_set_literal(span, first_element);
         arena.begin_list_elements();
         for entry in entries {
             match entry {
@@ -2171,30 +2170,34 @@ impl<'a> Parser<'a> {
                         splice_span: None,
                     });
                 }
-                BraceEntry::Field(field) => {
-                    let field_span = match field {
-                        ArenaRecordFieldInput::Spread { span, .. }
-                        | ArenaRecordFieldInput::Computed { span, .. }
-                        | ArenaRecordFieldInput::Path { span, .. }
-                        | ArenaRecordFieldInput::Named { span, .. }
-                        | ArenaRecordFieldInput::Shorthand { span, .. } => span,
-                    };
-                    self.diagnostics.push(
-                        Diagnostic::error("a brace literal holds either fields or set elements, not both")
-                            .with_code(DiagnosticCode::ParseBraceLiteralMixed)
-                            .with_label(Label::primary(field_span, "this entry is a field"))
-                            .with_label(Label::secondary(first_element, "this entry is a set element"))
-                            .with_note("write every entry as `key: value` for a record or map, or every entry as a value for a set"),
-                    );
-                }
+                BraceEntry::Field(_) => {}
             }
         }
         let items = arena.finish_list_elements();
         Some(ArenaOnlyExpr {
-            id: arena.push_set_elements(items, span),
+            id: arena.push_list_elements(items, span),
             span,
             bare_ident: None,
         })
+    }
+
+    /// A set literal or comprehension is read as the list it would build, so
+    /// the rest of the file still parses, and reported with the `set.from`
+    /// call that replaces it.
+    fn report_set_literal(&mut self, braces: Span, first_element: Span) {
+        let inner = self
+            .span_text(braces)
+            .strip_prefix('{')
+            .and_then(|text| text.strip_suffix('}'))
+            .unwrap_or_default()
+            .trim();
+        self.diagnostics.push(
+            Diagnostic::error("a set is built with `set.from` over a list")
+                .with_code(DiagnosticCode::ParseSetLiteral)
+                .with_label(Label::primary(braces, "braces hold fields, never set elements"))
+                .with_label(Label::secondary(first_element, "this entry is a value, not a field"))
+                .with_note(format!("write `set.from([{inner}])`")),
+        );
     }
 
     /// Whether the entry at the cursor of a brace literal is a set element:
@@ -2239,6 +2242,7 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
         start: usize,
         expr: ExprId,
+        expr_span: Span,
     ) -> Option<ArenaOnlyExpr> {
         let qualifiers = self.parse_comp_qualifiers_arena_only(arena)?;
         let end = self
@@ -2249,8 +2253,9 @@ impl<'a> Parser<'a> {
             .map(|span| span.end())
             .unwrap_or_else(|| self.previous_end());
         let span = self.span(start, end);
+        self.report_set_literal(span, expr_span);
         Some(ArenaOnlyExpr {
-            id: arena.push_set_comp_expr(expr, qualifiers, span),
+            id: arena.push_list_comp_expr(expr, qualifiers, span),
             span,
             bare_ident: None,
         })

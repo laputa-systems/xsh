@@ -387,7 +387,7 @@ test test_a_bounded_type_is_not_a_map_key_or_a_set_element { |ctx|
   assert "err[check.set-element-type]" in elements, elements
 
   let port: Port = 443
-  let open: Set[Int] = {80, port}
+  let open: Set[Int] = set.from([80, port])
   assert port in open and open.len() == 2
 }
 

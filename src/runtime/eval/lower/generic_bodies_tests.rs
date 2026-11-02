@@ -1239,7 +1239,7 @@ fn generic_construction_values_execute_after_frontend_disposal() {
         ("", "pure keep(value) { let initial = {[0]: value}; {...initial, [1]: value} }", "Map[Int, Int]", "Map[Int, Str]",
          Value::Map([(MapKey::Int(0), Value::Int(7)), (MapKey::Int(1), Value::Int(7))].into_iter().collect()), Value::Map([(MapKey::Int(0), Value::Str(Arc::from("value"))), (MapKey::Int(1), Value::Str(Arc::from("value")))].into_iter().collect())),
         ("type Number = {item: Int, unique: Set[Int]}\ntype Text = {item: Str, unique: Set[Int]}",
-         "pure keep(value) { {item: value, unique: {1, 2, 1}} }", "Number", "Text",
+         "pure keep(value) { {item: value, unique: set.from([1, 2, 1])} }", "Number", "Text",
          record(Value::Int(7), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect())), record(Value::Str(Arc::from("value")), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))),
     ] {
         let source = format!("{prefix}\n{definition}\npure number() -> {number_type} {{ keep(7) }}\npure text() -> {text_type} {{ keep(\"value\") }}\n");
@@ -1538,7 +1538,7 @@ fn generic_record_forms_execute_after_frontend_disposal() {
         ("type Number = {item: Int}\ntype Text = {item: Str}", "pure copy(value) { let item = value; { let item = 1; let _ = {item} }; {item} }", "Number", "Text", record(vec![("item", Value::Int(7))]), record(vec![("item", Value::Str(Arc::from("value")))])),
         ("let shared = 9\ntype Number = {value: Int, shared: Int}\ntype Text = {value: Str, shared: Int}", "pure copy(value) { {value, shared} }", "Number", "Text", record(vec![("value", Value::Int(7)), ("shared", Value::Int(9))]), record(vec![("value", Value::Str(Arc::from("value"))), ("shared", Value::Int(9))])),
         ("", "pure copy(value) { {[\"other\"]: value, value} }", "Map[Str, Int]", "Map[Str, Str]", record(vec![("other", Value::Int(7)), ("value", Value::Int(7))]), record(vec![("other", Value::Str(Arc::from("value"))), ("value", Value::Str(Arc::from("value")))])),
-        ("type Number = {value: Int, items: Set[Int]}\ntype Text = {value: Str, items: Set[Int]}", "pure copy(value) { let first = 1; let second = 2; let items: Set[Int] = {first, second}; {value, items} }", "Number", "Text", record(vec![("value", Value::Int(7)), ("items", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))]), record(vec![("value", Value::Str(Arc::from("value"))), ("items", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))])),
+        ("type Number = {value: Int, items: Set[Int]}\ntype Text = {value: Str, items: Set[Int]}", "pure copy(value) { let first = 1; let second = 2; let items: Set[Int] = set.from([first, second]); {value, items} }", "Number", "Text", record(vec![("value", Value::Int(7)), ("items", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))]), record(vec![("value", Value::Str(Arc::from("value"))), ("items", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))])),
         ("type NumberInner = {item: Int, count: Int}\ntype TextInner = {item: Str, count: Int}\ntype Number = {nested: NumberInner, other: Int}\ntype Text = {nested: TextInner, other: Str}", "pure copy(value) { let row = {nested: {item: value, count: 0}, other: value}; {...row, nested.item: value, nested.count: 1} }", "Number", "Text", record(vec![("nested", record(vec![("item", Value::Int(7)), ("count", Value::Int(1))])), ("other", Value::Int(7))]), record(vec![("nested", record(vec![("item", Value::Str(Arc::from("value"))), ("count", Value::Int(1))])), ("other", Value::Str(Arc::from("value")))])),
     ] {
         let source = format!("{prefix}\n{definition}\npure number() -> {number_type} {{ copy(7) }}\npure text() -> {text_type} {{ copy(\"value\") }}\n");
@@ -1651,7 +1651,7 @@ fn generic_operators_short_circuit_preserves_observable_operand_order() {
 
 #[test]
 fn generic_operators_selected_domains_execute_after_frontend_disposal() {
-    let source = "pure inspect(value, number: Int, text: Str, left: Set[Int], right: Set[Int]) { let union = left | right; let intersection = left & right; let difference = left - right; [value == value, value != value, number < 7, text >= \"a\", number in [1, 2, 3], number not in [4, 5], \"item\" in {[\"item\"]: value}, \"item\" in {item: value}, union == {1, 2, 3}, intersection == {2,}, difference == {1,}, 1s <= 2s, b\"a\" in b\"value\"] }\npure number() -> List[Bool] { inspect(7, 2, \"value\", {1, 2}, {2, 3}) }\npure text() -> List[Bool] { inspect(\"value\", 3, \"other\", {1, 2}, {2, 3}) }\n";
+    let source = "pure inspect(value, number: Int, text: Str, left: Set[Int], right: Set[Int]) { let union = left | right; let intersection = left & right; let difference = left - right; [value == value, value != value, number < 7, text >= \"a\", number in [1, 2, 3], number not in [4, 5], \"item\" in {[\"item\"]: value}, \"item\" in {item: value}, union == set.from([1, 2, 3]), intersection == set.from([2]), difference == set.from([1]), 1s <= 2s, b\"a\" in b\"value\"] }\npure number() -> List[Bool] { inspect(7, 2, \"value\", set.from([1, 2]), set.from([2, 3])) }\npure text() -> List[Bool] { inspect(\"value\", 3, \"other\", set.from([1, 2]), set.from([2, 3])) }\n";
     let (program, sources, source_id) = record_form_program(source);
     for force_frames in [false, true] {
         for name in ["number", "text"] {
@@ -1779,7 +1779,7 @@ fn generic_iteration_finite_sources_preserve_canonical_item_order() {
         ("Map[Str, Int]", "{[\"b\"]: 2, [\"a\"]: 1}", "item.value", 12),
         ("Str", "\"x🙂\"", "if item == \"x\" { 1 } else { 2 }", 12),
         ("Bytes", "b\"ab\"", "item", 1068),
-        ("Set[Int]", "{2, 1}", "item", 12),
+        ("Set[Int]", "set.from([2, 1])", "item", 12),
     ] {
         for wrapped in [false, true] {
             let ty = if wrapped { format!("Result[{ty}, Error]") } else { ty.to_string() };
@@ -1905,7 +1905,7 @@ fn generic_comprehension_constructions_preserve_the_checked_payload_relationship
         ("", "pure copy(value) { [inner for outer in [value] for {item: inner} in [{item: outer}]] }", "List[Int]", "List[Str]", "", Value::List(vec![Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value"))])),
         ("", "pure copy(value) { [item for item in [value] for item in [item]] }", "List[Int]", "List[Str]", "", Value::List(vec![Value::Int(7)]), Value::List(vec![Value::Str(Arc::from("value"))])),
         ("", "pure copy(value) { {key: value for key in [\"b\", \"a\"]} }", "Map[Str, Int]", "Map[Str, Str]", "", Value::Map([(MapKey::Str(Arc::from("a")), Value::Int(7)), (MapKey::Str(Arc::from("b")), Value::Int(7))].into_iter().collect()), Value::Map([(MapKey::Str(Arc::from("a")), Value::Str(Arc::from("value"))), (MapKey::Str(Arc::from("b")), Value::Str(Arc::from("value")))].into_iter().collect())),
-        ("type Number = {value: Int, unique: Set[Int]}\ntype Text = {value: Str, unique: Set[Int]}", "pure copy(value) { let unique = {item for item in [2, 1, 2]}; {value, unique} }", "Number", "Text", "", record(Value::Int(7), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect())), record(Value::Str(Arc::from("value")), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))),
+        ("type Number = {value: Int, unique: Set[Int]}\ntype Text = {value: Str, unique: Set[Int]}", "pure copy(value) { let unique = set.from([item for item in [2, 1, 2]]); {value, unique} }", "Number", "Text", "", record(Value::Int(7), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect())), record(Value::Str(Arc::from("value")), "unique", Value::Set([MapKey::Int(1), MapKey::Int(2)].into_iter().collect()))),
         ("type Number = {value: Int, copied: NonEmpty[Int]}\ntype Text = {value: Str, copied: NonEmpty[Int]}", "pure copy(value, items: NonEmpty[Int]) { let copied = [item for item in items]; {value, copied} }", "Number", "Text", ", [1, 2]", record(Value::Int(7), "copied", Value::List(vec![Value::Int(1), Value::Int(2)])), record(Value::Str(Arc::from("value")), "copied", Value::List(vec![Value::Int(1), Value::Int(2)]))),
         ("", "pure copy(value) { Ok([item.value for item in Ok({[\"key\"]: value})]) }", "Result[List[Int]]", "Result[List[Str]]", "", Value::Result(ResultValue::Ok(Box::new(Value::List(vec![Value::Int(7)])))), Value::Result(ResultValue::Ok(Box::new(Value::List(vec![Value::Str(Arc::from("value"))]))))),
     ] {
@@ -4294,7 +4294,7 @@ proc collect_stream(values: Stream[Int]) [error] -> Result[List[Int]] { values |
 proc collect_result_list(values: Result[List[Int]]) [error] -> Result[List[Int]] { values |> collect }
 proc collect_result_stream(values: Result[Stream[Int]]) [error] -> Result[List[Int]] { values |> collect }
 assert collect_list([1, 2]) == [1, 2]
-assert collect_set({2, 1}) == [1, 2]
+assert collect_set(set.from([2, 1])) == [1, 2]
 assert collect_pure_stream(source_values()) == [1, 2]
 assert collect_stream(source_values())? == [1, 2]
 assert collect_result_list(Ok([1, 2]))? == [1, 2]
@@ -4337,7 +4337,7 @@ fn generic_bare_pipeline_sources_preserve_independent_container_domains() {
 pure collect_values(values) { values |> collect }
 pure text_source() -> Result[List[Str], Str] { Ok(["a", "b"]) }
 assert collect_values([1, 2]) == [1, 2]
-assert collect_values({2, 1}) == [1, 2]
+assert collect_values(set.from([2, 1])) == [1, 2]
 assert collect_values(source_values()) == [1, 2]
 assert collect_values(text_source()) == ["a", "b"]
 let wrapped_stream: Result[Stream[Int]] = Ok(source_values())
@@ -4438,7 +4438,7 @@ fn generic_mixed_pipeline_and_for_sources_keep_the_for_error_bound() {
 assert mixed([1, 2])? == [1, 2]
 let wrapped: Result[List[Int], Str] = Ok([1, 2])
 assert mixed(wrapped)? == [1, 2]
-assert mixed({2, 1})? == [1, 2]
+assert mixed(set.from([2, 1]))? == [1, 2]
 "#;
     let (program, sources, source_id) = record_form_program(source);
     for force_frames in [false, true] {
@@ -5288,8 +5288,8 @@ let signed: Map[Int, Str] = {[-1]: "negative"}
 let list_expected = 7 in [7, 8]
 assert has(7, [7, 8]) == list_expected
 assert has("word", ["word"]) and lacks("absent", ["word"])
-let set_expected = 2 in {1, 2}
-assert has(2, {1, 2}) == set_expected
+let set_expected = 2 in set.from([1, 2])
+assert has(2, set.from([1, 2])) == set_expected
 assert has("key", {["key"]: null})
 assert has(-1, signed)
 assert has(1, unsigned) and lacks(0, unsigned)
@@ -5803,7 +5803,7 @@ fn generic_record_arguments_preserve_comprehension_splice_sources() {
 
 #[test]
 fn typed_set_operator_results_preserve_membership_producer_domains() {
-    let source = "const KINDS = {\"file\", \"dir\"}\npure allowed(kind: Str, extra: Set[Str]) -> Bool { kind in KINDS | extra }\nassert allowed(\"file\", {\"link\",})\n";
+    let source = "const KINDS = set.from([\"file\", \"dir\"])\npure allowed(kind: Str, extra: Set[Str]) -> Bool { kind in KINDS | extra }\nassert allowed(\"file\", set.from([\"link\"]))\n";
     let _ = record_form_program(source);
 }
 

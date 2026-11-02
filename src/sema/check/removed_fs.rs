@@ -69,8 +69,6 @@ pub fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Op
         | ArenaExprKind::List(_)
         | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
-        | ArenaExprKind::Set(_)
-        | ArenaExprKind::SetComp { .. }
         | ArenaExprKind::Record(_)
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }

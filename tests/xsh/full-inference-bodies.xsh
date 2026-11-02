@@ -44,7 +44,7 @@ test test_full_inference_body_record_map_set_updates_and_comprehensions { |ctx|
   let copied = [item for item in items]
   var indexed = {[0]: copied[0]}
   indexed[1] = copied[1]
-  let unique = {item for item in copied}
+  let unique = set.from([item for item in copied])
   let updated = {...row, name: name.upper(), items: copied.push(copied[0]), index: indexed, unique: unique}
   updated
 }
@@ -53,11 +53,11 @@ let words = rebuild({name: "words", items: ["b", "a"]})
 assert numbers.name == "NUMS"
 assert numbers.items == [3, 1, 3]
 assert numbers.index[1] == 1
-assert numbers.unique == {1, 3}
+assert numbers.unique == set.from([1, 3])
 assert words.name == "WORDS"
 assert words.items == ["b", "a", "b"]
 assert words.index[1] == "a"
-assert words.unique == {"a", "b"}
+assert words.unique == set.from(["a", "b"])
 print numbers.items.len()
 print words.items.len()
 """,

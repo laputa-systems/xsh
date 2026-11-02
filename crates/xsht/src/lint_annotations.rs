@@ -577,7 +577,7 @@ impl<'a> Linter<'a> {
             return false;
         };
         let candidate = match self.arena.expr(initializer).kind {
-            ArenaExprKind::List(items) | ArenaExprKind::Set(items) => items.is_empty(),
+            ArenaExprKind::List(items) => items.is_empty(),
             ArenaExprKind::Null => mutable,
             _ => false,
         };
@@ -677,7 +677,6 @@ impl<'a> Linter<'a> {
                 .is_some_and(|ty| ty.validated().is_some()),
             ArenaExprKind::List(_)
             | ArenaExprKind::ListComp { .. }
-            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::MapComp { .. } => {
                 (removing_annotation && self.is_empty_collection(&expression))
                     || self
@@ -758,7 +757,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
-            | ArenaExprKind::Set(_)
             | ArenaExprKind::Unary { .. }
             | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
