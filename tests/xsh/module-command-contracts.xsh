@@ -1,122 +1,64 @@
-test module_command_fsync_runs_the_checked_operation { |ctx|
-  let result = test.expect(
-    ctx,
-    r"""let scratch = fs.tempdir()?
-defer scratch.close()
-let durable = fp"{scratch.host_path()?}/durable"
-durable.write("persisted")
-fs.fsync $durable
-fs.fsync $durable ?
-print durable.read_text()?
-""",
-    status: 0,
-  )?
-  assert result.stdout == "persisted\n", result.stdout
+test module_command_syntax_is_rejected_with_the_expression_call { |ctx|
+  for case in [
+    {
+      source: "let durable = p\"x.json\"\nfs.fsync $durable\n",
+      rewrite: "fs.fsync(durable)?",
+    },
+    {
+      source: "let durable = p\"x.json\"\nfs.fsync $durable ?\n",
+      rewrite: "fs.fsync(durable)?",
+    },
+    {
+      source: "let durable = p\"x.json\"\njson.write $durable --pretty ({value: 1})\n",
+      rewrite: "json.write(durable, {value: 1}, pretty: true)?",
+    },
+    {
+      source: "json.write out.json ({value: 1}) false\n",
+      rewrite: "json.write(p\"out.json\", {value: 1}, false)?",
+    },
+    {
+      source: "let pause = 0ms\ntime.sleep $pause\n",
+      rewrite: "time.sleep(pause)?",
+    },
+    {
+      source: "time.sleep 0ms\n",
+      rewrite: "time.sleep(0ms)?",
+    },
+  ] {
+    let result = test.run_script(ctx, case.source)?
+    assert !result.success, case.source
+    assert "err[check.module-command-syntax]" in result.stderr, result.stderr
+    assert case.rewrite in result.stderr, result.stderr
+  }
 }
 
-test module_command_scalar_words_defaults_and_flags { |ctx|
+test module_command_with_words_that_have_no_exact_rewrite_names_the_parameters { |ctx|
+  let result = test.run_script(ctx, r"time.sleep ${0}ms" + "\n")?
+  assert !result.success
+  assert "err[check.module-command-syntax]" in result.stderr, result.stderr
+  assert "time.sleep(" in result.stderr, result.stderr
+}
+
+test module_command_syntax_fails_the_check_before_any_statement_runs { |ctx|
+  let result = test.run_script(ctx, "print unreachable\nfs.fsync (false)\n")?
+  assert !result.success
+  assert result.stdout == "", result.stdout
+  assert "err[check.module-command-syntax]" in result.stderr, result.stderr
+}
+
+test expression_call_of_a_command_style_api_runs_the_checked_operation { |ctx|
   let result = test.expect(
     ctx,
     r"""let scratch = fs.tempdir()?
 defer scratch.close()
 let durable = fp"{scratch.host_path()?}/payload.json"
-json.write $durable ({value: 1}) false
-assert durable.read_text()? == "{\"value\":1}"
-json.write $durable --pretty ({value: 1})
+json.write(durable, {value: 1}, pretty: true)?
 assert "\n" in durable.read_text()?
-json.write $durable ({value: 1}) --pretty
-assert "\n" in durable.read_text()?
-json.write $durable ("--pretty")
-assert durable.read_text()? == "\"--pretty\""
-let payload_text = "--pretty"
-json.write $durable $payload_text
-assert durable.read_text()? == "\"--pretty\""
-time.sleep 0ms
-time.sleep ${0}ms
-let pause = 0ms
-time.sleep $pause
+fs.fsync(durable)?
+time.sleep(0ms)?
 print completed
 """,
     status: 0,
   )?
   assert result.stdout == "completed\n", result.stdout
-}
-
-test module_command_operands_run_once_in_source_order { |ctx|
-  let result = test.expect(
-    ctx,
-    r"""type Payload = {value: Int}
-proc destination(durable: Path) [] -> Path {
-  print destination
-  durable
-}
-proc payload() [] -> Payload {
-  print payload
-  {value: 7}
-}
-let scratch = fs.tempdir()?
-defer scratch.close()
-let durable = fp"{scratch.host_path()?}/ordered.json"
-json.write (destination(durable)) --pretty (payload())
-assert "7" in durable.read_text()?
-print completed
-""",
-    status: 0,
-  )?
-  assert result.stdout == "destination\npayload\ncompleted\n", result.stdout
-}
-
-test module_command_conversion_failure_stops_before_host_call { |ctx|
-  let durable = test.temp_file(ctx, name: "untouched.json", contents: b"untouched")?
-  let result = test.run_script(ctx, r"""type Payload = {value: Int}
-proc destination(durable: Path) [] -> Path {
-  print destination
-  durable
-}
-proc payload() [] -> Payload {
-  print payload
-  {value: 7}
-}
-json.write (destination(Path(args[0]))) (payload()) maybe
-print unreachable
-""", [durable])?
-  assert !result.success
-  assert result.stdout == "destination\npayload\n", result.stdout
-  assert "command argument `pretty` expects Bool" in result.stderr, result.stderr
-  assert "maybe" in result.stderr, result.stderr
-  assert ":10:53" in result.stderr, result.stderr
-  assert durable.read_text()? == "untouched"
-}
-
-test module_command_failure_propagates_without_question_mark { |ctx|
-  let durable = test.temp_file(ctx, name: "missing", contents: b"discard")?
-  durable.remove()
-  let result = test.run_script(ctx, r"""fs.fsync (Path(args[0]))
-print unreachable
-""", [durable])?
-  assert !result.success
-  assert result.stdout == "", result.stdout
-  assert "fs-fsync" in result.stderr, result.stderr
-}
-
-test module_command_check_failure_prevents_operand_execution { |ctx|
-  for case in [
-    {source: r"""print unreachable
-proc denied() [] { fs.fsync missing }
-""", code: "check.effect-violation"},
-    {source: r"""print unreachable
-fs.fsync (false)
-""", code: "check.type-mismatch"},
-    {source: r"""print unreachable
-json.write missing ({value: 1}) --unknown
-""", code: "check.module-command-flag"},
-    {source: r"""print unreachable
-json.write missing ({value: 1}) --pretty --pretty
-""", code: "check.module-command-flag"},
-  ] {
-    let result = test.run_script(ctx, case.source)?
-    assert !result.success, case.source
-    assert result.stdout == "", result.stdout
-    assert case.code in result.stderr, result.stderr
-  }
 }

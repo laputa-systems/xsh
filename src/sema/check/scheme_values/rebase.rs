@@ -129,12 +129,6 @@ pub(in crate::sema::check) fn output(output: &mut CheckOutput, rebaser: &mut Sch
         for ty in instance.expressions.values_mut() { map.ty(ty)?; }
     }
     for call in output.api_calls.values_mut() { map.api(call)?; }
-    for command in output.module_commands.values_mut() {
-        map.api(&mut command.call)?;
-        for argument in &mut command.arguments {
-            if let super::super::CheckedCommandArgument::Word(ty) = argument { map.ty(ty)?; }
-        }
-    }
     for declaration in output.checked_declarations.types.values_mut() {
         if let Some(info) = &mut declaration.info {
             match info {

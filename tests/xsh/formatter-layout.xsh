@@ -261,17 +261,13 @@ let both = f"\\\${i}"
   assert formatted(ctx, source)? == source
 }
 
-test test_fmt_module_commands_destructuring_fallback_and_shorthand_interpolation { |ctx|
-  let source = r"""fs.fsync build?
-fs.install tool dist/tool 493 --parents?
-let pkg = {name: "demo", version: "1", release: "2"}
+test test_fmt_destructuring_fallback_and_shorthand_interpolation { |ctx|
+  let source = r"""let pkg = {name: "demo", version: "1", release: "2"}
 let {name,version,..}=pkg
 let jobs=env.Str.JOBS??"1"
 print $pkg.name "$pkg.name"
 """
-  assert formatted(ctx, source)? == r"""fs.fsync build ?
-fs.install tool dist/tool 493 --parents ?
-let pkg = {name: "demo", version: "1", release: "2"}
+  assert formatted(ctx, source)? == r"""let pkg = {name: "demo", version: "1", release: "2"}
 let {name, version, ..} = pkg
 let jobs = env.Str.JOBS ?? "1"
 print $pkg.name $pkg.name

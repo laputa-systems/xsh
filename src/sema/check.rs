@@ -426,10 +426,7 @@ use self::args::{
     module_overload_matches_arena, module_sig_accepts_arg_name_at_arena, module_sig_accepts_arity,
     module_sig_accepts_names_arena,
 };
-use self::command::{
-    command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
-    command_stmt_asserts_success_arena, command_ty_auto_propagates,
-};
+use self::command::{command_stmt_asserts_success_arena, command_ty_auto_propagates};
 pub use super::constants::RecordConstructors;
 pub use super::projection::{CheckedProjection, ProjectionOperation};
 
@@ -467,21 +464,6 @@ pub struct CheckedApiCall {
     pub sig: &'static ModuleFnSig,
     pub params: Vec<Type>,
     pub argument_slots: Vec<usize>,
-}
-
-/// A command retains its selected API and source argument treatment; only
-/// literal boolean flags change into a value without evaluating an operand.
-#[derive(Clone, Debug)]
-pub struct CheckedModuleCommand {
-    pub call: CheckedApiCall,
-    pub arguments: Vec<CheckedCommandArgument>,
-}
-
-#[derive(Clone, Debug)]
-pub enum CheckedCommandArgument {
-    BooleanFlag,
-    Value,
-    Word(Type),
 }
 
 /// A user callable call's or structured stage's source argument entries bound
@@ -606,7 +588,6 @@ pub struct CheckOutput {
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
     pub api_calls: BTreeMap<Span, CheckedApiCall>,
-    pub module_commands: BTreeMap<Span, CheckedModuleCommand>,
     /// Keyed by call expression or stage span.
     pub argument_bindings: BTreeMap<Span, CheckedArguments>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
@@ -794,7 +775,6 @@ impl CheckOutput {
         self.statically_resolved_call_spans
             .append(&mut module.statically_resolved_call_spans);
         self.api_calls.append(&mut module.api_calls);
-        self.module_commands.append(&mut module.module_commands);
         self.argument_bindings.append(&mut module.argument_bindings);
         self.stream_origin_summaries.append(&mut module.stream_origin_summaries);
         self.definitely_exiting_block_spans
@@ -1938,7 +1918,6 @@ pub struct Checker {
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
     api_calls: BTreeMap<Span, CheckedApiCall>,
-    module_commands: BTreeMap<Span, CheckedModuleCommand>,
     argument_bindings: BTreeMap<Span, CheckedArguments>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
@@ -2234,7 +2213,6 @@ impl Checker {
             standard_call_spans: self.standard_call_spans,
             statically_resolved_call_spans: self.statically_resolved_call_spans,
             api_calls: self.api_calls,
-            module_commands: self.module_commands,
             argument_bindings: self.argument_bindings,
             definitely_exiting_block_spans: self.definitely_exiting_block_spans,
             handler_input_types: self.handler_input_types,
@@ -2370,7 +2348,6 @@ impl Checker {
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
             api_calls: BTreeMap::new(),
-            module_commands: BTreeMap::new(),
             argument_bindings: BTreeMap::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),

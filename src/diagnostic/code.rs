@@ -366,9 +366,7 @@ diagnostic_codes! {
         CheckMissingPublicDoc = "check.missing-public-doc", error, "Reject an exported declaration that has no preceding `##` doc comment";
         CheckMissingReturn = "check.missing-return", error, "Reject a function that can fall through without returning its declared type";
         CheckMixedLogical = "check.mixed-logical", error, fixable, "Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand";
-        CheckModuleCommandArg = "check.module-command-arg", error, "Reject a splice argument in a module command";
-        CheckModuleCommandFlag = "check.module-command-flag", error, "Reject an unknown, duplicate, or non-`Bool` module command flag";
-        CheckModuleCommandValue = "check.module-command-value", error, "Reject module command syntax for an API that is not an effectful `Result[Unit]` command";
+        CheckModuleCommandSyntax = "check.module-command-syntax", error, "Reject a standard API called in command style; write the expression call";
         CheckModuleContract = "check.module-contract", error, "Reject a `module contract` declaration that lists no exports";
         CheckModuleMember = "check.module-member", error, "Reject use of a standard module as a value or access to a missing or uncalled module function";
         CheckModuleTopLevel = "check.module-top-level", error, "Reject top-level mutation or commands in an imported module";

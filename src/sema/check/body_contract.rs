@@ -1,4 +1,4 @@
-use super::{CheckOutput, CheckedApiCall, CheckedCommandArgument, CheckedErrorConstructor, CheckedFunctionKind,
+use super::{CheckOutput, CheckedApiCall, CheckedErrorConstructor, CheckedFunctionKind,
     CheckedProjection, Conversion, EffectDeclarationId, FunctionEffectFact, InferredVariant, InferredVariantPattern,
     RequirementTarget, ResourceTransferSite, StatementPosition, TextPattern};
 use super::callable_contract::{CallableInstanceEvidence, SchemaIdentity, same_bound_operand, same_bound_effects, same_schema, schema_has_obligations, schema_identities, structural_schema_is_redundant, structural_storage_type};
@@ -33,7 +33,7 @@ pub enum BodyContractError {
 pub(crate) struct SemanticBodyContract {
     source_name: Arc<str>,
     owner: BodyContractOwner,
-    operations: BTreeMap<NodePath, Operation>,
+    operations: BTreeMap<NodePath, SelectedOperation>,
     selections: BTreeMap<NodePath, NodeSelection>,
     expr_paths: BTreeMap<ExprId, NodePath>,
     span_paths: BTreeMap<Span, NodePath>,
@@ -150,15 +150,6 @@ impl From<&RegisteredCallPlan> for SelectedOperation {
         Self { receiver: plan.receiver, signature: plan.signature, argument_slots: plan.argument_slots.to_vec(),
             argument_checks: plan.argument_checks.to_vec() }
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum CommandArgument { BooleanFlag, Value, Word(Type) }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Operation {
-    selection: SelectedOperation,
-    command_arguments: Option<Vec<CommandArgument>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -490,7 +481,6 @@ struct Capture<'a> {
     seen_binary: BTreeSet<ExprId>,
     seen_prepared_binary: BTreeSet<ExprId>,
     seen_api: BTreeSet<Span>,
-    seen_commands: BTreeSet<Span>,
     seen_effects: BTreeSet<EffectDeclarationId>,
     seen_spans: BTreeSet<Span>,
     seen_stages: BTreeSet<(Option<Name>, Span)>,
@@ -542,7 +532,7 @@ impl PendingBodyContracts {
             &checked.checked_declarations.wire_enums, definitions);
         let mut capture = Capture { checked, program, sources, bodies: BTreeMap::new(), schemas,
             registered: BTreeMap::new(), seen_registered: BTreeSet::new(), seen_binary: BTreeSet::new(), seen_prepared_binary: BTreeSet::new(), seen_api: BTreeSet::new(),
-            seen_commands: BTreeSet::new(), seen_effects: BTreeSet::new(), seen_spans: BTreeSet::new(),
+            seen_effects: BTreeSet::new(), seen_spans: BTreeSet::new(),
             user_sources: BTreeSet::new(), transfers: BTreeMap::new(), seen_stages: BTreeSet::new(), module_sources: BTreeMap::new(),
             sites: BTreeMap::new(), value_boundaries: BTreeSet::new(),
             constructors, operand_expressions: BTreeMap::new(), operand_tails: BTreeMap::new() };
@@ -806,25 +796,11 @@ impl Capture<'_> {
                 (None, None) => None,
             };
             if let Some(selection) = selection {
-                self.bodies.get_mut(owner).unwrap().operations.insert(path.to_vec(), Operation { selection, command_arguments: None });
+                self.bodies.get_mut(owner).unwrap().operations.insert(path.to_vec(), selection);
             }
         }
         if let ArenaChild::Stmt(statement) = node {
             self.run_value(statement, owner, path, namespace)?;
-            let span = match self.program.arena.stmt(statement).kind {
-                ArenaStmtKind::Command(command) => self.program.arena.span(self.program.arena.command_stmt(command).span),
-                _ => self.program.arena.stmt(statement).span,
-            };
-            if let Some(command) = self.checked.module_commands.get(&span) {
-                let selection = self.api_selection(&command.call, None, span)?;
-                let command_arguments = command.arguments.iter().map(|argument| match argument {
-                    CheckedCommandArgument::BooleanFlag => CommandArgument::BooleanFlag,
-                    CheckedCommandArgument::Value => CommandArgument::Value,
-                    CheckedCommandArgument::Word(ty) => CommandArgument::Word(ty.clone()),
-                }).collect();
-                self.seen_commands.insert(span);
-                self.bodies.get_mut(owner).unwrap().operations.insert(path.to_vec(), Operation { selection, command_arguments: Some(command_arguments) });
-            }
         }
         Ok(())
     }
@@ -1078,9 +1054,6 @@ impl Capture<'_> {
         let relevant = |span: &Span| self.user_sources.contains(&span.source_id);
         for span in self.checked.api_calls.keys().filter(|span| relevant(span)) {
             if !self.seen_api.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
-        }
-        for span in self.checked.module_commands.keys().filter(|span| relevant(span)) {
-            if !self.seen_commands.contains(span) { return Err(BodyContractError::UnmappedFact(*span)); }
         }
         for expression in self.checked.prepared_constants.binary_operators.keys().filter(|expression| relevant(&self.program.arena.expr(**expression).span)) {
             if !self.seen_prepared_binary.contains(expression) { return Err(BodyContractError::UnmappedFact(self.program.arena.expr(*expression).span)); }
@@ -1404,7 +1377,7 @@ mod tests {
         let ArenaExprKind::NullSafeField { base, .. } = program.arena.expr(callee).kind else { panic!("checked safe byte method receiver") };
         assert!(matches!(checked.expr_types.get(&program.arena.expr(base).span), Some(Type::Result(ok, _)) if **ok == Type::Bytes));
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
-        let operations = contracts.iter().flat_map(|body| body.operations.values()).map(|operation| &operation.selection).collect::<Vec<_>>();
+        let operations = contracts.iter().flat_map(|body| body.operations.values()).map(|operation| operation).collect::<Vec<_>>();
         let bytes = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Bytes)).unwrap();
         let map = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Map)).unwrap();
         assert!(bytes.argument_checks.is_empty());
@@ -1459,10 +1432,10 @@ mod tests {
         let other = declaration("pure accepts(value: Str) -> Bool { value.ends_with(\"x\") }\n");
         assert!(!original.preserved_by(&other));
         let mut receiver = original.clone();
-        receiver.operations.values_mut().next().unwrap().selection.receiver = None;
+        receiver.operations.values_mut().next().unwrap().receiver = None;
         assert!(!original.preserved_by(&receiver));
         let mut slots = original.clone();
-        slots.operations.values_mut().next().unwrap().selection.argument_slots.clear();
+        slots.operations.values_mut().next().unwrap().argument_slots.clear();
         assert!(!original.preserved_by(&slots));
     }
 
@@ -1472,20 +1445,8 @@ mod tests {
         let dirname = declaration("pure parent(value: Path) -> Path { value.dirname() }\n");
         let parent_op = parent.operations.values().next().unwrap();
         let dirname_op = dirname.operations.values().next().unwrap();
-        assert_eq!(parent_op.selection.signature.op, dirname_op.selection.signature.op);
+        assert_eq!(parent_op.signature.op, dirname_op.signature.op);
         assert!(!parent.preserved_by(&dirname));
-    }
-
-    #[test]
-    fn checked_body_contract_preserves_command_argument_treatment() {
-        let original = declaration("proc unmount(target: Path) { linux.umount $target --lazy }\n");
-        let mut changed = original.clone();
-        let operation = changed.operations.values_mut().find(|operation| operation.command_arguments.is_some()).unwrap();
-        assert!(!operation.command_arguments.as_ref().unwrap().is_empty());
-        let argument = operation.command_arguments.as_mut().unwrap().iter_mut()
-            .find(|argument| matches!(argument, CommandArgument::BooleanFlag)).unwrap();
-        *argument = CommandArgument::Value;
-        assert!(!original.preserved_by(&changed));
     }
 
     #[test]
@@ -1954,7 +1915,7 @@ mod tests {
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap();
         assert!(contracts.iter().flat_map(|body| body.operations.values())
-            .any(|operation| operation.selection.receiver == Some(MethodReceiver::Bytes)));
+            .any(|operation| operation.receiver == Some(MethodReceiver::Bytes)));
     }
 
     #[test]
@@ -1985,7 +1946,7 @@ mod tests {
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap();
         assert!(contracts.iter().flat_map(|body| body.operations.values())
-            .any(|operation| operation.selection.receiver == Some(MethodReceiver::Bytes)));
+            .any(|operation| operation.receiver == Some(MethodReceiver::Bytes)));
     }
 
     #[test]
@@ -1998,7 +1959,7 @@ mod tests {
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources)
             .map(PendingBodyContracts::into_contracts).unwrap();
         assert!(contracts.iter().flat_map(|body| body.operations.values())
-            .any(|operation| operation.selection.receiver == Some(MethodReceiver::Bytes)));
+            .any(|operation| operation.receiver == Some(MethodReceiver::Bytes)));
     }
 
     #[test]

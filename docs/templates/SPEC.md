@@ -4046,23 +4046,18 @@ is an ordinary name.
 
 ### 10.1 Command statements
 
-A command statement is a core command, a `run` form, or a fully qualified
-standard-module call written in command style:
+A command statement is a core command or a `run` form:
 
 ```xsh
 {{.spec.command_statements.source}}
 ```
 
-Command style is available only for effectful standard APIs that return
-`Result[Unit]`, and the statement propagates failure. A defaulted `Bool`
-parameter may be passed as a flag, mapping kebab case to snake case
-(`--pretty` means `pretty: true`). Everything else uses expression
-calls. User procs are never called in command style. Core command names
-(`print`, `eprint`, `cd`, `env`) cannot be redefined.
-
-Generic procs and stream producers retain the selected command operation,
-argument conversions, and effects. Their command arguments execute in the same
-positions and scopes as in annotated bodies.
+Standard-module APIs are called with expression syntax, such as
+`json.write(p"out.json", metadata, pretty: true)?`. Writing one as a command
+(`json.write out.json $metadata --pretty`) is `check.module-command-syntax`;
+the diagnostic prints the call to write. User procs are never called in
+command style. Core command names (`print`, `eprint`, `cd`, `env`) cannot be
+redefined.
 
 A statement that begins with an identifier or `.name` chain followed by `|>`
 or a binary operator (including `and`, `or`, `in`, `not in`, and `is`) is an

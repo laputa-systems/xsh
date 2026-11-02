@@ -1435,13 +1435,10 @@ impl Evaluator {
     fn eval_indexed_module_call_values(
         &mut self,
         op: RuntimeOp,
-        mut values: super::NativeArgumentValues,
+        values: super::NativeArgumentValues,
         span: Span,
         call_plan: Option<&crate::runtime::eval::call_plan::ModuleCallPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if let Some(plan) = call_plan {
-            plan.convert_command_words(&mut values.0)?;
-        }
         let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
         if !self.trace_enabled {
             let mut result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor)?;

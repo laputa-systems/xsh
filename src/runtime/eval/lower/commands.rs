@@ -242,14 +242,6 @@ impl CommandLoweringDomain<'_> {
     fn record(&mut self, value: BuildExprId, ty: SchemeType) {
         if let Self::Generalized { types, .. } = self { types.insert(value, ty); }
     }
-
-    fn record_alias(&mut self, value: BuildExprId, original: BuildExprId) -> Option<()> {
-        if let Self::Generalized { types, .. } = self {
-            let ty = types.get(&original)?.clone();
-            types.insert(value, ty);
-        }
-        Some(())
-    }
 }
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
@@ -290,7 +282,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaCommand::Core { name: CoreCommand::Cd, .. } => self.lower_cd_stmt_in_domain(command, slots, Some(current_function), None, domain),
             ArenaCommand::Core { name: CoreCommand::Env, .. } => self.lower_env_stmt_in_domain(command, slots, Some(current_function), None, domain),
             ArenaCommand::Run(_) => self.lower_run_stmt_in_domain(command, slots, Some(current_function), None, domain),
-            ArenaCommand::Proc { .. } => self.lower_proc_stmt_in_domain(command, slots, Some(current_function), None, domain),
+            ArenaCommand::Proc { .. } => None,
         }
     }
 
@@ -497,90 +489,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 body,
             }
         ))
-    }
-
-    pub(super) fn lower_proc_stmt(
-        &mut self,
-        id: crate::syntax::arena::CommandStmtId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-    ) -> Option<BuildStmtId> {
-        self.lower_proc_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
-    }
-
-    pub(super) fn lower_proc_stmt_in_domain(
-        &mut self,
-        id: crate::syntax::arena::CommandStmtId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-        domain: &mut CommandLoweringDomain<'_>,
-    ) -> Option<BuildStmtId> {
-        let stmt = self.program.arena.command_stmt(id);
-        let ArenaCommand::Proc { args, .. } = stmt.command else {
-            return None;
-        };
-        let span = self.program.arena.span(stmt.span);
-        let checked = self.bodies.module_commands.get(&span)?.clone();
-        let args = self.program.arena.command_args(args).to_vec();
-        if args.len() != checked.call.argument_slots.len() || args.len() != checked.arguments.len() {
-            return None;
-        }
-        let mut values = vec![None; checked.call.sig.params.len()];
-        let mut bindings = Vec::new();
-        let mut conversions = Vec::new();
-        let mut flags = Vec::new();
-        for ((arg, &slot), kind) in args.iter().zip(&checked.call.argument_slots).zip(&checked.arguments) {
-            let arg_span = self.program.arena.span(arg.span);
-            let value = if matches!(kind, crate::sema::check::CheckedCommandArgument::BooleanFlag) {
-                flags.push(slot);
-                self.build_command_expression(BuildExprRow::Bool(true), Type::Bool, domain)
-            } else {
-                let value = self.lower_command_arg_in_domain(arg, slots, current_function, item_slot, domain)?;
-                let binding = slots.reserve("module command argument");
-                bindings.push((value, binding));
-                let original = value;
-                let value = push_build_row!(self, expr, BuildExprRow::Param(binding));
-                domain.record_alias(value, original)?;
-                match kind {
-                    crate::sema::check::CheckedCommandArgument::Word(ty) => {
-                        if let Some(scalar) = super::super::call_plan::command_word_scalar(ty) {
-                            conversions.push(super::super::call_plan::CommandWordConversion { slot, scalar, span: arg_span });
-                        }
-                        value
-                    }
-                    _ => {
-                        let expected = &checked.call.sig.params.get(slot)?.ty;
-                        let checked = self.checked_unsigned_value(value, expected, arg_span);
-                        if checked != value { domain.record(checked, SchemeType::Ground(expected.clone())); }
-                        checked
-                    },
-                }
-            };
-            if values.get_mut(slot)?.replace(value).is_some() { return None; }
-        }
-        let plan = super::super::call_plan::CommandArgumentsPlan {
-            signature: checked.call.sig,
-            supplied_slots: values.iter().map(Option::is_some).collect(),
-            word_conversions: conversions,
-            flag_slots: flags,
-        };
-        let call = push_build_row!(self, expr, BuildExprRow::ModuleCall {
-            op: checked.call.sig.op,
-            call_plan: Some(Arc::new(super::super::ModuleCallPlan::CommandArguments(plan))),
-            args: values,
-            span,
-        });
-        domain.record(call, SchemeType::Ground(checked.call.sig.return_ty.clone()));
-        let mut call = call;
-        for (subject, slot) in bindings.into_iter().rev() {
-            let pattern = push_build_row!(self, pattern, super::BuildPatternRow::Bind { slot });
-            let wrapped = push_build_row!(self, expr, BuildExprRow::MatchExpr { value: subject, arms: vec![(pattern, None, call)], span });
-            domain.record_alias(wrapped, call)?;
-            call = wrapped;
-        }
-        Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: call, span }))
     }
 
     fn lower_command_splice_name(

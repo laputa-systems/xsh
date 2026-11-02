@@ -7008,13 +7008,6 @@ impl<'a> ProducerProof<'a> {
             let effects = bridge.sig.effects.concrete()
                 .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
             (*bridge.sig.return_ty, bridge.sig.params.into_iter().map(|parameter| { let domain = NativeParameterDomain::declared(&parameter.ty); (parameter.ty, parameter.defaulted, domain) }).collect::<Vec<_>>(), effects.unwrap_or_default(), bridge.kind == crate::sema::types::CallableKind::Pure)
-        } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan {
-            (plan.signature.return_ty.clone(), plan.signature.params.iter().enumerate().map(|(slot, parameter)| {
-                let ty = if plan.word_conversions.iter().any(|conversion| conversion.slot == slot) {
-                    Type::Any
-                } else { parameter.ty.clone() };
-                (ty, parameter.defaulted, NativeParameterDomain::declared(&parameter.ty))
-            }).collect::<Vec<_>>(), plan.signature.effects.to_vec(), plan.signature.pure)
         } else {
             let mut selected: Option<(&'static crate::modules::signature::ModuleFnSig, std::borrow::Cow<'static, crate::modules::signature::ModuleFnSig>)> = None;
             for signature in crate::modules::signature::native_static_operation_signatures(op) {

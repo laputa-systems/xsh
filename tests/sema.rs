@@ -322,7 +322,7 @@ fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
 }
 
 #[test]
-fn compact_check_reads_import_source_for_boolean_module_command_flags() {
+fn compact_check_rewrites_an_imported_module_command_from_the_import_source() {
     let root = tempfile::tempdir().expect("create module fixture");
     let entry_path = root.path().join("entry.xsh");
     let module_path = root.path().join("writer.xsh");
@@ -344,13 +344,14 @@ fn compact_check_reads_import_source_for_boolean_module_command_flags() {
         .expect("entry source identity");
 
     let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, entry_source_id);
+    let rejected = declarations
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckModuleCommandSyntax))
+        .unwrap_or_else(|| panic!("command-style `json.write` must be rejected: {:?}", declarations.diagnostics));
     assert!(
-        !declarations
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckModuleCommandFlag)),
-        "the imported source's `--pretty` flag must bind the defaulted Bool parameter: {:?}",
-        declarations.diagnostics
+        rejected.notes.iter().any(|note| note.contains("json.write(path, {target: \"release\"}, pretty: true)?")),
+        "the rewrite must read the imported source's words and flag: {rejected:?}"
     );
 }
 

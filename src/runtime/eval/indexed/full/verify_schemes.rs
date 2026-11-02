@@ -3386,19 +3386,6 @@ fn verify_body_expression(
                 if call_plan.is_some() || store.registered_calls.contains_key(&(instruction as u32)) { return Err(IrVerifyError::new("generic function site has a selected registry plan")); }
                 methods::verify_function_body_site(store, scheme_scope, ordinal, op, &arguments, ty, budget)?;
                 ty.clone()
-            } else if let Some(crate::runtime::eval::ModuleCallPlan::CommandArguments(plan)) = call_plan.map(Arc::as_ref) {
-                let supplied = arguments.iter().map(Option::is_some).collect::<Vec<_>>();
-                call_plan.expect("the command plan was matched").verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
-                budget.charge(arguments.len() + plan.word_conversions.len() + plan.flag_slots.len())?;
-                for (slot, actual) in arguments.iter().enumerate() {
-                    let Some(actual) = actual else { continue; };
-                    let expected = &plan.signature.params[slot].ty;
-                    let conversion = plan.word_conversions.iter().any(|conversion| conversion.slot == slot);
-                    let actual = actual.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic module command argument has no closed conversion contract"))?;
-                    if !(actual.matches_expected(expected) || conversion && actual.unvalidated() == &Type::Str) { return Err(IrVerifyError::new("generic module command argument disagrees with its selected conversion")); }
-                    if plan.flag_slots.contains(&slot) && actual != Type::Bool { return Err(IrVerifyError::new("generic module command flag has no Boolean producer")); }
-                }
-                SchemeType::Ground(plan.signature.return_ty.clone())
             } else if let Some(plan) = store.registered_calls.get(&(instruction as u32)) {
                 let mut verified_arguments = vec![None; arguments.len()];
                 for (slot, actual) in arguments.iter().enumerate() {

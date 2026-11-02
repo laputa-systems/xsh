@@ -235,16 +235,15 @@ for {name, ..} in [pkg] {
   print $name
 }
 let jobs = env.Str.JOBS ?? "1"
-fs.fsync build ?
-fs.install tool build/tool 493 --parents ?
-json.write manifest ({name, version}) ?
+fs.fsync(p"build")?
+fs.install(p"tool", p"build/tool", 493, parents: true)?
+json.write(p"manifest", {name, version})?
 """,
     [
       "check.type-mismatch",
       "check.destructure-type",
       "check.destructure-field",
-      "check.module-command-value",
-      "check.module-command-flag",
+      "check.module-command-syntax",
       "check.arity",
       "check.try-result",
       "check.standard-module-shadow",
@@ -256,7 +255,7 @@ test test_checker_rejects_ergonomic_sugar_pass_errors { |ctx|
   for case in [
     {source: "fs.nope out ?\n", code: "check.unknown-module-api"},
     {source: "fs.read out ?\n", code: "check.unknown-module-api"},
-    {source: "fs.install tool out 493 --unknown ?\n", code: "check.module-command-flag"},
+    {source: "fs.install tool out 493 --parents ?\n", code: "check.module-command-syntax"},
     {source: "let {name, name} = {name: \"demo\"}\n", code: "check.destructure-field"},
     {source: "let {name} = 1\n", code: "check.destructure-type"},
     {source: "let pkg = {name: \"demo\"}\nlet {version} = pkg\n", code: "check.destructure-field"},

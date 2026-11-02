@@ -11508,11 +11508,11 @@ impl<'a> FullDecoder<'a> {
         mut argument_type: impl FnMut(usize) -> Result<Option<Type>, IrVerifyError>,
     ) -> Result<Option<Type>, IrVerifyError> {
         if let Some(plan) = call_plan {
-            let supplied = arguments.iter().map(Option::is_some).collect::<Vec<_>>();
-            plan.verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
+            if !plan.matches_operation(op) {
+                return Err(IrVerifyError::new("module call plan does not match its operation"));
+            }
             return Ok(Some(match plan {
                 crate::runtime::eval::ModuleCallPlan::SignatureCli(descriptor) => descriptor.return_type(op == RuntimeOp::CliParseFull),
-                crate::runtime::eval::ModuleCallPlan::CommandArguments(command) => command.signature.return_ty.clone(),
             }));
         }
         if let Some(result) = Self::derive_registered_api_operation_return_type(op)?
@@ -19786,18 +19786,6 @@ impl FullVerifier {
         let mut producer_index = verify_schemes::GroundProducerIndex::new(store)?;
         Self::verify_resource_transfer_sites(store)?;
         Self::verify_checked_call_target_coverage(store)?;
-        for plan in &store.prepared_module_call_plans {
-            match plan.as_ref() {
-                crate::runtime::eval::ModuleCallPlan::SignatureCli(_) => {}
-                crate::runtime::eval::ModuleCallPlan::CommandArguments(plan) => {
-                    if !crate::modules::api_spec().module_entries().any(|(_, module)| {
-                        module.functions.iter().any(|function| function.overloads.iter().any(|registered| std::ptr::eq(registered, plan.signature)))
-                    }) {
-                        return Err(IrVerifyError::new("module command signature is not a registered module overload"));
-                    }
-                }
-            }
-        }
         let mut wire_types = rustc_hash::FxHashSet::default();
         for mapping in &store.wire_enums {
             if mapping.variants.is_empty()
@@ -22082,24 +22070,6 @@ fn verify_node_metadata(
             if !plan.matches_operation(op) {
                 return Err(IrVerifyError::new("prepared module call plan operation policy does not match its instruction"));
             }
-            // Inspect the shape without entering this block in the graph walk;
-            // the generated field verifier owns its traversal and ownership check.
-            let arguments = IrBlockId::from_raw(metadata.raw()?)
-                .ok_or_else(|| IrVerifyError::new("module call argument block id is invalid"))?;
-            let arguments = decoder.store.blocks.get(arguments.index())
-                .ok_or_else(|| IrVerifyError::new("module call argument block is out of bounds"))?;
-            let mut arguments = FullCursor::new(decoder.store.payload(arguments.instructions)?);
-            let count = arguments.raw()? as usize;
-            let mut supplied = Vec::with_capacity(count);
-            for _ in 0..count {
-                supplied.push(match arguments.raw()? {
-                    0 => false,
-                    1 => { arguments.raw()?; true }
-                    _ => return Err(IrVerifyError::new("optional payload tag is invalid")),
-                });
-            }
-            arguments.finish()?;
-            plan.verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
         }
     }
     if tag == FullTag::ExprComparisonChain {
@@ -38876,77 +38846,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
     }
 
     #[test]
-    fn module_command_plan_metadata_rejects_corrupt_interpretation() {
-        run_with_large_stack(|| {
-            use crate::modules::cli::ArgValueType;
-            use crate::runtime::eval::call_plan::ModuleCallPlan;
-            let program = fixture("command-plan-metadata.xsh", "json.write output ({value: 1}) false\njson.write output ({value: 1}) --pretty\ntime.sleep 0ms\nfs.fsync output\n");
-            FullVerifier::verify(&program).unwrap();
-            let (index, plan) = program.store.prepared_module_call_plans.iter().enumerate()
-                .find_map(|(index, plan)| match plan.as_ref() {
-                    ModuleCallPlan::CommandArguments(plan) if plan.word_conversions.len() == 2 => Some((index, plan)),
-                    _ => None,
-                }).expect("JSON command has Path and Bool word conversions");
-            let rejects = |change: &dyn Fn(&mut crate::runtime::eval::call_plan::CommandArgumentsPlan)| {
-                let mut invalid = program.clone();
-                let mut plan = plan.clone();
-                change(&mut plan);
-                invalid.store.prepared_module_call_plans[index] = Arc::new(ModuleCallPlan::CommandArguments(plan));
-                assert!(FullVerifier::verify(&invalid).is_err());
-            };
-            rejects(&|plan| plan.supplied_slots[0] = false);
-            rejects(&|plan| plan.word_conversions.push(plan.word_conversions[0].clone()));
-            rejects(&|plan| plan.word_conversions[0].slot = plan.supplied_slots.len());
-            rejects(&|plan| plan.word_conversions[0].scalar = ArgValueType::Int);
-            rejects(&|plan| plan.word_conversions.reverse());
-            rejects(&|plan| plan.flag_slots.push(plan.word_conversions[0].slot));
-            let other_signature = program.store.prepared_module_call_plans.iter().find_map(|entry| match entry.as_ref() {
-                ModuleCallPlan::CommandArguments(other) if other.signature.op != plan.signature.op => Some(other.signature),
-                _ => None,
-            }).unwrap();
-            rejects(&|plan| plan.signature = other_signature);
-            rejects(&|plan| plan.signature = Box::leak(Box::new(plan.signature.clone())));
-
-            let (flag_index, flag_plan) = program.store.prepared_module_call_plans.iter().enumerate()
-                .find_map(|(index, plan)| match plan.as_ref() {
-                    ModuleCallPlan::CommandArguments(plan) if !plan.flag_slots.is_empty() => Some((index, plan)),
-                    _ => None,
-                }).unwrap_or_else(|| panic!("Boolean flag command; published plans: {:?}",
-                    program.store.prepared_module_call_plans.iter().filter_map(|plan| match plan.as_ref() {
-                        ModuleCallPlan::CommandArguments(plan) => Some((plan.signature.op, &plan.flag_slots,
-                            plan.word_conversions.iter().map(|word| word.slot).collect::<Vec<_>>())),
-                        _ => None,
-                    }).collect::<Vec<_>>()));
-            for slot in [flag_plan.flag_slots[0], flag_plan.supplied_slots.len(), 0] {
-                let mut invalid = program.clone();
-                let mut flag_plan = flag_plan.clone();
-                flag_plan.flag_slots.push(slot);
-                invalid.store.prepared_module_call_plans[flag_index] = Arc::new(ModuleCallPlan::CommandArguments(flag_plan));
-                assert!(FullVerifier::verify(&invalid).is_err());
-            }
-
-            let mut invalid = program.clone();
-            let instruction = invalid.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
-                if *tag != FullTag::ExprModuleCall { return None; }
-                let words = invalid.store.payload(invalid.store.data[instruction].range()).unwrap();
-                (words[1] == 1 && words[2] as usize == index).then_some(instruction)
-            }).unwrap();
-            let words = invalid.store.payload(invalid.store.data[instruction].range()).unwrap();
-            let arguments = IrBlockId::from_raw(words[3]).unwrap();
-            let original = invalid.store.payload(invalid.store.blocks[arguments.index()].instructions).unwrap();
-            let mut missing = vec![original[0], 0];
-            missing.extend_from_slice(&original[3..]);
-            let start = invalid.store.extra.len() as u32;
-            invalid.store.extra.extend_from_slice(&missing);
-            invalid.store.blocks[arguments.index()].instructions = IrRange::new(start, missing.len() as u32);
-            let mut absent = plan.clone();
-            absent.supplied_slots[0] = false;
-            invalid.store.prepared_module_call_plans[index] = Arc::new(ModuleCallPlan::CommandArguments(absent));
-            assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("checked signature"));
-        });
-    }
-
-    #[test]
     fn inferred_host_replace_executes_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             for annotation in [": Str", ""] {
@@ -42805,8 +42704,7 @@ pure foreign(payload, count: Int) {
             let plan = Arc::clone(&program.store.prepared_module_call_plans[0]);
             let mut builder = FullBuilder::new(SourceId::new(0));
             let checkpoint = builder.checkpoint();
-            let crate::runtime::eval::ModuleCallPlan::SignatureCli(inner) = plan.as_ref()
-                else { panic!("CLI descriptor plan") };
+            let crate::runtime::eval::ModuleCallPlan::SignatureCli(inner) = plan.as_ref();
             let separately_wrapped = Arc::new(crate::runtime::eval::ModuleCallPlan::SignatureCli(Arc::clone(inner)));
             assert!(!Arc::ptr_eq(&plan, &separately_wrapped));
             let mut words = Vec::new();

@@ -936,16 +936,6 @@ fn measure_output_type_nodes(declarations: &CompactDeclOutput) -> usize {
             nodes.add_type(ty);
         }
     }
-    for command in body.module_commands.values() {
-        for ty in &command.call.params {
-            nodes.add_type(ty);
-        }
-        for argument in &command.arguments {
-            if let crate::sema::check::CheckedCommandArgument::Word(ty) = argument {
-                nodes.add_type(ty);
-            }
-        }
-    }
     for ty in body.handler_input_types.values() {
         nodes.add_type(ty);
     }
@@ -1001,7 +991,6 @@ fn measure_evidence_nodes(declarations: &CompactDeclOutput) -> usize {
         body.selected_function_calls.len(),
         body.selected_function_references.len(),
         body.statically_resolved_calls.len(),
-        body.module_commands.len(),
         body.argument_bindings.len(),
         body.statement_positions.len(),
         body.handler_input_types.len(),

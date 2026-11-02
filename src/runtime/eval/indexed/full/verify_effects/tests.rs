@@ -3859,7 +3859,7 @@ proc sample(payload) {
     eprint "checked"
     env XSH_GENERIC_COMMAND=inside { print "scoped" }
     cd p"." { print "directory" }
-    time.sleep 0ms ?
+    time.sleep(0ms)?
     run true
     return payload
 }
@@ -3870,11 +3870,6 @@ assert sample("word")? == "word"
         assert!(matches!(program.store.functions[owner].contract, FullCallableContract::Scheme(_)));
         FullVerifier::verify(&program).unwrap();
         execute_both(&program);
-        let mut forged = program.clone();
-        let plan = forged.store.prepared_module_call_plans.iter_mut().find(|plan| matches!(plan.as_ref(), crate::runtime::eval::ModuleCallPlan::CommandArguments(_))).unwrap();
-        let crate::runtime::eval::ModuleCallPlan::CommandArguments(plan) = Arc::make_mut(plan) else { unreachable!() };
-        plan.supplied_slots[0] = !plan.supplied_slots[0];
-        assert!(FullVerifier::verify(&forged).is_err());
     });
 }
 

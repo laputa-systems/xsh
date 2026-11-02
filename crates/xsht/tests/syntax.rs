@@ -1314,9 +1314,6 @@ fn nested_command_word_interpolation_is_accepted() {
 #[test]
 fn parser_accepts_ergonomic_sugar_pass_forms() {
     let source = r#"
-fs.fsync build ?
-fs.install tool dist/tool 493 --parents ?
-json.write out (metadata) ?
 let {name, version, ..} = pkg
 var {path, kind, ..} = entry
 for {path, kind, ..} in entries {
@@ -1329,15 +1326,7 @@ let jobs = env.Str.JOBS ?? "1"
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let arena = &output.arena.arena;
     let root: Vec<_> = output.arena.statement_ids().collect();
-    let ArenaStmtKind::Command(cmd0) = arena.stmt(root[0]).kind else {
-        panic!("expected command");
-    };
-    let ArenaCommand::Proc { name, .. } = &arena.command_stmt(cmd0).command else {
-        panic!("expected module command surface");
-    };
-    assert_eq!(name.as_str(), "fs.fsync");
-
-    let ArenaStmtKind::Let { target, .. } = arena.stmt(root[3]).kind else {
+    let ArenaStmtKind::Let { target, .. } = arena.stmt(root[0]).kind else {
         panic!("expected let destructuring");
     };
     assert!(matches!(
@@ -1346,7 +1335,7 @@ let jobs = env.Str.JOBS ?? "1"
             if arena.destructure_fields(fields).len() == 2 && rest
     ));
 
-    let ArenaStmtKind::For { target, block, .. } = arena.stmt(root[5]).kind else {
+    let ArenaStmtKind::For { target, block, .. } = arena.stmt(root[2]).kind else {
         panic!("expected for destructuring");
     };
     assert!(matches!(
@@ -1372,7 +1361,7 @@ let jobs = env.Str.JOBS ?? "1"
     }
 
     assert!(matches!(
-        arena.expr(root_let_init_expr(&output, 6)).kind,
+        arena.expr(root_let_init_expr(&output, 3)).kind,
         ArenaExprKind::Binary {
             op: BinaryOp::ResultFallback,
             ..

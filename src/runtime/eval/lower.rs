@@ -6653,8 +6653,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .lower_print_stmt(command, &mut slots, None, None)
                     .or_else(|| self.lower_cd_stmt(command, &mut slots, None, None))
                     .or_else(|| self.lower_env_stmt(command, &mut slots, None, None))
-                    .or_else(|| self.lower_run_stmt(command, &mut slots, None, None))
-                    .or_else(|| self.lower_proc_stmt(command, &mut slots, None, None))?;
+                    .or_else(|| self.lower_run_stmt(command, &mut slots, None, None))?;
                 Some(self.lowered_top_level_stmt(BuildTopKind::Stmt(lowered),
                     known,
                     slots,
@@ -8062,8 +8061,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .lower_print_stmt(command, slots, current_function, item_slot)
                 .or_else(|| self.lower_cd_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_env_stmt(command, slots, current_function, item_slot))
-                .or_else(|| self.lower_run_stmt(command, slots, current_function, item_slot))
-                .or_else(|| self.lower_proc_stmt(command, slots, current_function, item_slot)),
+                .or_else(|| self.lower_run_stmt(command, slots, current_function, item_slot)),
             ArenaStmtKind::Assert { condition, message } => {
                 let span = self.program.arena.expr(condition).span;
                 let value = self.lower_expr(condition, slots, current_function, item_slot)?;

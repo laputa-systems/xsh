@@ -14,7 +14,6 @@ pub mod check {
         AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
         BodyContractError, BodyContractOwner,
         CheckBundleView, CheckSession, CheckOptions, CheckOutput, CheckedControlFlowFacts,
-        CheckedCommandArgument, CheckedModuleCommand,
         CheckedCallableContract, ContractComparisonError, CheckedCliEntryContract, CliContractError,
         CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
         CheckedFunctionKind, CheckedProjection, CheckedStreamStage, CheckedTypeDeclaration,

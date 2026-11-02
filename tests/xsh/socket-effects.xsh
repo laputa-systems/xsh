@@ -61,10 +61,10 @@ test test_inferred_socket_callees_publish_both_effects { |ctx|
 
 test test_socket_commands_require_net { |ctx|
   for call in [
-    "linux.connect 0 ({family: \"inet\", address: \"127.0.0.1\", port: 80})",
-    "linux.bind 0 ({family: \"inet\", address: \"127.0.0.1\", port: 80})",
-    "linux.link_up \"eth0\"",
-    "linux.flush_ipv4_addresses \"eth0\"",
+    "linux.connect(0, {family: \"inet\", address: \"127.0.0.1\", port: 80})?",
+    "linux.bind(0, {family: \"inet\", address: \"127.0.0.1\", port: 80})?",
+    "linux.link_up(\"eth0\")?",
+    "linux.flush_ipv4_addresses(\"eth0\")?",
   ] {
     check_source(ctx, f"proc probe() [process, error] {{ {call} }}", 2)
     check_source(ctx, f"proc probe() [process, net, error] {{ {call} }}", 0)

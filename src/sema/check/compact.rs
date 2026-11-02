@@ -107,7 +107,6 @@ pub struct CompactBodyFacts {
     pub(crate) selected_function_references:
         BTreeMap<Span, (super::CheckedFunctionTarget, Option<Type>)>,
     pub(crate) statically_resolved_calls: FxHashSet<ExprId>,
-    pub module_commands: BTreeMap<Span, super::CheckedModuleCommand>,
     /// User callable calls and structured stages keyed by their source span.
     pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
@@ -169,7 +168,6 @@ impl CompactBodyFacts {
             },
             resolved_bindings: checked.resolved_bindings.clone(),
             argument_bindings: checked.argument_bindings.clone(),
-            module_commands: checked.module_commands.clone(),
             resource_transfers: checked.resource_transfers.clone(),
             checked_control_flow: checked.checked_control_flow.clone(),
             ..Self::default()

@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    Checker, CoreCommand, Diagnostic, Effect, FixHint, FxHashSet, Label, ModuleFnSig,
+    Checker, CoreCommand, Diagnostic, Effect, FixHint, Label, ModuleFnSig,
     Name, RunKind, Span, Type, UnaryOp, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
@@ -29,10 +29,6 @@ pub(super) fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
     api_spec()
         .is_standard_module(module)
         .then_some((module, api))
-}
-
-pub(super) fn module_sig_is_command_callable(sig: &ModuleFnSig) -> bool {
-    sig.command
 }
 
 fn is_bare_ident(text: &str) -> bool {
@@ -408,7 +404,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         if let Some((module, api)) = standard_module_command_name(name) {
-            return self.check_module_command_arena(arena, source, module, api, args, span);
+            return self.reject_module_command_syntax(arena, source, module, api, args, span);
         }
         if self
             .options
@@ -493,7 +489,7 @@ impl Checker {
         self.diagnostics.push(diagnostic);
     }
 
-    pub(super) fn check_module_command_arena(
+    fn reject_module_command_syntax(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -502,9 +498,6 @@ impl Checker {
         args: ArenaRange,
         span: Span,
     ) -> Type {
-        for required in api_spec().module_required_effects(module, name) {
-            self.require_effect(required.clone(), span, &format!("`{module}.{name}`"));
-        }
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
             return Type::Unknown;
@@ -517,30 +510,14 @@ impl Checker {
             self.report_unknown_module_api(module, name, span);
             return Type::Unknown;
         };
-        let command_overloads = overloads
-            .iter()
-            .filter(|&x| module_sig_is_command_callable(x))
-            .collect::<Vec<_>>();
-        if command_overloads.is_empty() {
-            self.error(
-                span,
-                "module command syntax is only for effectful Result[Unit] APIs",
-                DiagnosticCode::CheckModuleCommandValue,
-            );
-            return Type::Unknown;
-        }
-        if self.boundary.in_pure {
-            self.error(
-                span,
-                "effectful module API is not allowed in pure functions",
-                DiagnosticCode::CheckPureEffect,
-            );
-        }
-        let command_args = arena.arena.command_args(args);
-        let sig = choose_module_command_sig_arena(arena, source, command_args, &command_overloads)
-            .unwrap_or(command_overloads[0]);
-        self.check_module_command_args_arena(arena, source, command_args, sig, span);
-        sig.return_ty.clone()
+        let rewrite = module_call_rewrite(arena, source, module, name, arena.arena.command_args(args), &overloads);
+        self.diagnostics.push(
+            Diagnostic::error(format!("`{module}.{name}` is an expression call, not a command"))
+                .with_code(DiagnosticCode::CheckModuleCommandSyntax)
+                .with_label(Label::primary(span, "standard APIs are not called in command style"))
+                .with_note(format!("write `{rewrite}`")),
+        );
+        Type::Unknown
     }
 
     pub(super) fn check_core_command_arena(
@@ -1268,81 +1245,91 @@ pub(super) fn run_statement_asserts_success_by_default_arena(
     matches!(segments[0].kind, RunKind::Plain)
 }
 
-#[allow(dead_code)]
-pub(super) fn choose_module_command_sig_arena(
+fn module_call_rewrite(
     arena: &ArenaProgram,
     source: &str,
+    module: &str,
+    name: &str,
     args: &[ArenaCommandArg],
-    overloads: &[&'static ModuleFnSig],
-) -> Option<&'static ModuleFnSig> {
-    overloads
+    overloads: &[ModuleFnSig],
+) -> String {
+    let positionals = args
         .iter()
-        .copied()
-        .find(|sig| module_command_shape_matches_arena(arena, source, args, sig))
+        .filter(|arg| command_bool_flag_name_arena(arena, source, arg).is_none())
+        .count();
+    let Some(sig) = overloads
+        .iter()
+        .find(|sig| {
+            let required = sig.params.iter().filter(|param| !param.defaulted).count();
+            (required..=sig.params.len()).contains(&positionals)
+        })
+        .or(overloads.first())
+    else {
+        return format!("{module}.{name}(...)?");
+    };
+    let rendered = render_module_call_arguments(arena, source, args, sig)
+        .unwrap_or_else(|| sig.params.iter().map(|param| param.name).collect::<Vec<_>>().join(", "));
+    format!("{module}.{name}({rendered})?")
 }
 
-#[allow(dead_code)]
-pub(super) fn module_command_shape_matches_arena(
+fn render_module_call_arguments(
     arena: &ArenaProgram,
     source: &str,
     args: &[ArenaCommandArg],
     sig: &ModuleFnSig,
-) -> bool {
-    let mut positional_index = 0usize;
-    let mut flags = FxHashSet::default();
+) -> Option<String> {
+    let mut flags = Vec::new();
     for arg in args {
         if let Some(flag) = command_bool_flag_name_arena(arena, source, arg) {
-            let Some(param) = sig.params.iter().find(|param| param.name == flag) else {
-                return false;
-            };
-            if !(param.defaulted && param.ty == Type::Bool) || !flags.insert(flag.to_string()) {
-                return false;
-            }
+            flags.push(flag);
+        }
+    }
+    let mut rendered = Vec::new();
+    let mut params = sig.params.iter().filter(|param| !flags.iter().any(|flag| flag == param.name));
+    for arg in args {
+        if command_bool_flag_name_arena(arena, source, arg).is_some() {
             continue;
         }
-        let Some(param) = sig
-            .params
-            .iter()
-            .filter(|param| !flags.contains(param.name))
-            .nth(positional_index)
-        else {
-            return false;
-        };
-        if !command_arg_can_match_module_param_arena(arena, arg, &param.ty) {
-            return false;
-        }
-        positional_index += 1;
+        rendered.push(render_module_call_argument(arena, source, arg, &params.next()?.ty)?);
     }
-    let required = sig.params.iter().filter(|param| !param.defaulted).count();
-    positional_index >= required && positional_index <= sig.params.len().saturating_sub(flags.len())
+    rendered.extend(flags.iter().map(|flag| format!("{flag}: true")));
+    Some(rendered.join(", "))
 }
 
-#[allow(dead_code)]
-pub(super) fn command_arg_can_match_module_param_arena(
+fn render_module_call_argument(
     arena: &ArenaProgram,
+    source: &str,
     arg: &ArenaCommandArg,
-    expected: &Type,
-) -> bool {
+    ty: &Type,
+) -> Option<String> {
+    let expression_text = |expr: ExprId| -> Option<String> {
+        let span = arena.arena.expr(expr).span;
+        let text = source.get(span.start()..span.end())?.trim_start_matches('$');
+        Some(text.to_string())
+    };
     match &arg.kind {
-        ArenaCommandArgKind::Word(parts) => {
-            let word_list: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
-            if matches!(
-                word_list.as_slice(),
-                [ArenaWordPart::Interpolation(_) | ArenaWordPart::Shorthand(_)]
-            ) {
-                return true;
-            }
-            expected.can_word_convert_to() || matches!(expected, Type::Unknown)
+        ArenaCommandArgKind::Typed(expr) => {
+            let text = expression_text(*expr)?;
+            let inner = text.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')).unwrap_or(&text);
+            Some(inner.to_string())
         }
-        ArenaCommandArgKind::Typed(_) => true,
-        ArenaCommandArgKind::SpliceName(_) | ArenaCommandArgKind::SpliceExpr(_) => false,
+        ArenaCommandArgKind::Word(parts) => {
+            let parts: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
+            if let [ArenaWordPart::Interpolation(expr) | ArenaWordPart::Shorthand(expr)] = parts.as_slice() {
+                return expression_text(*expr);
+            }
+            let text = literal_command_word_parts_arena(arena, arena.arena.span(arg.span).source_id, source, &parts)?;
+            if text.contains(['"', '\\']) {
+                return None;
+            }
+            Some(match ty.unvalidated() {
+                Type::Path => format!("p\"{text}\""),
+                Type::Str | Type::Unknown => format!("\"{text}\""),
+                _ => text,
+            })
+        }
+        ArenaCommandArgKind::SpliceName(_) | ArenaCommandArgKind::SpliceExpr(_) => None,
     }
-}
-
-#[allow(dead_code)]
-pub(super) fn command_arg_can_be_path_like_arena(arg: &ArenaCommandArg, ty: &Type) -> bool {
-    matches!(ty.unvalidated(), Type::Path | Type::Str | Type::Unknown)
-        || matches!(arg.kind, ArenaCommandArgKind::Word(_))
 }
 
 #[allow(dead_code)]

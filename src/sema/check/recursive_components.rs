@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn generic_command_words_publish_their_read_bindings() {
-        let source = "let directory = p\".\"\nproc sample(payload) { fs.fsync directory ?; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";
+        let source = "let directory = p\".\"\nproc sample(payload) { cd directory { print \"inside\" }; return payload }\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
@@ -579,7 +579,7 @@ mod tests {
             "print \"checked\"", "eprint \"checked\"",
             "env XSH_GENERIC_COMMAND=inside { print \"checked\" }",
             "cd p\".\" { print \"checked\" }",
-            "fs.fsync p\".\" ?", "run true",
+            "run true",
         ] {
             let source = format!("proc sample(payload) {{ {command}; return payload }}\nlet integer: Result[Int] = sample(7)\nlet text: Result[Str] = sample(\"word\")\n");
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
