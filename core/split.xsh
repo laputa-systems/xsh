@@ -390,6 +390,14 @@ pure suffix_name(index: Int, naming: Naming) -> Str {
 # Name buffers can exceed the process's address space even for a valid width.
 # Report the allocator's failure as GNU does, without imposing a width limit.
 proc checked_suffix(index: Int, naming: Naming) [process, env, error] -> Result[Str] {
+  let name_length = naming.prefix.len() + naming.width + naming.extra.len()
+  if let Err(failure) = bytes.zero(name_length) {
+    if gnu.errno(failure) == 12 {
+      gnu.error("memory exhausted")
+      exit 1
+    }
+    return Err(failure)
+  }
   match try { suffix_name(index, naming) } {
     Ok(tail) => Ok(tail)
     Err(failure) => {
