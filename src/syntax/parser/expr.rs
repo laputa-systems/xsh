@@ -850,6 +850,7 @@ impl<'a> Parser<'a> {
         let mut extended = false;
         // The conversion this loop built last, while it is still `left`.
         let mut conversion: Option<ExprId> = None;
+        let mut pattern_test: Option<ExprId> = None;
         loop {
             // Coming round again means the pass before applied one form to
             // `left`.
@@ -881,6 +882,7 @@ impl<'a> Parser<'a> {
             // it, so one that reached here would apply to the conversion only
             // by an accident of spacing. Write `(text as Int).float()`.
             let after_conversion = conversion == Some(left.id) && pending_pipeline.is_none();
+            let after_pattern_test = pattern_test == Some(left.id);
             if !after_conversion
                 && self.matches_terms(grammar::PostfixForm::SafeMember.lead(command_arg_root), left.span.end())
             {
@@ -920,6 +922,7 @@ impl<'a> Parser<'a> {
                     };
                 }
             } else if self.at(TokenKindMatch::Question)
+                && !(after_pattern_test && self.current_start() == left.span.end())
                 && !self.matches_terms(grammar::PostfixForm::SafeIndex.lead(command_arg_root), left.span.end())
                 && (self.matches_terms(grammar::PostfixForm::Propagation.lead(command_arg_root), left.span.end())
                     || (self.trailing_statement_try && self.question_is_trailing_statement_try()))
@@ -1143,6 +1146,7 @@ impl<'a> Parser<'a> {
                         span,
                         bare_ident: None,
                     };
+                    pattern_test = Some(left.id);
                     continue;
                 }
                 let unsupported_integer_division = self.report_unsupported_integer_division();

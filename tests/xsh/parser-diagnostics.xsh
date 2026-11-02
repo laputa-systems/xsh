@@ -103,6 +103,12 @@ test test_item_dot_is_not_followed_by_a_second_dot { |ctx|
   }
 }
 
+test test_pattern_test_takes_no_propagation_suffix { |ctx|
+  for source in ["let failed = parsed is Err(_)?\n", "return false when parsed is Err(_)?\n"] {
+    expect_rejected(ctx, source, "parse.expected-terminator")
+  }
+}
+
 test test_spaced_calls_at_statement_heads_are_command_arguments { |ctx|
   for source in ["f (1, 2)\n", "f.field (1, 2)\n"] {
     expect_rejected(ctx, source, "parse.expected-token")
