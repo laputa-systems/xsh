@@ -126,13 +126,27 @@ test test_colon_inclusive_and_stride_slices_are_rejected { |ctx|
 }
 
 test test_ordering_and_pattern_tests_need_grouping { |ctx|
-  for source in ["let result = 0 < 1 < 2 is Bool\n", "let result = value is Str < true\n"] {
+  for source in ["let result = 0 < 1 is Bool\n", "let result = value is Str < true\n"] {
     expect_rejected(ctx, source, "parse.mixed-comparison")
   }
 
-  for source in ["let result = (0 < 1 < 2) is Bool\n", "let result = (value is Str) < true\n"] {
+  for source in ["let result = (0 < 1) is Bool\n", "let result = (value is Str) < true\n"] {
     expect_parses(ctx, source)
   }
+}
+
+test test_ordering_chains_are_rejected_with_the_joined_comparison { |ctx|
+  for {source, rewrite} in [
+    {source: "let result = 0 < 1 < 2\n", rewrite: "0 < 1 and 1 < 2"},
+    {source: "let result = 0 <= 1 < 2 <= 3\n", rewrite: "0 <= 1 and 1 < 2 and 2 <= 3"},
+    {source: "let result = 0 < f(1) < 2\n", rewrite: "bind each middle operand"},
+  ] {
+    let stderr = rejection(ctx, source)?
+    assert "parse.comparison-chain" in stderr, stderr
+    assert rewrite in stderr, stderr
+  }
+  expect_parses(ctx, "let result = 0 < 1 and 1 < 2\n")
+  expect_parses(ctx, "let result = (0 < 1) < true\n")
 }
 
 test test_unterminated_regex_literals_are_lexical_errors { |ctx|

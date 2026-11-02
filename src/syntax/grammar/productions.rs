@@ -564,11 +564,9 @@ fn expression_rules(context: ExpressionContext) -> Vec<Rule> {
             alt([
                 seq([
                     r("additive_tail"),
-                    plus(seq([
-                        operators(OperatorFamily::Ordering),
-                        nl(),
-                        r("additive"),
-                    ])),
+                    operators(OperatorFamily::Ordering),
+                    nl(),
+                    r("additive"),
                 ]),
                 seq([
                     r("additive_tail"),
@@ -1503,11 +1501,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "ordering",
             seq([
                 r("additive"),
-                plus(seq([
-                    operators(OperatorFamily::Ordering),
-                    nl(),
-                    r("additive"),
-                ])),
+                operators(OperatorFamily::Ordering),
+                nl(),
+                r("additive"),
             ]),
         ),
         rule(

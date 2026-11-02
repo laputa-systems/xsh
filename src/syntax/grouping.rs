@@ -45,7 +45,6 @@ pub const fn is_comparison(op: BinaryOp) -> bool {
 /// never mix without explicit grouping.
 pub fn comparison_family(kind: &ArenaExprKind) -> Option<bool> {
     match kind {
-        ArenaExprKind::ComparisonChain(_) => Some(true),
         ArenaExprKind::PatternTest { .. } => Some(false),
         ArenaExprKind::Binary { op, .. } if is_comparison(*op) => Some(is_ordering(*op)),
         _ => None,
@@ -314,7 +313,6 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         ArenaExprKind::Binary { op, .. } => binary_precedence(*op),
         ArenaExprKind::PatternTest { .. } => PATTERN_TEST,
         ArenaExprKind::Convert { .. } => CONVERSION,
-        ArenaExprKind::ComparisonChain(_) => binary_precedence(BinaryOp::Lt),
         ArenaExprKind::Unary { .. }
         | ArenaExprKind::Spawn(crate::syntax::arena::ArenaSpawnForm {
             target: ArenaSpawnTarget::Command(_),
@@ -496,7 +494,6 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::EnvString(_)
             | ArenaExprKind::EnvPathList
             | ArenaExprKind::Run(_)
@@ -939,7 +936,6 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
@@ -1110,29 +1106,6 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         ),
         // The shared descent exposes each source operand once, so derive its
         // context from the comparison pair that writes it.
-        ArenaExprKind::ComparisonChain(pairs) => {
-            let pair_count = arena.expr_ids(pairs).count();
-            for (index, pair) in arena.expr_ids(pairs).enumerate() {
-                let ArenaExprKind::Binary { op, left: first, right } = arena.expr(pair).kind else {
-                    unreachable!("comparison chain pairs are binary expressions")
-                };
-                if index == 0 && first == child {
-                    return left(
-                        Slot::Left(op),
-                        Follow::spaced(FollowToken::Operator),
-                    );
-                }
-                if right == child {
-                    let mut operand =
-                        inherit(Slot::Right(op), binary_right_operand_precedence(op));
-                    if index + 1 < pair_count {
-                        operand.follow = Follow::spaced(FollowToken::Operator);
-                    }
-                    return operand;
-                }
-            }
-            context
-        }
         ArenaExprKind::ValuePipelineCall { .. } => inherit(Slot::Open, 0),
         ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
             if is_condition(arena, parent, child) =>
@@ -1227,7 +1200,6 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
             visit(left);
             visit(right);
         }
-        ArenaExprKind::ComparisonChain(pairs) => arena.expr_ids(pairs).for_each(visit),
         ArenaExprKind::CodecSchema { format, input, .. } => { visit(format); visit(input); }
         ArenaExprKind::PatternTest { value, .. }
         | ArenaExprKind::Require { value, .. }
@@ -1332,7 +1304,6 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }

@@ -8,12 +8,12 @@ enum RouteOracleTagMatch { Ready, Busy }
 
 proc route_oracle_match_tag() -> RouteOracleTagMatch { Ready }
 
-test test_expr_comparison_chain { |ctx|
-  assert 1 < 2 < 3
+test test_expr_joined_comparison { |ctx|
+  assert 1 < 2 and 2 < 3
   test.expect(ctx, r"""let first = 1
 let second = 2
 let third = 3
-let selected = first < second < third
+let selected = first < second and second < third
 assert selected == true
 """, status: 0)?
 }

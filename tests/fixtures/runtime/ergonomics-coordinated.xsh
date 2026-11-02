@@ -22,7 +22,7 @@ let {root, build: {jobs, target: target_name, ..}, ..} = config
 let rows = [
   f"{root}:{target_name}:{job}:{part}"
   for job in jobs
-  if 1 < job <= 3
+  if 1 < job and job <= 3
   for part in ["a", "b"]
 ]
 var words: List[Str] = []

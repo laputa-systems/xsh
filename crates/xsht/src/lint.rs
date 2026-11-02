@@ -171,7 +171,7 @@ use safety::{
     type_has_unsigned_constraint, type_has_contextual_collection_domain, type_mentions_path,
     expr_is_dynamic_require_boundary, expr_references_name, command_arg_references_name,
     is_safe_const_expr, expr_may_have_effects, migration_inert, migration_reorder_safe,
-    migration_arguments_optional, migration_arguments, same_ordering_operand,
+    migration_arguments_optional, migration_arguments,
     inert_constant_initializer,
 };
 
@@ -551,7 +551,6 @@ struct AssignmentFactOwner {
 }
 
 enum AssignmentCandidateCondition {
-    NoAssignedNames(Vec<Name>),
     AllNamesAssigned(Vec<String>),
 }
 
@@ -1575,37 +1574,11 @@ impl<'a> Linter<'a> {
         self.diagnostics.splice(index..index, diagnostics);
     }
 
-    pub(super) fn comparison_chain_suppressors(
-        &self,
-        span: Span,
-    ) -> Option<Vec<AssignmentCandidateId>> {
-        let mut suppressors = Vec::new();
-        for (diagnostic_index, diagnostic) in self.diagnostics.iter().enumerate() {
-            if diagnostic.code != Some(DiagnosticCode::LintPreferComparisonChain)
-                || !diagnostic.labels.iter().any(|label| {
-                    label.span.source_id == span.source_id
-                        && label.span.start() <= span.start()
-                        && label.span.end() >= span.end()
-                })
-            {
-                continue;
-            }
-            let candidate_index = self
-                .assignment_candidates
-                .iter()
-                .position(|candidate| candidate.diagnostic_index == diagnostic_index)?;
-            suppressors.push(AssignmentCandidateId(candidate_index));
-        }
-        Some(suppressors)
-    }
 
     fn finalize_assignment_candidates(&mut self) {
         let mut retained = Vec::with_capacity(self.assignment_candidates.len());
         for (candidate_index, candidate) in self.assignment_candidates.iter().enumerate() {
             let condition = match &candidate.condition {
-                AssignmentCandidateCondition::NoAssignedNames(names) => {
-                    !names.iter().any(|&name| self.assignment_contains(name))
-                }
                 AssignmentCandidateCondition::AllNamesAssigned(names) => names
                     .iter()
                     .all(|name| self.assignment_contains_spelling(name)),
@@ -3588,7 +3561,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Slice { .. }
@@ -4478,7 +4450,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }

@@ -374,7 +374,6 @@ fn closed_scalar_expression(
                 | ArenaExprKind::PatternTest { .. }
                 | ArenaExprKind::PatternCondition { .. }
                 | ArenaExprKind::Unary { .. }
-                | ArenaExprKind::ComparisonChain(_)
                 | ArenaExprKind::Binary { .. }
                 | ArenaExprKind::ValuePipelineCall { .. }
                 | ArenaExprKind::Field { .. }

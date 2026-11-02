@@ -362,11 +362,6 @@ mod child_tests {
         use ArenaChild::Expr;
         let mut lowerer = ArenaLowerer::default();
         let [a, b, c] = std::array::from_fn(|_| lowerer.push_expr_kind(ArenaExprKind::Null, span()));
-        let first = lowerer.push_expr_kind(ArenaExprKind::Binary { op: BinaryOp::Lt, left: a, right: b }, span());
-        let second = lowerer.push_expr_kind(ArenaExprKind::Binary { op: BinaryOp::Lt, left: b, right: c }, span());
-        let pairs = lowerer.lower_expr_id_range(&[first, second]);
-        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::ComparisonChain(pairs)), [Expr(a), Expr(b), Expr(c)]);
-
         let args = lowerer.commit_call_arg_input_range(&[ArenaCallArgInput::Positional(c)]);
         let call = lowerer.push_expr_kind(ArenaExprKind::Call { callee: b, args }, span());
         assert_eq!(expr_children(&mut lowerer, ArenaExprKind::ValuePipelineCall { input: a, call, hole: c }), [Expr(a), Expr(call)]);
@@ -4027,35 +4022,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_expr_kind(ArenaExprKind::Binary { op, left, right }, span)
     }
 
-    pub fn push_comparison_chain_expr(&mut self, pairs: &[ExprId], span: Span) -> ExprId {
-        assert!(
-            pairs.len() >= 2,
-            "comparison chains require at least two pairs"
-        );
-        let mut previous = None;
-        for pair in pairs {
-            let ArenaExprKind::Binary { op, left, right } = self.expr_kind(*pair) else {
-                panic!("comparison chains require binary pairs")
-            };
-            assert!(
-                matches!(
-                    op,
-                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-                ),
-                "comparison chains require ordering operators"
-            );
-            if let Some(previous) = previous {
-                assert_eq!(
-                    previous, left,
-                    "comparison chain pairs share adjacent operands"
-                );
-            }
-            previous = Some(right);
-        }
-        let range = self.lowerer.lower_expr_id_range(pairs);
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::ComparisonChain(range), span)
-    }
 
     pub fn push_field_expr(&mut self, base: ExprId, name: Name, span: Span) -> ExprId {
         self.lowerer
@@ -4910,9 +4876,6 @@ impl AstArena {
                 }
             }
             ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => visit(Child::Expr(expr)),
-            ArenaExprKind::ComparisonChain(pairs) => {
-                for expr in self.comparison_chain_operands(pairs) { visit(Child::Expr(expr)); }
-            }
             ArenaExprKind::Binary { left, right, .. } => {
                 visit(Child::Expr(left));
                 visit(Child::Expr(right));
@@ -5855,7 +5818,6 @@ impl AstArena {
                 op: UnaryOp::Neg,
                 expr: ExprId::new(data.lhs as usize),
             },
-            ArenaExprTag::ComparisonChain => ArenaExprKind::ComparisonChain(range_from_data(data)),
             ArenaExprTag::BinaryResultFallback
             | ArenaExprTag::BinaryOr
             | ArenaExprTag::BinaryAnd
@@ -6246,19 +6208,6 @@ impl AstArena {
             .map(|index| ExprId::new(index as usize))
     }
 
-    pub fn comparison_chain_operands(
-        &self,
-        pairs: ArenaRange,
-    ) -> impl Iterator<Item = ExprId> + '_ {
-        self.expr_ids(pairs).enumerate().flat_map(|(index, pair)| {
-            let ArenaExprKind::Binary { left, right, .. } = self.expr(pair).kind else {
-                unreachable!()
-            };
-            [if index == 0 { Some(left) } else { None }, Some(right)]
-                .into_iter()
-                .flatten()
-        })
-    }
 
     pub fn pattern_ids(&self, range: ArenaRange) -> impl Iterator<Item = PatternId> + '_ {
         self.extra_range(range)
@@ -7614,7 +7563,6 @@ pub enum ArenaExprTag {
     PatternCondition,
     UnaryNot,
     UnaryNeg,
-    ComparisonChain,
     BinaryResultFallback,
     BinaryOr,
     BinaryAnd,
@@ -7814,8 +7762,6 @@ pub enum ArenaExprKind {
         op: UnaryOp,
         expr: ExprId,
     },
-    /// Two or more ordering pairs sharing adjacent operand IDs; each pair retains its span.
-    ComparisonChain(ArenaRange),
     Binary {
         op: BinaryOp,
         left: ExprId,
@@ -9041,9 +8987,6 @@ impl ArenaLowerer<'_> {
                     UnaryOp::Neg => ArenaExprTag::UnaryNeg,
                 };
                 (tag, ArenaExprData::new(raw_expr_id(expr), 0))
-            }
-            ArenaExprKind::ComparisonChain(pairs) => {
-                (ArenaExprTag::ComparisonChain, range_data(pairs))
             }
             ArenaExprKind::Binary { op, left, right } => (
                 binary_expr_tag(op),

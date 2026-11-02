@@ -89,16 +89,16 @@ pub(super) use calls::indexed_callable_identity;
 use calls::{append_call_argument, indexed_typed_callee_kind};
 pub(in crate::runtime::eval) use operands::indexed_error;
 use operands::{
-    indexed_value, decode_record_updates, decode_comparison_chain,
-    comparison_pair_at, decode_match_expr, match_expr_arm_at,
-    record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
+    indexed_value, decode_record_updates,
+    decode_match_expr, match_expr_arm_at,
+    record_update_at, MatchExprPosition, RecordUpdatePosition,
     decode_fmt,
 };
 
 use process::run_target_and_leading_argv;
 use values::{
     capture_checked_error, lowered_condition_bool, lowered_fallback_value,
-    lowered_err_with_cause, comparison_link_holds, finish_record_entries, lowered_comp_iterable,
+    lowered_err_with_cause, finish_record_entries, lowered_comp_iterable,
     proc_call_result,
 };
 
@@ -1576,26 +1576,6 @@ impl Evaluator {
             return Err(unsupported());
         };
         let result = match view_kind {
-            ExprViewKind::ComparisonChain => {
-                let (first, mut pairs) =
-                    decode_comparison_chain(execution, tag, payload, call_span)?;
-                let mut left = match self.eval_indexed_expr(execution, first, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                for pair in pairs.by_ref() {
-                    let (op, right, span) = pair.map_err(|error| indexed_error(error, call_span))?;
-                    let right = match self.eval_indexed_expr(execution, right.raw(), slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    if !comparison_link_holds(op, &left, &right, span)? {
-                        return Ok(ControlFlow::Continue(LoweredValue::Bool(false)));
-                    }
-                    left = right;
-                }
-                ControlFlow::Continue(LoweredValue::Bool(true))
-            }
             ExprViewKind::ResultFallback => {
                 let ExprView::ResultFallback { left, right } =
                     ExprView::decode(execution, tag, payload)

@@ -2845,7 +2845,7 @@ pure time_text(ctx: Ctx, f: File) -> Str {
 
   let t = file_time(ctx, f)
   let seconds = floor_nanos(t)
-  let recent = ctx.now - 15778476000000000 < t < ctx.now
+  let recent = ctx.now - 15778476000000000 < t and t < ctx.now
 
   format_time(ctx.time_fmt[if recent { 1 } else { 0 }], seconds, t - seconds * 1000000000, ctx.tz)
 }

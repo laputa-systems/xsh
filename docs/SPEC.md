@@ -2343,9 +2343,15 @@ brace opens a record whose first field is written out (`name:`, `"key":`,
 `[key]:`, or `...spread`): `=> {a: 1}` is a record, while `=> ({x})` and
 `=> ({})` need their parentheses.
 
-Ordering operators chain: `0 <= offset < limit` compares adjacent pairs left
-to right, evaluates each reached operand once, and stops at the first false
-pair. `(a < b) < c` compares a `Bool` instead.
+An ordering takes two operands. A chain such as `0 <= offset < limit` is
+`parse.comparison-chain`, reported with the joined comparisons to write
+(`0 <= offset and offset < limit`); a middle operand that is not a name or a
+literal is bound with `let` first, so that it is evaluated once. `(a < b) < c`
+compares a `Bool`.
+
+```xsh
+let inside = 0 <= offset < limit # error: parse.comparison-chain
+```
 
 ### 6.2 Operators
 
@@ -3087,7 +3093,7 @@ it is false, the message (if any) runs, and the assertion propagates
 `AssertionError.Failed(message)` like any other `Err`: it obeys `try` and
 `retry`, runs cleanup, and requires the `error` effect in a restricted proc.
 The failure report includes the condition text, the left and right operands of
-a failed comparison, the failing pair of an ordering chain, and the operands
+a failed comparison and the operands
 of `and`/`or` conditions (without evaluating skipped ones). Assertions are
 always enabled and need no test context. A successful assertion narrows like a
 guard (5.4).
@@ -4161,8 +4167,7 @@ Unary `-` of a quantified operand likewise retains one type parameter bounded to
 accepts `4` and `2.5`, and rejects `UInt`, `Duration`, and `Str` operands with
 `check.operator-type`.
 Boolean `and` and `or` evaluate the left operand first and evaluate the right
-operand only when needed. Ordering chains evaluate each reached operand once
-and stop at the first false pair. Map membership preserves its declared key
+operand only when needed. Map membership preserves its declared key
 domain and ordinary unsigned key validation. Set union, intersection, and
 difference preserve the checked element domain; sharing an integer runtime
 representation does not erase an unsigned element guarantee.
@@ -5645,7 +5650,7 @@ The check follows binding identity within its block, including later evaluated
 subexpressions of the consuming statement. A call consumes its receiver or
 argument after evaluating its receiver and arguments. Earlier reads in the
 same statement remain valid. A release hidden in a branch, loop, comprehension,
-deferred action, short-circuit expression, conditional comparison-chain operand,
+deferred action, short-circuit expression, conditional comparison operand,
 pipeline, or another function does not establish that the local was consumed.
 Reassigning a mutable local gives it a fresh live value. Alias locals, resources
 stored in containers, and values reached through projections are not tracked. `ProcessHandle.cancel`

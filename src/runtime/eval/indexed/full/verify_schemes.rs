@@ -2843,18 +2843,6 @@ fn verify_body_expression(
                 _ => return Err(IrVerifyError::new("generic slice has no collection contract")),
             }
         }
-        schema::ExprView::ComparisonChain { first, mut pairs } => {
-            let mut left = child(first, budget)?;
-            for pair in &mut pairs {
-                budget.charge(1)?;
-                let (op, right, _) = pair?;
-                if !matches!(op, crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge) { return Err(IrVerifyError::new("generic comparison chain requires ordering operators")); }
-                let right = child(right, budget)?;
-                body_ordering_matches(store, scheme_scope, &left, &right, budget)?;
-                left = right;
-            }
-            SchemeType::Ground(Type::Bool)
-        }
         schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne, left, right, .. } => {
             if !body_equality_matches(&child(left, budget)?, &child(right, budget)?, budget)? { return Err(IrVerifyError::new("generic equality operands have incompatible domains")); }
             SchemeType::Ground(Type::Bool)

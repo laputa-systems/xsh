@@ -620,8 +620,8 @@ pure choose_guard(stop: Bool) -> Int {
         diagnostics: ["check.missing-return", "check.missing-return"],
       },
       {
-        name: "comparison-chain-later-operand-is-conditional",
-        source: "pure choose(a: Int, b: Int) -> Int { let ignored = a < b < (if true { return 1 } else { 0 }) }\n",
+        name: "joined-comparison-later-operand-is-conditional",
+        source: "pure choose(a: Int, b: Int) -> Int { let ignored = a < b and b < (if true { return 1 } else { 0 }) }\n",
         diagnostics: ["check.missing-return"],
       },
       {

@@ -187,7 +187,6 @@ impl Checker {
                 | ArenaExprKind::PatternTest { .. }
                 | ArenaExprKind::PatternCondition { .. }
                 | ArenaExprKind::Unary { .. }
-                | ArenaExprKind::ComparisonChain(_)
                 | ArenaExprKind::Binary { .. }
                 | ArenaExprKind::Call { .. }
                 | ArenaExprKind::ValuePipelineCall { .. }
@@ -236,7 +235,6 @@ impl Checker {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Slice { .. }
@@ -1311,38 +1309,6 @@ impl Checker {
                 });
                 bounded.unwrap_or(operand)
             }
-            ArenaExprKind::ComparisonChain(pairs) => {
-                let mut previous = None;
-                for pair in arena.arena.expr_ids(*pairs) {
-                    let ArenaExprKind::Binary { op, left, right } = arena.arena.expr(pair).kind
-                    else {
-                        unreachable!()
-                    };
-                    let diagnostics = self.diagnostics.len();
-                    let left_ty = previous
-                        .take()
-                        .unwrap_or_else(|| self.check_expr_arena(arena, source, left, None))
-                        .into_unvalidated();
-                    let right_ty = self
-                        .check_expr_with_schema_arena(
-                            arena,
-                            source,
-                            ArenaExprOrRun::Expr(right),
-                            Some(&left_ty),
-                            None,
-                        )
-                        .into_unvalidated();
-                    self.check_ordering_operands(
-                        &left_ty,
-                        &right_ty,
-                        arena.arena.expr(left).span,
-                        arena.arena.expr(right).span,
-                    );
-                    self.publish_binary_operator(pair, op, diagnostics, None);
-                    previous = Some(right_ty);
-                }
-                Type::Bool
-            }
             ArenaExprKind::Binary { op, left, right } => {
                 let diagnostics = self.diagnostics.len();
                 let ty = self.check_binary_arena(arena, source, *op, *left, *right, expected);
@@ -1702,10 +1668,6 @@ impl Checker {
         loop {
             operand = match ast.expr(operand).kind {
                 ArenaExprKind::Binary { left, .. } => left,
-                ArenaExprKind::ComparisonChain(pairs) => ast
-                    .comparison_chain_operands(pairs)
-                    .next()
-                    .expect("a comparison chain has operands"),
                 ArenaExprKind::PatternTest { value, .. } => value,
                 _ => break,
             };

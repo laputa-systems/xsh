@@ -184,7 +184,6 @@ pub(super) fn lower_const_param_default(
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }

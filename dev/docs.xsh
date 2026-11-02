@@ -495,7 +495,7 @@ proc cli_reference(tools: DocTools) [process, error] -> Result[Record] {
   let lines = unversioned(run.text $tools.xsht --help?).lines()
   let reference = line_index(lines, "Command reference:")
   let workflows = line_index(lines, "Common workflows:")
-  guard 0 < reference < workflows else {
+  guard 0 < reference and reference < workflows else {
     return Err(DocsError.Layout("`xsht --help` lacks its command reference or workflows section"))
   }
 

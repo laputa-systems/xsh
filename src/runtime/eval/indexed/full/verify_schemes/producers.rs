@@ -3968,7 +3968,6 @@ impl<'a> ProducerProof<'a> {
             }
             schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), .. } => Some(check.ty.materialize()?),
             schema::ExprView::Tag { type_name, .. } => Some(Type::Tag(type_name)),
-            schema::ExprView::ComparisonChain { .. } => Some(Type::Bool),
             schema::ExprView::Binary { op: super::super::BinaryOp::Eq | super::super::BinaryOp::Ne | super::super::BinaryOp::Lt | super::super::BinaryOp::Le | super::super::BinaryOp::Gt | super::super::BinaryOp::Ge | super::super::BinaryOp::And | super::super::BinaryOp::Or | super::super::BinaryOp::In | super::super::BinaryOp::NotIn, .. } => Some(Type::Bool),
             schema::ExprView::Binary { op, left, right, .. } => {
                 let Some(left) = self.need_context(decoder, left.raw() as usize)? else { return Ok(None) };
@@ -5626,22 +5625,6 @@ impl<'a> ProducerProof<'a> {
                 }
                 let arguments = args.collect::<Result<Vec<_>, _>>()?.into_iter().map(|argument| argument.raw() as usize).collect::<Vec<_>>();
                 self.verify_registered_method(&decoder, instruction, receiver.raw() as usize, name, &arguments, &expected)
-            }
-            schema::ExprView::ComparisonChain { first, mut pairs } => {
-                let mut left = self.need_context(&decoder, first.raw() as usize)?.ok_or_else(|| IrVerifyError::new("comparison chain operand has no producer contract"))?;
-                self.expression(owner, first.raw() as usize, Arc::clone(&left), false);
-                for pair in &mut pairs {
-                    self.budget.charge(1)?;
-                    let (op, right, _) = pair?;
-                    let actual = self.need_context(&decoder, right.raw() as usize)?.ok_or_else(|| IrVerifyError::new("comparison chain operand has no producer contract"))?;
-                    if !matches!(op, crate::syntax::node::BinaryOp::Lt | crate::syntax::node::BinaryOp::Le | crate::syntax::node::BinaryOp::Gt | crate::syntax::node::BinaryOp::Ge)
-                        || !left.can_be_ordering_operand() || !actual.can_be_ordering_operand()
-                        || !actual.unvalidated().matches_expected(left.unvalidated())
-                    { return Err(IrVerifyError::new("comparison chain operands have incompatible ordering domains")); }
-                    self.expression(owner, right.raw() as usize, Arc::clone(&actual), false);
-                    left = actual;
-                }
-                Ok(())
             }
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add | crate::syntax::node::BinaryOp::Sub
                 | crate::syntax::node::BinaryOp::Mul | crate::syntax::node::BinaryOp::Div | crate::syntax::node::BinaryOp::Rem, .. }

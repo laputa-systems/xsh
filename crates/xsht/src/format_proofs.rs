@@ -25,7 +25,7 @@ fn children() -> Vec<String> {
         "-b",
         "! b",
         "b is Int",
-        "b < c < d",
+        "b < c and c < d",
         "b.f",
         "b?.f",
         "b[0]",
@@ -90,8 +90,8 @@ fn parents() -> Vec<String> {
         "let v = wait H",
         "let v = H |> lines()",
         "let v = H |> f(.)",
-        "let v = a < b < H",
-        "let v = H < a < b",
+        "let v = a < b and b < H",
+        "let v = H < a and a < b",
         "let v = H",
         "x = H",
         "proc p() {\n  return H when c\n}",
@@ -282,7 +282,7 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
     // `..` starts the enclosing slice range, so `(b is Int)` is redundant there.
     assert_eq!(
         (cases, required, redundant, kept, ambiguous),
-        (5214, 1492, 3687, 35, 192)
+        (5214, 1497, 3682, 35, 192)
     );
 }
 

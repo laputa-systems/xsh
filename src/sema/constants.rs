@@ -402,7 +402,6 @@ impl LiteralConstant {
             | ArenaExprKind::Match { .. }
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::NullSafeField { .. }
@@ -3941,7 +3940,6 @@ impl ConstantPreparation<'_> {
             | ArenaExprKind::Match { .. }
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::NullSafeField { .. }
             | ArenaExprKind::Index { .. }

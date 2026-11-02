@@ -8,7 +8,7 @@ pure captured() -> Result[Unit, AssertionError] {
 let condition = false
 let bare = try { assert condition; let _ = 0 }
 let explicit = try { assert condition, "explicit context" }
-let chain = try { assert 3 < 2 < 1; let _ = 0 }
+let chain = try { assert 3 < 2 and 2 < 1; let _ = 0 }
 for result in [bare, explicit, chain, captured()] {
   match result {
     Err(failure) => {

@@ -129,17 +129,6 @@ test test_refactor_without_a_match_exits_one_and_leaves_the_file_unchanged { |ct
   assert unchanged("list.len(X)", "X.len()", file)? == source
 }
 
-test test_grep_comparison_chain_matches_adjacent_operator_structure { |ctx|
-  let file = script(
-    ctx,
-    "comparison-chain.xsh",
-    p"tests/fixtures/frontend-indexed/comparison-chain.xsh".read_text()?,
-  )?
-  let stdout = found("A < B <= C", file)?
-  assert "1 < 2 <= 3" in stdout, stdout
-  let _ = absent("A > B >= C", file)?
-}
-
 test test_grep_guarded_postfix_patterns_retain_each_guard { |ctx|
   let file = script(
     ctx,

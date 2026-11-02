@@ -1,5 +1,5 @@
 use super::{
-    BinaryOp, FullExecution, FullPayload, FullTag, IndexedFmt,
+    FullExecution, FullPayload, FullTag, IndexedFmt,
     IrVerifyError, Name, RuntimeError, Span,
 };
 use crate::runtime::eval::LoweredFmtPart;
@@ -8,7 +8,6 @@ use crate::runtime::eval::indexed::full::schema::ExprView;
 use crate::runtime::eval::{BuildExprId, BuildPatternId};
 use crate::runtime::eval::indexed::full::decode::ListPosition;
 
-pub(super) type ComparisonChainPosition = ListPosition<(BinaryOp, BuildExprId, Span)>;
 pub(super) type MatchExprPosition =
     ListPosition<(BuildPatternId, Option<BuildExprId>, BuildExprId)>;
 pub(super) type RecordUpdatePosition = ListPosition<(Vec<Name>, BuildExprId, Span)>;
@@ -55,24 +54,7 @@ pub(super) fn decode_record_updates<'e>(
     Ok((base.raw(), updates, update_span))
 }
 
-pub(super) fn decode_comparison_chain<'e>(
-    execution: &'e FullExecution<'_>, tag: FullTag, payload: FullPayload<'e>, span: Span,
-) -> Result<(u32, ListView<'e, (BinaryOp, BuildExprId, Span)>), RuntimeError> {
-    let ExprView::ComparisonChain { first, pairs } = ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
-    else { unreachable!("comparison-chain tag has a matching expression view") };
-    Ok((first.raw(), pairs))
-}
 
-pub(super) fn comparison_pair_at(
-    execution: &FullExecution<'_>, instruction: u32, position: ComparisonChainPosition, span: Span,
-) -> Result<Option<(BinaryOp, u32, Span, ComparisonChainPosition)>, RuntimeError> {
-    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
-    let ExprView::ComparisonChain { mut pairs, .. } = ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
-    else { unreachable!("comparison-chain instruction has a matching expression view") };
-    pairs.resume(position).map_err(|error| indexed_error(error, span))?;
-    let Some((op, right, pair_span)) = pairs.next().transpose().map_err(|error| indexed_error(error, span))? else { return Ok(None) };
-    Ok(Some((op, right.raw(), pair_span, pairs.position())))
-}
 
 pub(super) fn decode_match_expr<'e>(
     execution: &'e FullExecution<'_>,

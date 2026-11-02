@@ -312,7 +312,7 @@ proc check(n: Int) -> Result[Unit] {
         1 => note(0) < note(n),
         else => {},
     }
-    note(0) < note(n) < note(3)
+    note(0) < note(n) and note(n) < note(3)
 }
 check(1)?
 check(5)?
@@ -329,7 +329,7 @@ check(5)?
   for statement in [
     "assert xs == [1, 2] # comment stays",
     "1 => assert note(0) < note(n)",
-    "  assert note(0) < note(n) < note(3)",
+    "  assert note(0) < note(n) and note(n) < note(3)",
   ] {
     assert statement in migrated, migrated
   }
@@ -341,9 +341,9 @@ check(5)?
 
   let traced = xsht(root, ["trace", "main.xsh"])?
   assert traced.status.exited_with(3), traced.stderr
-  # Operands evaluate once, in order.
-  assert traced.stdout.starts_with("eval 0\neval 1\neval 0\neval 1\neval 3\neval 0\neval 5\neval 3\n"), traced.stdout
-  assert "assertion failed: note(0) < note(n) < note(3)\nordering comparison failed: 5 < 3" in traced.stderr, traced.stderr
+  # Operands evaluate in order.
+  assert traced.stdout.starts_with("eval 0\neval 1\neval 0\neval 1\neval 1\neval 3\neval 0\neval 5\neval 5\neval 3\n"), traced.stdout
+  assert "assertion failed: note(0) < note(n) and note(n) < note(3)\nordering comparison failed: 5 < 3" in traced.stderr, traced.stderr
 }
 
 test test_lint_only_bool_statement_applies_only_its_assert_fix { |ctx|

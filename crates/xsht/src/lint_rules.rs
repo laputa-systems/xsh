@@ -4,7 +4,7 @@ use super::{
     AstArena, BinaryOp, Binding, BlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, Label, Linter,
     LintOptions, Name,
     PatternArm, PatternId, Severity, Span, StmtId, Type, command_name, is_module_call, is_predeclared_script_args, list_splice_element_type_is_precise,
-    lint_code_selected, pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
+    lint_code_selected, pipeline_argument_expr, span_may_contain_comment,
     widen_over_grouping,
 };
 use super::walk::{BindingOrigin, CallableVisibility};
@@ -138,7 +138,6 @@ lint_rules! {
     LintPreferMapLiteral: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::EveryExpression(|linter, expr| linter.lint_map_literal_chain(expr)), RuleHook::StatementSequence(StatementSequenceSite::FreshMapInitializations, |linter, statements| linter.lint_fresh_map_initializations(statements))]);
     LintPreferRegexLiteral: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::EveryExpression(|linter, expr| linter.lint_prepared_regex(expr))]);
     LintPreferEnvString: (RuleSetting::Configured(RuleOption::EnvString), [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::EveryExpression(|linter, expr| linter.lint_env_string(expr))]);
-    LintPreferComparisonChain: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::EveryExpression(|linter, expr| linter.lint_comparison_chain(expr))]);
     LintLookupAbsence: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::EveryExpression(|linter, expr| linter.lint_lookup_sentinel(expr))]);
     LintPreferOptionalPostfix: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::EveryExpression(|linter, expr| linter.lint_optional_postfix(expr))]);
     LintIdenticalMatchArms: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::AdjacentPatternArms, lint_statement_adjacent_pattern_arms), RuleHook::EveryExpression(lint_expression_adjacent_pattern_arms)]);
@@ -1507,151 +1506,6 @@ impl<'a> Linter<'a> {
         });
     }
 
-    pub(super) fn lint_comparison_chain(&mut self, expr: ExprId) {
-        fn ordering(op: BinaryOp) -> bool {
-            matches!(
-                op,
-                BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-            )
-        }
-        fn ladder(
-            arena: &AstArena,
-            expr: ExprId,
-            out: &mut Vec<(BinaryOp, ExprId, ExprId)>,
-        ) -> bool {
-            match arena.expr(expr).kind {
-                ArenaExprKind::Binary {
-                    op: BinaryOp::And,
-                    left,
-                    right,
-                } => ladder(arena, left, out) && ladder(arena, right, out),
-                ArenaExprKind::Binary { op, left, right } if ordering(op) => {
-                    out.push((op, left, right));
-                    true
-                }
-                _ => false,
-            }
-        }
-        let span = self.arena.expr(expr).span;
-        let Some(suppressed_by) = self.comparison_chain_suppressors(span) else {
-            return;
-        };
-        if !matches!(
-            self.arena.expr(expr).kind,
-            ArenaExprKind::Binary {
-                op: BinaryOp::And,
-                ..
-            }
-        ) {
-            return;
-        }
-        let mut pairs = Vec::new();
-        if !ladder(self.arena, expr, &mut pairs) || pairs.len() < 2 {
-            return;
-        }
-        let mut assigned_name_conditions = Vec::new();
-        let mut stable = |id| match self.arena.expr(id).kind {
-            ArenaExprKind::Ident(name) => {
-                let stable_binding = self
-                    .scopes
-                    .iter()
-                    .rev()
-                    .find_map(|scope| scope.get(name.as_str().as_str()))
-                    .is_some_and(|binding| binding.comparison_stable);
-                if !stable_binding || self.assignment_contains(name) {
-                    false
-                } else {
-                    assigned_name_conditions.push(name);
-                    true
-                }
-            }
-            ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) => true,
-            _ => false,
-        };
-        for adjacent in pairs.windows(2) {
-            let shared = adjacent[0].2;
-            let repeated = adjacent[1].1;
-            if !stable(shared)
-                || !stable(repeated)
-                || !same_ordering_operand(self.arena, shared, repeated)
-            {
-                return;
-            }
-        }
-        let Some(original) = self.source.get(span.range()) else {
-            return;
-        };
-        if original.contains('#') {
-            return;
-        }
-        let operand_text = |id| {
-            let expr = self.arena.expr(id);
-            let text = self.source.get(expr.span.range())?;
-            let needs_grouping = matches!(
-                expr.kind,
-                ArenaExprKind::Binary {
-                    op: BinaryOp::ResultFallback
-                        | BinaryOp::Or
-                        | BinaryOp::And
-                        | BinaryOp::Eq
-                        | BinaryOp::Ne
-                        | BinaryOp::Lt
-                        | BinaryOp::Le
-                        | BinaryOp::Gt
-                        | BinaryOp::Ge
-                        | BinaryOp::In
-                        | BinaryOp::NotIn,
-                    ..
-                } | ArenaExprKind::ComparisonChain(_)
-                    | ArenaExprKind::If { .. }
-                    | ArenaExprKind::Match { .. }
-                    | ArenaExprKind::Pipeline { .. }
-                    | ArenaExprKind::StructuredPipeline { .. }
-            );
-            Some(if needs_grouping {
-                format!("({text})")
-            } else {
-                text.to_string()
-            })
-        };
-        let Some(mut replacement) = operand_text(pairs[0].1) else {
-            return;
-        };
-        for (op, _, right) in pairs {
-            let Some(text) = operand_text(right) else {
-                return;
-            };
-            replacement.push_str(match op {
-                BinaryOp::Lt => " < ",
-                BinaryOp::Le => " <= ",
-                BinaryOp::Gt => " > ",
-                BinaryOp::Ge => " >= ",
-                _ => unreachable!(),
-            });
-            replacement.push_str(&text);
-        }
-        let diagnostic =
-            Diagnostic::new(Severity::Warning, "prefer an ordering comparison chain")
-                .with_code(DiagnosticCode::LintPreferComparisonChain)
-                .with_label(Label::secondary(
-                    span,
-                    "the repeated adjacent operand is stable",
-                ))
-                .with_fix_hint(FixHint::replacement(
-                    span,
-                    "compare adjacent operands once",
-                    replacement,
-                ));
-        if self.checked_output.is_some() {
-            self.diagnostics.push(diagnostic);
-        } else {
-            self.push_assignment_candidate(
-                diagnostic,
-                super::AssignmentCandidateCondition::NoAssignedNames(assigned_name_conditions),
-                suppressed_by,
-            );
-        }
-    }
 
     pub(super) fn lint_nested_value_pipeline(&mut self, value: ExprId) {
         let Some((_, args)) = self.pipeline_ordinary_call(value) else {
@@ -2812,7 +2666,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 142);
+        assert_eq!(codes.len(), 141);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());

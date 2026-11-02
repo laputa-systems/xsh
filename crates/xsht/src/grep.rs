@@ -177,16 +177,6 @@ fn match_expr_structural(
             let ArenaExprKind::Unary { op: to, expr: te } = target else { return false; };
             po == to && match_expr(p, *pe, t, *te, source, bindings)
         }
-        ArenaExprKind::ComparisonChain(pp) => {
-            let ArenaExprKind::ComparisonChain(tp) = target else { return false; };
-            let pp = p.expr_ids(*pp).collect::<Vec<_>>();
-            let tp = t.expr_ids(*tp).collect::<Vec<_>>();
-            pp.len() == tp.len()
-                && pp
-                    .into_iter()
-                    .zip(tp)
-                    .all(|(pp, tp)| match_expr(p, pp, t, tp, source, bindings))
-        }
         ArenaExprKind::Binary { op: po, left: pl, right: pr } => {
             let ArenaExprKind::Binary { op: to, left: tl, right: tr } = target else { return false; };
             po == to
@@ -841,7 +831,7 @@ fn build_replacement_text(
         | ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::If { .. } | ArenaExprKind::PatternCondition { .. }
-        | ArenaExprKind::Unary { .. } | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Unary { .. } | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(_)
         | ArenaExprKind::EnvPathList | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
         | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)

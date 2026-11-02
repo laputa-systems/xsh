@@ -39,22 +39,6 @@ proc assert_checked_and_formatted(file: Path) [process, env, error] {
   assert formatted.status.exited_with(0), formatted.stderr
 }
 
-test test_comparison_chain_fix_coalesces_stable_operands_and_converges { |ctx|
-  let file = script(ctx, p"tests/fixtures/lint/comparison-chain.xsh".read_text()?)?
-  assert findings(file, "lint.prefer-comparison-chain")? == 3
-  let text = fixed(file, "lint.prefer-comparison-chain")?
-  assert "lower <= middle < upper" in text, text
-  assert "0 <= middle < upper <= 20" in text, text
-  assert "0 < middle <= 10" in text, text
-  assert_checked_and_formatted(file)
-  assert findings(file, "lint.prefer-comparison-chain")? == 0
-}
-
-test test_comparison_chain_keeps_calls_mutable_reads_and_comments { |ctx|
-  let file = script(ctx, p"tests/fixtures/lint/comparison-chain-unsafe.xsh".read_text()?)?
-  assert findings(file, "lint.prefer-comparison-chain")? == 0
-}
-
 test test_prefer_guard_keeps_comments_else_and_multiple_actions { |ctx|
   # A comment is layout: the guard is still reported, without a rewrite that would drop it.
   let commented = "pure value() -> Int { if true { # keep\n return 1 }; return 2 }\n"

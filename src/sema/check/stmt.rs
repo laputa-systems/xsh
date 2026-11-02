@@ -628,65 +628,7 @@ fn known_literal(arena: &ArenaProgram, expr: ExprId) -> Option<KnownLiteral> {
     }
 }
 
-fn known_comparison_result(op: BinaryOp, left: KnownLiteral, right: KnownLiteral) -> Option<bool> {
-    match (op, left, right) {
-        (BinaryOp::Eq, left, right) => Some(left == right),
-        (BinaryOp::Ne, left, right) => Some(left != right),
-        (BinaryOp::Lt, KnownLiteral::Int(left), KnownLiteral::Int(right)) => Some(left < right),
-        (BinaryOp::Le, KnownLiteral::Int(left), KnownLiteral::Int(right)) => Some(left <= right),
-        (BinaryOp::Gt, KnownLiteral::Int(left), KnownLiteral::Int(right)) => Some(left > right),
-        (BinaryOp::Ge, KnownLiteral::Int(left), KnownLiteral::Int(right)) => Some(left >= right),
-        _ => None,
-    }
-}
 
-fn comparison_chain_control_flow(
-    arena: &ArenaProgram,
-    pairs: ArenaRange,
-    facts: &FlowFacts<'_>,
-) -> ControlFlow {
-    let mut flow = ControlFlow::NORMAL;
-    let mut can_continue = true;
-    let mut must_continue = true;
-    let mut previous_value = None;
-    for (index, pair) in arena.arena.expr_ids(pairs).enumerate() {
-        let ArenaExprKind::Binary {
-            op,
-            left,
-            right,
-        } = arena.arena.expr(pair).kind
-        else {
-            unreachable!();
-        };
-        if index == 0 {
-            flow = flow.then(expr_control_flow(arena, left, facts));
-            previous_value = known_literal(arena, left);
-        }
-        if !can_continue || !flow.completes {
-            break;
-        }
-        let right_flow = expr_control_flow(arena, right, facts);
-        flow = flow.then(if must_continue {
-            right_flow
-        } else {
-            ControlFlow::NORMAL.either(right_flow)
-        });
-        let right_value = known_literal(arena, right);
-        match previous_value
-            .zip(right_value)
-            .and_then(|(left, right)| known_comparison_result(op, left, right))
-        {
-            Some(false) => {
-                can_continue = false;
-                must_continue = false;
-            }
-            Some(true) => {}
-            None => must_continue = false,
-        }
-        previous_value = right_value;
-    }
-    flow
-}
 
 fn has_checked_conversion(arena: &ArenaProgram, expr: ExprId, facts: &FlowFacts<'_>) -> bool {
     facts
@@ -1664,7 +1606,6 @@ fn expression_cardinality_uncached(
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
@@ -2002,9 +1943,6 @@ fn expr_control_flow_inner(
                 flow.propagates = true;
             }
             flow
-        }
-        ArenaExprKind::ComparisonChain(pairs) => {
-            comparison_chain_control_flow(arena, pairs, facts)
         }
         ArenaExprKind::Convert { value, .. } => {
             let mut flow = expr_control_flow(arena, value, facts);
@@ -5611,7 +5549,6 @@ impl Checker {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Field { .. }
@@ -6688,7 +6625,6 @@ impl Checker {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
@@ -6960,7 +6896,6 @@ impl Checker {
                 | ArenaExprKind::PatternTest { .. }
                 | ArenaExprKind::PatternCondition { .. }
                 | ArenaExprKind::Unary { .. }
-                | ArenaExprKind::ComparisonChain(_)
                 | ArenaExprKind::Binary { .. }
                 | ArenaExprKind::Call { .. }
                 | ArenaExprKind::ValuePipelineCall { .. }
@@ -7791,7 +7726,6 @@ impl Checker {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
@@ -7922,7 +7856,6 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
         | ArenaExprKind::Field { .. }
@@ -8084,7 +8017,6 @@ fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) 
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }

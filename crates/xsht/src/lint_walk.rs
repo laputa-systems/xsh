@@ -166,7 +166,6 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::List(_)
             | ArenaExprKind::Unary { .. }
             | ArenaExprKind::Try(_)
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Index { .. }
             | ArenaExprKind::Slice { .. }
             | ArenaExprKind::Wait(_)

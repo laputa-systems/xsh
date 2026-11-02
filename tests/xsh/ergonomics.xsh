@@ -110,7 +110,7 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions {
     for {name: label, build: {jobs, ..}, ..} in packages
     if label != "first"
     for job in jobs
-    if 2 < job <= 4
+    if 2 < job and job <= 4
   ]
   assert selected == ["second:3", "second:4"]
   var combined = []
@@ -145,14 +145,14 @@ absent
 """
 }
 
-test test_ergonomics_failed_chain_reports_only_reached_operands { |ctx|
+test test_ergonomics_failed_joined_comparison_reports_only_reached_operands { |ctx|
   let output = test.run_script(
     ctx,
     """proc skipped() [] -> Int {
   print "unexpected"
   return 9
 }
-3 < 2 < skipped()
+assert 3 < 2 and 2 < skipped()
 """,
   )?
   assert ! output.success, output.stderr

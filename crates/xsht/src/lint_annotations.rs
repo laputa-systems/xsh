@@ -758,7 +758,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::Item
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Field { .. }

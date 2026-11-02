@@ -2841,30 +2841,6 @@ impl<'a> Writer<'a> {
                     output.insert(start, ' ');
                 }
             }
-            ArenaExprKind::ComparisonChain(pairs) => {
-                for (index, pair) in self.arena.expr_ids(*pairs).enumerate() {
-                    let ArenaExprKind::Binary { op, left, right } = self.arena.expr(pair).kind
-                    else {
-                        unreachable!()
-                    };
-                    let pair_context = child(pair);
-                    if index == 0 {
-                        self.write_expr(
-                            left,
-                            grouping::child_context(arena, pair, pair_context, left),
-                            output,
-                        );
-                    }
-                    output.push(' ');
-                    output.push_str(binary_op_text(op));
-                    output.push(' ');
-                    self.write_expr(
-                        right,
-                        grouping::child_context(arena, pair, pair_context, right),
-                        output,
-                    );
-                }
-            }
             ArenaExprKind::Binary { op, left, right } => {
                 let continuation = continuation_indent_for_expr(output);
                 self.write_expr(*left, child(*left), output);
@@ -4913,7 +4889,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Slice { .. }
@@ -4972,7 +4947,6 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Slice { .. }
@@ -5750,8 +5724,8 @@ mod tests {
 
     #[test]
     fn assert_statements_format_in_every_statement_position() {
-        let source = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    else => { assert n > 1, \"large\" }\n  }\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
-        let expected = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    else => assert n > 1, \"large\"\n  }\n\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
+        let source = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    else => { assert n > 1, \"large\" }\n  }\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n and n < 10, \"bounded\"\n  }\n}\n";
+        let expected = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    else => assert n > 1, \"large\"\n  }\n\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n and n < 10, \"bounded\"\n  }\n}\n";
         let formatted = Formatter::new().format_source(SourceId::new(0), source);
         assert!(
             formatted.diagnostics.is_empty(),

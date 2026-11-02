@@ -506,7 +506,6 @@ pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> boo
         | ArenaExprKind::Match { .. }
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::ValuePipelineCall { .. }
         | ArenaExprKind::NullSafeField { .. }
         | ArenaExprKind::Slice { .. }

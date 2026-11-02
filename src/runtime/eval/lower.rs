@@ -1755,7 +1755,6 @@ compact_expr_kind_catalog! {
     ArenaExprKind::Loop { .. } => (37, "loop");
     ArenaExprKind::Retry { .. } => (38, "retry");
     ArenaExprKind::ValueBlock(_) => (39, "value_block");
-    ArenaExprKind::ComparisonChain(_) => (40, "comparison-chain");
     ArenaExprKind::Regex(_) => (41, "regex_literal");
     ArenaExprKind::Capture(_) => (42, "try");
     ArenaExprKind::ValuePipelineCall { .. } => (43, "value_pipeline_call");
@@ -5264,17 +5263,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         result
                     }
                 }
-            }
-            ArenaExprKind::ComparisonChain(pairs) => {
-                let mut first = None;
-                let mut lowered = Vec::new();
-                for pair in self.program.arena.expr_ids(pairs).collect::<Vec<_>>() {
-                    let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(pair).kind else { return self.block_scheme_lowering_expr(expression) };
-                    if first.is_none() { first = Some(self.lower_scheme_lazy_expression(left, slots, current_function, facts, visited, lowered_types)?); }
-                    let right = self.lower_scheme_lazy_expression(right, slots, current_function, facts, visited, lowered_types)?;
-                    lowered.push((op, right, self.program.arena.expr(pair).span));
-                }
-                push_build_row!(self, expr, BuildExprRow::ComparisonChain { first: first?, pairs: lowered })
             }
             ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right }
                 if matches!(self.program.arena.expr(right).kind, ArenaExprKind::ValueBlock(_)) => {
@@ -8862,16 +8850,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
-            ArenaExprKind::ComparisonChain(pairs) => {
-                let mut first = None;
-                let mut lowered = Vec::new();
-                for pair in self.program.arena.expr_ids(pairs).collect::<Vec<_>>() {
-                    let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(pair).kind else { return None };
-                    if first.is_none() { first = Some(self.lower_expr(left, slots, current_function, item_slot)?); }
-                    lowered.push((op, self.lower_expr(right, slots, current_function, item_slot)?, self.program.arena.expr(pair).span));
-                }
-                Some(push_build_row!(self, expr, BuildExprRow::ComparisonChain { first: first?, pairs: lowered }))
-            }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 let uint_key = matches!(op, BinaryOp::In | BinaryOp::NotIn)
                     && matches!(self.checked_expr_type(right), Some(Type::Map(key, _)) if *key == Type::UInt);
@@ -10109,7 +10087,6 @@ mod compact_expr_kind_tests {
             (37, "loop"),
             (38, "retry"),
             (39, "value_block"),
-            (40, "comparison-chain"),
             (41, "regex_literal"),
             (42, "try"),
             (43, "value_pipeline_call"),

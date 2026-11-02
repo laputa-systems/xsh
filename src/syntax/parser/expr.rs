@@ -733,6 +733,62 @@ impl<'a> Parser<'a> {
         recovered.map(|op| (op, 2))
     }
 
+    fn report_comparison_chain(
+        &mut self,
+        arena: &ArenaProgramBuilder<'_>,
+        pairs: &[ExprId],
+        chain: crate::source::Span,
+    ) {
+        let mut operands = Vec::new();
+        let mut operators = Vec::new();
+        for pair in pairs {
+            let ArenaExprKind::Binary { op, left, right } = arena.expr_kind(*pair) else {
+                return;
+            };
+            if operands.is_empty() {
+                operands.push(left);
+            }
+            operands.push(right);
+            operators.push(match op {
+                BinaryOp::Lt => "<",
+                BinaryOp::Le => "<=",
+                BinaryOp::Gt => ">",
+                _ => ">=",
+            });
+        }
+        let texts = operands
+            .iter()
+            .map(|operand| {
+                let span = arena.expr_span(*operand);
+                self.source[span.start()..span.end()].to_string()
+            })
+            .collect::<Vec<_>>();
+        let is_plain = |text: &str| {
+            !text.is_empty()
+                && text
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+        };
+        let middle_is_plain = texts[1..texts.len() - 1].iter().all(|text| is_plain(text));
+        let note = if middle_is_plain {
+            let rewritten = operators
+                .iter()
+                .enumerate()
+                .map(|(index, op)| format!("{} {op} {}", texts[index], texts[index + 1]))
+                .collect::<Vec<_>>()
+                .join(" and ");
+            format!("write `{rewritten}`")
+        } else {
+            "bind each middle operand with `let` so it is evaluated once, then write `a < b and b < c` with the bound names".to_string()
+        };
+        self.diagnostics.push(
+            Diagnostic::error("an ordering chain is written as comparisons joined by `and`")
+                .with_code(DiagnosticCode::ParseComparisonChain)
+                .with_label(Label::primary(chain, "this chain compares more than two operands"))
+                .with_note(note),
+        );
+    }
+
     /// Report the unsupported integer-division spellings while retaining a
     /// division-shaped AST for parser recovery. Int `/` is the documented
     /// truncating integer-division spelling; `//` and `div` are not operators.
@@ -1116,11 +1172,10 @@ impl<'a> Parser<'a> {
                     if !grouped
                         && matches!(
                             arena.expr_kind(left.id),
-                            ArenaExprKind::ComparisonChain(_)
-                                | ArenaExprKind::Binary {
-                                    op: BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge,
-                                    ..
-                                }
+                            ArenaExprKind::Binary {
+                                op: BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge,
+                                ..
+                            }
                         )
                     {
                         self.diagnostics.push(
@@ -1220,10 +1275,11 @@ impl<'a> Parser<'a> {
                         previous = next;
                     }
                     if pairs.len() > 1 {
-                        id = arena.push_comparison_chain_expr(
-                            &pairs,
-                            self.span(left.span.start(), previous.span.end()),
-                        );
+                        let chain = self.span(left.span.start(), previous.span.end());
+                        self.report_comparison_chain(arena, &pairs, chain);
+                        id = pairs[1..].iter().fold(pairs[0], |joined, pair| {
+                            arena.push_binary_expr(BinaryOp::And, joined, *pair, chain)
+                        });
                     }
                 }
                 left = ArenaOnlyExpr {

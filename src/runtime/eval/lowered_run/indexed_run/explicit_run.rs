@@ -21,10 +21,10 @@ use super::{
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
     assign_lowered_str_view,
     bind_indexed_comp_target, bind_lowered_comp_target, capture_checked_error, check_env_name,
-    checked_indexed_assignment, comparison_link_holds,
-    comparison_pair_at, decode_comparison_chain, decode_match_expr,
+    checked_indexed_assignment,
+    decode_match_expr,
     decode_record_updates, match_expr_arm_at, record_update_at,
-    ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
+    MatchExprPosition, RecordUpdatePosition,
     decode_fmt, finish_record_entries, indexed_assignment_operand, indexed_callable_identity,
     indexed_error, indexed_value, lowered_binary_value, lowered_bytes_parts,
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
@@ -1923,19 +1923,6 @@ enum FrameContinuation {
     EnvValue(FrameEnvState),
     PrintArgument(FramePrintState),
     Discard(Span),
-    ComparisonLeft {
-        instruction: u32,
-        pairs: ComparisonChainPosition,
-        next: Box<FrameContinuation>,
-    },
-    ComparisonRight {
-        instruction: u32,
-        pairs: ComparisonChainPosition,
-        op: BinaryOp,
-        left: LoweredValue,
-        span: Span,
-        next: Box<FrameContinuation>,
-    },
     Field {
         instruction: u32,
         mode: Option<crate::sema::wrapper_operation::WrapperMode>,
@@ -2044,19 +2031,6 @@ enum FrameContinuation {
     AssertionComparisonRight {
         state: FrameAssertionState,
         instruction: u32,
-        op: BinaryOp,
-        left: LoweredValue,
-        span: Span,
-    },
-    AssertionChainLeft {
-        state: Box<FrameAssertionState>,
-        instruction: u32,
-        pairs: ComparisonChainPosition,
-    },
-    AssertionChainRight {
-        state: Box<FrameAssertionState>,
-        instruction: u32,
-        pairs: ComparisonChainPosition,
         op: BinaryOp,
         left: LoweredValue,
         span: Span,
@@ -2358,12 +2332,7 @@ impl FrameContinuation {
             C::AssertionValue(state) | C::AssertionComparisonLeft { state, .. } => {
                 state.visit_retained_values(visitor);
             }
-            C::AssertionChainLeft { state, .. } => state.visit_retained_values(visitor),
             C::AssertionComparisonRight { state, left, .. } => {
-                state.visit_retained_values(visitor);
-                visit_retained_lowered_value(left, visitor);
-            }
-            C::AssertionChainRight { state, left, .. } => {
                 state.visit_retained_values(visitor);
                 visit_retained_lowered_value(left, visitor);
             }
@@ -2376,7 +2345,6 @@ impl FrameContinuation {
             },
             C::ErrorContextEntry { next, .. }
             | C::ContextScopeEntry { next, .. }
-            | C::ComparisonLeft { next, .. }
             | C::Field { next, .. }
             | C::IndexBase { next, .. }
             | C::IndexLiteral { next, .. }
@@ -2410,7 +2378,7 @@ impl FrameContinuation {
             C::ProcessRun { next, .. }
             | C::SpawnCommand { next, .. }
             | C::Wait { next, .. } => next.visit_retained_values(visitor),
-            C::ComparisonRight { left, next, .. } | C::BinaryRight { left, next, .. } => {
+            C::BinaryRight { left, next, .. } => {
                 visit_retained_lowered_value(left, visitor);
                 next.visit_retained_values(visitor);
             }
@@ -6583,24 +6551,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            ExprViewKind::ComparisonChain => {
-                let (first, pairs) = decode_comparison_chain(
-                    execution,
-                    tag,
-                    payload,
-                    span,
-                )?;
-                self.push_expr(
-                    index,
-                    first,
-                    span,
-                    FrameContinuation::ComparisonLeft {
-                        instruction,
-                        pairs: pairs.position(),
-                        next: Box::new(next),
-                    },
-                );
-            }
             ExprViewKind::Binary => {
                 let super::ExprView::Binary {
                     op,
@@ -7429,24 +7379,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             );
                             return Ok(());
                         }
-                    } else if tag == FullTag::ExprComparisonChain {
-                        let (first, pairs) = decode_comparison_chain(
-                            &execution,
-                            tag,
-                            payload,
-                            state.span,
-                        )?;
-                        self.push_expr(
-                            index,
-                            first,
-                            state.span,
-                            FrameContinuation::AssertionChainLeft {
-                                state: Box::new(state),
-                                instruction,
-                                pairs: pairs.position(),
-                            },
-                        );
-                        return Ok(());
                     }
                     self.push_expr(
                         index,
@@ -8123,85 +8055,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ComparisonLeft {
-                instruction,
-                pairs,
-                next,
-            } => match value {
-                FrameValue::Value(left) => {
-                    let (op, right, span, pairs) = comparison_pair_at(
-                        &self.calls[index].execution,
-                        instruction,
-                        pairs,
-                        self.calls[index].call_span,
-                    )?
-                    .ok_or_else(|| {
-                        RuntimeError::new("indexed-ir", "comparison chain pair ended early")
-                            .with_span(self.calls[index].call_span)
-                    })?;
-                    self.push_expr(
-                        index,
-                        right,
-                        span,
-                        FrameContinuation::ComparisonRight {
-                            instruction,
-                            pairs,
-                            op,
-                            left,
-                            span,
-                            next,
-                        },
-                    );
-                }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Propagate(value));
-                }
-            },
-            FrameContinuation::ComparisonRight {
-                instruction,
-                pairs,
-                op,
-                left,
-                span,
-                next,
-            } => match value {
-                FrameValue::Value(right) => {
-                    let holds = comparison_link_holds(op, &left, &right, span)?;
-                    if !holds || pairs.is_exhausted() {
-                        self.push_value(index, FrameValue::Value(LoweredValue::Bool(holds)), *next);
-                    } else {
-                        let (op, operand, span, pairs) = comparison_pair_at(
-                            &self.calls[index].execution,
-                            instruction,
-                            pairs,
-                            self.calls[index].call_span,
-                        )?
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "indexed-ir",
-                                "comparison chain pair ended early",
-                            )
-                            .with_span(self.calls[index].call_span)
-                        })?;
-                        self.push_expr(
-                            index,
-                            operand,
-                            span,
-                            FrameContinuation::ComparisonRight {
-                                instruction,
-                                pairs,
-                                op,
-                                left: right,
-                                span,
-                                next,
-                            },
-                        );
-                    }
-                }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Propagate(value));
-                }
-            },
             FrameContinuation::BinaryLeft {
                 op,
                 right,
@@ -8587,101 +8440,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         None
                     };
                     self.calls[index].work.push(FrameWork::Assertion(state));
-                }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Propagate(value));
-                }
-            },
-            FrameContinuation::AssertionChainLeft {
-                state,
-                instruction,
-                pairs,
-            } => match value {
-                FrameValue::Value(left) => {
-                    let (op, right, span, pairs) = comparison_pair_at(
-                        &self.calls[index].execution,
-                        instruction,
-                        pairs,
-                        state.span,
-                    )?
-                    .ok_or_else(|| {
-                        RuntimeError::new("indexed-ir", "comparison chain pair ended early")
-                            .with_span(state.span)
-                    })?;
-                    self.push_expr(
-                        index,
-                        right,
-                        span,
-                        FrameContinuation::AssertionChainRight {
-                            state,
-                            instruction,
-                            pairs,
-                            op,
-                            left,
-                            span,
-                        },
-                    );
-                }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Propagate(value));
-                }
-            },
-            FrameContinuation::AssertionChainRight {
-                mut state,
-                instruction,
-                pairs,
-                op,
-                left,
-                span,
-            } => match value {
-                FrameValue::Value(right) => {
-                    let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(
-                        op, &left, &right, span,
-                    )?;
-                    if !passed {
-                        let mut failure = super::values::comparison_failure_text(
-                            op, &left, &right, span,
-                        );
-                        if !pairs.is_exhausted() {
-                            failure.push_str(" (later operands skipped)");
-                        }
-                        state.passed = false;
-                        state.reached = Some(failure);
-                        state.failure = None;
-                        self.calls[index].work.push(FrameWork::Assertion(*state));
-                    } else if !pairs.is_exhausted() {
-                        let (op, next_right, span, pairs) = comparison_pair_at(
-                            &self.calls[index].execution,
-                            instruction,
-                            pairs,
-                            state.span,
-                        )?
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "indexed-ir",
-                                "comparison chain pair ended early",
-                            )
-                            .with_span(state.span)
-                        })?;
-                        self.push_expr(
-                            index,
-                            next_right,
-                            span,
-                            FrameContinuation::AssertionChainRight {
-                                state,
-                                instruction,
-                                pairs,
-                                op,
-                                left: right,
-                                span,
-                            },
-                        );
-                    } else {
-                        state.passed = true;
-                        state.reached = None;
-                        state.failure = None;
-                        self.calls[index].work.push(FrameWork::Assertion(*state));
-                    }
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));

@@ -124,7 +124,7 @@ impl PendingBodyContracts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum PathStep { Child(usize), PipelineStage(usize), RecordField(usize), ComparisonPair(usize), RunValue }
+enum PathStep { Child(usize), PipelineStage(usize), RecordField(usize), RunValue }
 
 type NodePath = Vec<PathStep>;
 
@@ -859,22 +859,6 @@ impl Capture<'_> {
                 let result = self.expression_type(expression);
                 let elaboration = self.binary_elaboration(expression, op, left, right, result)?;
                 self.bodies.get_mut(owner).unwrap().selections.get_mut(path).unwrap().binary = Some(elaboration);
-            }
-            ArenaExprKind::ComparisonChain(pairs) => {
-                let mut previous = None;
-                for (ordinal, pair) in self.program.arena.expr_ids(pairs).collect::<Vec<_>>().into_iter().enumerate() {
-                    let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(pair).kind else { return Err(BodyContractError::UnsupportedSelection(self.program.arena.expr(pair).span)); };
-                    let left = previous.unwrap_or(left);
-                    let elaboration = self.binary_elaboration(pair, op, left, right, OperandType::Ground(Type::Bool))?;
-                    let mut pair_path = path.to_vec();
-                    pair_path.push(PathStep::ComparisonPair(ordinal));
-                    let body = self.bodies.get_mut(owner).unwrap();
-                    body.expr_paths.insert(pair, pair_path.clone());
-                    if body.selections.insert(pair_path, NodeSelection { binary: Some(elaboration), ..NodeSelection::default() }).is_some() {
-                        return Err(BodyContractError::UnmappedFact(self.program.arena.expr(pair).span));
-                    }
-                    previous = Some(right);
-                }
             }
             _ => {}
         }
@@ -1788,7 +1772,7 @@ mod tests {
             ("value: Int, number: Int", "Int", "{ let _ = number < 7; value }"),
             ("value: Int", "Int", "{ let _ = value in [value]; value }"),
             ("value: Int, left: Set[Int], right: Set[Int]", "Int", "{ let _ = left | right; value }"),
-            ("value: Int, number: Int", "Int", "{ let _ = 0 <= number < 7; value }"),
+            ("value: Int, number: Int", "Int", "{ let _ = 0 <= number and number < 7; value }"),
         ] {
             let body = if expression.starts_with('{') { expression.to_string() } else { format!("{{ {expression} }}") };
             let original = format!("pure keep({parameters}) -> {result} {body}\n");
@@ -1813,13 +1797,12 @@ mod tests {
     }
 
     #[test]
-    fn generic_operators_contract_rejects_missing_selections_and_tracks_chain_pairs() {
-        let source = "pure keep(value: Int, number: Int) -> Int { let _ = 0 <= number < 7; value }\n";
+    fn generic_operators_contract_rejects_missing_selections() {
+        let source = "pure keep(value: Int, number: Int) -> Int { let _ = 0 <= number and number < 7; value }\n";
         let (program, sources, checked) = checked(source);
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
         let body = contracts.iter().find(|body| matches!(body.owner(), BodyContractOwner::Declaration(_))).unwrap();
-        let pairs = body.selections.iter().filter(|(path, selection)| matches!(path.last(), Some(PathStep::ComparisonPair(_))) && selection.binary.is_some()).count();
-        assert_eq!(pairs, 2);
+        assert_eq!(body.selections.values().filter(|selection| selection.binary.is_some()).count(), 3);
         for expression in checked.binary_operators.keys() {
             let mut missing = checked.clone();
             missing.binary_operators.remove(expression);

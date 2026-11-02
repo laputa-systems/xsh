@@ -52,8 +52,9 @@ pub enum Associativity {
     Right,
 }
 
-/// Operators of one family chain without grouping; ordering never mixes with
-/// equality, membership, or pattern tests (`parse.mixed-comparison`).
+/// Operators of one family chain without grouping, except ordering (`a < b < c`
+/// is `parse.comparison-chain`); ordering never mixes with equality,
+/// membership, or pattern tests (`parse.mixed-comparison`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OperatorFamily {
     Fallback,

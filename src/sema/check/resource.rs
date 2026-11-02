@@ -699,10 +699,6 @@ impl Analyzer<'_> {
                     pending.push(value);
                     true
                 }
-                ArenaExprKind::ComparisonChain(pairs) => {
-                    pending.extend(self.program.arena.comparison_chain_operands(pairs).take(2));
-                    true
-                }
                 ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
                 | ArenaExprKind::ValuePipelineCall { .. }

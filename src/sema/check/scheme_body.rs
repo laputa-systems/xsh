@@ -901,8 +901,8 @@ mod ordinary_body_tests {
     }
 
     #[test]
-    fn generic_operators_ordering_chains_keep_adjacent_operands() {
-        accepts("pure keep(value, number: Int) { let _ = 0 <= number < 7; value }", "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)");
+    fn generic_operators_joined_orderings_keep_adjacent_operands() {
+        accepts("pure keep(value, number: Int) { let _ = 0 <= number and number < 7; value }", "let number: Int = keep(7, 2)\nlet text: Str = keep(\"value\", 3)");
     }
 
     #[test]

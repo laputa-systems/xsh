@@ -4,7 +4,7 @@ use xsh::frontend::check::{CheckBundleView, Checker};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
 use xsh::frontend::syntax::parser::Parser;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 fn lint_source_only(source: &str, only: Vec<DiagnosticCode>) -> Vec<Diagnostic> {
@@ -39,107 +39,14 @@ fn lint_checked(source: &str, only: Vec<DiagnosticCode>) -> Vec<Diagnostic> {
 
 fn assignment_sensitive_codes() -> Vec<DiagnosticCode> {
     vec![
-        DiagnosticCode::LintPreferComparisonChain,
         DiagnosticCode::LintDollarInExpressionString,
         DiagnosticCode::LintMissingFPrefix,
     ]
 }
 
-fn pipeline_expression_types(source: &str) -> BTreeMap<xsh::frontend::source::Span, super::Type> {
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(
-        checked
-            .diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.severity != Severity::Error),
-        "{:?}",
-        checked.diagnostics
-    );
-    let statements = parsed
-        .arena
-        .arena
-        .stmt_ids(parsed.arena.statements)
-        .collect::<Vec<_>>();
-    let call_initializers = statements
-        .iter()
-        .filter_map(|&statement| match parsed.arena.arena.stmt(statement).kind {
-            xsh::frontend::syntax::arena::ArenaStmtKind::Let {
-                initializer: xsh::frontend::syntax::arena::ArenaExprOrRun::Expr(expression),
-                ..
-            } if matches!(
-                parsed.arena.arena.expr(expression).kind,
-                xsh::frontend::syntax::arena::ArenaExprKind::Call { .. }
-            ) => Some(expression),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let [input, output, ..] = call_initializers.as_slice() else {
-        panic!("expected call initializers, got {call_initializers:?}");
-    };
-    BTreeMap::from([
-        (
-            parsed.arena.arena.expr(*input).span,
-            checked.expr_types[&parsed.arena.arena.expr(*input).span].clone(),
-        ),
-        (
-            parsed.arena.arena.expr(*output).span,
-            checked.expr_types[&parsed.arena.arena.expr(*output).span].clone(),
-        ),
-    ])
-}
-
-fn lint_pair_and_comparison(
-    source: &str,
-    expression_types: &BTreeMap<xsh::frontend::source::Span, super::Type>,
-) -> Vec<Diagnostic> {
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let statements = parsed
-        .arena
-        .arena
-        .stmt_ids(parsed.arena.statements)
-        .collect::<Vec<_>>();
-    let call_initializers = statements
-        .iter()
-        .filter_map(|&statement| match parsed.arena.arena.stmt(statement).kind {
-            xsh::frontend::syntax::arena::ArenaStmtKind::Let {
-                initializer: xsh::frontend::syntax::arena::ArenaExprOrRun::Expr(expression),
-                ..
-            } if matches!(
-                parsed.arena.arena.expr(expression).kind,
-                xsh::frontend::syntax::arena::ArenaExprKind::Call { .. }
-            ) => Some(expression),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let [input, output, ..] = call_initializers.as_slice() else {
-        panic!("expected call initializers, got {call_initializers:?}");
-    };
-    let input_span = parsed.arena.arena.expr(*input).span;
-    let output_span = parsed.arena.arena.expr(*output).span;
-    Linter::lint(
-        &parsed.arena,
-        source,
-        LintOptions {
-            only: Some(vec![
-                DiagnosticCode::LintPreferValuePipeline,
-                DiagnosticCode::LintPreferComparisonChain,
-            ]),
-            expr_types: BTreeMap::from([
-                (input_span, expression_types[&input_span].clone()),
-                (output_span, expression_types[&output_span].clone()),
-            ]),
-            ..LintOptions::default()
-        },
-    )
-    .diagnostics
-}
-
 #[test]
 fn late_assignments_resolve_candidates_in_original_diagnostic_order() {
-    let source = "let low = 1\nlet middle = 2\nlet high = 3\nlet comparison = low < middle and middle < high\nlet dollar = \"$later\"\nlet formatted = \"{later}\"\nlater = 4\n";
+    let source = "let dollar = \"$later\"\nlet formatted = \"{later}\"\nlater = 4\n";
     let diagnostics = lint_source_only(source, assignment_sensitive_codes());
 
     assert_eq!(
@@ -148,70 +55,13 @@ fn late_assignments_resolve_candidates_in_original_diagnostic_order() {
             .map(|diagnostic| diagnostic.code.unwrap())
             .collect::<Vec<_>>(),
         [
-            DiagnosticCode::LintPreferComparisonChain,
             DiagnosticCode::LintDollarInExpressionString,
             DiagnosticCode::LintMissingFPrefix,
         ],
         "{diagnostics:?}"
     );
-    assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
-    assert!(diagnostics[1].fix_hints.is_empty(), "{diagnostics:?}");
-    assert_eq!(diagnostics[2].fix_hints.len(), 1, "{diagnostics:?}");
-}
-
-#[test]
-fn a_dropped_outer_chain_does_not_suppress_a_safe_inner_chain() {
-    let source = "let a = 1\nlet b = 2\nlet c = 3\nlet d = 4\nlet comparison = (a < b and b < c) and c < d\nproc mutate() {\n  c = 5\n}\n";
-    let diagnostics = lint_source_only(
-        source,
-        vec![DiagnosticCode::LintPreferComparisonChain],
-    );
-
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-    assert_eq!(
-        &source[diagnostics[0].labels[0].span.range()],
-        "a < b and b < c"
-    );
-    assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
-    assert_eq!(
-        diagnostics[0].fix_hints[0].replacement.as_deref(),
-        Some("a < b < c")
-    );
-}
-
-#[test]
-fn statement_pair_reordering_keeps_candidate_offsets_aligned() {
-    let source = "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet input = inner(2)\nlet output = outer(10, value: input)\nlet low = 1\nlet middle = 2\nlet high = 3\nlet comparison = low < middle and middle < high\n";
-    let expression_types = pipeline_expression_types(source);
-    let diagnostics = lint_pair_and_comparison(source, &expression_types);
-
-    assert_eq!(
-        diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.code.unwrap())
-            .collect::<Vec<_>>(),
-        [
-            DiagnosticCode::LintPreferValuePipeline,
-            DiagnosticCode::LintPreferComparisonChain,
-        ],
-        "{diagnostics:?}"
-    );
-    assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].fix_hints.is_empty(), "{diagnostics:?}");
     assert_eq!(diagnostics[1].fix_hints.len(), 1, "{diagnostics:?}");
-
-    let assigned = lint_pair_and_comparison(
-        &format!("{source}proc mutate() {{\n  var middle = 2\n  middle = 5\n}}\n"),
-        &expression_types,
-    );
-    assert_eq!(
-        assigned
-            .iter()
-            .map(|diagnostic| diagnostic.code.unwrap())
-            .collect::<Vec<_>>(),
-        [DiagnosticCode::LintPreferValuePipeline],
-        "{assigned:?}"
-    );
-    assert_eq!(assigned[0].fix_hints.len(), 1, "{assigned:?}");
 }
 
 #[test]

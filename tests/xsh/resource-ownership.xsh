@@ -677,7 +677,7 @@ test resource_use_after_release_is_checked_within_expressions { |ctx|
     "let root = fs.tempdir()?\nlet _ = {closed: root.close(), reused: root.exists(p\".\")}\n",
     "let root = fs.tempdir()?\nlet _ = {closed: root.close(), root}\n",
     "let root = fs.tempdir()?\nlet _ = {closed: root.close() is Ok(_), reused: root.exists(p\".\")}\n",
-    "let root = fs.tempdir()?\nlet _ = {closed: f\"{root.close() == Ok()}\".byte_len() >= 0 >= 0, reused: root.exists(p\".\")}\n",
+    "let root = fs.tempdir()?\nlet _ = {closed: f\"{root.close() == Ok()}\".byte_len() >= 0, reused: root.exists(p\".\")}\n",
     "proc inspect(closed: Result[Unit], root: FsRoot) [fs] { root.exists(p\".\") }\nlet root = fs.tempdir()?\nlet _ = inspect(root.close(), root)\n",
     "proc inspect(root: FsRoot, closed: Result[Unit]) -> Result[Unit] { closed }\nlet root = fs.tempdir()?\nlet _ = inspect(closed: root.close(), root:)\n",
     "let root = fs.tempdir()?\nlet _ = {closed: root.close(), captured: [1] |> map { root.exists(p\".\") }}\n",
@@ -719,7 +719,7 @@ assert lazy.exists(p".")?
 let comprehension = fs.tempdir()?
 let _ = {skipped: [comprehension.close() for _ in []], borrowed: comprehension.exists(p".")}
 let chain = fs.tempdir()?
-let _ = {skipped: 0 > 1 > f"{chain.close() == Ok()}".byte_len(), borrowed: chain.exists(p".")}
+let _ = {skipped: 0 > 1 and 1 > f"{chain.close() == Ok()}".byte_len(), borrowed: chain.exists(p".")}
 assert chain.exists(p".")?
 print "ordered"
 """, status: 0, stdout: ["ordered"])?

@@ -187,6 +187,7 @@ diagnostic_codes! {
         ParseCaptureModeInterpolation = "parse.capture-mode-interpolation", error, "Reject an interpolated `run` capture mode instead of a literal `--text` or `--bytes`";
         ParseCdArity = "parse.cd-arity", error, "Reject `cd` with more than one path argument";
         ParseBuilderBlock = "parse.builder-block", error, "Reject a `process.command { ... }` builder block; write `process.command_argv(target, argv, ...)`";
+        ParseComparisonChain = "parse.comparison-chain", error, "Reject an ordering chain `a < b < c`; write `a < b and b < c`";
         ParseCliEntryName = "parse.cli-entry-name", error, "Reject `cli NAME(...)` with a name other than `main`; write `cli main(...)`";
         ParseCliEntryScope = "parse.cli-entry-scope", error, "Reject `cli main` declared anywhere but the entry module's top level";
         ParseCommandCallExpr = "parse.command-call-expr", error, "Reject a call expression used as a command argument";
@@ -562,7 +563,6 @@ diagnostic_codes! {
         LintPreferAtomicallyReplace = "lint.prefer-atomically-replace", warning, "Use `atomically replace DEST as NAME` for a file produced at a temporary path and renamed into place";
         LintPreferBlockString = "lint.prefer-block-string", warning, "Use a block string for a constant multiline string concatenation";
         LintPreferCallableAlias = "lint.prefer-callable-alias", warning, "Use an immutable alias for a callable that exactly forwards to another";
-        LintPreferComparisonChain = "lint.prefer-comparison-chain", warning, "Use an ordering chain like `a < b < c` for repeated adjacent comparisons";
         LintPreferConst = "lint.prefer-const", warning, "Declare inert module-level `let` data as `const`";
         LintPreferContextScopeValue = "lint.prefer-context-scope-value", warning, "Let a scope such as `cd` or `env` yield the value instead of a placeholder assigned inside";
         LintPreferDeferBlock = "lint.prefer-defer-block", warning, "Replace a single-use literal cleanup helper with a `defer` block";

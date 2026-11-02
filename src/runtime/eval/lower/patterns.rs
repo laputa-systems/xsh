@@ -768,7 +768,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 op: UnaryOp::Not,
                 ..
             }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }

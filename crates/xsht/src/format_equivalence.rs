@@ -903,12 +903,6 @@ impl CanonicalWriter<'_> {
                 self.debug(op);
                 self.expr(*expr);
             }
-            ArenaExprKind::ComparisonChain(pairs) => {
-                self.put("chain;");
-                for pair in self.arena.expr_ids(*pairs).collect::<Vec<_>>() {
-                    self.expr(pair);
-                }
-            }
             ArenaExprKind::Binary { op, left, right } => {
                 self.debug(op);
                 self.expr(*left);

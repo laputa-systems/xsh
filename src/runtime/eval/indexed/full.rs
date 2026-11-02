@@ -7716,27 +7716,6 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
-    #[inline(always)]
-    fn verify_comparison_chain_shape(
-        &self,
-        payload: FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
-        let schema::ExprView::ComparisonChain { mut pairs, .. } = schema::ExprView::decode_from_decoder(
-            self,
-            FullTag::ExprComparisonChain,
-            FullPayload { store: self.store, cursor: payload },
-        )? else { unreachable!() };
-        if pairs.len() < 2 {
-            return Err(IrVerifyError::new("comparison chain requires at least two pairs"));
-        }
-        for pair in &mut pairs {
-            let (op, _, _) = pair?;
-            if !matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) {
-                return Err(IrVerifyError::new("comparison chain requires ordering operators"));
-            }
-        }
-        Ok(())
-    }
 
     fn verify_typed_call_shape(&self, payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
         let schema::ExprView::TypedCall {
@@ -10481,7 +10460,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::Path(_)
             | schema::ExprView::PathFrom { .. }
             | schema::ExprView::Param(_)
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::IfExpr { .. }
             | schema::ExprView::PatternIf { .. }
@@ -10937,7 +10915,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PreparedConstant(_)
             | schema::ExprView::Path(_)
             | schema::ExprView::PathFrom { .. }
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::StrMatchExpr { .. }
             | schema::ExprView::TagMatchExpr { .. }
@@ -11830,7 +11807,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FunctionRef { .. }
             | schema::ExprView::PathFrom { .. }
             | schema::ExprView::Param(_)
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::IfExpr { .. }
             | schema::ExprView::PatternIf { .. }
@@ -12308,7 +12284,6 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::PreparedConstant(_)
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Glob { .. }
             | schema::ExprView::MapLiteral(_)
             | schema::ExprView::List(_)
@@ -13446,7 +13421,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::PreparedRegex(_)
             | schema::ExprView::Unit
             | schema::ExprView::PathFrom { .. }
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::FmtString(_)
             | schema::ExprView::PathFmtString { .. }
@@ -13732,7 +13706,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FunctionRef { .. }
             | schema::ExprView::PathFrom { .. }
             | schema::ExprView::Param(_)
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::IfExpr { .. }
             | schema::ExprView::PatternIf { .. }
@@ -15583,10 +15556,6 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::StrMatchExpr { value, .. } | schema::ExprView::TagMatchExpr { value, .. } => { operand!(*value); }
             schema::ExprView::Binary { left, right, .. }
             | schema::ExprView::ResultFallback { left, right } => { operand!(*left); operand!(*right); }
-            schema::ExprView::ComparisonChain { first, pairs } => {
-                operand!(*first);
-                for pair in pairs { let (_, right, _) = pair?; operand!(right); }
-            }
             schema::ExprView::Index { base, index, .. } => { operand!(*base); if let crate::runtime::eval::IndexOperand::Ordinary(index) = index { operand!(*index); } }
             schema::ExprView::List(items) => { for item in items { operand!(item?); } }
             schema::ExprView::ListBuild(items) => { for item in items { let (_, value, _) = item?; operand!(value); } }
@@ -16321,7 +16290,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::FunctionRef { .. }
             | schema::ExprView::PathFrom { .. }
             | schema::ExprView::Param(_)
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::IfExpr { .. }
             | schema::ExprView::PatternIf { .. }
@@ -16807,7 +16775,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::Path(_)
             | schema::ExprView::FunctionRef { .. }
             | schema::ExprView::PathFrom { .. }
-            | schema::ExprView::ComparisonChain { .. }
             | schema::ExprView::Binary { .. }
             | schema::ExprView::IfExpr { .. }
             | schema::ExprView::PatternIf { .. }
@@ -17871,20 +17838,6 @@ fn indexed_configured_range_bounds_with(
     Ok(Some(IndexedConfiguredRangeBounds { start_subject, end_subject, end_root, end_pattern, end_slot }))
 }
 
-fn indexed_chain_operand_int_literal(decoder: &FullDecoder<'_>, instruction: u32) -> Result<Option<i64>, IrVerifyError> {
-    let mut instruction = instruction;
-    for _ in 0..=decoder.instruction_range.len() {
-        if let Some(value) = indexed_int_literal(decoder, instruction)? { return Ok(Some(value)); }
-        let schema::ExprView::ValueBlock { mut body, .. } = decoder.expression_view(instruction as usize)? else { return Ok(None) };
-        let Some(first) = body.next().transpose()? else { return Ok(None) };
-        let schema::StmtView::Let { slot, value, annotation: None } = decoder.statement_view(first.raw() as usize)? else { return Ok(None) };
-        let Some(tail) = body.next().transpose()? else { return Ok(None) };
-        let schema::StmtView::Value { value: result } = decoder.statement_view(tail.raw() as usize)? else { return Ok(None) };
-        if body.next().transpose()?.is_some() || !matches!(decoder.expression_view(result.raw() as usize)?, schema::ExprView::Param(actual) if actual == slot) { return Ok(None); }
-        instruction = value.raw();
-    }
-    Ok(None)
-}
 
 struct IndexedArgumentBinding {
     instruction: usize,
@@ -18215,35 +18168,6 @@ fn indexed_expr_can_complete_in(
             ..
         } => {
             indexed_pipeline_can_complete(decoder, input.raw(), &mut stages)?
-        }
-        schema::ExprView::ComparisonChain { first, mut pairs } => {
-            if !child(first.raw())? {
-                false
-            } else {
-                let mut previous = indexed_chain_operand_int_literal(decoder, first.raw())?;
-                let mut can_complete = true;
-                for pair in &mut pairs {
-                    let (op, right, _) = pair?;
-                    if !child(right.raw())? {
-                        can_complete = false;
-                        break;
-                    }
-                    let actual = indexed_chain_operand_int_literal(decoder, right.raw())?;
-                    let known_true = match previous.zip(actual) {
-                        Some((left, right)) => match op {
-                            BinaryOp::Lt => left < right,
-                            BinaryOp::Le => left <= right,
-                            BinaryOp::Gt => left > right,
-                            BinaryOp::Ge => left >= right,
-                            _ => false,
-                        },
-                        None => false,
-                    };
-                    if !known_true { break; }
-                    previous = actual;
-                }
-                can_complete
-            }
         }
         schema::ExprView::Abort { .. } => false,
         _ => true,
@@ -21795,9 +21719,6 @@ fn verify_node_metadata(
                 return Err(IrVerifyError::new("prepared module call plan operation policy does not match its instruction"));
             }
         }
-    }
-    if tag == FullTag::ExprComparisonChain {
-        decoder.verify_comparison_chain_shape(payload)?;
     }
     if tag == FullTag::ExprFsList {
         let op = RuntimeOp::decode(decoder, &mut payload.clone())?;
@@ -37918,7 +37839,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             ExprFunctionRef
             ExprPathFrom
             ExprParam
-            ExprComparisonChain
             ExprBinary
             ExprIf
             ExprPatternIf
@@ -38038,8 +37958,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        let dead_ordinals = [43, 50, 64, 95, 96, 97, 98, 101, 117, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 151);
+        let dead_ordinals = [32, 43, 50, 64, 95, 96, 97, 98, 101, 117, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 150);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -46406,7 +46326,6 @@ proc configured() [] -> Int {
             for (name, detail) in [
                 ("passes", None),
                 ("fails", Some("1 == 2")),
-                ("chain_fails", Some("3 < 2")),
                 ("short_circuit_fails", Some("right operand skipped")),
             ] {
                 let mut evaluator =
@@ -46440,45 +46359,6 @@ proc configured() [] -> Int {
                 }
             }
         });
-    }
-
-    #[test]
-    fn comparison_chain_verifier_rejects_short_chains_and_non_ordering_pairs() {
-        let source =
-            include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
-        let program = fixture("comparison-chain.xsh", source);
-        let chain = program
-            .store
-            .tags
-            .iter()
-            .position(|tag| *tag == FullTag::ExprComparisonChain)
-            .unwrap();
-        let payload = program.store.data[chain]
-            .range()
-            .bounds(program.store.extra.len())
-            .unwrap();
-        let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
-        let pairs = program.store.blocks[block.index()]
-            .instructions
-            .bounds(program.store.extra.len())
-            .unwrap();
-        let mut short = program.clone();
-        short.store.extra[pairs.start] = 1;
-        assert!(
-            FullVerifier::verify(&short)
-                .unwrap_err()
-                .message
-                .contains("at least two pairs")
-        );
-        let mut mixed = program;
-        let op = mixed.store.extra[pairs.start + 1] as usize;
-        mixed.store.binary_ops[op] = BinaryOp::Eq;
-        assert!(
-            FullVerifier::verify(&mixed)
-                .unwrap_err()
-                .message
-                .contains("ordering operators")
-        );
     }
 
     #[test]

@@ -238,31 +238,6 @@ fn linter_prefer_slice_requires_checked_builtin_receiver() {
 }
 
 #[test]
-fn formatter_comparison_chain_preserves_grouping_and_precedence() {
-    let source = include_str!("../../../tests/fixtures/syntax/comparison-chain.xsh");
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert!(formatted.formatted.contains("let adjacent = 1 < 2 <= 3"));
-    assert!(
-        formatted
-            .formatted
-            .contains("let explicit = (1 < 2 <= 3) == true")
-    );
-    assert!(formatted.formatted.contains("let grouped = (1 < 2) < 3"));
-    assert!(
-        formatted
-            .formatted
-            .contains("let arithmetic = (1 + 2) * 3 < 10 <= 12")
-    );
-    let stable = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
-    assert_eq!(stable.formatted, formatted.formatted);
-}
-
-#[test]
 fn linter_prefer_guard_supports_value_actions_and_converges() {
     let source = r#"pure cached(value: Str?) -> Str {
   if value != null {

@@ -13,9 +13,13 @@ proc outcome(label: Str, success: Bool) [io] -> Result[Int, OrderError] {
   return Err(OrderError.Failed(message: "missing"))
 }
 
-let chain = number("chain:left", 1) < number("chain:middle", 2) <= number("chain:right", 2)
+let chain_left = number("chain:left", 1)
+let chain_middle = number("chain:middle", 2)
+let chain = chain_left < chain_middle and chain_middle <= number("chain:right", 2)
 print f"chain={chain}"
-let stopped = number("stop:left", 3) < number("stop:middle", 2) < number("stop:late", 1 / 0)
+let stop_left = number("stop:left", 3)
+let stop_middle = number("stop:middle", 2)
+let stopped = stop_left < stop_middle and stop_middle < number("stop:late", 1 / 0)
 print f"stopped={stopped}"
 
 let branch = if flag("if:first", false) {

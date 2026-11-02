@@ -96,7 +96,7 @@ test test_integer_operations_read_a_bounded_value_as_an_integer {
   assert other < port
   assert port >= other
   assert port > 100 and port < 70000 and 0 < port
-  assert 1 < other < port <= 8080
+  assert 1 < other and other < port and port <= 8080
   assert port == 8080 and port != other
   assert port == widened - 443
 

@@ -1668,28 +1668,6 @@ fn generic_operators_selected_domains_execute_after_frontend_disposal() {
 }
 
 #[test]
-fn generic_operators_comparison_chains_evaluate_only_reached_operands_once() {
-    let source = "proc copy(value, number: Int) [] { var count = 0; let result = { count = count + 1; 0 } <= { count = count + 10; number } < { count = count + 100; 7 }; {value, result, count} }\nproc observe(number: Int) [error] { copy(7, number)?.count }\npure choose(value, number: Int, index: Int) { let result = 0 <= number < [7][index]; {value, result} }\npure checked(number: Int, index: Int) -> Bool { choose(7, number, index).result }\n";
-    let (program, sources, source_id) = record_form_program(source);
-    for force_frames in [false, true] {
-        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
-        evaluator.force_frames = force_frames;
-        evaluator.indexed_program = Some(Arc::clone(&program));
-        let observed = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("observe")));
-        for (number, count) in [(-1, 11), (2, 111), (9, 111)] {
-            let actual = evaluator.call_indexed_direct(observed, CallableKind::Proc, &[Value::Int(number)], Span::at(source_id, 0)).unwrap().unwrap();
-            assert_eq!(actual, Value::ok(Value::Int(count)), "{number} frames={force_frames}");
-        }
-        let checked = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("checked")));
-        let skipped = evaluator.call_indexed_direct(checked, CallableKind::Pure, &[Value::Int(-1), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap();
-        assert_eq!(skipped, Value::Bool(false));
-        let error = evaluator.call_indexed_direct(checked, CallableKind::Pure, &[Value::Int(2), Value::Int(9)], Span::at(source_id, 0)).unwrap().unwrap_err();
-        assert_eq!(error.kind, "index-out-of-range");
-        assert_eq!(&source[error.span.unwrap().range()], "[7][index]");
-    }
-}
-
-#[test]
 fn recursive_ordering_inference_runs_after_frontend_disposal() {
     let source = "pure sum_to(value) {\n  if value <= 0 { 0 } else { value + sum_to(value - 1) }\n}\npure even(value) {\n  if value <= 0 { true } else { odd(value - 1) }\n}\npure odd(value) {\n  if value <= 0 { false } else { even(value - 1) }\n}\nassert sum_to(4) == 10\nassert even(6)\n";
     let (program, sources, source_id) = record_form_program(source);

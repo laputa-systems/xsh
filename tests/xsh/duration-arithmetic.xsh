@@ -54,7 +54,7 @@ test test_duration_arithmetic_units_quantization_and_order {
   assert duration_intervals(7s, 2s) == 3
   assert duration_order(1s, 2s)
   assert duration_budget(250ms, 3) == 1750ms
-  assert 0ms < 1ms <= 1s < 1m < 1h
+  assert 0ms < 1ms and 1ms <= 1s and 1s < 1m and 1m < 1h
 }
 
 test test_duration_arithmetic_rejects_invalid_dimensions { |ctx|
@@ -148,7 +148,7 @@ test test_duration_arithmetic_constant_default_and_adapter_boundaries {
 test test_duration_arithmetic_comparison_reports_reached_values { |ctx|
   let failed = test.run_script(
     ctx,
-    """assert 1ms < 2s < 1s
+    """assert 1ms < 2s and 2s < 1s
 """,
   )?
   assert ! failed.success, failed.stderr

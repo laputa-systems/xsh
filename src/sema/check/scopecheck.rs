@@ -698,7 +698,7 @@ impl ScopeChecker<'_> {
             | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::List(_)
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. } | ArenaExprKind::ValuePipelineCall { .. }
             | ArenaExprKind::Field { .. } | ArenaExprKind::NullSafeField { .. }
             | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. }

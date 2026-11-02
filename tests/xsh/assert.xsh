@@ -26,7 +26,9 @@ test test_assert_short_circuit_and_operands_are_evaluated_once { |ctx|
   print f"{n}"
   n
 }
-assert observed(3) < observed(2) < 1 / 0, "chain context"
+let first = observed(3)
+let middle = observed(2)
+assert first < middle and middle < 1 / 0, "chain context"
 """,
   )?
   assert ! result.success, result.stderr
@@ -34,7 +36,7 @@ assert observed(3) < observed(2) < 1 / 0, "chain context"
 2
 """
   assert "3 < 2" in result.stderr
-  assert "later operands skipped" in result.stderr
+  assert "right operand skipped" in result.stderr
   assert "chain context" in result.stderr
   assert "division-by-zero" not in result.stderr, result.stderr
 
@@ -210,7 +212,8 @@ test test_assert_nested_operand_failure_does_not_evaluate_outer_message { |ctx|
   1
 }
 proc message() [io] -> Str { print "outer message"; "outer context" }
-assert 0 < operand() < 3, message()
+let middle = operand()
+assert 0 < middle and middle < 3, message()
 """,
   )?
   assert ! result.success, result.stderr
@@ -281,7 +284,7 @@ test test_assert_message_is_optional { |ctx|
   let result = test.run_script(
     ctx,
     """assert true
-assert 1 < 2 < 3
+assert 1 < 2 and 2 < 3
 print "passed"
 assert false
 """,
@@ -329,18 +332,17 @@ left: [1, 2]""" in messaged.stderr
 
   let chain = test.run_script(
     ctx,
-    """assert 1 < 3 < 2
+    """assert 1 < 3 and 3 < 2
 """,
   )?
   assert ! chain.success, chain.stderr
-  assert """assertion failed: 1 < 3 < 2
-ordering comparison failed: 3 < 2""" in chain.stderr
+  assert "assertion failed: 1 < 3 and 3 < 2" in chain.stderr
 }
 
 # A bare Bool statement is rejected before evaluation, with a fix that inserts
 # `assert`; the explicit form reports the failure without a checker error.
 test test_bare_bool_statement_is_rejected_in_favor_of_assert { |ctx|
-  for condition in ["1 == 2", "1 < 3 < 2 < 0", "5 in [1, 2]", "false", "1 == 2 and 1 / 0 == 0"] {
+  for condition in ["1 == 2", "1 < 3 and 3 < 2 and 2 < 0", "5 in [1, 2]", "false", "1 == 2 and 1 / 0 == 0"] {
     let bare = test.run_script(
       ctx,
       """proc check() -> Result[Unit] {
@@ -365,11 +367,9 @@ check()
 
   let messaged = test.run_script(
     ctx,
-    """assert 1 < 3 < 2, "chain context"
+    """assert 1 < 3 and 3 < 2, "chain context"
 """,
   )?
   assert ! messaged.success, messaged.stderr
-  assert """err: AssertionError.Failed: assertion failed: 1 < 3 < 2: chain context
-ordering comparison failed: 3 < 2
-""" in messaged.stderr, messaged.stderr
+  assert "assertion failed: 1 < 3 and 3 < 2: chain context" in messaged.stderr, messaged.stderr
 }

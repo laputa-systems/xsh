@@ -267,12 +267,12 @@ stage_expression = logical ;
 stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !"{" stage_expression | stage_end )
              | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !"{" postfix* logical_tail )
              | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" | !"(" ) postfix* logical_tail ;
-equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
+equality_tail = additive_tail ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive
               | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* test_pattern )* ;
 conjunction_tail = equality_tail ( "and" NEWLINE* equality )* ;
 logical_tail = conjunction_tail ( ( "??" | "or" ) NEWLINE* conjunction )* ;
 equality_operand = membership | additive ;
-ordering = additive ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+ ;
+ordering = additive ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive ;
 membership = additive ( ( "in" | "not" "in" ) NEWLINE* additive )+ ;
 additive = multiplicative ( ( "+" | "-" | "|" ) NEWLINE* multiplicative )* ;
 multiplicative = conversion ( ( "*" | "/" | "%" | "&" ) NEWLINE* conversion )* ;
@@ -371,7 +371,7 @@ condition_stage_expression = condition_logical ;
 condition_stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !"{" condition_stage_expression | stage_end )
                        | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !"{" postfix* condition_logical_tail )
                        | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" | !"(" ) postfix* condition_logical_tail ;
-condition_equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
+condition_equality_tail = additive_tail ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive
                         | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* condition_test_pattern )* ;
 condition_conjunction_tail = condition_equality_tail ( "and" NEWLINE* condition_equality )* ;
 condition_logical_tail = condition_conjunction_tail ( ( "??" | "or" ) NEWLINE* condition_conjunction )* ;

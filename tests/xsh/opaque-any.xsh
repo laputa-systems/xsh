@@ -80,8 +80,8 @@ test test_opaque_any_rejects_user_argument_splices { |ctx|
   }
 }
 
-test test_opaque_any_rejects_ordering_chain_operands { |ctx|
-  for expression in ["raw < 2 < 3", "0 < raw < 3", "0 < 1 < raw", "raw < raw < raw"] {
+test test_opaque_any_rejects_joined_ordering_operands { |ctx|
+  for expression in ["raw < 2 and 2 < 3", "0 < raw and raw < 3", "0 < 1 and 1 < raw", "raw < raw and raw < raw"] {
     let output = test.expect(ctx, "let raw: Any = 1\nlet selected = " + expression + "\n", status: 2)?
     assert "check.dynamic-boundary" in output.stderr, expression + ": " + output.stderr
   }
@@ -134,7 +134,7 @@ test test_opaque_any_keeps_validation_and_path_operations {
   assert json.get(raw, ["absent"], "fallback") == "fallback"
   assert json.get(raw, ["cells", 1])? == 2
   let checked = json.get(raw, ["cells", 0])?.require(Int)?
-  assert 0 < checked < 3
+  assert 0 < checked and checked < 3
   let entries: Map[Any] = {name: "map"}
   let map_value: Any = entries
   assert json.get(map_value, ["name"])? == "map"

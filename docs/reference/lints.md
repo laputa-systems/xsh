@@ -44,7 +44,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-atomically-replace` | Use `atomically replace DEST as NAME` for a file produced at a temporary path and renamed into place |
 | `lint.prefer-block-string` | Use a block string for a constant multiline string concatenation |
 | `lint.prefer-callable-alias` | Use an immutable alias for a callable that exactly forwards to another |
-| `lint.prefer-comparison-chain` | Use an ordering chain like `a < b < c` for repeated adjacent comparisons |
 | `lint.prefer-const` | Declare inert module-level `let` data as `const` |
 | `lint.prefer-context-scope-value` | Let a scope such as `cd` or `env` yield the value instead of a placeholder assigned inside |
 | `lint.prefer-defer-block` | Replace a single-use literal cleanup helper with a `defer` block |

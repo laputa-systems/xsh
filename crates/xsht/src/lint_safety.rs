@@ -58,7 +58,6 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
@@ -235,7 +234,6 @@ pub(super) fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
@@ -496,9 +494,6 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
                 })
         }
         ArenaExprKind::Unary { expr, .. } => is_safe_const_expr(arena, expr),
-        ArenaExprKind::ComparisonChain(pairs) => arena
-            .comparison_chain_operands(pairs)
-            .all(|operand| is_safe_const_expr(arena, operand)),
         ArenaExprKind::Binary { left, right, .. } => {
             is_safe_const_expr(arena, left) && is_safe_const_expr(arena, right)
         }
@@ -569,7 +564,6 @@ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
             expr_may_have_effects(arena, expr)
         }
-        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(|operand| expr_may_have_effects(arena, operand)),
         ArenaExprKind::Binary { left, right, .. } => {
             expr_may_have_effects(arena, left) || expr_may_have_effects(arena, right)
         }
@@ -720,25 +714,6 @@ pub(super) fn migration_arguments(arena: &AstArena, args: ArenaRange, params: &[
         .collect()
 }
 
-pub(super) fn same_ordering_operand(arena: &AstArena, left: ExprId, right: ExprId) -> bool {
-    match (arena.expr(left).kind, arena.expr(right).kind) {
-        (ArenaExprKind::Ident(left), ArenaExprKind::Ident(right)) => left == right,
-        (ArenaExprKind::Int(left), ArenaExprKind::Int(right)) => arena
-            .int_literal(left)
-            .value()
-            .zip(arena.int_literal(right).value())
-            .is_some_and(|(left, right)| left == right),
-        (ArenaExprKind::Float(left), ArenaExprKind::Float(right)) => arena
-            .float_literal(left)
-            .value()
-            .zip(arena.float_literal(right).value())
-            .is_some_and(|(left, right)| left.to_bits() == right.to_bits()),
-        (ArenaExprKind::Str(left), ArenaExprKind::Str(right)) => {
-            arena.string_literal(left) == arena.string_literal(right)
-        }
-        _ => false,
-    }
-}
 
 pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
     match arena.expr(value).kind {
@@ -779,7 +754,6 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
@@ -843,7 +817,6 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::PatternTest { .. }
             | ArenaExprKind::PatternCondition { .. }
             | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
             | ArenaExprKind::Binary { .. }
             | ArenaExprKind::Call { .. }
             | ArenaExprKind::ValuePipelineCall { .. }
@@ -1193,7 +1166,7 @@ mod tests {
         let cases: &[(&str, &[&str], &[&str])] = &[
             ("let value = [1, 2]\n", &["1", "2"], &[]),
             ("let value = 1 + 2 * 3\n", &["1", "2 * 3"], &[]),
-            ("let value = 1 < 2 < 3\n", &["1", "2", "3"], &[]),
+            ("let value = 1 < 2 and 2 < 3\n", &["1 < 2", "2 < 3"], &[]),
             ("let value = outer(first: 1, ...options)\n", &["outer", "1", "options"], &[]),
             ("let value = record[lo..hi]\n", &["record", "lo", "hi"], &[]),
             ("let value = {left: 1, right: 2}\n", &["1", "2"], &[]),

@@ -75,7 +75,6 @@ pub fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Op
         | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::Unary { .. }
-        | ArenaExprKind::ComparisonChain(_)
         | ArenaExprKind::Binary { .. }
         | ArenaExprKind::ValuePipelineCall { .. }
         | ArenaExprKind::Slice { .. }

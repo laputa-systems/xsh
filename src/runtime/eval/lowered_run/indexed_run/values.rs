@@ -3,7 +3,7 @@ use super::{
     FullExecution, FullTag, LoweredValue, Name, RuntimeError, Span, StmtFlow,
     TraceKind, TracePayload, Value, bytes_contains, checked_int_binary, indexed_error,
     indexed_value,
-    lowered_binary_value, lowered_contains_value,
+    lowered_contains_value,
     lowered_path_method_value, lowered_record_field_value, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_status_segment_record,
     lowered_str_byte_at_value, lowered_str_byte_len_value, lowered_str_count_lines_value,
@@ -204,15 +204,6 @@ pub(super) fn lowered_err_with_cause(
     Ok(LoweredValue::ResultErr(Box::new(error)))
 }
 
-/// Whether one link of a comparison chain holds.
-pub(super) fn comparison_link_holds(
-    op: BinaryOp,
-    left: &LoweredValue,
-    right: &LoweredValue,
-    span: Span,
-) -> Result<bool, RuntimeError> {
-    Ok(lowered_binary_value(op, left.clone(), right.clone(), span)? != LoweredValue::Bool(false))
-}
 
 pub(super) fn finish_record_entries(mut fields: Vec<(Name, LoweredValue)>) -> LoweredValue {
     fields.sort_unstable_by_key(|(name, _)| *name);

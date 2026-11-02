@@ -428,22 +428,6 @@ fn expr_flow(arena: &AstArena, facts: &FlowFacts, expr: ExprId) -> FlowSummary {
         }
         ArenaExprKind::PatternCondition { value, .. } => pattern_condition_flow(facts.expression(value)),
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => facts.expression(expr),
-        ArenaExprKind::ComparisonChain(pairs) => {
-            let mut operands = arena.comparison_chain_operands(pairs);
-            let first = operands
-                .next()
-                .map(|operand| facts.expression(operand))
-                .unwrap_or_else(FlowSummary::fallthrough);
-            let second = operands
-                .next()
-                .map(|operand| facts.expression(operand))
-                .unwrap_or_else(FlowSummary::fallthrough);
-            let mut flow = first.then(second);
-            for operand in operands {
-                flow = flow.then(FlowSummary::fallthrough().union(facts.expression(operand)));
-            }
-            flow
-        }
         ArenaExprKind::Binary {
             op: BinaryOp::ResultFallback,
             left,
