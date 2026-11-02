@@ -64,7 +64,7 @@ fn terminal_case_with_control(args: &[&std::ffi::OsStr], files: &[(&str, &[u8])]
     let slave_fd = terminal.slave.as_raw_fd();
     unsafe { command.pre_exec(move || {
         if libc::setsid() < 0 { return Err(std::io::Error::last_os_error()); }
-        if controlling && libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) < 0 {
+        if controlling && libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
             return Err(std::io::Error::last_os_error());
         }
         Ok(())
