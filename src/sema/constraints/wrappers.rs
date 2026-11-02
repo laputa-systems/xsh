@@ -295,7 +295,13 @@ impl TypeConstraints {
     pub(crate) fn register_guard_output(&mut self, id: WrapperOperationId, owner: CallableApplicationScope, comparison: Span, site: crate::sema::guarded_requirements::GuardOutputSite, present: Type, absent: Type, nonnull_when: bool, level: u32) -> Result<Option<Type>, ConstraintResolutionError> {
         let guard = self.wrappers.guards.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
         if guard.owner != owner || guard.comparison != comparison || !guard.view_used { return Ok(None); }
-        if guard.output.is_some() { return Err(ConstraintResolutionError::ForeignVariable); }
+        if let Some(existing) = &guard.output {
+            if existing.site != site || existing.nonnull_when != nonnull_when { return Err(ConstraintResolutionError::ForeignVariable); }
+            let (outward, earlier_present, earlier_absent) = (existing.outward.clone(), existing.present.clone(), existing.absent.clone());
+            self.constrain(&earlier_present, &present, comparison).map_err(|conflict| conflict.resolution_error.unwrap_or(ConstraintResolutionError::ForeignVariable))?;
+            self.constrain(&earlier_absent, &absent, comparison).map_err(|conflict| conflict.resolution_error.unwrap_or(ConstraintResolutionError::ForeignVariable))?;
+            return Ok(Some(outward));
+        }
         self.commit_constraint_transaction(|this| {
             let outward = this.fresh_at_level(comparison, level);
             let dependencies = this.application_type_dependencies([&outward, &present, &absent].into_iter())?;

@@ -192,3 +192,19 @@ print $plain_copy(named, 2)
   assert inferred.stdout == "false\nfalse\n"
   assert annotated.stdout == inferred.stdout
 }
+
+test test_inferred_guarded_output_survives_rechecking_the_expression { |ctx|
+  let body = r"""proc launch(WORDS, ENVIRONMENT) [fs, process, env, error] {
+  let plan = process.command_argv(words[0], words)
+  let replaced = if let variables = environment { unix.exec_env(plan, variables) } else { unix.exec(plan) }
+  if let Err(failure) = replaced { exit 1 }
+}
+print "defined"
+"""
+  let inferred = test.run_xsh(ctx, body.replace("WORDS", with: "words").replace("ENVIRONMENT", with: "environment"))?
+  let annotated = test.run_xsh(ctx, body.replace("WORDS", with: "words: List[Str]").replace("ENVIRONMENT", with: "environment: Map[Str, Str]?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "defined\n"
+  assert annotated.stdout == inferred.stdout
+}
