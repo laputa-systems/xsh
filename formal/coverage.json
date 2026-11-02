@@ -927,7 +927,7 @@
         "Repeat{count:tokens:[\"ExprId\"],body:tokens:[\"BlockId\"]}",
         "Guarded{stmt:tokens:[\"StmtId\"],negate:tokens:[\"bool\"],condition:tokens:[\"ExprId\"]}",
         "Guard{condition:tokens:[\"ExprId\"],else_block:tokens:[\"BlockId\"]}",
-        "Fail{failure:tokens:[\"ExprId\"],cause:tokens:[\"Option\",\"<\",\"ExprId\",\">\"]}",
+        "Fail{failure:tokens:[\"ExprId\"]}",
         "Atomically{dest:tokens:[\"ExprId\"],name:tokens:[\"BindingTargetId\"],body:tokens:[\"BlockId\"]}",
         "ForIndex{index:tokens:[\"BindingTargetId\"],item:tokens:[\"BindingTargetId\"],source:tokens:[\"ExprId\"],body:tokens:[\"BlockId\"]}",
         "WaitUntil{condition:tokens:[\"ExprId\"],limit:tokens:[\"ExprId\"],pace:tokens:[\"WaitPace\"]}"

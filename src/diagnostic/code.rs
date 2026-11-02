@@ -214,6 +214,7 @@ diagnostic_codes! {
         ParseEnvStringName = "parse.env-string-name", error, "Reject an `e\"...\"` literal whose contents are not one identifier-shaped environment variable name";
         ParseExportTarget = "parse.export-target", error, "Reject `export` applied to anything but a definition";
         ParseExprStringInterpolation = "parse.expr-string-interpolation", error, "Reject interpolation in an expression string literal";
+        ParseFailBecause = "parse.fail-because", error, "Reject `fail FAILURE because CAUSE`; write `return Err(error.failure(FAILURE), cause: CAUSE)`";
         ParseFallbackBlockParams = "parse.fallback-block-params", error, "Reject an error fallback block with no error parameter";
         ParseFmtDollarInterpolation = "parse.fmt-dollar-interpolation", error, "Reject `${expr}` in an f-string where `{expr}` interpolates";
         ParseFmtEmptyInterpolation = "parse.fmt-empty-interpolation", error, "Reject an empty `{}` interpolation in an f-string";

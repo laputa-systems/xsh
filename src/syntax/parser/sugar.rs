@@ -485,8 +485,8 @@ impl Parser<'_> {
         Some(())
     }
 
-    /// Parses `fail FAILURE` or `fail FAILURE because CAUSE` and registers
-    /// the statement.
+    /// Parses `fail FAILURE` and registers the statement. A `because CAUSE`
+    /// after the failure is the removed spelling: it is read and reported.
     ///
     /// A `fail` that is a statement of its own ends at its terminator, or at
     /// its last operand when a postfix guard follows. One that is part of
@@ -501,7 +501,7 @@ impl Parser<'_> {
         let keyword = self.bump();
         let failure = self.parse_expr_id_arena_only(arena)?;
         let failure_end = arena.expr_span(failure).end();
-        let cause = if self.current_name().is_some_and(|name| name == BECAUSE_WORD) {
+        let removed_cause = if self.current_name().is_some_and(|name| name == BECAUSE_WORD) {
             let because = self.bump();
             Some((because, self.parse_expr_id_arena_only(arena)?))
         } else {
@@ -527,26 +527,38 @@ impl Parser<'_> {
                     if matches!(arena.expr_kind(base), ArenaExprKind::Item)
             )
         };
+        if let Some((because, cause)) = removed_cause {
+            let error = if variant {
+                self.span_text(arena.expr_span(failure)).to_string()
+            } else {
+                format!("error.failure({})", self.span_text(arena.expr_span(failure)))
+            };
+            let rewritten = format!(
+                "return Err({error}, cause: {})",
+                self.span_text(arena.expr_span(cause))
+            );
+            self.diagnostics.push(
+                Diagnostic::error("`fail FAILURE because CAUSE` was removed")
+                    .with_code(DiagnosticCode::ParseFailBecause)
+                    .with_label(Label::primary(
+                        self.span(because.start(), arena.expr_span(cause).end()),
+                        "pass the cause to `Err`",
+                    ))
+                    .with_note(format!("write `{rewritten}`")),
+            );
+        }
         let operands = FailOperands {
             keyword,
             failure,
             failure_end,
             variant,
-            cause: cause.map(|(because, cause)| FailCause {
-                argument: self.span(because.start(), arena.expr_span(cause).end()),
-                cause,
-            }),
         };
-        let written = match cause {
-            Some((_, cause)) => vec![
-                ArenaSugarOperand::Expr(failure),
-                ArenaSugarOperand::Expr(cause),
-            ],
-            None => vec![ArenaSugarOperand::Expr(failure)],
-        };
-        Some(arena.push_sugar(SugarForm::Fail, &written, span, |arena| {
-            expand_fail(arena, operands, span)
-        }))
+        Some(arena.push_sugar(
+            SugarForm::Fail,
+            &[ArenaSugarOperand::Expr(failure)],
+            span,
+            |arena| expand_fail(arena, operands, span),
+        ))
     }
 }
 
@@ -558,19 +570,10 @@ struct FailOperands {
     failure_end: usize,
     /// The failure is written `.Variant` or `.Variant(...)`.
     variant: bool,
-    cause: Option<FailCause>,
-}
-
-#[derive(Clone, Copy)]
-struct FailCause {
-    /// `because CAUSE`.
-    argument: Span,
-    cause: ExprId,
 }
 
 /// `fail MESSAGE` is `return Err(error.failure(MESSAGE))`, and
-/// `fail .Variant(...)` is `return Err(.Variant(...))`. `because CAUSE` adds
-/// `cause: CAUSE` to the `Err`.
+/// `fail .Variant(...)` is `return Err(.Variant(...))`.
 ///
 /// A call spelled `error.failure(...)` names the module function even where
 /// `error` is a local, so the expansion means the same inside an `Err(error)`
@@ -585,7 +588,6 @@ fn expand_fail(arena: &mut ArenaProgramBuilder<'_>, operands: FailOperands, span
         failure,
         failure_end,
         variant,
-        cause,
     } = operands;
     let within = |start: usize, end: usize| Span::new(span.source_id, start, end);
     // `fail` has four bytes, so these three are distinct and none is the
@@ -606,15 +608,6 @@ fn expand_fail(arena: &mut ArenaProgramBuilder<'_>, operands: FailOperands, span
     let err = arena.push_ident_expr(Name::intern("Err"), keyword_prefix(3));
     arena.begin_call_args();
     arena.push_call_arg_input(ArenaCallArgInput::Positional(error));
-    if let Some(FailCause { argument, cause }) = cause {
-        // The argument starts on `because`, before its value, as a written
-        // `cause: value` starts on its name.
-        arena.push_call_arg_input(ArenaCallArgInput::Named {
-            name: Name::intern("cause"),
-            value: cause,
-            span: argument,
-        });
-    }
     let args = arena.finish_call_args();
     let value = arena.push_call_expr(err, args, keyword);
     arena.push_return(Some(ArenaExprOrRun::Expr(value)), span)
@@ -1302,7 +1295,6 @@ mod tests {
             include_str!("../../../docs/snippets/spec/49-exit.xsh"),
             include_str!("../../../tests/xsh/fail.xsh"),
             include_str!("../../../docs/snippets/spec/61-fail.xsh"),
-            include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
             include_str!("../../../tests/xsh/atomically.xsh"),
             include_str!("../../../docs/snippets/spec/61-atomically.xsh"),
             include_str!("../../../tests/xsh/within.xsh"),

@@ -418,11 +418,6 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "exit" | "fail") && operand_statement_word(source, tokens, at) {
         return Kind::Keyword;
     }
-    // `because` is an ordinary name except between the failure and the cause
-    // of a `fail` statement.
-    if text == "because" && fail_because_word(source, tokens, at) {
-        return Kind::Keyword;
-    }
     // `without` is an ordinary name except where it opens a
     // `without EFFECT, ... {` statement.
     if text == "without" && without_head_word(source, tokens, at, previous) {
@@ -573,55 +568,6 @@ fn operand_statement_word(source: &str, tokens: &[Token], at: usize) -> bool {
                         | TokenTag::QuestionQuestion
                 )
         })
-}
-
-/// Whether `tokens[at]` is the `because` of a statement that begins with the
-/// word `fail` on the same line: outside every bracket the failure opens,
-/// and not a field name.
-fn fail_because_word(source: &str, tokens: &[Token], at: usize) -> bool {
-    let text = |token: &Token| &source[token.start..token.end];
-    let first = tokens[..at]
-        .iter()
-        .rposition(|token| matches!(token.tag, TokenTag::Newline | TokenTag::Semicolon))
-        .map_or(0, |separator| separator + 1);
-    // A match arm's statement follows `=>` on the line.
-    let first = tokens[first..at]
-        .iter()
-        .rposition(|token| token.tag == TokenTag::FatArrow)
-        .map_or(first, |arrow| first + arrow + 1);
-    if at < first + 2
-        || text(&tokens[first]) != "fail"
-        || !operand_statement_word(source, tokens, first)
-        || tokens[at - 1].tag == TokenTag::Dot
-    {
-        return false;
-    }
-    let mut depth = 0usize;
-    for index in first + 1..at {
-        let token = &tokens[index];
-        match token.tag {
-            TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace | TokenTag::DollarLBrace => {
-                depth += 1
-            }
-            TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace => {
-                let Some(outer) = depth.checked_sub(1) else {
-                    return false;
-                };
-                depth = outer;
-            }
-            // An earlier `because` is the word, so this one is in the cause.
-            TokenTag::Ident
-                if depth == 0
-                    && index > first + 1
-                    && tokens[index - 1].tag != TokenTag::Dot
-                    && text(token) == "because" =>
-            {
-                return false;
-            }
-            _ => {}
-        }
-    }
-    depth == 0
 }
 
 /// Whether `tokens[at]` is the `without` of a statement head
@@ -1070,33 +1016,26 @@ mod tests {
 
     #[test]
     fn fail_words_are_keywords_only_in_a_fail_statement() {
-        let source = "fail \"no\" because problem\nlet because = test.fail(\"x\")\nfail = because\nfail f(because) because because.fail\n";
+        let source = "fail \"no\"\nlet because = test.fail(\"x\")\nfail = because\n";
         assert_eq!(kind_of(source, "fail \"no\""), Kind::Keyword);
-        assert_eq!(kind_of(source, "because problem"), Kind::Keyword);
         assert_eq!(kind_of(source, "because = test"), Kind::Plain);
         assert_eq!(kind_of(source, "fail(\"x\")"), Kind::Function);
         assert_eq!(kind_of(source, "fail = because"), Kind::Plain);
-        assert_eq!(kind_of(source, "because\nfail f"), Kind::Plain);
-        assert_eq!(kind_of(source, "because) because"), Kind::Plain);
-        assert_eq!(kind_of(source, "because because.fail"), Kind::Keyword);
-        assert_eq!(kind_of(source, "because.fail"), Kind::Plain);
     }
 
     #[test]
     fn fail_in_the_else_block_of_a_guard_is_the_statement() {
-        let source = "guard ready else {\n  fail \"no\" because problem\n}\nlet kept = if ready { fail } else { fail }\n";
+        let source = "guard ready else {\n  fail \"no\"\n}\nlet kept = if ready { fail } else { fail }\n";
         assert_eq!(kind_of(source, "fail \"no\""), Kind::Keyword);
-        assert_eq!(kind_of(source, "because problem"), Kind::Keyword);
         assert_eq!(kind_of(source, "fail } else"), Kind::Plain);
         assert_eq!(kind_of(source, "fail }\n"), Kind::Plain);
     }
 
     #[test]
     fn a_match_arm_statement_begins_with_its_statement_word() {
-        let source = "match code {\n  0 => exit 3\n  1 => fail \"one\" because problem\n  _ => exit(code)\n}\n";
+        let source = "match code {\n  0 => exit 3\n  1 => fail \"one\"\n  _ => exit(code)\n}\n";
         assert_eq!(kind_of(source, "exit 3"), Kind::Keyword);
         assert_eq!(kind_of(source, "fail \"one\""), Kind::Keyword);
-        assert_eq!(kind_of(source, "because problem"), Kind::Keyword);
         assert_eq!(kind_of(source, "exit(code)"), Kind::Function);
     }
 

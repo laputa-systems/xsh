@@ -63,7 +63,7 @@ print $joined ${listed.len()} $suffix
   assert after.stdout == before.stdout
 }
 
-test test_prefer_fail_leading_dot_fix_preserves_failure_and_cause { |ctx|
+test test_prefer_fail_leaves_a_returned_error_that_carries_a_cause { |ctx|
   let source = r"""error LoadError = Failed | Other
 
 proc load() -> Result[Int, LoadError] {
@@ -77,17 +77,10 @@ print load()?
   let file = test.temp_file(ctx, name: "leading-dot.xsh", contents: bytes.from_text(source))?
   let fixed = run.capture --text "xsht" lint --only lint.prefer-fail --fix $file
   assert fixed.status.exited_with(0), fixed.stderr
-  let expected = source.replace(
-    "return Err(.Failed(\"outer\"), cause: error.failure(\"inner\"))",
-    with: "fail .Failed(\"outer\") because error.failure(\"inner\")",
-  )
-  assert file.read_text()? == expected
-  let after = test.expect(ctx, expected, status: 3)?
-  assert before.stdout == "cleanup\n" and after.stdout == before.stdout
-  for report in [before.stderr, after.stderr] {
-    assert "LoadError.Failed" in report and "outer" in report, report
-    assert "caused by:" in report and "inner" in report, report
-  }
+  assert file.read_text()? == source
+  assert before.stdout == "cleanup\n"
+  assert "LoadError.Failed" in before.stderr and "outer" in before.stderr, before.stderr
+  assert "caused by:" in before.stderr and "inner" in before.stderr, before.stderr
 }
 
 test test_run_initializer_fix_preserves_command_failure { |ctx|

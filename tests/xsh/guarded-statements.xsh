@@ -40,7 +40,7 @@ test test_a_guarded_assignment_assigns_only_when_selected {
 
 pure checked_port(raw: Int) -> Result[Int] {
   guard raw > 0 else { fail f"port {raw} is not positive" }
-  guard raw < 65536 else { fail "port is too large" because error.failure("range") }
+  guard raw < 65536 else { return Err(error.failure("port is too large"), cause: error.failure("range")) }
   Ok(raw)
 }
 

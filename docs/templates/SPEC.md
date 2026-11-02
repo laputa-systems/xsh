@@ -113,8 +113,7 @@ and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `tempdir`, `test`, `nominal` directly before `type` (4.7), `repeat` and
 `times` in the head of a `repeat` statement (8.6), `at` in the head of a
 `tempdir NAME at PATH` scope (10.4),
-`fail` at the start of a `fail` statement and `because` after its first
-operand (8.6),
+`fail` at the start of a `fail` statement (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
 and the `as` that ends its destination (8.7),
 `as` between a value and a type, where it is the conversion operator (6.11),
@@ -1165,8 +1164,7 @@ and `error.fail(message)` is `Err(error.failure(message))` as a
 function with any `Ok` type and is the usual way to report an expected
 failure.
 
-`Err(outer, cause: inner)`, which `fail ... because inner` (8.6) returns,
-translates one error into another and keeps the
+`Err(outer, cause: inner)` translates one error into another and keeps the
 original as diagnostic cause. The outer error's family, payload, and Result
 type are unchanged, and matching inspects only the outer error. Tracebacks
 render the cause chain (bounded). Resources reachable from an error payload or
@@ -2919,24 +2917,19 @@ inferred, `fail .Name(...)` is `check.inferred-variant`. An operand that is
 not a leading-dot name, alone or called, is a message; a qualified
 constructor is not a message, so `fail FetchError.Offline()` is a type error.
 
-`because cause` after either form keeps the error being replaced as the cause
-of the new one (4.10):
+`fail` carries no cause. To keep the error being replaced as the cause of the
+new one (4.10), return the `Err` with `cause:`:
 
 ```xsh
 {{.spec.fail_because.source}}
 ```
 
-means exactly
-
-```xsh
-{{.spec.fail_because.desugared}}
-```
-
-and `fail "loading index" because problem` means
+`fail "loading index" because problem` is `parse.fail-because`; write
 `return Err(error.failure("loading index"), cause: problem)`. The message or
 variant is evaluated before the cause, which must be an error value; its
-diagnostics are those of the `cause:` argument. `lint.prefer-fail` also rewrites a
-`return Err(.Name(...))`, with or without `cause:`, to this statement.
+diagnostics are those of the `cause:` argument. `lint.prefer-fail` also
+rewrites a `return Err(.Name(...))` to this statement, and leaves an `Err` that
+carries `cause:`.
 
 `fail` is not a reserved word. A statement is a `fail` statement when it
 begins with the word `fail` followed, after a space on the same line, by its
@@ -2945,7 +2938,6 @@ otherwise be read (10.1); `fail = 1`, `fail(1)`, and `test.fail("...")` are an
 assignment and two calls, and `fail as Int` and `fail is Int` are a conversion
 and a test of a binding named `fail`. A proc named `fail` is called with
 parentheses.
-`because` is a word only after the first operand of a `fail` statement.
 
 `guard let target = expr else { ... }` binds `target` (with an optional type
 annotation) when `expr` succeeds and otherwise runs the block. `expr`

@@ -15,8 +15,9 @@
 //! An unused declaration can be deleted independently of constructor rewrites;
 //! comments inside or beside it require deletion by hand.
 //!
-//! The lint also respells `return Err(.Variant(...))`, with or without a
-//! `cause:`, as the `fail .Variant(...)` that is defined to mean it.
+//! The lint also respells `return Err(.Variant(...))` as the
+//! `fail .Variant(...)` that is defined to mean it. An `Err` that carries a
+//! `cause:` stays, because `fail` has no cause.
 
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::CheckBundleView;
@@ -43,11 +44,10 @@ struct Constructor {
     call: ExprId,
 }
 
-/// `Err(VALUE)` or `Err(VALUE, cause: CAUSE)`.
+/// `Err(VALUE)`.
 struct ErrCall {
     call: ExprId,
     value: ExprId,
-    cause: Option<ExprId>,
 }
 
 /// `return VALUE`, by where the statement starts.
@@ -129,26 +129,15 @@ impl Candidates {
             return;
         };
         if is_err_call(arena, expr) {
-            let (value, cause) = match arena.call_args(args) {
-                [value] => (value, None),
-                [value, cause] => match cause.kind {
-                    ArenaCallArgKind::Named {
-                        name, value: cause, ..
-                    } if name == "cause" => (value, Some(cause)),
-                    _ => return,
-                },
-                _ => return,
+            let [value] = arena.call_args(args) else {
+                return;
             };
             let ArenaCallArgKind::Positional(value) = value.kind else {
                 return;
             };
             // Without a candidate family, only a leading-dot error matters.
             if !self.families.is_empty() || is_leading_dot_variant(arena, value) {
-                self.err_calls.push(ErrCall {
-                    call: expr,
-                    value,
-                    cause,
-                });
+                self.err_calls.push(ErrCall { call: expr, value });
             }
             return;
         }
@@ -251,7 +240,7 @@ impl Candidates {
                         statement,
                         "`fail .Variant(...)` means this `return Err(...)`",
                     ));
-            if let Some(replacement) = self.fail_text(arena, source, statement, err, err.value) {
+            if let Some(replacement) = self.fail_text(arena, source, statement, err.value) {
                 diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                     statement,
                     "return the error with `fail`",
@@ -272,8 +261,8 @@ impl Candidates {
         Some(Span::new(call.source_id, statement.start, call.end()))
     }
 
-    /// `fail FAILURE` or `fail FAILURE because CAUSE` for a returned `Err`,
-    /// where `failure` is the part of its first argument that `fail` takes.
+    /// `fail FAILURE` for a returned `Err`, where `failure` is the part of its
+    /// argument that `fail` takes.
     /// There is none when the statement holds a comment the rewrite would
     /// drop, or when the text reads differently after the word `fail`.
     fn fail_text(
@@ -281,27 +270,17 @@ impl Candidates {
         arena: &AstArena,
         source: &str,
         statement: Span,
-        err: &ErrCall,
         failure: ExprId,
     ) -> Option<String> {
         let failure = arena.expr(failure).span;
         let text = written(source, failure)?;
-        let mut kept_end = failure.end();
-        let mut replacement = format!("fail {text}");
+        let kept_end = failure.end();
+        let replacement = format!("fail {text}");
         if source
             .get(statement.start()..failure.start())?
             .contains('#')
         {
             return None;
-        }
-        if let Some(cause) = err.cause {
-            let cause = arena.expr(cause).span;
-            if source.get(kept_end..cause.start())?.contains('#') {
-                return None;
-            }
-            replacement.push_str(" because ");
-            replacement.push_str(written(source, cause)?);
-            kept_end = cause.end();
         }
         (!source.get(kept_end..statement.end())?.contains('#') && is_fail_statement(&replacement))
             .then_some(replacement)
@@ -700,10 +679,10 @@ mod tests {
     }
 
     #[test]
-    fn a_returned_leading_dot_error_becomes_fail() {
+    fn a_returned_leading_dot_error_becomes_fail_unless_it_carries_a_cause() {
         let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  return Err(.Busy()) when target == p\"/\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics
             .iter()
             .all(|diagnostic| diagnostic.severity == Severity::Warning));
@@ -713,7 +692,7 @@ mod tests {
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  fail .Busy() when target == p\"/\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => fail .Missing(path: target) because problem\n  }\n}\n"
+            "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  fail .Busy() when target == p\"/\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n"
         );
         assert!(lint(&fixed).is_empty());
     }

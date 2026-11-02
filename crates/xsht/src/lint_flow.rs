@@ -223,12 +223,8 @@ fn stmt_flow(arena: &AstArena, facts: &FlowFacts, stmt: StmtId) -> FlowSummary {
                     .expression(condition)
                     .then(FlowSummary::fallthrough().union(facts.block(else_block))),
             },
-            ArenaSugar::Fail { failure, cause } => {
-                let mut flow = facts.expression(failure);
-                if let Some(cause) = cause {
-                    flow = flow.then(facts.expression(cause));
-                }
-                flow.then(FlowSummary::returning())
+            ArenaSugar::Fail { failure } => {
+                facts.expression(failure).then(FlowSummary::returning())
             }
             ArenaSugar::Atomically { dest, body, .. } => {
                 facts.expression(dest).then(facts.block(body))

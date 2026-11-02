@@ -955,8 +955,8 @@ impl<'a> Writer<'a> {
                         output.push_str(" else ");
                         self.write_block(else_block, indent, output);
                     }
-                    ArenaSugar::Fail { failure, cause } => {
-                        self.write_fail(failure, cause, Follow::END, output);
+                    ArenaSugar::Fail { failure } => {
+                        self.write_fail(failure, Follow::END, output);
                     }
                     ArenaSugar::Atomically { dest, name, body } => {
                         output.push_str("atomically replace ");
@@ -2197,32 +2197,20 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// Writes `fail FAILURE` and its `because CAUSE`, each safe before what
-    /// follows it: `because`, the word of a postfix guard, or the end of the
-    /// statement.
-    fn write_fail(
-        &mut self,
-        failure: ExprId,
-        cause: Option<ExprId>,
-        follow: Follow,
-        output: &mut String,
-    ) {
+    /// Writes `fail FAILURE`, safe before what follows it: the word of a
+    /// postfix guard, or the end of the statement.
+    fn write_fail(&mut self, failure: ExprId, follow: Follow, output: &mut String) {
         output.push_str("fail ");
-        let Some(cause) = cause else {
-            return self.write_expr_safe_in(failure, Context::initializer(follow), output);
-        };
-        self.write_expr_safe_in(failure, Context::initializer(Follow::WORD), output);
-        output.push_str(" because ");
-        self.write_expr_safe_in(cause, Context::initializer(follow), output);
+        self.write_expr_safe_in(failure, Context::initializer(follow), output);
     }
 
     fn write_guarded_action(&mut self, stmt: StmtId, indent: usize, output: &mut String) {
         let (keyword, value) = match self.arena.stmt(stmt).kind {
             ArenaStmtKind::Sugar { form, operands, .. } if form == SugarForm::Fail => {
-                let ArenaSugar::Fail { failure, cause } = self.arena.sugar(form, operands) else {
+                let ArenaSugar::Fail { failure } = self.arena.sugar(form, operands) else {
                     unreachable!("a `fail` statement has the operands of `fail`")
                 };
-                self.write_fail(failure, cause, Follow::WORD, output);
+                self.write_fail(failure, Follow::WORD, output);
                 return;
             }
             ArenaStmtKind::Return(Some(value)) => ("return", value),

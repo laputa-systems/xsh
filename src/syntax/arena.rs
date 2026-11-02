@@ -6541,22 +6541,11 @@ impl AstArena {
             (SugarForm::Guard, operands) => {
                 unreachable!("`guard` has a condition and a failure block, found {operands:?}")
             }
-            (SugarForm::Fail, &[ArenaSugarOperand::Expr(failure)]) => ArenaSugar::Fail {
-                failure,
-                cause: None,
-            },
-            (
-                SugarForm::Fail,
-                &[
-                    ArenaSugarOperand::Expr(failure),
-                    ArenaSugarOperand::Expr(cause),
-                ],
-            ) => ArenaSugar::Fail {
-                failure,
-                cause: Some(cause),
-            },
+            (SugarForm::Fail, &[ArenaSugarOperand::Expr(failure)]) => {
+                ArenaSugar::Fail { failure }
+            }
             (SugarForm::Fail, operands) => {
-                unreachable!("`fail` has a failure and at most a cause, found {operands:?}")
+                unreachable!("`fail` has a failure, found {operands:?}")
             }
             (
                 SugarForm::Atomically,
@@ -7429,7 +7418,6 @@ pub enum ArenaSugar {
     /// `failure` is a message, or an error written `.Variant(...)`.
     Fail {
         failure: ExprId,
-        cause: Option<ExprId>,
     },
     Atomically {
         dest: ExprId,

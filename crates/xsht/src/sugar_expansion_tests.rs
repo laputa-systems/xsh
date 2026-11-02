@@ -111,9 +111,9 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // A variant with a cause, as a match arm's statement, and where
             // `fail` and `error` are locals.
             Case {
-                sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  guard target != p\"/\" else { fail .Busy() because cause }\n  guard target.is_absolute() else { fail .Missing(path: target) }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  guard fail < 100 else { fail error }\n  match fail {\n    0 => guard error == \"\" else { fail \"zero\" }\n    _ => {}\n  }\n  Ok(fail)\n}\n",
+                sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path) -> Result[Int, LoadError] {\n  guard target != p\"/\" else { fail .Busy() }\n  guard target.is_absolute() else { fail .Missing(path: target) }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  guard fail < 100 else { fail error }\n  match fail {\n    0 => guard error == \"\" else { fail \"zero\" }\n    _ => {}\n  }\n  Ok(fail)\n}\n",
                 core: Core::Written(
-                    "error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  if target != p\"/\" {\n  } else {\n    return Err(.Busy(), cause: cause)\n  }\n  if target.is_absolute() {\n  } else {\n    return Err(.Missing(path: target))\n  }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 100 {\n  } else {\n    return Err(error.failure(error))\n  }\n  match fail {\n    0 => {\n      if error == \"\" {\n      } else {\n        return Err(error.failure(\"zero\"))\n      }\n    }\n    _ => {}\n  }\n  Ok(fail)\n}\n",
+                    "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path) -> Result[Int, LoadError] {\n  if target != p\"/\" {\n  } else {\n    return Err(.Busy())\n  }\n  if target.is_absolute() {\n  } else {\n    return Err(.Missing(path: target))\n  }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 100 {\n  } else {\n    return Err(error.failure(error))\n  }\n  match fail {\n    0 => {\n      if error == \"\" {\n      } else {\n        return Err(error.failure(\"zero\"))\n      }\n    }\n    _ => {}\n  }\n  Ok(fail)\n}\n",
                 ),
             },
         ],
@@ -121,17 +121,6 @@ fn cases(form: SugarForm) -> &'static [Case] {
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/61-fail.xsh"),
                 core: Core::Desugared,
-            },
-            Case {
-                sugar: include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
-                core: Core::Desugared,
-            },
-            // A cause on each form, under a guard, where `because` is a name.
-            Case {
-                sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  fail .Busy() because because when target == p\"/\"\n  fail .Missing(path: target) because because\n}\n\nproc report(because: Error) -> Result[Int] {\n  fail because.message because because unless because.message == \"\"\n  Ok(1)\n}\n",
-                core: Core::Written(
-                    "error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  if target == p\"/\" {\n    return Err(.Busy(), cause: because)\n  }\n  return Err(.Missing(path: target), cause: because)\n}\n\nproc report(because: Error) -> Result[Int] {\n  if because.message == \"\" {\n  } else {\n    return Err(error.failure(because.message), cause: because)\n  }\n  Ok(1)\n}\n",
-                ),
             },
             // Under each postfix guard, as a match arm's statement, as the
             // block of a `guard`, and where `error` and `fail` are locals.

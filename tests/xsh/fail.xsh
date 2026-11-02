@@ -210,7 +210,7 @@ proc fetch(url: Str) -> Result[Str, FetchError] {
   fail .Offline() when url == ""
   match download(url) {
     Ok(body) => Ok(body)
-    Err(problem) => fail .RemoteFetch(f"fetching {url}") because problem
+    Err(problem) => return Err(.RemoteFetch(f"fetching {url}"), cause: problem)
   }
 }
 
@@ -229,7 +229,7 @@ test test_fail_returns_a_variant_of_the_declared_family {
   assert fetched(fetch("ftp://mirror")) == "remote: fetching ftp://mirror"
 }
 
-test test_fail_because_keeps_the_replaced_error_as_the_cause { |ctx|
+test test_returned_error_keeps_the_replaced_error_as_the_cause { |ctx|
   let source = r"""error FetchError = RemoteFetch | Offline
 
 proc download(url: Str) -> Result[Str] {
@@ -239,7 +239,7 @@ proc download(url: Str) -> Result[Str] {
 proc fetch(url: Str) -> Result[Str, FetchError] {
   match download(url) {
     Ok(body) => Ok(body)
-    Err(problem) => fail .RemoteFetch(f"fetching {url}") because problem
+    Err(problem) => return Err(.RemoteFetch(f"fetching {url}"), cause: problem)
   }
 }
 
@@ -247,7 +247,7 @@ proc load(url: Str) -> Result[Str] {
   match fetch(url) {
     Ok(body) => Ok(body)
     # `error` is the caught error, as a cause and beside the new message.
-    Err(error) => fail f"loading {url}: {error.message}" because error
+    Err(error) => return Err(error.failure(f"loading {url}: {error.message}"), cause: error)
   }
 }
 
@@ -268,7 +268,7 @@ print load("ftp://mirror")?
   assert "no route to ftp://mirror" in causes[1], output.stderr
 }
 
-test test_fail_variant_needs_a_declared_family_and_a_cause_an_error { |ctx|
+test test_fail_variant_needs_a_declared_family_and_a_cause_must_be_an_error { |ctx|
   let undeclared = test.run_script(
     ctx,
     "error FetchError = RemoteFetch | Offline\n\nproc fetch() -> Result[Str] {\n  fail .Offline()\n}\n",
@@ -291,29 +291,41 @@ test test_fail_variant_needs_a_declared_family_and_a_cause_an_error { |ctx|
   assert "expected Str, found FetchError" in qualified.stderr, qualified.stderr
   let wrong_cause = test.run_script(
     ctx,
-    "proc fetch() -> Result[Str] {\n  fail \"no\" because \"reasons\"\n}\n",
+    "proc fetch() -> Result[Str] {\n  return Err(error.failure(\"no\"), cause: \"reasons\")\n}\n",
   )?
   assert ! wrong_cause.success
   assert "err[check." in wrong_cause.stderr, wrong_cause.stderr
-  let missing_cause = test.run_script(ctx, "proc fetch() -> Result[Str] {\n  fail \"no\" because\n}\n")?
-  assert ! missing_cause.success
-  assert "err[parse." in missing_cause.stderr, missing_cause.stderr
 }
 
-test test_because_is_a_word_only_after_a_failure { |ctx|
-  let source = "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail   because.message   because   because unless fail.because == 2\n  Ok(1)\n}\n"
+test test_fail_because_names_the_returned_error_with_a_cause { |ctx|
+  test.expect(
+    ctx,
+    "proc fetch(problem: Error) -> Result[Str] {\n  fail \"no\" because problem\n}\n",
+    status: 2,
+    stderr: ["[parse.fail-because]", "return Err(error.failure(\"no\"), cause: problem)"],
+  )?
+  test.expect(
+    ctx,
+    "error FetchError = Offline\n\nproc fetch(problem: Error) -> Result[Str, FetchError] {\n  fail .Offline() because problem\n}\n",
+    status: 2,
+    stderr: ["[parse.fail-because]", "return Err(.Offline(), cause: problem)"],
+  )?
+}
+
+test test_because_is_an_ordinary_name { |ctx|
+  let source = "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail   because.message   unless fail.because == 2\n  Ok(1)\n}\n"
   let file = test.temp_file(ctx, name: "because.xsh", contents: bytes.from_text(source))?
   let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
-  assert file.read_text()? == "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail because.message because because unless fail.because == 2\n  Ok(1)\n}\n"
+  assert file.read_text()? == "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail because.message unless fail.because == 2\n  Ok(1)\n}\n"
   let expanded = run.capture --text "xsht" desugar $file
   assert expanded.status.exited_with(0), expanded.stderr
-  assert "return Err(error.failure(because.message), cause: because)" in expanded.stdout, expanded.stdout
+  assert "return Err(error.failure(because.message))" in expanded.stdout, expanded.stdout
   let checked = run.capture --text "xsht" check $file
   assert checked.status.exited_with(0), checked.stderr
 }
 
-test test_prefer_fail_respells_a_returned_leading_dot_error { |ctx|
+test test_prefer_fail_respells_a_returned_leading_dot_error_without_a_cause { |ctx|
   let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  return Err(.Busy()) when target.display() == \"\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n"
   let candidate = test.temp_file(ctx, name: "load.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
@@ -323,7 +335,7 @@ test test_prefer_fail_respells_a_returned_leading_dot_error { |ctx|
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "  fail .Busy() when target.display() == \"\"\n" in fixed, fixed
-  assert "    Err(problem) => fail .Missing(path: target) because problem\n" in fixed, fixed
+  assert "    Err(problem) => return Err(.Missing(path: target), cause: problem)\n" in fixed, fixed
   let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let checked = run.capture --text "xsht" check $candidate

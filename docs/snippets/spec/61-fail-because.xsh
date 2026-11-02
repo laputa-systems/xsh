@@ -10,7 +10,7 @@ proc fetch(url: Str) -> Result[Str, FetchError] {
   match download(url) {
     Ok(body) => Ok(body)
     # begin example
-    Err(problem) => fail .RemoteFetch(f"fetching {url}") because problem
+    Err(problem) => return Err(.RemoteFetch(f"fetching {url}"), cause: problem)
     # end example
   }
 }
