@@ -1498,3 +1498,9 @@ fn a_run_form_propagation_does_not_continue_with_a_member() {
     assert_parser_and_grammar_agree("let v = run a |> count() ?\n", true);
     assert_parser_and_grammar_agree("for line in run.text @words?.lines() { }\n", true);
 }
+
+#[test]
+fn a_type_name_before_a_range_is_not_a_qualified_name() {
+    assert_parser_and_grammar_agree("let v = c[y as T ..]\n", true);
+    assert_parser_and_grammar_agree("let v = c[y as T.U ..]\n", true);
+}

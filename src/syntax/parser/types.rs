@@ -2,7 +2,7 @@
 
 use super::{ArenaProgramBuilder, Name, Parser, Span, TokenKindMatch, TypeExprId};
 use crate::syntax::arena::ArenaCallableTypeExpr;
-use crate::syntax::token::Keyword;
+use crate::syntax::token::{Keyword, TokenTag};
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_type_expr(
@@ -95,7 +95,8 @@ impl<'a> Parser<'a> {
                 arena.push_non_empty_type_expr(inner, self.span(start, end))
             }
             _ => {
-                if self.consume(TokenKindMatch::Dot).is_some() {
+                if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Ident) {
+                    self.bump();
                     let ty_name = self.expect_ident("expected type name after `.`")?;
                     let end = self.previous_end();
                     arena.push_qualified_type_expr(name, ty_name, self.span(start, end))
