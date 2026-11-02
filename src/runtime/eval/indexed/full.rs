@@ -47477,6 +47477,139 @@ assert branch_text == "branch"
         });
     }
 
+    fn guard_id(index: usize) -> crate::sema::guarded_requirements::GuardScopeId {
+        crate::sema::guarded_requirements::GuardScopeId::from_index(index).unwrap()
+    }
+
+    #[test]
+    fn component_transport_rejects_forged_enclosing_packets() {
+        run_with_large_stack(|| {
+            let program = fixture("component-runtime.xsh", r#"
+pure left(name, count, depth: Int) -> Str {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) -> Str {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {found}" } else { "no count" }
+}
+assert left("a", 3, 1) == "count 3"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let (left, right) = (scheme_fixture_root_function(&program, "left"), scheme_fixture_root_function(&program, "right"));
+            let root_call = scheme_fixture_root_call(&program, "left");
+            let peer_call = scheme_fixture_call_in_function(&program, "right", "left");
+            let caller = program.invocation_applications(root_call, left, &PreparedInvocationBindings::default()).unwrap();
+            let peer = program.invocation_applications(peer_call, right, &caller).unwrap();
+            assert!(caller.layouts.guards.values().all(Option::is_some) && caller.layouts.guards.len() == 2);
+            let rejects = |label: &str, enclosing: &PreparedInvocationBindings, expected: &str| {
+                assert_eq!(program.invocation_applications(peer_call, right, enclosing).unwrap_err().message, expected, "{label}");
+            };
+            rejects("an invocation of another callable", &peer, "prepared source instruction has no callable-owned fact");
+            rejects("a guard-local packet", caller.layouts.guards[&guard_id(0)].as_ref().unwrap(), "prepared invocation belongs to another callable or root");
+
+            let mut absent = caller.clone();
+            Arc::make_mut(&mut absent.layouts).guards.remove(&guard_id(1));
+            rejects("a guard the enclosing invocation lacks", &absent, "prepared recursive guard is absent from its enclosing invocation");
+
+            let mut extra = caller.clone();
+            Arc::make_mut(&mut extra.layouts).guards.insert(guard_id(2), None);
+            rejects("a guard the callee does not own", &extra, "prepared recursive guards disagree with their enclosing invocation");
+
+            for index in 0..2 {
+                let mut flipped = caller.clone();
+                *Arc::make_mut(&mut flipped.layouts).guards.get_mut(&guard_id(index)).unwrap() = None;
+                rejects("a live source recorded as absent", &flipped, "prepared recursive guard disagrees with its actual source classification");
+
+                let mut nested = caller.clone();
+                let packet = nested_packet(&mut nested, guard_id(index));
+                Arc::make_mut(&mut packet.layouts).guards.insert(guard_id(5), None);
+                rejects("a transported packet with descendants of its own", &nested, "prepared component guard carries nested packets");
+
+                let mut foreign = caller.clone();
+                let other = peer.layouts.guards[&guard_id(1 - index)].clone();
+                Arc::make_mut(&mut foreign.layouts).guards.insert(guard_id(index), other);
+                rejects("a packet of another slot", &foreign, "component guard packet has another owner, parent or shape");
+            }
+        });
+    }
+
+    #[test]
+    fn component_transport_rejects_a_present_child_under_an_absent_parent() {
+        run_with_large_stack(|| {
+            let program = fixture("component-runtime-nested.xsh", r#"
+pure left(name, other, depth: Int) -> Str {
+    if depth > 0 { return right(other, name, depth - 1) }
+    if let found = name { if let o = other { f"name {found} {o}" } else { f"name {found}" } } else { "no name" }
+}
+pure right(other, name, depth: Int) -> Str {
+    if depth > 0 { return left(name, other, depth - 1) }
+    if let found = other { if let o = name { f"other {found} {o}" } else { f"other {found}" } } else { "no other" }
+}
+assert left(null, "b", 1) == "other b"
+assert left("a", "b", 1) == "other b a"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let (left, right) = (scheme_fixture_root_function(&program, "left"), scheme_fixture_root_function(&program, "right"));
+            let root_call = scheme_fixture_root_call(&program, "left");
+            let peer_call = scheme_fixture_call_in_function(&program, "right", "left");
+            let caller = program.invocation_applications(root_call, left, &PreparedInvocationBindings::default()).unwrap();
+            let live = |index: usize| caller.layouts.guards[&guard_id(index)].is_some();
+            assert_eq!((live(0), live(1), live(2), live(3)), (false, false, true, false));
+            program.invocation_applications(peer_call, right, &caller).unwrap();
+
+            let mut forged = caller.clone();
+            let child = caller.layouts.guards[&guard_id(2)].clone();
+            Arc::make_mut(&mut forged.layouts).guards.insert(guard_id(1), child);
+            assert_eq!(program.invocation_applications(peer_call, right, &forged).unwrap_err().message, "prepared recursive guard is present under an absent parent");
+        });
+    }
+
+    #[test]
+    fn self_recursive_guard_call_packets_reject_forged_enclosing_calls() {
+        run_with_large_stack(|| {
+            let program = fixture("component-runtime-self.xsh", r#"
+pure show(value) -> Str { if let found = value { f"got {found}" } else { "none" } }
+pure walk(value, depth: Int) -> Str {
+    if depth > 0 { return walk(value, depth - 1) }
+    show(value)
+}
+assert walk("a", 2) == "got a"
+"#);
+            FullVerifier::verify(&program).unwrap();
+            let walk = scheme_fixture_root_function(&program, "walk");
+            let root_call = scheme_fixture_root_call(&program, "walk");
+            let self_call = scheme_fixture_call_in_function(&program, "walk", "walk");
+            let caller = program.invocation_applications(root_call, walk, &PreparedInvocationBindings::default()).unwrap();
+            assert_eq!(caller.layouts.guard_calls.len(), 1);
+            program.invocation_applications(self_call, walk, &caller).unwrap();
+            let rejects = |label: &str, enclosing: &PreparedInvocationBindings, expected: &str| {
+                assert_eq!(program.invocation_applications(self_call, walk, enclosing).unwrap_err().message, expected, "{label}");
+            };
+
+            let mut fewer = caller.clone();
+            Arc::make_mut(&mut fewer.layouts).guard_calls.pop();
+            rejects("a missing forwarded guard call", &fewer, "prepared recursive guard calls disagree with their enclosing invocation");
+
+            let mut more = caller.clone();
+            let again = caller.layouts.guard_calls[0].clone();
+            Arc::make_mut(&mut more.layouts).guard_calls.push(again);
+            rejects("an extra forwarded guard call", &more, "prepared recursive guard calls disagree with their enclosing invocation");
+
+            let mut source = caller.clone();
+            Arc::make_mut(&mut source.layouts).guard_calls[0].origin.source = PreparedCallSource::EncodedInstantiation(root_call);
+            rejects("a forwarded guard call from another source", &source, "prepared recursive guard call has another origin");
+
+            let mut ordinal = caller.clone();
+            Arc::make_mut(&mut ordinal.layouts).guard_calls[0].origin.ordinal = crate::sema::guarded_requirements::GuardCallId::from_index(3).unwrap();
+            rejects("a forwarded guard call with another ordinal", &ordinal, "prepared recursive guard call has another origin");
+        });
+    }
+
+    fn nested_packet(bindings: &mut PreparedInvocationBindings, id: crate::sema::guarded_requirements::GuardScopeId) -> &mut PreparedInvocationBindings {
+        Arc::make_mut(&mut bindings.layouts).guards.get_mut(&id).unwrap().as_mut().unwrap()
+    }
+
     #[test]
     fn guarded_callable_correspondences_keep_owned_packs_and_actual_packet_origins() {
         run_with_large_stack(|| {
