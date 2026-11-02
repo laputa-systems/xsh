@@ -254,9 +254,11 @@ name a mutated local. Plain assignments to an optional local accept a generic
 value that carries the same known-argument relation as an initializer. Generic
 bodies generalize past a match arm that returns. A forwarded Map read keyed by a
 text literal no longer waits for its receiver. Comprehension filters over an
-unresolved field constrain it to Bool. The joint `ls` view then fails only in
-the verifier, in `long_line`, where a local slot read derives scheme parameter
-271 and the checked type fact names parameter 0.
+unresolved field constrain it to Bool. Repeated reads of one binding inside a
+guard scope verify against the single recorded guard read, which closes the
+`long_line` disagreement. The joint `ls` view then reaches `main`, where the
+verifier stops at its deterministic work bound for generic call type
+materialization; that bound is unchanged.
 
 An inline record argument that holds an empty list now receives the same fresh
 item variables as a `let`-bound one, so `core/lsipc.xsh` `row_for.entry` passes.
