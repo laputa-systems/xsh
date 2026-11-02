@@ -286,6 +286,19 @@ the annotation fixes. That site passed before the diagnostic and is now a
 retained contract. Empty lists whose item type no operation constrains stay
 accepted.
 
+On `51084cb9a` sources three more core sites erase alone (4,654 of 4,677): `unshare`
+`persistent_file.opts`, `env` `print_environment.environment` and `lsipc`
+`make_sysv_entry.record`. Two joint views keep one annotation as a source
+contract. In `env`, `byte_prefix.arg` and `main.raw` erase alone, but together
+nothing except a generic slice and equality with byte literals reaches the rest
+list's element type, and equality does not choose a type, so keep either one.
+In `lsipc`, `make_sysv_entry.record` and the `selection` parameters of
+`make_sysv_entry`, `posix_entry`, `posix_entries`, `row_for` and `selected_rows`
+erase alone but together fail `main`'s callable generalization with a recovery
+type; keeping any one passes. A generic `item.mark != null` over a plain `Int`
+field checks and matches the `Int?` field twin, so it is the specified optional
+injection and not a gap.
+
 ## Frozen corpus
 
 The frozen 1,040-removal view is the historical baseline. Do not change its
