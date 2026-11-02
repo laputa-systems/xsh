@@ -884,7 +884,7 @@ fn pattern_scope(decoder: &FullDecoder<'_>, pattern: u32, subject: &SchemeType, 
             let ty = actual.cloned().or_else(|| projected.as_ref().and_then(SchemeType::closed_ground_type));
             match view {
                 schema::PatternView::Literal(value) => {
-                    if ty.is_none() && matches!(projected, Some(SchemeType::Optional(_))) && value.is_null()? { return Ok(()); }
+                    if ty.is_none() && matches!(projected, Some(SchemeType::Optional(_) | SchemeType::Parameter(_))) && value.is_null()? { return Ok(()); }
                     let ty = ty.ok_or_else(|| IrVerifyError::new("generic literal pattern has no ground subject"))?;
                     value.with_scalar_view(|amount| work.borrow_mut().charge(amount), |value| {
                         if crate::runtime::eval::type_view::value_matches_static_type(value, &ty) { Ok(()) } else { Err(IrVerifyError::new("generic literal pattern disagrees with its subject")) }
@@ -5941,6 +5941,41 @@ test verify_completion_cleanup {
         let mut changed = program.clone();
         changed.store.pattern_data[boolean.unwrap()] = program.store.pattern_data[integer.unwrap()];
         assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic literal pattern disagrees with its subject");
+    }
+
+    fn literal_patterns(program: &FullProgram, owner: usize) -> BTreeMap<&'static str, usize> {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let mut found = BTreeMap::new();
+        for pattern in 0..program.store.patterns.len() {
+            if let schema::PatternView::Literal(value) = decoder.checked_pattern_view(pattern as u32).unwrap() {
+                let name = match value.materialize().unwrap() {
+                    crate::runtime::eval::LoweredValue::Null => "null",
+                    crate::runtime::eval::LoweredValue::Bool(true) => "bool",
+                    crate::runtime::eval::LoweredValue::Int(1) => "int",
+                    _ => continue,
+                };
+                found.insert(name, pattern);
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn generic_null_patterns_on_an_unresolved_subject_reject_each_other_literal() {
+        for source in [
+            "pure choose(value) -> Int { let _ = match 1 { 1 => 0; _ => 0 }; let _ = match true { true => 0; _ => 0 }; match value { null => 0; _ => 1 } }",
+            "pure choose(value) -> Int { let _ = match 1 { 1 => 0; _ => 0 }; let _ = match true { true => 0; _ => 0 }; if let x = value { 1 } else { 0 } }",
+        ] {
+            let program = prepare(source);
+            FullVerifier::verify(&program).unwrap();
+            let (owner, _) = generic_owner(&program);
+            let patterns = literal_patterns(&program, owner);
+            for other in ["int", "bool"] {
+                let mut changed = program.clone();
+                changed.store.pattern_data[patterns["null"]] = program.store.pattern_data[patterns[other]];
+                assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic literal pattern has no ground subject", "{source} with {other}");
+            }
+        }
     }
 
     #[test]

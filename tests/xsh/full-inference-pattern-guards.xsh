@@ -285,3 +285,86 @@ print deep_form(null, "b", "c")
   assert inferred.stdout == "a b\na\nnone\na b\na\nnone\na b\na\nnone\na\n-b\nnone\nabc\nab\na\nnone\n"
   assert inferred.stdout == annotated.stdout
 }
+
+test test_inferred_unused_optional_bindings_match_annotations { |ctx|
+  let source = r"""pure value_form(a: SUBJECT) -> Str { if let x = a { "present" } else { "absent" } }
+pure return_form(a: SUBJECT) -> Str {
+  if let x = a { return "present" }
+  "absent"
+}
+pure nested_form(a: SUBJECT, b: SUBJECT) -> Str {
+  if let x = a { if let y = b { "both" } else { "first" } } else { "none" }
+}
+pure forwarded_form(a: SUBJECT) -> Str { value_form(a) }
+let some: Int? = 4
+let none: Int? = null
+print value_form(5)
+print value_form(null)
+print value_form(some)
+print value_form(none)
+print return_form(5)
+print return_form(null)
+print nested_form(1, 2)
+print nested_form(1, null)
+print nested_form(null, 2)
+print forwarded_form(5)
+print forwarded_form(null)
+"""
+  let inferred = test.run_xsh(ctx, source.replace(": SUBJECT", with: ""))?
+  let annotated = test.run_xsh(ctx, source.replace("SUBJECT", with: "Int?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "present\nabsent\npresent\nabsent\npresent\nabsent\nboth\nfirst\nnone\npresent\nabsent\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_inferred_unused_optional_bindings_accept_each_payload_type { |ctx|
+  let good = test.expect(ctx, r"""pure present(a) -> Str { if let x = a { "present" } else { "absent" } }
+assert present(1) == "present"
+assert present("text") == "present"
+assert present([1, 2]) == "present"
+assert present({k: 1}) == "present"
+assert present(null) == "absent"
+""", status: 0)?
+  assert good.stderr == "", good.stderr
+}
+
+test test_inferred_null_matches_on_an_unresolved_subject_match_annotations { |ctx|
+  let source = r"""pure null_first(a: SUBJECT) -> Str { match a { null => "absent", _ => "present" } }
+pure bound(a: SUBJECT) -> Int { match a { null => 0, x => 1 } }
+pure value_arm(a: SUBJECT) -> Int { match a { null => 0, 7 => 7, _ => 1 } }
+pure nested(a: SUBJECT) -> Int { match [a] { [null] => 0, _ => 1 } }
+pure forwarded(a: SUBJECT) -> Str { null_first(a) }
+let some: Int? = 7
+let none: Int? = null
+print null_first(7)
+print null_first(null)
+print null_first(some)
+print null_first(none)
+print bound(3)
+print bound(null)
+print value_arm(7)
+print value_arm(2)
+print nested(null)
+print nested(3)
+print forwarded(null)
+print forwarded(3)
+"""
+  let inferred = test.run_xsh(ctx, source.replace(": SUBJECT", with: ""))?
+  let annotated = test.run_xsh(ctx, source.replace("SUBJECT", with: "Int?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "present\nabsent\npresent\nabsent\n1\n0\n7\n1\n0\n1\nabsent\npresent\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_inferred_null_matches_accept_each_payload_type { |ctx|
+  let good = test.expect(ctx, r"""pure absent(a) -> Bool { match a { null => true, _ => false } }
+assert absent(null)
+assert !absent(1)
+assert !absent("text")
+assert !absent([1])
+assert !absent({k: 1})
+""", status: 0)?
+  assert good.stderr == "", good.stderr
+}
