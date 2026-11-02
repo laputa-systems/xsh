@@ -32,7 +32,8 @@ print $second.len()
 let _ = paths([1])
 """)?
   assert rejected.success == false
-  assert "err[check." in rejected.stderr, rejected.stderr
+  assert "err[check.type-mismatch]: Int cannot be used here" in rejected.stderr, rejected.stderr
+  assert "used as a Path operand, which must be Str or Bytes" in rejected.stderr, rejected.stderr
 }
 
 test test_index_conversion_rejects_maps_and_dynamic_inputs { |ctx|

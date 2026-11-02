@@ -4089,6 +4089,59 @@ pure ordered(files: List[File], other: File) -> List[File] {
         }
     }
 
+    fn claimed_join_types(program: &FullProgram, owner: usize, joined_fact: usize) -> [SchemeTypeId; 2] {
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let joined_instruction = program.store.scheme_body_facts[joined_fact].instruction as usize;
+        let declaration = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtLet
+            && matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Let { value, .. }) if value.raw() as usize == joined_instruction)).unwrap();
+        let declared = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == declaration && fact.kind() == FullSchemeBodyFactKind::LocalImmutable).unwrap();
+        [program.store.scheme_body_facts[joined_fact].ty().unwrap(), declared.ty().unwrap()]
+    }
+
+    #[test]
+    fn record_branch_joins_compare_the_types_of_the_claimed_fields() {
+        for (source, name, join, message) in [
+            ("pure join_if(flag: Bool, term) -> Int { let _ = if flag { {count: 0, label: \"x\", inner: {}} } else { {count: 0, label: \"x\", inner: {TERM: term}} }; 1 }", "join_if", FullTag::ExprIf, "generic branch value disagrees with its checked contract"),
+            ("pure join_pattern(source, term) -> Int { let _ = if let present = source { {count: 0, label: \"x\", inner: {}} } else { {count: 0, label: \"x\", inner: {TERM: term}} }; 1 }", "join_pattern", FullTag::ExprPatternIf, "generic pattern branch value disagrees with its result"),
+            ("pure join_match(flag: Bool, term) -> Int { let _ = match flag { true => {count: 0, label: \"x\", inner: {}}; false => {count: 0, label: \"x\", inner: {TERM: term}} }; 1 }", "join_match", FullTag::ExprMatch, "generic match arm disagrees with its result"),
+        ] {
+            let (program, joined_fact, _) = forge_join_to_wide_branch(source, name, join);
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let mut forged = program.clone();
+            for claimed in claimed_join_types(&program, owner, joined_fact) {
+                let fields = program.store.scheme_types[claimed.index()].children.bounds(program.store.scheme_fields.len()).unwrap();
+                let field = |label: &str| fields.clone().map(|index| program.store.scheme_fields[index]).find(|field| program.store.string(field.name).unwrap() == label).unwrap();
+                let (count, label) = (field("count"), field("label"));
+                assert_ne!(program.store.scheme_types[count.ty.index()], program.store.scheme_types[label.ty.index()]);
+                forged.store.scheme_types[count.ty.index()] = program.store.scheme_types[label.ty.index()];
+            }
+            forged.store.in_place.take();
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, message, "{source}");
+        }
+    }
+
+    #[test]
+    fn record_branch_joins_reject_a_claimed_record_with_an_open_row() {
+        for (source, name, join, message) in [
+            ("pure join_if(flag: Bool, term, source) -> Int { let _ = {...source, kept: true}; let _ = if flag { {} } else { {TERM: term} }; 1 }", "join_if", FullTag::ExprIf, "generic branch value disagrees with its checked contract"),
+            ("pure join_pattern(source, term, open) -> Int { let _ = {...open, kept: true}; let _ = if let present = source { {} } else { {TERM: term} }; 1 }", "join_pattern", FullTag::ExprPatternIf, "generic pattern branch value disagrees with its result"),
+            ("pure join_match(flag: Bool, term, source) -> Int { let _ = {...source, kept: true}; let _ = match flag { true => {}; false => {TERM: term} }; 1 }", "join_match", FullTag::ExprMatch, "generic match arm disagrees with its result"),
+        ] {
+            let (program, joined_fact, _) = forge_join_to_wide_branch(source, name, join);
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let FullCallableContract::Scheme(scheme) = program.store.functions[owner].contract else { panic!("the join is generic") };
+            assert!(!program.store.scheme(scheme).unwrap().row_parameters.bounds(program.store.scheme_row_parameters.len()).unwrap().is_empty(), "the open argument owns a row");
+            let mut forged = program.clone();
+            for claimed in claimed_join_types(&program, owner, joined_fact) {
+                assert_eq!(program.store.scheme_types[claimed.index()].tag, FullSchemeTypeTag::Record);
+                assert_eq!(program.store.scheme_types[claimed.index()].first, IR_NONE);
+                forged.store.scheme_types[claimed.index()].first = 0;
+            }
+            forged.store.in_place.take();
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, message, "{source}");
+        }
+    }
+
     #[test]
     fn propagated_pipeline_placeholder_binds_its_generic_argument_through_the_try() {
         let program = prepare("proc split_records(data: Bytes, separator) [error] -> Result[Int] { let _ = separator; Ok(1) }\npure source(name: Str) -> Bytes { b\"x\" }\nproc main() [error] { let left = source(\"a\") |> split_records(_, 10)?; let _ = left }\n");
@@ -4102,6 +4155,30 @@ pure ordered(files: List[File], other: File) -> List[File] {
             arms.next().and_then(Result::ok).is_some_and(|(_, _, body)| program.store.tags[body.raw() as usize] == FullTag::ExprTry)
         });
         assert!(try_body.is_some(), "the placeholder temporary scopes a propagated call");
+    }
+
+    #[test]
+    fn a_pipeline_placeholder_is_not_bound_by_a_try_that_does_not_contain_its_use() {
+        let program = prepare("proc split_records(data: Bytes, separator) [error] -> Result[Int] { let _ = separator; Ok(1) }\npure source(name: Str) -> Bytes { b\"x\" }\nproc chain(extra) [error] { let _ = extra; let left = source(\"a\") |> split_records(_, 10)?; let right = source(\"b\") |> split_records(_, 11)?; let _ = left; let _ = right }\n");
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "chain").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let tries = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| program.store.tags[instruction] == FullTag::ExprTry).collect::<Vec<_>>();
+        assert_eq!(tries.len(), 2, "each propagated pipeline stage is a try");
+        let operand = |instruction: usize| match decoder.expression_view(instruction).unwrap() {
+            schema::ExprView::Try { value, .. } => value.raw(),
+            _ => unreachable!("the instruction is a try"),
+        };
+        let words = tries.iter().map(|&instruction| program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap()).collect::<Vec<_>>();
+        assert_eq!(program.store.extra[words[0].start], operand(tries[0]));
+        assert_eq!(program.store.extra[words[1].start], operand(tries[1]));
+        let mut forged = program.clone();
+        forged.store.extra.swap(words[0].start, words[1].start);
+        forged.store.in_place.take();
+        let error = FullVerifier::verify(&forged).expect_err("each try now holds the other stage's call");
+        assert_eq!(error.message, "generic body reads an uninitialized slot");
     }
 
     #[test]
@@ -8996,7 +9073,83 @@ pure label(opts) -> Str {
         assert!(flipped.store.in_place.get().is_none());
         flipped.store.extra[comparison_words.start] = equal as u32;
         let error = FullVerifier::verify(&flipped).expect_err("the absent branch cannot narrow the record field");
-        assert!(error.message.contains("guard") || error.message == "generic body expression disagrees with its checked type", "{error:?}");
+        assert_eq!(error.message, "guard-local body fact has no dominating non-null source proof", "{error:?}");
+    }
+
+    #[test]
+    fn a_whole_record_read_after_a_write_cannot_claim_the_narrowed_record() {
+        let program = prepare(r#"
+pure label(opts) -> Str {
+  var entry = {flag: "--mount", file: opts.mnt}
+  if entry.file != null {
+    let kept = entry
+    entry = {flag: "--other", file: opts.mnt}
+    f"{kept.flag}"
+  } else { "none" }
+}
+"#);
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "label").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let lets = range.clone().filter_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) => Some((instruction, slot, value.raw() as usize)),
+            _ => None,
+        }).collect::<Vec<_>>();
+        let param_slot = |value: usize| match decoder.expression_view(value) { Ok(schema::ExprView::Param(slot)) => Some(slot), _ => None };
+        let record_slot = lets.iter().find(|(_, _, value)| program.store.tags[*value] == FullTag::ExprRecord).unwrap().1;
+        let entry = lets.iter().find(|(_, _, value)| param_slot(*value) == Some(record_slot)).unwrap().1;
+        let kept = lets.iter().filter(|(_, _, value)| param_slot(*value) == Some(entry)).nth(1).expect("the guarded whole-record read").0;
+        let assign = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtAssign).unwrap();
+        let block = program.store.blocks.iter().position(|block| {
+            let words = block.instructions.bounds(program.store.extra.len()).unwrap();
+            program.store.extra[words.start + 1..words.end].contains(&(assign as u32)) && program.store.extra[words.start + 1..words.end].contains(&(kept as u32))
+        }).expect("the guarded block holds the read and the write");
+        let words = program.store.blocks[block].instructions.bounds(program.store.extra.len()).unwrap();
+        let statements = program.store.extra[words.start + 1..words.end].to_vec();
+        let (read_at, write_at) = (statements.iter().position(|&id| id as usize == kept).unwrap(), statements.iter().position(|&id| id as usize == assign).unwrap());
+        assert!(read_at < write_at);
+        let mut reordered = statements.clone();
+        let moved = reordered.drain(read_at..read_at + 2).collect::<Vec<_>>();
+        let write_at = write_at - moved.len();
+        reordered.splice(write_at + 1..write_at + 1, moved);
+        let mut forged = program.clone();
+        forged.store.extra[words.start + 1..words.end].copy_from_slice(&reordered);
+        forged.store.in_place.take();
+        let error = FullVerifier::verify(&forged).expect_err("a record rewritten before the read is not narrowed");
+        assert_eq!(error.message, "generic body expression disagrees with its checked type");
+    }
+
+    #[test]
+    fn a_loop_local_cannot_redeclare_the_slot_a_null_guard_dominates() {
+        let program = prepare(r#"
+pure differs(left, right) -> Bool { left != right }
+pure total(record) -> Int? {
+  let id = record.id
+  if id == null { return null }
+  var sum = 0
+  for index in range(3) { sum += id + index }
+  sum
+}
+"#);
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "total").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let lets = program.store.function_instruction_range(owner).unwrap().filter_map(|instruction| match decoder.statement_view(instruction) {
+            Ok(schema::StmtView::Let { slot, value, .. }) => Some((instruction, slot, value.raw() as usize)),
+            _ => None,
+        }).collect::<Vec<_>>();
+        let guarded = lets.iter().find(|(_, _, value)| program.store.tags[*value] == FullTag::ExprField).unwrap().1;
+        let (inner, inner_slot, _) = *lets.last().unwrap();
+        assert!(inner_slot > guarded);
+        let words = program.store.data[inner].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[words.start] as usize, inner_slot);
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.extra[words.start] = guarded as u32;
+        let error = FullVerifier::verify(&forged).expect_err("the loop body cannot declare the guarded slot again");
+        assert_eq!(error.message, "scoped producer declaration overwrites an active lexical slot");
     }
 
     #[test]
@@ -9023,7 +9176,7 @@ pure total(record) -> Int? {
         assert!(flipped.store.in_place.get().is_none());
         flipped.store.extra[comparison_words.start] = not_equal as u32;
         let error = FullVerifier::verify(&flipped).expect_err("the guard that exits on non-null cannot narrow the loop read");
-        assert!(error.message.contains("guard") || error.message == "generic body expression disagrees with its checked type", "{error:?}");
+        assert_eq!(error.message, "guard-local body fact has no dominating non-null source proof", "{error:?}");
     }
 
     #[test]
@@ -9379,7 +9532,7 @@ observe()?
         let binding = call.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap().start;
         let (FullGuardBinding::NonNull(local) | FullGuardBinding::Optional(local)) = program.store.call_guard_bindings[binding] else { panic!("the named output is a live guard source") };
         let arguments = local.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
-        assert!(arguments.len() >= 2, "the guard owns its view and its nested call's binders");
+        assert_eq!(arguments.len(), 2, "the guard owns its view and its nested call's binders");
         let int = program.store.call_type_arguments[arguments.start].ty;
         for index in arguments {
             let node = program.store.call_type_arguments[index].ty;
