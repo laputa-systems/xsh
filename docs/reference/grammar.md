@@ -551,7 +551,7 @@ run_option_value = codec_schema_argument
                  | !( "codec" ~"." ~"decode_as" ~"(" | "codec" ~"." ~"read_as" ~"(" ) IDENT &( ~"." | ~"(" | ~"[" ) glued_postfix+ !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" )
                  | !( INT | DURATION | IDENT ) primary glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) ;
 run_argument = !( "{" | ">" | ">>" | "<" | "E>" | "E>>" | "2" ~">" | "2" ~">>" ) command_argument ;
-redirection = ( ">" | ">>" | "<" | "2" ~">" | "2" ~">>" | ">" "&" | "<" "&" ) ( BYTES glued_postfix* | command_argument ) ;
+redirection = ( ">" | ">>" | "<" | "2" ~">" | "2" ~">>" | ">" "&" | "<" "&" ) ( BYTES glued_postfix* !( ~"." MEMBER | ~"?" ~"." MEMBER | ~"[" | ~"?" ~"[" | ~"(" | ~"?" ) | !BYTES command_argument ) ;
 ```
 
 ## Stream stages

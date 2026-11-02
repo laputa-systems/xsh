@@ -2811,8 +2811,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     seq([t(T::Lt), t(T::Amp)]),
                 ]),
                 alt([
-                    seq([t(T::Bytes), star(r("glued_postfix"))]),
-                    r("command_argument"),
+                    seq([t(T::Bytes), star(r("glued_postfix")), not(postfix_starts())]),
+                    seq([not([vec![tag_term(T::Bytes)]]), r("command_argument")]),
                 ]),
             ]),
         ),

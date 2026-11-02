@@ -1452,3 +1452,9 @@ fn a_run_form_that_propagates_takes_no_call_suffix() {
     }
     assert_parser_and_grammar_agree("let value = run a?.lines()\n", true);
 }
+
+#[test]
+fn bytes_redirection_targets_leave_the_run_its_propagation() {
+    assert_parser_and_grammar_agree("atomically replace run.bytes x > b\"x\"? as y { }\n", false);
+    assert_parser_and_grammar_agree("let a = run.bytes x > b\"x\"?\n", true);
+}
