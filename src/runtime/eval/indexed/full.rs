@@ -595,6 +595,33 @@ enum CheckedRecordEntry {
     Spread(usize),
 }
 
+#[derive(Default)]
+struct RecordWriteVisibility {
+    written: BTreeSet<Name>,
+    exposed: BTreeSet<Name>,
+}
+
+impl RecordWriteVisibility {
+    fn field(&mut self, name: Name) {
+        self.written.insert(name);
+        self.exposed.remove(&name);
+    }
+
+    fn spread(&mut self, named: BTreeSet<Name>) {
+        self.exposed.extend(self.written.iter().filter(|name| !named.contains(*name)).copied());
+        self.exposed.retain(|name| !named.contains(name));
+        self.written.extend(named);
+    }
+
+    fn finish(self) -> Result<(), IrVerifyError> {
+        if self.exposed.is_empty() {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new("record field precedes a spread whose type does not name it"))
+        }
+    }
+}
+
 enum CheckedRecordFieldWriter {
     Value(usize),
     Spread { instruction: usize, fields: Arc<Type> },
@@ -10284,13 +10311,29 @@ impl<'a> FullDecoder<'a> {
         mut spread_type: impl FnMut(usize) -> Result<Arc<Type>, IrVerifyError>,
     ) -> Result<BTreeMap<Name, CheckedRecordFieldWriter>, IrVerifyError> {
         let mut writers = BTreeMap::new();
-        for entry in self.checked_record_entries(entries)?.into_iter().rev() {
+        let mut visibility = RecordWriteVisibility::default();
+        let mut sources = Vec::new();
+        let entries = self.checked_record_entries(entries)?;
+        for entry in &entries {
+            match entry {
+                CheckedRecordEntry::Field(name, _) => visibility.field(*name),
+                CheckedRecordEntry::Spread(instruction) => {
+                    let fields = spread_type(*instruction)?;
+                    let Type::Record(source_fields) = fields.unvalidated() else { return Err(IrVerifyError::new("checked record spread has no record field contract")) };
+                    visibility.spread(source_fields.keys().copied().collect());
+                    sources.push(fields);
+                }
+            }
+        }
+        visibility.finish()?;
+        let mut sources = sources.into_iter().rev();
+        for entry in entries.into_iter().rev() {
             match entry {
                 CheckedRecordEntry::Field(name, value) => {
                     writers.entry(name).or_insert(CheckedRecordFieldWriter::Value(value));
                 }
                 CheckedRecordEntry::Spread(instruction) => {
-                    let fields = spread_type(instruction)?;
+                    let fields = sources.next().ok_or_else(|| IrVerifyError::new("checked record spread lost its field contract"))?;
                     let Type::Record(source_fields) = fields.unvalidated() else { return Err(IrVerifyError::new("checked record spread has no record field contract")) };
                     for name in source_fields.keys() {
                         writers.entry(*name).or_insert_with(|| CheckedRecordFieldWriter::Spread { instruction, fields: Arc::clone(&fields) });
@@ -12454,12 +12497,14 @@ impl<'a> FullDecoder<'a> {
             ));
         };
         let mut fields = BTreeMap::new();
+        let mut visibility = RecordWriteVisibility::default();
         for entry in self.checked_record_entries(&mut entries)? {
             match entry {
                 CheckedRecordEntry::Field(name, value) => {
                     let Some(field_type) = self.derive_checked_expression_type(value)? else {
                         return Ok(None);
                     };
+                    visibility.field(name);
                     fields.insert(name, field_type);
                 }
                 CheckedRecordEntry::Spread(value) => {
@@ -12469,10 +12514,12 @@ impl<'a> FullDecoder<'a> {
                     let Type::Record(source_fields) = source_type.into_unvalidated() else {
                         return Ok(None);
                     };
+                    visibility.spread(source_fields.keys().copied().collect());
                     fields.extend(source_fields.iter().map(|(name, ty)| (*name, ty.clone())));
                 }
             }
         }
+        visibility.finish()?;
         Ok(Some(Type::Record(fields.into())))
     }
 

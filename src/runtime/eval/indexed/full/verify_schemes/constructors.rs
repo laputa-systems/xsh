@@ -52,6 +52,7 @@ impl<F: FnMut(usize, &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVer
         let schema::ExprView::Record(mut entries) = self.decoder.expression_view(instruction)? else { return Err(IrVerifyError::new("record producer has another physical shape")) };
         let mut fields = BTreeMap::new();
         let mut has_spread = false;
+        let mut visibility = super::super::RecordWriteVisibility::default();
         let mut tail = SchemeRowTail::Closed;
         for entry in &mut entries {
             budget.charge(1)?;
@@ -59,6 +60,7 @@ impl<F: FnMut(usize, &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVer
                 super::super::decode::RecordEntryView::Field(name, value) => {
                     if fields.contains_key(&name) && !has_spread { return Err(IrVerifyError::new("generic record producer repeats a field")); }
                     fields.insert(name, self.child(value.raw() as usize, depth + 1, budget)?);
+                    visibility.field(name);
                 }
                 super::super::decode::RecordEntryView::Spread(value) => {
                     has_spread = true;
@@ -84,10 +86,12 @@ impl<F: FnMut(usize, &mut SchemeInstantiationBudget) -> Result<SchemeType, IrVer
                         if tail != SchemeRowTail::Closed && tail != spread_tail { return Err(IrVerifyError::new("generic record spreads disagree on their row domain")); }
                         tail = spread_tail;
                     }
+                    visibility.spread(spread.keys().copied().collect());
                     fields.extend(spread);
                 }
             }
         }
+        visibility.finish()?;
         budget.charge(fields.len())?;
         if fields.values().any(ProducerShape::has_empty) { Ok(ProducerShape::Record { fields, tail }) }
         else { Ok(ProducerShape::Typed(SchemeType::Record {
@@ -167,6 +171,74 @@ mod tests {
         let decoder = function_view_decoder(&program.store, owner);
         let schema::ExprView::Record(fields) = decoder.expression_view(instruction).unwrap() else { panic!("the selected instruction is a record") };
         program.store.blocks[fields.block_identity_for_test().index()].instructions.bounds(program.store.extra.len()).unwrap()
+    }
+
+    fn move_record_spreads_after_fields(program: &mut FullProgram, record: usize) {
+        let words = entries(program, record);
+        let extra = &mut program.store.extra;
+        let count = extra[words.start] as usize;
+        let mut position = words.start + 1;
+        let (mut fields, mut spreads) = (Vec::new(), Vec::new());
+        for _ in 0..count {
+            let width = match extra[position] { 0 => 3, 1 => 2, tag => panic!("record entry tag {tag}") };
+            let target = if extra[position] == 0 { &mut fields } else { &mut spreads };
+            target.extend_from_slice(&extra[position..position + width]);
+            position += width;
+        }
+        let reordered = fields.into_iter().chain(spreads).collect::<Vec<_>>();
+        assert_ne!(reordered, extra[words.start + 1..position], "the spread already follows every field");
+        extra[words.start + 1..position].copy_from_slice(&reordered);
+    }
+
+    fn spread_record(program: &FullProgram, function: &str) -> usize {
+        let owner = program.store.functions.iter().position(|candidate| program.store.string(candidate.name).unwrap() == function).unwrap();
+        let decoder = function_view_decoder(&program.store, owner);
+        let mut records = program.store.function_instruction_range(owner).unwrap().filter(|&instruction| {
+            let Ok(schema::ExprView::Record(mut entries)) = decoder.expression_view(instruction) else { return false };
+            entries.any(|entry| matches!(entry, Ok(super::super::super::decode::RecordEntryView::Spread(_))))
+        });
+        let record = records.next().expect("the function builds a record with a spread");
+        assert!(records.next().is_none(), "the function builds one record with a spread");
+        record
+    }
+
+    fn swap_record_spreads(program: &mut FullProgram, record: usize) {
+        let words = entries(program, record);
+        assert_eq!(&program.store.extra[words.start..words.start + 2], &[2, 1]);
+        assert_eq!(program.store.extra[words.start + 3], 1);
+        program.store.extra.swap(words.start + 2, words.start + 4);
+    }
+
+    #[test]
+    fn a_record_spread_after_a_field_its_type_does_not_name_is_rejected() {
+        let message = "record field precedes a spread whose type does not name it";
+        let cases: [(&str, &str, fn(&mut FullProgram, usize)); 3] = [
+            ("pure join(flag: Bool, term) -> Int { let r = if flag { {} } else { {TERM: term} }; let m = {...r, TERM: 1}; m.TERM + 1 }\n", "join", move_record_spreads_after_fields),
+            ("type Base = {name: Str}\ntype Quiet = {name: Str, act: pure() -> Int}\npure quiet() -> Int { 1 }\npure go(r: Base) -> Int { let m: Quiet = {...r, act: quiet}; m.act() }\n", "go", move_record_spreads_after_fields),
+            ("type Seed = {x: Int}\ntype Full = {name: Str, x: Int}\npure merge(seed: Seed, full: Full, term) -> Int { let _ = term; let m = {...seed, ...full}; m.x }\n", "merge", swap_record_spreads),
+        ];
+        for (source, function, forge) in cases {
+            let program = prepare_source(source);
+            let record = spread_record(&program, function);
+            let mut forged = program.clone();
+            forge(&mut forged, record);
+            forged.store.in_place.take();
+            let error = FullVerifier::verify(&forged).expect_err(source);
+            assert_eq!(error.message, message, "{source}");
+        }
+    }
+
+    #[test]
+    fn a_derived_record_type_rejects_a_field_a_later_spread_could_replace() {
+        let program = prepare_source("pure build() -> Int { let m = {...{name: \"n\"}, TERM: 1}; m.TERM }\n");
+        let record = spread_record(&program, "build");
+        let owner = program.store.functions.iter().position(|candidate| program.store.string(candidate.name).unwrap() == "build").unwrap();
+        let derived = function_view_decoder(&program.store, owner).derive_checked_expression_type(record).unwrap().expect("a literal spread derives its record type");
+        assert!(matches!(derived, Type::Record(fields) if fields.len() == 2));
+        let mut forged = program.clone();
+        move_record_spreads_after_fields(&mut forged, record);
+        let error = function_view_decoder(&forged.store, owner).derive_checked_expression_type(record).unwrap_err();
+        assert_eq!(error.message, "record field precedes a spread whose type does not name it");
     }
 
     #[test]

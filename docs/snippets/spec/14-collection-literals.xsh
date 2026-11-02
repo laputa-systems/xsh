@@ -3,7 +3,7 @@ const output = "app"
 const root = p"src"
 const ext = "c"
 const defaults = {jobs: 1, verbose: false}
-const overrides = {jobs: 8}
+const overrides = {jobs: 8, verbose: true}
 # begin example
 let argv = ["cc", @flags, "-o", output]
 let entry = {name: "core", path: root, "content-type": "text/plain"}

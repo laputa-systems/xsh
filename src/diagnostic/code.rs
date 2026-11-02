@@ -436,6 +436,7 @@ diagnostic_codes! {
         CheckSpawnRunKind = "check.spawn-run-kind", error, "Reject `spawn run` with a form other than `run` or `run.status`";
         CheckSpawnRunShape = "check.spawn-run-shape", error, "Reject `spawn run` without exactly one run segment";
         CheckSpliceTarget = "check.splice-target", error, "Reject an `@` splice of a value that is not a `List` or in a position that disallows splices";
+        CheckSpreadHidesField = "check.spread-hides-field", error, "Reject a field written before a record spread whose operand type does not name it";
         CheckSpreadNotRecord = "check.spread-not-record", error, "Reject a record spread of a value that is not a record";
         CheckStandardModuleAlias = "check.standard-module-alias", error, "Reject aliasing a standard module in `use`";
         CheckStandardModuleShadow = "check.standard-module-shadow", error, "Reject a binding that shadows a standard module or the built-in `args`";

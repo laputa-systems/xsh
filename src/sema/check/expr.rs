@@ -2256,6 +2256,8 @@ impl Checker {
         let mut open_spread = None;
         let mut overrides = Vec::new();
         let mut last_span = span;
+        let mut writer_spans: BTreeMap<Name, Span> = BTreeMap::new();
+        let mut exposed: BTreeMap<Name, (Span, Span)> = BTreeMap::new();
         for field in fields {
             match &field.kind {
                 ArenaRecordFieldKind::Computed { .. } => {
@@ -2270,7 +2272,14 @@ impl Checker {
                     match ty {
                         Type::Record(spread_fields) => {
                             let spread_origins = self.local_aggregate_spread_fields(arena.arena.expr(*expr).span);
+                            for (written, writer) in &writer_spans {
+                                if !spread_fields.contains_key(written) {
+                                    exposed.entry(*written).or_insert((*writer, last_span));
+                                }
+                            }
                             for (k, v) in spread_fields.iter() {
+                                exposed.remove(k);
+                                writer_spans.insert(*k, last_span);
                                 record.insert(*k, v.clone());
                                 if let Some(origins) = &mut origins {
                                     origins.insert(*k, spread_origins.as_ref().and_then(|fields| fields.get(k)).copied().flatten());
@@ -2341,6 +2350,8 @@ impl Checker {
                         self.expect_type(field_expected, &ty, value_span);
                     }
                     if open_spread.is_some() { overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: ty.clone() }); }
+                    exposed.remove(name);
+                    writer_spans.insert(*name, field_span);
                     record.insert(*name, ty);
                     if let Some(origins) = &mut origins { origins.insert(*name, Some(*value)); }
                 }
@@ -2370,6 +2381,8 @@ impl Checker {
                         self.expect_type(field_expected, &ty, field_span);
                     }
                     if open_spread.is_some() { overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: ty.clone() }); }
+                    exposed.remove(name);
+                    writer_spans.insert(*name, field_span);
                     record.insert(*name, ty);
                     if let Some(origins) = &mut origins { origins.insert(*name, None); }
                 }
@@ -2387,6 +2400,16 @@ impl Checker {
                     );
                 }
             }
+        }
+        for (name, (writer, spread)) in exposed {
+            let message = format!("field `{name}` is written before a spread whose type does not name it, so the spread may replace it with a field of another type");
+            self.diagnostics.push(
+                Diagnostic::error(message.clone())
+                    .with_code(DiagnosticCode::CheckSpreadHidesField)
+                    .with_label(Label::primary(writer, message))
+                    .with_label(Label::secondary(spread, "this spread's type does not name the field"))
+                    .with_note(format!("write `{name}` after the spread, or name `{name}` in the type of the spread's operand")),
+            );
         }
         if let Some(origins) = origins { self.record_local_aggregate_fields(span, origins); }
         if let Some(receiver) = open_spread {

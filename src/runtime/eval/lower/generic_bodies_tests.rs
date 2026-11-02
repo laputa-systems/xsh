@@ -1306,7 +1306,7 @@ fn generic_construction_operands_preserve_order_and_first_failure() {
             assert_eq!(fields.get("built"), Some(&expected), "{operation}");
         }
     }
-    for operation in ["{...{items: [], first: [1][first]}, ...{items: [7]}, second: [2][second]}", "f\"{[1][first]}:{[2][second]}\"", "[@[[1][first]], [2][second]]", "{...{first: [1][first]}, second: [2][second]}", "{[0]: [1][first], [1]: [2][second]}"] {
+    for operation in ["{...{items: [], first: [1][first]}, ...{items: [7]}, first: 99, second: [2][second]}", "f\"{[1][first]}:{[2][second]}\"", "[@[[1][first]], [2][second]]", "{...{first: [1][first]}, second: [2][second]}", "{[0]: [1][first], [1]: [2][second]}"] {
         let source = format!("pure keep(value, first: Int, second: Int) {{ let _ = value; {operation} }}\npure number() {{ keep(7, 1, 2) }}\n");
         let mut sources = SourceMap::default();
         let source_id = sources.add_file("generic-construction-failure.xsh", source.clone());
@@ -3428,11 +3428,11 @@ fn generic_nonmaterial_constructors_execute_after_frontend_disposal() {
         "let _ = map.empty();",
         "let _ = [];",
         "let state = {...{items: []}, ...{items: [7]}, payload};",
-        "let state = {...{items: [], payload}, ...{items: [7]}};",
-        "let fixed = {other: 1}; let state = {...{items: [], ...fixed, payload}, ...{items: [7]}};",
+        "let state = {...{items: [], payload}, ...{items: [7]}, payload};",
+        "let fixed = {other: 1}; let state = {...{...fixed, items: [], payload}, ...{items: [7], other: 2}, payload};",
         "let state = {...{nested: {items: []}}, ...{nested: {items: [7]}}, payload};",
         "let state = {items: map.empty(), ...{items: {[\"key\"]: 7}}, payload};",
-        "let state = {...{items: map.empty(), payload}, ...{items: {[\"key\"]: 7}}};",
+        "let state = {...{items: map.empty(), payload}, ...{items: {[\"key\"]: 7}}, payload};",
         "let _ = {items: [], payload};",
         "let _ = {items: map.empty(), payload};",
     ] {

@@ -2085,9 +2085,9 @@ mod tests {
     }
 
     #[test]
-    fn nested_aggregate_surviving_field_before_unrelated_spread_is_inferred() {
+    fn nested_aggregate_surviving_field_after_unrelated_spread_is_inferred() {
         with_checked_local_source(
-            "pure sample() -> Int { var state = {items: [], ...{count: 7}}; state = {...state, items: [7]}; state.count }",
+            "pure sample() -> Int { var state = {...{count: 7}, items: []}; state = {...state, items: [7]}; state.count }",
             |output| {
                 assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
                 let Type::Record(fields) = output.local_binding_types.values().next().expect("state binding") else { panic!("record binding") };

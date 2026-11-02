@@ -893,9 +893,11 @@ diagnostic carries the rewrite to the method, `set.add(item)`.
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
 a schema that names fewer. The builtin `Record` type erases field knowledge.
-Branches that yield records join at the first branch's fields, so a later
-branch may carry extra fields but may not omit one; the same holds when the
-fields have an inferred generic type.
+Branches that yield records join at the first branch's fields: a later branch
+may carry fields the joined type does not name, but may not omit one it names;
+the same holds when the fields have an inferred generic type. A record's static
+type is a lower bound, so a field it does not name may still be present; a
+record spread (6.4) rejects any field it could replace with such a field.
 
 Lists, maps, sets, and records have value semantics: assigning, passing, or storing
 one behaves as a copy, so mutating a `var` never changes another binding
@@ -1963,7 +1965,15 @@ narrows it.
   with the `type: v` field to write.
   Later spreads replace earlier fields, and explicit fields after a spread
   replace earlier fields. Every entry evaluates once in source order. An
-  explicit field repeated before any spread is an error.
+  explicit field repeated before any spread is an error. A spread operand's
+  type is a lower bound (4.5), so the value may carry a field the type does not
+  name and the spread would replace the earlier field with it. A field written
+  before a spread, explicit or supplied by an earlier spread, therefore must be
+  named by that spread's operand type or be written again after the spread;
+  otherwise it is `check.spread-hides-field`. Write the field after the spread
+  (`{...r, TERM: 1}`) or name it in the operand's type. The type of a field is
+  that of the last entry that names it, so a spread that names the field takes
+  its type, optional or not, from the operand.
 - **Maps.** A computed key `[expr]: value` makes a brace literal a map, as does
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace

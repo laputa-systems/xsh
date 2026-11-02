@@ -370,3 +370,118 @@ last
     ["check.duplicate-record-field"],
   )
 }
+
+test test_checker_record_spread_rejects_a_field_a_wider_argument_replaces { |ctx|
+  expect_rejected(
+    ctx,
+    r"""type Base = {name: Str}
+type Wide = {name: Str, TERM: Str}
+pure overlay(r: Base) -> Int {
+  let m = {TERM: 1, ...r}
+  m.TERM + 1
+}
+let wide: Wide = {name: "n", TERM: "s"}
+print (overlay(wide))
+""",
+    ["check.spread-hides-field"],
+  )
+  expect_rejected(
+    ctx,
+    "type Base = {name: Str}\npure keep(r: Base, TERM: Int) -> Int {\n  let m = {TERM, ...r}\n  m.TERM + 1\n}\n",
+    ["check.spread-hides-field"],
+  )
+}
+
+test test_checker_record_spread_rejects_a_field_a_joined_branch_replaces { |ctx|
+  for term in ["term", "term: Str"] {
+    expect_rejected(
+      ctx,
+      f"""pure join(flag: Bool, {term}) -> Int {{
+  let r = if flag {{ {{}} }} else {{ {{TERM: term}} }}
+  let m = {{TERM: 1, ...r}}
+  m.TERM + 1
+}}
+print (join(false, "s"))
+""",
+      ["check.spread-hides-field"],
+    )
+  }
+}
+
+test test_checker_record_spread_rejects_a_pure_field_a_proc_replaces { |ctx|
+  expect_rejected(
+    ctx,
+    r"""type Base = {name: Str}
+type Loud = {name: Str, act: proc() [io] -> Int}
+type Quiet = {name: Str, act: pure() -> Int}
+proc noisy() [io] -> Int { print "side effect"; 7 }
+pure quiet() -> Int { 1 }
+pure go(r: Base) -> Int {
+  let m: Quiet = {act: quiet, ...r}
+  m.act()
+}
+proc main() [io] {
+  let loud: Loud = {name: "n", act: noisy}
+  print (go(loud))
+}
+""",
+    ["check.spread-hides-field"],
+  )
+}
+
+test test_checker_record_spread_rejects_a_field_a_later_spread_replaces { |ctx|
+  expect_rejected(
+    ctx,
+    r"""type Base = {name: Str}
+type Seeded = {x: Int}
+type Wide = {name: Str, x: Str}
+pure merge(seed: Seeded, r: Base) -> Int {
+  let m = {...seed, ...r}
+  m.x + 1
+}
+let wide: Wide = {name: "n", x: "s"}
+print (merge({x: 1}, wide))
+""",
+    ["check.spread-hides-field"],
+  )
+}
+
+test test_checker_record_spread_keeps_fields_it_names_or_that_follow_it { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type Base = {name: Str}
+type Wide = {name: Str, TERM: Str}
+type Named = {name: Str, TERM: Int}
+pure after(r: Base) -> Int {
+  let m = {...r, TERM: 1}
+  m.TERM + 1
+}
+pure named(r: Named) -> Int {
+  let m = {TERM: 1, ...r}
+  m.TERM + 1
+}
+pure shadowed(r: Base) -> Int {
+  let m = {TERM: 1, ...r, TERM: 2}
+  m.TERM + 1
+}
+pure from_literal() -> Int {
+  let m = {TERM: 1, ...{TERM: 5}}
+  m.TERM + 1
+}
+pure join(flag: Bool, term) -> Int {
+  let r = if flag { {} } else { {TERM: term} }
+  let m = {...r, TERM: 1}
+  m.TERM + 1
+}
+let wide: Wide = {name: "n", TERM: "s"}
+let labelled: Named = {name: "n", TERM: 40}
+print (after(wide))
+print (named(labelled))
+print (shadowed(wide))
+print (from_literal())
+print (join(false, "s"))
+""",
+    status: 0,
+  )?
+  assert output.stdout == "2\n41\n3\n6\n2\n", output.stdout
+}
