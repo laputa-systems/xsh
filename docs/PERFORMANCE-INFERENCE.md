@@ -247,6 +247,30 @@ no timing or performance qualification. Later guarded-record repairs close the
 two recorded `nc` verifier failures. Remaining failures require classification
 and repair before current-corpus closure.
 
+A closure replay on the private core parameter view repairs five classes and
+raises the single-site count from 4,624 to 4,636 of 4,677. Generic call
+arguments now close through `byte_at`, optional fallbacks and record fields that
+name a mutated local. Plain assignments to an optional local accept a generic
+value that carries the same known-argument relation as an initializer. Generic
+bodies generalize past a match arm that returns. A forwarded Map read keyed by a
+text literal no longer waits for its receiver. Comprehension filters over an
+unresolved field constrain it to Bool. The joint `ls` view then fails only in
+the verifier, in `long_line`, where a local slot read derives scheme parameter
+271 and the checked type fact names parameter 0.
+
+Two failures remain open. An inline record argument that holds an empty list
+(`core/lsipc.xsh` `row_for.entry`, `core/smartctl.xsh` `finish.session`) leaves
+the list item as a recovery type, because only a let-bound aggregate receives
+fresh item holes; the same value bound by `let` first passes.
+
+`core/iw.xsh` `selected.words` and `help_text.words` each erase alone but not
+together. With both erased, nothing but the empty-list arguments of
+`help_text([], ...)` reaches the element variable, whose only requirement is an
+equality with `Str`. The variable escapes into every caller up to `main`, and
+the generalized `main` then fails to lower. Keep one of the two annotations, or
+type the empty lists, as a source contract. The check should reject this
+program with a diagnostic instead of a `function_blocker` lowering error.
+
 ## Frozen corpus
 
 The frozen 1,040-removal view is the historical baseline. Do not change its
