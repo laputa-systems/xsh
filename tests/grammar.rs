@@ -1466,3 +1466,11 @@ fn context_scopes_followed_by_conversions_and_pattern_tests_are_values() {
     }
     assert_parser_and_grammar_agree("env (t)\n{ } as L { }\n", false);
 }
+
+#[test]
+fn a_test_name_head_is_a_declaration_never_a_command() {
+    assert_parser_and_grammar_agree("test b { }\n", true);
+    assert_parser_and_grammar_agree("test -f x\n", true);
+    assert_parser_and_grammar_agree("test b ( a < c )\n", false);
+    assert_parser_and_grammar_agree("test b\n", false);
+}

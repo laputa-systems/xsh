@@ -2354,6 +2354,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         vec![word_term("atomically", false), word_term("replace", false)],
                         vec![word_term("exit", false)],
                         vec![word_term("fail", false)],
+                        vec![word_term("test", false), tag_term(T::Ident)],
+                        vec![word_term("test", false), tag_term(T::ProcIdent)],
                     ]),
                     Item::NameStatement(NameStatementForm::ProcCommand),
                     seq([
