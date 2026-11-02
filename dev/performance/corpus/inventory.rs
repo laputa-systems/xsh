@@ -238,9 +238,6 @@ fn inventory_child(
         ArenaChild::TypeExpr(id) => arena.for_each_type_expr_child(id, |child| {
             inventory_child(sites, project, revision, relative, source, arena, child)
         }),
-        ArenaChild::BuilderBlock(id) => arena.for_each_builder_child(id, |child| {
-            inventory_child(sites, project, revision, relative, source, arena, child)
-        }),
     }
 }
 
