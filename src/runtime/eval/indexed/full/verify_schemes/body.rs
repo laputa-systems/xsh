@@ -9180,7 +9180,17 @@ observe()?
         assert!(!matches!(foreign.store.call_guard_bindings[relay_binding], FullGuardBinding::Recursive));
         foreign.store.call_guard_bindings[relay_binding] = FullGuardBinding::Recursive;
         let error = FullVerifier::verify(&foreign).unwrap_err();
-        assert!(error.message == "guard call origin disagrees with its actual target binding" || error.message == "recursive guard binding is outside its own callable", "{error:?}");
+        assert_eq!(error.message, "guard call origin disagrees with its actual target binding", "{error:?}");
+
+        let mut non_component = program.clone();
+        let relay_scheme = match non_component.store.functions[function("relay")].contract { super::super::super::FullCallableContract::Scheme(id) => id, _ => panic!("relay is generic") };
+        let relay_calls = non_component.store.schemes[relay_scheme.index()].guard_calls.bounds(non_component.store.scheme_guard_calls.len()).unwrap();
+        assert_eq!((relay_calls.len(), relay_calls.end), (1, non_component.store.scheme_guard_calls.len()));
+        non_component.store.scheme_guard_calls.pop();
+        non_component.store.schemes[relay_scheme.index()].guard_calls = crate::runtime::eval::indexed::IrRange::default();
+        non_component.store.call_guard_bindings[relay_binding] = FullGuardBinding::Recursive;
+        let error = FullVerifier::verify(&non_component).unwrap_err();
+        assert_eq!(error.message, "component guard slot disagrees with its caller slot", "a call outside the component reaches the table-shape check: {error:?}");
 
         let mut shifted = program.clone();
         let arguments = shifted.store.call_instantiations[recursive].arguments;
@@ -9331,7 +9341,7 @@ observe()?
         let owner_row = foreign.store.scheme_guards[right_rows.start + 1];
         foreign.store.scheme_guards[transported].source_instruction = owner_row.source_instruction;
         foreign.store.scheme_guards[transported].comparison_instruction = owner_row.comparison_instruction;
-        rejects("a transported slot cannot claim its owner's body", foreign, &["guard source or comparison leaves its callable", "guard scope and its parent disagree about their body"]);
+        rejects("a transported slot cannot claim its owner's body", foreign, &["guard source or comparison leaves its callable"]);
 
         let mut claimed = program.clone();
         let facts = claimed.store.schemes[scheme_of(&claimed, left).index()].body_facts.bounds(claimed.store.scheme_body_facts.len()).unwrap();
@@ -9353,6 +9363,264 @@ observe()?
         assert_ne!(record.store.scheme_type_parameters[binders.start].conversions, 0);
         record.store.scheme_type_parameters[binders.start].conversions = 0;
         rejects("a transported slot record must equal its peer record", record, &["component guard slot disagrees with its caller slot"]);
+    }
+
+    struct ComponentFixture { program: FullProgram, own: usize, transported: usize }
+
+    fn component_fixture(source: &str) -> ComponentFixture {
+        let mut program = prepare(source);
+        program.store.in_place.take();
+        let left = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "left").unwrap();
+        let super::super::super::FullCallableContract::Scheme(id) = program.store.functions[left].contract else { panic!("left is generic") };
+        let rows = program.store.schemes[id.index()].guards.bounds(program.store.scheme_guards.len()).unwrap();
+        assert_eq!(rows.len(), 2);
+        let (own, transported) = (rows.start, rows.start + 1);
+        assert!(program.store.scheme_guards[own].has_body() && !program.store.scheme_guards[transported].has_body());
+        ComponentFixture { program, own, transported }
+    }
+
+    fn wrap_in_list(program: &mut FullProgram, node: super::super::super::schemes::SchemeTypeId) {
+        use super::super::super::schemes::{FullSchemeTypeNode, SchemeTypeId};
+        let inner = SchemeTypeId::from_raw(program.store.scheme_types.len() as u32).unwrap();
+        let original = program.store.scheme_types[node.index()];
+        program.store.scheme_types.push(original);
+        program.store.scheme_types[node.index()] = FullSchemeTypeNode { first: inner.raw(), second: 0, children: crate::runtime::eval::indexed::IrRange::default(), tag: FullSchemeTypeTag::List, reserved: [0; 3] };
+    }
+
+    fn rejects_component_tamper(fixture: &ComponentFixture, label: &str, expected: &str, mutate: impl FnOnce(&mut FullProgram, usize, usize)) {
+        let mut forged = fixture.program.clone();
+        mutate(&mut forged, fixture.own, fixture.transported);
+        let error = FullVerifier::verify(&forged).expect_err(label);
+        assert_eq!(error.message, expected, "{label}: {error:?}");
+    }
+
+    const COMPONENT_SLOT: &str = "component guard slot disagrees with its caller slot";
+
+    #[test]
+    fn a_component_peer_call_cannot_forward_a_guard_call() {
+        use super::super::super::guard_schemes::FullGuardBinding;
+        let mut program = prepare(r#"
+pure show(value) -> Str { if let found = value { f"got {found}" } else { "none" } }
+pure relay(value) -> Str { show(value) }
+pure left(name, count, depth: Int) -> Str {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) -> Str {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {found}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", 3, 1) == "count 3"
+    assert relay("a") == "got a"
+    Ok()
+}
+observe()?
+"#);
+        program.store.in_place.take();
+        let scheme = |program: &FullProgram, name: &str| {
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let super::super::super::FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("{name} is generic") };
+            (owner, id)
+        };
+        let ((left_owner, left_id), (_, right_id), (_, relay_id)) = (scheme(&program, "left"), scheme(&program, "right"), scheme(&program, "relay"));
+        let range = program.store.function_instruction_range(left_owner).unwrap();
+        let call = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 2).unwrap().clone();
+        assert!(program.store.call_guard_bindings[call.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap()].iter().all(|binding| *binding == FullGuardBinding::Recursive));
+        let relay_calls = program.store.schemes[relay_id.index()].guard_calls;
+        assert_eq!(relay_calls.len, 1);
+
+        let scopes = super::super::prepare_tables(&program.store).unwrap();
+        let mut callee_scope = scopes.get(right_id).unwrap().clone();
+        callee_scope.guard_calls = relay_calls;
+        let substitution = super::super::SymbolicCallSubstitution { types: Vec::new(), rows: Vec::new(), effects: Vec::new() };
+        let verify = |store: &super::super::FullStore, arguments| {
+            super::super::guard_calls::verify_forwarded_bindings(store, store.scheme(right_id).unwrap(), &callee_scope, scopes.get(left_id).unwrap(), call.instruction, arguments,
+                super::super::guard_calls::Recursion::Peer { caller: store.scheme(left_id).unwrap(), substitution: &substitution }, &mut SchemeInstantiationBudget::new(store))
+        };
+        let mut forwarded = program.store.clone();
+        let start = forwarded.call_guard_bindings.len();
+        forwarded.call_guard_bindings.push(FullGuardBinding::Recursive);
+        let mut arguments = call.arguments;
+        arguments.guard_call_bindings = crate::runtime::eval::indexed::IrRange::new(start as u32, 1);
+        assert_eq!(verify(&forwarded, arguments).unwrap_err().message, "component peer call forwards a guard call");
+        forwarded.call_guard_bindings[start] = FullGuardBinding::Null;
+        assert_eq!(verify(&forwarded, arguments).unwrap_err().message, "recursive guard binding is mixed with another binding");
+    }
+
+    #[test]
+    fn component_peer_slots_must_match_in_source_view_and_output() {
+        let fixture = component_fixture(r#"
+pure left(name, count, depth: Int) {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {found}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", 3, 1) == "count 3"
+    assert right(null, "b", 1) == "name b"
+    Ok()
+}
+observe()?
+"#);
+        rejects_component_tamper(&fixture, "source", COMPONENT_SLOT, |forged, _, t| { let source = forged.store.scheme_guards[t].source; wrap_in_list(forged, source); });
+        rejects_component_tamper(&fixture, "view", COMPONENT_SLOT, |forged, _, t| { let view = forged.store.scheme_guards[t].view; wrap_in_list(forged, view); });
+        rejects_component_tamper(&fixture, "output outward", COMPONENT_SLOT, |forged, _, t| { let node = forged.store.scheme_guards[t].output.unwrap().outward; wrap_in_list(forged, node); });
+        rejects_component_tamper(&fixture, "output present", COMPONENT_SLOT, |forged, _, t| { let node = forged.store.scheme_guards[t].output.unwrap().present; wrap_in_list(forged, node); });
+        rejects_component_tamper(&fixture, "output absent", COMPONENT_SLOT, |forged, _, t| { let node = forged.store.scheme_guards[t].output.unwrap().absent; wrap_in_list(forged, node); });
+        rejects_component_tamper(&fixture, "output polarity", COMPONENT_SLOT, |forged, _, t| { let output = forged.store.scheme_guards[t].output.as_mut().unwrap(); output.nonnull_when = !output.nonnull_when; });
+    }
+
+    #[test]
+    fn component_peer_slots_must_agree_on_reads_effects_outputs_and_scope_shape() {
+        use super::super::super::guard_schemes::{FullGuardEffects, FullGuardOutput, FullGuardRead};
+        let fixture = component_fixture(r#"
+pure left(name, count, depth: Int) -> Str {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) -> Str {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {found}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", 3, 1) == "count 3"
+    Ok()
+}
+observe()?
+"#);
+        rejects_component_tamper(&fixture, "an output the peer lacks", COMPONENT_SLOT, |forged, _, t| {
+            let guard = forged.store.scheme_guards[t];
+            assert!(guard.output.is_none());
+            forged.store.scheme_guards[t].output = Some(FullGuardOutput { outward: guard.source, present: guard.view, absent: guard.source, instruction: IR_NONE, nonnull_when: true });
+        });
+        rejects_component_tamper(&fixture, "effect exports the peer lacks", COMPONENT_SLOT, |forged, _, t| {
+            assert!(forged.store.scheme_guards[t].effects.is_none());
+            let contract = forged.store.schemes[0].effects;
+            forged.store.scheme_guards[t].effects = Some(FullGuardEffects { outward: contract, local: contract });
+        });
+        rejects_component_tamper(&fixture, "reads the peer lacks", COMPONENT_SLOT, |forged, _, t| {
+            let guard = forged.store.scheme_guards[t];
+            assert_eq!(guard.reads.len, 0);
+            let start = forged.store.scheme_guard_reads.len();
+            forged.store.scheme_guard_reads.push(FullGuardRead { source: guard.source, view: guard.view, instruction: IR_NONE });
+            forged.store.scheme_guards[t].reads = crate::runtime::eval::indexed::IrRange::new(start as u32, 1);
+        });
+        rejects_component_tamper(&fixture, "a transported slot claims a comparison site", "transported guard scope has a body site", |forged, o, t| {
+            forged.store.scheme_guards[t].comparison_instruction = forged.store.scheme_guards[o].comparison_instruction;
+        });
+        rejects_component_tamper(&fixture, "a transported slot adopts an owned parent", "guard scope and its parent disagree about their body", |forged, _, t| forged.store.scheme_guards[t].parent = 0);
+        rejects_component_tamper(&fixture, "a slot renumbers itself", "guard scope ancestry is forward or cyclic", |forged, _, t| forged.store.scheme_guards[t].id += 1);
+        rejects_component_tamper(&fixture, "a slot moves its binding ordinal", "guard binding ordinal disagrees with its lexical parent", |forged, _, t| forged.store.scheme_guards[t].binding_ordinal += 1);
+    }
+
+    #[test]
+    fn component_peer_slots_must_forward_operations_and_applications() {
+        let operations = component_fixture(r#"
+pure left(name, count, depth: Int) {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {found + 1}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", 4, 1) == "count 5"
+    Ok()
+}
+observe()?
+"#);
+        let forwarded = "forwarded operation differs from its actual caller requirement";
+        rejects_component_tamper(&operations, "operation operator", forwarded, |forged, _, t| {
+            let range = forged.store.scheme_guards[t].operations.bounds(forged.store.scheme_operations.len()).unwrap();
+            let super::super::super::schemes::FullSealedOperation::Binary { operator, .. } = &mut forged.store.scheme_operations[range.start] else { panic!("the guard adds an Int") };
+            *operator = xsh_registry::signature::ArithmeticOperator::Subtract;
+        });
+        rejects_component_tamper(&operations, "operation result", forwarded, |forged, _, t| {
+            let range = forged.store.scheme_guards[t].operations.bounds(forged.store.scheme_operations.len()).unwrap();
+            let super::super::super::schemes::FullSealedOperation::Binary { result, .. } = forged.store.scheme_operations[range.start] else { panic!("the guard adds an Int") };
+            wrap_in_list(forged, result);
+        });
+
+        let applications = component_fixture(r#"
+pure inc(x: Int) -> Int { x + 1 }
+proc left(name, count, depth: Int) [error] {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { print found(1) }
+}
+proc right(count, name, depth: Int) [error] {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { print found(1) }
+}
+left(inc, inc, 1)
+"#);
+        rejects_component_tamper(&applications, "application result", "forwarded application differs from its actual caller requirement", |forged, _, t| {
+            let range = forged.store.scheme_guards[t].applications.bounds(forged.store.scheme_applications.len()).unwrap();
+            let invocation = forged.store.scheme_applications[range.start].invocation().unwrap();
+            wrap_in_list(forged, invocation.result);
+        });
+        rejects_component_tamper(&applications, "local effect predicate", COMPONENT_SLOT, |forged, _, t| {
+            use super::super::super::schemes::FullEffectPredicate;
+            let range = forged.store.scheme_guards[t].effect_predicates.bounds(forged.store.scheme_effect_predicates.len()).unwrap();
+            let FullEffectPredicate::Covered(narrow, wide) = forged.store.scheme_effect_predicates[range.start] else { panic!("the call covers its callee effects") };
+            forged.store.scheme_effect_predicates[range.start] = FullEffectPredicate::Included(narrow, wide);
+        });
+    }
+
+    #[test]
+    fn component_peer_slots_must_retain_binder_relationships() {
+        let iteration = component_fixture(r#"
+pure left(name, count, depth: Int) {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {({x: 1 for x in found}).len()}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", ["b", "c"], 1) == "count 2"
+    Ok()
+}
+observe()?
+"#);
+        rejects_component_tamper(&iteration, "iteration policy", "generic call does not retain its iteration relationship", |forged, _, t| {
+            let binders = forged.store.scheme_guards[t].type_parameters.bounds(forged.store.scheme_type_parameters.len()).unwrap();
+            let item = binders.clone().find(|index| forged.store.scheme_type_parameters[*index].iteration_item != IR_NONE).unwrap();
+            forged.store.scheme_type_parameters[item].iteration_policy = 2;
+        });
+        rejects_component_tamper(&iteration, "map key", COMPONENT_SLOT, |forged, _, t| {
+            let binders = forged.store.scheme_guards[t].type_parameters.bounds(forged.store.scheme_type_parameters.len()).unwrap();
+            let key = binders.clone().find(|index| forged.store.scheme_type_parameters[*index].map_key).unwrap();
+            forged.store.scheme_type_parameters[key].map_key = false;
+        });
+
+        let rows = component_fixture(r#"
+pure left(name, count, depth: Int) {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {({...found, extra: 1}).extra}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", {label: "b"}, 1) == "count 1"
+    Ok()
+}
+observe()?
+"#);
+        rejects_component_tamper(&rows, "a row lack the peer does not retain", COMPONENT_SLOT, |forged, _, t| {
+            let binders = forged.store.scheme_guards[t].row_parameters.bounds(forged.store.scheme_row_parameters.len()).unwrap();
+            let free = binders.clone().find(|index| forged.store.scheme_row_parameters[*index].lacks.len == 0).unwrap();
+            let start = forged.store.scheme_row_lacks.len();
+            forged.store.scheme_row_lacks.push(forged.store.functions[0].name);
+            forged.store.scheme_row_parameters[free].lacks = crate::runtime::eval::indexed::IrRange::new(start as u32, 1);
+        });
     }
 
     #[test]
