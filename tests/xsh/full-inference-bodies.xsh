@@ -2867,3 +2867,38 @@ main()?
   assert output.success, output.stderr
   assert output.stdout == "1\n1\n", output.stdout
 }
+
+test test_full_inference_target_variant_equality_resolved_by_a_later_typed_call { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""enum Role { Owner, Member }
+type Entry = {role: Role, id: Int?}
+pure score(entry: Entry, entries: List[Entry]) -> Int { entries.len() }
+proc rank(entries) -> Int {
+  var total = 0
+  for entry in entries {
+    total += if entry.role == .Owner { 100 } else if let id = entry.id { id } else { 0 }
+    for other in entries {
+      total += score(other, entries)
+    }
+  }
+  total
+}
+proc rank_annotated(entries: List[Entry]) -> Int {
+  var total = 0
+  for entry in entries {
+    total += if entry.role == .Owner { 100 } else if let id = entry.id { id } else { 0 }
+    for other in entries {
+      total += score(other, entries)
+    }
+  }
+  total
+}
+let entries: List[Entry] = [{role: Owner, id: null}, {role: Member, id: 5}, {role: Member, id: null}]
+assert rank(entries) == rank_annotated(entries)
+print $rank(entries)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "132\n", output.stdout
+}

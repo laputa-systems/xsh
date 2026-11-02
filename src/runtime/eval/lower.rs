@@ -5106,9 +5106,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, lowered_types, body)?;
                 push_build_row!(self, expr, BuildExprRow::Require { value, check, span, unknown_fields })
             }
-            ArenaExprKind::Field { .. } if matches!(self.bodies.inferred_variants.get(&expression), Some(crate::sema::check::InferredVariant::Deferred { .. })) => {
+            ArenaExprKind::Field { .. } if matches!(self.bodies.inferred_variants.get(&expression), Some(crate::sema::check::InferredVariant::Deferred { .. })) && facts.operation_site(expression).is_some() => {
                 let Some(crate::sema::check::InferredVariant::Deferred { variant, families }) = self.bodies.inferred_variants.get(&expression).cloned() else { unreachable!() };
-                if facts.operation_site(expression).is_none() || families.iter().any(|family| !self.record_checked_tag_schema(*family, variant, &[])) { return self.block_scheme_lowering_expr(expression); }
+                if families.iter().any(|family| !self.record_checked_tag_schema(*family, variant, &[])) { return self.block_scheme_lowering_expr(expression); }
                 push_build_row!(self, expr, BuildExprRow::TargetVariant { variant, families: families.to_vec() })
             }
             ArenaExprKind::Field { .. } if self.bodies.inferred_variants.contains_key(&expression) => {
