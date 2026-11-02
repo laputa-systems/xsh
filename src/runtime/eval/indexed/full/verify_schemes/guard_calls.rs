@@ -78,7 +78,13 @@ pub(super) fn verify_origin(store: &FullStore, call: FullGuardCall, ordinal: u32
     Ok(())
 }
 
-pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullScheme, callee_scope: &SchemeScope, caller: &SchemeScope, instruction: u32, arguments: FullInstantiation, recursion: Option<&super::SymbolicCallSubstitution>, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+pub(super) enum Recursion<'a> {
+    Own(&'a super::SymbolicCallSubstitution),
+    Peer { caller: &'a super::FullScheme, substitution: &'a super::SymbolicCallSubstitution },
+}
+
+pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullScheme, callee_scope: &SchemeScope, caller: &SchemeScope, instruction: u32, arguments: FullInstantiation, recursion: Recursion<'_>, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    let caller_root = caller;
     let caller = caller.at_instruction(instruction as usize)?;
     let calls = bounded(caller.guard_calls, &store.scheme_guard_calls, "forwarded guard call source range is invalid")?;
     let guards = bounded(callee.guards, &store.scheme_guards, "forwarded guard target range is invalid")?;
@@ -88,10 +94,12 @@ pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullS
     let target_calls = bounded(callee_scope.guard_calls, &store.scheme_guard_calls, "forwarded target call range is invalid")?;
     if roots.len() != physical.len() || target_calls.len() != residual.len() { return Err(IrVerifyError::new("forwarded guard bindings are incomplete")); }
     if physical.iter().chain(residual).any(|binding| *binding == FullGuardBinding::Recursive) {
-        let substitution = recursion.ok_or_else(|| IrVerifyError::new("recursive guard binding is outside its own callable"))?;
         if !residual.is_empty() || physical.iter().any(|binding| *binding != FullGuardBinding::Recursive) { return Err(IrVerifyError::new("recursive guard binding is mixed with another binding")); }
         budget.charge(physical.len())?;
-        if !substitution.is_identity(callee_scope) { return Err(IrVerifyError::new("recursive guard binding has a non-identity call substitution")); }
+        match recursion {
+            Recursion::Own(substitution) => if !substitution.is_identity(callee_scope) { return Err(IrVerifyError::new("recursive guard binding has a non-identity call substitution")); },
+            Recursion::Peer { caller: caller_scheme, substitution } => verify_component_correspondence(store, (callee, callee_scope), (caller_scheme, caller_root), substitution, budget)?,
+        }
         return Ok(true);
     }
     let mut concrete = false;
@@ -203,4 +211,109 @@ fn resolve_inner(store: &FullStore, mut call: FullGuardCall, mut ordinal: u32, c
         }
     }
     Err(IrVerifyError::new("guard call origin chain is cyclic or too deep"))
+}
+
+pub(super) fn verify_component_correspondence(store: &FullStore, callee: (&super::FullScheme, &SchemeScope), caller: (&super::FullScheme, &SchemeScope), substitution: &super::SymbolicCallSubstitution, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
+    use crate::sema::effects::EffectContract;
+    use crate::sema::schemes::{SchemeEffectParameterId, SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId, ValueConversion, ValueConversionSet};
+    let invalid = || IrVerifyError::new("component guard slot disagrees with its caller slot");
+    let ((callee, callee_root), (caller, caller_root)) = ((callee.0, callee.1.with_guard(None)?), (caller.0, caller.1.with_guard(None)?));
+    let callee_guards = bounded(callee.guards, &store.scheme_guards, "component callee guard range is invalid")?;
+    let caller_guards = bounded(caller.guards, &store.scheme_guards, "component caller guard range is invalid")?;
+    if callee_guards.len() != caller_guards.len() { return Err(invalid()); }
+    budget.charge(callee_guards.len())?;
+    let mut extended = super::SymbolicCallSubstitution {
+        types: substitution.types.clone(),
+        rows: substitution.rows.iter().map(|row| super::SchemeRowSubstitution { fields: row.fields.clone(), tail: row.tail }).collect(),
+        effects: substitution.effects.clone(),
+    };
+    let scopes = |id: u32, parent: u32| -> Result<(Option<GuardScopeId>, GuardScopeId), IrVerifyError> {
+        let parent = if parent == IR_NONE { None } else { Some(GuardScopeId::from_index(parent as usize).map_err(|_| invalid())?) };
+        Ok((parent, GuardScopeId::from_index(id as usize).map_err(|_| invalid())?))
+    };
+    let mut views = Vec::with_capacity(callee_guards.len());
+    for (callee_guard, caller_guard) in callee_guards.iter().zip(caller_guards) {
+        if callee_guard.id != caller_guard.id || callee_guard.parent != caller_guard.parent || callee_guard.binding_ordinal != caller_guard.binding_ordinal { return Err(invalid()); }
+        let (parent, id) = scopes(callee_guard.id, callee_guard.parent)?;
+        let (callee_local, caller_local) = (callee_root.with_guard(Some(id))?, caller_root.with_guard(Some(id))?);
+        let (callee_pack, caller_pack) = (callee_local.binding_pack()?, caller_local.binding_pack()?);
+        if callee_pack.types.len() != caller_pack.types.len() || callee_pack.rows.len() != caller_pack.rows.len() || callee_pack.effects.len() != caller_pack.effects.len()
+            || callee_pack.types.start != extended.types.len() || callee_pack.rows.start != extended.rows.len() || callee_pack.effects.start != extended.effects.len()
+        { return Err(invalid()); }
+        budget.charge(callee_pack.types.len() + callee_pack.rows.len() + callee_pack.effects.len())?;
+        extended.types.extend(caller_pack.types.clone().map(|binder| SchemeType::Parameter(SchemeTypeParameterId(caller_local.type_parameters[binder].id))));
+        extended.rows.extend(caller_pack.rows.clone().map(|binder| super::SchemeRowSubstitution { fields: std::collections::BTreeMap::new(), tail: SchemeRowTail::Parameter(SchemeRowParameterId(caller_local.row_parameters[binder].id)) }));
+        extended.effects.extend(caller_pack.effects.clone().map(|binder| EffectContract::variable(SchemeEffectParameterId(caller_local.effects.parameters[binder].id))));
+        views.push((callee_guard, caller_guard, parent, callee_local, caller_local, callee_pack, caller_pack));
+    }
+    if extended.types.len() != callee_root.type_parameters.len() || extended.rows.len() != callee_root.row_parameters.len() || extended.effects.len() != callee_root.effects.parameters.len() { return Err(invalid()); }
+    for (callee_guard, caller_guard, parent, callee_local, caller_local, callee_pack, caller_pack) in views {
+        let (callee_parent, caller_parent) = (callee_root.with_guard(parent)?, caller_root.with_guard(parent)?);
+        let same = |callee_type, callee_scope: &SchemeScope, caller_type, caller_scope: &SchemeScope, budget: &mut SchemeInstantiationBudget| -> Result<(), IrVerifyError> {
+            let actual = super::substitute_scheme_type(&super::decode_scheme_type(store, callee_scope, callee_type, budget, 0)?, callee_scope, &extended, budget, 0)?;
+            let required = super::decode_scheme_type(store, caller_scope, caller_type, budget, 0)?;
+            if super::body_types_equal(&actual, &required) { Ok(()) } else { Err(invalid()) }
+        };
+        same(callee_guard.source, &callee_parent, caller_guard.source, &caller_parent, budget)?;
+        same(callee_guard.view, &callee_local, caller_guard.view, &caller_local, budget)?;
+        let callee_reads = bounded(callee_guard.reads, &store.scheme_guard_reads, "component callee guard reads are invalid")?;
+        let caller_reads = bounded(caller_guard.reads, &store.scheme_guard_reads, "component caller guard reads are invalid")?;
+        if callee_reads.len() != caller_reads.len() { return Err(invalid()); }
+        for (callee_read, caller_read) in callee_reads.iter().zip(caller_reads) {
+            same(callee_read.source, &callee_parent, caller_read.source, &caller_parent, budget)?;
+            same(callee_read.view, &callee_local, caller_read.view, &caller_local, budget)?;
+        }
+        match (callee_guard.output, caller_guard.output) {
+            (None, None) => {}
+            (Some(callee_output), Some(caller_output)) if callee_output.nonnull_when == caller_output.nonnull_when => {
+                same(callee_output.outward, &callee_parent, caller_output.outward, &caller_parent, budget)?;
+                same(callee_output.absent, &callee_parent, caller_output.absent, &caller_parent, budget)?;
+                same(callee_output.present, &callee_local, caller_output.present, &caller_local, budget)?;
+            }
+            _ => return Err(invalid()),
+        }
+        let same_contract = |callee_contract, callee_scope: &SchemeScope, caller_contract, caller_scope: &SchemeScope, budget: &mut SchemeInstantiationBudget| -> Result<(), IrVerifyError> {
+            let actual = super::effects::substitute_contract(&super::effects::decode_contract(store, callee_scope, callee_contract, budget)?, callee_scope, &extended.effects, budget)?;
+            if actual == super::effects::decode_contract(store, caller_scope, caller_contract, budget)? { Ok(()) } else { Err(invalid()) }
+        };
+        match (callee_guard.effects, caller_guard.effects) {
+            (None, None) => {}
+            (Some(callee_effects), Some(caller_effects)) => {
+                same_contract(callee_effects.outward, &callee_parent, caller_effects.outward, &caller_parent, budget)?;
+                same_contract(callee_effects.local, &callee_local, caller_effects.local, &caller_local, budget)?;
+            }
+            _ => return Err(invalid()),
+        }
+        for (callee_binder, caller_binder) in callee_pack.types.clone().zip(caller_pack.types.clone()) {
+            let (callee_parameter, caller_parameter) = (&callee_local.type_parameters[callee_binder], &caller_local.type_parameters[caller_binder]);
+            let required = ValueConversionSet::from_bits(callee_parameter.conversions).ok_or_else(invalid)?;
+            let retained = ValueConversionSet::from_bits(caller_parameter.conversions).ok_or_else(invalid)?;
+            if ValueConversion::ALL.into_iter().any(|conversion| required.contains(conversion) && !retained.contains(conversion)) || callee_parameter.map_key && !caller_parameter.map_key { return Err(invalid()); }
+        }
+        for (callee_binder, caller_binder) in callee_pack.rows.clone().zip(caller_pack.rows.clone()) {
+            if !callee_local.row_lacks[callee_binder].is_subset(&caller_local.row_lacks[caller_binder]) { return Err(invalid()); }
+        }
+        super::verify_symbolic_iterations(store, &callee_local, &caller_local, &extended, budget)?;
+        let (callee_requirements, caller_requirements) = (callee_local.owned_requirements(callee)?, caller_local.owned_requirements(caller)?);
+        if callee_requirements.guard_calls.len != 0 || caller_requirements.guard_calls.len != 0
+            || callee_requirements.applications.len != caller_requirements.applications.len || callee_requirements.operations.len != caller_requirements.operations.len
+            || callee_requirements.methods.len != caller_requirements.methods.len || callee_requirements.wrappers.len != caller_requirements.wrappers.len
+        { return Err(invalid()); }
+        let callee_predicates = bounded(callee_requirements.effect_predicates, &store.scheme_effect_predicates, "component callee guard predicates are invalid")?;
+        let caller_predicates = bounded(caller_requirements.effect_predicates, &store.scheme_effect_predicates, "component caller guard predicates are invalid")?;
+        if callee_predicates.len() != caller_predicates.len() { return Err(invalid()); }
+        for (callee_predicate, caller_predicate) in callee_predicates.iter().zip(caller_predicates) {
+            budget.charge(1)?;
+            let actual = super::effects::decode_predicate(store, &callee_local, *callee_predicate, budget)?.try_map_contracts(|contract| super::effects::substitute_contract(contract, &callee_local, &extended.effects, budget))?;
+            if actual != super::effects::decode_predicate(store, &caller_local, *caller_predicate, budget)? { return Err(invalid()); }
+        }
+        let symbolic = super::applications::ApplicationSubstitution::Symbolic(&extended);
+        let forwarded = |count: u32| 0..count;
+        let operations = forwarded(callee_requirements.operations.len).map(crate::sema::schemes::SealedOperationBinding::Forwarded).collect::<Vec<_>>();
+        super::applications::verify_bindings(store, callee, &callee_local, symbolic, Some((caller, &caller_local)), &forwarded(callee_requirements.applications.len).map(super::super::schemes::FullApplicationBinding::Forwarded).collect::<Vec<_>>(), budget)?;
+        super::operations::verify_bindings(store, callee, &callee_local, symbolic, Some((caller, &caller_local)), &operations, budget)?;
+        super::methods::verify_bindings(store, callee, &callee_local, symbolic, Some((caller, &caller_local)), &forwarded(callee_requirements.methods.len).map(crate::sema::schemes::SealedMethodBinding::Forwarded).collect::<Vec<_>>(), budget)?;
+        super::wrappers::verify_bindings(store, callee, &callee_local, symbolic, Some((caller, &caller_local)), &operations, &forwarded(callee_requirements.wrappers.len).map(crate::sema::wrapper_operation::WrapperBinding::Forwarded).collect::<Vec<_>>(), budget)?;
+    }
+    Ok(())
 }

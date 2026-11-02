@@ -694,7 +694,15 @@ impl Checker {
             let statements_by_span = generalized_tail_types.keys().map(|&statement| (program.arena.stmt(statement).span, statement)).collect::<BTreeMap<_, _>>();
             let mut statement_sites = BTreeMap::<crate::syntax::arena::StmtId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
             let mut sites = BTreeMap::<ExprId, Vec<crate::sema::guarded_requirements::GuardBodySite>>::new();
-            let mut pending = callable.requirements().guards.iter().rev().collect::<Vec<_>>();
+            let contains = |owner: Span, span: Span| owner.source_id == span.source_id && owner.start() <= span.start() && span.end() <= owner.end();
+            let mut pending = Vec::new();
+            for guard in callable.requirements().guards.iter().rev() {
+                if by_span.contains_key(&guard.subject) {
+                    pending.push(guard);
+                } else if !component.iter().any(|&peer| peer != declaration.effect_declaration() && contains(peer.body, guard.subject) && contains(peer.body, guard.comparison)) {
+                    return Err(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope));
+                }
+            }
             while let Some(guard) = pending.pop() {
                 let mut record = |span, site| {
                     let expression = by_span.get(&span).copied().ok_or(crate::sema::constraints::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope))?;

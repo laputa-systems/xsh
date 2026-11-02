@@ -706,6 +706,16 @@ opaque record data, so a Null field fixes its source without inventing a payload
 Unrelated row owners and recovery values retain ordinary rejection. Closed record input
 evidence preserves opaque fields in row data and proves every required typed field
 independently. Static row binding still rejects opaque substitution domains.
+Every member scheme of a recursive component lists the component's guards in one
+order. A member's own rows carry its body sites; a peer's rows carry none, and no
+body fact, output, read or local guard call can name them. A recursive call binds
+each root slot to the caller's slot of the same index. Full accepts that binding
+for a self call only under the identity substitution, and for another target only
+when both guard tables have one shape and each callee row, under the call
+substitution extended by position to guard-local binders, equals the caller row:
+source, view, reads, output, effects, local binder domains, and local requirements
+without guard calls. Runtime moves the enclosing packets into the callee's
+namespace after rechecking each actual source classification.
 Callable contract comparison preserves each guard's source, view, local domains,
 and nested requirements under a separate ancestor-visible binder map. Physical
 source positions do not determine contract equivalence. A target correspondence

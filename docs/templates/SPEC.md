@@ -3621,7 +3621,9 @@ pure declarations share provisional parameter and return types within their
 component. The checker solves every member before generalizing the component;
 recursive calls use those shared monotypes, and independent outside calls
 instantiate the published schemes freshly. A `null` argument in a recursive
-call makes an unresolved shared parameter optional.
+call makes an unresolved shared parameter optional. Any member may test an
+unresolved shared parameter for null, including with `if let`; a recursive call
+keeps the caller's classification of every tested value.
 `Null` is a closed return type, including inside records and containers.
 A null-only value supplies no optional payload type or domain schema.
 Checked tooling contracts retain quantified parameter relationships and open

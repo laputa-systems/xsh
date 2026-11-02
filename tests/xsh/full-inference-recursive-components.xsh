@@ -319,3 +319,126 @@ test test_full_inference_recursive_null_argument_rejects_a_non_nullable_use { |c
 }
 """, status: 2, stderr: ["[check.optional-method]"])?
 }
+
+test test_full_inference_mutual_recursion_shares_guards_on_one_parameter { |ctx|
+  let body = r"""
+  if depth > 0 { return right(name, depth - 1) }
+  if let found = name { f"left {found}" } else { "left none" }
+}
+pure right(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return left(name, depth - 1) }
+  if let found = name { f"right {found}" } else { "right none" }
+}
+print left("a", 1)
+print left(null, 2)
+print right("b", 0)
+print right(null, 3)
+"""
+  let inferred = test.run_xsh(ctx, "pure left(name, depth: Int) -> Str {" + body.replace("name: NAME", with: "name"))?
+  let annotated = test.run_xsh(ctx, "pure left(name: Str?, depth: Int) -> Str {" + body.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "right a\nleft none\nright b\nleft none\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_three_member_cycle_shares_guards { |ctx|
+  let source = r"""pure first(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return second(name, depth - 1) }
+  if let found = name { f"first {found}" } else { "first none" }
+}
+pure second(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return third(name, depth - 1) }
+  if let found = name { f"second {found}" } else { "second none" }
+}
+pure third(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return first(name, depth - 1) }
+  if let found = name { f"third {found}" } else { "third none" }
+}
+print first("a", 2)
+print second(null, 2)
+print third("c", 4)
+"""
+  let inferred = test.run_xsh(ctx, source.replace("name: NAME", with: "name"))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "third a\nfirst none\nfirst c\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_mutual_recursion_with_a_guard_in_one_member { |ctx|
+  let source = r"""pure render(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return relay(name, depth - 1) }
+  if let found = name { f"found {found}" } else { "none" }
+}
+pure relay(name: NAME, depth: Int) -> Str { render(name, depth) }
+print relay("a", 2)
+print relay(null, 1)
+print render("b", 3)
+"""
+  let inferred = test.run_xsh(ctx, source.replace("name: NAME", with: "name"))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "found a\nnone\nfound b\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_mutual_recursion_guards_different_parameters { |ctx|
+  let source = r"""pure left(name: NAME, count: COUNT, depth: Int) -> Str {
+  if depth > 0 { return right(count, name, depth - 1) }
+  if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count: COUNT, name: NAME, depth: Int) -> Str {
+  if depth > 0 { return left(name, count, depth - 1) }
+  if let found = count { f"count {found}" } else { "no count" }
+}
+print left("a", 3, 0)
+print left("a", 3, 1)
+print left(null, null, 2)
+print right(null, "b", 1)
+print right(4, null, 0)
+"""
+  let inferred = test.run_xsh(ctx, source.replace("name: NAME", with: "name").replace("count: COUNT", with: "count"))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?").replace("COUNT", with: "Int?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "name a\ncount 3\nno name\nname b\ncount 4\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_recursive_component_mixes_self_and_peer_guard_calls { |ctx|
+  let source = r"""pure left(name: NAME, depth: Int) -> Str {
+  if depth > 2 { return left(name, depth - 1) }
+  if depth > 0 { return right(name, depth - 1) }
+  if let found = name { f"left {found}" } else { "left none" }
+}
+pure right(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return left(name, depth - 1) }
+  if let found = name { f"right {found}" } else { "right none" }
+}
+proc walk(target: NAME, depth: Int) [error] {
+  if depth > 1 { walk(target, depth - 1) }
+  if depth == 1 { visit(target, 0) }
+  if let found = target { assert found.byte_len() == 4 }
+}
+proc visit(target: NAME, depth: Int) [error] {
+  if depth == 0 { walk(target, depth) }
+  if let found = target { assert found.byte_len() == 4 }
+}
+print left("a", 4)
+print left(null, 5)
+print right("b", 2)
+walk("deep", 3)
+walk(null, 3)
+visit("deep", 0)
+print "walked"
+"""
+  let inferred = test.run_xsh(ctx, source.replace("name: NAME", with: "name").replace("target: NAME", with: "target"))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "left a\nleft none\nright b\nwalked\n"
+  assert inferred.stdout == annotated.stdout
+}

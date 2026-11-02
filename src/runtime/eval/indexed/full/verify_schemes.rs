@@ -129,6 +129,23 @@ impl CallSubstitution {
         Ok(Self { owner: Some(mapping.actual), origin, types, rows, effects })
     }
 
+    pub(super) fn transport_prepared_scope(&self, store: &FullStore, source: FullSchemeId, target: FullSchemeId, scope: crate::sema::guarded_requirements::GuardScopeId,
+        source_parent: &CallSubstitution, parent: Arc<CallSubstitution>, budget: &mut SchemeInstantiationBudget,
+    ) -> Result<Self, IrVerifyError> {
+        let invalid = || IrVerifyError::new("component guard packet has another owner, parent or shape");
+        if !self.owns_prepared_scope(source, Some(scope)) || !self.inherits_prepared_parent(source_parent) { return Err(invalid()); }
+        let guard = *bounded(store.scheme(target)?.guards, &store.scheme_guards, "component guard range is invalid")?.get(scope.index()).filter(|guard| guard.id == scope.raw()).ok_or_else(invalid)?;
+        let parent_scope = if guard.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(guard.parent as usize).map_err(|_| invalid())?) };
+        if !parent.owns_prepared_scope(target, parent_scope) { return Err(invalid()); }
+        let starts = guard.binding_starts.map(|start| start as usize);
+        let pack = guards::BinderPack { types: starts[0]..starts[0] + guard.type_parameters.len as usize, rows: starts[1]..starts[1] + guard.row_parameters.len as usize, effects: starts[2]..starts[2] + guard.effect_parameters.len as usize };
+        if pack.types.len() != self.types.len() || pack.rows.len() != self.rows.len() || pack.effects.len() != self.effects.len() { return Err(invalid()); }
+        budget.charge(self.types.len() + self.rows.len() + self.effects.len())?;
+        for ty in &self.types { budget.charge_clone(ty)?; }
+        for row in &self.rows { budget.charge(row.len())?; for ty in row.values() { budget.charge_clone(ty)?; } }
+        Ok(Self { owner: Some(target), origin: CallSubstitutionOrigin::Guard { scope, pack, parent }, types: self.types.clone(), rows: self.rows.clone(), effects: self.effects.clone() })
+    }
+
     pub(super) fn type_argument(&self, ordinal: usize) -> Option<&Type> {
         match &self.origin {
             CallSubstitutionOrigin::Root => self.types.get(ordinal),
@@ -480,17 +497,27 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             if metadata.id as usize != index || metadata.parent != IR_NONE && metadata.parent >= metadata.id {
                 return Err(IrVerifyError::new("guard scope ancestry is forward or cyclic"));
             }
-            for instruction in [metadata.source_instruction, metadata.comparison_instruction] {
-                if !instruction_range.contains(&(instruction as usize)) || store.tags[instruction as usize].kind() != schema::InstructionKind::Expr {
-                    return Err(IrVerifyError::new("guard source or comparison leaves its callable"));
+            let reads = mark_range(metadata.reads, &store.scheme_guard_reads, &mut guard_read_coverage, "guard read range is invalid or overlaps")?;
+            if metadata.parent != IR_NONE && guard_rows[metadata.parent as usize].has_body() != metadata.has_body() {
+                return Err(IrVerifyError::new("guard scope and its parent disagree about their body"));
+            }
+            if !metadata.has_body() {
+                if metadata.comparison_instruction != IR_NONE || metadata.output.is_some_and(|output| output.instruction != IR_NONE) || reads.iter().any(|read| read.instruction != IR_NONE) || metadata.guard_calls.len != 0 {
+                    return Err(IrVerifyError::new("transported guard scope has a body site"));
                 }
-            }
-            if let Some(output) = metadata.output {
-                if !instruction_range.contains(&(output.instruction as usize)) || store.tags[output.instruction as usize].kind() != schema::InstructionKind::Expr { return Err(IrVerifyError::new("guard output leaves its callable")); }
-            }
-            for read in mark_range(metadata.reads, &store.scheme_guard_reads, &mut guard_read_coverage, "guard read range is invalid or overlaps")? {
-                if !instruction_range.contains(&(read.instruction as usize)) || store.tags[read.instruction as usize].kind() != schema::InstructionKind::Expr {
-                    return Err(IrVerifyError::new("guard read leaves its callable"));
+            } else {
+                for instruction in [metadata.source_instruction, metadata.comparison_instruction] {
+                    if !instruction_range.contains(&(instruction as usize)) || store.tags[instruction as usize].kind() != schema::InstructionKind::Expr {
+                        return Err(IrVerifyError::new("guard source or comparison leaves its callable"));
+                    }
+                }
+                if let Some(output) = metadata.output {
+                    if !instruction_range.contains(&(output.instruction as usize)) || store.tags[output.instruction as usize].kind() != schema::InstructionKind::Expr { return Err(IrVerifyError::new("guard output leaves its callable")); }
+                }
+                for read in reads {
+                    if !instruction_range.contains(&(read.instruction as usize)) || store.tags[read.instruction as usize].kind() != schema::InstructionKind::Expr {
+                        return Err(IrVerifyError::new("guard read leaves its callable"));
+                    }
                 }
             }
             let starts = (type_parameters.len(), row_parameters.len(), effect_parameters.len());
@@ -508,7 +535,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             for fact in bounded(scheme.body_facts, &store.scheme_body_facts, "guard body facts are invalid")? {
                 if let super::schemes::FullSchemeBodyFactValue::GuardScope(id) = fact.value {
                     let id = crate::sema::guarded_requirements::GuardScopeId::from_index(id as usize).map_err(|_| IrVerifyError::new("guard body scope id is invalid"))?;
-                    if id.index() >= guard_packs.len() || fact.function.index() != function_index || !instruction_range.contains(&(fact.instruction as usize)) || memberships.insert(fact.instruction as usize, id).is_some() {
+                    if id.index() >= guard_packs.len() || !guard_packs[id.index()].metadata.has_body() || fact.function.index() != function_index || !instruction_range.contains(&(fact.instruction as usize)) || memberships.insert(fact.instruction as usize, id).is_some() {
                         return Err(IrVerifyError::new("guard body membership has invalid or duplicated ownership"));
                     }
                 }
@@ -518,7 +545,7 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             for pack in &guard_packs {
                 let parent = if pack.metadata.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.parent as usize).map_err(|_| IrVerifyError::new("guard parent id is invalid"))?) };
                 let id = crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
-                if let Some(output) = pack.metadata.output {
+                if let Some(output) = pack.metadata.output.filter(|_| pack.metadata.has_body()) {
                     if memberships.get(&(output.instruction as usize)).copied() != parent || outputs.insert(output.instruction as usize, id).is_some() { return Err(IrVerifyError::new("guard output has another parent or duplicate ownership")); }
                 }
                 let children = children.entry(parent).or_default();
@@ -3545,7 +3572,7 @@ fn verify_call_instantiations(
                 Some(&mut row_field_coverage),
                 &mut budget,
             )?;
-            let recursion = (scheme_id == caller_scheme).then_some(&substitution);
+            let recursion = if scheme_id == caller_scheme { guard_calls::Recursion::Own(&substitution) } else { guard_calls::Recursion::Peer { caller: store.scheme(caller_scheme)?, substitution: &substitution } };
             if !guard_calls::verify_forwarded_bindings(store, scheme, scope, caller_scope, instantiation.instruction, instantiation.arguments, recursion, &mut budget)? {
                 let closed = closed_symbolic_substitution(scope, &substitution, &mut budget)?;
                 guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &closed, &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage, &mut budget)?;

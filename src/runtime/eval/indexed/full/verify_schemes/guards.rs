@@ -258,7 +258,7 @@ pub(super) fn verify_body_sources(
 ) -> Result<(), IrVerifyError> {
     let GuardScopes::Scoped(census) = &scope.guards else { return Ok(()); };
     let prefix = prefix.ok_or_else(|| IrVerifyError::new("guarded body has no physical prefix proof"))?;
-    for pack in &census.scopes {
+    for pack in census.scopes.iter().filter(|pack| pack.metadata.has_body()) {
         budget.charge(1)?;
         let id = GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
         let parent = census.parent(id)?;

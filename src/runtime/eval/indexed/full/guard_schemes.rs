@@ -29,6 +29,10 @@ pub(super) struct FullGuardScope {
     pub(super) output: Option<FullGuardOutput>,
 }
 
+impl FullGuardScope {
+    pub(super) fn has_body(&self) -> bool { self.source_instruction != IR_NONE }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct FullGuardOutput {
     pub(super) outward: SchemeTypeId,

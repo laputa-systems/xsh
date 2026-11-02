@@ -9239,6 +9239,83 @@ observe()?
     }
 
     #[test]
+    fn component_guard_slots_are_authenticated_against_the_peer_callable() {
+        use super::super::super::guard_schemes::FullGuardBinding;
+        use super::super::super::schemes::FullSchemeBodyFactValue;
+        let mut program = prepare(r#"
+pure left(name, count, depth: Int) -> Str {
+    if depth > 0 { return right(count, name, depth - 1) }
+    if let found = name { f"name {found}" } else { "no name" }
+}
+pure right(count, name, depth: Int) -> Str {
+    if depth > 0 { return left(name, count, depth - 1) }
+    if let found = count { f"count {found}" } else { "no count" }
+}
+proc observe() -> Result[Unit] {
+    assert left("a", 3, 1) == "count 3"
+    assert right(null, "b", 1) == "name b"
+    Ok()
+}
+observe()?
+"#);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let function = |name: &str| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let scheme_of = |program: &FullProgram, owner: usize| { let super::super::super::FullCallableContract::Scheme(id) = program.store.functions[owner].contract else { panic!("generic member") }; id };
+        let rows = |program: &FullProgram, owner: usize| program.store.schemes[scheme_of(program, owner).index()].guards.bounds(program.store.scheme_guards.len()).unwrap();
+        let peer_call = |program: &FullProgram, owner: usize| {
+            let range = program.store.function_instruction_range(owner).unwrap();
+            program.store.call_instantiations.iter().position(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 2).unwrap()
+        };
+        let (left, right) = (function("left"), function("right"));
+        let (left_rows, right_rows) = (rows(&program, left), rows(&program, right));
+        assert_eq!((left_rows.len(), right_rows.len()), (2, 2));
+        let left_call = peer_call(&program, left);
+        let bindings = program.store.call_instantiations[left_call].arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap();
+        assert!(program.store.call_guard_bindings[bindings].iter().all(|binding| *binding == FullGuardBinding::Recursive));
+        let (own, transported) = (left_rows.start, left_rows.start + 1);
+        assert!(program.store.scheme_guards[own].has_body() && !program.store.scheme_guards[transported].has_body());
+        assert!(!program.store.scheme_guards[right_rows.start].has_body() && program.store.scheme_guards[right_rows.start + 1].has_body());
+        let rejects = |label: &str, changed: FullProgram, expected: &[&str]| {
+            let error = FullVerifier::verify(&changed).expect_err(label);
+            assert!(expected.contains(&error.message.as_str()), "{label}: {error:?}");
+        };
+
+        let mut swapped = program.clone();
+        let (from, to) = (swapped.store.scheme_guards[own].source, swapped.store.scheme_guards[transported].source);
+        assert_ne!(swapped.store.scheme_types[from.index()], swapped.store.scheme_types[to.index()]);
+        swapped.store.scheme_types[to.index()] = swapped.store.scheme_types[from.index()];
+        rejects("a transported slot cannot describe another slot's guard", swapped, &["component guard slot disagrees with its caller slot"]);
+
+        let mut foreign = program.clone();
+        let owner_row = foreign.store.scheme_guards[right_rows.start + 1];
+        foreign.store.scheme_guards[transported].source_instruction = owner_row.source_instruction;
+        foreign.store.scheme_guards[transported].comparison_instruction = owner_row.comparison_instruction;
+        rejects("a transported slot cannot claim its owner's body", foreign, &["guard source or comparison leaves its callable", "guard scope and its parent disagree about their body"]);
+
+        let mut claimed = program.clone();
+        let facts = claimed.store.schemes[scheme_of(&claimed, left).index()].body_facts.bounds(claimed.store.scheme_body_facts.len()).unwrap();
+        let fact = facts.clone().find(|&index| matches!(claimed.store.scheme_body_facts[index].value, FullSchemeBodyFactValue::GuardScope(0))).unwrap();
+        claimed.store.scheme_body_facts[fact].value = FullSchemeBodyFactValue::GuardScope(1);
+        rejects("a body fact cannot enter a transported slot", claimed, &["guard body membership has invalid or duplicated ownership"]);
+
+        let mut substituted = program.clone();
+        let types = substituted.store.call_instantiations[left_call].arguments.type_arguments.bounds(substituted.store.call_type_arguments.len()).unwrap();
+        assert_eq!(types.len(), 2);
+        let (first, second) = (substituted.store.call_type_arguments[types.start].ty, substituted.store.call_type_arguments[types.start + 1].ty);
+        substituted.store.call_type_arguments[types.start].ty = second;
+        substituted.store.call_type_arguments[types.start + 1].ty = first;
+        rejects("a peer call cannot exchange the substitution of its guarded binders", substituted, &["component guard slot disagrees with its caller slot"]);
+
+        let mut record = program.clone();
+        let binders = record.store.scheme_guards[transported].type_parameters.bounds(record.store.scheme_type_parameters.len()).unwrap();
+        assert_eq!(binders.len(), 1);
+        assert_ne!(record.store.scheme_type_parameters[binders.start].conversions, 0);
+        record.store.scheme_type_parameters[binders.start].conversions = 0;
+        rejects("a transported slot record must equal its peer record", record, &["component guard slot disagrees with its caller slot"]);
+    }
+
+    #[test]
     fn forwarded_runtime_guard_packets_retain_caller_and_callsite_provenance() {
         let program = prepare(r#"
 pure render(value) -> Str { if value == null { "" } else { f"{value}" } }
