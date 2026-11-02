@@ -978,15 +978,15 @@ test test_core_test_files_select_one_file_and_shared_paths_keep_core_coverage {
 
 test test_explicit_unsupported_test_profiles_fail_instead_of_using_a_default {
   for requested in ["dist", "dev", "", "custom"] {
-    env DIST_PROFILE=$requested {
+    env ({DIST_PROFILE: requested}) {
       match tests.execution_profile() {
         Ok(_) => test.fail(f"unsupported profile {requested} was accepted")
         Err(error) => assert error.message == "TestProfileError.Unsupported"
       }
     }
   }
-  env DIST_PROFILE=verification { assert tests.execution_profile()? == .Verification }
-  env DIST_PROFILE=release { assert tests.execution_profile()? == .Release }
+  env ({DIST_PROFILE: "verification"}) { assert tests.execution_profile()? == .Verification }
+  env ({DIST_PROFILE: "release"}) { assert tests.execution_profile()? == .Release }
 }
 
 
@@ -1073,7 +1073,7 @@ p"{observed}".write(args.join("|"))?
   ]
 
   if unix.id()?.euid == 0 {
-    env HOST_UID="1000" HOST_GID="1000" {
+    env ({HOST_UID: "1000", HOST_GID: "1000"}) {
       tests.native(workflow_context, tests.Verification, ["--jobs", "4"])
     }
   } else {

@@ -199,11 +199,11 @@ test test_env_int_rejects_unparsable_and_out_of_range_text {
 }
 
 test test_env_conversions_read_the_scoped_overlay {
-  env XSH_ENV_OVERLAY=outer {
+  env ({XSH_ENV_OVERLAY: "outer"}) {
     assert env.get_or("XSH_ENV_OVERLAY")? == "outer"
     test.error_kind(env.int("XSH_ENV_OVERLAY", 7), "env-int")
 
-    env XSH_ENV_OVERLAY=inner XSH_ENV_OVERLAY_DIGITS=11 {
+    env ({XSH_ENV_OVERLAY: "inner", XSH_ENV_OVERLAY_DIGITS: "11"}) {
       assert env.get_or("XSH_ENV_OVERLAY")? == "inner"
       assert env.int("XSH_ENV_OVERLAY_DIGITS", 7)? == 11
       assert env.bool("XSH_ENV_OVERLAY_BOOL", true)? == true
@@ -238,7 +238,7 @@ tool.write("#!/bin/sh\nprintf '%s|%s|%s' \"$XSH_STDLIB_ENV\" \"$DESTDIR\" \"$PAT
   )?
   assert helper.stdout == "" and helper.stderr == ""
 
-  env XSH_STDLIB_ENV=yes DESTDIR=/tmp/xsh-stdlib-env XSH_STDLIB_COUNT=7 XSH_STDLIB_BOOL=true XSH_STDLIB_PATH=$root {
+  env ({XSH_STDLIB_ENV: "yes", DESTDIR: "/tmp/xsh-stdlib-env", XSH_STDLIB_COUNT: "7", XSH_STDLIB_BOOL: "true", XSH_STDLIB_PATH: root}) {
     assert e"XSH_STDLIB_ENV"? == "yes"
     assert env.get_or("XSH_STDLIB_MISSING", "fallback")? == "fallback"
     assert env.bool("XSH_STDLIB_BOOL", false)? == true
@@ -262,7 +262,7 @@ tool.write("#!/bin/sh\nprintf '%s|%s|%s' \"$XSH_STDLIB_ENV\" \"$DESTDIR\" \"$PAT
     assert "yes|/tmp/xsh-stdlib-env|" in output
   }
 
-  env XSH_STDLIB_CUSTOM_PATH=f":{tool_dir}::" {
+  env ({XSH_STDLIB_CUSTOM_PATH: f":{tool_dir}::"}) {
     let entries = env.path_entries("XSH_STDLIB_CUSTOM_PATH")?
     assert entries.len() == 4
     assert entries[0].empty
@@ -285,7 +285,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
   env.PATH.append(root)
   assert root in env.PATH
 
-  env XSH_ENV_SCOPE=block DESTDIR=/tmp/xsh-env-scope HOME=$root {
+  env ({XSH_ENV_SCOPE: "block", DESTDIR: "/tmp/xsh-env-scope", HOME: root}) {
     let dest = e"DESTDIR"?
     let dest_path = env.path("DESTDIR")?
     let fallback = env.get_or("XSH_ENV_SCOPE_MISSING", "fallback")?
@@ -322,10 +322,10 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
 test test_route_witness_prefix_names_are_ordinary_environment_entries {
   let name = "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY"
   let harness_name = "XSHT_INTERNAL_ROUTE_WITNESS_ORDINARY"
-  env XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY=outer XSHT_INTERNAL_ROUTE_WITNESS_ORDINARY=harness {
+  env ({XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY: "outer", XSHT_INTERNAL_ROUTE_WITNESS_ORDINARY: "harness"}) {
     assert env.get(name)? == "outer"
     assert env.get(harness_name)? == "harness"
-    env XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY=inner {
+    env ({XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_ORDINARY: "inner"}) {
       assert env.get(name)? == "inner"
     }
     assert env.get(name)? == "outer"
@@ -370,7 +370,7 @@ beta """.trim()
 }
 
 test test_env_path_membership_matches_exact_entries {
-  env PATH="/opt/xsh-membership/bin:/opt/xsh-other" {
+  env ({PATH: "/opt/xsh-membership/bin:/opt/xsh-other"}) {
     assert p"/opt/xsh-membership/bin" in env.PATH
     assert p"/opt/xsh-other" in env.PATH
     assert p"/opt/xsh-membership" not in env.PATH
@@ -389,7 +389,7 @@ test test_env_path_rejects_text_that_is_not_a_literal { |ctx|
     let rejected = test.run_script(
       ctx,
       """let dir = "/opt/xsh-literal"
-env PATH=/opt/xsh-literal {
+env ({PATH: dir}) {
   """ + statement + """\n}
 """,
     )?
@@ -399,7 +399,7 @@ env PATH=/opt/xsh-literal {
 }
 
 test test_env_string_reads_exactly_like_env_str {
-  env XSH_ESTR_TEXT="  keep  " XSH_ESTR_EMPTY="" {
+  env ({XSH_ESTR_TEXT: "  keep  ", XSH_ESTR_EMPTY: ""}) {
     # Computed names keep `env.get` from being rewritten to the form under
     # test.
     let text_name = "XSH_ESTR_TEXT"
@@ -427,7 +427,7 @@ test test_env_string_reads_exactly_like_env_str {
 }
 
 test test_env_string_assignment_converts_like_an_overlay_value {
-  env XSH_ESTR_SCOPE=outer {
+  env ({XSH_ESTR_SCOPE: "outer"}) {
     e"XSH_ESTR_WORD" = "hello world"
     e"XSH_ESTR_PORT" = 8080
     e"XSH_ESTR_ON" = true
@@ -454,8 +454,8 @@ proc export_estr_marker(value: Str) [env] {
 
 test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
   let dir = test.temp_dir(ctx, name: "estr-scope")?
-  env XSH_ESTR_OUTER=1 {
-    env XSH_ESTR_INNER=1 {
+  env ({XSH_ESTR_OUTER: "1"}) {
+    env ({XSH_ESTR_INNER: "1"}) {
       e"XSH_ESTR_NESTED" = "inner"
       assert e"XSH_ESTR_NESTED"? == "inner"
     }
@@ -463,7 +463,7 @@ test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
     test.error_kind(e"XSH_ESTR_NESTED", "env-missing")
 
     # A `cd` scope restores only the directory, so the assignment outlives it.
-    cd $dir {
+    cd (dir) {
       e"XSH_ESTR_FROM_CD" = "kept"
     }
     assert e"XSH_ESTR_FROM_CD"? == "kept"
@@ -478,7 +478,7 @@ test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
 }
 
 test test_env_string_assignment_reaches_child_processes {
-  env XSH_ESTR_CHILD_SCOPE=1 {
+  env ({XSH_ESTR_CHILD_SCOPE: "1"}) {
     e"XSH_ESTR_CHILD" = "seen by child"
     let said = run.text printenv XSH_ESTR_CHILD
     assert said == "seen by child\n"
@@ -492,7 +492,7 @@ test test_env_string_assignment_reaches_child_processes {
 
 test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
   let raw = b"/tmp/xsh-estr-\xff" as Path
-  env XSH_ESTR_RAW_SCOPE=1 {
+  env ({XSH_ESTR_RAW_SCOPE: "1"}) {
     e"XSH_ESTR_RAW" = raw
     # The text read fails rather than decoding lossily; the path read and the
     # child keep the bytes.

@@ -43,7 +43,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     launch(words)
   } else {
     let working_dir = p"/"
-    cd $working_dir { launch(words) }
+    cd (working_dir) { launch(words) }
   }
 }
 

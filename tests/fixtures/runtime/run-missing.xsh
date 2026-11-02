@@ -1,3 +1,3 @@
-env PATH="/bin:/usr/bin" {
+env ({PATH: "/bin:/usr/bin"}) {
   run xsh-command-that-does-not-exist ?
 }

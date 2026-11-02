@@ -21,7 +21,7 @@ test test_cd_statement_runs_on_forced_frames { |ctx|
 let not_directory = Path(args[1])
 let original = fs.cwd()?
 proc leave(root: Path) [fs, env, error] {
-  cd $root {
+  cd (root) {
     defer { print ${fs.cwd()? == root} }
     return
   }
@@ -29,7 +29,7 @@ proc leave(root: Path) [fs, env, error] {
 leave(root)
 assert fs.cwd()? == original
 proc fail_scope(root: Path) [fs, env, error] -> Result[Unit] {
-  cd $root {
+  cd (root) {
     defer { print ${fs.cwd()? == root} }
     fail "cd body failed"
   }
@@ -40,7 +40,7 @@ assert failure is Err(_)
 assert fs.cwd()? == original
 proc break_scope(root: Path) [env, fs, error] {
   while true {
-    cd $root {
+    cd (root) {
       defer { print ${fs.cwd()? == root} }
       break
     }
@@ -50,14 +50,14 @@ proc break_scope(root: Path) [env, fs, error] {
 break_scope(root)
 assert fs.cwd()? == original
 proc rejected_scope(target: Path) [env, fs, error] -> Result[Unit] {
-  cd $target { print "unreached" }
+  cd (target) { print "unreached" }
   return Ok()
 }
 let rejected = try { rejected_scope(not_directory)? }
 assert rejected is Err(_)
 assert fs.cwd()? == original
 stream scoped_directories(root: Path) [env, fs, error] -> Stream[Bool] {
-  cd $root {
+  cd (root) {
     defer { print ${fs.cwd()? == root} }
     yield fs.cwd()? == root
     yield false
@@ -92,7 +92,7 @@ test test_env_statement_runs_on_forced_frames { |ctx|
     ctx,
     r"""let original = env.get_or("XSH_STATEMENT_FRAME", "absent")?
 proc leave() [env, error] {
-  env XSH_STATEMENT_FRAME=inside {
+  env ({XSH_STATEMENT_FRAME: "inside"}) {
     defer { print e"XSH_STATEMENT_FRAME"? }
     return
   }
@@ -100,7 +100,7 @@ proc leave() [env, error] {
 leave()
 assert env.get_or("XSH_STATEMENT_FRAME", "absent")? == original
 proc fail_scope() [env, error] -> Result[Unit] {
-  env XSH_STATEMENT_FRAME=failed {
+  env ({XSH_STATEMENT_FRAME: "failed"}) {
     defer { print e"XSH_STATEMENT_FRAME"? }
     fail "env body failed"
   }
@@ -113,21 +113,21 @@ proc mark(value: Str) -> Str {
   print f"eval:{value}"
   return value
 }
-env XSH_STATEMENT_A=${mark("first")} XSH_STATEMENT_B=${mark("second")} {
+env ({XSH_STATEMENT_A: mark("first"), XSH_STATEMENT_B: mark("second")}) {
   print e"XSH_STATEMENT_A"? e"XSH_STATEMENT_B"?
 }
 let search_paths = [p"/one", p"/two"]
-env XSH_STATEMENT_PATHS=$search_paths {
+env ({XSH_STATEMENT_PATHS: search_paths}) {
   assert env.PathList.XSH_STATEMENT_PATHS? == search_paths
 }
 stream scoped_values() [env, error] -> Stream[Str] {
-  env XSH_STATEMENT_FRAME=producer {
+  env ({XSH_STATEMENT_FRAME: "producer"}) {
     defer { print e"XSH_STATEMENT_FRAME"? }
     yield e"XSH_STATEMENT_FRAME"?
     yield "unreached"
   }
 }
-env XSH_STATEMENT_FRAME=consumer {
+env ({XSH_STATEMENT_FRAME: "consumer"}) {
   for value in scoped_values() {
     print $value e"XSH_STATEMENT_FRAME"?
     break

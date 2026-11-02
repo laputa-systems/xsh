@@ -206,7 +206,7 @@ use xsh::frontend::syntax::arena::{
     RunFormId, StmtId, SugarForm, TypeExprId, WaitPace,
 };
 use xsh::frontend::syntax::node::{
-    AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
+    AssignOp, BinaryOp, Effect, RunKind, StreamStageKind, UnaryOp,
     parse_command_word_reference,
 };
 
@@ -1399,19 +1399,11 @@ impl<'a> Linter<'a> {
                 let ArenaStmtKind::Command(command) = self.arena.stmt(id).kind else {
                     return false;
                 };
-                let ArenaCommand::Core {
-                    name,
-                    args,
-                    env,
-                    block,
-                } = self.arena.command_stmt(command).command
+                let ArenaCommand::Core { args, .. } = self.arena.command_stmt(command).command
                 else {
                     return false;
                 };
-                matches!(name, CoreCommand::Print | CoreCommand::Eprint)
-                    && env.is_empty()
-                    && block.is_none()
-                    && self
+                self
                         .arena
                         .command_args(args)
                         .iter()

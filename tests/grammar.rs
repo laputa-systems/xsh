@@ -647,18 +647,16 @@ fn command_dot_words_are_recognized() {
 
 #[test]
 fn env_without_a_block_uses_proc_command_rules() {
-    for source in ["env foo\n", "env . name\n", "env FOO=value { f() }\n"] {
+    for source in ["env foo\n", "env . name\n"] {
         assert_parser_and_grammar_agree(source, true);
     }
-    assert_parser_and_grammar_agree("env value = ${ items |> each { |item| item } } { }\n", true);
-    for source in ["env . name {}\n", "env foo ({})\n"] {
+    for source in ["env . name {}\n", "env foo ({})\n", "env FOO=value { f() }\n"] {
         assert_parser_and_grammar_agree(source, false);
     }
 }
 
 #[test]
-fn cd_scope_arguments_keep_command_word_interpolation() {
-    assert_parser_and_grammar_agree("cd +${ x +\n1 } { }\n", true);
+fn context_scope_calls_end_before_a_trailing_operator() {
     assert_parser_and_grammar_agree("cd (x) { } < []\n", true);
     assert_parser_and_grammar_agree("env (x) { } < []\n", true);
     assert_parser_and_grammar_agree("env (x) { } next\n", false);
@@ -1155,10 +1153,10 @@ fn discarded_lookahead_attempts_do_not_change_generated_derivations() {
 
 #[test]
 fn multiline_command_word_boundaries_are_recognized() {
-    for source in ["run --timeout= spawn (x) cmd\n", "env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n", "let value = (spawn run fp\"{a}/x\")? % - collect {}\n", "f(spawn run a?)\n", "(f(spawn run a))\n", "let value = { f\ng }\n"] {
+    for source in ["run --timeout= spawn (x) cmd\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n", "let value = (spawn run fp\"{a}/x\")? % - collect {}\n", "f(spawn run a?)\n", "(f(spawn run a))\n", "let value = { f\ng }\n"] {
         assert_parser_and_grammar_agree(source, true);
     }
-    for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n", "fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n", "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "f(spawn run a)\n", "f a-b(1)\n", "run (\n cmd ) out )\n", "run --timeout=fp\"x\"[] cmd\n", "run --timeout= spawn (x)\n", "guard let items = run -- ? else { }\n", "{ } ; cd { { }\n", "let value = match x { E => \"\" 0 => 4 }\n"] {
+    for source in ["env {}\n", "let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n", "fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n", "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "f(spawn run a)\n", "f a-b(1)\n", "run (\n cmd ) out )\n", "run --timeout=fp\"x\"[] cmd\n", "run --timeout= spawn (x)\n", "guard let items = run -- ? else { }\n", "{ } ; cd { { }\n", "let value = match x { E => \"\" 0 => 4 }\n"] {
         assert_parser_and_grammar_agree(source, false);
     }
 }
@@ -1166,7 +1164,7 @@ fn multiline_command_word_boundaries_are_recognized() {
 #[test]
 fn reduced_mutant_counterexamples_have_sound_recognition() {
     for (seed, accepted, source) in [
-        (198, true, r####"env {}
+        (198, false, r####"env {}
 "####),
         (535, true, r####"asrunsert seen == []
 "####),

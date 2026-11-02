@@ -3854,8 +3854,8 @@ fn generic_proc_commands_retain_checked_operations_and_payloads() {
 proc sample(payload) {
     print "checked"
     eprint "checked"
-    env XSH_GENERIC_COMMAND=inside { print "scoped" }
-    cd p"." { print "directory" }
+    env ({XSH_GENERIC_COMMAND: "inside"}) { print "scoped" }
+    cd (p".") { print "directory" }
     time.sleep(0ms)?
     run true
     return payload

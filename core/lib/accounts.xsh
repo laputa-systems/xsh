@@ -122,7 +122,7 @@ export proc resolve_hosts(key: Str) [net, error] -> Result[List[Str], Error] {
 export proc login_user(name: Str, identity: UnixId) [fs, env, process, error] -> Result[auth.PasswdEntry, Error] {
   var entry: auth.PasswdEntry = auth.dummy_user()
   if applet.current_euid() == 0 {
-    env XSH_PASSWD_FILE=/etc/passwd { entry = auth.lookup_user(name)? }
+    env ({XSH_PASSWD_FILE: "/etc/passwd"}) { entry = auth.lookup_user(name)? }
   } else { entry = auth.lookup_user(name)? }
   if applet.current_euid() != 0 and (entry.uid != identity.uid or entry.uid != applet.current_euid() or entry.gid != identity.gid) {
     return Err(AccountError.Policy("fixture identity must match the caller"))
@@ -138,7 +138,7 @@ export proc login_user(name: Str, identity: UnixId) [fs, env, process, error] ->
 export proc authenticate(entry: auth.PasswdEntry) [fs, env, process, error, io] -> Result[Bool, Error] {
   var verified = false
   if applet.current_euid() == 0 {
-    env XSH_SHADOW_FILE=/etc/shadow { verified = auth.authenticate(entry)? }
+    env ({XSH_SHADOW_FILE: "/etc/shadow"}) { verified = auth.authenticate(entry)? }
   } else { verified = auth.authenticate(entry)? }
   Ok(verified)
 }
@@ -154,7 +154,7 @@ pure age_field(text: Str) -> Result[Int] {
 export proc check_expiration(entry: auth.PasswdEntry) [fs, env, process, time, error] -> Result[Unit, Error] {
   var records: List[auth.ShadowRecord] = []
   if applet.current_euid() == 0 {
-    env XSH_SHADOW_FILE=/etc/shadow { records = auth.read_shadow_records()? }
+    env ({XSH_SHADOW_FILE: "/etc/shadow"}) { records = auth.read_shadow_records()? }
   } else { records = auth.read_shadow_records()? }
   let today = time.now() / 86400000
   for item in records {

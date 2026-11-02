@@ -1359,7 +1359,7 @@ type Writer = module {{
 ## Loads the writer and invokes it within the requested directory.
 export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit, Error] {{
   let module_exports = module.load(p"{callee}")?.require(Writer)?
-  cd src {{
+  cd (src) {{
     module_exports.write_cwd(out)?
   }} ?
 }}
@@ -1547,7 +1547,7 @@ use PKGBUILD
 proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
   dest.remove(missing_ok: true)?
   dest.mkdir()?
-  cd src {
+  cd (src) {
     PKGBUILD.build(dest)?
   } ?
 }
@@ -1659,7 +1659,7 @@ test loads_plugin_with_configured_roots {
 }
 """)
 
-  cd project {
+  cd (project) {
     let output = run.capture --text "xsht" test tests/loader.xsh
     assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
   }
@@ -1707,8 +1707,8 @@ test plain_run_child_finds_configured_roots { |ctx|
   )
 
   let inherited_root = inherited.display()
-  env XSH_MODULE_PATH=$inherited_root {
-    cd project {
+  env ({XSH_MODULE_PATH: inherited_root}) {
+    cd (project) {
       let output = run.capture --text "xsht" test tests/children.xsh
       assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
       assert "2 passed" in output.stdout, output.stdout

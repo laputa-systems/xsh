@@ -98,7 +98,7 @@ proc run_suites(
       let suite_json = fp"{out_dir}/{suite_json_name(suite.name)}"
       print f"coverage suite {suite.name}"
 
-      cd suite.path {
+      cd (suite.path) {
         let captured = run.capture --text $xsht @(suite_test_args(suite_json))
         io.write_stdout(captured.stdout)
 

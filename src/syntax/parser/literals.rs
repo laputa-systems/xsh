@@ -37,7 +37,7 @@ impl<'a> Parser<'a> {
     }
 
     /// The variable an `e"NAME"` literal names. The name must be an
-    /// identifier, the same rule `env NAME=value { }` overlays apply, so one
+    /// identifier, the same rule `env ({NAME: value}) { }` overlays apply, so one
     /// spelling both reads and sets it. A malformed name is reported and kept
     /// for recovery.
     pub(super) fn env_string_name(&mut self, span: Span) -> crate::symbol::Name {

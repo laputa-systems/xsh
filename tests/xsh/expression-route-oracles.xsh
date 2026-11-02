@@ -515,7 +515,7 @@ test test_expr_glob { |ctx|
   fp"{root}/match.txt".write("payload")
   test.expect(
     ctx,
-    "let root = Path(args[0])\ncd root { let matches = g\"*.txt\"; assert matches == [p\"match.txt\"] }\n",
+    "let root = Path(args[0])\ncd (root) { let matches = g\"*.txt\"; assert matches == [p\"match.txt\"] }\n",
     status: 0,
     args: [root],
   )?

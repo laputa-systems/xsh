@@ -432,15 +432,10 @@ fn stmt_command_has_splice_name(arena: &AstArena, stmt: super::StmtId, name: Nam
             .command_args(*args)
             .iter()
             .any(|arg| command_arg_has_splice_name(arg, name)),
-        super::ArenaCommand::Core { args, env, .. } => {
-            arena
-                .command_args(*args)
-                .iter()
-                .any(|arg| command_arg_has_splice_name(arg, name))
-                || arena.env_assignments(*env).iter().any(|assignment| {
-                    matches!(&assignment.value, ArenaEnvAssignmentValue::CommandArg(arg) if command_arg_has_splice_name(arg, name))
-                })
-        }
+        super::ArenaCommand::Core { args, .. } => arena
+            .command_args(*args)
+            .iter()
+            .any(|arg| command_arg_has_splice_name(arg, name)),
         super::ArenaCommand::Run(run) => run_form_has_splice_name(arena, *run, name),
     }
 }

@@ -6710,11 +6710,6 @@ impl<'a> ProducerProof<'a> {
                         }
                         None
                     }
-                    FullTag::StmtCd => {
-                        let Type::Result(_, error) = Type::core_command_result(crate::syntax::node::CoreCommand::Cd) else { unreachable!() };
-                        errors.push(*error);
-                        None
-                    }
                     FullTag::ExprRunCapture => {
                         let schema::ExprView::RunCapture(run) = decoder.expression_view(instruction)? else { unreachable!() };
                         let (spliced, accepts) = self.run_capture_error_policy(run.operands)?;

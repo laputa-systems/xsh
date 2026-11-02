@@ -1,6 +1,6 @@
 use super::{
     ControlFlow, Evaluator, FileRedirectionMode, LoweredValue, PathValue,
-    ProcessEnd, ProcessInvocation, ProcessStatus, RunArg, RunKind,
+    ProcessEnd, ProcessInvocation, ProcessStatus, RunKind,
     ProcessRedirection, RedirectionKind, RedirectionStream, RunError, RuntimeError, Span, Value,
     RUN_ARG_SPLICE, execute_run_with_policy, lowered_process_run_error,
     lowered_value_from_runtime_any, run_pipeline_inherit_with_policy,
@@ -68,13 +68,6 @@ impl Evaluator {
         value: Value,
     ) -> Result<Vec<u8>, RuntimeError> {
         Self::run_env_value_mode(mode, span, value)
-    }
-
-    pub(super) fn run_env_value(
-        arg: &RunArg,
-        value: Value,
-    ) -> Result<Vec<u8>, RuntimeError> {
-        Self::run_env_value_mode(arg.mode, arg.span, value)
     }
 
     fn run_env_value_mode(

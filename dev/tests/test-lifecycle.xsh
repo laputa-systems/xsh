@@ -957,7 +957,7 @@ proc main() [fs, process, env, time, error, io] {{
   let search_path = f"{tools}:{env.get_or("PATH", "")?}"
   let module_path = fp"{repository}/dev".display()
   let xsh = ctx.xsh_bin
-  env PATH=$search_path XSH_MODULE_PATH=$module_path {
+  env ({PATH: search_path, XSH_MODULE_PATH: module_path}) {
     let child = spawn run $xsh $script ?
     var waited = 0
     while ! ready.exists()? and waited < 100 {
@@ -1005,7 +1005,7 @@ proc main() [fs, process, env, time, error, io] {{
   let search_path = env.get_or("PATH", "")?
   let module_path = fp"{repository}/dev".display()
   let xsh = ctx.xsh_bin
-  env PATH=$search_path XSH_MODULE_PATH=$module_path {
+  env ({PATH: search_path, XSH_MODULE_PATH: module_path}) {
     let child = spawn run $xsh $script ?
     var waited = 0
     while ! ready.exists()? and waited < 100 {
@@ -1134,7 +1134,7 @@ proc main() [fs, process, env, time, error, io] {{
   let search_path = f"{tools}:{env.get_or("PATH", "")?}"
   let module_path = fp"{repository}/dev".display()
   let xsh = ctx.xsh_bin
-  env PATH=$search_path XSH_MODULE_PATH=$module_path HOST_UID=1000 HOST_GID=1000 {
+  env ({PATH: search_path, XSH_MODULE_PATH: module_path, HOST_UID: "1000", HOST_GID: "1000"}) {
     let child = spawn run $xsh $script ?
     var waited = 0
     while ! ready.exists()? and waited < 100 {

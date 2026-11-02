@@ -663,26 +663,12 @@ fn command_flow(arena: &AstArena, facts: &FlowFacts, command: CommandStmtId) -> 
             .fold(FlowSummary::fallthrough(), |flow, arg| {
                 flow.then(command_arg_flow(arena, facts, arg))
             }),
-        ArenaCommand::Core {
-            args, env, block, ..
-        } => {
-            let mut flow = FlowSummary::fallthrough();
-            for arg in arena.command_args(args) {
-                flow = flow.then(command_arg_flow(arena, facts, arg));
-            }
-            for assignment in arena.env_assignments(env) {
-                let assignment_flow = match &assignment.value {
-                    ArenaEnvAssignmentValue::CommandArg(arg) => command_arg_flow(arena, facts, arg),
-                    ArenaEnvAssignmentValue::Expr(expr) => facts.expression(*expr),
-                };
-                flow = flow.then(assignment_flow);
-            }
-            if let Some(block) = block {
-                flow.then(facts.block(block))
-            } else {
-                flow
-            }
-        }
+        ArenaCommand::Core { args, .. } => arena
+            .command_args(args)
+            .iter()
+            .fold(FlowSummary::fallthrough(), |flow, arg| {
+                flow.then(command_arg_flow(arena, facts, arg))
+            }),
         ArenaCommand::Run(run) => facts.run(run),
     }
 }

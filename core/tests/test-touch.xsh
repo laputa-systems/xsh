@@ -163,7 +163,7 @@ test test_touch_missing_file_trailing_slash { |ctx|
 # matched against names the script would otherwise create.
 test test_touch_obsolete_operand_uses_posix_version_and_yearly_range { |ctx|
   let root = test.temp_dir(ctx, name: "touch-obsolete")?
-  cd $root {
+  cd (root) {
     let posix = run.capture --text env _POSIX2_VERSION=199209 POSIXLY_CORRECT=1 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "0101000099" "with-year"
     assert posix.status.exited_with(0), posix.stderr
     assert posix.stderr == ""
@@ -185,7 +185,7 @@ test test_touch_obsolete_operand_uses_posix_version_and_yearly_range { |ctx|
 
 test test_touch_obsolete_operand_warns_without_posixly_correct { |ctx|
   let root = test.temp_dir(ctx, name: "touch-obsolete-warning")?
-  cd $root {
+  cd (root) {
     let warned = run.capture --text env -u POSIXLY_CORRECT _POSIX2_VERSION=199209 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "01010000" "target"
     assert warned.status.exited_with(0), warned.stderr
     assert warned.stderr.starts_with("touch: warning: 'touch 01010000' is obsolete; use 'touch -t "), warned.stderr

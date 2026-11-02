@@ -10,7 +10,7 @@ use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRedirection,
     ArenaRedirectionTarget, ArenaRunOption, ArenaRunSegment, ArenaRunTailOperand, ArenaWordPart,
-    BlockId, CommandStmtId, ExprId, RunFormId,
+    CommandStmtId, ExprId, RunFormId,
 };
 use crate::syntax::node::{CommandWordRefSegment, parse_command_word_reference};
 
@@ -295,12 +295,9 @@ impl Checker {
             ArenaCommand::Proc { name, args } => {
                 self.check_proc_command_arena(arena, source, &name.as_str(), *args, span)
             }
-            ArenaCommand::Core {
-                name,
-                args,
-                env,
-                block,
-            } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
+            ArenaCommand::Core { name, args } => {
+                self.check_core_command_arena(arena, source, *name, *args)
+            }
             ArenaCommand::Run(run_id) => {
                 self.record_required_effect(Effect::Process, span);
                 let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
@@ -457,9 +454,9 @@ impl Checker {
             "source" | "." => diagnostic
                 .with_note("XSH does not source shell scripts; import an XSH module with `use`, or run a shell script with `run sh FILE`"),
             "set" | "unset" | "declare" | "typeset" | "readonly" | "local" => diagnostic
-                .with_note("declare variables with `let` or `var`; set a child's environment with `env NAME=value { ... }`"),
+                .with_note("declare variables with `let` or `var`; set a child's environment with `env ({NAME: value}) { ... }`"),
             "env" => diagnostic
-                .with_note("an `env` scope needs a block: `env NAME=value { ... }`; for one command write `run NAME=value COMMAND`"),
+                .with_note("an `env` scope needs an overlay and a block: `env ({NAME: value}) { ... }`; for one command write `run NAME=value COMMAND`"),
             _ => diagnostic.with_note(format!("XSH never looks up commands on PATH implicitly; run an external program with `run {name} ...`")),
         };
         self.diagnostics.push(diagnostic);
@@ -526,9 +523,6 @@ impl Checker {
         source: &str,
         name: CoreCommand,
         args: ArenaRange,
-        env: ArenaRange,
-        block: Option<BlockId>,
-        span: Span,
     ) -> Type {
         match name {
             CoreCommand::Print | CoreCommand::Eprint => {
@@ -624,40 +618,6 @@ impl Checker {
                         continue;
                     }
                     self.check_command_arg_arena_print_tail(arena, source, arg);
-                }
-                Type::core_command_result(name)
-            }
-            CoreCommand::Cd => {
-                self.require_effect(Effect::Env, span, "`cd`");
-                if args.len() != 1 {
-                    self.error(
-                        span,
-                        "`cd` expects one path argument",
-                        DiagnosticCode::CheckCoreCdArity,
-                    );
-                }
-                if let Some(arg) = arena.arena.command_args(args).first() {
-                    self.check_command_arg_arena(arena, source, arg, Some(&Type::Path));
-                }
-                if let Some(block) = block {
-                    self.check_block_arena(arena, source, block);
-                }
-                Type::core_command_result(name)
-            }
-            CoreCommand::Env => {
-                self.require_effect(Effect::Env, span, "`env`");
-                if !args.is_empty() {
-                    self.error(
-                        span,
-                        "`env` accepts assignments",
-                        DiagnosticCode::CheckCoreEnvArity,
-                    );
-                }
-                for assignment in arena.arena.env_assignments(env) {
-                    self.check_env_assignment_arena(arena, source, assignment);
-                }
-                if let Some(block) = block {
-                    self.check_block_arena(arena, source, block);
                 }
                 Type::core_command_result(name)
             }

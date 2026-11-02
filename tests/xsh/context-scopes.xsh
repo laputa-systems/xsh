@@ -63,7 +63,7 @@ test test_scope_run_capture_assignment_to_outer_binding { |ctx|
     ctx,
     r"""proc inspect(repo: Path) [env, process, error] -> Result[Str] {
   var revision = ""
-  cd $repo { revision = run.text /bin/pwd ? }
+  cd (repo) { revision = run.text /bin/pwd ? }
   revision = revision.trim()
   revision
 }
@@ -596,7 +596,7 @@ env { XSH_REMOVED_SCOPE = "release" } {
 test test_cd_scope_accepts_a_bare_path_before_its_block { |ctx|
   let output = test.expect(
     ctx,
-    r"""cd / {
+    r"""cd (p"/") {
   run pwd
 }
 let cd = 6

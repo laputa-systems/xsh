@@ -32,15 +32,10 @@ test test_continuation_separates_every_part_of_a_run_form { |ctx|
       f"  2> /dev/null {backslash}",
       "  ?",
       "print $text",
-      f"env FIRST=1 {backslash}",
-      f"  SECOND=2 {backslash}",
-      "  {",
-      "  run printenv SECOND ?",
-      "}",
     ],
   )
   let output = test.expect(ctx, source, status: 0)?
-  assert output.stdout == "HELLO\n\n2\n", output.stdout
+  assert output.stdout == "HELLO\n\n", output.stdout
 }
 
 test test_continuation_accepts_crlf_line_endings { |ctx|

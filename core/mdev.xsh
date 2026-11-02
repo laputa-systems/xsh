@@ -751,7 +751,7 @@ proc mdev_daemon_worker(detached: Bool) [fs, process, env, error, io, time, net]
   if let descriptor = ready_fd {
     let _ = process.new_session()?
     let root = p"/"
-    cd $root {
+    cd (root) {
       write_fd_all(descriptor, b"R")?
       unix.close_fd(descriptor)?
       ready_open = false

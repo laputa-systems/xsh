@@ -102,7 +102,7 @@ print ${origin.root}
   assert project_only.status.exited_with(0), project_only.stderr
   assert project_only.stdout == "project\n", project_only.stdout
 
-  env XSH_MODULE_PATH=$env_root {
+  env ({XSH_MODULE_PATH: env_root}) {
     let with_env = run.capture --text "xsh" $entry
     assert with_env.status.exited_with(0), with_env.stderr
     assert with_env.stdout == "environment\n", with_env.stdout
@@ -153,7 +153,7 @@ test a_script_without_a_project_config_has_no_project_roots { |ctx|
 test the_project_config_is_found_from_any_starting_directory { |ctx|
   let root = project(ctx, "any-cwd", "module_path = lib\n")?
 
-  cd fp"{root}/bin" {
+  cd (fp"{root}/bin") {
     let run_output = run.capture --text "xsh" entry.xsh
     assert run_output.status.exited_with(0), run_output.stderr
     assert run_output.stdout == "42\n", run_output.stdout
@@ -182,7 +182,7 @@ test answers_are_not_found_from_the_starting_directory {
 }
 """)
 
-  cd root {
+  cd (root) {
     let run_output = run.capture --text "xsh" "sub/entry.xsh"
     assert ! run_output.status.ok, run_output.stdout
     assert run_output.stdout == "", run_output.stdout
@@ -229,7 +229,7 @@ test answers_resolve_through_the_nearest_config {
 }
 """)
 
-  cd outer {
+  cd (outer) {
     let tested = run.capture --text "xsht" test "project/tests/test-answers.xsh"
     assert tested.status.exited_with(0), f"{tested.stdout}{tested.stderr}"
     assert "1 passed" in tested.stdout, tested.stdout

@@ -149,6 +149,23 @@ test test_ordering_chains_are_rejected_with_the_joined_comparison { |ctx|
   expect_parses(ctx, "let result = (0 < 1) < true\n")
 }
 
+test test_command_scope_spellings_are_rejected_with_the_call_line { |ctx|
+  for {source, rewrite} in [
+    {source: "let dir = p\"/tmp\"\ncd dir { print here }\n", rewrite: "cd (dir) { ... }"},
+    {source: "let dir = p\"/tmp\"\ncd $dir { print here }\n", rewrite: "cd (dir) { ... }"},
+    {source: "cd /tmp/x { print here }\n", rewrite: "cd (p\"/tmp/x\") { ... }"},
+    {source: "let dir = p\"/tmp\"\ncd \"$dir/x\" { print here }\n", rewrite: "cd (fp\"{dir}/x\") { ... }"},
+    {source: "env A=1 B=\"x y\" { print here }\n", rewrite: "env ({A: \"1\", B: \"x y\"}) { ... }"},
+    {source: "let home = \"/h\"\nenv HOME=$home PATH=$home/bin { print here }\n", rewrite: "env ({HOME: home, PATH: f\"{home}/bin\"}) { ... }"},
+    {source: "env A=(1 + 2) { print here }\n", rewrite: "env ({A: 1 + 2}) { ... }"},
+  ] {
+    let stderr = rejection(ctx, source)?
+    assert "parse.scope-command" in stderr, stderr
+    assert rewrite in stderr, stderr
+  }
+  expect_parses(ctx, "let dir = p\"/tmp\"\ncd (dir) { print here }\nenv ({A: \"1\"}) { print here }\n")
+}
+
 test test_unterminated_regex_literals_are_lexical_errors { |ctx|
   for source in ["let pattern = rx\"abc", "let pattern = rx\"\"\"abc\n"] {
     expect_rejected(ctx, source, "lex.unterminated-string")
@@ -237,7 +254,7 @@ test test_bare_exit_and_fail_need_values_before_arm_commas { |ctx|
     expect_rejected(ctx, source, "parse.expected-expression")
   }
   for source in ["env . name {}\n", "env foo ({})\n"] {
-    expect_rejected(ctx, source, "parse.env-assignment")
+    expect_rejected(ctx, source, "parse.scope-command")
   }
 }
 

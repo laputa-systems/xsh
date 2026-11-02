@@ -9,7 +9,7 @@ use super::{
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredRecordEntry, LoweredRecordUpdates,
-    LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
+    LoweredRunCapture, LoweredRunPipelineSegment, LoweredSpawnRun,
     LoweredBindingIdentity, LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot,
     LoweredType, LoweredTypeCheck, LoweredValueCheck,
     LoweredValue, Name, NameText, PathValue,
@@ -1428,15 +1428,6 @@ instruction_schema! {
             propagate_result: bool,
             span: Span,
         } => StmtPrint = 144 [EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
-        Cd {
-            target: BuildExprId,
-            body: Vec<BuildStmtId>,
-            span: Span,
-        } => StmtCd = 145 [EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
-        Env {
-            env: Vec<LoweredRunEnv>,
-            body: Vec<BuildStmtId>,
-        } => StmtEnv = 146 [EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Run {
             value: BuildExprId,
             propagate_result: bool,

@@ -262,25 +262,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    fn lower_command_block(
-        &mut self, block: crate::syntax::arena::BlockId, slots: &mut SlotScope,
-        current_function: Option<Name>, item_slot: Option<usize>,
-        domain: &mut CommandLoweringDomain<'_>,
-    ) -> Option<Vec<BuildStmtId>> {
-        match domain {
-            CommandLoweringDomain::Ordinary => self.lower_block(block, slots, current_function, item_slot),
-            CommandLoweringDomain::Generalized { facts, visited, types } => self.lower_scheme_statement_block(block, slots, current_function?, facts, visited, types),
-        }
-    }
-
     pub(super) fn lower_generalized_command(
         &mut self, command: crate::syntax::arena::CommandStmtId, slots: &mut SlotScope,
         current_function: Name, domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildStmtId> {
         match self.program.arena.command_stmt(command).command {
             ArenaCommand::Core { name: CoreCommand::Print | CoreCommand::Eprint, .. } => self.lower_print_stmt_in_domain(command, slots, Some(current_function), None, domain),
-            ArenaCommand::Core { name: CoreCommand::Cd, .. } => self.lower_cd_stmt_in_domain(command, slots, Some(current_function), None, domain),
-            ArenaCommand::Core { name: CoreCommand::Env, .. } => self.lower_env_stmt_in_domain(command, slots, Some(current_function), None, domain),
             ArenaCommand::Run(_) => self.lower_run_stmt_in_domain(command, slots, Some(current_function), None, domain),
             ArenaCommand::Proc { .. } => None,
         }
@@ -305,21 +292,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         domain: &mut CommandLoweringDomain<'_>,
     ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
-        let ArenaCommand::Core {
-            name,
-            args,
-            env,
-            block,
-        } = stmt.command
-        else {
+        let ArenaCommand::Core { name, args } = stmt.command else {
             return None;
         };
-        if !matches!(name, CoreCommand::Print | CoreCommand::Eprint)
-            || !env.is_empty()
-            || block.is_some()
-        {
-            return None;
-        }
         let args = self.program.arena.command_args(args).to_vec();
         let flush = args
             .first()
@@ -386,107 +361,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             BuildStmtRow::Run {
                 value: self.lower_run_binding_value_in_domain(run, slots, current_function, item_slot, domain)?,
                 propagate_result: false,
-            }
-        ))
-    }
-
-    pub(super) fn lower_cd_stmt(
-        &mut self,
-        id: crate::syntax::arena::CommandStmtId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-    ) -> Option<BuildStmtId> {
-        self.lower_cd_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
-    }
-
-    pub(super) fn lower_cd_stmt_in_domain(
-        &mut self,
-        id: crate::syntax::arena::CommandStmtId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-        domain: &mut CommandLoweringDomain<'_>,
-    ) -> Option<BuildStmtId> {
-        let stmt = self.program.arena.command_stmt(id);
-        let ArenaCommand::Core {
-            name: CoreCommand::Cd,
-            args,
-            env,
-            block,
-        } = stmt.command
-        else {
-            return None;
-        };
-        if !env.is_empty() {
-            return None;
-        }
-        let args = self.program.arena.command_args(args);
-        let [target] = args else {
-            return None;
-        };
-        let target = self.lower_command_arg_in_domain(target, slots, current_function, item_slot, domain)?;
-        let body = match block {
-            Some(block) => self.lower_command_block(block, slots, current_function, item_slot, domain)?,
-            None => Vec::new(),
-        };
-        Some(push_build_row!(
-            self,
-            stmt,
-            BuildStmtRow::Cd {
-                target,
-                body,
-                span: self.program.arena.span(stmt.span),
-            }
-        ))
-    }
-
-    pub(super) fn lower_env_stmt(
-        &mut self,
-        id: crate::syntax::arena::CommandStmtId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-    ) -> Option<BuildStmtId> {
-        self.lower_env_stmt_in_domain(id, slots, current_function, item_slot, &mut CommandLoweringDomain::Ordinary)
-    }
-
-    pub(super) fn lower_env_stmt_in_domain(
-        &mut self,
-        id: crate::syntax::arena::CommandStmtId,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-        domain: &mut CommandLoweringDomain<'_>,
-    ) -> Option<BuildStmtId> {
-        let stmt = self.program.arena.command_stmt(id);
-        let ArenaCommand::Core {
-            name: CoreCommand::Env,
-            args,
-            env,
-            block,
-        } = stmt.command
-        else {
-            return None;
-        };
-        if !self.program.arena.command_args(args).is_empty() {
-            return None;
-        }
-        let assignments = self.program.arena.env_assignments(env).to_vec();
-        let mut lowered_env = Vec::with_capacity(assignments.len());
-        for assignment in &assignments {
-            lowered_env.push(self.lower_run_env_in_domain(assignment, slots, current_function, item_slot, domain)?);
-        }
-        let body = match block {
-            Some(block) => self.lower_command_block(block, slots, current_function, item_slot, domain)?,
-            None => Vec::new(),
-        };
-        Some(push_build_row!(
-            self,
-            stmt,
-            BuildStmtRow::Env {
-                env: lowered_env,
-                body,
             }
         ))
     }

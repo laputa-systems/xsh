@@ -3,7 +3,7 @@
 let target = e"DEPLOY_TARGET" ?? e"DEFAULT_TARGET" ?? "staging"
 print f"target: {target}"
 
-env JOBS=8 VERBOSE=yes PREFIX=/opt/app {
+env ({JOBS: "8", VERBOSE: "yes", PREFIX: "/opt/app"}) {
   let jobs = env.int("JOBS", 1)?
   let verbose = env.bool("VERBOSE")?
   let prefix = env.Path.PREFIX?

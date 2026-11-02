@@ -315,7 +315,7 @@ impl<'a> Parser<'a> {
                 if matches!(self.current_tag(), TokenTag::Ident)
                     && self.peek_tag(1) == Some(TokenTag::Equals)
                 {
-                    diagnostic = diagnostic.with_note("XSH `export` publishes module definitions; set an environment variable for commands with `env NAME=value { ... }`");
+                    diagnostic = diagnostic.with_note("XSH `export` publishes module definitions; set an environment variable for commands with `env ({NAME: value}) { ... }`");
                 }
                 self.diagnostics.push(diagnostic);
                 return None;

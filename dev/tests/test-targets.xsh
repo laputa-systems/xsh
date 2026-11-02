@@ -196,7 +196,7 @@ log.write(previous + args.join("|") + "\\n")?
     target_dir: fp"{root}/host-target-x86",
   }
   let inherited_path = env.get_or("PATH", "")?
-  env PATH=f"{tools}:{inherited_path}" XSH_TEST_IMAGE_BUILD="0" XSH_TEST_IMAGE="xsh-test:linux-isolation" DIST_PROFILE="release" {
+  env ({PATH: f"{tools}:{inherited_path}", XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "xsh-test:linux-isolation", DIST_PROFILE: "release"}) {
     workflows.linux_test(mac_arm, true)
     workflows.linux_test(linux_arm_override, true)
     workflows.linux_test(mac_x86_override, true)
@@ -512,7 +512,7 @@ test test_subprocess_wrong_directory_has_a_named_failure { |ctx|
     """
 use context
 
-cd p"/" {
+cd (p"/") {
   match context.require_root() {
     Ok(_) => exit 1
     Err(error) => print \${error.message}
@@ -786,7 +786,7 @@ test test_gate_docker_uses_linked_worktree_common_dir_despite_git_overrides { |c
   let log = fp"{root}/docker.log"
   fp"{tools}/docker".write(f"#!/bin/sh\nif [ \"$1\" = image ]; then printf 'sha256:%064d\\n' 0; else printf '%s\\n' \"$@\" > '{log}'; fi\n", mode: 0o755)
   let inherited_path = env.get_or("PATH", "")?
-  env PATH=f"{tools}:{inherited_path}" XSH_TEST_IMAGE_BUILD="0" XSH_TEST_IMAGE="fixture" GIT_DIR=f"{root}/foreign" GIT_COMMON_DIR=f"{root}/other" {
+  env ({PATH: f"{tools}:{inherited_path}", XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture", GIT_DIR: f"{root}/foreign", GIT_COMMON_DIR: f"{root}/other"}) {
     let status = docker_workflows.run_internal_status({...fixtures.linux_context(linked)?, host_arch: target_policy.Aarch64}, "gate-lane", false, [])?
     assert status.exited_with(0)
   }

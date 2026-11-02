@@ -1,6 +1,6 @@
 e"STAGE" = "build" # set for the rest of the script
 
-env LC_ALL=C {
+env ({LC_ALL: "C"}) {
   e"STAGE" = "test" # undone when this scope ends
   e"RETRIES" = 3 # converted like an argv item
   let stage = run.text printenv STAGE
@@ -19,7 +19,7 @@ let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
 tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n", mode: 0o755)
 
-env STAGE=release {
+env ({STAGE: "release"}) {
   env.PATH.prepend(tools)
   run hello-tool
 }

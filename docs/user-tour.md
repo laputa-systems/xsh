@@ -163,14 +163,14 @@ ends:
 
 ```xsh
 tempdir dir {
-  cd $dir {
+  cd (dir) {
     p"notes.txt".write("hi\n")
     let listing = run.text ls
     print f"inside: {listing.trim()}"
   }
 }
 
-env LC_ALL=C GREETING="hello world" {
+env ({LC_ALL: "C", GREETING: "hello world"}) {
   let said = run.text printenv GREETING
   print f"child saw: {said.trim()}"
 }
@@ -343,7 +343,7 @@ XSH reads a variable with an e-string, `e"NAME"`, whose value is a
 let target = e"DEPLOY_TARGET" ?? e"DEFAULT_TARGET" ?? "staging"
 print f"target: {target}"
 
-env JOBS=8 VERBOSE=yes PREFIX=/opt/app {
+env ({JOBS: "8", VERBOSE: "yes", PREFIX: "/opt/app"}) {
   let jobs = env.int("JOBS", 1)?
   let verbose = env.bool("VERBOSE")?
   let prefix = env.Path.PREFIX?
@@ -395,7 +395,7 @@ Assigning to an e-string sets a variable:
 ```xsh
 e"STAGE" = "build" # set for the rest of the script
 
-env LC_ALL=C {
+env ({LC_ALL: "C"}) {
   e"STAGE" = "test" # undone when this scope ends
   e"RETRIES" = 3 # converted like an argv item
   let stage = run.text printenv STAGE
@@ -414,7 +414,7 @@ let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
 tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n", mode: 0o755)
 
-env STAGE=release {
+env ({STAGE: "release"}) {
   env.PATH.prepend(tools)
   run hello-tool
 }
@@ -438,7 +438,7 @@ way `run` converts its arguments: a `Path` keeps its bytes and `3` becomes
 a binding and the text is `"clang"`. There is no unset, and `null` is rejected
 rather than meaning one.
 
-An `env NAME=value { ... }` or `env (record) { ... }` block is a scope: when it
+An `env (record) { ... }` block is a scope: when it
 ends, by finishing, failing, or returning early, the environment goes back to
 what it was when the block started. An assignment therefore lasts until the
 innermost enclosing `env` block ends, and outside any block for the rest of the

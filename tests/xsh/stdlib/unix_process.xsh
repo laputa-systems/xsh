@@ -496,7 +496,7 @@ test test_unix_exec_preserves_scoped_and_relative_explicit_cwd { |ctx|
     for mode in ["scoped", "explicit"] {
       let result = test.expect(ctx, r"""
 let root = Path(args[0])
-cd root {
+cd (root) {
   let command = if args[1] == "explicit" {
     process.command_argv(p"/bin/pwd", ["pwd", "-P"], cwd: p"inner")
   } else {

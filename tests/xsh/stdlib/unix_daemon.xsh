@@ -21,7 +21,7 @@ print "initial scan"
 eprint "worker stderr"
 io.flush_stdout()?
 let _ = process.new_session()?
-cd / {
+cd (p"/") {
   assert process.session_id()? == process.current_pid()?
   assert unix.write_fd(saved, b"x")? == 1
   unix.close_fd(saved)?

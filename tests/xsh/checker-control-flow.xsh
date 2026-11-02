@@ -671,7 +671,7 @@ pure choose_guard(stop: Bool) -> Int {
       },
       {
         name: "error-boundaries-and-unit-keep-explicit-exits",
-        source: "proc spin_run() [process, error] { loop { run true ? } }\nproc spin_text() [process, error] { loop { let output = run.text printf \"ok\" } }\nproc unit_result() -> Result[Unit, Error] { return Ok() }\nproc spin_unit_result() [error] { loop { unit_result() } }\nproc spin_cd() [env, error] { loop { cd \".\" {} } }\n",
+        source: "proc spin_run() [process, error] { loop { run true ? } }\nproc spin_text() [process, error] { loop { let output = run.text printf \"ok\" } }\nproc unit_result() -> Result[Unit, Error] { return Ok() }\nproc spin_unit_result() [error] { loop { unit_result() } }\nproc spin_cd() [env, error] { loop { cd (p\".\") {} } }\n",
         diagnostics: [],
       },
       {

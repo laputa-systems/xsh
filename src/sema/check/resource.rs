@@ -1178,7 +1178,7 @@ mod tests {
 
     #[test]
     fn run_assignment_to_an_outer_binding_publishes_and_compacts_its_transfer_fact() {
-        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { revision = run.text /bin/pwd ? }; revision = revision.trim(); revision }\nproc transfer_stream() [process, error] -> Result[Unit] { var output: Any = null; { output = run.stream --text /bin/pwd ? }; return Ok() }\n";
+        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd (repo) { revision = run.text /bin/pwd ? }; revision = revision.trim(); revision }\nproc transfer_stream() [process, error] -> Result[Unit] { var output: Any = null; { output = run.stream --text /bin/pwd ? }; return Ok() }\n";
         let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
         let checked = Checker::check_arena_with_options(
             &program,

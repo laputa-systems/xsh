@@ -1173,12 +1173,44 @@ pub fn command_line_has_block<'s>(mut peek: impl FnMut(usize) -> Option<GrammarT
 }
 
 /// An attached first namespace dot escapes a core command's spelling.
-/// `env` selects its core form only with a scope block on the line.
 pub fn core_command_at<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> Option<crate::syntax::node::CoreCommand> {
     use crate::syntax::node::CoreCommand;
     let command = CoreCommand::from_name(peek(0)?.text)?;
+    if peek(1).is_some_and(|token| token.tag == TokenTag::Dot && token.glued) { None } else { Some(command) }
+}
+
+/// The removed command spelling of a scope: `cd PATH { }`, and `env` with a
+/// block on its line. The parser reads it only to report the call spelling.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RemovedScopeCommand {
+    Cd,
+    Env,
+}
+
+impl RemovedScopeCommand {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cd => "cd",
+            Self::Env => "env",
+        }
+    }
+
+    pub const fn operand(self) -> &'static str {
+        match self {
+            Self::Cd => "path",
+            Self::Env => "overlay",
+        }
+    }
+}
+
+pub fn removed_scope_command_at<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> Option<RemovedScopeCommand> {
+    let command = match peek(0)?.text {
+        "cd" => RemovedScopeCommand::Cd,
+        "env" => RemovedScopeCommand::Env,
+        _ => return None,
+    };
     if peek(1).is_some_and(|token| token.tag == TokenTag::Dot && token.glued)
-        || command == CoreCommand::Env && !command_line_has_block(peek)
+        || command == RemovedScopeCommand::Env && !command_line_has_block(peek)
     { None } else { Some(command) }
 }
 
@@ -1187,7 +1219,7 @@ pub fn name_statement_matches<'s>(form: NameStatementForm, mut peek: impl FnMut(
     match form {
         NameStatementForm::Expression => expression,
         NameStatementForm::Command => !expression,
-        NameStatementForm::ProcCommand => !expression && core_command_at(peek).is_none(),
+        NameStatementForm::ProcCommand => !expression && core_command_at(&mut peek).is_none() && removed_scope_command_at(peek).is_none(),
     }
 }
 

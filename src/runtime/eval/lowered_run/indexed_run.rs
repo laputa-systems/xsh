@@ -151,13 +151,6 @@ impl RegisteredDefer {
     }
 }
 
-#[derive(Clone)]
-struct RunArg {
-    mode: u32,
-    value: u32,
-    span: Span,
-}
-
 enum AssertionFailure {
     Operands(LoweredValue, LoweredValue),
     Reached(String),

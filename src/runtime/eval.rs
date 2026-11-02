@@ -482,7 +482,7 @@ pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 13;
 pub const COMPACT_STMT_KIND_COUNT: usize = 30;
 pub const COMPACT_EXPR_KIND_COUNT: usize = lower::COMPACT_EXPR_KIND_COUNT;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
-pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
+pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactRuntimeDeclProbeOutput {

@@ -1987,15 +1987,7 @@ fn compact_command_blocker_index(
             name: CoreCommand::Eprint,
             ..
         } => 2,
-        ArenaCommand::Core {
-            name: CoreCommand::Cd,
-            ..
-        } => 3,
-        ArenaCommand::Core {
-            name: CoreCommand::Env,
-            ..
-        } => 4,
-        ArenaCommand::Run(_) => 5,
+        ArenaCommand::Run(_) => 3,
     }
 }
 
@@ -2004,9 +1996,7 @@ fn compact_command_blocker_label(index: usize) -> &'static str {
         0 => "proc",
         1 => "core_print",
         2 => "core_eprint",
-        3 => "core_cd",
-        4 => "core_env",
-        5 => "run",
+        3 => "run",
         _ => "unknown",
     }
 }
@@ -2265,7 +2255,7 @@ fn compact_body_tail_command_blocker(
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 13];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
-const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
+const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 4];
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn text_value_in_span<'a>(
@@ -6568,8 +6558,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let mut slots = self.top_level_slots(id, known);
                 let lowered = self
                     .lower_print_stmt(command, &mut slots, None, None)
-                    .or_else(|| self.lower_cd_stmt(command, &mut slots, None, None))
-                    .or_else(|| self.lower_env_stmt(command, &mut slots, None, None))
                     .or_else(|| self.lower_run_stmt(command, &mut slots, None, None))?;
                 Some(self.lowered_top_level_stmt(BuildTopKind::Stmt(lowered),
                     known,
@@ -7858,8 +7846,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Continue => Some(push_build_row!(self, stmt, BuildStmtRow::Continue)),
             ArenaStmtKind::Command(command) => self
                 .lower_print_stmt(command, slots, current_function, item_slot)
-                .or_else(|| self.lower_cd_stmt(command, slots, current_function, item_slot))
-                .or_else(|| self.lower_env_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_run_stmt(command, slots, current_function, item_slot)),
             ArenaStmtKind::Assert { condition, message } => {
                 let span = self.program.arena.expr(condition).span;

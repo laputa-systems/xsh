@@ -479,7 +479,7 @@ test test_cp_parents_refuses_dot_dot_destination { |ctx|
   fp"{root}/src/sub".mkdir()
   fp"{root}/src/sub/f".write("x\n")
   fp"{root}/d".mkdir()
-  cd $root {
+  cd (root) {
     let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --parents -r src/sub/.. d
     assert result.status.exited_with(1)
     assert result.stderr.find("cp: cannot create directory 'd/src/sub/..': File exists") != null, result.stderr
@@ -725,7 +725,7 @@ test test_cp_current_directory_can_be_copied_to_sibling { |ctx|
   source.mkdir()
   fp"{source}/file".write("contents")
   let dest = fp"{root}/dest"
-  cd $source {
+  cd (source) {
     run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R . ../dest/
   }
   assert fp"{dest}/file".read_text()? == "contents"

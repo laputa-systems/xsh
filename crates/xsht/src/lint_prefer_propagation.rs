@@ -301,10 +301,10 @@ mod tests {
     }
 
     #[test]
-    fn statement_blocks_and_scopes_are_searched() {
+    fn statement_blocks_are_searched() {
         fixed(
-            "proc work(items: List[Bool], dir: Path) [env, error] -> Result[Unit, Error] {\n  for item in items {\n    if item {\n      match step(item) {\n        Ok(_) => {}\n        Err(problem) => return Err(problem)\n      }\n    }\n  }\n  cd $dir {\n    match step(false) {\n      Ok(_) => {}\n      Err(problem) => return Err(problem)\n    }\n  }\n}\n",
-            "proc work(items: List[Bool], dir: Path) [env, error] -> Result[Unit, Error] {\n  for item in items {\n    if item {\n      step(item)?\n    }\n  }\n  cd $dir {\n    step(false)?\n  }\n}\n",
+            "proc work(items: List[Bool]) [error] -> Result[Unit, Error] {\n  for item in items {\n    if item {\n      match step(item) {\n        Ok(_) => {}\n        Err(problem) => return Err(problem)\n      }\n    }\n  }\n}\n",
+            "proc work(items: List[Bool]) [error] -> Result[Unit, Error] {\n  for item in items {\n    if item {\n      step(item)?\n    }\n  }\n}\n",
         );
     }
 

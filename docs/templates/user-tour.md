@@ -282,7 +282,7 @@ way `run` converts its arguments: a `Path` keeps its bytes and `3` becomes
 a binding and the text is `"clang"`. There is no unset, and `null` is rejected
 rather than meaning one.
 
-An `env NAME=value { ... }` or `env (record) { ... }` block is a scope: when it
+An `env (record) { ... }` block is a scope: when it
 ends, by finishing, failing, or returning early, the environment goes back to
 what it was when the block started. An assignment therefore lasts until the
 innermost enclosing `env` block ends, and outside any block for the rest of the

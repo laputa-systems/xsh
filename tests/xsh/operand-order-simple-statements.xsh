@@ -133,7 +133,7 @@ test test_cd_statement_evaluates_its_target_before_its_body { |ctx|
   print "eval:target"
   return fs.cwd()?
 }
-cd ${target()} {
+cd (target()) {
   print "body"
 }
 """,
@@ -150,7 +150,7 @@ test test_env_statement_evaluates_values_left_to_right_before_its_body { |ctx|
   print f"eval:{label}"
   return value
 }
-env XSH_ROUTE_ORDER_FIRST=${marked("first", "one")} XSH_ROUTE_ORDER_SECOND=${marked("second", "two")} {
+env ({XSH_ROUTE_ORDER_FIRST: marked("first", "one"), XSH_ROUTE_ORDER_SECOND: marked("second", "two")}) {
   print e"XSH_ROUTE_ORDER_FIRST"? e"XSH_ROUTE_ORDER_SECOND"?
 }
 """,

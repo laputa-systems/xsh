@@ -1790,7 +1790,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     let image = gate_image(ctx, laputa_id)?
     let regular_ids = [id for id in ids if id not in laputa_case_ids]
     let preparation = ["--source-digest", source ?? "", "--laputa-preparation", laputa_id, "--tier", tier_name(tier)]
-    env XSH_TEST_IMAGE=$image XSH_TEST_IMAGE_BUILD="0" {
+    env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
       container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
     }
     var regular_incomplete = false
@@ -1798,7 +1798,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
       var forwarded = ["--source-digest", source ?? "", "--tier", tier_name(tier), @paths]
       for id in regular_ids { forwarded += ["--case", id] }
       let regular = try {
-        env XSH_TEST_IMAGE=$image XSH_TEST_IMAGE_BUILD="0" {
+        env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
           container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, forwarded)?)?
         }
       }
@@ -1824,7 +1824,7 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     return Err(ExecutionError.Incomplete(case_id: focused_case_id, raw_status: 0)) when ctx.target.os != "linux"
     let image = gate_image(ctx, focused_case_id)?
     let preparation = ["--source-digest", source ?? "", "--tier", tier_name(tier), "--case", focused_case_id]
-    env XSH_TEST_IMAGE=$image XSH_TEST_IMAGE_BUILD="0" {
+    env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
       container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
     }
     require_source(ctx, source ?? "", focused_case_id, 30000000000)?
@@ -1839,11 +1839,11 @@ proc focused(ctx: context.Context, tier: Tier, supplied: List[Str], ids: List[St
     let corpus_root = env.get_or("XSH_TOKEI_CORPUS_ROOT", "")?.trim()
     return Err(ExecutionError.Incomplete(case_id: tokei_scenario_case_id, raw_status: 0)) when tokei_path == "" or corpus_root == ""
     var image = ""
-    env XSH_TEST_IMAGE_BUILD="0" {
+    env ({XSH_TEST_IMAGE_BUILD: "0"}) {
       image = gate_image(ctx, tokei_scenario_case_id)?
     }
     let preparation = ["--source-digest", source ?? "", "--tier", tier_name(tier), "--case", tokei_scenario_case_id]
-    env XSH_TEST_IMAGE=$image XSH_TEST_IMAGE_BUILD="0" {
+    env ({XSH_TEST_IMAGE: image, XSH_TEST_IMAGE_BUILD: "0"}) {
       container_status(docker.run_internal_status({...ctx, profile: tests.profile_name(profile)}, "gate-lane", false, preparation)?)?
     }
     require_source(ctx, source ?? "", tokei_scenario_case_id, 30000000000)?

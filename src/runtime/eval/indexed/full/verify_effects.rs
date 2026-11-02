@@ -303,8 +303,6 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 if propagate_result { require(instruction, Some(&[Effect::Error]), false, &mut captured)?; }
             }
             FullTag::ExprSpawnRun | FullTag::ExprSpawnCommand | FullTag::ExprWait => require(instruction, Some(&[Effect::Process]), false, &mut captured)?,
-            FullTag::StmtCd => require(instruction, Some(&[Effect::Env, Effect::Error]), false, &mut captured)?,
-            FullTag::StmtEnv => require(instruction, Some(&[Effect::Env]), false, &mut captured)?,
             FullTag::ExprContextScope => {
                 let schema::ExprView::ContextScope { kind, .. } = decoder.expression_view(instruction)? else { unreachable!() };
                 let effect = match kind {

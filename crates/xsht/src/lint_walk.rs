@@ -1530,20 +1530,7 @@ impl<'a> Linter<'a> {
                 }
                 self.lint_proc_command_args(args);
             }
-            ArenaCommand::Core {
-                name: _,
-                args,
-                env,
-                block,
-            } => {
-                self.lint_command_args(args);
-                for assignment in self.arena.env_assignments(env).to_vec() {
-                    self.lint_env_assignment_value(&assignment.value);
-                }
-                if let Some(block) = block {
-                    self.lint_block(block);
-                }
-            }
+            ArenaCommand::Core { args, .. } => self.lint_command_args(args),
             ArenaCommand::Run(run) => self.lint_run(run),
         }
         if let Some(flow_facts) = &mut self.flow_facts {
@@ -1569,13 +1556,6 @@ impl<'a> Linter<'a> {
     pub(super) fn lint_proc_command_args(&mut self, args: ArenaRange) {
         for arg in self.arena.command_args(args).to_vec() {
             self.lint_proc_command_arg(&arg);
-        }
-    }
-
-    pub(super) fn lint_env_assignment_value(&mut self, value: &ArenaEnvAssignmentValue) {
-        match value {
-            ArenaEnvAssignmentValue::CommandArg(arg) => self.lint_proc_command_arg(arg),
-            ArenaEnvAssignmentValue::Expr(expr) => self.lint_expr(*expr),
         }
     }
 
@@ -1935,57 +1915,12 @@ mod unused_local_resource_tests {
 
     #[test]
     fn cd_path_expression_marks_local_as_used() {
-        let source = "test cd_path_expression_marks_local_as_used { |ctx|\n  let root = test.temp_dir(ctx)?\n  cd root {\n    assert true\n  }\n  let unused = 1\n}\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(1), source);
+        let source = "test cd_path_expression_marks_local_as_used { |ctx|\n  let root = test.temp_dir(ctx)?\n  cd (root) {\n    assert true\n  }\n  let unused = 1\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let mut program = parsed.arena;
+        let program = parsed.arena;
         let checked = Checker::check_arena(&program, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-
-        // Workspace modules share one arena, whose primary source ID differs
-        // from the source ID attached to a later module's command words.
-        let test_statement = program.arena.stmt_ids(program.statements).next().unwrap();
-        let xsh::frontend::syntax::arena::ArenaStmtKind::ProcDef(test_function) =
-            program.arena.stmt(test_statement).kind
-        else {
-            panic!("test declaration should lower to a procedure");
-        };
-        let body = program.arena.function_def(test_function).body;
-        let cd_argument_span = program
-            .arena
-            .stmt_ids(program.arena.block(body).statements)
-            .find_map(|statement| {
-                let xsh::frontend::syntax::arena::ArenaStmtKind::Command(command) =
-                    program.arena.stmt(statement).kind
-                else {
-                    return None;
-                };
-                let xsh::frontend::syntax::arena::ArenaCommand::Core {
-                    name: xsh::frontend::syntax::node::CoreCommand::Cd,
-                    args,
-                    ..
-                } = program.arena.command_stmt(command).command.clone()
-                else {
-                    return None;
-                };
-                program.arena.command_args(args).first().map(|arg| arg.span)
-            })
-            .expect("the test body should have a cd path argument");
-        program.arena.span_source_id = Some(SourceId::new(0));
-        program
-            .arena
-            .stmt_span_source_overrides
-            .push(xsh::frontend::syntax::arena::ArenaSpanSource {
-                span: test_statement.index() as u32,
-                source_id: SourceId::new(1),
-            });
-        program
-            .arena
-            .span_source_overrides
-            .push(xsh::frontend::syntax::arena::ArenaSpanSource {
-                span: cd_argument_span.index() as u32,
-                source_id: SourceId::new(1),
-            });
 
         let mut options = LintOptions {
             only: Some(vec![DiagnosticCode::LintUnusedLocal]),
@@ -2000,7 +1935,7 @@ mod unused_local_resource_tests {
 
     #[test]
     fn literal_cd_path_does_not_mark_an_unrelated_local_as_used() {
-        let source = "test literal_cd_path_does_not_mark_an_unrelated_local_as_used {\n  let root = 1\n  cd p\".\" {\n    assert true\n  }\n}\n";
+        let source = "test literal_cd_path_does_not_mark_an_unrelated_local_as_used {\n  let root = 1\n  cd (p\".\") {\n    assert true\n  }\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);

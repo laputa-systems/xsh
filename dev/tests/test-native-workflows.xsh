@@ -44,7 +44,7 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{temp}}|{{cac
   let padded_uid = f"00{host_uid}"
   let padded_gid = f"0{host_gid}"
 
-  env HOST_UID=$padded_uid HOST_GID=$padded_gid XDG_CACHE_HOME="/root/.cache" {
+  env ({HOST_UID: padded_uid, HOST_GID: padded_gid, XDG_CACHE_HOME: "/root/.cache"}) {
     test_workflows.native(workflow_context, test_workflows.Verification,
       ["--exact", "native-workflow-contract"])
   }
@@ -70,56 +70,56 @@ test test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_i
   let workflow_context = fixtures.linux_context(fixture_root, "verification")?
   let host_uid = env.get("HOST_UID")?.trim()
   let host_gid = env.get("HOST_GID")?.trim()
-  env HOST_UID="" HOST_GID="" {
+  env ({HOST_UID: "", HOST_GID: ""}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a missing host identity")
       Err(_) => {}
     }
   }
 
-  env HOST_UID="0" HOST_GID=$host_gid {
+  env ({HOST_UID: "0", HOST_GID: host_gid}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted the root UID")
       Err(_) => {}
     }
   }
 
-  env HOST_UID="00" HOST_GID=$host_gid {
+  env ({HOST_UID: "00", HOST_GID: host_gid}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a padded root UID")
       Err(_) => {}
     }
   }
 
-  env HOST_UID="root" HOST_GID=$host_gid {
+  env ({HOST_UID: "root", HOST_GID: host_gid}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a nonnumeric UID")
       Err(_) => {}
     }
   }
 
-  env HOST_UID=$host_uid HOST_GID="group" {
+  env ({HOST_UID: host_uid, HOST_GID: "group"}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a nonnumeric GID")
       Err(_) => {}
     }
   }
 
-  env HOST_UID="-1" HOST_GID=$host_gid {
+  env ({HOST_UID: "-1", HOST_GID: host_gid}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a negative UID")
       Err(_) => {}
     }
   }
 
-  env HOST_UID=$host_uid HOST_GID="-1" {
+  env ({HOST_UID: host_uid, HOST_GID: "-1"}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests accepted a negative GID")
       Err(_) => {}
     }
   }
 
-  env HOST_UID=$host_uid HOST_GID=$host_gid PATH="" {
+  env ({HOST_UID: host_uid, HOST_GID: host_gid, PATH: ""}) {
     match test_workflows.native(workflow_context, test_workflows.Verification, []) {
       Ok(_) => test.fail("root native tests ignored an unavailable setpriv")
       Err(_) => {}
@@ -165,7 +165,7 @@ temp.mkdir()?
 let home_value = home.display()
 let temp_value = temp.display()
 let cache_value = cache.display()
-env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value XDG_CACHE_HOME=$cache_value PATH="" {{
+env ({{HOST_UID: "", HOST_GID: "", HOME: home_value, TMPDIR: temp_value, XDG_CACHE_HOME: cache_value, PATH: ""}}) {{
   test_workflows.native(workflow_context, test_workflows.Verification, ["--exact", "native-workflow-contract"])
 }}
 let expected = f"{{unix.id()?.euid}}|{{home}}|{{temp}}|{{cache}}|test|--exact|native-workflow-contract"
@@ -205,7 +205,7 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}
   home.mkdir()
   temp.mkdir()
 
-  env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value PATH="" {
+  env ({HOST_UID: "", HOST_GID: "", HOME: home_value, TMPDIR: temp_value, PATH: ""}) {
     test_workflows.native(workflow_context, test_workflows.Verification,
       ["--exact", "native-workflow-contract"])
   }

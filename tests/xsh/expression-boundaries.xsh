@@ -29,7 +29,7 @@ test test_an_env_value_may_interpolate { |ctx|
   let output = test.expect(
     ctx,
     r"""let value = "interpolated"
-env XSH_BOUNDARY_VALUE=${value} {
+env ({XSH_BOUNDARY_VALUE: value}) {
   run printenv XSH_BOUNDARY_VALUE
 }
 """,

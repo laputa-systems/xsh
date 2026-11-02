@@ -433,11 +433,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if text == "print" && !after_dot && !called {
         return Kind::Keyword;
     }
-    // `cd DIR { ... }` and `env NAME=value { ... }` are statement forms; `env`
-    // is also a module, so it needs a word after it rather than `.` or `(`.
+    // `cd (DIR) { ... }` and `env (OVERLAY) { ... }` are statement forms; `env`
+    // is also a module, so it needs a `(` after it rather than `.`.
     if matches!(text, "cd" | "env")
         && statement_start(previous, source)
-        && next.is_some_and(|next| !matches!(next.tag, TokenTag::Dot | TokenTag::LParen))
+        && next.is_some_and(|next| next.tag == TokenTag::LParen)
     {
         return Kind::Keyword;
     }
@@ -1029,10 +1029,9 @@ mod tests {
 
     #[test]
     fn scope_statements_are_keywords_but_the_env_module_is_not() {
-        let source = "cd $dir {\n  env LC_ALL=C {\n    let x = env.get_or(\"A\", \"\")\n  }\n}\n";
+        let source = "cd (dir) {\n  env ({LC_ALL: \"C\"}) {\n    let x = env.get_or(\"A\", \"\")\n  }\n}\n";
         assert_eq!(kind_of(source, "cd"), Kind::Keyword);
-        assert_eq!(kind_of(source, "env LC"), Kind::Keyword);
-        assert_eq!(kind_of(source, "LC_ALL"), Kind::Property);
+        assert_eq!(kind_of(source, "env ({"), Kind::Keyword);
         assert_eq!(kind_of(source, "env.get_or"), Kind::Plain);
         assert_eq!(kind_of(source, "get_or"), Kind::Function);
     }

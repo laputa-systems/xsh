@@ -209,7 +209,7 @@ show()
       source: r"""export CC=clang
 """,
       code: "parse.export-target",
-      cause: "env NAME=value",
+      cause: "env ({NAME: value})",
       fix: "",
     },
     {
@@ -272,8 +272,8 @@ print $greeting
       name: "cd_without_block",
       source: r"""cd /tmp
 """,
-      code: "parse.expected-token",
-      cause: "only for its block",
+      code: "parse.scope-command",
+      cause: "scopes only its block",
       fix: "",
     },
   ] {

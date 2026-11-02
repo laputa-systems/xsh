@@ -721,7 +721,6 @@ impl Type {
     pub(crate) fn core_command_result(command: crate::syntax::node::CoreCommand) -> Self {
         match command {
             crate::syntax::node::CoreCommand::Print | crate::syntax::node::CoreCommand::Eprint => Self::Unit,
-            crate::syntax::node::CoreCommand::Cd | crate::syntax::node::CoreCommand::Env => Self::Result(Box::new(Self::Unit), Box::new(Self::Error)),
         }
     }
 

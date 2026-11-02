@@ -88,7 +88,7 @@ test test_cat_refuses_to_copy_a_file_onto_itself { |ctx|
   let script = fp"{ctx.core_dir}/cat.xsh"
   let err = fp"{root}/.err"
 
-  cd $root {
+  cd (root) {
     let status = run.status sh -c "exec \"$0\" \"$1\" loop >> loop 2> .err" ${ctx.xsh_bin} $script
     assert ! status.exited_with(0)
   }

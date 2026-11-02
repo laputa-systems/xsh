@@ -179,7 +179,7 @@ export proc coverage(
 
       return docker_backend(ctx) when triple == ctx.target.triple
 
-      env TARGET=$triple {
+      env ({TARGET: triple}) {
         docker_backend(context.create()?)
       }
       return

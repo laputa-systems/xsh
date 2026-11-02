@@ -15,11 +15,6 @@ run \
 print \
   one \
   two
-env FIRST=1 \
-  SECOND=2 \
-  {
-  run printenv SECOND ?
-}
 
 proc show(names: List[Str], mode: Int) [process, env, error] {
   if names.len() > 0 {
@@ -31,9 +26,6 @@ proc show(names: List[Str], mode: Int) [process, env, error] {
     run printf "%s %s %s\n" "-Ddefault_library=shared" "-Ddocumentation=false" "-Ddtd_validation=false" "-Dlibpng=disabled" | run tr a-z A-Z | run tr A-Z a-z
     # A part too wide for any line stays where it is.
     print f"{names.len()} names: a part that is far too wide to fit on a line of its own is never moved to a continuation line"
-    env LC_ALL=C LANG=C LC_COLLATE=C LC_CTYPE=C LC_MESSAGES=C LC_MONETARY=C LC_NUMERIC=C LC_TIME=C LC_ADDRESS=C LC_NAME=C LC_PAPER=C {
-      run printenv LC_PAPER ?
-    }
   }
   match mode {
     1 => run printf "%s\n" \

@@ -16,7 +16,7 @@ fn unix_spawn_with_tty_uses_tty_dir_and_new_session() {
 let tty_dir = Path({})
 let marker = Path({})
 let command = process.command_argv(Path({}), [\"xsh-test-helper\", \"session\", marker.display()])
-env XSH_UNIX_TTY_DIR=(tty_dir) {{
+env ({{XSH_UNIX_TTY_DIR: tty_dir}}) {{
   let child = unix.spawn_with_tty(command, tty: \"tty-test\")?
   var tries = 0
   while ! marker.exists()? and tries < 100 {{

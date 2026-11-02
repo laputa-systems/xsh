@@ -226,8 +226,6 @@
         "StmtScanLines=142|BuildStmtRow:StmtView:Stmt|ScanLines(text_slot:tokens:[\"usize\"],line_slot:tokens:[\"usize\"],checks:tokens:[\"Vec\",\"<\",\"ScanCheck\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_CANCELLATION\"]|Scheduled|FrameControl",
         "StmtScanBytes=143|BuildStmtRow:StmtView:Stmt|ScanBytes(config:tokens:[\"ScanBytes\"])|tokens:[\"EFFECT_CANCELLATION\"]|Scheduled|FrameControl",
         "StmtPrint=144|BuildStmtRow:StmtView:Stmt|Print(args:tokens:[\"Vec\",\"<\",\"BuildExprId\",\">\"],stderr:tokens:[\"bool\"],flush:tokens:[\"bool\"],propagate_result:tokens:[\"bool\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
-        "StmtCd=145|BuildStmtRow:StmtView:Stmt|Cd(target:tokens:[\"BuildExprId\"],body:tokens:[\"Vec\",\"<\",\"BuildStmtId\",\">\"],span:tokens:[\"Span\"])|tokens:[\"EFFECT_CWD\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
-        "StmtEnv=146|BuildStmtRow:StmtView:Stmt|Env(env:tokens:[\"Vec\",\"<\",\"LoweredRunEnv\",\">\"],body:tokens:[\"Vec\",\"<\",\"BuildStmtId\",\">\"])|tokens:[\"EFFECT_ENV\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
         "StmtRun=148|BuildStmtRow:StmtView:Stmt|Run(value:tokens:[\"BuildExprId\"],propagate_result:tokens:[\"bool\"])|tokens:[\"EFFECT_PROCESS\",\"|\",\"EFFECT_CANCELLATION\",\"|\",\"EFFECT_PROPAGATE\",\"|\",\"EFFECT_HOST\",\"|\",\"EFFECT_TRACE\"]|Scheduled|FrameControl",
         "StmtLoop=149|BuildStmtRow:StmtView:Stmt|Loop(body:tokens:[\"Vec\",\"<\",\"BuildStmtId\",\">\"])|tokens:[\"EFFECT_CANCELLATION\"]|Scheduled|FrameControl",
         "StmtReturn=150|BuildStmtRow:StmtView:Stmt|Return(value:tokens:[\"BuildExprId\"])|tokens:[\"0\"]|Scheduled|FrameControl",
@@ -499,7 +497,7 @@
       "extractor": "rust-enum",
       "items": [
         "Proc{name:tokens:[\"Name\"],args:tokens:[\"ArenaRange\"]}",
-        "Core{name:tokens:[\"CoreCommand\"],args:tokens:[\"ArenaRange\"],env:tokens:[\"ArenaRange\"],block:tokens:[\"Option\",\"<\",\"BlockId\",\">\"]}",
+        "Core{name:tokens:[\"CoreCommand\"],args:tokens:[\"ArenaRange\"]}",
         "Run(tokens:[\"RunFormId\"])"
       ]
     },
@@ -1107,9 +1105,7 @@
       "extractor": "rust-enum",
       "items": [
         "Print",
-        "Eprint",
-        "Cd",
-        "Env"
+        "Eprint"
       ]
     },
     "syntax.node.DurationUnit": {

@@ -183,7 +183,7 @@ proc q(opts: Options, name: Str) [env, error] -> Str {
   # GNU patch's shell style never escapes non-ASCII bytes, whatever the
   # locale; the UTF-8 view keeps them as they are.
   var quoted = name
-  env LC_ALL="C.UTF-8" {
+  env ({LC_ALL: "C.UTF-8"}) {
     quoted = gnu.quote_maybe(name)
   }
   quoted
@@ -330,7 +330,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       Ok(info) => { if info.kind != "dir" { fatal(f"Can't change to directory {dir} : Not a directory") } }
       Err(failure) => pfatal(f"Can't change to directory {dir}", failure)
     }
-    cd fp"{dir}" {
+    cd (fp"{dir}") {
       run_patches(opts, argv, strip, max_fuzz)
     }
   } else {

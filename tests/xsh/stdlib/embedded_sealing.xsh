@@ -194,7 +194,7 @@ test prepared_implementations_read_context_at_invocation_time { |ctx|
     {
   "context.xsh": """proc main() [io, error] {
   print env.get_or("XSH_PORT_PROBE", "absent")?
-  env XSH_PORT_PROBE="scoped" {
+  env ({XSH_PORT_PROBE: "scoped"}) {
     print env.get_or("XSH_PORT_PROBE", "absent")?
   }
   print env.get_or("XSH_PORT_PROBE", "absent")?

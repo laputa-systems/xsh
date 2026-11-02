@@ -14120,20 +14120,6 @@ impl<'a> FullDecoder<'a> {
                     blocks.push(self.checked_statement_ids(body)?);
                 }
             }
-            FullTag::StmtCd => {
-                let schema::StmtView::Cd { body, .. } = self.statement_view(instruction)? else {
-                    unreachable!("cd statement tag and generated view disagree")
-                };
-                charge(body.len())?;
-                blocks.push(self.checked_statement_ids(body)?);
-            }
-            FullTag::StmtEnv => {
-                let schema::StmtView::Env { body, .. } = self.statement_view(instruction)? else {
-                    unreachable!("environment statement tag and generated view disagree")
-                };
-                charge(body.len())?;
-                blocks.push(self.checked_statement_ids(body)?);
-            }
             FullTag::StmtLoop => {
                 let schema::StmtView::Loop { body } = self.statement_view(instruction)? else {
                     unreachable!("loop statement tag and generated view disagree")
@@ -15439,10 +15425,6 @@ impl<'a> FullDecoder<'a> {
                     let schema::StmtView::WhileBool { condition, .. } = self.statement_view(parent)? else { unreachable!() };
                     operand!(condition);
                 }
-                FullTag::StmtEnv => {
-                    let schema::StmtView::Env { env, .. } = self.statement_view(parent)? else { unreachable!() };
-                    for entry in env { argument!(entry?.value); }
-                }
                 FullTag::StmtGuard => {
                     let schema::StmtView::Guard { value, .. } = self.statement_view(parent)? else { unreachable!() };
                     operand!(value);
@@ -15485,10 +15467,6 @@ impl<'a> FullDecoder<'a> {
                 FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
                     let (schema::StmtView::StrMatch { value, .. } | schema::StmtView::TagMatch { value, .. }) = self.statement_view(parent)? else { unreachable!() };
                     operand!(value);
-                }
-                FullTag::StmtCd => {
-                    let schema::StmtView::Cd { target: input, .. } = self.statement_view(parent)? else { unreachable!() };
-                    operand!(input);
                 }
                 FullTag::StmtLet | FullTag::StmtLetInt | FullTag::StmtLetBool
                 | FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt
@@ -18633,7 +18611,6 @@ fn indexed_statement_may_propagate(
             propagate_result,
             ..
         } => propagate_result || decoder.subtree_has_uncaught_try(instruction)?,
-        StmtView::Cd { .. } => true,
         StmtView::Expr { value, .. } => {
             decoder.expression_is_result_unit(value.raw() as usize)?
                 || decoder.subtree_has_uncaught_try(value.raw() as usize)?
@@ -18688,24 +18665,6 @@ fn indexed_stmt_can_return_with_decoder(
     Ok(match tag {
         FullTag::StmtReturn => true,
         FullTag::StmtBreak | FullTag::StmtBreakValue | FullTag::StmtContinue => true,
-        FullTag::StmtCd => indexed_block_can_return_with_decoder(
-            store,
-            block(
-                *payload
-                    .get(1)
-                    .ok_or_else(|| IrVerifyError::new("return-analysis cd payload is invalid"))?,
-            )?,
-            decoder,
-        )?,
-        FullTag::StmtEnv => {
-            indexed_block_can_return_with_decoder(
-                store,
-                block(*payload.get(1).ok_or_else(|| {
-                    IrVerifyError::new("return-analysis env payload is invalid")
-                })?)?,
-                decoder,
-            )?
-        }
         FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtPatternIf => {
             let branches = block(
                 *payload
@@ -18993,7 +18952,6 @@ fn indexed_stmt_operand_cannot_complete(
         | schema::StmtView::For { iter: value, .. }
         | schema::StmtView::ForRecord { iter: value, .. }
         | schema::StmtView::ForStrLines { text: value, .. }
-        | schema::StmtView::Cd { target: value, .. }
         | schema::StmtView::Run { value, .. }
         | schema::StmtView::Guard { value, .. } => expression_cannot_complete(value.raw())?,
         schema::StmtView::Assert { value, .. } => {
@@ -23347,7 +23305,7 @@ env ({
   print "indexed"
 }
 
-cd . {
+cd (p".") {
   print ${plus_base(total)}
 }
 
@@ -26541,7 +26499,7 @@ pure diagnostics(stderr: Str) -> Str {
 
 proc expect_clean_check(ctx: TestContext, files: Map[Str, Str], target: Str) [fs, process, env, error] {
   let root = project(ctx, files)?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check $target
     assert checked.status.exited_with(0), checked.stderr
     assert checked.stdout == ""
@@ -26551,7 +26509,7 @@ proc expect_clean_check(ctx: TestContext, files: Map[Str, Str], target: Str) [fs
 
 proc expect_check_passes(ctx: TestContext, files: Map[Str, Str], target: Str) [fs, process, env, error] {
   let root = project(ctx, files)?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check $target
     assert checked.status.exited_with(0), checked.stderr
   }
@@ -26570,7 +26528,7 @@ test test_check_and_lint_nested_schema_constructors_without_stack_environment { 
 
   source = source + "pure build() -> " + previous + " { " + constructor + " }\nlet value = build()\nlet _ = value\n"
   let root = project(ctx, {"nested.xsh": source})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text env -u RUST_MIN_STACK -u XSH_MODULE_PATH xsht check nested.xsh
     assert checked.status.exited_with(0), checked.stderr
     assert "stack overflow" not in checked.stderr, checked.stderr
@@ -28027,22 +27985,6 @@ assert apply(40) == 42
             let mut forged = program.clone();
             let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
             callable.effects = crate::sema::types::CallableEffects::finite([]);
-            let mut semantic = SemanticPoolBuilder::default();
-            forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
-            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
-        });
-    }
-
-    #[test]
-    fn physical_effects_charge_cd_entry_failures() {
-        run_with_large_stack(|| {
-            let program = fixture("physical-cd-effects.xsh", "proc owner() [env, error] -> Int { cd p\"/definitely-missing\" {}; 1 }\n");
-            FullVerifier::verify(&program).unwrap();
-            let owner = scheme_fixture_root_function(&program, "owner");
-            let FullCallableContract::Ground(signature) = program.store.functions[owner].contract else { panic!("ground owner") };
-            let mut forged = program.clone();
-            let mut callable = forged.store.semantic.to_signature_with_budget(signature, 0, &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-            callable.effects = crate::sema::types::CallableEffects::finite([Effect::Env]);
             let mut semantic = SemanticPoolBuilder::default();
             forged.store.functions[owner].contract = FullCallableContract::Ground(semantic.intern_signature(&mut forged.store.semantic, &callable).unwrap());
             assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("requires effect error"));
@@ -37360,56 +37302,6 @@ assert results == [4]
         assert!(args.resume(position).is_err());
     }
 
-    #[test]
-    fn statement_env_validates_all_names_before_evaluating_values() {
-        let source = r#"
-proc mark() -> Str { print "evaluated"; return "value" }
-proc main() [env, error] -> Result[Unit] {
-  env XSH_FRAME_VALID=${mark()} XSH_FRAME_LATE=${mark()} { print "body" }
-  return Ok()
-}
-"#;
-        let mut program = fixture("statement-env-name-order.xsh", source);
-        let statement = function_instruction_indices(&program, "main", FullTag::StmtEnv)[0];
-        let payload = program.store.payload(program.store.data[statement].range()).unwrap();
-        let env_block = IrBlockId::from_raw(payload[0]).unwrap();
-        let range = program.store.blocks[env_block.index()].instructions;
-        let second_name = program.symbol_owner().with_current(|| {
-            let mut execution = schema_execution(&program.store);
-            execution.owner = program.store.blocks[env_block.index()].owner;
-            let mut entries = FullCursor::new(program.store.payload(range).unwrap());
-            assert_eq!(entries.raw().unwrap(), 2);
-            let decoder = execution.decoder();
-            LoweredRunEnv::decode(&decoder, &mut entries).unwrap();
-            entries.index
-        });
-        let invalid_name = program
-            .symbol_owner()
-            .with_current(|| Name::intern("BAD=NAME"));
-        program.store.extra[range.start as usize + second_name] = invalid_name.symbol().raw();
-        assert!(FullVerifier::verify(&program).is_ok());
-
-        let program = Arc::new(program);
-        program.symbol_owner().with_current(|| {
-            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
-            evaluator.indexed_program = Some(Arc::clone(&program));
-            evaluator.force_frames = true;
-            let original_env = evaluator.env.snapshot_clone();
-            let error = evaluator
-                .call_indexed_direct(
-                    LoweredFunctionKey::Name(program_name(&program, "main")),
-                    CallableKind::Proc,
-                    &[],
-                    Span::new(program.store.source_id, 0, 0),
-                )
-                .expect("main exists")
-                .expect_err("the corrupted later environment name is rejected");
-            assert_eq!(error.kind, "env-name");
-            assert!(evaluator.stdout.is_empty(), "no value or body expression ran");
-            assert_eq!(evaluator.env.snapshot_clone(), original_env);
-        });
-    }
-
     fn duplicate_fixture_leaf_expression(program: &mut FullProgram, instruction: usize) -> usize {
         let tag = program.store.tags[instruction];
         assert!(matches!(tag, FullTag::ExprParam | FullTag::ExprInt | FullTag::ExprUInt));
@@ -37944,8 +37836,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             StmtScanLines
             StmtScanBytes
             StmtPrint
-            StmtCd
-            StmtEnv
             StmtRun
             StmtLoop
             StmtReturn
@@ -37958,8 +37848,8 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        let dead_ordinals = [32, 43, 50, 64, 95, 96, 97, 98, 101, 117, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 150);
+        let dead_ordinals = [32, 43, 50, 64, 95, 96, 97, 98, 101, 117, 145, 146, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 148);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -37981,8 +37871,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
                 effects
                     | match tag {
                         FullTag::ExprContextScope => EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
-                        FullTag::StmtCd => EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE,
-                        FullTag::StmtEnv => EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
                         FullTag::ExprRunCapture
                         | FullTag::ExprRunPipeline
                         | FullTag::ExprSpawnRun
@@ -38431,7 +38319,7 @@ proc driver() [fs, env, error] -> Bool {
     assert byte_message != ""
     assert text_message == (match plain_text_failure { Err(problem) => problem.message; Ok(_) => "" })
     assert byte_message == (match plain_byte_failure { Err(problem) => problem.message; Ok(_) => "" })
-    cd directory {
+    cd (directory) {
       let relative: RelPath = "payload"
       assert relative.read_text()? == "runnable"
       assert relative.read_bytes()? == b"runnable"
@@ -38518,7 +38406,7 @@ proc driver() [fs, env, error] -> Bool {
     assert log.read_text()? == "receiver-mode-data"
     save_ordered("five", ordered, log)?
     assert log.read_text()? == "receiver-mode-data"
-    cd directory {
+    cd (directory) {
       let relative: RelPath = "relative"
       save_relative(6, relative)?
       assert relative.read_text()? == "relative"
@@ -38652,7 +38540,7 @@ proc driver() [fs, env, error] -> Bool {
     assert text.target == expected
     assert expected in integer.matches
     assert expected in text.recursive
-    cd root {
+    cd (root) {
       let relative = exercise(2, p".")?
       let relative_reference = ground(2, p".")?
       assert relative == relative_reference

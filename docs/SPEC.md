@@ -123,7 +123,7 @@ head of a `wait until` statement (8.6),
 `backoff` directly after `retry` and the `within` that follows its intervals
 (8.8),
 `collect` directly before the `{` of a `collect` expression (6.9),
-and the core commands `print`, `eprint`, `cd`, and `env`.
+and the core commands `print` and `eprint`.
 
 Builtin type and constructor names:
 
@@ -187,7 +187,7 @@ a line ends with `\`. The backslash follows whitespace and is the last
 character of its line; it and the line break then read as the whitespace
 between two parts of the command, so the next line supplies more of it:
 arguments, `run` options and environment assignments, redirections, the `|`
-of a byte pipeline, the block of `cd` or `env`, or the trailing `?`. The first
+of a byte pipeline, or the trailing `?`. The first
 word of the command (`print`, `run`, `run.capture --text`) stays on the first
 line.
 
@@ -313,7 +313,7 @@ literally.
 identifier, `[A-Za-z_][A-Za-z0-9_]*`, written on one line: there are no escapes,
 no interpolation, and no triple-quoted form (`parse.env-string-name`). A brace
 is reported as attempted interpolation; read a computed name with
-`env.get(name)`. Identifiers are the names `env NAME=value { ... }` can set, so
+`env.get(name)`. Identifiers are the names `env ({NAME: value}) { ... }` can set, so
 one spelling both reads and sets a variable.
 
 **Numbers.** Integer literals are decimal or octal (`0o755`); a leading `-` is
@@ -4876,7 +4876,7 @@ Standard-module APIs are called with expression syntax, such as
 `json.write(p"out.json", metadata, pretty: true)?`. Writing one as a command
 (`json.write out.json $metadata --pretty`) is `check.module-command-syntax`;
 the diagnostic prints the call to write. User procs are never called in
-command style. Core command names (`print`, `eprint`, `cd`, `env`) cannot be
+command style. Core command names (`print`, `eprint`) cannot be
 redefined.
 
 A statement that begins with an identifier or `.name` chain followed by `|>`
@@ -4943,11 +4943,11 @@ arbitrary bytes.
 ### 10.4 `cd`, `env`, `tempdir`, `within`, and `with` scopes
 
 ```xsh
-cd p"build" {
+cd (p"build") {
   run make
 }
 
-env CC=clang CFLAGS="-O2 -pipe" {
+env ({CC: "clang", CFLAGS: "-O2 -pipe"}) {
   run make
 }
 
@@ -4955,11 +4955,26 @@ let version = cd (repo) { run.text git describe }?
 let report = env (overlay) { collect_report()? }?
 ```
 
-`cd path { ... }` runs its body with a different evaluator working directory.
-`env NAME=value ... { ... }` and `env (overlay) { ... }` run it with
-environment overrides; the overlay is a `Record` or `Map[Str, V]` whose values
-use argv conversion (11.4), and `null` is rejected rather than meaning "unset".
-Names and values must be valid environment entries without NUL.
+`cd (path) { ... }` runs its body with a different evaluator working directory.
+`env (overlay) { ... }` runs it with environment overrides; the overlay is a
+`Record` or `Map[Str, V]` whose values use argv conversion (11.4), and `null`
+is rejected rather than meaning "unset". Names and values must be valid
+environment entries without NUL.
+
+The command spellings `cd PATH { ... }` and `env NAME=value ... { ... }` are
+`parse.scope-command`, reported with the call to write: a path word becomes
+`p"..."` or the expression it names, and the assignments become the fields of
+a record. An identifier-like word after `cd` that names no binding is a
+directory name, so it is written `p"name"`.
+
+```xsh
+cd $dir { # error: parse.scope-command
+  print here
+}
+env MODE=fast { # error: parse.scope-command
+  print here
+}
+```
 
 An unannotated value used as an overlay entry in a generic procedure retains
 an environment-value conversion requirement. Each call must supply a scalar argv
@@ -4997,9 +5012,8 @@ dropped, and a directory that contains `:` fails instead of becoming two
 entries. See the [XSHT lint notes](XSHT.md#lint) for how notes differ from
 warnings.
 
-In statement position a scope returns `Result[Unit]`. The parenthesized forms
-`cd (path) { ... }` and `env (overlay) { ... }` may be used in value position
-and return `Result[T]` of the body's tail. A `Result` tail stays nested.
+In statement position a scope returns `Result[Unit]`. In value position it
+returns `Result[T]` of the body's tail. A `Result` tail stays nested.
 
 The previous directory and environment are restored when the body ends for any
 reason (completion, propagation, `return`, loop control, cancellation, or
@@ -5265,7 +5279,7 @@ let config = env.get(f"{prefix}_CONFIG_HOME") ?? f"{home}/.config"
 
 e"EDITOR" = editor # later child processes inherit it
 e"PORT" = 8080 # converted like an argv item
-env LC_ALL=C {
+env ({LC_ALL: "C"}) {
   e"TZ" = "UTC" # undone when this scope ends
   run date
 }
@@ -5292,7 +5306,7 @@ env LC_ALL=C {
 - `e"NAME" = value` is a statement that sets the variable in the evaluator
   environment. It takes only `=` (`check.assign-target` otherwise). The value
   is an expression or run form whose type converts to one argv item (11.4), as
-  `env NAME=value` values do; `null`, optionals, `Bytes`, and lists other than `List[Path]` (10.4) are
+  overlay fields do; `null`, optionals, `Bytes`, and lists other than `List[Path]` (10.4) are
   `check.env-value`, and a value containing NUL fails at runtime. A bare word
   on the right is a binding, as everywhere in expressions: `e"CC" = clang`
   names a binding `clang`, and the literal is `e"CC" = "clang"`. There is no

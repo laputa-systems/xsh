@@ -40,7 +40,7 @@ pure diagnostics(stderr: Str) -> Str {
 # nothing on standard output and no diagnostics.
 proc expect_clean_check(ctx: TestContext, files: Map[Str, Str], target: Str) [fs, process, env, error] {
   let root = project(ctx, files)?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check $target
     assert checked.status.exited_with(0), checked.stderr
     assert checked.stdout == ""
@@ -51,7 +51,7 @@ proc expect_clean_check(ctx: TestContext, files: Map[Str, Str], target: Str) [fs
 # Requires `xsht check TARGET`, run in a project of `files`, to succeed.
 proc expect_check_passes(ctx: TestContext, files: Map[Str, Str], target: Str) [fs, process, env, error] {
   let root = project(ctx, files)?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check $target
     assert checked.status.exited_with(0), checked.stderr
   }
@@ -69,7 +69,7 @@ test test_check_defaults_to_current_directory_and_respects_excludes { |ctx|
     ctx,
     {"ok.xsh": "let value = 1\n", "ignored/bad.xsh": "let =\n", "xsht-config.ini": "exclude = ignored/**\n"},
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check
     assert checked.status.exited_with(0), checked.stderr
     assert checked.stdout == ""
@@ -79,7 +79,7 @@ test test_check_defaults_to_current_directory_and_respects_excludes { |ctx|
 
 test test_check_accepts_directories_and_reports_failures { |ctx|
   let root = project(ctx, {"scripts/ok.xsh": "let value = 1\n", "scripts/bad.xsh": "let =\n"})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check scripts
     assert checked.status.exited_with(2), checked.stderr
     assert checked.stdout == ""
@@ -100,7 +100,7 @@ test test_check_dynamic_boundaries_are_default { |ctx|
 
 test test_check_strict_option_reports_default_dynamic_policy_before_loading { |ctx|
   let root = test.temp_dir(ctx, name: "removed-option")?
-  cd $root {
+  cd (root) {
     let strict = run.capture --text "xsht" check --strict missing.xsh
     assert strict.status.exited_with(2), strict.stderr
     assert strict.stdout == ""
@@ -117,7 +117,7 @@ test test_check_strict_option_reports_default_dynamic_policy_before_loading { |c
 test test_check_dynamic_boundary_rejects_disk_fixture_without_annotation_writes { |ctx|
   let source = p"tests/fixtures/sema/invalid/unchecked-json-boundary.xsh".read_text()?
   let root = project(ctx, {"boundary.xsh": source})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check --annotate boundary.xsh
     assert checked.status.exited_with(2), checked.stderr
     assert checked.stdout == ""
@@ -199,7 +199,7 @@ print $text
 """,
     },
   )?
-  cd $root {
+  cd (root) {
     let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
     assert annotated.status.exited_with(0), annotated.stderr
     assert annotated.stdout == ""
@@ -243,7 +243,7 @@ print ${defaulted_result[0]}
 """,
     },
   )?
-  cd $root {
+  cd (root) {
     let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
     assert annotated.status.exited_with(0), annotated.stderr
     assert annotated.stdout == ""
@@ -267,7 +267,7 @@ export let label = "demo"
 proc local(input = Path(".")) {}
 """
   let root = project(ctx, {"xsht-config.ini": "[check]\nannotate = locals\n  exports\n", "main.xsh": source})?
-  cd $root {
+  cd (root) {
     let annotated = run.capture --text "xsht" check --annotate main.xsh
     assert annotated.status.exited_with(0), annotated.stderr
     assert annotated.stdout == ""
@@ -325,7 +325,7 @@ test test_check_annotate_uses_xsht_config_line_width { |ctx|
       "main.xsh": "proc local(input = Path(\".\"), source = Path(\".\"), destination = Path(\".\")) {}\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let annotated = run.capture --text "xsht" check --annotate main.xsh
     assert annotated.status.exited_with(0), annotated.stderr
   }
@@ -372,7 +372,7 @@ test test_xsh_rejects_reveal_type_in_unused_and_imported_bodies { |ctx|
       "helper.xsh": "proc unused() { let value = reveal_type(1) }\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let rejected = run.capture --text "xsh" main.xsh
     assert rejected.status.exited_with(2), rejected.stderr
     assert "err[check.reveal-type]" in rejected.stderr, rejected.stderr
@@ -397,7 +397,7 @@ test test_check_ignores_xshi_config_aliases { |ctx|
 """
   let home = project(ctx, {".config/xshi/config.xsh": config})?
   let file = test.temp_file(ctx, name: "alias.xsh", contents: bytes.from_text("echo hi\n"))?
-  env HOME=$home {
+  env ({HOME: home}) {
     let checked = run.capture --text "xsht" check $file
     assert checked.status.exited_with(2), checked.stderr
     assert checked.stdout == ""
@@ -417,7 +417,7 @@ test test_check_attributes_imported_parse_error_to_its_source { |ctx|
     ctx,
     {"main.xsh": "use helper as h\nprint tui.red()\n", "helper.xsh": "##! Helper.\nexport let value =\n"},
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check main.xsh
     assert checked.status.exited_with(2), checked.stderr
     assert "main.xsh:1:1" in checked.stderr, checked.stderr
@@ -440,7 +440,7 @@ test test_check_accepts_imported_lazy_default_with_embedded_module_loaded { |ctx
 
 test test_check_reports_public_standard_call_name_at_user_source { |ctx|
   let root = project(ctx, {"main.xsh": "print tui.red(1)\n"})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check main.xsh
     assert checked.status.exited_with(2), checked.stderr
     assert "check.arity" in checked.stderr, checked.stderr
@@ -459,7 +459,7 @@ test test_check_explicit_directory_uses_directory_config { |ctx|
       "project/bad.xsh": "let value =\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check project
     assert checked.status.exited_with(2), checked.stderr
     assert "parse.expected-expression" in checked.stderr, checked.stderr
@@ -477,7 +477,7 @@ test test_check_explicit_directory_does_not_expand_parent_config_includes { |ctx
       "extra/bad.xsh": "let value =\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check project
     assert checked.status.exited_with(0), checked.stderr
   }
@@ -485,7 +485,7 @@ test test_check_explicit_directory_does_not_expand_parent_config_includes { |ctx
 
 test test_check_summary_groups_directory_failures_by_code { |ctx|
   let root = project(ctx, {"project/parse.xsh": "let value =\n", "project/lower.xsh": result_match_handler})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check --summary project
     assert checked.status.exited_with(2), checked.stderr
     assert "parse.expected-expression" in checked.stderr, checked.stderr
@@ -509,7 +509,7 @@ test test_check_top_level_user_imports_are_skippable_for_lowerability { |ctx|
       "project/main.xsh": "use helper as h\nuse pm.make as make\nuse PKGBUILD-shared as PKGBUILD_shared\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check project/main.xsh
     assert checked.status.exited_with(0), checked.stderr
   }
@@ -773,7 +773,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     ctx,
     {"remote.xsh": "##! Remote module.\n## Exposes the imported value.\nexport let value = 1\n", "main.xsh": source},
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check main.xsh
     assert checked.status.exited_with(0), checked.stderr
   }
@@ -787,7 +787,7 @@ test test_check_rejects_main_without_spread_parameter_but_accepts_spread { |ctx|
       "spread.xsh": "proc main(...argv: List[Str]) [fs, env, error] {\n  print \"hello\"\n}\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let nonspread = run.capture --text "xsht" check nonspread.xsh
     assert nonspread.status.exited_with(2), nonspread.stderr
     assert "compact.main-missing-spread" in nonspread.stderr, nonspread.stderr
@@ -800,7 +800,7 @@ test test_check_rejects_main_without_spread_parameter_but_accepts_spread { |ctx|
 
 test test_check_rejects_unreachable_invalid_regex_literals_without_execution { |ctx|
   let root = project(ctx, {"invalid.xsh": "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n"})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check invalid.xsh
     assert ! checked.status.exited_with(0), checked.stderr
     assert "must not execute" not in checked.stdout, checked.stdout
@@ -817,7 +817,7 @@ test test_check_validates_regex_literals_in_unused_imported_functions { |ctx|
       "broken.xsh": "pure never_called() -> Regex { rx\"[\" }\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check main.xsh
     assert ! checked.status.exited_with(0), checked.stderr
     assert "check.regex-literal" in checked.stderr, checked.stderr
@@ -833,7 +833,7 @@ test test_check_imported_error_annotation_retains_constructor_identity { |ctx|
       "main.xsh": "use helper\nlet failure: helper.HelperError = helper.HelperError.Failed(detail: \"failed\")\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" check main.xsh
     assert checked.status.exited_with(0), checked.stderr
   }
@@ -880,7 +880,7 @@ test test_check_and_lint_nested_schema_constructors_without_stack_environment { 
 
   source = source + "pure build() -> " + previous + " { " + constructor + " }\nlet value = build()\nlet _ = value\n"
   let root = project(ctx, {"nested.xsh": source})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text env -u RUST_MIN_STACK -u XSH_MODULE_PATH xsht check nested.xsh
     assert checked.status.exited_with(0), checked.stderr
     assert "stack overflow" not in checked.stderr, checked.stderr
@@ -906,7 +906,7 @@ test test_check_compare_preserves_public_type_names { |ctx|
   let model = "##! Event values.\n## Public event.\nexport type Event = {id: Int}\n## Return the event.\nexport pure identity(value: Event) -> Event { value }\n"
   let main = "use model\npure keep(value: model.Event) -> model.Event { model.identity(value) }\n"
   let root = project(ctx, {"original/model.xsh": model, "original/main.xsh": main, "candidate/model.xsh": model, "candidate/main.xsh": main})?
-  cd $root {
+  cd (root) {
     let unchanged = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh candidate/model.xsh
     assert unchanged.status.exited_with(0), unchanged.stderr
     assert unchanged.stdout == "xsht check interface qualification: 2 callable, 0 CLI\n"

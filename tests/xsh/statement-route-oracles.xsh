@@ -490,7 +490,7 @@ test test_stmt_cd { |ctx|
   test.expect(
     ctx,
     r"""let root = fs.cwd()?
-cd $root {
+cd (root) {
   print "inside"
 }
 """,
@@ -502,7 +502,7 @@ cd $root {
 test test_stmt_env { |ctx|
   test.expect(
     ctx,
-    r"""env XSH_STMT_ROUTE_ORACLE=active {
+    r"""env ({XSH_STMT_ROUTE_ORACLE: "active"}) {
   print e"XSH_STMT_ROUTE_ORACLE"?
 }
 """,

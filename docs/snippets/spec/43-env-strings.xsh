@@ -8,7 +8,7 @@ proc configure() [process, env, error] {
 
   e"EDITOR" = editor # later child processes inherit it
   e"PORT" = 8080 # converted like an argv item
-  env LC_ALL=C {
+  env ({LC_ALL: "C"}) {
     e"TZ" = "UTC" # undone when this scope ends
     run date
   }

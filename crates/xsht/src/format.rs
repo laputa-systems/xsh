@@ -22,7 +22,7 @@ use xsh::frontend::syntax::grouping::{self, Context, Follow, FollowToken};
 use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
 use xsh::frontend::syntax::node::{
-    AssignOp, BinaryOp, CoreCommand, Effect, FormatSpecKind, RedirectionKind, RunKind, UnaryOp,
+    AssignOp, BinaryOp, Effect, FormatSpecKind, RedirectionKind, RunKind, UnaryOp,
 };
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsh::frontend::syntax::token::TokenTag;
@@ -962,7 +962,7 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Match { value, arms } => {
                 self.write_match(*value, *arms, stmt.span, indent, output)
             }
-            ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
+            ArenaStmtKind::Command(command) => self.write_command_stmt(*command, output),
             ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => self.write_statement_expr(*expr, output),
         }
@@ -2049,7 +2049,6 @@ impl<'a> Writer<'a> {
     fn write_command_stmt(
         &mut self,
         stmt_id: xsh::frontend::syntax::arena::CommandStmtId,
-        indent: usize,
         output: &mut String,
     ) {
         let stmt = self.arena.command_stmt(stmt_id).clone();
@@ -2061,41 +2060,16 @@ impl<'a> Writer<'a> {
                 output.push_str(name.as_str().as_str());
                 self.write_command_args(*args, continuation, tail, output);
             }
-            ArenaCommand::Core {
-                name,
-                args,
-                env,
-                block,
-            } => {
+            ArenaCommand::Core { name, args } => {
                 output.push_str(name.as_str());
-                let env_assignments = self.arena.env_assignments(*env).to_vec();
-                if *name == CoreCommand::Env && env_assignments_are_exprs(&env_assignments) {
-                    output.push(' ');
-                    self.write_env_expr_assignments(&env_assignments, indent, output);
-                    if let Some(block) = block {
-                        output.push(' ');
-                        self.write_block(*block, indent, output);
-                    }
-                } else {
-                    let tail = if block.is_some() { 2 } else { tail };
-                    // A continuation line under a command with a block is
-                    // indented twice, so it does not read as the block's
-                    // first statement.
-                    let continuation = continuation + usize::from(block.is_some());
-                    let mut parts: Vec<CommandPart> = self
-                        .arena
-                        .command_args(*args)
-                        .iter()
-                        .cloned()
-                        .map(CommandPart::Arg)
-                        .collect();
-                    parts.extend(env_assignments.iter().cloned().map(CommandPart::Env));
-                    self.write_command_parts(&parts, true, continuation, tail, output);
-                    if let Some(block) = block {
-                        output.push(' ');
-                        self.write_block(*block, indent, output);
-                    }
-                }
+                let parts: Vec<CommandPart> = self
+                    .arena
+                    .command_args(*args)
+                    .iter()
+                    .cloned()
+                    .map(CommandPart::Arg)
+                    .collect();
+                self.write_command_parts(&parts, true, continuation, tail, output);
             }
             ArenaCommand::Run(run) => self.write_run(*run, output),
         }
@@ -2429,31 +2403,6 @@ impl<'a> Writer<'a> {
             ArenaEnvAssignmentValue::CommandArg(arg) => self.write_command_arg(arg, output),
             ArenaEnvAssignmentValue::Expr(expr) => self.write_expr(*expr, CLOSE, output),
         }
-    }
-
-    fn write_env_expr_assignments(
-        &mut self,
-        assignments: &[ArenaEnvAssignment],
-        indent: usize,
-        output: &mut String,
-    ) {
-        if assignments.is_empty() {
-            output.push_str("{}");
-            return;
-        }
-        output.push_str("{\n");
-        for assignment in assignments {
-            self.write_indent(indent + 1, output);
-            output.push_str(assignment.name.as_str().as_str());
-            output.push_str(" = ");
-            match &assignment.value {
-                ArenaEnvAssignmentValue::CommandArg(arg) => self.write_command_arg(arg, output),
-                ArenaEnvAssignmentValue::Expr(expr) => self.write_expr(*expr, CLOSE, output),
-            }
-            output.push('\n');
-        }
-        self.write_indent(indent, output);
-        output.push('}');
     }
 
     fn write_redirection(
@@ -5274,12 +5223,6 @@ fn canonical_effects(effects: &[Effect]) -> Vec<&Effect> {
     .iter()
     .filter_map(|canonical| effects.iter().find(|effect| *effect == canonical))
     .collect()
-}
-
-fn env_assignments_are_exprs(assignments: &[ArenaEnvAssignment]) -> bool {
-    assignments
-        .iter()
-        .any(|assignment| matches!(assignment.value, ArenaEnvAssignmentValue::Expr(_)))
 }
 
 /// `e"NAME"`; the parser admits only identifier names, so nothing needs

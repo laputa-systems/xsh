@@ -152,7 +152,7 @@ proc write_zip(ctx: TestContext, zip: Path, files: List[ZipFile], stored: Bool) 
 
   let level: List[Str] = if stored { ["-0"] } else { [] }
   let names = [file.name for file in files]
-  cd base {
+  cd (base) {
     run "/usr/bin/zip" -q @level $zip @names
   }
 }

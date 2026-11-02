@@ -185,7 +185,7 @@ diagnostic_codes! {
         ParseBlockStringMargin = "parse.block-string-margin", error, "Reject a block string line that lacks the closing delimiter's exact indentation";
         ParseCaptureMode = "parse.capture-mode", error, "Reject a `run` capture mode other than `--text` or `--bytes`";
         ParseCaptureModeInterpolation = "parse.capture-mode-interpolation", error, "Reject an interpolated `run` capture mode instead of a literal `--text` or `--bytes`";
-        ParseCdArity = "parse.cd-arity", error, "Reject `cd` with more than one path argument";
+        ParseScopeCommand = "parse.scope-command", error, "Reject the command spelling `cd PATH { }` and `env A=B { }`; write `cd (PATH) { }` and `env (OVERLAY) { }`";
         ParseBuilderBlock = "parse.builder-block", error, "Reject a `process.command { ... }` builder block; write `process.command_argv(target, argv, ...)`";
         ParseComparisonChain = "parse.comparison-chain", error, "Reject an ordering chain `a < b < c`; write `a < b and b < c`";
         ParseCliEntryName = "parse.cli-entry-name", error, "Reject `cli NAME(...)` with a name other than `main`; write `cli main(...)`";
@@ -197,7 +197,6 @@ diagnostic_codes! {
         ParseEnumBacking = "parse.enum-backing", error, "Reject a wire enum backed by any type other than `Str`";
         ParseEnumMigration = "parse.enum-migration", error, "Reject a tagged-union `type` declaration in favor of `enum Name { A, B }`";
         ParseEnumWirePayload = "parse.enum-wire-payload", error, "Reject payload fields on a `Str`-backed enum variant";
-        ParseEnvAssignment = "parse.env-assignment", error, "Reject an `env` block entry that is not a `NAME=value` assignment";
         ParseEnvScopeMigration = "parse.env-scope-migration", error, "Reject an expression `env { ... }` without an explicit `env ({NAME: value}) { ... }` overlay";
         ParseErrorBraceDeclaration = "parse.error-brace-declaration", error, "Reject the removed `error NAME { ... }` spelling; write `error NAME = A | B`";
         ParseErrorVariant = "parse.error-variant", error, "Reject an `error` definition with a missing or malformed variant";
@@ -212,7 +211,7 @@ diagnostic_codes! {
         ParseExpectedRecordUpdateValue = "parse.expected-record-update-value", error, "Reject a dotted record update path without `:` and a replacement value";
         ParseExpectedStreamStage = "parse.expected-stream-stage", error, "Reject a missing stream stage name";
         ParseExpectedTerminator = "parse.expected-terminator", error, "Reject a statement that is not followed by a terminator";
-        ParseExpectedToken = "parse.expected-token", error, "Reject a missing required token such as an assignment operator or the `{` after `cd PATH`";
+        ParseExpectedToken = "parse.expected-token", error, "Reject a missing required token such as an assignment operator or the `{` after `cd (PATH)`";
         ParseExpectedWord = "parse.expected-word", error, "Reject a command word that is not a literal word";
         ParseEnvStringName = "parse.env-string-name", error, "Reject an `e\"...\"` literal whose contents are not one identifier-shaped environment variable name";
         ParseExportTarget = "parse.export-target", error, "Reject `export` applied to anything but a definition";
@@ -299,9 +298,7 @@ diagnostic_codes! {
         CheckConstructorInference = "check.constructor-inference", error, "Reject a record constructor whose type parameters cannot be inferred";
         CheckContextScopeEscape = "check.context-scope-escape", error, "Reject a live producer or host handle escaping its context scope";
         CheckContextScopeInput = "check.context-scope-input", error, "Reject a `cwd` or `env` context scope input of the wrong type";
-        CheckCoreCdArity = "check.core-cd-arity", error, "Reject `cd` without exactly one path argument";
         CheckCoreCommandShadow = "check.core-command-shadow", error, "Reject a `proc` named like a core command";
-        CheckCoreEnvArity = "check.core-env-arity", error, "Reject positional arguments to `env`, which accepts only assignments";
         CheckCpumax = "check.cpumax", error, "Reject a non-positive `--cpumax` value";
         CheckDefaultParam = "check.default-param", error, "Reject a required parameter that follows a defaulted parameter";
         CheckDeferControlFlow = "check.defer-control-flow", error, "Reject `break`, `continue`, `return`, or `yield` leaving a `defer` cleanup block";

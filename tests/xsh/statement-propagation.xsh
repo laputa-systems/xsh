@@ -34,7 +34,7 @@ proc work(dir: Path, fail: Bool) [env, io, error] -> Result[Int] {
     step(fail)?
   }
   print ${captured is Err(_)}
-  cd $dir {
+  cd (dir) {
     step(false)<removed>
   }<removed>
   env ({MODE: "x"}) {
@@ -364,7 +364,7 @@ work()
   assert "proc work at" not in failed.stderr, failed.stderr
 }
 
-# A `cd`, `env`, `try`, or `retry` block in statement position is a
+# A `cd (path)`, `env (overlay)`, `try`, or `retry` block in statement position is a
 # `Result[Unit]` too, so its trailing `?` is the same redundancy.
 test test_statement_scope_propagation_matches { |ctx|
   let root = test.temp_dir(ctx, name: "statement-scope-propagation")?
@@ -372,16 +372,8 @@ test test_statement_scope_propagation_matches { |ctx|
     ctx,
     f"""
 proc work(dir: Path, fail: Bool) [env, io, time, error] -> Result[Int, Error] {{
-  cd $dir {{
-    print "command cd"
-    step(false)?
-  }}<?>
   cd (dir) {{
     print "expression cd"
-    step(false)?
-  }}<?>
-  env MODE=fast {{
-    print "command env"
     step(false)?
   }}<?>
   env ({{MODE: "fast"}}) {{
@@ -403,20 +395,6 @@ print ${{work(p"{root}", false)?}}
 print ${{work(p"{root}", true) is Err(_)}}
 print ${{work(p"{root}/missing", false) is Err(_)}}
 work(p"{root}/missing", false)?
-""",
-  )
-  run_both(
-    ctx,
-    f"""
-proc work(dir: Path) [env, io, error] -> Result[Unit, Error] {{
-  cd $dir {{
-    print "inside"
-  }}<?>
-}}
-
-work(p"{root}")
-print "entered"
-work(p"{root}/missing")
 """,
   )
 }

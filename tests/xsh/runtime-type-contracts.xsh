@@ -128,7 +128,7 @@ export pure label(value: Str) -> Str { value }
 }
 
 test test_runtime_environment_path_view_checks_the_materialized_list {
-  env PATH="/one:/two" {
+  env ({PATH: "/one:/two"}) {
     let paths: Any = env.PATH
     assert [paths is EnvPathList, paths is List[Path]] == [false, true]
   }

@@ -1,11 +1,11 @@
 use super::{
     rules,
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind,
-    ArenaCommand, ArenaCommandArgKind, ArenaExprKind,
+    ArenaExprKind,
     ArenaExprOrRun, ArenaRange, ArenaRecordFieldKind,
     ArenaStmtKind, ArenaSugar, ArenaTypeExprKind, AssignOp,
     AssignTargetId, AstArena, BinaryOp, BindingTargetId, BlockId, FunctionDefId,
-    CoreCommand, Diagnostic, DiagnosticCode, ExprId, FixHint, FlowSummary, FxHashSet, Label, Linter,
+    Diagnostic, DiagnosticCode, ExprId, FixHint, FlowSummary, FxHashSet, Label, Linter,
     Name, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp,
     binding_target_contains_name, context_scope, direct_call_name,
     expr_may_assign_local, expr_may_have_effects, expr_references_name,
@@ -492,28 +492,6 @@ impl<'a> Linter<'a> {
                         block,
                         kind == xsh::frontend::syntax::arena::ContextScopeKind::Cwd,
                     )
-                }
-                ArenaStmtKind::Command(command) => {
-                    let command = self.arena.command_stmt(command);
-                    let ArenaCommand::Core {
-                        name: CoreCommand::Cd,
-                        args,
-                        block: Some(block),
-                        ..
-                    } = command.command
-                    else {
-                        continue;
-                    };
-                    let [argument] = self.arena.command_args(args) else {
-                        continue;
-                    };
-                    let ArenaCommandArgKind::Typed(input) = argument.kind else {
-                        continue;
-                    };
-                    if !command.propagate {
-                        continue;
-                    }
-                    (input, block, true)
                 }
                 _ => continue,
             };

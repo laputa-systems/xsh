@@ -4804,11 +4804,7 @@ impl AstArena {
             ArenaStmtKind::Command(command) => {
                 match &self.command_stmt(command).command {
                     ArenaCommand::Proc { args, .. } => self.for_each_command_args_child(*args, &mut visit),
-                    ArenaCommand::Core { args, env, block, .. } => {
-                        self.for_each_command_args_child(*args, &mut visit);
-                        self.for_each_env_child(*env, &mut visit);
-                        if let Some(block) = block { visit(Child::Block(*block)); }
-                    }
+                    ArenaCommand::Core { args, .. } => self.for_each_command_args_child(*args, &mut visit),
                     ArenaCommand::Run(run) => self.for_each_run_child(*run, &mut visit),
                 }
             }
@@ -8127,8 +8123,6 @@ pub enum ArenaCommand {
     Core {
         name: CoreCommand,
         args: ArenaRange,
-        env: ArenaRange,
-        block: Option<BlockId>,
     },
     Run(RunFormId),
 }

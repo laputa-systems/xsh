@@ -5103,7 +5103,7 @@ mod arena_tests {
         assert_stmts_arena_match_raised("print \"hello\"");
         assert_stmts_arena_match_raised("print ${1 + 2}");
         assert_stmts_arena_match_raised("print bad_ident");
-        assert_stmts_arena_match_raised("cd \"/tmp\" {\n  print \"in tmp\"\n}");
+        assert_stmts_arena_match_raised("cd (p\"/tmp\") {\n  print \"in tmp\"\n}");
         assert_stmts_arena_match_raised("env ({\n  FOO: \"bar\",\n}) {\n  print \"in env\"\n}");
         assert_stmts_arena_match_raised("run false");
         assert_stmts_arena_match_raised("git status");

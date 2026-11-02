@@ -20,7 +20,7 @@ use super::{
     append_call_argument, append_lowered_list_element, append_lowered_map_literal,
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
     assign_lowered_str_view,
-    bind_indexed_comp_target, bind_lowered_comp_target, capture_checked_error, check_env_name,
+    bind_indexed_comp_target, bind_lowered_comp_target, capture_checked_error,
     checked_indexed_assignment,
     decode_match_expr,
     decode_record_updates, match_expr_arm_at, record_update_at,
@@ -28,7 +28,7 @@ use super::{
     decode_fmt, finish_record_entries, indexed_assignment_operand, indexed_callable_identity,
     indexed_error, indexed_value, lowered_binary_value, lowered_bytes_parts,
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
-    lowered_map_literal_key, lowered_match_no_arm, lowered_path_like_arg,
+    lowered_map_literal_key, lowered_match_no_arm,
     lowered_result_err_value, lowered_result_ok, lowered_str_key, lowered_str_parts,
     lowered_str_predicate_text,
     lowered_tag_key, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
@@ -76,15 +76,6 @@ fn frame_strategy_error(tag: FullTag, span: Span) -> RuntimeError {
         ),
     )
     .with_span(span)
-}
-
-fn indexed_run_arg(kind: RunArgKindView<'_>, span: Span) -> super::RunArg {
-    let (mode, value) = match kind {
-        RunArgKindView::Single(value) => (0, value.raw()),
-        RunArgKindView::SingleOrSplice(value) => (1, value.raw()),
-        RunArgKindView::Splice(value) => (2, value.raw()),
-    };
-    super::RunArg { mode, value, span }
 }
 
 /// A statement block that has passed its eager list validation.
@@ -354,32 +345,6 @@ fn statement_match_arm(
             (pattern.raw(), guard.map(|guard| guard.raw()), body.block_id())
         });
     Ok((arm, arms.position()))
-}
-
-fn statement_env_assignment<'e>(
-    execution: &'e FullExecution<'_>,
-    statement: u32,
-    position: ListPosition<LoweredRunEnv>,
-    span: Span,
-) -> Result<(RunEnvView<'e>, ListPosition<LoweredRunEnv>), RuntimeError> {
-    let (tag, payload) = execution
-        .instruction_id(statement)
-        .map_err(|error| indexed_error(error, span))?;
-    let StmtView::Env { mut env, .. } = StmtView::decode(execution, tag, payload)
-        .map_err(|error| indexed_error(error, span))?
-    else {
-        unreachable!("statement ID and borrowed environment row agree")
-    };
-    env.resume(position)
-        .map_err(|error| indexed_error(error, span))?;
-    let assignment = env
-        .next()
-        .transpose()
-        .map_err(|error| indexed_error(error, span))?
-        .ok_or_else(|| {
-            RuntimeError::new("indexed-ir", "environment cursor ended early").with_span(span)
-        })?;
-    Ok((assignment, env.position()))
 }
 
 fn indexed_str_tag_match_arm(
@@ -1487,14 +1452,6 @@ struct FramePrintState {
     argv: Vec<TraceArg>,
 }
 
-struct FrameEnvState {
-    statement: u32,
-    position: ListPosition<LoweredRunEnv>,
-    overlay: BTreeMap<Vec<u8>, Vec<u8>>,
-    body: u32,
-    span: Span,
-}
-
 #[derive(Clone, Copy)]
 enum ExprPatternIfStep {
     Condition,
@@ -1919,8 +1876,6 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     CleanupAction,
-    StatementScopeEnd,
-    EnvValue(FrameEnvState),
     PrintArgument(FramePrintState),
     Discard(Span),
     Field {
@@ -2317,8 +2272,6 @@ impl FrameContinuation {
             | C::Yield { .. }
             | C::YieldDelegate { .. }
     | C::CleanupAction
-            | C::StatementScopeEnd
-            | C::EnvValue(_)
             | C::PrintArgument(_)
             | C::StatementRun { .. } => {}
             C::ExprPatternIf { next, .. } => next.visit_retained_values(visitor),
@@ -3644,38 +3597,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             Ok(())
         }
-    }
-
-    fn step_env(&mut self, index: usize, state: FrameEnvState) -> Result<(), RuntimeError> {
-        if !state.position.is_exhausted() {
-            let (assignment, _) = statement_env_assignment(
-                &self.calls[index].execution,
-                state.statement,
-                state.position,
-                state.span,
-            )?;
-            let RunEnvView { value, .. } = assignment;
-            let RunArgView { kind, span, .. } = value;
-            let argument = indexed_run_arg(kind, span);
-            let instruction = argument.value;
-            let span = argument.span;
-            self.push_expr(
-                index,
-                instruction,
-                span,
-                FrameContinuation::EnvValue(state),
-            );
-            return Ok(());
-        }
-
-        let restore = self
-            .evaluator
-            .enter_indexed_env_scope(state.overlay);
-        self.calls[index].work.push(FrameWork::ExpressionBoundary {
-            policy: ExpressionBoundaryPolicy::Scope(restore),
-            next: FrameContinuation::StatementScopeEnd,
-        });
-        self.push_statement_block(index, state.body, state.span)
     }
 
     fn start_process_run(
@@ -5064,18 +4985,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                     return Ok(());
                 }
-                let statement_scope = matches!(&next, FrameContinuation::StatementScopeEnd);
                 let value = match policy {
                     ExpressionBoundaryPolicy::Capture { .. } => {
                         LoweredValue::ResultOk(Box::new(LoweredValue::Unit))
                     }
                     ExpressionBoundaryPolicy::Scope(restore) => {
                         self.evaluator.restore_indexed_context_scope(restore);
-                        if statement_scope {
-                            LoweredValue::Unit
-                        } else {
-                            lowered_result_ok(LoweredValue::Unit)
-                        }
+                        lowered_result_ok(LoweredValue::Unit)
                     }
                     ExpressionBoundaryPolicy::Retry(state) => {
                         return self.finish_retry_attempt(
@@ -5519,38 +5435,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         span,
                         line: String::new(),
                         argv,
-                    },
-                )
-            }
-            StmtView::Cd { target, body, span } => {
-                self.push_expr(
-                    index,
-                    target.raw(),
-                    span,
-                    FrameContinuation::ContextScopeEntry {
-                        kind: crate::syntax::arena::ContextScopeKind::Cwd,
-                        body: body.block_id(),
-                        span,
-                        next: Box::new(FrameContinuation::StatementScopeEnd),
-                    },
-                );
-                Ok(())
-            }
-            StmtView::Env { env, body } => {
-                let position = env.position();
-                for assignment in env {
-                    let RunEnvView { name, .. } =
-                        assignment.map_err(|error| indexed_error(error, span))?;
-                    check_env_name(&name.as_str(), span)?;
-                }
-                self.step_env(
-                    index,
-                    FrameEnvState {
-                        statement: instruction,
-                        position,
-                        overlay: BTreeMap::new(),
-                        body: body.block_id(),
-                        span,
                     },
                 )
             }
@@ -7942,34 +7826,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 };
             }
-            FrameContinuation::StatementScopeEnd => match value {
-                FrameValue::Value(_) => {}
-                FrameValue::Break(value) => {
-                    self.complete_call(index, StmtFlow::Propagate(value))?
-                }
-            },
-            FrameContinuation::EnvValue(mut state) => match value {
-                FrameValue::Value(value) => {
-                    let (assignment, position) = statement_env_assignment(
-                        &self.calls[index].execution,
-                        state.statement,
-                        state.position,
-                        state.span,
-                    )?;
-                    let RunEnvView { name, value: run_arg, .. } = assignment;
-                    let RunArgView { kind, span, .. } = run_arg;
-                    let argument = indexed_run_arg(kind, span);
-                    let value = Evaluator::run_env_value(&argument, value.into_value())?;
-                    state
-                        .overlay
-                        .insert(name.as_str().as_bytes().to_vec(), value);
-                    state.position = position;
-                    self.step_env(index, state)?;
-                }
-                FrameValue::Break(value) => {
-                    self.complete_call(index, StmtFlow::Propagate(value))?
-                }
-            },
             FrameContinuation::PrintArgument(mut state) => match value {
                 FrameValue::Value(value) => {
                     let start = state.line.len();
@@ -7993,14 +7849,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    let statement = matches!(next.as_ref(), FrameContinuation::StatementScopeEnd);
-                    let entry = if statement {
-                        let target = lowered_path_like_arg(value, "cd", span)?;
-                        self.evaluator.enter_indexed_cwd_scope(target, span)
-                    } else {
-                        self.evaluator.enter_indexed_context_scope(kind, value, span)
-                    };
-                    match entry {
+                    match self.evaluator.enter_indexed_context_scope(kind, value, span) {
                         Ok(restore) => {
                             self.calls[index].work.push(FrameWork::ExpressionBoundary {
                                 policy: ExpressionBoundaryPolicy::Scope(restore),
@@ -8008,10 +7857,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             });
                             self.push_statement_block(index, body, span)?;
                         }
-                        Err(error) if statement => self.complete_call(
-                            index,
-                            StmtFlow::Propagate(lowered_result_err_value(error)),
-                        )?,
                         Err(error) => self.push_value(
                             index,
                             FrameValue::Value(lowered_result_err_value(error)),

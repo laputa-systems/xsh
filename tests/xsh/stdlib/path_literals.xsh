@@ -49,7 +49,7 @@ test test_string_literal_reaches_standard_path_parameters_as_a_path { |ctx|
   let root = test.temp_dir(ctx, name: "path-literal-args")?
   let file = fp"{root}/file.txt"
   file.write("x")
-  cd $root {
+  cd (root) {
     assert p"file.txt".exists()?
     assert ! p"absent.txt".exists()?
     p"file.txt".copy(to: "copy.txt")

@@ -147,7 +147,7 @@ test test_chmod_verbose_uses_four_octal_digits_and_relative_descendants { |ctx|
   fp"{root}/dir".mkdir()
   fp"{root}/dir/child".write("x", mode: 0o644)
   let output = fp"{root}/output"
-  cd $root {
+  cd (root) {
     let result = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chmod.xsh" -- -Rv 600 dir
     output.write(result)
   }

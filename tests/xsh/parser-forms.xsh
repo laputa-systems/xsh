@@ -139,11 +139,10 @@ test test_command_names_and_core_dot_arguments_preserve_spacing { |ctx|
 }
 
 test test_env_without_a_block_uses_proc_command_rules { |ctx|
-  expect_parses(ctx, "env foo\nenv . name\nenv FOO=value { f() }\nenv value = \${ items |> each { |item| item } } { }\n")
+  expect_parses(ctx, "env foo\nenv . name\n")
 }
 
-test test_cd_scope_arguments_keep_command_word_interpolation { |ctx|
-  expect_parses(ctx, "cd +\${ x +\n1 } { }\n")
+test test_context_scope_calls_end_before_a_trailing_operator { |ctx|
   expect_parses(ctx, "cd (x) { } < []\n")
   expect_parses(ctx, "env (x) { } < []\n")
 }
@@ -281,8 +280,8 @@ test test_multiline_set_entries_are_one_set_literal_error { |ctx|
   }
 }
 
-test test_command_words_and_empty_env_scopes_parse { |ctx|
-  for source in ["env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n"] {
+test test_command_words_parse { |ctx|
+  for source in ["asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n"] {
     expect_parses(ctx, source)
   }
   expect_parses(ctx, "print [] )\n")

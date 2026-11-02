@@ -196,7 +196,7 @@ package.build()?
 }
 
 test test_run_unknown_name_returns_process_error {
-  env PATH="/bin:/usr/bin" {
+  env ({PATH: "/bin:/usr/bin"}) {
     let missing = try run.text command-not-builtin
     test.error_kind(missing, "not-found")
   }
@@ -433,7 +433,7 @@ test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
   fp"{src}/file.txt".write("""contents
 """)
 
-  cd root {
+  cd (root) {
     run tar cf - src | run gzip -9 > $tarball
   }
 
@@ -471,7 +471,7 @@ name"""
 }
 
 test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments { |ctx|
-  env PATH="/bin:/usr/bin" {
+  env ({PATH: "/bin:/usr/bin"}) {
     let status = run xsh-definitely-missing-command | run true
     assert status.segments[0].kind == "exec"
     assert status.segments[0].error_kind == "not-found"
@@ -887,7 +887,7 @@ print \${demo_path.display()}
     ctx,
     """
 let before = run.text pwd ?
-cd tests {
+cd (p"tests") {
   let xs = ["x"]
   let bad = xs[1]
 } ?
@@ -919,7 +919,7 @@ proc say(value: Str) -> Result[Unit] {
 
 proc main(args: List[Str]) -> Result[Unit] {
   say("traced")?
-  cd tests {
+  cd (p"tests") {
     run true ?
   } ?
   return Ok()

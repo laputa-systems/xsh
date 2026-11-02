@@ -1924,7 +1924,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Expressions,
             "context_scope",
             seq([
-                alt([core_word(CoreCommand::Cd), core_word(CoreCommand::Env)]),
+                alt([w("cd"), w("env")]),
                 t(T::LParen),
                 r("expression"),
                 t(T::RParen),
@@ -2238,19 +2238,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Commands,
             "named_command",
             alt([
-                seq([
-                    core_word(CoreCommand::Cd),
-                    not([vec![tag_term(T::Equals)]]),
-                    // An opening brace starts the directory block, not its path.
-                    not([vec![tag_term(T::LBrace)]]),
-                    r("command_argument"),
-                    block(),
-                ]),
-                seq([
-                    core_word(CoreCommand::Env),
-                    line(star(r("env_assignment"))),
-                    block(),
-                ]),
                 // The words that begin a `tempdir NAME at PATH` scope or an
                 // `atomically replace` statement always begin one: the parser
                 // decides on them alone, so a command cannot start that way.

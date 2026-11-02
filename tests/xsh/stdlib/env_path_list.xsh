@@ -33,7 +33,7 @@ test test_every_environment_value_position_joins_a_path_list { |ctx|
   let dirs = [p"/one", p"/two"]
   let script = "printf '%s' \"$XSH_PATH_LIST\""
 
-  env XSH_PATH_LIST=$dirs XSH_PATH_LIST_EXPR=$dirs {
+  env ({XSH_PATH_LIST: dirs, XSH_PATH_LIST_EXPR: dirs}) {
     assert e"XSH_PATH_LIST"? == "/one:/two"
     assert e"XSH_PATH_LIST_EXPR"? == "/one:/two"
   }
@@ -41,7 +41,7 @@ test test_every_environment_value_position_joins_a_path_list { |ctx|
   let by_word = run.text XSH_PATH_LIST=$dirs $sh -c $script
   assert by_word == "/one:/two"
 
-  env XSH_PATH_LIST_SCOPE=1 {
+  env ({XSH_PATH_LIST_SCOPE: "1"}) {
     e"XSH_PATH_LIST" = dirs
     assert e"XSH_PATH_LIST"? == "/one:/two"
   }
@@ -65,12 +65,12 @@ test test_a_path_list_entry_with_the_separator_fails { |ctx|
   let split = [p"/one", p"/two:/three"]
   let entered = env ({XSH_PATH_LIST: split}) { 1 }
   test.error_kind(entered, "env-value")
-  env XSH_PATH_LIST_SCOPE=1 {
+  env ({XSH_PATH_LIST_SCOPE: "1"}) {
     assert (e"XSH_PATH_LIST" ?? "unset") == "unset"
   }
 
   for source in [
-    r"""env XSH_PATH_LIST=$split {
+    r"""env ({XSH_PATH_LIST: split}) {
   print "entered"
 }
 """,
@@ -93,7 +93,6 @@ print "entered"
 test test_a_list_of_anything_else_is_not_an_environment_value { |ctx|
   for case in [
     {source: "env ({NAMES: [\"a\", \"b\"]}) {\n  print \"entered\"\n}\n", code: "check.env-value"},
-    {source: "env NAMES=([\"a\", \"b\"]) {\n  print \"entered\"\n}\n", code: "check.argv-conversion"},
     {source: "e\"NAMES\" = [1, 2]\n", code: "check.env-value"},
   ] {
     let rejected = test.run_script(ctx, case.source)?
@@ -113,13 +112,12 @@ test test_a_list_of_anything_else_is_not_an_environment_value { |ctx|
 
 test test_a_list_word_that_is_not_a_path_list_keeps_the_one_item_rule { |ctx|
   let one = ["only"]
-  env XSH_PATH_LIST=$one {
-    assert e"XSH_PATH_LIST"? == "only"
-  }
+  let shown = run.text XSH_PATH_LIST=$one printenv XSH_PATH_LIST ?
+  assert shown.trim() == "only"
   for names in ["[\"a\", \"b\"]", "[]"] {
     test.expect(
       ctx,
-      f"let names: List[Str] = {names}\nenv NAMES=\$names {{\n  print \"entered\"\n}}\n",
+      f"let names: List[Str] = {names}\nlet shown = run.text NAMES=\$names printenv NAMES ?\n",
       status: 3,
       stderr: ["environment values must be one value"],
     )?

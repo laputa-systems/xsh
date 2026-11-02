@@ -9,7 +9,7 @@ proc readonly_stdout_touch(s: uu.Scene, file: Str) [fs, process, env, error] -> 
   wrapper.write(r"""proc main(root: Str, file: Str, ...words: List[Str]) [fs, process, env, error] {
   unix.redirect_fd(1, Path(file))?
   let cwd = Path(root)
-  cd $cwd { unix.exec(process.command_argv(words[0], words))? }
+  cd (cwd) { unix.exec(process.command_argv(words[0], words))? }
 }
 """)
   let argv = uu.argv(s, "touch", [p"-"])?
@@ -114,7 +114,7 @@ test test_uu_touch_touch_changes_time_of_file_in_stdout { |ctx|
 test test_uu_touch_touch_dash { |ctx|
   let s = uu.scene(ctx)?
   let argv = uu.argv(s, "touch", [p"-h", p"-"])?
-  let result = test.run_xsh(ctx, r"""let root = Path(args[0]); cd $root { unix.exec(process.command_argv(args[1], args[1..]))? }""", [], [word.display() for word in [s.root].extend(argv)], env: {LC_ALL: "C", TZ: "UTC"})?
+  let result = test.run_xsh(ctx, r"""let root = Path(args[0]); cd (root) { unix.exec(process.command_argv(args[1], args[1..]))? }""", [], [word.display() for word in [s.root].extend(argv)], env: {LC_ALL: "C", TZ: "UTC"})?
   assert result.success, result.stderr
   assert result.stdout == "" and result.stderr == ""
 }

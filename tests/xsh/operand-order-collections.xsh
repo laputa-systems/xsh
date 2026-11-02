@@ -56,7 +56,7 @@ test test_expr_glob_literal_has_no_child_and_expands_in_current_directory { |ctx
   let output = test.expect(
     ctx,
     f"""let root = p"{root}"
-cd root {{
+cd (root) {{
   let matches = g"*.xsh"
   assert matches == [p"only.xsh"]
 }}

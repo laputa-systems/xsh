@@ -215,13 +215,7 @@ proc main(name: Str) [fs, error] -> Result[Unit] {
     };
     let command = arena.command_stmt(command_id);
     let args = match &command.command {
-        ArenaCommand::Core {
-            args, env, block, ..
-        } => {
-            assert!(arena.env_assignments(*env).is_empty());
-            assert!(block.is_none());
-            arena.command_args(*args)
-        }
+        ArenaCommand::Core { args, .. } => arena.command_args(*args),
         command => panic!("expected core command, got {command:?}"),
     };
     assert_eq!(args.len(), 2);
@@ -453,7 +447,7 @@ fn parser_accepts_env_assignments_blocks_and_membership() {
         SourceId::new(0),
         "\
 run CC=cc CFLAGS=\"-O2 -pipe\" make
-env DESTDIR=/tmp/stage {
+env ({DESTDIR: \"/tmp/stage\"}) {
   if \"/tmp/stage/bin\" not in env.PATH {
     print missing
   }
@@ -474,14 +468,16 @@ env DESTDIR=/tmp/stage {
     let segments = arena.run_segments(form.segments);
     assert_eq!(arena.env_assignments(segments[0].env).len(), 2);
 
-    let ArenaStmtKind::Command(cmd2) = arena.stmt(root[1]).kind else {
-        panic!("expected command");
+    let ArenaStmtKind::Expr(scope) = arena.stmt(root[1]).kind else {
+        panic!("expected an expression statement");
     };
-    let ArenaCommand::Core { env, block, .. } = &arena.command_stmt(cmd2).command else {
-        panic!("expected core command");
-    };
-    assert_eq!(arena.env_assignments(*env).len(), 1);
-    assert!(block.is_some());
+    assert!(matches!(
+        arena.expr(scope).kind,
+        ArenaExprKind::ContextScope {
+            kind: xsh::frontend::syntax::arena::ContextScopeKind::Env,
+            ..
+        }
+    ));
 }
 
 #[test]

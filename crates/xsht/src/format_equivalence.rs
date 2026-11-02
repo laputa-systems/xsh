@@ -471,17 +471,10 @@ impl CanonicalWriter<'_> {
                         self.debug(name);
                         self.command_args(*args);
                     }
-                    ArenaCommand::Core {
-                        name,
-                        args,
-                        env,
-                        block,
-                    } => {
+                    ArenaCommand::Core { name, args } => {
                         self.put("core;");
                         self.debug(name);
                         self.command_args(*args);
-                        self.env_assignments(*env);
-                        self.opt_block(*block);
                     }
                     ArenaCommand::Run(run) => self.run(*run),
                 }

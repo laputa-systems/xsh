@@ -9,7 +9,7 @@ use crate::syntax::arena::{
     ArenaRedirection, ArenaRedirectionTarget, ArenaRunOption, ArenaRunTailOperandInput, ExprId,
     RunFormId,
 };
-use crate::syntax::grammar;
+use crate::syntax::grammar::{self, RemovedScopeCommand};
 use std::sync::Arc;
 
 impl<'a> Parser<'a> {
@@ -18,6 +18,11 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        if let Some(scope) =
+            grammar::removed_scope_command_at(|offset| self.grammar_token(offset))
+        {
+            return self.parse_removed_scope_command_arena_only(scope, start, arena);
+        }
         let (arena_command, command_propagate) = if self.at_keyword(Keyword::Run) {
             let (run_id, run_span) = self.parse_run_form_arena_only(arena)?;
             if self.at_run_pipeline() {
@@ -132,72 +137,123 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaCommand> {
         self.bump();
-        let mut args = empty_command_arg_range(arena);
-        let mut env = empty_env_assignment_range(arena);
-        let mut block = None;
-        match name {
-            CoreCommand::Cd => {
-                let (parsed_args, parsed_count) =
-                    self.parse_command_args_arena_only_limit(true, 1, arena);
-                args = parsed_args;
-                if parsed_count > 1 {
-                    self.diagnostic_previous(
-                        "`cd` accepts one path argument",
-                        DiagnosticCode::ParseCdArity,
-                    );
-                }
-                if !self.at(TokenKindMatch::LBrace) {
-                    self.diagnostics.push(
-                        Diagnostic::error("`cd` changes the directory only for its block: write `cd PATH { ... }`")
-                            .with_code(DiagnosticCode::ParseExpectedToken)
-                            .with_label(Label::primary(self.current_span(), "expected `{` to start the `cd` block"))
-                            .with_note("a script never changes its own working directory; commands inside the block run there"),
-                    );
-                    return None;
-                }
-                let id = self.parse_block_arena_only(arena)?;
-                block = Some(id);
-            }
-            CoreCommand::Env => {
-                {
-                    arena.begin_env_assignments();
-                    while !self.at(TokenKindMatch::LBrace) && !self.at(TokenKindMatch::Eof) {
-                        if self.parse_env_assignment_arena_only(arena).is_none() {
-                            self.diagnostic_here(
-                                "`env` blocks accept NAME=value assignments",
-                                DiagnosticCode::ParseEnvAssignment,
-                            );
-                            break;
-                        }
+        // A word `when` or `unless` begins the statement's postfix
+        // guard. Quoted, it is text to print.
+        arena.begin_command_args();
+        while !self.at_command_end(false)
+            && !self.at_keyword(Keyword::When)
+            && !self.at_keyword(Keyword::Unless)
+        {
+            let Some(arg) = self.parse_command_arg_arena_only(arena) else {
+                break;
+            };
+            arena.push_command_arg_input(arg);
+        }
+        let args = arena.finish_command_args();
+        Some(ArenaCommand::Core { name, args })
+    }
+
+    pub(super) fn parse_removed_scope_command_arena_only(
+        &mut self,
+        scope: RemovedScopeCommand,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        let keyword = self.current_span();
+        self.bump();
+        let mut hints = Vec::new();
+        let mut written = String::new();
+        let mut note = None;
+        match scope {
+            RemovedScopeCommand::Cd => {
+                let arg_start = self.current_start();
+                let (_, count) = self.parse_command_args_arena_only_limit(true, 1, arena);
+                let arg_end = self.previous_end();
+                if count > 1 {
+                    note = Some("`cd` takes one path");
+                } else if count == 1 {
+                    let raw = &self.source[arg_start..arg_end];
+                    if let Some(call) = scope_command_path_input(raw) {
+                        written = format!("cd ({call}) {{ ... }}");
+                        hints.push(FixHint::replacement(
+                            self.span(arg_start, arg_end),
+                            "write the path as an expression",
+                            format!("({call})"),
+                        ));
                     }
-                    env = arena.finish_env_assignments();
+                }
+            }
+            RemovedScopeCommand::Env => {
+                let mut fields = Vec::new();
+                let mut complete = true;
+                let mut first_start = None;
+                let mut last_end = 0;
+                arena.begin_env_assignments();
+                while !self.at(TokenKindMatch::LBrace) && !self.at(TokenKindMatch::Eof) {
+                    let assignment_start = self.current_start();
+                    if self.parse_env_assignment_arena_only(arena).is_none() {
+                        note = Some("only NAME=value assignments may stand before the block");
+                        complete = false;
+                        break;
+                    }
+                    first_start.get_or_insert(assignment_start);
+                    last_end = self.previous_end();
+                    let raw = &self.source[assignment_start..last_end];
+                    let (name, value) = raw.split_once('=').unwrap_or((raw, ""));
+                    match scope_command_env_value(value) {
+                        Some(value) => fields.push(format!("{name}: {value}")),
+                        None => complete = false,
+                    }
+                }
+                arena.finish_env_assignments();
+                if let (true, Some(first_start)) = (complete, first_start) {
+                    let overlay = format!("{{{}}}", fields.join(", "));
+                    written = format!("env ({overlay}) {{ ... }}");
+                    hints.push(FixHint::replacement(
+                        self.span(first_start, last_end),
+                        "write the overlay as a record",
+                        format!("({overlay})"),
+                    ));
                 }
                 self.accept_line_continuations();
-                let id = self.parse_block_arena_only(arena)?;
-                block = Some(id);
-            }
-            CoreCommand::Print | CoreCommand::Eprint => {
-                // A word `when` or `unless` begins the statement's postfix
-                // guard. Quoted, it is text to print.
-                arena.begin_command_args();
-                while !self.at_command_end(false)
-                    && !self.at_keyword(Keyword::When)
-                    && !self.at_keyword(Keyword::Unless)
-                {
-                    let Some(arg) = self.parse_command_arg_arena_only(arena) else {
-                        break;
-                    };
-                    arena.push_command_arg_input(arg);
-                }
-                args = arena.finish_command_args();
             }
         }
-        Some(ArenaCommand::Core {
-            name,
-            args,
-            env,
-            block,
-        })
+        let head = self.span(start, self.previous_end());
+        let word = scope.as_str();
+        let call = match scope {
+            RemovedScopeCommand::Cd => "cd (PATH) { ... }",
+            RemovedScopeCommand::Env => "env (OVERLAY) { ... }",
+        };
+        let message = if written.is_empty() {
+            format!("`{word}` takes its {} in parentheses: write `{call}`", scope.operand())
+        } else {
+            format!("`{word}` takes its {} in parentheses: write `{written}`", scope.operand())
+        };
+        let mut diagnostic = Diagnostic::error(&message)
+            .with_code(DiagnosticCode::ParseScopeCommand)
+            .with_label(Label::primary(head, format!("write `{call}`")))
+            .with_label(Label::secondary(keyword, format!("this `{word}`")));
+        if let Some(note) = note {
+            diagnostic = diagnostic.with_note(note);
+        }
+        for hint in hints {
+            diagnostic = diagnostic.with_fix_hint(hint);
+        }
+        if !self.at(TokenKindMatch::LBrace) {
+            diagnostic = diagnostic.with_note(format!(
+                "a script never changes its own working directory or environment; `{word}` scopes only its block"
+            ));
+            self.diagnostics.push(diagnostic);
+            return None;
+        }
+        self.diagnostics.push(diagnostic);
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        let scope = arena.push_value_block_expr(block, span);
+        self.consume(TokenKindMatch::Question);
+        let end = self.expect_terminator();
+        arena.push_expr_statement(scope, self.span(start, end));
+        Some(())
     }
 
     pub(super) fn parse_run_form_arena_only(
@@ -1020,12 +1076,134 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn empty_command_arg_range(arena: &mut ArenaProgramBuilder<'_>) -> ArenaRange {
-    arena.begin_command_args();
-    arena.finish_command_args()
+
+/// The expression that a removed `cd WORD { }` command meant by its word, or
+/// `None` when the word needs a hand rewrite (globs, tildes, backslashes,
+/// splices, call chains).
+fn scope_command_path_input(raw: &str) -> Option<String> {
+    if raw.starts_with('(') {
+        return Some(raw.to_string());
+    }
+    if starts_typed_literal(raw) {
+        return Some(raw.to_string());
+    }
+    match scope_command_word(raw)? {
+        ScopeWord::Text(_) if crate::syntax::node::parse_command_word_reference(raw).is_some() => {
+            Some(raw.to_string())
+        }
+        ScopeWord::Text(text) => Some(format!("p\"{text}\"")),
+        ScopeWord::Value(value) => Some(value),
+        ScopeWord::Display(text) => Some(format!("fp\"{text}\"")),
+    }
 }
 
-fn empty_env_assignment_range(arena: &mut ArenaProgramBuilder<'_>) -> ArenaRange {
-    arena.begin_env_assignments();
-    arena.finish_env_assignments()
+/// The record field value that a removed `env NAME=VALUE { }` assignment
+/// meant by its value.
+fn scope_command_env_value(raw: &str) -> Option<String> {
+    if let Some(inner) = raw.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
+        return Some(inner.to_string());
+    }
+    if starts_typed_literal(raw) {
+        return Some(raw.to_string());
+    }
+    match scope_command_word(raw)? {
+        ScopeWord::Text(text) => Some(format!("\"{text}\"")),
+        ScopeWord::Value(value) => Some(value),
+        ScopeWord::Display(text) => Some(format!("f\"{text}\"")),
+    }
+}
+
+fn starts_typed_literal(raw: &str) -> bool {
+    ["p\"", "fp\"", "f\""].iter().any(|prefix| raw.starts_with(prefix))
+}
+
+enum ScopeWord {
+    Text(String),
+    Value(String),
+    Display(String),
+}
+
+fn scope_command_word(raw: &str) -> Option<ScopeWord> {
+    let chars = raw.char_indices().collect::<Vec<_>>();
+    let mut text = String::new();
+    let mut display = String::new();
+    let mut values = Vec::new();
+    let mut quoted = false;
+    let mut index = 0;
+    while index < chars.len() {
+        let (position, c) = chars[index];
+        index += 1;
+        match c {
+            '"' => {
+                quoted = !quoted;
+                continue;
+            }
+            '\\' if quoted => {
+                let (_, escaped) = *chars.get(index)?;
+                index += 1;
+                for piece in ['\\', escaped] {
+                    text.push(piece);
+                    display.push(piece);
+                }
+                continue;
+            }
+            '$' => {
+                let rest = &raw[position + 1..];
+                let (value, consumed) = if let Some(inner) = rest.strip_prefix('{') {
+                    let close = inner.find('}')?;
+                    (inner[..close].to_string(), close + 2)
+                } else {
+                    let mut end = 0;
+                    let bytes = rest.as_bytes();
+                    while end < bytes.len() {
+                        let byte = bytes[end];
+                        let continues = byte.is_ascii_alphanumeric()
+                            || byte == b'_'
+                            || (byte == b'.'
+                                && end > 0
+                                && bytes.get(end + 1).is_some_and(|next| next.is_ascii_alphabetic() || *next == b'_'));
+                        if !continues {
+                            break;
+                        }
+                        end += 1;
+                    }
+                    if end == 0 || rest.as_bytes()[0].is_ascii_digit() {
+                        return None;
+                    }
+                    (rest[..end].to_string(), end)
+                };
+                while chars.get(index).is_some_and(|(at, _)| *at < position + 1 + consumed) {
+                    index += 1;
+                }
+                display.push('{');
+                display.push_str(&value);
+                display.push('}');
+                values.push(value);
+                continue;
+            }
+            '{' | '}' => {
+                text.push(c);
+                display.push(c);
+                display.push(c);
+                continue;
+            }
+            _ if quoted => {}
+            '*' | '?' | '[' | ']' | '~' | '\'' | '\\' | '(' | ')' | '<' | '>' | '|' | '&' | ';' | '`' => {
+                return None;
+            }
+            _ => {}
+        }
+        text.push(c);
+        display.push(c);
+    }
+    if quoted {
+        return None;
+    }
+    if values.is_empty() {
+        return Some(ScopeWord::Text(text));
+    }
+    if values.len() == 1 && display == format!("{{{}}}", values[0]) {
+        return Some(ScopeWord::Value(values.remove(0)));
+    }
+    Some(ScopeWord::Display(display))
 }

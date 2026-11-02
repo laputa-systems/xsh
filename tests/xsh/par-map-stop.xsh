@@ -44,7 +44,7 @@ test test_par_map_in_a_cancelled_test_stops_its_workers_and_children { |ctx|
 """)
   let started = time.now()
   var outcome = run.capture --text "true"
-  cd root {
+  cd (root) {
     outcome = run.capture --text --accept=[0, 1, 2, 3, 101] "xsht" test "tests/cancelled.xsh"
   }
 

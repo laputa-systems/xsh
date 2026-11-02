@@ -12,12 +12,12 @@ test test_util_linux_private_context_rejects_advertised_misconfiguration {
     }
   }
   for identity in ["", "forged", "ipc:[0]", "ipc:[+1]", "ipc:[01]"] {
-    env XSH_UTIL_LINUX_PRIVATE=1 XSH_UTIL_LINUX_PARENT_ipc=$identity {
+    env ({XSH_UTIL_LINUX_PRIVATE: "1", XSH_UTIL_LINUX_PARENT_ipc: identity}) {
       test.error_kind(try { ul.require_private_namespace() }, "AssertionError.Failed")
     }
   }
   let current = p"/proc/self/ns/ipc".readlink()?.display()
-  env XSH_UTIL_LINUX_PRIVATE=1 XSH_UTIL_LINUX_PARENT_ipc=$current {
+  env ({XSH_UTIL_LINUX_PRIVATE: "1", XSH_UTIL_LINUX_PARENT_ipc: current}) {
     test.error_kind(try { ul.require_private_namespace() }, "AssertionError.Failed")
   }
 }

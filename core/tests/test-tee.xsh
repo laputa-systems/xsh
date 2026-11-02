@@ -94,7 +94,7 @@ test test_tee_reports_a_stdin_read_error { |ctx|
   let script = fp"{ctx.core_dir}/tee.xsh"
   let err = fp"{root}/.err"
 
-  cd $root {
+  cd (root) {
     let status = run.status ${ctx.xsh_bin} $script < $root 2> $err
     assert status.exited_with(1)
   }

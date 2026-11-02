@@ -213,7 +213,7 @@ test test_shuf_invalid_utf8_operands_are_raw_bytes { |ctx|
 test test_shuf_reads_invalid_utf8_operand_file { |ctx|
   let root = test.temp_dir(ctx, name: "shuf-invalid-utf8-file")?
   let name = b"a\xFFb" as Path
-  cd root {
+  cd (root) {
     name.write("foo\n")
   }
 

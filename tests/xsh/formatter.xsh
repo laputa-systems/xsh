@@ -155,7 +155,7 @@ test test_fmt_keeps_the_dollar_escapes_an_ordinary_string_was_written_with { |ct
 let name = "y"
 
 proc show() {
-  let nested = "env X=\$split {\n  print \"entered\"\n}\n"
+  let nested = "env ({X: split}) {\n  print \"entered\"\n}\n"
   let mixed = "kept \$name, flagged $name, hex \x24name, price \$5"
   print $nested $mixed
 }

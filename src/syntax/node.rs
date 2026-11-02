@@ -449,19 +449,15 @@ pub enum AssignOp {
 pub enum CoreCommand {
     Print,
     Eprint,
-    Cd,
-    Env,
 }
 
 impl CoreCommand {
-    pub const ALL: [CoreCommand; 4] = [Self::Print, Self::Eprint, Self::Cd, Self::Env];
+    pub const ALL: [CoreCommand; 2] = [Self::Print, Self::Eprint];
 
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "print" => Self::Print,
             "eprint" => Self::Eprint,
-            "cd" => Self::Cd,
-            "env" => Self::Env,
             _ => return None,
         })
     }
@@ -470,8 +466,6 @@ impl CoreCommand {
         match self {
             Self::Print => "print",
             Self::Eprint => "eprint",
-            Self::Cd => "cd",
-            Self::Env => "env",
         }
     }
 }

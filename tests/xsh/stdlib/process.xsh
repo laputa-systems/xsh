@@ -394,7 +394,7 @@ test test_process_wait_and_handle_contracts {
 }
 
 test test_process_spawn_setup_errors {
-  env PATH="/bin:/usr/bin" {
+  env ({PATH: "/bin:/usr/bin"}) {
     match spawn run xsh-definitely-missing-command {
       Err(ProcessError.NotFound {message: message}) => assert "not found" in message
       Err(error) => test.fail(f"unexpected spawn error: {error.message}")

@@ -32,7 +32,7 @@ test test_excludes_are_relative_to_the_config_for_a_directory_argument { |ctx|
   let root = project(ctx)?
   # The config's patterns name paths below the config, whichever directory
   # the tool is pointed at.
-  cd $root {
+  cd (root) {
     let everything = run.capture --text "xsht" check
     assert checked_files(everything.stderr) == "4", everything.stderr
     let tests = run.capture --text "xsht" check tests

@@ -29,7 +29,7 @@ test test_path_audit_findings { |ctx|
   let missing = fp"{root}/missing"
   let raw = f"{bin1}:{bin2}:{duplicate}:{missing}:{file_entry}::{world}:{noexec}"
 
-  env XSH_SHOWCASE_PATH=$raw {
+  env ({XSH_SHOWCASE_PATH: raw}) {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH
     assert "Directory problems" in output
     assert "duplicate-directory" in output
@@ -64,7 +64,7 @@ test test_path_audit_distinguishes_non_utf8_command_names { |ctx|
   second.chmod(0o755)
 
   let raw = f"{bin1}:{bin2}"
-  env XSH_SHOWCASE_PATH=$raw {
+  env ({XSH_SHOWCASE_PATH: raw}) {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH
     let distinct_commands = "shadowed-command" not in output
     let audit_message = output

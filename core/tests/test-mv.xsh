@@ -325,7 +325,7 @@ test test_mv_no_target_directory_renames_onto_directory_with_trailing_slash { |c
 test test_mv_missing_duplicate_source_is_reported_before_overwrite_check { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/mv.xsh"
-  cd root {
+  cd (root) {
     p"a".write("a")
     p"d".mkdir()
     let result = run.capture --text ${ctx.xsh_bin} $script -- p"a" p"a" p"d/"
@@ -372,7 +372,7 @@ type MoveDiagnostic = {args: List[Str], expected: Str}
 test test_mv_operand_and_option_diagnostics { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/mv.xsh"
-  cd root {
+  cd (root) {
     p"a".write("keep")
     p"b".write("old")
     p"dir".mkdir()

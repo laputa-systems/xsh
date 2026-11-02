@@ -154,8 +154,7 @@ proc main() [fs, process, env, error, io] {
 
   let child_path = join_path([shim_dir, cargo_bin, p"/root/.cargo/bin", p"/bin", p"/usr/bin", p"/usr/local/bin", p"/sbin"])
 
-  env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path \
-      RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
+  env ({CARGO_TARGET_DIR: target_dir, CARGO_INCREMENTAL: "0", LLVM_PROFILE_FILE: fp"{raw_dir}/%m-%p.profraw", PATH: child_path, RUSTFLAGS: rustflags, TZ: "UTC", XSH_SKIP_LIVE_COREUTILS_COMPARISONS: "1"}) {
     tests.run_commands(tests.rust_plan(ctx, profile, privileged: true)?)
     run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" \
       XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh

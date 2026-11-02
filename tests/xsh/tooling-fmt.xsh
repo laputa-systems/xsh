@@ -49,7 +49,7 @@ test test_fmt_check_reports_unformatted_files { |ctx|
 
 test test_fmt_check_reports_discovered_files_in_stable_order { |ctx|
   let root = project(ctx, {"b.xsh": "let b=1\n", "a.xsh": "let a=1\n"})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" fmt --check
     assert checked.status.exited_with(1), checked.stderr
     let around_first = checked.stdout.split("a.xsh: needs formatting")
@@ -69,7 +69,7 @@ test test_fmt_uses_nearest_xsht_config_line_width { |ctx|
     },
   )?
   let script = fp"{root}/narrow/main.xsh"
-  cd $root {
+  cd (root) {
     let formatted = run.capture --text "xsht" fmt $script
     assert formatted.status.exited_with(0), formatted.stderr
   }
@@ -95,7 +95,7 @@ test test_fmt_discovery_skips_format_excludes_but_formats_named_files { |ctx|
       "main.xsh": unformatted,
     },
   )?
-  cd $root {
+  cd (root) {
     let discovered = run.capture --text "xsht" fmt --check
     assert discovered.status.exited_with(1), discovered.stdout
     assert "main.xsh: needs formatting" in discovered.stdout, discovered.stdout
@@ -112,7 +112,7 @@ test test_fmt_explicit_directory_formats_xsh_files { |ctx|
     ctx,
     {"project/main.xsh": "let values=[1,2,3]\n", "project/nested/helper.xsh": "let values=[4,5,6]\n"},
   )?
-  cd $root {
+  cd (root) {
     let formatted = run.capture --text "xsht" fmt fp"{root}/project"
     assert formatted.status.exited_with(0), formatted.stderr
   }
@@ -129,7 +129,7 @@ test test_fmt_checks_imported_modules { |ctx|
       "main.xsh": "use helper\nprint helper.bad()\n",
     },
   )?
-  cd $root {
+  cd (root) {
     let formatted = run.capture --text "xsht" fmt main.xsh
     assert formatted.status.exited_with(2), formatted.stderr
     assert "helper.xsh" in formatted.stderr, formatted.stderr
@@ -140,7 +140,7 @@ test test_fmt_checks_imported_modules { |ctx|
 test test_fmt_deduplicates_diagnostics_from_imported_modules { |ctx|
   let entry = "use helper\nprint helper.exported\n"
   let root = project(ctx, {"helper.xsh": orphan_doc_helper, "first.xsh": entry, "second.xsh": entry})?
-  cd $root {
+  cd (root) {
     let formatted = run.capture --text "xsht" fmt .
     assert formatted.status.exited_with(2), formatted.stderr
     # The imported module's diagnostic is rendered once.
@@ -150,7 +150,7 @@ test test_fmt_deduplicates_diagnostics_from_imported_modules { |ctx|
 
 test test_fmt_reports_invalid_xsht_config_line_width { |ctx|
   let root = project(ctx, {"xsht-config.ini": "[format]\nline-width = nope\n", "main.xsh": "let value = 1\n"})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" fmt --check main.xsh
     assert checked.status.exited_with(2), checked.stderr
     assert "format.line-width" in checked.stderr, checked.stderr
@@ -159,7 +159,7 @@ test test_fmt_reports_invalid_xsht_config_line_width { |ctx|
 
 test test_fmt_ignores_legacy_config_ini { |ctx|
   let root = project(ctx, {"config.ini": "[format]\nline-width = 60\n", "main.xsh": long_list})?
-  cd $root {
+  cd (root) {
     let checked = run.capture --text "xsht" fmt --check main.xsh
     assert checked.status.exited_with(0), checked.stderr
   }

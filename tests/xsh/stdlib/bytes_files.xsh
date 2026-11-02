@@ -66,7 +66,7 @@ test test_bytes_file_guards_follow_read_symlinks_and_refuse_mutating_symlinks { 
 
 test test_bytes_dash_is_a_literal_path { |ctx|
   let root = test.temp_dir(ctx)?
-  cd root {
+  cd (root) {
     bytes.resize(p"-", 4, create: true, exclusive: true, regular: true)
     assert bytes.write_at(p"-", 0, b"file", regular: true)? == 4
     assert bytes.read_at(p"-", 0, 4, regular: true)? == b"file"

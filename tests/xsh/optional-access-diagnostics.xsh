@@ -27,10 +27,10 @@ print (absent?.name ?? "missing") (empty?[0] ?? -1)
 }
 
 test test_optional_command_references_get_the_same_presence_guidance { |ctx|
-  let field = test.expect(ctx, "type Row = {name: Path}\nlet row: Row? = null\ncd row.name { print \"inside\" }\n", status: 2)?
+  let field = test.expect(ctx, "type Row = {name: Path}\nlet row: Row? = null\ncd (row.name) { print \"inside\" }\n", status: 2)?
   assert "check.field-access" in field.stderr, field.stderr
   assert "field `name` needs a present value" in field.stderr, field.stderr
-  let index = test.expect(ctx, "let values: List[Path]? = null\ncd values[0] { print \"inside\" }\n", status: 2)?
+  let index = test.expect(ctx, "let values: List[Path]? = null\ncd (values[0]) { print \"inside\" }\n", status: 2)?
   assert "check.index-type" in index.stderr, index.stderr
   assert "indexing needs a present value" in index.stderr, index.stderr
 }

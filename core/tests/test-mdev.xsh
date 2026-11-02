@@ -33,8 +33,7 @@ test test_mdev_applies_rule_to_temp_device_tree { |ctx|
   let node = fp"{dev_root}/disk/sda"
   let link = fp"{dev_root}/sda"
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 \
-      DEVPATH=/devices/virtual/block/sda DEVNAME=sda SUBSYSTEM=block LOG=$log {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/virtual/block/sda", DEVNAME: "sda", SUBSYSTEM: "block", LOG: log}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert added.status.exited_with(0), added.stderr
     assert node.read_text()? == "b 8:0\n"
@@ -74,7 +73,7 @@ test test_mdev_scan_matches_major_minor_ranges { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"@8,16-31 {uid}:{gid} 604 =disk/\n")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1"}) {
     let scanned = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" -- --scan
     let node = fp"{dev_root}/disk/sdb"
     assert scanned.status.exited_with(0), scanned.stderr
@@ -102,7 +101,7 @@ test test_mdev_accepts_positive_decimal_signs { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"@+1,+3 {uid}:{gid} 600 =disk/device-id")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 DEVPATH=/devices/virtual/block/sda DEVNAME=sda SUBSYSTEM=block {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/virtual/block/sda", DEVNAME: "sda", SUBSYSTEM: "block"}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert added.status.exited_with(0), added.stderr
     assert fp"{dev_root}/disk/device-id".read_text()? == "b 1:3\n"
@@ -132,7 +131,7 @@ test test_mdev_accepts_host_word_boundary_patterns { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"\\bdev0\\b {uid}:{gid} 600 =alias")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 DEVPATH=/devices/test DEVNAME=dev0 SUBSYSTEM=test {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/test", DEVNAME: "dev0", SUBSYSTEM: "test"}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert added.status.exited_with(0), added.stderr
     assert fp"{dev_root}/alias".read_text()? == "c 1:3\n"
@@ -219,7 +218,7 @@ test test_mdev_refuses_a_file_as_an_alias_parent { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"dev0 {uid}:{gid} 600 =blocked/dev0")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 DEVPATH=/devices/test DEVNAME=dev0 SUBSYSTEM=test {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/test", DEVNAME: "dev0", SUBSYSTEM: "test"}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert ! added.status.exited_with(0)
     assert fp"{dev_root}/blocked".read_text()? == "keep"
@@ -248,7 +247,7 @@ test test_mdev_creates_alias_descendants_through_directory_symlinks { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"dev0 {uid}:{gid} 600 =alias/deep/%0")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 DEVPATH=/devices/test DEVNAME=dev0 SUBSYSTEM=test {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/test", DEVNAME: "dev0", SUBSYSTEM: "test"}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert added.status.exited_with(0), added.stderr
     assert fp"{dev_root}/alias".readlink()? == target_root
@@ -276,7 +275,7 @@ test test_mdev_alias_directories_inherit_setgid { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"dev0 {uid}:{gid} 600 =one/two/three/%0")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 DEVPATH=/devices/test DEVNAME=dev0 SUBSYSTEM=test {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/test", DEVNAME: "dev0", SUBSYSTEM: "test"}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert added.status.exited_with(0), added.stderr
     assert fp"{dev_root}/one/two/three/dev0".read_text()? == "c 1:3\n"
@@ -301,7 +300,7 @@ test test_mdev_scan_accepts_empty_roots { |ctx|
   fp"{sysfs_root}/dev".mkdir(parents: true)
   conf.write("")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1"}) {
     let scanned = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" -- --scan
     assert scanned.status.exited_with(0), scanned.stderr
   }
@@ -326,7 +325,7 @@ test test_mdev_keep_matching_runs_rules_in_order { |ctx|
   let gid = (run.text id -g).trim()
   conf.write(f"-SUBSYSTEM=block;(sd[a-z]) {uid}:{gid} 600 @printf '%s:' \"$MDEV\" >> \"$LOG\"\nSUBSYSTEM=block;(sd[a-z]) {uid}:{gid} 640 >disk/ @printf '%s' \"$MDEV\" >> \"$LOG\"")
 
-  env XSH_MDEV_DEV_ROOT=$dev_root XSH_MDEV_SYSFS=$sysfs_root XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 DEVPATH=/devices/virtual/block/sda DEVNAME=sda SUBSYSTEM=block LOG=$log {
+  env ({XSH_MDEV_DEV_ROOT: dev_root, XSH_MDEV_SYSFS: sysfs_root, XSH_MDEV_CONF: conf, XSH_MDEV_TEST_PLAIN_FILES: "1", DEVPATH: "/devices/virtual/block/sda", DEVNAME: "sda", SUBSYSTEM: "block", LOG: log}) {
     let added = run.capture --text ACTION=add ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" --
     assert added.status.exited_with(0), added.stderr
     assert log.read_text()? == "sda:disk/sda"
@@ -385,7 +384,7 @@ test test_mdev_rejects_invalid_arguments_and_configuration { |ctx|
   let conf = fp"{root}/mdev.conf"
   conf.write("sda 0 660\n")
 
-  env XSH_MDEV_CONF=$conf ACTION=add DEVPATH=/devices/test {
+  env ({XSH_MDEV_CONF: conf, ACTION: "add", DEVPATH: "/devices/test"}) {
     let option = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" -- -z
     assert ! option.status.exited_with(0)
     assert "invalid option -- 'z'" in option.stderr
@@ -410,7 +409,7 @@ test test_mdev_daemon_returns_worker_setup_failure { |ctx|
   let conf = fp"{root}/mdev.conf"
   conf.write("sda 0 660\n")
 
-  env XSH_MDEV_CONF=$conf {
+  env ({XSH_MDEV_CONF: conf}) {
     let started = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mdev.xsh" -- --daemon
     assert ! started.status.exited_with(0), started.stderr
     assert "mdev.conf:1: uid:gid field is required" in started.stderr

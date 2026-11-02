@@ -46,7 +46,7 @@ test test_path_rglob_matches_at_any_depth_in_byte_order { |ctx|
 
 test test_path_glob_agrees_with_glob_literals { |ctx|
   let root = glob_fixture(ctx, "path-glob-literal")?
-  cd $root {
+  cd (root) {
     assert p"src".glob("*.txt")? == g"src/*.txt"
     assert p"src".glob("**/*.txt")? == g"src/**/*.txt"
     assert p"src".rglob("*.txt")? == g"src/**/*.txt"

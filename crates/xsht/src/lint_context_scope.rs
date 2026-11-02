@@ -2,11 +2,11 @@ use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCommand, ArenaCommandArg,
-    ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaRunTailOperand, ArenaStmtKind,
-    ArenaWordPart, ExprId, StmtId,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCommandArg, ArenaCommandArgKind,
+    ArenaExprKind, ArenaExprOrRun, ArenaRunTailOperand, ArenaStmtKind, ArenaWordPart,
+    ContextScopeKind, ExprId, StmtId,
 };
-use xsh::frontend::syntax::node::{AssignOp, CoreCommand, RunKind};
+use xsh::frontend::syntax::node::{AssignOp, RunKind};
 
 /// A single propagated text capture may become the scope tail only when nothing
 /// can observe the placeholder before restoration. Keep its mutable binding and
@@ -34,28 +34,21 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
             continue;
         }
         let statement = linter.arena.stmt(pair[1]);
-        let ArenaStmtKind::Command(command) = statement.kind else {
+        let ArenaStmtKind::Expr(scope) = statement.kind else {
             continue;
         };
-        let command = linter.arena.command_stmt(command);
-        let ArenaCommand::Core {
-            name: CoreCommand::Cd,
-            args,
-            env,
-            block: Some(block),
-        } = command.command
+        let ArenaExprKind::ContextScope {
+            kind: ContextScopeKind::Cwd,
+            input,
+            block,
+            ..
+        } = linter.arena.expr(scope).kind
         else {
             continue;
         };
-        if !env.is_empty() {
+        if !is_path_name_or_literal(linter, input) {
             continue;
         }
-        let [argument] = linter.arena.command_args(args) else {
-            continue;
-        };
-        let Some(input) = path_input(linter, argument) else {
-            continue;
-        };
         if super::expr_references_name(linter.arena, input, name) {
             continue;
         }
@@ -148,8 +141,6 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
         } else {
             ""
         };
-        // The capture propagates as the scope's tail. A statement cd already
-        // propagates entry failures; the outer `?` keeps that same destination.
         let replacement = format!("{prefix}cd ({input}) {{ {run} }}?{suffix}");
         let mut candidate = linter.source.to_owned();
         candidate.replace_range(edit.range(), &replacement);
@@ -182,28 +173,11 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
     }
 }
 
-fn path_input(linter: &super::Linter<'_>, argument: &ArenaCommandArg) -> Option<ExprId> {
-    let input = match argument.kind {
-        ArenaCommandArgKind::Typed(input) => input,
-        ArenaCommandArgKind::Word(parts) => {
-            let mut parts = linter.arena.word_parts(parts);
-            let (ArenaWordPart::Shorthand(input) | ArenaWordPart::Interpolation(input)) =
-                parts.next()?
-            else {
-                return None;
-            };
-            if parts.next().is_some() {
-                return None;
-            }
-            input
-        }
-        _ => return None,
-    };
-    (matches!(
+fn is_path_name_or_literal(linter: &super::Linter<'_>, input: ExprId) -> bool {
+    matches!(
         linter.arena.expr(input).kind,
         ArenaExprKind::Ident(_) | ArenaExprKind::PathStr(_)
-    ) && linter.expr_types.get(&linter.arena.expr(input).span) == Some(&Type::Path))
-    .then_some(input)
+    ) && linter.expr_types.get(&linter.arena.expr(input).span) == Some(&Type::Path)
 }
 
 fn simple_argument(linter: &super::Linter<'_>, argument: &ArenaCommandArg) -> bool {
@@ -256,7 +230,7 @@ mod tests {
 
     #[test]
     fn command_scope_run_text_initializer_preserves_mutability_and_converges() {
-        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] {\n  var revision = \"\"\n  cd $repo {\n    revision = run.text git rev-parse HEAD ?\n  }\n  revision = revision.trim()\n  revision\n}\n";
+        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] {\n  var revision = \"\"\n  cd (repo) {\n    revision = run.text git rev-parse HEAD ?\n  }\n  revision = revision.trim()\n  revision\n}\n";
         let output = diagnostics(source);
         let diagnostic = output
             .iter()
@@ -298,7 +272,7 @@ mod tests {
 
     #[test]
     fn command_scope_run_text_initializer_retains_written_local_type() {
-        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision: Str = \"\"; cd $repo { revision = run.text /bin/pwd ? }; revision = revision.trim(); revision }\n";
+        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision: Str = \"\"; cd (repo) { revision = run.text /bin/pwd ? }; revision = revision.trim(); revision }\n";
         let fixed = rewrite(source);
         assert!(fixed.contains("var revision: Str = cd (repo)"), "{fixed}");
         assert!(fixed.contains("revision = revision.trim()"));
@@ -313,13 +287,13 @@ mod tests {
     #[test]
     fn command_scope_run_text_initializer_refuses_observed_placeholders_and_cleanup() {
         for source in [
-            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { revision = run.text /usr/bin/printf $revision ? }; revision }\n",
-            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; defer { print $revision }; cd $repo { revision = run.text /bin/pwd ? }; revision }\n",
-            "on TERM [io] { print signal }\nproc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { revision = run.text /bin/pwd ? }; revision }\n",
-            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { print before; revision = run.text /bin/pwd ? }; revision }\n",
-            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { # preserve assignment timing\n revision = run.text /bin/pwd ? }; revision }\n",
-            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; let observed = revision; cd $repo { revision = run.text /bin/pwd ? }; revision }\n",
-            "proc inspect(repo: Path) [env, process, error] -> Result[Result[Str]] { var revision: Result[Str] = Ok(\"\"); cd $repo { revision = try run.text /bin/pwd }; Ok(revision) }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd (repo) { revision = run.text /usr/bin/printf $revision ? }; revision }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; defer { print $revision }; cd (repo) { revision = run.text /bin/pwd ? }; revision }\n",
+            "on TERM [io] { print signal }\nproc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd (repo) { revision = run.text /bin/pwd ? }; revision }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd (repo) { print before; revision = run.text /bin/pwd ? }; revision }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd (repo) { # preserve assignment timing\n revision = run.text /bin/pwd ? }; revision }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; let observed = revision; cd (repo) { revision = run.text /bin/pwd ? }; revision }\n",
+            "proc inspect(repo: Path) [env, process, error] -> Result[Result[Str]] { var revision: Result[Str] = Ok(\"\"); cd (repo) { revision = try run.text /bin/pwd }; Ok(revision) }\n",
         ] {
             let output = diagnostics(source);
             assert!(
@@ -369,7 +343,7 @@ mod tests {
                 "inspect(repo)"
             };
             let source = format!(
-                "proc inspect(repo: Path) [env, process, error] -> Result[Str] {{\n  var revision = \"\"\n  cd $repo {{ revision = run.text {command} ? }}\n  revision = revision.trim()\n  revision\n}}\nlet repo = Path(args[0])\nlet outer = Path(args[1])\nlet before = fs.cwd()?\nlet env_before = env.get_or(\"XSH_SCOPE_CAPTURE_SENTINEL\", \"absent\")?\nlet outcome = {invocation}\nprint ${{outcome is Err(_)}}\nprint ${{fs.cwd()? == before}}\nprint ${{env.get_or(\"XSH_SCOPE_CAPTURE_SENTINEL\", \"absent\")? == env_before}}\nmatch outcome {{ Ok(value) => print $value; Err(_) => print failed }}\n"
+                "proc inspect(repo: Path) [env, process, error] -> Result[Str] {{\n  var revision = \"\"\n  cd (repo) {{ revision = run.text {command} ? }}\n  revision = revision.trim()\n  revision\n}}\nlet repo = Path(args[0])\nlet outer = Path(args[1])\nlet before = fs.cwd()?\nlet env_before = env.get_or(\"XSH_SCOPE_CAPTURE_SENTINEL\", \"absent\")?\nlet outcome = {invocation}\nprint ${{outcome is Err(_)}}\nprint ${{fs.cwd()? == before}}\nprint ${{env.get_or(\"XSH_SCOPE_CAPTURE_SENTINEL\", \"absent\")? == env_before}}\nmatch outcome {{ Ok(value) => print $value; Err(_) => print failed }}\n"
             );
             let fixed = rewrite(&source);
             let run = |version: &str, text: &str| {

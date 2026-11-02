@@ -6,11 +6,11 @@ proc collect_report() [process, error] -> Result[Str] {
 }
 
 # begin example
-cd p"build" {
+cd (p"build") {
   run make
 }
 
-env CC=clang CFLAGS="-O2 -pipe" {
+env ({CC: "clang", CFLAGS: "-O2 -pipe"}) {
   run make
 }
 

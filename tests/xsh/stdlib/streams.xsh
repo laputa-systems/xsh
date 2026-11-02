@@ -885,7 +885,7 @@ test test_core_commands_and_byte_pipeline { |ctx|
   let root = test.temp_dir(ctx, name: "core-byte-pipeline")?
   let output = fp"{root}/out.txt"
 
-  cd root {
+  cd (root) {
     p"inside.txt".write("cwd")
   }
 

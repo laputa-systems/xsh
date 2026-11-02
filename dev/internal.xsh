@@ -22,7 +22,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
   stages.execute(stages.command("linux-git-safe-directory", ctx.target.triple, "git",
     ["git", "config", "--global", "--add", "safe.directory", ctx.root.display()], ctx.root, {}))
   let repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?
-  env XSH_OS_STRESS_REPEAT=$repeat {
+  env ({XSH_OS_STRESS_REPEAT: repeat}) {
     test_workflows.full(ctx, test_workflows.execution_profile()?, privileged: true)
   }
 }

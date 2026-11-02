@@ -491,7 +491,7 @@ test test_ln_directory_option_with_implicit_destination_reports_existing_name { 
   let directory = fp"{root}/dir"
   directory.mkdir()
   let script = fp"{ctx.core_dir}/ln.xsh"
-  cd root {
+  cd (root) {
     let plain = run.capture --text ${ctx.xsh_bin} $script -- -d dir
     assert plain.status.exited_with(1)
     assert plain.stderr == "ln: failed to create hard link './dir': File exists\n", plain.stderr
@@ -521,7 +521,7 @@ test test_ln_same_file_without_replacement_reports_existing_destination { |ctx|
 test test_ln_relative_link_climbs_out_of_the_source_directory { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
-  cd root {
+  cd (root) {
     p"usr".mkdir()
     p"usr/bin".mkdir()
     p"usr/lib".mkdir()
@@ -555,7 +555,7 @@ test test_ln_backup_replaces_a_hard_link_to_the_destination { |ctx|
 test test_ln_force_replaces_dangling_and_looping_symlinks_with_themselves { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
-  cd root {
+  cd (root) {
     p"loop".symlink(to: p"loop")
     run.text ${ctx.xsh_bin} $script -- -sf p"loop" p"loop"
     assert p"loop".readlink()? == p"loop"
@@ -570,7 +570,7 @@ test test_ln_too_long_destination_reports_access_only_when_replacing { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
   let long = ["0" for _ in range(300)].join("")
-  cd root {
+  cd (root) {
     let forced = run.capture --text ${ctx.xsh_bin} $script -- -sf p"x" fp"{long}"
     assert forced.status.exited_with(1)
     assert forced.stderr.starts_with(f"ln: failed to access '{long}': "), forced.stderr
@@ -584,7 +584,7 @@ test test_ln_too_long_destination_reports_access_only_when_replacing { |ctx|
 test test_ln_symbolic_replaces_a_link_to_the_source { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
-  cd root {
+  cd (root) {
     p"file1".write("one")
     p"file2".symlink(to: p"file1")
     run.text ${ctx.xsh_bin} $script -- -srf p"file1" p"file2"
@@ -603,7 +603,7 @@ test test_ln_symbolic_replaces_a_link_to_the_source { |ctx|
 test test_ln_symbolic_same_file_only_for_the_same_entry { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
-  cd root {
+  cd (root) {
     p"a".write("data")
     fs.link(p"a", p"hard")
     p"sl".symlink(to: p"a")
@@ -624,7 +624,7 @@ test test_ln_symbolic_same_file_only_for_the_same_entry { |ctx|
 test test_ln_verbose_backup_precedes_link_mapping { |ctx|
   let root = test.temp_dir(ctx)?
   let script = fp"{ctx.core_dir}/ln.xsh"
-  cd root {
+  cd (root) {
     p"source".write("new")
     p"target".write("old")
     let result = run.capture --text ${ctx.xsh_bin} $script -- -svb source target

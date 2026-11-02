@@ -1787,33 +1787,6 @@ pub(super) fn verify_body(
                             push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
                         }
                     }
-                    schema::StmtView::Cd { target, body, .. } => {
-                        let actual = expression_type(types, target.raw() as usize, budget)?.closed_ground_type().ok_or_else(|| IrVerifyError::new("generic cd target has no checked path contract"))?;
-                        if !matches!(actual.unvalidated(), Type::Path | Type::Str) { return Err(IrVerifyError::new("generic cd target is not a path")); }
-                        expressions.push(target.raw() as usize);
-                        if completion_group.is_some() && scope.error_boundary.is_none() {
-                            let result = SchemeType::Ground(Type::core_command_result(crate::syntax::node::CoreCommand::Cd));
-                            if let Some(error) = completion_result_error(&result, budget)? {
-                                push_completion_contribution(&mut completion_contributions, crate::sema::wrapper_operation::WrapperCompletionContribution::PropagatedError, &error, budget)?;
-                            }
-                        }
-                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(statements.len())?;
-                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
-                    }
-                    schema::StmtView::Env { env, body } => {
-                        for assignment in env {
-                            budget.charge(1)?;
-                            let assignment = assignment?;
-                            super::commands::word(assignment.value, super::producers::ProcessWordRole::Environment, scheme_scope, &mut |value, budget| {
-                                expressions.push(value.raw() as usize);
-                                expression_type(types, value.raw() as usize, budget)
-                            }, budget)?;
-                        }
-                        let statements = body.map(|statement| statement.map(|statement| statement.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-                        budget.charge(statements.len())?;
-                        nested.push(Obligation::Block { statements: statements.into(), position: 0, scope: branch_scope(&scope, &mut scopes, budget)?, value: None });
-                    }
                     schema::StmtView::Run { value, propagate_result } => {
                         let process = match decoder.expression_view(value.raw() as usize)? {
                             schema::ExprView::Try { value, .. } => decoder.expression_view(value.raw() as usize)?,
