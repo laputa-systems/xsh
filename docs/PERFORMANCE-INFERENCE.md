@@ -258,18 +258,21 @@ unresolved field constrain it to Bool. The joint `ls` view then fails only in
 the verifier, in `long_line`, where a local slot read derives scheme parameter
 271 and the checked type fact names parameter 0.
 
-Two failures remain open. An inline record argument that holds an empty list
-(`core/lsipc.xsh` `row_for.entry`, `core/smartctl.xsh` `finish.session`) leaves
-the list item as a recovery type, because only a let-bound aggregate receives
-fresh item holes; the same value bound by `let` first passes.
+An inline record argument that holds an empty list now receives the same fresh
+item variables as a `let`-bound one, so `core/lsipc.xsh` `row_for.entry` passes.
+An item type that nothing determines is reported where the literal is written.
+
+`core/smartctl.xsh` `finish.session` is a retained source contract. The record
+carries `j.Member` values whose `value` field is `Any`, and an argument holding
+`Any` establishes no generic operation domain, so the `notes: []` item type has
+no anchor. The `let`-bound form of the same value fails identically.
 
 `core/iw.xsh` `selected.words` and `help_text.words` each erase alone but not
 together. With both erased, nothing but the empty-list arguments of
 `help_text([], ...)` reaches the element variable, whose only requirement is an
-equality with `Str`. The variable escapes into every caller up to `main`, and
-the generalized `main` then fails to lower. Keep one of the two annotations, or
-type the empty lists, as a source contract. The check should reject this
-program with a diagnostic instead of a `function_blocker` lowering error.
+equality with `Str`. Keep one of the two annotations, or type the empty lists,
+as a source contract. The checker now rejects the program at the empty list
+with "argument type needs an annotation" instead of failing in lowering.
 
 ## Frozen corpus
 
