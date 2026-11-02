@@ -97,3 +97,70 @@ let invalid = {call}
 """, status: 2, stderr: ["[check.callable-mismatch]"])?
   }
 }
+
+test test_inferred_guarded_calls_with_effect_clauses_keep_each_guard_scope_own_effects { |ctx|
+  let inferred = test.run_xsh(
+    ctx,
+    r"""type Options = {output: Path?, output_nocache: Bool, conv: List[Str], ibs: Int}
+type Copied = {complete: Int, discard_failed: Bool}
+
+proc quoted_path(file_path: Path) [env] -> Str {
+  file_path.display()
+}
+
+proc discard_caches(opts) [fs, process, env] -> Bool {
+  var failed = false
+  if opts.output_nocache {
+    let label = if let output = opts.output { quoted_path(output) } else { "standard output" }
+    if label == "" { failed = true }
+  }
+  failed
+}
+
+proc plain_copy(opts, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
+  let dest = if let output = opts.output { output } else { fp"/dev/stdout" }
+  if opts.output != null and "append" in opts.conv and limit > 1 {
+    let copied = dest.metadata()?.size
+    return Ok({complete: copied / opts.ibs, discard_failed: discard_caches(opts)})
+  }
+  if limit > 5 and opts.output != null { dest.write(b"")? }
+  Ok({complete: 0, discard_failed: discard_caches(opts)})
+}
+print "defined"
+""",
+  )?
+  let annotated = test.run_xsh(
+    ctx,
+    r"""type Options = {output: Path?, output_nocache: Bool, conv: List[Str], ibs: Int}
+type Copied = {complete: Int, discard_failed: Bool}
+
+proc quoted_path(file_path: Path) [env] -> Str {
+  file_path.display()
+}
+
+proc discard_caches(opts: Options) [fs, process, env] -> Bool {
+  var failed = false
+  if opts.output_nocache {
+    let label = if let output = opts.output { quoted_path(output) } else { "standard output" }
+    if label == "" { failed = true }
+  }
+  failed
+}
+
+proc plain_copy(opts: Options, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
+  let dest = if let output = opts.output { output } else { fp"/dev/stdout" }
+  if opts.output != null and "append" in opts.conv and limit > 1 {
+    let copied = dest.metadata()?.size
+    return Ok({complete: copied / opts.ibs, discard_failed: discard_caches(opts)})
+  }
+  if limit > 5 and opts.output != null { dest.write(b"")? }
+  Ok({complete: 0, discard_failed: discard_caches(opts)})
+}
+print "defined"
+""",
+  )?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "defined\n"
+}

@@ -1940,7 +1940,9 @@ fn verify_scheme_body_facts(
             }
         }
         budget.charge(operations.len())?;
-        if operations.iter().any(|operation| matches!(operation, super::schemes::FullSealedOperation::Membership { .. })) {
+        let guard_rows = scheme.guards.bounds(store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("scheme guard range is invalid"))?;
+        let mut packs = std::iter::once(scheme.operations).chain(store.scheme_guards[guard_rows].iter().map(|guard| guard.operations));
+        if packs.try_fold(false, |found, pack| Ok::<_, IrVerifyError>(found || bounded(pack, &store.scheme_operations, "scheme operation range is invalid")?.iter().any(|operation| matches!(operation, super::schemes::FullSealedOperation::Membership { .. }))))? {
             for &instruction in types.keys() {
                 budget.charge(1)?;
                 if let schema::ExprView::CheckedValue { check: ValueCheckView::MembershipKey(ordinal), .. } = decoder.expression_view(instruction)?

@@ -300,14 +300,16 @@ pub(super) fn verify_predicates(
             return Err(IrVerifyError::new("ground generic call effect predicate remains unresolved"));
         };
         let mut retained = false;
-        for requirement in bounded(caller.effect_predicates, &store.scheme_effect_predicates,
-            "scheme effect predicate range is invalid")?
-        {
-            budget.charge(1)?;
-            let owned = decode_predicate(store, caller_scope, *requirement, budget)?;
-            if crate::sema::effects::effect_predicate_implies(&owned, &predicate) {
-                retained = true;
-                break;
+        'visible: for visible in caller_scope.visible_effect_predicates(caller)? {
+            for requirement in bounded(visible, &store.scheme_effect_predicates,
+                "scheme effect predicate range is invalid")?
+            {
+                budget.charge(1)?;
+                let owned = decode_predicate(store, caller_scope, *requirement, budget)?;
+                if crate::sema::effects::effect_predicate_implies(&owned, &predicate) {
+                    retained = true;
+                    break 'visible;
+                }
             }
         }
         if !retained {
@@ -415,12 +417,12 @@ impl<'a> ScopedEffectProof<'a> {
         let caller = match owner {
             super::super::ExecutableOwner::Function(function) => self.function_scope(function.index())?,
             super::super::ExecutableOwner::Driver(_) => None,
-        }.map(|id| self.scopes.get(id)).transpose()?;
+        }.map(|id| self.scopes.get(id)?.at_instruction(instruction)).transpose()?;
         let index = self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction)
             .map_err(|_| IrVerifyError::new("generic invocation effects have no call substitution"))?;
         let instance = &self.store.call_instantiations[index];
         let arguments = bounded(instance.arguments.effect_arguments, &self.store.call_effect_arguments, "generic invocation effect argument range is invalid")?;
-        let substitutions = build_substitution(self.store, scope, caller, arguments, budget)?;
+        let substitutions = build_substitution(self.store, scope, caller.as_ref(), arguments, budget)?;
         substitute_contract(self.function_contract(target)?.as_ref(), scope, &substitutions, budget)
     }
 

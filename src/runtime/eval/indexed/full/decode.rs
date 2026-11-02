@@ -1040,11 +1040,13 @@ fn verify_membership_key_owner(decoder: &FullDecoder<'_>, ordinal: u32) -> Resul
     let super::ExecutableOwner::Function(function) = super::ExecutableOwner::from_raw(decoder.owner)? else { return Err(IrVerifyError::new("membership key check has no function owner")); };
     let super::FullCallableContract::Scheme(id) = decoder.store.functions.get(function.index()).ok_or_else(|| IrVerifyError::new("membership key check owner is out of bounds"))?.contract else { return Err(IrVerifyError::new("membership key check has no scoped owner")); };
     let scheme = decoder.store.scheme(id)?;
-    let range = scheme.operations.bounds(decoder.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
-    match decoder.store.scheme_operations[range].get(ordinal as usize) {
-        Some(super::schemes::FullSealedOperation::Membership { .. }) => Ok(()),
-        _ => Err(IrVerifyError::new("membership key check ordinal has no membership contract")),
+    let guards = scheme.guards.bounds(decoder.store.scheme_guards.len()).ok_or_else(|| IrVerifyError::new("membership guard range is invalid"))?;
+    let packs = std::iter::once(scheme.operations).chain(decoder.store.scheme_guards[guards].iter().map(|guard| guard.operations));
+    for pack in packs {
+        let range = pack.bounds(decoder.store.scheme_operations.len()).ok_or_else(|| IrVerifyError::new("membership operation range is invalid"))?;
+        if matches!(decoder.store.scheme_operations[range].get(ordinal as usize), Some(super::schemes::FullSealedOperation::Membership { .. })) { return Ok(()); }
     }
+    Err(IrVerifyError::new("membership key check ordinal has no membership contract"))
 }
 
 fn verify_map_key_owner(decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {

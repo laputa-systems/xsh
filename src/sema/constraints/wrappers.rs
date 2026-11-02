@@ -1461,6 +1461,7 @@ impl TypeConstraints {
                 let type_parameters = generalization.type_parameters.split_off(counts.0);
                 let row_parameters = generalization.row_parameters.split_off(counts.1);
                 local.effect_parameters = generalization.effect_parameters.split_off(counts.2);
+                generalization.closed_effect_parameters.extend(local.effect_parameters.iter().copied());
                 let owned = type_parameters.iter().copied().collect::<BTreeSet<_>>();
                 local.map_key_parameters.retain(|parameter| owned.contains(parameter));
                 local.conversion_parameters.retain(|parameter, _| owned.contains(parameter));

@@ -625,6 +625,7 @@ struct Generalization {
     row_parameters: Vec<SchemeRowParameter>,
     effect_ids: BTreeMap<EffectVariableId, SchemeEffectParameterId>,
     effect_parameters: Vec<SchemeEffectParameterId>,
+    closed_effect_parameters: BTreeSet<SchemeEffectParameterId>,
     applications: BTreeMap<CallableApplicationId, u32>,
     operations: BTreeMap<SealedOperationId, u32>,
     methods: BTreeMap<SealedMethodId, u32>,
@@ -1379,6 +1380,7 @@ impl TypeConstraints {
             wrappers: scope.wrappers.clone(),
             guards: scope.guards.clone(), guard_ordinals: scope.guard_ordinals.clone(), guard_calls: scope.guard_calls.clone(), guard_call_sources: BTreeMap::new(),
             row_parameters: callable.row_parameters().to_vec(), effect_parameters: callable.requirements().effect_parameters.clone(),
+            closed_effect_parameters: BTreeSet::new(),
         }
     }
 
@@ -1412,6 +1414,7 @@ impl TypeConstraints {
             guards: scope.guards.clone(), guard_ordinals: scope.guard_ordinals.clone(), guard_calls: scope.guard_calls.clone(), guard_call_sources: BTreeMap::new(),
             type_parameters: generalized.type_parameters.clone(), row_parameters: generalized.row_parameters.clone(),
             effect_parameters: generalized.requirements.effect_parameters.clone(),
+            closed_effect_parameters: BTreeSet::new(),
         }
     }
 

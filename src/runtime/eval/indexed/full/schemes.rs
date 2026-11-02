@@ -814,8 +814,15 @@ impl FullBuilder {
             .ok_or_else(|| IrBuildError::format("scheme_id", None, 0, 0))?;
         let range = record.effect_parameters.bounds(self.store.scheme_effect_parameters.len())
             .ok_or_else(|| IrBuildError::format("scheme_effect_parameters", None, 0, 0))?;
-        Ok(self.store.scheme_effect_parameters[range].iter()
-            .map(|parameter| (SchemeEffectParameterId(parameter.id), parameter.binder)).collect())
+        let mut parameters = self.store.scheme_effect_parameters[range].iter()
+            .map(|parameter| (SchemeEffectParameterId(parameter.id), parameter.binder)).collect::<BTreeMap<_, _>>();
+        for guard in self.store.scheme_guards[record.guards.bounds(self.store.scheme_guards.len()).ok_or_else(|| IrBuildError::format("scheme_guard_range", None, 0, scheme.index()))?].iter() {
+            let range = guard.effect_parameters.bounds(self.store.scheme_effect_parameters.len()).ok_or_else(|| IrBuildError::format("scheme_guard_binders", None, 0, scheme.index()))?;
+            for parameter in &self.store.scheme_effect_parameters[range] {
+                if parameters.insert(SchemeEffectParameterId(parameter.id), parameter.binder).is_some() { return Err(IrBuildError::format("scheme_guard_duplicate_binder", None, 0, scheme.index())); }
+            }
+        }
+        Ok(parameters)
     }
 
     pub(super) fn intern_scheme(

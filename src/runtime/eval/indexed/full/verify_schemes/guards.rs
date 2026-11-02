@@ -157,6 +157,20 @@ impl SchemeScope {
         Ok(super::super::schemes::FullRequirementRanges { applications: root.applications, operations: root.operations, methods: root.methods, wrappers: root.wrappers, effect_predicates: root.effect_predicates, guard_calls: root.guard_calls })
     }
 
+    pub(super) fn visible_effect_predicates(&self, root: &super::FullScheme) -> Result<Vec<IrRange>, IrVerifyError> {
+        let mut ranges = Vec::new();
+        if let GuardScopes::Scoped(census) = &self.guards {
+            let mut active = self.active_guard;
+            while let Some(id) = active {
+                if ranges.len() > crate::sema::constraints::MAX_TYPE_DEPTH { return Err(IrVerifyError::new("guard predicate ancestry is too deep")); }
+                ranges.push(census.scope(id)?.metadata.effect_predicates);
+                active = census.parent(id)?;
+            }
+        }
+        ranges.push(root.effect_predicates);
+        Ok(ranges)
+    }
+
     pub(super) fn binding_pack(&self) -> Result<BinderPack, IrVerifyError> {
         match &self.guards {
             GuardScopes::Root => Ok(BinderPack { types: 0..self.type_parameters.len(), rows: 0..self.row_parameters.len(), effects: 0..self.effects.parameters.len() }),

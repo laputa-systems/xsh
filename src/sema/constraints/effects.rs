@@ -290,6 +290,9 @@ impl TypeConstraints {
             if !visited_variables.insert(variable) { continue; }
             for &index in self.effects.watchers.get(&variable).into_iter().flatten() {
                 if !visited_predicates.insert(index) { continue; }
+                if self.effects.predicates[index].contracts().any(|contract| self.resolve_effect(contract).is_ok_and(|resolved| {
+                    EffectConstraints::dependencies(&resolved).any(|id| generalization.effect_ids.get(&id).is_some_and(|parameter| generalization.closed_effect_parameters.contains(parameter)))
+                })) { continue; }
                 let predicate = self.effects.predicates[index].try_map_contracts(|contract| {
                     self.generalize_effect_contract(contract, environment_level, generalization)
                 })?;
