@@ -118,11 +118,20 @@ impl TypeConstraints {
         if let Some(source) = source
             && let Some(id) = self.methods.source_sites.get(&source).copied()
         {
-            return if self.methods.entries.get(&id).is_some_and(|entry| entry.requirement == requirement) {
-                Ok(id)
-            } else {
-                Err(ConstraintResolutionError::ForeignVariable)
-            };
+            let Some(entry) = self.methods.entries.get(&id) else { return Err(ConstraintResolutionError::ForeignVariable); };
+            if entry.requirement.kind != requirement.kind
+                || entry.requirement.argument_slots != requirement.argument_slots
+                || entry.requirement.arguments.len() != requirement.arguments.len()
+            { return Err(ConstraintResolutionError::ForeignVariable); }
+            if entry.requirement == requirement { return Ok(id); }
+            let earlier = std::iter::once(&entry.requirement.receiver).chain(&entry.requirement.arguments).chain(std::iter::once(&entry.requirement.result)).cloned().collect::<Vec<_>>();
+            let repeated = std::iter::once(&requirement.receiver).chain(&requirement.arguments).chain(std::iter::once(&requirement.result));
+            for (earlier, repeated) in earlier.iter().zip(repeated) {
+                if let Err(conflict) = self.constrain(earlier, repeated, span) {
+                    return Err(conflict.resolution_error.unwrap_or(ConstraintResolutionError::ForeignVariable));
+                }
+            }
+            return Ok(id);
         }
         let id = SealedMethodId(NonZeroU64::new(NEXT_METHOD.fetch_add(1, Ordering::Relaxed)).expect("method identities are nonzero"));
         self.apply_journaled(|this, changes| {

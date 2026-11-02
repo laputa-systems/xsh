@@ -76,6 +76,36 @@ for action in [0, 1] {
   )?
 }
 
+test test_full_inference_proc_checked_twice_keeps_one_method_family_per_call_site { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc visit(environment) [error, io] {
+  for name in environment.keys() {
+    let value = environment.get(name) ?? b""
+    io.write_stderr(f"{name}={value.len()}\n")
+  }
+}
+proc visit_annotated(environment: Map[Str, Bytes]) [error, io] {
+  for name in environment.keys() {
+    let value = environment.get(name) ?? b""
+    io.write_stderr(f"{name}={value.len()}\n")
+  }
+}
+let environment: Map[Str, Bytes] = {HOME: b"/root"}
+visit(environment)
+visit_annotated(environment)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stderr == "HOME=5\nHOME=5\n"
+  test.expect(
+    ctx,
+    "proc visit(environment) [error, io] {\n  for name in environment.keys() {\n    let value = environment.get(name) ?? b\"\"\n    io.write_stderr(f\"{name}={value.len()}\\n\")\n  }\n}\nvisit(\"text\")\n",
+    status: 2,
+    stderr: ["err["],
+  )?
+}
+
 proc full_inference_procedure_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-procedure-modules")?
   let fixture = fp"{ctx.file.parent()}/../fixtures/modules/full-inference-procedures/wrappers.xsh"
