@@ -52,12 +52,12 @@ test test_date_embedded_posix_timezone { |ctx|
 
 test test_date_debug_diagnostics { |ctx|
   let script = fp"{ctx.core_dir}/date.xsh"
-  let output = run.capture --text ${ctx.xsh_bin} $script -- -u --debug -d "2005-01-01" +%Y
+  let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- -u --debug -d "2005-01-01" +%Y
   assert output.status.exited_with(0)
   assert output.stdout == "2005\n"
   assert output.stderr == "date: parsed date part: (Y-M-D) 2005-01-01\ndate: input timezone: TZ=\"UTC0\" environment value or -u\ndate: warning: using midnight as starting time: 00:00:00\ndate: starting date/time: '(Y-M-D) 2005-01-01 00:00:00'\ndate: '(Y-M-D) 2005-01-01 00:00:00' = 1104537600 epoch-seconds\ndate: timezone: Universal Time\ndate: final: 1104537600.000000000 (epoch-seconds)\ndate: final: (Y-M-D) 2005-01-01 00:00:00 (UTC)\ndate: final: (Y-M-D) 2005-01-01 00:00:00 (UTC+00)\ndate: output format: '%Y'\n"
 
-  let quiet = run.capture --text ${ctx.xsh_bin} $script -- -u --debug +%Y
+  let quiet = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- -u --debug +%Y
   assert quiet.status.exited_with(0)
   assert quiet.stderr == "date: output format: '%Y'\n"
 }
