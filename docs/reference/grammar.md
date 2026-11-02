@@ -255,7 +255,9 @@ with_statement = "with" list(IDENT "=" condition_expression) !builder_callback_b
 ## Expressions
 
 ```ebnf
-expression_or_run = expression_item | run_form "?"? ;
+expression_or_run = !"run" expression_item
+                  | run_form "?"?
+                  | run_form "?"? ( "|>" pipe_stage )+ ( "?" &( NEWLINE | ";" | "," | ")" | "]" | "}" ) )? ;
 expression = logical ( "|>" pipe_stage )* ;
 logical = conjunction ( ( "??" | "or" ) NEWLINE* conjunction )* ;
 conjunction = equality ( "and" NEWLINE* equality )* ;
@@ -480,7 +482,7 @@ type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 run_statement = run_form "?"? ( "|>" pipe_stage )* ;
 named_command = "cd" !"=" !"{" command_argument block
               | "env" line(env_assignment*) block
-              | !( "tempdir" IDENT "at" | "atomically" "replace" | "exit" | "fail" ) &proc_command NAME ( "." NAME )* !( "." | "=" ) ( command_argument command_argument* )?
+              | !( "tempdir" IDENT "at" | "atomically" "replace" | "exit" | "fail" | "test" IDENT | "test" PROC_IDENT ) &proc_command NAME ( "." NAME )* !( "." | "=" ) ( command_argument command_argument* )?
               | "exit" &( NEWLINE | ";" | "}" )
               | "fail" &( NEWLINE | ";" | "}" | ~"," ) ;
 print_statement = !name_expression ( "print" | "eprint" ) !"=" ( !( "when" | "unless" ) command_argument ( !( "when" | "unless" ) command_argument )* )? "?"? postfix_guard? ;
