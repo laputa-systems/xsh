@@ -226,6 +226,7 @@ diagnostic_codes! {
         ParseGenericErrorFamily = "parse.generic-error-family", error, "Reject generic parameters on an `error` family declaration";
         ParseIfExpressionElse = "parse.if-expression-else", error, "Reject an `if` expression without an `else` branch";
         ParseInferredVariantArm = "parse.inferred-variant-arm", error, "Reject a match arm head that begins with a target-typed `.Name` variant";
+        ParseGuardElseFail = "parse.guard-else-fail", error, "Reject `guard CONDITION else fail FAILURE`; write `guard CONDITION else { fail FAILURE }`";
         ParseKeywordLabelBinding = "parse.keyword-label-binding", error, "Reject a field label that is a keyword used as an implicit binding name";
         ParseLastStatus = "parse.last-status", error, "Reject the removed `$?` expression; bind the `Status` that `run.status` returns";
         ParseLegacyStderrRedirection = "parse.legacy-stderr-redirection", error, "Reject the legacy stderr redirection spelling in favor of `2>` or `2>>`";

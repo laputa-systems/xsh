@@ -869,7 +869,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("print_statement"),
                 r("expression_statement"),
                 r("guarded_expression_statement"),
-                r("guard_fail_statement"),
                 r("exit_statement"),
                 r("fail_statement"),
                 r("wait_until_statement"),
@@ -1381,23 +1380,6 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("postfix_guard"),
             ]),
         ),
-        // Only `fail` may follow `else` without braces, and it takes no
-        // postfix guard of its own.
-        rule(
-            Statements,
-            "guard_fail_statement",
-            seq([
-                kw(Keyword::Guard),
-                not([vec![keyword_term(Keyword::Let)]]),
-                r("guard_condition"),
-                kw(Keyword::Else),
-                w("fail"),
-                line(seq([
-                    r("expression"),
-                    opt(seq([w("because"), r("expression")])),
-                ])),
-            ]),
-        ),
         rule(
             Statements,
             "if_statement",
@@ -1794,6 +1776,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 // The `?` before a `|>` belongs to the run form.
                 seq([
                     r("run_form"),
+                    not([
+                        vec![tag_term(T::Question), tag_term(T::LParen)],
+                        vec![tag_term(T::Question), tag_term(T::LBracket)],
+                    ]),
                     alt([
                         seq([t(T::Question), Item::Peek(vec![vec![tag_term(T::PipeGt)]])]),
                         r("run_end"),
@@ -1806,6 +1792,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     alt([
                         seq([
                             r("run_form"),
+                            not([
+                                vec![tag_term(T::Question), tag_term(T::LParen), tag_term(T::RParen)],
+                                vec![tag_term(T::Question), tag_term(T::LBracket)],
+                            ]),
                             r("run_end"),
                         ]),
                         seq([not([vec![keyword_term(Keyword::Run)]]), r("operand")]),

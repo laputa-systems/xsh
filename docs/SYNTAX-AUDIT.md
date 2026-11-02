@@ -614,6 +614,7 @@ Items land in the order below. C10 and C13 are deferred by the owner; no D or K 
 |---|---|---|---|
 | C08 | done | `parse.cli-entry-name` | `cli NAME(...)` for any other name than `main` is a parse error; the checker branch is gone |
 | C07 | done | `parse.last-status` | the audit counted one site; the expression was also an IR node with tag `ExprLastStatus`, a checker rule, and four native tests, all removed. The evaluator still tracks the last status for the interactive shell |
+| C05 | done | `parse.guard-else-fail` | `SugarForm::GuardFail`, its formatter, flow, and highlight branches, and the `guard_fail_statement` production are gone. The generated-sentence suite then reached two latent grammar and parser disagreements about a run form's `?` followed by `( )` or `[`; the productions now reject them as the parser does |
 
 ## Owner decisions
 

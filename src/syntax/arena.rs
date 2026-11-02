@@ -6591,18 +6591,6 @@ impl AstArena {
                 )
             }
             (
-                SugarForm::GuardFail,
-                &[
-                    ArenaSugarOperand::Expr(condition),
-                    ArenaSugarOperand::Stmt(fail),
-                ],
-            ) => ArenaSugar::GuardFail { condition, fail },
-            (SugarForm::GuardFail, operands) => {
-                unreachable!(
-                    "a `guard` that fails has a condition and a `fail` statement, found {operands:?}"
-                )
-            }
-            (
                 SugarForm::WaitUntil,
                 &[
                     ArenaSugarOperand::Expr(limit),
@@ -7354,9 +7342,6 @@ pub enum SugarForm {
     /// `for INDEX, ITEM in SOURCE { BODY }`: operands are the index binding,
     /// the item binding, the source expression, and the body block.
     ForIndex,
-    /// `guard CONDITION else fail FAILURE`: operands are the condition and
-    /// the `fail` statement.
-    GuardFail,
     /// `wait until CONDITION within LIMIT`, alone or followed by
     /// `every INTERVAL` or `backoff FIRST..CAP`: operands are the interval or
     /// the first interval and the cap, when written, then the limit and the
@@ -7365,7 +7350,7 @@ pub enum SugarForm {
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
@@ -7373,7 +7358,6 @@ impl SugarForm {
         Self::Fail,
         Self::Atomically,
         Self::ForIndex,
-        Self::GuardFail,
         Self::WaitUntil,
     ];
 
@@ -7381,7 +7365,7 @@ impl SugarForm {
     pub const fn is_compound(self) -> bool {
         match self {
             Self::Repeat | Self::Guard | Self::Atomically | Self::ForIndex => true,
-            Self::When | Self::Unless | Self::Fail | Self::GuardFail | Self::WaitUntil => false,
+            Self::When | Self::Unless | Self::Fail | Self::WaitUntil => false,
         }
     }
 
@@ -7457,11 +7441,6 @@ pub enum ArenaSugar {
         item: BindingTargetId,
         source: ExprId,
         body: BlockId,
-    },
-    /// `guard condition else fail ...`, where `fail` is the `fail` statement.
-    GuardFail {
-        condition: ExprId,
-        fail: StmtId,
     },
     WaitUntil {
         condition: ExprId,

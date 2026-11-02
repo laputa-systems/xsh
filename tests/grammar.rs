@@ -469,10 +469,10 @@ fn spawned_run_dispatch_does_not_capture_a_run_value_pipeline() {
 #[test]
 fn boolean_guards_keep_terminal_builder_blocks_in_the_condition() {
     for source in [
-        "guard process.command {} else fail 1\n",
+        "guard process.command {} else { fail 1 }\n",
         "guard process.command {} else {}\n",
         "guard x is E.V {} else { }\n",
-        "guard plan |> . == process.command { run true } else fail 1\n",
+        "guard plan |> . == process.command { run true } else { fail 1 }\n",
     ] {
         assert_parser_and_grammar_agree(source, true);
     }
@@ -1426,4 +1426,16 @@ fn statement_start_conversions_are_parsed_and_recognized_alike() {
             "the grammar accepts {source:?}"
         );
     }
+}
+
+#[test]
+fn a_run_form_that_propagates_takes_no_call_suffix() {
+    for source in [
+        "let value = run a? ( )\n",
+        "let value = run a < b\"x\"? ( )\n",
+        "let value = spawn run a < b\"x\"? ( )\n",
+    ] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+    assert_parser_and_grammar_agree("let value = run a?.lines()\n", true);
 }

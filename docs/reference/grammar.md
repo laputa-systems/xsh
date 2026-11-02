@@ -179,7 +179,6 @@ simple_statement = binding
                  | print_statement
                  | expression_statement
                  | guarded_expression_statement
-                 | guard_fail_statement
                  | exit_statement
                  | fail_statement
                  | wait_until_statement ;
@@ -234,7 +233,6 @@ defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
 expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" ) &name_expression expression "?"? ;
 guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "nominal" "type" | "process" ~"." ~"command" "{" | "exit" "?" | "fail" "?" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) &name_expression expression postfix_guard ;
-guard_fail_statement = "guard" !"let" guard_condition "else" "fail" line(expression ( "because" expression )?) ;
 if_statement = "if" condition !builder_callback_before_condition_body block ( "else" "if" condition !builder_callback_before_condition_body block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition !builder_callback_before_condition_body block ;
@@ -315,8 +313,8 @@ primary = literal
         | "try" block
         | "try" run_form !"?" run_end
         | retry_expression
-        | run_form ( "?" &"|>" | run_end )
-        | "spawn" ( run_form run_end | !"run" operand )
+        | run_form !( "?" "(" | "?" "[" ) ( "?" &"|>" | run_end )
+        | "spawn" ( run_form !( "?" "(" ")" | "?" "[" ) run_end | !"run" operand )
         | "wait" !"until" operand
         | "ctx" line(condition_expression) !builder_callback_before_condition_body block
         | context_scope

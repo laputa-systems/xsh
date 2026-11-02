@@ -223,8 +223,8 @@ impl Parser<'_> {
     ) -> Option<()> {
         let condition = self.parse_guard_condition_arena_only(arena)?.id;
         self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
-        // After `else` only a block or `fail` can follow, so the word needs
-        // no space after it to be the statement.
+        // After `else` only a block can follow, so a `fail` word with an
+        // operand is the removed braceless form.
         if self.current_name().is_some_and(|name| name == FAIL_WORD)
             && !matches!(
                 self.peek_tag(1),
@@ -237,7 +237,7 @@ impl Parser<'_> {
                 )
             )
         {
-            return self.parse_guard_fail_arena_only(start, keyword, condition, arena);
+            return self.reject_guard_else_fail_arena_only(start, keyword, condition, arena);
         }
         let else_block = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
@@ -253,50 +253,45 @@ impl Parser<'_> {
         Some(())
     }
 
-    /// Parses the `fail FAILURE` that follows `guard CONDITION else`. The
-    /// statement ends there: the `fail` takes no postfix guard of its own.
-    fn parse_guard_fail_arena_only(
+    /// Reads the removed `guard CONDITION else fail FAILURE` as the braced
+    /// guard it was, so the statements after it still parse, and reports it.
+    fn reject_guard_else_fail_arena_only(
         &mut self,
         start: usize,
         keyword: Span,
         condition: ExprId,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
-        let fail = self.parse_fail_form_arena_only(self.current_start(), false, arena)?;
+        let fail_start = self.current_start();
+        let fail = self.parse_fail_form_arena_only(fail_start, false, arena)?;
+        let fail_end = self.previous_end();
         let end = self.expect_terminator();
         let span = self.span(start, end);
-        // The `fail` belongs to the expansion's block, not to the enclosing
-        // statement list.
         let registered = arena.pop_last_statement();
         assert_eq!(registered, fail, "the `fail` statement is registered last");
+        let rewritten = format!(
+            "guard {} else {{ {} }}",
+            self.span_text(arena.expr_span(condition)),
+            self.span_text(self.span(fail_start, fail_end)),
+        );
+        self.diagnostics.push(
+            Diagnostic::error("`guard CONDITION else fail FAILURE` was removed")
+                .with_code(DiagnosticCode::ParseGuardElseFail)
+                .with_label(Label::primary(span, "put the `fail` in braces"))
+                .with_note(format!("write `{rewritten}`")),
+        );
+        let else_block = arena.push_block_of(&[fail], arena.stmt_span(fail));
         arena.push_sugar(
-            SugarForm::GuardFail,
+            SugarForm::Guard,
             &[
                 ArenaSugarOperand::Expr(condition),
-                ArenaSugarOperand::Stmt(fail),
+                ArenaSugarOperand::Block(else_block),
             ],
             span,
-            |arena| expand_guard_fail(arena, keyword, condition, fail, span),
+            |arena| expand_guard(arena, keyword, condition, else_block, span),
         );
         Some(())
     }
-}
-
-/// `guard CONDITION else fail FAILURE` is `if CONDITION {} else { fail
-/// FAILURE }`, which is what `fail FAILURE unless CONDITION` is.
-///
-/// The empty branch sits on the `guard` word, and the other on the `fail`
-/// statement, which has no braces of its own.
-fn expand_guard_fail(
-    arena: &mut ArenaProgramBuilder<'_>,
-    keyword: Span,
-    condition: ExprId,
-    fail: StmtId,
-    span: Span,
-) -> StmtId {
-    let then_block = arena.push_block_of(&[], keyword);
-    let else_block = arena.push_block_of(&[fail], arena.stmt_span(fail));
-    arena.push_if(&[(condition, then_block)], Some(else_block), span)
 }
 
 #[derive(Clone, Copy)]
@@ -1250,25 +1245,6 @@ mod tests {
             guarded * 4 > sentences,
             "only {guarded} of {sentences} are guarded"
         );
-    }
-
-    #[test]
-    fn every_guard_fail_sentence_parses_as_a_guard_that_fails() {
-        let mut sentences = 0;
-        for (depth, seed, source) in sentences_of("guard_fail_statement") {
-            sentences += 1;
-            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-            assert!(
-                parsed.diagnostics.is_empty(),
-                "depth {depth} seed {seed}: {}\n{source}",
-                parsed.diagnostics[0].message
-            );
-            assert!(
-                first_statement_is(&parsed.arena, SugarForm::GuardFail),
-                "depth {depth} seed {seed} is not a guard that fails:\n{source}"
-            );
-        }
-        assert!(sentences > 300, "only {sentences} sentences");
     }
 
     /// Where no guard is allowed the parser and the productions agree: the

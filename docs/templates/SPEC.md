@@ -2868,7 +2868,7 @@ the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
 
-When the block would hold one `fail`, the braces may be left out:
+A block that holds one `fail` is the usual guard:
 
 ```xsh
 {{.spec.guard_fail.source}}
@@ -2880,8 +2880,8 @@ means exactly
 {{.spec.guard_fail.desugared}}
 ```
 
-which is also what `fail ... unless cond` means. Only `fail` may follow
-`else` without braces, and that `fail` takes no postfix guard of its own.
+which is also what `fail ... unless cond` means. `guard COND else fail MSG`
+without braces is `parse.guard-else-fail`.
 
 `fail message` returns from the enclosing function with an error that carries
 `message`. It is sugar:

@@ -236,9 +236,6 @@ fn stmt_flow(arena: &AstArena, facts: &FlowFacts, stmt: StmtId) -> FlowSummary {
             ArenaSugar::ForIndex { source, body, .. } => {
                 zero_or_more_loop(facts.expression(source), facts.block(body))
             }
-            ArenaSugar::GuardFail { condition, fail } => {
-                guarded_statement(facts.expression(condition), facts.statement(fail))
-            }
             ArenaSugar::WaitUntil {
                 condition,
                 limit,

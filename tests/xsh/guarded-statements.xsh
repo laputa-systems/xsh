@@ -39,8 +39,8 @@ test test_a_guarded_assignment_assigns_only_when_selected {
 }
 
 pure checked_port(raw: Int) -> Result[Int] {
-  guard raw > 0 else fail f"port {raw} is not positive"
-  guard raw < 65536 else fail "port is too large" because error.failure("range")
+  guard raw > 0 else { fail f"port {raw} is not positive" }
+  guard raw < 65536 else { fail "port is too large" because error.failure("range") }
   Ok(raw)
 }
 
@@ -122,11 +122,20 @@ print ${listed.trim()}
   assert output.stdout == "when ready\none unless ready\n", output.stdout
 }
 
+test test_guard_else_fail_without_braces_names_the_braced_form { |ctx|
+  test.expect(
+    ctx,
+    "pure port(raw: Int) -> Result[Int] {\n  guard raw > 0 else fail f\"port {raw} is not positive\"\n  Ok(raw)\n}\n",
+    status: 2,
+    stderr: ["[parse.guard-else-fail]", "guard raw > 0 else { fail f\"port {raw} is not positive\" }"],
+  )?
+}
+
 test test_a_guard_is_rejected_where_no_statement_takes_one { |ctx|
   for source in [
     "let ready = true\nlet total = 1 when ready\n",
     "let ready = true\ndefer print(\"x\") when ready\n",
-    "pure port(raw: Int) -> Result[Int] {\n  guard raw > 0 else fail \"low\" when raw < 0\n  Ok(raw)\n}\n",
+    "pure port(raw: Int) -> Result[Int] {\n  guard raw > 0 else { fail \"low\" } when raw < 0\n  Ok(raw)\n}\n",
     "pure port(raw: Int) -> Result[Int] {\n  guard raw > 0 else return Ok(1)\n  Ok(raw)\n}\n",
   ] {
     let ran = test.expect(ctx, source, status: 2)?
@@ -156,7 +165,7 @@ test test_guarded_statements_format_and_desugar_as_written { |ctx|
   print f"copying {tmp}" when verbose
   tmp.remove() when tmp.exists()
   copied = 1 unless verbose
-  guard copied < 2 else fail "copied twice"
+  guard copied < 2 else { fail "copied twice" }
   Ok(copied)
 }
 

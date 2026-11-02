@@ -930,7 +930,6 @@
         "Fail{failure:tokens:[\"ExprId\"],cause:tokens:[\"Option\",\"<\",\"ExprId\",\">\"]}",
         "Atomically{dest:tokens:[\"ExprId\"],name:tokens:[\"BindingTargetId\"],body:tokens:[\"BlockId\"]}",
         "ForIndex{index:tokens:[\"BindingTargetId\"],item:tokens:[\"BindingTargetId\"],source:tokens:[\"ExprId\"],body:tokens:[\"BlockId\"]}",
-        "GuardFail{condition:tokens:[\"ExprId\"],fail:tokens:[\"StmtId\"]}",
         "WaitUntil{condition:tokens:[\"ExprId\"],limit:tokens:[\"ExprId\"],pace:tokens:[\"WaitPace\"]}"
       ]
     },
@@ -1058,7 +1057,6 @@
         "Fail",
         "Atomically",
         "ForIndex",
-        "GuardFail",
         "WaitUntil"
       ]
     },
