@@ -2139,6 +2139,10 @@ fn body_assignment_matches(store: &FullStore, owner: u32, scope: &SchemeScope, a
     Ok(body_type_matches(actual, expected, budget)? || applications::known_argument_assignment_matches(store, owner, scope, actual, expected, budget)?)
 }
 
+fn branch_value_matches(store: &FullStore, owner: u32, scope: &SchemeScope, actual: &SchemeType, claimed: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+    Ok(body_assignment_matches(store, owner, scope, actual, claimed, budget)? || body::record_width_join_matches(body::BodyTypeRef::Scheme(actual), body::BodyTypeRef::Scheme(claimed), budget, 0)?)
+}
+
 fn checked_uint_index_source_key(
     decoder: &FullDecoder<'_>,
     index: super::decode::ExprInstructionId<'_>,
@@ -2762,7 +2766,7 @@ fn verify_body_expression(
                 match (actual, ty) {
                     (SchemeType::SchemeCallable(actual) | SchemeType::Ground(Type::SchemeCallable(actual)), SchemeType::SchemeCallable(expected) | SchemeType::Ground(Type::SchemeCallable(expected))) =>
                         super::scheme_values::relationship_type_fits(store, &Type::SchemeCallable(*actual), &Type::SchemeCallable(*expected), budget, 0),
-                    _ => body_assignment_matches(store, decoder.owner, scheme_scope, actual, ty, budget),
+                    _ => branch_value_matches(store, decoder.owner, scheme_scope, actual, ty, budget),
                 }
             };
             for branch in &mut branches {

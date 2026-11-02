@@ -473,6 +473,23 @@ fn record_capture_transfers(
     Ok(())
 }
 
+pub(super) fn record_width_join_matches(actual: BodyTypeRef<'_>, claimed: BodyTypeRef<'_>, budget: &mut SchemeInstantiationBudget, depth: usize) -> Result<bool, IrVerifyError> {
+    if depth > 128 { return Err(IrVerifyError::new("generic record join nesting is too deep")); }
+    budget.charge(1)?;
+    if actual.validation().is_some() || claimed.validation().is_some() { return Ok(false); }
+    let (Some((_, crate::sema::schemes::SchemeRowTail::Closed)), Some(_)) = (claimed.record_shape(), actual.record_shape()) else { return Ok(false) };
+    let Some(names) = claimed.record_field_names() else { return Ok(false) };
+    budget.charge(names.len())?;
+    for name in names {
+        let (Some(actual_field), Some(claimed_field)) = (actual.field(name), claimed.field(name)) else { return Ok(false) };
+        let (actual_field, claimed_field) = (actual_field.materialize(budget)?, claimed_field.materialize(budget)?);
+        if !body_type_matches(&actual_field, &claimed_field, budget)?
+            && !record_width_join_matches(BodyTypeRef::Scheme(&actual_field), BodyTypeRef::Scheme(&claimed_field), budget, depth + 1)?
+        { return Ok(false); }
+    }
+    Ok(true)
+}
+
 fn declare(scope: &LexicalScope, scopes: &mut LexicalScopes, slot: usize, ty: SchemeType, mutable: bool, initializer: Option<(usize, LexicalScope)>, budget: &mut SchemeInstantiationBudget) -> Result<(), IrVerifyError> {
     if scope.binding(scopes, slot, budget)?.is_some() { return Err(IrVerifyError::new("generic declaration rewrites a visible slot")); }
     budget.charge(1)?;
@@ -556,6 +573,14 @@ impl<'a> BodyTypeRef<'a> {
             Self::Ground(ty) => { budget.charge_clone(ty)?; Ok(SchemeType::Ground(ty.clone())) }
         }
     }
+    pub(super) fn record_field_names(self) -> Option<Vec<Name>> {
+        match self.unvalidated() {
+            Self::Scheme(SchemeType::Record { fields, .. }) => Some(fields.keys().copied().collect()),
+            Self::Ground(Type::Record(fields)) => Some(fields.keys().copied().collect()),
+            _ => None,
+        }
+    }
+
     pub(super) fn optional_payload(self) -> Option<Self> {
         match self.unvalidated() {
             Self::Scheme(SchemeType::Optional(value)) => Some(Self::Scheme(value)),
@@ -1555,10 +1580,10 @@ pub(super) fn verify_body(
                                     result: &claimed, condition: &expression_type(types, condition.raw() as usize, budget)?,
                                     branch: &expression_type(types, value.raw() as usize, budget)?, fallback: &expression_type(types, else_value.raw() as usize, budget)?,
                                 }, budget)?;
-                            } else if !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
+                            } else if !super::branch_value_matches(store, decoder.owner, scheme_scope, &expression_type(types, value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern branch value disagrees with its result")); }
                             pending.push(Obligation::Expression(value.raw() as usize, inner));
                         }
-                        if output.is_none() && !body_assignment_matches(store, decoder.owner, scheme_scope, &expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
+                        if output.is_none() && !super::branch_value_matches(store, decoder.owner, scheme_scope, &expression_type(types, else_value.raw() as usize, budget)?, &claimed, budget)? { return Err(IrVerifyError::new("generic pattern fallback value disagrees with its result")); }
                         pending.push(Obligation::Expression(else_value.raw() as usize, scope));
                     }
                     schema::ExprView::MatchExpr { value, arms, .. } => {
@@ -1570,7 +1595,7 @@ pub(super) fn verify_body(
                         for (arm, (pattern, guard, value)) in arms.into_iter().enumerate() {
                             let inner = pattern_scope(decoder, pattern, &subject, &scope, &mut scopes, slot_count, &mut writers, budget)?;
                             let actual = expression_type(types, value as usize, budget)?;
-                            if !(arm == 1 && wrapper_sites.contains_key(&instruction)) && !body_assignment_matches(store, decoder.owner, scheme_scope, &actual, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
+                            if !(arm == 1 && wrapper_sites.contains_key(&instruction)) && !super::branch_value_matches(store, decoder.owner, scheme_scope, &actual, &claimed, budget)? { return Err(IrVerifyError::new("generic match arm disagrees with its result")); }
                             pending.push(Obligation::Expression(value as usize, inner));
                             if let Some(guard) = guard {
                                 condition(types, guard as usize, crate::sema::types::ConditionRole::Boolean, budget)?;
@@ -3968,6 +3993,63 @@ pure ordered(files: List[File], other: File) -> List[File] {
         argument.first = wrong.first;
         program.store.in_place.take();
         assert_eq!(FullVerifier::verify(&program).unwrap_err().message, "generic pattern fallback value disagrees with its result");
+    }
+
+    fn forge_join_to_wide_branch(source: &str, name: &str, join: FullTag) -> (FullProgram, usize, usize) {
+        let program = prepare(source);
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let (joined, wide) = program.store.function_instruction_range(owner).unwrap().find_map(|instruction| {
+            if program.store.tags[instruction] != join { return None; }
+            match decoder.expression_view(instruction).ok()? {
+                schema::ExprView::IfExpr { else_value, .. } | schema::ExprView::PatternIf { else_value, .. } => Some((instruction, else_value.raw() as usize)),
+                schema::ExprView::MatchExpr { arms, .. } => Some((instruction, arms.last()?.ok()?.2.raw() as usize)),
+                _ => None,
+            }
+        }).unwrap();
+        let fact_of = |program: &FullProgram, instruction: usize| program.store.scheme_body_facts.iter().position(|fact| fact.function.index() == owner && fact.instruction as usize == instruction && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let (joined_fact, wide_fact) = (fact_of(&program, joined), fact_of(&program, wide));
+        let joined_type = program.store.scheme_body_facts[joined_fact].ty().unwrap();
+        let wide_type = program.store.scheme_body_facts[wide_fact].ty().unwrap();
+        assert_ne!(joined_type, wide_type, "the join is the narrower record");
+        (program, joined_fact, wide_fact)
+    }
+
+    #[test]
+    fn record_branch_joins_are_width_supertypes() {
+        for (source, name, join, message) in [
+            ("pure join_if(flag: Bool, term) -> Int { let _ = if flag { {} } else { {TERM: term} }; 1 }", "join_if", FullTag::ExprIf, "generic branch value disagrees with its checked contract"),
+            ("pure join_pattern(source, term) -> Int { let _ = if let present = source { {} } else { {TERM: term} }; 1 }", "join_pattern", FullTag::ExprPatternIf, "generic pattern branch value disagrees with its result"),
+            ("pure join_match(flag: Bool, term) -> Int { let _ = match flag { true => {}; false => {TERM: term} }; 1 }", "join_match", FullTag::ExprMatch, "generic match arm disagrees with its result"),
+        ] {
+            let (program, joined_fact, wide_fact) = forge_join_to_wide_branch(source, name, join);
+            let mut forged = program.clone();
+            let wide = program.store.scheme_types[program.store.scheme_body_facts[wide_fact].ty().unwrap().index()];
+            let wide_fields = wide.children.bounds(program.store.scheme_fields.len()).unwrap();
+            assert_eq!(wide_fields.len(), 1);
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let joined_instruction = program.store.scheme_body_facts[joined_fact].instruction as usize;
+            let declaration = program.store.function_instruction_range(owner).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::StmtLet
+                && matches!(decoder.statement_view(instruction), Ok(schema::StmtView::Let { value, .. }) if value.raw() as usize == joined_instruction)).unwrap();
+            let declared = program.store.scheme_body_facts.iter().find(|fact| fact.instruction as usize == declaration && fact.kind() == FullSchemeBodyFactKind::LocalImmutable).unwrap();
+            let widened = BTreeSet::from([program.store.scheme_body_facts[joined_fact].ty().unwrap(), declared.ty().unwrap()]);
+            assert_eq!(widened.len(), 2);
+            for ty in widened {
+                let field = program.store.scheme_fields[wide_fields.start];
+                let field_type = forged.store.scheme_types[field.ty.index()];
+                forged.store.scheme_types.push(field_type);
+                let copied = SchemeTypeId::from_raw((forged.store.scheme_types.len() - 1) as u32).unwrap();
+                let start = forged.store.scheme_fields.len();
+                forged.store.scheme_fields.push(super::super::super::schemes::FullSchemeField { name: field.name, ty: copied });
+                forged.store.scheme_types[ty.index()].children = super::super::super::table_range(start, start + 1).unwrap();
+            }
+            forged.store.in_place.take();
+            assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, message, "{source}");
+        }
     }
 
     #[test]

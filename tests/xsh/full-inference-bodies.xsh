@@ -2811,3 +2811,32 @@ leave_inferred([7], false)
   assert output.stdout == "left\nleft\nleft\n", output.stdout
   assert output.status == 5, output.stderr
 }
+
+test test_full_inference_record_branches_join_to_their_width_supertype { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Options = {name: Str}
+proc probe(options) [process, error] -> Result[Int] {
+  let overlay = if options.name == "" { {} } else { {XSH_JOIN_PROBE: options.name} }
+  let command = process.command_argv("sh", ["sh", "-c", r"echo ${XSH_JOIN_PROBE:-unset}"], env: overlay)
+  process.run(command)?.exit_code()?
+}
+proc probe_annotated(options: Options) [process, error] -> Result[Int] {
+  let overlay = if options.name == "" { {} } else { {XSH_JOIN_PROBE: options.name} }
+  let command = process.command_argv("sh", ["sh", "-c", r"echo ${XSH_JOIN_PROBE:-unset}"], env: overlay)
+  process.run(command)?.exit_code()?
+}
+let _ = probe({name: ""})?
+let _ = probe({name: "set"})?
+let _ = probe_annotated({name: "set"})?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "unset\nset\nset\n", output.stdout
+  test.expect(
+    ctx,
+    "proc probe(options) {\n  let overlay = if options.name == \"\" { {XSH_JOIN_PROBE: options.name} } else { {} }\n  let _ = overlay\n}\n",
+    status: 2,
+    stderr: ["[check.schema-field]"],
+  )?
+}

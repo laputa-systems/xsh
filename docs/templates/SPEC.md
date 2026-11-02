@@ -893,6 +893,9 @@ diagnostic carries the rewrite to the method, `set.add(item)`.
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
 a schema that names fewer. The builtin `Record` type erases field knowledge.
+Branches that yield records join at the first branch's fields, so a later
+branch may carry extra fields but may not omit one; the same holds when the
+fields have an inferred generic type.
 
 Lists, maps, sets, and records have value semantics: assigning, passing, or storing
 one behaves as a copy, so mutating a `var` never changes another binding
