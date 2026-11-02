@@ -641,3 +641,37 @@ print "not reached"
   assert output.stdout == "12\n", output.stdout
   assert "invalid count" in output.stderr, output.stderr
 }
+
+test test_inferred_proc_forwards_its_callee_index_validation_beside_its_own { |ctx|
+  let inferred = test.run_xsh(
+    ctx,
+    r"""proc first(items) {
+  let value = items[0]
+  print $value
+}
+proc relay(items) {
+  let ignored = items[1]
+  first(items)
+}
+relay([7, 8])
+relay(["a", "b"])
+""",
+  )?
+  let annotated = test.run_xsh(
+    ctx,
+    r"""proc first(items) {
+  let value = items[0]
+  print $value
+}
+proc relay(items: List[Int]) {
+  let ignored = items[1]
+  first(items)
+}
+relay([7, 8])
+""",
+  )?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "7\na\n"
+  assert annotated.stdout == "7\n"
+}

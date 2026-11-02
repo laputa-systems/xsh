@@ -182,6 +182,24 @@ fn map_forwarded_index_references(
         *operation = crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal);
         return Ok(());
     }
+    if let K::ProcCompletion { contributions: crate::sema::wrapper_operation::WrapperCompletionContributions::Ready(contributions), .. } = &mut requirement.kind {
+        let mut mapped = Vec::with_capacity(contributions.len());
+        for contribution in contributions.iter() {
+            budget.charge(1)?;
+            match contribution {
+                PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)) => {
+                    let binding = operation_bindings.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation binding is out of scope"))?;
+                    match *binding {
+                        FullOperationBinding::Forwarded(caller_ordinal) => mapped.push(PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(caller_ordinal))),
+                        FullOperationBinding::Selected(_) => mapped.push(contribution.clone()),
+                    }
+                }
+                _ => mapped.push(contribution.clone()),
+            }
+        }
+        *contributions = mapped.into();
+        return Ok(());
+    }
     let K::Capture { contributions, .. } = &mut requirement.kind else { return Ok(()) };
     let mut mapped = Vec::with_capacity(contributions.len());
     for contribution in contributions.iter() {
