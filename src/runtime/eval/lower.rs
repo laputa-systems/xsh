@@ -2601,7 +2601,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             }
             Err(blocker) => {
-                let blocker_detail = self.last_blocker_detail.clone();
+                let blocker: LoweredFunctionBlocker = blocker.into();
+                let blocker_detail = self.last_blocker_detail.clone().or_else(|| {
+                    Some((definition_span, format!("function lowering stopped at its {} blocker", blocker.label())))
+                });
                 LoweredFunctionUnit {
                     key: function.key,
                     kind: function.kind,
@@ -2614,7 +2617,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     slot_count: 0,
                     dependency_edges,
                     body: None,
-                    blocker: Some(blocker.into()),
+                    blocker: Some(blocker),
                     blocker_detail,
                     scc_member_count,
                     scc_group,
@@ -2915,7 +2918,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let (mut body, scheme_body_types, scheme_tail_types) =
             if let Some(facts) = scheme_body_facts.as_ref() {
                 self.lower_scheme_body(def.body, &mut slots, def.name, facts, scheme_default_types, scheme_default_visited)
-                    .ok_or(CompactFunctionBlocker::Body)?
+                    .ok_or_else(|| {
+                        if self.last_blocker_detail.is_none() {
+                            self.last_blocker_detail = Some((self.program.arena.span(self.program.arena.block(def.body).span), "generic body could not be lowered".to_string()));
+                        }
+                        CompactFunctionBlocker::Body
+                    })?
             } else {
                 let body = self
                     .lower_tail_block_for_purpose(def.body, &mut slots, Some(def.name), None, ground_tail_purpose)
@@ -3207,6 +3215,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, tail_types: &mut BTreeMap<BuildStmtId, SchemeType>,
         transfer: Option<ResourceTransferSite>,
     ) -> Option<Vec<BuildStmtId>> {
+        let result = self.lower_scheme_completion_block_inner(block, slots, current_function, facts, visited, lowered_types, tail_types, transfer);
+        if result.is_none() && self.last_blocker_detail.is_none() {
+            self.last_blocker_detail = Some((self.program.arena.span(self.program.arena.block(block).span), "generic completion block could not be lowered".to_string()));
+        }
+        result
+    }
+
+    fn lower_scheme_completion_block_inner(
+        &mut self, block: crate::syntax::arena::BlockId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, tail_types: &mut BTreeMap<BuildStmtId, SchemeType>,
+        transfer: Option<ResourceTransferSite>,
+    ) -> Option<Vec<BuildStmtId>> {
         let block_data = self.program.arena.block(block);
         if !block_data.params.is_empty() { return None; }
         let statements = self.program.arena.stmt_ids(block_data.statements).collect::<Vec<_>>();
@@ -3451,6 +3472,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let statement = self.program.arena.core_stmt_id(statement);
         let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
         let result = self.lower_scheme_tail_value_inner(statement, slots, current_function, facts, visited, lowered_types, body);
+        if result.is_none() && self.last_blocker_detail.is_none() {
+            self.last_blocker_detail = Some((self.program.arena.stmt(statement).span, "generic tail value could not be lowered".to_string()));
+        }
         self.record_scheme_guard_rows(facts.guard_scopes().statements.get(&statement).copied(), start);
         result
     }
@@ -3720,6 +3744,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<()> {
         let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
         let result = self.lower_scheme_statement_inner(statement, slots, current_function, facts, visited, lowered_types, body);
+        if result.is_none() && self.last_blocker_detail.is_none() {
+            self.last_blocker_detail = Some((self.program.arena.stmt(statement).span, "generic statement could not be lowered".to_string()));
+        }
         self.record_scheme_guard_rows(facts.guard_scopes().statements.get(&statement).copied(), start);
         result
     }
@@ -4837,6 +4864,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
         let result = self.lower_scheme_expression_inner(expression, slots, current_function, facts, visited, lowered_types, body);
+        if result.is_none() && self.last_blocker_detail.is_none() {
+            self.last_blocker_detail = Some((self.program.arena.expr(expression).span, "generic expression could not be lowered".to_string()));
+        }
         self.record_scheme_guard_rows(facts.guard_scopes().expressions.get(&expression).copied(), start);
         if let Some(lowered) = result
             && !matches!(self.program.arena.expr(expression).kind, ArenaExprKind::PatternCondition { .. })
