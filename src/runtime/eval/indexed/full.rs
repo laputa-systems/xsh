@@ -9092,7 +9092,13 @@ impl<'a> FullDecoder<'a> {
             if !self.instruction_range.contains(&body) || !visited.insert(body) {
                 return Ok(false);
             }
-            let schema::ExprView::MatchExpr { mut arms, .. } = self.expression_view(body)? else {
+            let schema::ExprView::MatchExpr { mut arms, .. } = (match self.expression_view(body)? {
+                schema::ExprView::Try { value, .. } => {
+                    body = value.raw() as usize;
+                    continue;
+                }
+                view => view,
+            }) else {
                 return Ok(false);
             };
             let Some(arm) = arms.next() else {

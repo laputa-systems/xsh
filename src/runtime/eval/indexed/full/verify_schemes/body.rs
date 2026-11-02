@@ -4089,6 +4089,21 @@ pure ordered(files: List[File], other: File) -> List[File] {
     }
 
     #[test]
+    fn propagated_pipeline_placeholder_binds_its_generic_argument_through_the_try() {
+        let program = prepare("proc split_records(data: Bytes, separator) [error] -> Result[Int] { let _ = separator; Ok(1) }\npure source(name: Str) -> Bytes { b\"x\" }\nproc main() [error] { let left = source(\"a\") |> split_records(_, 10)?; let _ = left }\n");
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "main").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let try_body = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            let Ok(schema::ExprView::MatchExpr { mut arms, .. }) = decoder.expression_view(instruction) else { return false };
+            arms.next().and_then(Result::ok).is_some_and(|(_, _, body)| program.store.tags[body.raw() as usize] == FullTag::ExprTry)
+        });
+        assert!(try_body.is_some(), "the placeholder temporary scopes a propagated call");
+    }
+
+    #[test]
     fn generic_conversion_proofs_follow_natural_body_work_bounds() {
         for width in [64, 128, 256, 512] {
             let names = (0..width).map(|index| format!("value{index}")).collect::<Vec<_>>();

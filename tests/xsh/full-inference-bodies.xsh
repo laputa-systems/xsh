@@ -2840,3 +2840,30 @@ let _ = probe_annotated({name: "set"})?
     stderr: ["[check.schema-field]"],
   )?
 }
+
+test test_full_inference_propagated_pipeline_placeholder_reaches_a_generic_argument { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc split_records(data: Bytes, sep) [error] -> Result[List[Bytes]] {
+  let marker = if sep == 0 { 0 } else { 10 }
+  Ok([bytes.concat([data, bytes.from_ints([marker])?])])
+}
+proc split_annotated(data: Bytes, sep: Int) [error] -> Result[List[Bytes]] {
+  let marker = if sep == 0 { 0 } else { 10 }
+  Ok([bytes.concat([data, bytes.from_ints([marker])?])])
+}
+proc read_input(name: Str) -> Bytes { bytes.from_text(name) }
+proc main() [error] {
+  let left = read_input("left") |> split_records(_, 10)?
+  let right = read_input("right") |> split_annotated(_, 10)?
+  print $left.len()
+  print $right.len()
+  assert left[0] == b"left\n"
+  assert right[0] == b"right\n"
+}
+main()?
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n1\n", output.stdout
+}
