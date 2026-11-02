@@ -275,6 +275,11 @@ together. With both erased, nothing but the empty-list arguments of
 equality with `Str`. Keep one of the two annotations, or type the empty lists,
 as a source contract. The checker now rejects the program at the empty list
 with "argument type needs an annotation" instead of failing in lowering.
+The same diagnostic rejects `core/smartctl.xsh` `json_document.members` when
+erased: its `[]` call arguments reach a list concatenation whose item type only
+the annotation fixes. That site passed before the diagnostic and is now a
+retained contract. Empty lists whose item type no operation constrains stay
+accepted.
 
 ## Frozen corpus
 

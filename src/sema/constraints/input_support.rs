@@ -224,7 +224,14 @@ impl TypeConstraints {
     ) -> Result<Option<Vec<K>>, ConstraintResolutionError> {
         let holes = self.unresolved_input_variables(holes)?;
         let bound = self.input_bound_variables(owner, component, formals)?;
-        let unbound = holes.types.iter().copied().filter(|variable| !bound.contains_type(*variable)).collect::<FxHashSet<_>>();
+        let mut constrained = UnresolvedVariables::default();
+        for entry in self.operations.entries.values().filter(|entry| component.iter().any(|owner| entry.owner == CallableApplicationScope::Declaration(*owner))) {
+            constrained.extend(self.unresolved_input_variables(&entry.operation.inputs().cloned().collect::<Vec<_>>())?);
+            if let Some(result) = entry.operation.result() { constrained.extend(self.unresolved_input_variables(std::slice::from_ref(result))?); }
+        }
+        let unbound = holes.types.iter().copied()
+            .filter(|variable| !bound.contains_type(*variable) && constrained.contains_type(*variable))
+            .collect::<FxHashSet<_>>();
         if unbound.is_empty() { return Ok(None); }
         let mut found = Vec::new();
         for (key, ty) in users {
