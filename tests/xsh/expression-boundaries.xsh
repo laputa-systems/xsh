@@ -44,7 +44,7 @@ test test_a_comma_inside_an_arm_block_is_a_command_word { |ctx|
     r"""let mode = "words"
 match mode {
   "words" => if true { print a, b }
-  _ => print other
+  else => print other
 }
 """,
     status: 0,

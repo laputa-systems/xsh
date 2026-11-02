@@ -43,7 +43,7 @@ let outcome = [1, 2, 3] |> """ + stage + r"""(initial) { |acc, item|
 }
 match outcome {
   Err(CombineError.Stop {item: 2}) => print "retained"
-  _ => print "unexpected"
+  else => print "unexpected"
 }
 """
     let output = test.run_script(ctx, source)?
@@ -78,7 +78,7 @@ let outcome = try {
 }
 match outcome {
   Err(CombineError.Stop {item: 2}) => print "caught"
-  _ => print "unexpected"
+  else => print "unexpected"
 }
 """,
   )?

@@ -255,7 +255,7 @@ print "unreachable"
     """proc check() {
   match 1 {
     1 => true
-    _ => false
+    else => false
   }
 }
 check()?

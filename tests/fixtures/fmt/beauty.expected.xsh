@@ -64,7 +64,7 @@ let fmt_choice = if fmt_user_name == "administrator" and fmt_mode == "production
 }
 let fmt_label = match Ok("ready") {
   Ok(value) => value,
-  _ => "fallback",
+  else => "fallback",
 }
 let fmt_authored = if true {
   "keep this authored branch shape"
@@ -79,7 +79,7 @@ let fmt_nested_control = fmt_pair(
   },
   second: match Ok("ready") {
     Ok(value) => value,
-    _ => "fallback",
+    else => "fallback",
   },
 )
 

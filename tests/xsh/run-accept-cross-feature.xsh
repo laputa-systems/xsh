@@ -82,7 +82,7 @@ proc main(...argv: List[Str]) [fs, env, process, error] {
       test.eq(child_status.exit_code()?, 0)?
       print "rejected zero"
     }
-    _ => exit 98
+    else => exit 98
   }
   test.eq(fs.cwd()?, original)?
   test.eq(env.get("XSH_ACCEPT_SCOPE")?, "consumer")?
@@ -118,7 +118,7 @@ match outcome {
     test.eq(child_status.exit_code()?, 0)?
     print "rejected zero"
   }
-  _ => exit 98
+  else => exit 98
 }
 """,
   )?
@@ -208,16 +208,16 @@ let translated: Result[Unit, OuterError] = match original {
         test.ok(child_status.ok)?
         test.eq(child_status.exit_code()?, 0)?
       }
-      _ => exit 98
+      else => exit 98
     }
     Err(OuterError.Failed(message: "translated"), cause: failure)
   }
-  _ => Err(OuterError.Failed(message: "completion unexpectedly accepted"))
+  else => Err(OuterError.Failed(message: "completion unexpectedly accepted"))
 }
 let transported: Result[Unit, OuterError] = try { ctx "transport" { translated? } }
 match transported {
   Err(failure) => ctx "publish" { Err(failure)? }
-  _ => exit 96
+  else => exit 96
 }
 """,
       ["--raw", "--trace-format", "jsonl"],

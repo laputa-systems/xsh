@@ -6,7 +6,7 @@ test test_exit_ends_the_script_with_its_status { |ctx|
 }
 
 test test_exit_status_is_an_expression { |ctx|
-  let source = "proc finish(code: Int) {\n  match code {\n    0 => exit 0\n    _ => exit if code > 100 { 1 } else { code + 1 }\n  }\n}\n\nfinish(41)\n"
+  let source = "proc finish(code: Int) {\n  match code {\n    0 => exit 0\n    else => exit if code > 100 { 1 } else { code + 1 }\n  }\n}\n\nfinish(41)\n"
   test.expect(ctx, source, status: 42)?
 }
 

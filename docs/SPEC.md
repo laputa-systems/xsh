@@ -2214,7 +2214,7 @@ proc check(present: Bool) -> Result[Unit] {
 match check(false) {
   Err(.Failed {message}) => print $message  # error: check.inferred-variant
   Err(ProofError.Failed {message}) => print $message
-  _ => print "present"
+  else => print "present"
 }
 
 let tools = [{name: "xsh", kind: Binary}] |> where .kind == .Binary  # error: check.unknown-field
@@ -2691,8 +2691,9 @@ match level {
 ```
 
 Inside a pattern the wildcard is still `_` (6.10): `Fault(_) =>`, `[_, ..] =>`.
-An arm whose whole unguarded pattern is `_` means exactly what `else` means;
-`lint.prefer-match-else` rewrites it, so the catch-all has one spelling.
+An arm whose whole unguarded pattern is `_` means exactly what `else` means, so
+it is `parse.match-wildcard-arm`: write `else => ...`. A guarded `_ if cond =>`
+arm, and a `_` inside a pattern, stay.
 
 ### 6.9 Blocks
 

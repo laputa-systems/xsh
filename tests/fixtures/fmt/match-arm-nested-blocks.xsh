@@ -7,7 +7,7 @@ match 1 {
       1
     }
   }
-  _ => {}
+  else => {}
 }
 match 2 {
   2 => {
@@ -18,7 +18,7 @@ match 2 {
       2
     }
   }
-  _ => {}
+  else => {}
 }
 var assigned = 0
 match 3 {
@@ -30,7 +30,7 @@ match 3 {
       3
     }
   }
-  _ => {}
+  else => {}
 }
 assert assigned == 3
 match 4 {
@@ -39,5 +39,5 @@ match 4 {
       print "direct arm block"
     }
   }
-  _ => {}
+  else => {}
 }

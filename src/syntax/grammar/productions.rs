@@ -1488,6 +1488,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 // A line beginning with `.name` continues the line before
                 // it, so a head never begins with a target-typed variant.
                 not([vec![tag_term(T::Dot), tag_term(T::Ident)]]),
+                not([vec![word_term("_", false), tag_term(T::FatArrow)]]),
                 r("pattern"),
                 opt(seq([kw(Keyword::If), r("expression")])),
                 t(T::FatArrow),

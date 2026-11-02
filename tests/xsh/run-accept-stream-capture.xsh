@@ -15,7 +15,7 @@ match rejected {
     test.eq(child_status.exit_code()?, 0)?
     print "captured"
   }
-  _ => exit 98
+  else => exit 98
 }
 """,
   )?
@@ -108,7 +108,7 @@ let outcome: Result[Unit, Error] = try {
 }
 match outcome {
   Err(ProcessError.Timeout {..}) => print "timeout"
-  _ => exit 98
+  else => exit 98
 }
 """
   let output = test.run_script(ctx, source, [ready, acknowledged])?
@@ -201,7 +201,7 @@ let outcome: Result[Unit, Error] = try {
 }
 match outcome {
   Err(is HostIo) => {}
-  _ => exit 98
+  else => exit 98
 }
 assert ! started.exists()?
 print "not spawned"
@@ -230,7 +230,7 @@ let outcome: Result[Unit, Error] = try {
 }
 match outcome {
   Err(is HostIo) => {}
-  _ => exit 98
+  else => exit 98
 }
 acknowledged.write("go")?
 var attempts = 0
@@ -258,7 +258,7 @@ let outcome: Result[Unit, Error] = try {
 }
 match outcome {
   Err(is HostIo) => {}
-  _ => exit 98
+  else => exit 98
 }
 acknowledged.write("go")?
 var attempts = 0
@@ -281,7 +281,7 @@ let rejected: Result[Unit, Error] = try {
 }
 match rejected {
   Err(ProcessError.InvalidUtf8) => print "captured decode"
-  _ => exit 98
+  else => exit 98
 }
 """,
   )?

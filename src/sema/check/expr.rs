@@ -5400,13 +5400,13 @@ let enabled: Bool = name_of({name: true, version: 2})
 
     #[test]
     fn match_expr_and_patterns() {
-        assert_arena_matches_raised("let x = match 1 { 1 => 2, _ => 3 }");
+        assert_arena_matches_raised("let x = match 1 { 1 => 2, else => 3 }");
         assert_arena_matches_raised("let x = match 1 { n => n + 1 }");
         assert_arena_matches_raised("let x = match Ok(1) { Ok(n) => n, Err(e) => 0 }");
-        assert_arena_matches_raised("let x = match 1 { n if n > 0 => 1, _ => 2 }");
-        assert_arena_matches_raised("let x = match {a: 1} { {a: n} => n, _ => 0 }");
-        assert_arena_matches_raised("let x = match 1 { 1 | 2 => 10, _ => 20 }");
-        assert_arena_matches_raised("let x = match unresolved_val { SomeVariant(y) => y, _ => 0 }");
+        assert_arena_matches_raised("let x = match 1 { n if n > 0 => 1, else => 2 }");
+        assert_arena_matches_raised("let x = match {a: 1} { {a: n} => n, else => 0 }");
+        assert_arena_matches_raised("let x = match 1 { 1 | 2 => 10, else => 20 }");
+        assert_arena_matches_raised("let x = match unresolved_val { SomeVariant(y) => y, else => 0 }");
     }
 
     #[test]

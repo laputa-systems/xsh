@@ -80,7 +80,7 @@ test test_match_else_after_an_if_arm_body {
 }
 
 # `else` makes a value match exhaustive and a statement match over an enum
-# complete, exactly as a `_` arm does.
+# complete.
 test test_match_else_counts_as_the_catch_all { |ctx|
   let candidate = test.temp_file(
     ctx,
@@ -160,46 +160,62 @@ match Fault("disk") {
   assert "parse." in output.stderr, output.stderr
 }
 
-test test_match_else_formats_and_lints_as_written { |ctx|
+test test_unguarded_wildcard_arm_is_rejected_with_the_else_arm { |ctx|
+  let output = test.run_script(
+    ctx,
+    """enum Level { Info, Warn, Fault(Str) }
+const level: Level = Warn
+match level {
+  Info => print "info"
+  _ => print "wildcard"
+}
+let label = match level { Info => "info", _ => "other" }
+print \$label
+""",
+  )?
+  assert output.status != 0
+  assert output.stdout == ""
+  assert output.stderr.split("parse.match-wildcard-arm").len() == 3, output.stderr
+  assert "write `else => print \"wildcard\"`" in output.stderr, output.stderr
+  assert "write `let label = match level { Info => \"info\", else => \"other\" }`" in output.stderr, output.stderr
+  assert ":5:" in output.stderr, output.stderr
+}
+
+test test_guarded_and_nested_wildcards_stay_legal { |ctx|
+  let output = test.expect(
+    ctx,
+    """enum Level { Info, Warn, Fault(Str) }
+const level: Level = Fault("disk")
+match level {
+  Fault(_) if false => print "never"
+  Fault(_) => print "fault"
+  _ if false => print "never"
+  else => print "other"
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "fault\n"
+}
+
+test test_match_else_formats_as_written { |ctx|
   let source = """enum Level { Info, Warn, Fault(Str) }
 const level: Level = Warn
 match level {
   Info => print "info"
   else   =>   print "else"
 }
-match level {
-  Fault(_) => print "fault"
-  _ => print "wildcard"
-}
-let label = match level { Info => "info", _ => "other" }
+let label = match level { Info => "info", else => "other" }
 print \$label
 """
   let before = test.expect(ctx, source, status: 0)?
-  assert before.stdout == "else\nwildcard\nother\n"
+  assert before.stdout == "else\nother\n"
   let candidate = test.temp_file(ctx, name: "match-else.xsh", contents: bytes.from_text(source))?
-
-  # The formatter keeps whichever catch-all spelling was written.
   let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let text = candidate.read_text()?
   assert "  else => print \"else\"\n" in text, text
-  assert "  _ => print \"wildcard\"\n" in text, text
-  assert "_ => \"other\"" in text, text
-
-  # The lint reports each last `_ =>` arm and never a wildcard inside a pattern.
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate
-  let report = linted.stdout + linted.stderr
-  assert report.split("lint.prefer-match-else").len() == 3, report
-  let fixed = run.capture --text "xsht" lint --fix $candidate
-  assert fixed.status.exited_with(0), fixed.stderr
-  let rewritten = candidate.read_text()?
-  assert "  else => print \"wildcard\"\n" in rewritten, rewritten
-  assert "else => \"other\"" in rewritten, rewritten
-  assert "Fault(_) =>" in rewritten, rewritten
-  assert "_ =>" not in rewritten, rewritten
-
+  assert "else => \"other\"" in text, text
   let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
-  let after = test.expect(ctx, rewritten, status: 0)?
-  assert after.stdout == before.stdout
 }

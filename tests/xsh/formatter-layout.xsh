@@ -53,7 +53,7 @@ test test_fmt_keeps_type_patterns { |ctx|
   i is Int => print ${i.float()}
   f is Float => print ${f}
   _ is Null => print "null"
-  _ => print "other"
+  else => print "other"
 }
 """
   assert formatted(ctx, source)? == source
@@ -542,8 +542,8 @@ test test_fmt_keeps_an_indented_multiline_format_string_argument { |ctx|
 }
 
 test test_fmt_keeps_bare_block_match_arms_unwrapped { |ctx|
-  let source = "let choice = match true { _ => { let detail = 7; detail } }\n"
-  let expected = "let choice = match true {\n  _ => {\n    let detail = 7\n    detail\n  },\n}\n"
+  let source = "let choice = match true { else => { let detail = 7; detail } }\n"
+  let expected = "let choice = match true {\n  else => {\n    let detail = 7\n    detail\n  },\n}\n"
   let actual = formatted(ctx, source)?
   assert actual == expected, actual
 }
@@ -764,7 +764,7 @@ test test_fmt_round_trips_baseline_snippets { |ctx|
     "if true {\n  print \"yes\"\n} else {\n  eprint \"no\"\n}\n",
     "while false {\n  break\n}\n",
     "for value in [\"a\", \"b\"] {\n  print \${value}\n}\n",
-    "match Ok(\"x\") {\n  Ok(value) => print \${value}\n  _ => print \"other\"\n}\n",
+    "match Ok(\"x\") {\n  Ok(value) => print \${value}\n  else => print \"other\"\n}\n",
     "type Package = {name: Str, root: Path}\nlet pkg: Package = {name: \"demo\", root: Path(\"src\")}\n",
     "use types as t\nlet pkg: t.Package = {name: \"demo\", root: Path(\"src\")}\n",
     "let record = {name: \"demo\", enabled: true}\n",
@@ -853,7 +853,7 @@ test test_fmt_keeps_a_path_method_receiver_quoted { |ctx|
 }
 
 test test_fmt_round_trips_value_branch_blocks_and_record_arms { |ctx|
-  let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, _ => {run: 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, _ => \"other\" }\n"
+  let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, else => {run: 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, else => \"other\" }\n"
   let actual = formatted(ctx, source)?
   assert "{ {" not in actual, actual
   assert "let detail = 2" in actual, actual
@@ -971,7 +971,7 @@ let record = missing ?? {name: "record"}
 }
 
 test test_fmt_keeps_keyword_and_dotted_field_labels { |ctx|
-  let source = "type Entry = {type: Str, in: Int}\nlet value = Entry(type: \"file\", in: 2)\nlet selected = match true { _ => {type: value.type, in: value.in, r\"wire.type\": 3} }\nlet {type: kind, in: ordinal, ..} = value\n"
+  let source = "type Entry = {type: Str, in: Int}\nlet value = Entry(type: \"file\", in: 2)\nlet selected = match true { else => {type: value.type, in: value.in, r\"wire.type\": 3} }\nlet {type: kind, in: ordinal, ..} = value\n"
   let actual = formatted(ctx, source)?
   assert "{type: value.type, in: value.in, \"wire.type\": 3}" in actual, actual
 }

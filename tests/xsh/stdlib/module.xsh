@@ -958,12 +958,12 @@ let failure = helper.HelperError.Failed(
 )
 match failure {
   helper.HelperError.Failed {detail, code} => print $detail $code $order
-  _ => print "wrong family"
+  else => print "wrong family"
 }
 let dynamic: Any = failure
 match dynamic {
   _ is helper.Temporary => print "temporary"
-  _ => print "wrong facet"
+  else => print "wrong facet"
 }
 """,
     [],
@@ -983,7 +983,7 @@ use helper as h
 let failure = h.HelperError.Failed(detail: "aliased", code: 8)
 match failure {
   h.HelperError.Failed {detail, code} => print $detail $code
-  _ => print "wrong family"
+  else => print "wrong family"
 }
 """,
     [],
@@ -1004,16 +1004,16 @@ let helper_failure = h.HelperError.Failed(detail: "helper", code: 1)
 let other_failure = o.HelperError.Failed(detail: "other", code: 2)
 match helper_failure {
   h.HelperError.Failed {detail, code} => print $detail $code
-  _ => print "wrong helper family"
+  else => print "wrong helper family"
 }
 match other_failure {
   o.HelperError.Failed {detail, code} => print $detail $code
-  _ => print "wrong other family"
+  else => print "wrong other family"
 }
 let dynamic: Any = helper_failure
 match dynamic {
   o.HelperError.Failed {..} => print "cross-matched"
-  _ => print "distinct"
+  else => print "distinct"
 }
 """,
     [],
@@ -1062,17 +1062,17 @@ use helper
 let dynamic: Any = helper.HelperError.Failed(detail: "failed")
 match dynamic {
   _ is helper.Temporary => print "qualified"
-  _ => print "wrong-qualified"
+  else => print "wrong-qualified"
 }
 let returned: Any = helper.failure()
 match returned {
   _ is helper.Temporary => print "function"
-  _ => print "wrong-function"
+  else => print "wrong-function"
 }
 let local: Any = LocalError.Failed(detail: "local")
 match local {
   _ is LocalFacet => print "local"
-  _ => print "wrong-local"
+  else => print "wrong-local"
 }
 """,
     status: 0,
@@ -1090,7 +1090,7 @@ local
 let dynamic: Any = helper.failure()
 match dynamic {
   _ is missing.Temporary => print "wrong"
-  _ => print "fallback"
+  else => print "fallback"
 }
 """,
     [],
@@ -1153,7 +1153,7 @@ proc main() [error] -> Result[Unit] {
   let dynamic: Any = helper.HelperError.Failed(detail: "failed")
   match dynamic {
     _ is helper.Temporary => print "temporary"
-    _ => print "missing"
+    else => print "missing"
   }
 }
 
@@ -1184,7 +1184,7 @@ HelperError.Failed(detail: "failed")
     """use helper
 match helper.HelperError.Failed(detail: "failed") {
   _ is Temporary => print "bare facet"
-  _ => print "fallback"
+  else => print "fallback"
 }
 """,
   ] {

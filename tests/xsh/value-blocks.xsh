@@ -58,10 +58,10 @@ test test_value_match_preserves_record_literals { |ctx|
     r"""
 proc witness() [error] {
   let field = 9
-  let empty = match 1 { _ => {} }
-  let shorthand = match 1 { _ => {field} }
-  let named = match 1 { _ => {field: 10} }
-  let keyword = match 1 { _ => {run: 12} }
+  let empty = match 1 { else => {} }
+  let shorthand = match 1 { else => {field} }
+  let named = match 1 { else => {field: 10} }
+  let keyword = match 1 { else => {run: 12} }
   assert empty == {}
   assert shorthand.field == 9
   assert named.field == 10
@@ -260,7 +260,7 @@ test test_value_top_level_control_flow_keeps_statement_semantics { |ctx|
     ctx,
     """match 1 {
   1 => 5
-  _ => 6
+  else => 6
 }
 """,
     status: 2,

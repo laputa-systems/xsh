@@ -185,7 +185,7 @@ proc check(n: Int) -> Result[Unit] {
     }
     match n {
         1 => n == 1,
-        _ => n >= 0,
+        else => n >= 0,
     }
     let _ = n == 3
     assert n < 9, "bounded"
@@ -214,7 +214,7 @@ proc check(n: Int) -> Result[Unit] {
     }
     match n {
         1 => { assert n == 1 },
-        _ => { assert n >= 0 },
+        else => { assert n >= 0 },
     }
     let _ = n == 3
     assert n < 9, "bounded"
@@ -240,7 +240,7 @@ test test_bool_statement_fix_covers_unit_tails_and_test_declarations { |ctx|
 test test_assertion_helper_migration_targets_assert { |ctx|
   let file = script(
     ctx,
-    "proc compare(actual: Int) {\n    test.eq(actual, 3)?\n    match actual {\n        3 => test.ok(actual > 2)?,\n        _ => {},\n    }\n}\n",
+    "proc compare(actual: Int) {\n    test.eq(actual, 3)?\n    match actual {\n        3 => test.ok(actual > 2)?,\n        else => {},\n    }\n}\n",
   )?
   assert findings(file, "lint.core-assert")? == 2
   let reported = lint(file, ["--only", "lint.core-assert"])?

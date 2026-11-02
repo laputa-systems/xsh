@@ -353,7 +353,7 @@ export pure missing() -> Result[Int, Trouble] { Err(Trouble.Missing("broken")) }
     r"""use model as local
 let failure: Result[Int, local.Trouble] = local.missing()
 pure message() -> Str {
-  match failure { Err(local.Trouble.Missing {reason}) => reason; _ => "unexpected" }
+  match failure { Err(local.Trouble.Missing {reason}) => reason; else => "unexpected" }
 }
 print ${message()}
 """,

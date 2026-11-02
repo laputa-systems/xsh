@@ -10632,7 +10632,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
                 ("Result[Unit, m.ContextError]", "Err(m.ContextError.Right(11))", "Err(m.ContextError.Right { value })"),
             ] {
                 let source = format!(
-                    "use model as m\npure inspect() -> Bool {{ {declaration} failure: {annotation} = {initializer}; match failure {{ {pattern} => value == 11; _ => false }} }}\n",
+                    "use model as m\npure inspect() -> Bool {{ {declaration} failure: {annotation} = {initializer}; match failure {{ {pattern} => value == 11; else => false }} }}\n",
                 );
                 if declaration == "const" {
                     let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(

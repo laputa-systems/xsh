@@ -1033,7 +1033,7 @@ mod tests {
 
     #[test]
     fn a_match_arm_statement_begins_with_its_statement_word() {
-        let source = "match code {\n  0 => exit 3\n  1 => fail \"one\"\n  _ => exit(code)\n}\n";
+        let source = "match code {\n  0 => exit 3\n  1 => fail \"one\"\n  else => exit(code)\n}\n";
         assert_eq!(kind_of(source, "exit 3"), Kind::Keyword);
         assert_eq!(kind_of(source, "fail \"one\""), Kind::Keyword);
         assert_eq!(kind_of(source, "exit(code)"), Kind::Function);

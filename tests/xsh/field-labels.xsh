@@ -131,12 +131,12 @@ let {type} = row
 let row = Entry(type:)
 """,
     """let row = {type: 1}
-match row { {type} => { print 1 }, _ => { print 2 } }
+match row { {type} => { print 1 }, else => { print 2 } }
 """,
     """let {json: json} = {json: 1}
 """,
     """let row = {json: 1}
-match row { {json} => { print 1 }, _ => { print 2 } }
+match row { {json} => { print 1 }, else => { print 2 } }
 """,
   ] {
     let rejected = test.run_script(ctx, source)?
@@ -158,7 +158,7 @@ let {""" + label + """} = row
 let row = Entry(""" + label + """:)
 """,
       "let row = {" + label + """: 1}
-match row { {""" + label + """} => {}, _ => {} }
+match row { {""" + label + """} => {}, else => {} }
 """,
     ] {
       let rejected = test.run_script(ctx, source)?

@@ -26,10 +26,10 @@ let typed: local.Outcome = facade.missing()
 let generic: local.GenericOutcome[Int] = facade.missing()
 let inferred: Result[Int, local.Trouble] = local.inferred()
 pure message() -> Str {
-  match same { Err(local.Trouble.Missing {reason}) => reason; _ => "unexpected" }
+  match same { Err(local.Trouble.Missing {reason}) => reason; else => "unexpected" }
 }
 print ${message()}
-match inferred { Err(local.Trouble.Missing {reason}) => print $reason; _ => print "unexpected" }
+match inferred { Err(local.Trouble.Missing {reason}) => print $reason; else => print "unexpected" }
 let _ = inferred?
 """, status: 3, env: {XSH_MODULE_PATH: root})?
   assert output.stdout == "broken\ninferred\n"

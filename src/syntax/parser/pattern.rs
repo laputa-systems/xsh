@@ -132,14 +132,19 @@ impl<'a> Parser<'a> {
                 DiagnosticCode::ParseMatchElseArm,
             );
         }
+        let mut unguarded_wildcard = None;
         let (pattern, mut spelling) = if let Some(span) = self.consume_keyword(Keyword::Else) {
             *else_arm = Some(span);
             (arena.push_pattern_wildcard(span), ArenaArmSpelling::Else)
         } else {
-            (
-                self.parse_match_arm_pattern_arena_only(arena)?.0,
-                ArenaArmSpelling::Pattern,
-            )
+            let (pattern, span) = self.parse_match_arm_pattern_arena_only(arena)?;
+            if matches!(
+                arena.ast_arena().pattern(pattern).kind,
+                crate::syntax::arena::ArenaPatternKind::Wildcard
+            ) {
+                unguarded_wildcard = Some(span);
+            }
+            (pattern, ArenaArmSpelling::Pattern)
         };
         let guard = if self.at_keyword(Keyword::If) {
             if spelling == ArenaArmSpelling::Else {
@@ -157,7 +162,35 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
+        if let (Some(wildcard), None) = (unguarded_wildcard, guard) {
+            self.report_wildcard_match_arm(wildcard);
+        }
         Some((pattern, guard, spelling))
+    }
+
+    fn report_wildcard_match_arm(&mut self, wildcard: crate::source::Span) {
+        let line_start = self.source[..wildcard.start()]
+            .rfind('\n')
+            .map_or(0, |newline| newline + 1);
+        let line_end = self.source[self.previous_end()..]
+            .find('\n')
+            .map_or(self.source.len(), |newline| self.previous_end() + newline);
+        let rewritten = format!(
+            "{}else{}",
+            &self.source[line_start..wildcard.start()],
+            &self.source[wildcard.end()..line_end]
+        );
+        self.diagnostics.push(
+            crate::diagnostic::Diagnostic::error(
+                "an unguarded `_` match arm is written `else =>`",
+            )
+            .with_code(DiagnosticCode::ParseMatchWildcardArm)
+            .with_label(crate::diagnostic::Label::primary(
+                wildcard,
+                "write `else` for the catch-all arm",
+            ))
+            .with_note(format!("write `{}`", rewritten.trim())),
+        );
     }
 
     /// `.Name` at the current token: a variant selected by the type of the

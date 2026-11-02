@@ -61,7 +61,7 @@ fn separate_fixes_are_each_minimized() {
 
 #[test]
 fn selected_module_groupings_are_minimized_with_an_empty_global_root() {
-    let source = "proc compare(actual: Int) {\n    test.eq(actual, 3)?\n    match actual {\n        3 => test.ok(actual > 2)?,\n        _ => {},\n    }\n}\n";
+    let source = "proc compare(actual: Int) {\n    test.eq(actual, 3)?\n    match actual {\n        3 => test.ok(actual > 2)?,\n        else => {},\n    }\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(7), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let module_statements = parsed.arena.statements;

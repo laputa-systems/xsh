@@ -7,6 +7,6 @@ pure check(entry: Entry) -> Result[Entry, ProofError] {
 }
 const entries: List[Entry] = [Entry(p"usr/lib/libevdev.so.2.3.0", .Binary), Entry(p"usr/share/doc", .Tree(2)), Entry(p"etc/conf", .File)]
 let picked: Kind = match entries[0].kind { File => .Binary
-  _ => .File }
+  else => .File }
 let found = [f"{e.path}" for e in entries if check(e) is Ok(_)]
 print f"{found.join(" ")}"

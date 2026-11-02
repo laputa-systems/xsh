@@ -38,7 +38,7 @@ let matched = match choice("match:subject", Chosen(9)) {
   Other if flag("match:unselected-guard", true) => number("match:wrong", 0)
   Chosen(value) if flag("match:declined-guard", false) => number("match:declined", value)
   Chosen(value) if flag("match:selected-guard", true) => number("match:selected", value)
-  _ => number("match:else", 0)
+  else => number("match:else", 0)
 }
 print f"match={matched}"
 
@@ -423,7 +423,7 @@ match choice("match:subject", Chosen(8)) {
   Other if flag("match:unselected-guard", true) => print "match:wrong"
   Chosen(value) if flag("match:declined-guard", false) => print f"match:declined:{value}"
   Chosen(value) if flag("match:selected-guard", true) => print f"match:selected:{value}"
-  _ => print "match:else"
+  else => print "match:else"
 }
 match text("str-match:subject", "ready") {
   "missing" => print "str-match:wrong"

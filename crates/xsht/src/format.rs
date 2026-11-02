@@ -5831,8 +5831,8 @@ mod tests {
                 Some("proc sign(x: Bool) -> Int {\n  return 1 when x\n  -1\n}\n"),
             ),
             (
-                "let picked = match name { \"a\" => ({...value, a: 1}), _ => ({a: 2}) }\n",
-                Some("let picked = match name { \"a\" => {...value, a: 1}, _ => {a: 2} }\n"),
+                "let picked = match name { \"a\" => ({...value, a: 1}), else => ({a: 2}) }\n",
+                Some("let picked = match name { \"a\" => {...value, a: 1}, else => {a: 2} }\n"),
             ),
             ("let x = (run foo)?\nlet y = {\n  (x)\n}\n", None),
             // The space before `?` ends the words of a bare `spawn run`; a
@@ -5848,12 +5848,12 @@ mod tests {
                 Some("let job = (spawn run sh -c f\"sleep {n}\")?\n"),
             ),
             (
-                "match r {\n  Err(X.Timeout {..}) => {a: 1}\n  _ => ({b})\n}\n",
+                "match r {\n  Err(X.Timeout {..}) => {a: 1}\n  else => ({b})\n}\n",
                 None,
             ),
             (
-                "match r {\n  _ => ({a: 1})\n}\n",
-                Some("match r {\n  _ => {a: 1}\n}\n"),
+                "match r {\n  else => ({a: 1})\n}\n",
+                Some("match r {\n  else => {a: 1}\n}\n"),
             ),
         ] {
             assert_round_trip(source, expected.unwrap_or(source));
@@ -5914,8 +5914,8 @@ mod tests {
                 "repeat times times { repeat a.len() times { total += 1 } }\n",
             ),
             (
-                "match n {\n  0 => repeat 2 times { total += 1 }\n  _ => {}\n}\n",
-                "match n {\n  0 => repeat 2 times { total += 1 }\n  _ => {}\n}\n",
+                "match n {\n  0 => repeat 2 times { total += 1 }\n  else => {}\n}\n",
+                "match n {\n  0 => repeat 2 times { total += 1 }\n  else => {}\n}\n",
             ),
         ] {
             assert_round_trip(source, expected);
@@ -5962,8 +5962,8 @@ mod tests {
 
     #[test]
     fn assert_statements_format_in_every_statement_position() {
-        let source = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    _ => { assert n > 1, \"large\" }\n  }\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
-        let expected = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    _ => assert n > 1, \"large\"\n  }\n\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
+        let source = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    else => { assert n > 1, \"large\" }\n  }\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
+        let expected = "proc check(n: Int) {\n  match n {\n    1 => assert n == 1\n    else => assert n > 1, \"large\"\n  }\n\n  {\n    assert n > 0\n  }\n  if n > 0 {\n    assert 0 < n < 10, \"bounded\"\n  }\n}\n";
         let formatted = Formatter::new().format_source(SourceId::new(0), source);
         assert!(
             formatted.diagnostics.is_empty(),

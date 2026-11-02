@@ -978,10 +978,10 @@ proc build(items: List[Row]) -> List[Row] {
 
     #[test]
     fn every_append_spelling_and_position_becomes_a_yield() {
-        let source = "proc gather(rows: List[Row], extra: List[Str]) -> List[Str] {\n  var out: List[Str] = []\n  let limit = 3\n  out = out.push(\"head\")\n  for row in rows {\n    match row.kind {\n      \"a\" => out += [row.name]\n      _ => {\n        out += [row.name, row.kind]\n      }\n    }\n    if row.size > limit {\n      out += extra\n    } else {\n      out = out.push(f\"{row.name}!\")\n    }\n  }\n  print \"done\"\n  out.len()\n}\n";
+        let source = "proc gather(rows: List[Row], extra: List[Str]) -> List[Str] {\n  var out: List[Str] = []\n  let limit = 3\n  out = out.push(\"head\")\n  for row in rows {\n    match row.kind {\n      \"a\" => out += [row.name]\n      else => {\n        out += [row.name, row.kind]\n      }\n    }\n    if row.size > limit {\n      out += extra\n    } else {\n      out = out.push(f\"{row.name}!\")\n    }\n  }\n  print \"done\"\n  out.len()\n}\n";
         assert_eq!(
             rewritten(source),
-            "proc gather(rows: List[Row], extra: List[Str]) -> List[Str] {\n  let limit = 3\n  let out: List[Str] = collect {\n    yield \"head\"\n    for row in rows {\n      match row.kind {\n        \"a\" => yield row.name\n        _ => {\n          yield @[row.name, row.kind]\n        }\n      }\n      if row.size > limit {\n        yield @extra\n      } else {\n        yield f\"{row.name}!\"\n      }\n    }\n  }\n  print \"done\"\n  out.len()\n}\n"
+            "proc gather(rows: List[Row], extra: List[Str]) -> List[Str] {\n  let limit = 3\n  let out: List[Str] = collect {\n    yield \"head\"\n    for row in rows {\n      match row.kind {\n        \"a\" => yield row.name\n        else => {\n          yield @[row.name, row.kind]\n        }\n      }\n      if row.size > limit {\n        yield @extra\n      } else {\n        yield f\"{row.name}!\"\n      }\n    }\n  }\n  print \"done\"\n  out.len()\n}\n"
         );
     }
 

@@ -243,7 +243,7 @@ repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
 atomically_statement = "atomically" "replace" condition_expression "as" IDENT block ;
 match_statement = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
-arm_head = !( "." IDENT ) pattern ( "if" expression )? "=>" ;
+arm_head = !( "." IDENT ) !( "_" "=>" ) pattern ( "if" expression )? "=>" ;
 else_arm_head = "else" "=>" ;
 arm_body = ( block | compound_statement ) ","?
          | arm_statement separator

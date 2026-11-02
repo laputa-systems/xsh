@@ -32,7 +32,7 @@ test test_pattern_aliases_capture_whole_nodes_and_preserve_types { |ctx|
       let names: List[Str] = [entry.name, all[0].name, name]
       f"{names.join(":")}:{count}"
     }
-    _ => "other"
+    else => "other"
   }
   assert selected == "item:item:item:3"
 }
@@ -54,12 +54,12 @@ proc witness() [error] {
       assert original == [[99], [7, 8]]
       value + tail.len()
     }
-    _ => 0
+    else => 0
   }
   assert result == 8
   let first = match [7, 9] {
     [value, _] | [_, value] => value
-    _ => 0
+    else => 0
   }
   assert first == 7
 }
@@ -95,7 +95,7 @@ test test_pattern_aliases_and_alternatives_evaluate_subject_and_guard_once { |ct
 proc allowed() [io] -> Bool { print "guard"; false }
 let selected = match subject() {
   [value, ..tail] | [value, ..tail] if allowed() => value + tail.len()
-  _ => 9
+  else => 9
 }
 print $selected
 """
@@ -119,16 +119,16 @@ test test_pattern_tests_accept_only_grouped_capture_free_alternatives {
 
 test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives { |ctx|
   for source in [
-    """let result = match [1] { [value] as value => value, _ => 0 }
+    """let result = match [1] { [value] as value => value, else => 0 }
 """,
-    """let result = match {left: 1, right: 2} { {left: value, right: value} => value, _ => 0 }
+    """let result = match {left: 1, right: 2} { {left: value, right: value} => value, else => 0 }
 """,
-    """let result = match [1] { [left] | [right] => 1, _ => 0 }
+    """let result = match [1] { [left] | [right] => 1, else => 0 }
 """,
     """enum Event { Number(Int), Text(Str) }
-let result = match Number(1) { Number(value) | Text(value) => 1, _ => 0 }
+let result = match Number(1) { Number(value) | Text(value) => 1, else => 0 }
 """,
-    """let result = match 1 { 1 | 2 as original => 1, _ => 0 }
+    """let result = match 1 { 1 | 2 as original => 1, else => 0 }
 """,
   ] {
     let result = test.run_script(ctx, source)?
@@ -141,9 +141,9 @@ let result = match Number(1) { Number(value) | Text(value) => 1, _ => 0 }
   }
 
   for source in [
-    """let result = match 1 { 1 as _ => 1 _ => 0 }
+    """let result = match 1 { 1 as else => 1 else => 0 }
 """,
-    """let result = match 1 { (1, 2) => 1 _ => 0 }
+    """let result = match 1 { (1, 2) => 1 else => 0 }
 """,
     """let result = 1 is 1 | 2
 """,
@@ -186,7 +186,7 @@ proc witness() [error] {
       assert typed is Str == true
       value.upper()
     }
-    _ => "other"
+    else => "other"
   }
   assert selected == "ITEM"
 }
@@ -229,7 +229,7 @@ pure alias_failure_message(failure: AliasFailure) -> Str {
 pure alias_inferred_tail(values: List[Int]) {
   match values {
     [head, ..tail] as original => original.len() + head + tail.len()
-    _ => 0
+    else => 0
   }
 }
 proc witness() [error] {

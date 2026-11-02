@@ -4006,7 +4006,7 @@ proc inspect(value: Any) [error] {
     for entry in value { assert entry in paths; narrowed_count += 1 }
     assert narrowed_count == 2
   } else { assert false }
-  match value { selected is List[Path] => { assert selected.len() == 2; assert selected[0] == paths[0] }, _ => assert false }
+  match value { selected is List[Path] => { assert selected.len() == 2; assert selected[0] == paths[0] }, else => assert false }
   assert value == paths
   assert paths == value
   let envelope: Any = {paths: value}
@@ -4018,7 +4018,7 @@ proc inspect(value: Any) [error] {
   assert ordinary_record.require(Map[Str, List[Int]]) is Err(_)
   assert checked.paths.len() == 2
   assert checked.paths[0] == paths[0]
-  match envelope { selected is PathEnvelope => { assert selected.paths.len() == 2; assert selected.paths[1] == paths[1] }, _ => assert false }
+  match envelope { selected is PathEnvelope => { assert selected.paths.len() == 2; assert selected.paths[1] == paths[1] }, else => assert false }
   match json.encode(value) {
     Err(error) => assert error.message == "Path is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly"
     Ok(_) => assert false
@@ -4043,7 +4043,7 @@ fn environment_path_any_list_patterns_preserve_material_list_observations() {
     on_scoped_body_test_stack(|| {
         let source = r#"
 pure pair(value: Any) -> Bool {
-  match value { [_, _] => true, _ => false }
+  match value { [_, _] => true, else => false }
 }
 env ({PATH:"/xsh/first:/xsh/second"}) {
   assert pair([p"/xsh/first", p"/xsh/second"])
@@ -5978,7 +5978,7 @@ test known_alias_lifecycle {
   let failed = try { relay("bad") }
   match failed {
     Err(AssertionError.Failed {message}) => assert !message.is_empty()
-    _ => assert false
+    else => assert false
   }
   assert trace == 1313
   assert defaults == 2

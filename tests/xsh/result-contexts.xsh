@@ -8,7 +8,7 @@ pure decode_num(tok: Str) -> Result[Json] {
   return match json.decode(tok)? {
     i is Int => Ok(JNum(i.float())),
     f is Float => Ok(JNum(f)),
-    _ => Err(DecodeError.Invalid(message: "invalid JSON number")),
+    else => Err(DecodeError.Invalid(message: "invalid JSON number")),
   }
 }
 pure ordinary(value: Bool) -> Result[Int] {
@@ -49,10 +49,10 @@ let translated: Result[Unit, E] = match original {
   Err(outer) => {
     match original {
       Err(failure) => Err(failure),
-      _ => Ok(),
+      else => Ok(),
     }
   },
-  _ => Ok(),
+  else => Ok(),
 }
 print ${translated is Err(E.Failed)}
 """,

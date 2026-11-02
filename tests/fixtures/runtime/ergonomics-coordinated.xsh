@@ -1,7 +1,7 @@
 pure label(code: Int) -> Str {
   match code {
     0 => "ok"
-    _ => {
+    else => {
       let detail = f"exit {code}"
       detail
     }

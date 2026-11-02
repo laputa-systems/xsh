@@ -3,6 +3,6 @@ pure select(values: List[Int]) -> Int {
     [..] if false => 1
     [] => 2
     [_, ..] => 3
-    _ => 4
+    else => 4
   }
 }

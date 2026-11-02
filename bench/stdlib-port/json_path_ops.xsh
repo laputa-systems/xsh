@@ -16,13 +16,13 @@ proc main() [io, error] {
       item is Int => { sink = sink + item }
       items is List[Any] => { sink = sink + items.len() }
       fields is Map[Any] => { sink = sink + fields.len() }
-      _ => { sink = sink + 1 }
+      else => { sink = sink + 1 }
     }
     match removed {
       item is Int => { sink = sink + item }
       items is List[Any] => { sink = sink + items.len() }
       fields is Map[Any] => { sink = sink + fields.len() }
-      _ => { sink = sink + 1 }
+      else => { sink = sink + 1 }
     }
     value = updated
     round = round + 1

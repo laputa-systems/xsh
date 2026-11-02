@@ -119,7 +119,7 @@ pure choose_spread() -> Int { for item in [@[1]] { return item } }
   loop {
     match if stop { break } else { 0 } {
       0 => { return 1 }
-      _ => { return 2 }
+      else => { return 2 }
     }
   }
 }
@@ -192,7 +192,7 @@ test test_loop_no_break_uses_only_reachable_breaks { |ctx|
       },
       {
         name: "false-guard-break-is-unreachable",
-        source: "proc spin(value: Int) [] { loop { match value { _ if false => { break } _ => {} } } }\n",
+        source: "proc spin(value: Int) [] { loop { match value { _ if false => { break } else => {} } } }\n",
         diagnostics: ["check.loop-no-break"],
       },
       {
@@ -207,7 +207,7 @@ test test_loop_no_break_uses_only_reachable_breaks { |ctx|
       },
       {
         name: "impossible-literal-arm-does-not-break-loop",
-        source: "proc spin() [] { loop { match 0 { 1 => { break } _ => {} } } }\n",
+        source: "proc spin() [] { loop { match 0 { 1 => { break } else => {} } } }\n",
         diagnostics: ["check.loop-no-break"],
       },
       {
@@ -612,7 +612,7 @@ pure choose_guard(stop: Bool) -> Int {
   loop {
     match 0 {
       0 if if stop { break } else { true } => { return 1 }
-      _ => { return 2 }
+      else => { return 2 }
     }
   }
 }

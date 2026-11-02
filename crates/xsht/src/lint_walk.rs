@@ -1204,7 +1204,6 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Match { value, arms } => {
                 rules::statement(self, stmt_id, rules::StatementSite::AdjacentPatternArms, exported);
-                rules::statement(self, stmt_id, rules::StatementSite::CatchAllMatch, exported);
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
                 rules::statement(self, stmt_id, rules::StatementSite::PatternConditional, exported);

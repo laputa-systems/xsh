@@ -261,7 +261,7 @@ pure function_arity(name: Str) -> Int {
   match name {
     "len" | "upper" | "lower" | "trim" | "quote" | "json" | "not" => return 1
     "default" | "join" | "eq" | "ne" | "and" | "or" => return 2
-    _ => return -1
+    else => return -1
   }
 }
 
@@ -286,7 +286,7 @@ pure arg_from_tok(source: Str, token: Tok) -> Result[Arg] {
       "true" => return Ok({kind: "bool", text: "", fields: [], num: 1, pos: token.pos})
       "false" => return Ok({kind: "bool", text: "", fields: [], num: 0, pos: token.pos})
       "null" => return Ok({kind: "null", text: "", fields: [], num: 0, pos: token.pos})
-      _ => {}
+      else => {}
     }
     if function_arity(token.text) < 0 {
       return Err(syntax_error(source, token.pos, f"unknown function `{token.text}`"))
@@ -620,7 +620,7 @@ pure type_label(value: Any) -> Str {
     _ is Str => return "Str"
     _ is List[Any] => return "List"
     _ is Map[Any] => return "Map"
-    _ => return "value"
+    else => return "value"
   }
 }
 
@@ -635,7 +635,7 @@ pure truthy(value: Any) -> Bool {
     text is Str => return text.byte_len() > 0
     items is List[Any] => return items.len() > 0
     entries is Map[Any] => return entries.len() > 0
-    _ => return true
+    else => return true
   }
 }
 
@@ -647,7 +647,7 @@ pure scalar_text(source: Str, offset: Int, value: Any) -> Result[Str] {
     real is Float => return Ok(f"{real}")
     flag is Bool => return Ok(f"{flag}")
     _ is Null => return Err(render_error(source, offset, "cannot render null; use `default` to supply a value"))
-    _ => return Err(
+    else => return Err(
       render_error(source, offset, f"cannot render a {type_label(value)} directly; use `join` or `json`"),
     )
   }
@@ -664,7 +664,7 @@ pure walk(source: Str, offset: Int, value: Any, fields: List[Str]) -> Result[Any
         }
         current = entries.get(key)?
       }
-      _ => return Err(
+      else => return Err(
         render_error(source, offset, f"cannot read field `{key}` of {type_label(current)}"),
       )
     }
@@ -684,7 +684,7 @@ pure eval_arg(source: Str, arg: Arg, dot: Any, vars: Map[Any]) -> Result[Any] {
     "str" => return Ok(arg.text)
     "int" => return Ok(arg.num)
     "bool" => return Ok(arg.num == 1)
-    _ => return Ok(null)
+    else => return Ok(null)
   }
 }
 
@@ -712,7 +712,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
         text is Str => return Ok(text.count_chars())
         items is List[Any] => return Ok(items.len())
         entries is Map[Any] => return Ok(entries.len())
-        _ => return Err(render_error(source, offset, f"`len` expects Str, List, or Map, found {type_label(args[0])}"))
+        else => return Err(render_error(source, offset, f"`len` expects Str, List, or Map, found {type_label(args[0])}"))
       }
     }
     "upper" | "lower" | "trim" => {
@@ -726,7 +726,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
           }
           return Ok(text.trim())
         }
-        _ => return Err(render_error(source, offset, f"`{name}` expects Str, found {type_label(args[0])}"))
+        else => return Err(render_error(source, offset, f"`{name}` expects Str, found {type_label(args[0])}"))
       }
     }
     "join" => {
@@ -742,7 +742,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
           }
           return Ok(parts.join(separator))
         }
-        _ => return Err(render_error(source, offset, f"`join` expects a List, found {type_label(args[1])}"))
+        else => return Err(render_error(source, offset, f"`join` expects a List, found {type_label(args[1])}"))
       }
     }
     "default" => {
@@ -775,7 +775,7 @@ pure call_function(source: Str, name: Str, offset: Int, args: List[Any]) -> Resu
       return Ok(args[1])
     }
     "eq" => return Ok(template_equal(source, offset, args[0], args[1])?)
-    _ => return Ok(!template_equal(source, offset, args[0], args[1])?)
+    else => return Ok(!template_equal(source, offset, args[0], args[1])?)
   }
 }
 
@@ -898,7 +898,7 @@ pure render_range(program: Program, index: Int, dot: Any, vars: Map[Any], depth:
         items += [entries.get(key)?]
       }
     }
-    _ => return Err(
+    else => return Err(
       render_error(program.source, program.positions[index], f"cannot range over {type_label(value)}"),
     )
   }

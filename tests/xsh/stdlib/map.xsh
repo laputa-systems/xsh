@@ -178,7 +178,7 @@ proc gather() [io, error] -> Result[List[Str], SourceError] {
 for entry in load() { print f"{entry.key}={entry.value}" }
 match gather() {
   Err(SourceError.Missing {code}) => print f"caught={code}"
-  _ => print "unexpected"
+  else => print "unexpected"
 }
 """,
   )?

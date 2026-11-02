@@ -69,8 +69,6 @@ mod lint_read_lines;
 #[path = "lint_size_literal.rs"]
 mod lint_size_literal;
 
-#[path = "lint_prefer_match_else.rs"]
-mod lint_prefer_match_else;
 
 #[path = "lint_optional_binding.rs"]
 mod lint_optional_binding;
@@ -670,11 +668,9 @@ pub struct Linter<'a> {
     list_any_bindings: lint_list_any_union::ListAnyBindings,
     set_like_bindings: lint_prefer_set::SetLikeBindings,
     empty_fallbacks: lint_empty_sentinel::EmptyFallbacks,
-    /// `lint.prefer-item-shorthand` and `lint.prefer-match-else` reports,
-    /// gathered while callbacks and matches are visited and reported after
-    /// the walk in source order.
+    /// `lint.prefer-item-shorthand` reports, gathered while callbacks are
+    /// visited and reported after the walk in source order.
     item_shorthands: Vec<Diagnostic>,
-    catch_all_arms: Vec<Diagnostic>,
     fail_candidates: lint_prefer_fail::Candidates,
     stream_producers: sequence::StreamProducers,
     callable_parameters: lint_prefer_typed_callable::CallableParameters,
@@ -1206,7 +1202,6 @@ impl<'a> Linter<'a> {
             set_like_bindings: lint_prefer_set::SetLikeBindings::default(),
             empty_fallbacks: lint_empty_sentinel::EmptyFallbacks::default(),
             item_shorthands: Vec::new(),
-            catch_all_arms: Vec::new(),
             fail_candidates,
             stream_producers: sequence::StreamProducers::default(),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
@@ -1264,7 +1259,6 @@ impl<'a> Linter<'a> {
             &statements,
         );
         for stage in [
-            rules::RootStage::SortCatchAllArms,
             rules::RootStage::ListAnyUnion,
             rules::RootStage::SetLike,
             rules::RootStage::FailCandidates,

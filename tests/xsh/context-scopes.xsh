@@ -441,7 +441,7 @@ print "escaped"
 """,
     r"""let escaped = env ({X: "inner"}) {
   let inner: Result[Unit, Outer] = Err(Outer.Failed(message: "middle"), cause: Inner.Failed(resource: rows()))
-  let attached = match inner { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  let attached = match inner { Err(failure) => failure; else => Outer.Failed(message: "unreachable") }
   let alias = attached
   let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: alias)
   value
@@ -451,7 +451,7 @@ print "escaped"
     r"""var escaped: Any = null
 let ignored = env ({X: "inner"}) {
   let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
-  let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  let attached = match value { Err(failure) => failure; else => Outer.Failed(message: "unreachable") }
   escaped = attached
   7
 }
@@ -460,7 +460,7 @@ print "escaped"
     r"""stream translated() [env, error] -> Stream[Outer] {
   let ignored = env ({X: "inner"}) {
     let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
-    let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+    let attached = match value { Err(failure) => failure; else => Outer.Failed(message: "unreachable") }
     yield attached
     7
   }
@@ -483,7 +483,7 @@ var holder: Holder = {item: null}
 var escaped: Any = null
 let ignored = env ({X: "inner"}) {
   let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
-  let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  let attached = match value { Err(failure) => failure; else => Outer.Failed(message: "unreachable") }
 """
   for escape in [
     "holder.item = attached",
@@ -517,7 +517,7 @@ type Holder = {item: Any}
 var outer = 0
 let count = env ({X: "inner"}) {
   let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
-  let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  let attached = match value { Err(failure) => failure; else => Outer.Failed(message: "unreachable") }
   var local: Any = null
   var holder: Holder = {item: null}
   let seen = [1, 2] |> tee { |n|
@@ -551,7 +551,7 @@ match original {
     }
     print "escaped"
   }
-  _ => print "unexpected success"
+  else => print "unexpected success"
 }
 """,
     status: 3,

@@ -27,15 +27,15 @@ enum FixPolicy { ProducerProof, NoFix, Migration }
 enum SequenceSite { Root, Block }
 type SequenceHook = for<'source> fn(&mut Linter<'source>, &[StmtId], Option<BlockId>);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum StatementSite { PropagationContext, TempdirScopeCandidate, BindingInitializerType, Propagation, RedundantDiscard, CoreAssert, NeedlessAnnotation, MissingEffects, InferredPureReturn, AtomicallyNeverReplaces, RecordConstructor, EmptyMapInitializer, ListCompoundAssignment, ListPattern, IfAsGuard, LexicalBlock, AdjacentPatternArms, PatternConditional, CatchAllMatch, StringlyMatch, InteractiveCommand, StreamProducerCandidates, FailCandidates, SetLikeBindings, ListAnyBindings, TypedCallableParameters, SizeProductInitializer, RedundantOkReturn, ReturnPathParse, ReturnRequire, WholeValuePipeline, DeferBlockHelperCall }
+pub(super) enum StatementSite { PropagationContext, TempdirScopeCandidate, BindingInitializerType, Propagation, RedundantDiscard, CoreAssert, NeedlessAnnotation, MissingEffects, InferredPureReturn, AtomicallyNeverReplaces, RecordConstructor, EmptyMapInitializer, ListCompoundAssignment, ListPattern, IfAsGuard, LexicalBlock, AdjacentPatternArms, PatternConditional, StringlyMatch, InteractiveCommand, StreamProducerCandidates, FailCandidates, SetLikeBindings, ListAnyBindings, TypedCallableParameters, SizeProductInitializer, RedundantOkReturn, ReturnPathParse, ReturnRequire, WholeValuePipeline, DeferBlockHelperCall }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StatementSequenceSite { ContextScopeScaffolds, RecordDestructuring, FreshMapInitializations, ListElementReconstruction, NegativeIfGuard, OptionalBinding, WriteMode, TestExpect, EmptySentinel }
 type StatementSequenceHook = for<'source> fn(&mut Linter<'source>, &[StmtId]);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoopSite { ByteIteration, MapEntryIteration, YieldDelegation, FileLines, CountedLoop }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ExpressionAnalysisSite { PropagationContexts, RedundantCloseUses, StreamProducers, FailCandidates, SetLikeBindings, EmptyFallbacks, RedundantConditionPropagation, RedundantCapturePropagation, SizeProducts, RunArgv, CatchAllArms, NegatedCalls, NameReferenceUses, TempdirScopeUses }
-const EXPRESSION_ANALYSIS_ORDER: [ExpressionAnalysisSite; 14] = [
+enum ExpressionAnalysisSite { PropagationContexts, RedundantCloseUses, StreamProducers, FailCandidates, SetLikeBindings, EmptyFallbacks, RedundantConditionPropagation, RedundantCapturePropagation, SizeProducts, RunArgv, NegatedCalls, NameReferenceUses, TempdirScopeUses }
+const EXPRESSION_ANALYSIS_ORDER: [ExpressionAnalysisSite; 13] = [
     ExpressionAnalysisSite::PropagationContexts,
     ExpressionAnalysisSite::RedundantCloseUses,
     ExpressionAnalysisSite::StreamProducers,
@@ -47,7 +47,6 @@ const EXPRESSION_ANALYSIS_ORDER: [ExpressionAnalysisSite; 14] = [
     ExpressionAnalysisSite::NegatedCalls,
     ExpressionAnalysisSite::SizeProducts,
     ExpressionAnalysisSite::RunArgv,
-    ExpressionAnalysisSite::CatchAllArms,
     ExpressionAnalysisSite::NameReferenceUses,
     ExpressionAnalysisSite::TempdirScopeUses,
 ];
@@ -114,7 +113,6 @@ pub(super) enum RootStage {
     RedundantUseAlias,
     InferredProcReturns,
     SortItemShorthands,
-    SortCatchAllArms,
     ListAnyUnion,
     SetLike,
     FailCandidates,
@@ -208,7 +206,6 @@ lint_rules! {
     LintPreferListElementAssignment: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::ListElementReconstruction, |linter, statements| linter.lint_list_element_reconstruction(statements))]);
     LintPreferListPattern: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::ListPattern, |linter, statement, _| { if let ArenaStmtKind::If { branches, else_block } = linter.arena.stmt(statement).kind { let span = linter.arena.stmt(statement).span; linter.lint_list_pattern(branches, else_block, span); } })]);
     LintPreferMapEntryIteration: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Loop(LoopSite::MapEntryIteration, |linter, statement, target, iter, block, _| linter.lint_map_entry_iteration(statement, target, iter, block))]);
-    LintPreferMatchElse: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::CatchAllArms, |linter, expr| { if let ArenaExprKind::Match { arms, .. } = linter.arena.expr(expr).kind && let Some(arm) = linter.arena.match_expr_arms(arms).last() { let findings = super::lint_prefer_match_else::catch_all_arm_report(linter.arena, linter.source, arm.pattern, arm.guard, arm.spelling); linter.catch_all_arms.extend(findings); } }), RuleHook::Statement(StatementSite::CatchAllMatch, lint_statement_catch_all_match), RuleHook::Root(RootStage::SortCatchAllArms, run_catch_all_finalizer)]);
     LintPreferNamedArgumentPun: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::CallArgument(|linter, arg| linter.lint_named_argument_pun(arg))]);
     LintPreferNamedArgumentSpread: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::CallStyle, lint_call_style_expression)]);
     LintPreferOptionalBinding: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::OptionalBinding, super::lint_optional_binding::lint_null_test_then_binding)]);
@@ -480,16 +477,6 @@ fn run_item_shorthand_finalizer(
     _statements: &[StmtId],
 ) {
     let mut findings = std::mem::take(&mut linter.item_shorthands);
-    findings.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
-    linter.diagnostics.extend(findings);
-}
-
-fn run_catch_all_finalizer(
-    linter: &mut Linter<'_>,
-    _view: &CheckBundleView<'_>,
-    _statements: &[StmtId],
-) {
-    let mut findings = std::mem::take(&mut linter.catch_all_arms);
     findings.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
     linter.diagnostics.extend(findings);
 }
@@ -816,20 +803,6 @@ fn lint_statement_adjacent_pattern_arms(linter: &mut Linter<'_>, statement: Stmt
     }
 }
 
-fn lint_statement_catch_all_match(linter: &mut Linter<'_>, statement: StmtId, _exported: bool) {
-    if let ArenaStmtKind::Match { arms, .. } = linter.arena.stmt(statement).kind
-        && let Some(arm) = linter.arena.match_arms(arms).last()
-    {
-        let report = super::lint_prefer_match_else::catch_all_arm_report(
-            linter.arena,
-            linter.source,
-            arm.pattern,
-            arm.guard,
-            arm.spelling,
-        );
-        linter.catch_all_arms.extend(report);
-    }
-}
 fn lint_statement_stringly_match(linter: &mut Linter<'_>, statement: StmtId, _exported: bool) {
     if let ArenaStmtKind::Match { arms, .. } = linter.arena.stmt(statement).kind {
         let count = linter.arena.match_arms(arms).iter().filter(|arm| {
@@ -2841,7 +2814,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 146);
+        assert_eq!(codes.len(), 143);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());

@@ -12,10 +12,7 @@ proc show(t: Tok) {
 }
 
 pure pick(t: Tok) -> Int {
-  let n = match t {
-    A => 1,
-    _ => 2,
-  }
+  let n: Int = 1
   n + 1
 }
 
@@ -23,11 +20,11 @@ show(A)
 print ${pick(B)}
 """
   let file = test.temp_file(ctx, name: "selected-fix.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-match-else $file
+  let fixed = run.capture --text "xsht" lint --fix --only lint.needless-annotation $file
   assert fixed.status.exited_with(0), fixed.stderr
   # Only the selected code is reported, and only its edit is applied.
   assert "check.non-exhaustive-match" not in fixed.stderr, fixed.stderr
-  assert file.read_text()? == source.replace("    _ => 2,", with: "    else => 2,")
+  assert file.read_text()? == source.replace("  let n: Int = 1", with: "  let n = 1")
 }
 
 test test_selected_check_fix_applies_beside_an_unselected_check_error { |ctx|
@@ -69,10 +66,7 @@ proc show(t: Tok) {
 }
 
 pure pick(t: Tok) -> Int {
-  let n = match t {
-    A => 1,
-    _ => 2,
-  }
+  let n: Int = 1
   n + 1
 }
 
@@ -82,10 +76,10 @@ print pick(B)
   let file = test.temp_file(ctx, name: "check-warning.xsh", contents: bytes.from_text(source))?
   let all = run.capture --text "xsht" lint $file
   assert "warn[check.unreachable-match-arm]" in all.stderr, all.stderr
-  assert "warn[lint.prefer-match-else]" in all.stderr, all.stderr
+  assert "warn[lint.needless-annotation]" in all.stderr, all.stderr
   assert all.status.exited_with(1), all.stderr
-  let selected = run.capture --text "xsht" lint --only lint.prefer-match-else $file
-  assert "warn[lint.prefer-match-else]" in selected.stderr, selected.stderr
+  let selected = run.capture --text "xsht" lint --only lint.needless-annotation $file
+  assert "warn[lint.needless-annotation]" in selected.stderr, selected.stderr
   assert "check.unreachable-match-arm" not in selected.stderr, selected.stderr
   assert selected.status.exited_with(1), selected.stderr
 }

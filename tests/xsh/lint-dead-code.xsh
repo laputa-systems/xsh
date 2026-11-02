@@ -52,7 +52,7 @@ proc assert_fixes_check_and_stay_formatted(ctx: TestContext, source: Str) [fs, p
 }
 
 test test_lint_reports_dead_code_after_all_returning_match { |ctx|
-  let source = "enum Tok { TOp(Str), TEOF }\n\npure is_op(t: Tok, name: Str) -> Bool {\n  match t {\n    TOp(s) => return s == name\n    _ => return false\n  }\n\n  return false\n}\n"
+  let source = "enum Tok { TOp(Str), TEOF }\n\npure is_op(t: Tok, name: Str) -> Bool {\n  match t {\n    TOp(s) => return s == name\n    else => return false\n  }\n\n  return false\n}\n"
   let reported = dead_code(ctx, source)?
   assert headers(reported.stderr) == [unreachable], reported.stderr
   assert "dead.xsh:9:3\n" in reported.stderr, reported.stderr

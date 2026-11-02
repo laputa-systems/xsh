@@ -116,7 +116,7 @@ test test_codec_typed_maps_and_failure_locations { |ctx|
       assert actual == config_path
       assert location == "ports.web"
     }
-    _ => assert false
+    else => assert false
   }
 }
 

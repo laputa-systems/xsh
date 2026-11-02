@@ -330,10 +330,10 @@ assert present(null) == "absent"
 }
 
 test test_inferred_null_matches_on_an_unresolved_subject_match_annotations { |ctx|
-  let source = r"""pure null_first(a: SUBJECT) -> Str { match a { null => "absent", _ => "present" } }
+  let source = r"""pure null_first(a: SUBJECT) -> Str { match a { null => "absent", else => "present" } }
 pure bound(a: SUBJECT) -> Int { match a { null => 0, x => 1 } }
-pure value_arm(a: SUBJECT) -> Int { match a { null => 0, 7 => 7, _ => 1 } }
-pure nested(a: SUBJECT) -> Int { match [a] { [null] => 0, _ => 1 } }
+pure value_arm(a: SUBJECT) -> Int { match a { null => 0, 7 => 7, else => 1 } }
+pure nested(a: SUBJECT) -> Int { match [a] { [null] => 0, else => 1 } }
 pure forwarded(a: SUBJECT) -> Str { null_first(a) }
 let some: Int? = 7
 let none: Int? = null
@@ -359,7 +359,7 @@ print forwarded(3)
 }
 
 test test_inferred_null_matches_accept_each_payload_type { |ctx|
-  let good = test.expect(ctx, r"""pure absent(a) -> Bool { match a { null => true, _ => false } }
+  let good = test.expect(ctx, r"""pure absent(a) -> Bool { match a { null => true, else => false } }
 assert absent(null)
 assert !absent(1)
 assert !absent("text")

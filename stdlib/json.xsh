@@ -18,6 +18,6 @@ pure lines_error(message: Str) -> JsonError {
 export pure encode_lines(values: Any) -> Result[Str] {
   match values {
     items is List[Any] => return codec.encode_all("json", items)
-    _ => return Err(lines_error(f"expected List, found {type_name(values)}"))
+    else => return Err(lines_error(f"expected List, found {type_name(values)}"))
   }
 }

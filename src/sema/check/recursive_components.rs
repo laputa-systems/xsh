@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn authored_proc_return_match_preserves_its_whole_result_context() {
-        assert_authored_result_branch_preserves_the_original_context("match offset { 0 => { source.read_bytes() }; _ => { Ok(b\"\") } }");
+        assert_authored_result_branch_preserves_the_original_context("match offset { 0 => { source.read_bytes() }; else => { Ok(b\"\") } }");
     }
 
     #[test]
@@ -1009,7 +1009,7 @@ mod tests {
 
     #[test]
     fn recursive_proc_return_match_keeps_callback_envelopes() {
-        assert_recursive_proc_return_expression("match count { 0 => action(value); _ => right(action, value, count - 1) }");
+        assert_recursive_proc_return_expression("match count { 0 => action(value); else => right(action, value, count - 1) }");
     }
 
     #[test]

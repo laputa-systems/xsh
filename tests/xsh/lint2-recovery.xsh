@@ -237,8 +237,8 @@ test test_error_fallback_fix_keeps_the_handler_and_converges { |ctx|
 test test_error_fallback_refuses_success_transforms_guards_and_error_patterns { |ctx|
   for source in [
     "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value.trim(), Err(failure) => failure.message }; selected }\n",
-    "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) if true => value, _ => \"other\" }; selected }\n",
-    "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value, Err(is NotFound) => \"missing\", _ => \"other\" }; selected }\n",
+    "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) if true => value, else => \"other\" }; selected }\n",
+    "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value, Err(is NotFound) => \"missing\", else => \"other\" }; selected }\n",
     "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value, Err(failure) => {\n# retain this explanation\nfailure.message\n} }; selected }\n",
   ] {
     assert findings(script(ctx, source)?, "lint.error-fallback-block")? == 0, source

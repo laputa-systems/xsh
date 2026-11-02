@@ -65,7 +65,7 @@ match success { Ok(_) => print "passed"; Err(_) => print "unexpected" }
 match failure {
   Err(MessageError.Failed {message}) => print $message
   Err(AssertionError.Failed {message}) => print f"unexpected assertion: {message}"
-  _ => print "unexpected"
+  else => print "unexpected"
 }
 """,
     status: 0,

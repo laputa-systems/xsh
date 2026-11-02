@@ -146,7 +146,7 @@ test test_keyword_field_labels_cannot_be_puns_or_binding_names { |ctx|
     "let row = {type}\n",
     "let {type} = {type: 1}\n",
     "type Entry = {type: Int}\nlet entry = Entry(type:)\n",
-    "let row = {type: 1}\nlet selected = match row { {type} => 1, _ => 2 }\n",
+    "let row = {type: 1}\nlet selected = match row { {type} => 1, else => 2 }\n",
   ] {
     expect_rejected(ctx, source, "parse.keyword-label-binding")
   }
@@ -219,7 +219,7 @@ test test_spaced_minus_without_operand_is_rejected { |ctx|
 }
 
 test test_bare_exit_and_fail_need_values_before_arm_commas { |ctx|
-  for source in ["match x { _ => fail , }\n", "match x { _ => exit, }\n"] {
+  for source in ["match x { else => fail , }\n", "match x { else => exit, }\n"] {
     expect_rejected(ctx, source, "parse.expected-expression")
   }
   for source in ["env . name {}\n", "env foo ({})\n"] {

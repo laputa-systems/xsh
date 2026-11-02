@@ -310,7 +310,7 @@ proc note(value: Int) -> Int {
 proc check(n: Int) -> Result[Unit] {
     match n {
         1 => note(0) < note(n),
-        _ => {},
+        else => {},
     }
     note(0) < note(n) < note(3)
 }
@@ -360,7 +360,7 @@ test test_lint_only_ignored_result_discards_values_with_let { |ctx|
   let root = project(
     ctx,
     {
-      "main.xsh": "use helper\nproc data() [io] -> Int { print data; 1 }\ndata()\nif true { data() }\nmatch 1 {\n  1 => data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n",
+      "main.xsh": "use helper\nproc data() [io] -> Int { print data; 1 }\ndata()\nif true { data() }\nmatch 1 {\n  1 => data(),\n  else => {}\n}\nhelper.go()?\nprint done\n",
       "helper.xsh": "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  data()\n  print go\n}\n",
       "rejected.xsh": "var items = [1]\nitems.push(2)\nproc parse() [error] -> Result[Int] { 1 }\nparse()\nprint \${items.len()}\n",
     },
@@ -373,7 +373,7 @@ test test_lint_only_ignored_result_discards_values_with_let { |ctx|
   assert fixed.status.exited_with(0) or fixed.status.exited_with(2), fixed.stderr
   let rerun = xsht(root, ["lint", "--only", "check.ignored-result", "main.xsh", "helper.xsh"])?
   assert rerun.status.exited_with(0), rerun.stderr
-  assert fp"{root}/main.xsh".read_text()? == "use helper\nproc data() [io] -> Int { print data; 1 }\nlet _ = data()\nif true { let _ = data() }\nmatch 1 {\n  1 => let _ = data(),\n  _ => {}\n}\nhelper.go()?\nprint done\n"
+  assert fp"{root}/main.xsh".read_text()? == "use helper\nproc data() [io] -> Int { print data; 1 }\nlet _ = data()\nif true { let _ = data() }\nmatch 1 {\n  1 => let _ = data(),\n  else => {}\n}\nhelper.go()?\nprint done\n"
   assert fp"{root}/helper.xsh".read_text()? == "##! Helper module.\nproc data() [io] -> Int { print helper; 2 }\n## Run the helper.\nexport proc go() [io] {\n  let _ = data()\n  print go\n}\n"
   let ran = xsht(root, ["trace", "main.xsh"])?
   assert ran.status.exited_with(0), ran.stderr

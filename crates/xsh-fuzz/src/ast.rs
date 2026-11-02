@@ -1321,7 +1321,7 @@ impl Printer<'_> {
 
 pub fn pat_text(pat: &Pat) -> String {
     match pat {
-        Pat::Wild => "_".into(),
+        Pat::Wild => "else".into(),
         Pat::Bind(name) => name.clone(),
         Pat::Int(value) => value.to_string(),
         Pat::Str(text) => quote_str(text),

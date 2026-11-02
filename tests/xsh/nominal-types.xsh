@@ -201,7 +201,7 @@ print ${plain is Package}
 print ${packages is List[Package]}
 match raw {
   pkg is Package => print ${pkg.id}
-  _ => print "other"
+  else => print "other"
 }
 """,
   )?

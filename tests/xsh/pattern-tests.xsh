@@ -232,18 +232,20 @@ print done
 }
 
 test test_pattern_predicate_lint_keeps_a_declined_fix_declined_after_another_fix { |ctx|
-  # The `_` arm has a fix and the boolean match does not, because of the
+  # The annotation has a fix and the boolean match does not, because of the
   # comment. The fixed file is formatted; the comment must stay before its
   # arm, or a second round would rewrite the match across it.
-  let source = """let value = Ok(7)
+  let source = """const count: Int = 1
+let value = Ok(7)
 let selected = match value {
   # Preserve this explanation.
   Ok(_) => true,
-  _ => false
+  else => false
 }
 print done
 """
-  let expected = """let value = Ok(7)
+  let expected = """const count = 1
+let value = Ok(7)
 let selected = match value {
   # Preserve this explanation.
   Ok(_) => true,
@@ -447,14 +449,14 @@ pure describe(value: Error) -> Str {
   match value {
     is PermissionDenied => return "denied"
     is NotFound => return "missing"
-    _ => return "other"
+    else => return "other"
   }
 }
 pure describe_expression(value: Error) -> Str {
   let result = match value {
     is PermissionDenied => "denied"
     is NotFound => "missing"
-    _ => "other"
+    else => "other"
   }
   result
 }
@@ -552,7 +554,7 @@ test test_unknown_error_facets_name_the_nearest_known_facet { |ctx|
 pure describe(failure: StoreError) -> Str {
   match failure {
     is Vanishd => return "gone"
-    _ => return "other"
+    else => return "other"
   }
 }
 print (describe(StoreError.Gone(message: "x")))
@@ -644,7 +646,7 @@ export pure fail_broad() -> Result[Int, Error] { return Err(Failure.Missing(deta
 export pure describe(result: Result[Int, Failure]) -> Str {
   match result {
     Err(Failure.Missing {detail}) => f"missing {detail}"
-    _ => "other"
+    else => "other"
   }
 }
 """)
@@ -659,7 +661,7 @@ match r.fail_typed() {
 }
 match r.fail_broad() {
   Err(r.Failure.Missing {detail}) => print $detail
-  _ => print "other"
+  else => print "other"
 }
 let local: Result[Int, r.Failure] = Err(r.Failure.Missing(detail: "local"))
 print (r.fail_typed() is Err(r.Failure.Missing)) (r.describe(local))

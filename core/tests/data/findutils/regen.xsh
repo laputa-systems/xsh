@@ -31,7 +31,7 @@ pure documented_status(name: Str) -> Int {
   match name {
     "exit_255" | "exit_255_stops" | "exit_status_precedence" | "P_255_stops" | "exit_zero_255" => 124
     "exit_signal" | "exit_signal_term" | "cmd_status_125_sig_after_fail" => 125
-    _ => -1
+    else => -1
   }
 }
 

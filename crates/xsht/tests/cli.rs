@@ -719,7 +719,7 @@ fn test_roots_lower_contextual_nominal_imports_in_the_selected_scope() {
     .expect("write right module configuration");
     fs::write(
         common_modules.join("shared.xsh"),
-        "##! Shared test helpers over a context-specific nominal module.\nuse nested as n\n## Build this context's tagged value.\nexport pure state() -> n.State { n.Right }\n## Match this context's tag.\nexport pure is_right(state: n.State) -> Bool { match state { n.Right => true; _ => false } }\n## Build this context's error family variant.\nexport pure failure() -> Result[Unit, n.ContextError] { Err(n.ContextError.Right(n.value())) }\n## Build its error value directly for a checked identity match.\nexport pure failure_value() -> n.ContextError { n.ContextError.Right(n.value()) }\n## Match this context's error family variant and payload.\nexport pure is_right_failure(failure: Result[Unit, n.ContextError]) -> Bool { match failure { Err(n.ContextError.Right { value }) => value == n.value(); _ => false } }\n",
+        "##! Shared test helpers over a context-specific nominal module.\nuse nested as n\n## Build this context's tagged value.\nexport pure state() -> n.State { n.Right }\n## Match this context's tag.\nexport pure is_right(state: n.State) -> Bool { match state { n.Right => true; else => false } }\n## Build this context's error family variant.\nexport pure failure() -> Result[Unit, n.ContextError] { Err(n.ContextError.Right(n.value())) }\n## Build its error value directly for a checked identity match.\nexport pure failure_value() -> n.ContextError { n.ContextError.Right(n.value()) }\n## Match this context's error family variant and payload.\nexport pure is_right_failure(failure: Result[Unit, n.ContextError]) -> Bool { match failure { Err(n.ContextError.Right { value }) => value == n.value(); else => false } }\n",
     )
     .expect("write shared module");
     fs::write(
@@ -744,12 +744,12 @@ fn test_roots_lower_contextual_nominal_imports_in_the_selected_scope() {
     .expect("write distinct right error family");
     fs::write(
         left_tests.join("first.xsh"),
-        "use shared\nuse nested as n\nuse other as o\nlet root_failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value()))\ntest left_root_context { |_| let state: n.State = n.Right; assert state == n.Right; let failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value())); assert shared.is_right_failure(failure); assert match failure { Err(n.ContextError.Right { value }) => value == 11; _ => false }; assert shared.is_right_failure(root_failure); let direct_error: n.ContextError = n.ContextError.Right(n.value()); let direct: Any = direct_error; assert match direct { o.ContextError.Right { .. } => false; _ => true } }\ntest left_transitive_context { |_| assert shared.is_right(shared.state()); assert shared.is_right_failure(shared.failure()); let transitive: Any = shared.failure_value(); assert match transitive { n.ContextError.Right { value } => value == 11; _ => false }; assert match transitive { o.ContextError.Right { .. } => false; _ => true } }\n",
+        "use shared\nuse nested as n\nuse other as o\nlet root_failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value()))\ntest left_root_context { |_| let state: n.State = n.Right; assert state == n.Right; let failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value())); assert shared.is_right_failure(failure); assert match failure { Err(n.ContextError.Right { value }) => value == 11; else => false }; assert shared.is_right_failure(root_failure); let direct_error: n.ContextError = n.ContextError.Right(n.value()); let direct: Any = direct_error; assert match direct { o.ContextError.Right { .. } => false; else => true } }\ntest left_transitive_context { |_| assert shared.is_right(shared.state()); assert shared.is_right_failure(shared.failure()); let transitive: Any = shared.failure_value(); assert match transitive { n.ContextError.Right { value } => value == 11; else => false }; assert match transitive { o.ContextError.Right { .. } => false; else => true } }\n",
     )
     .expect("write left test root");
     fs::write(
         right_tests.join("second.xsh"),
-        "use shared\nuse nested as n\nuse other_right as o\nlet root_failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value()))\ntest right_root_context { |_| let state: n.State = n.Right; assert state == n.Right; let failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value())); assert shared.is_right_failure(failure); assert match failure { Err(n.ContextError.Right { value }) => value == \"twenty-two\"; _ => false }; assert shared.is_right_failure(root_failure); let direct_error: n.ContextError = n.ContextError.Right(n.value()); let direct: Any = direct_error; assert match direct { o.ContextError.Right { .. } => false; _ => true } }\ntest right_transitive_context { |_| assert shared.is_right(shared.state()); assert shared.is_right_failure(shared.failure()); let transitive: Any = shared.failure_value(); assert match transitive { n.ContextError.Right { value } => value == \"twenty-two\"; _ => false }; assert match transitive { o.ContextError.Right { .. } => false; _ => true } }\n",
+        "use shared\nuse nested as n\nuse other_right as o\nlet root_failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value()))\ntest right_root_context { |_| let state: n.State = n.Right; assert state == n.Right; let failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right(n.value())); assert shared.is_right_failure(failure); assert match failure { Err(n.ContextError.Right { value }) => value == \"twenty-two\"; else => false }; assert shared.is_right_failure(root_failure); let direct_error: n.ContextError = n.ContextError.Right(n.value()); let direct: Any = direct_error; assert match direct { o.ContextError.Right { .. } => false; else => true } }\ntest right_transitive_context { |_| assert shared.is_right(shared.state()); assert shared.is_right_failure(shared.failure()); let transitive: Any = shared.failure_value(); assert match transitive { n.ContextError.Right { value } => value == \"twenty-two\"; else => false }; assert match transitive { o.ContextError.Right { .. } => false; else => true } }\n",
     )
     .expect("write right test root");
 
@@ -961,7 +961,7 @@ fn lint_fix_cancellation_writes_no_file() {
     let mut functions = String::new();
     for index in 0..1000 {
         functions.push_str(&format!(
-            "pure pick_{index}(n: Int) -> Int {{\n  let chosen = match n {{\n    1 => 10,\n    _ => 20,\n  }}\n  chosen + 1\n}}\n\n"
+            "pure pick_{index}(n: Int) -> Int {{\n  let chosen = match n {{\n    1 => 10,\n    else => 20,\n  }}\n  chosen + 1\n}}\n\n"
         ));
     }
     functions.push_str("print ${pick_0(1)}\n");
@@ -1037,7 +1037,7 @@ fn fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file() {
     let mut functions = String::new();
     for index in 0..100_000 {
         functions.push_str(&format!(
-            "pure pick_{index}(n: Int) -> Int {{\n  let chosen = match n {{\n    1 => 10,\n    _ => 20,\n  }}\n  chosen   + 1\n}}\n\n"
+            "pure pick_{index}(n: Int) -> Int {{\n  let chosen = match n {{\n    1 => 10,\n    else => 20,\n  }}\n  chosen   + 1\n}}\n\n"
         ));
     }
     functions.push_str("print ${pick_0(1)}\n");

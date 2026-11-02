@@ -93,9 +93,9 @@ print $selected
 test test_identical_match_arms_keep_guards_comments_and_capture_types { |ctx|
   for source in [
     "enum Event { Number(Int), Text(Str) }\nlet result = match Number(1) { Number(value) => 0, Text(value) => 0 }\n",
-    "let result = match [1] {\n [left] => 0\n [right, ..] => 0\n _ => 1\n}\n",
-    "let result = match 1 { 1 if false => 0, 2 => 0, _ => 1 }\n",
-    "let result = match 1 { 1 => 0 # keep reason\n 2 => 0, _ => 1 }\n",
+    "let result = match [1] {\n [left] => 0\n [right, ..] => 0\n else => 1\n}\n",
+    "let result = match 1 { 1 if false => 0, 2 => 0, else => 1 }\n",
+    "let result = match 1 { 1 => 0 # keep reason\n 2 => 0, else => 1 }\n",
   ] {
     assert findings(script(ctx, source)?, "lint.identical-match-arms")? == 0, source
   }
@@ -104,7 +104,7 @@ test test_identical_match_arms_keep_guards_comments_and_capture_types { |ctx|
 test test_fmt_pattern_alias_keeps_group_precedence_and_comments { |ctx|
   let file = script(
     ctx,
-    "let selected = match [1] {\n ([name] | [name, ..]) as original => { # whole value\n name + original.len()\n }\n _ => 0\n}\n",
+    "let selected = match [1] {\n ([name] | [name, ..]) as original => { # whole value\n name + original.len()\n }\n else => 0\n}\n",
   )?
   assert_formats_stably(file)
   let text = file.read_text()?

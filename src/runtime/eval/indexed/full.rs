@@ -24824,7 +24824,7 @@ assert keep(null, 1) == null
             let text_keyed = fixture("generic-text-key-validation.xsh", r#"
 pure read(colors, code) { colors.get(code) }
 pure lookup(colors) { let _ = read(colors, "ec"); 0 }
-let present: Map[Str, Str] = {"ec": "x"}
+let present: Map[Str, Str] = {ec: "x"}
 assert lookup(present) == 0
 "#);
             FullVerifier::verify(&text_keyed).unwrap();
@@ -35848,7 +35848,7 @@ pure contains(value: Any) -> Result[Bool] {
     for index in [0] {
         match current {
             entries is Map[Any] => { return Ok("key" in entries) }
-            _ => { current = {} }
+            else => { current = {} }
         }
     }
     Ok(false)
@@ -38297,7 +38297,7 @@ pure sum(left: Int, right: Int) -> Int { return left + right }
 pure selected(flag: Bool) -> Int { return if flag { 1 } else { 2 } }
 pure selected_call(flag: Bool) -> Int { return if flag { leaf() } else { 2 } }
 pure aggregate() -> List[Int] { return [leaf(), 3] }
-pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
+pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
 "#;
         let program = Arc::new(fixture("in-place-marks.xsh", source));
         FullVerifier::verify(&program).unwrap();
@@ -40136,12 +40136,12 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
 
     #[test]
     fn generic_ground_helper_transfer_record_pattern_retains_ordinary_behavior() {
-        run_with_large_stack(|| assert_ordinary_ground_helper("pure helper() -> Int { let value = {amount: 7}; match value { {amount: found} => found, _ => 0 } }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n"));
+        run_with_large_stack(|| assert_ordinary_ground_helper("pure helper() -> Int { let value = {amount: 7}; match value { {amount: found} => found, else => 0 } }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n"));
     }
 
     #[test]
     fn generic_ground_helper_transfer_list_pattern_retains_ordinary_behavior() {
-        run_with_large_stack(|| assert_ordinary_ground_helper("pure helper() -> Int { let values = [7]; match values { [found] => found, _ => 0 } }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n"));
+        run_with_large_stack(|| assert_ordinary_ground_helper("pure helper() -> Int { let values = [7]; match values { [found] => found, else => 0 } }\npure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }\n"));
     }
 
     #[test]
@@ -40183,7 +40183,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
         run_with_large_stack(|| assert_ordinary_ground_helper(r###"type Action = pure(value: Int) -> Int
 type Holder = {action: Action}
 pure target(value: Int) -> Int { value }
-pure helper() -> Int { let holder: Holder = {action: target}; match holder { {action: selected} => selected(7), _ => 0 } }
+pure helper() -> Int { let holder: Holder = {action: target}; match holder { {action: selected} => selected(7), else => 0 } }
 pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
 "###));
     }
@@ -40192,14 +40192,14 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
     fn generic_ground_helper_transfer_typed_list_pattern_retains_ordinary_behavior() {
         run_with_large_stack(|| assert_ordinary_ground_helper(r###"type Action = pure(value: Int) -> Int
 pure target(value: Int) -> Int { value }
-pure helper() -> Int { let actions: List[Action] = [target]; match actions { [selected] => selected(7), _ => 0 } }
+pure helper() -> Int { let actions: List[Action] = [target]; match actions { [selected] => selected(7), else => 0 } }
 pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
 "###));
     }
 
     #[test]
     fn generic_ground_helper_transfer_text_pattern_retains_ordinary_behavior() {
-        run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { match "port 7" { f"port {value:d}" => value, _ => 0 } }
+        run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { match "port 7" { f"port {value:d}" => value, else => 0 } }
 pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
 "###));
     }
@@ -44623,7 +44623,7 @@ pure foreign(payload, count: Int) {
              pure reversed_named_range() -> Int { let ignored = [1] |> range(end: 1, start: 0) |> map { |item| if true { return item }; item } }\n\
              pure zero_range() -> Int { let ignored = [1] |> range(0, 0) |> map { |item| if true { return item }; item }; return 0 }\n\
              pure dynamic_range(start: Int, end: Int) -> Int { let ignored = [1] |> range(start, end) |> map { |item| if true { return item }; item }; return 0 }\n\
-             pure guarded_range(flag: Bool) -> Int { let ignored = [1] |> range(match 0 { value if flag => value, _ => 0 }, 1) |> map { |item| if true { return item }; item }; return 0 }\n\
+             pure guarded_range(flag: Bool) -> Int { let ignored = [1] |> range(match 0 { value if flag => value, else => 0 }, 1) |> map { |item| if true { return item }; item }; return 0 }\n\
              pure reduce_by() -> Int { let ignored = [1] |> reduce-by(sum: true) { |item| if true { return item }; {key: \"n\", value: item} } }\n\
              pure maybe_source(values: List[Int]) -> Int { let ignored = values |> map { |item| if true { return item }; item } |> collect(); return 0 }\n\
              pure zero_take() -> Int { let ignored = [1] |> map { |item| if true { return item }; item } |> take(0) |> collect(); return 0 }\n\
@@ -44878,7 +44878,7 @@ pure foreign(payload, count: Int) {
         let program = fixture(
             "pipeline-identity-argument-cardinality.xsh",
             "pure identity_zip() -> Int { let ignored = [1] |> zip([2]) |> map { |pair| if true { return 1 }; 1 } }\n\
-             pure guarded_zip() -> Int { let ignored = [1] |> zip(match [2] { rows if true => rows, _ => [] }) |> map { |pair| pair }; return 0 }\n\
+             pure guarded_zip() -> Int { let ignored = [1] |> zip(match [2] { rows if true => rows, else => [] }) |> map { |pair| pair }; return 0 }\n\
              pure changed_value_zip() -> Int { let ignored = [1] |> zip(match [2] { rows => [] }) |> map { |pair| pair }; return 0 }\n",
         );
         FullVerifier::verify(&program).unwrap();
@@ -50082,7 +50082,7 @@ assert match left_failure { Err(error) => error.message == "text failure"; Ok(_)
 assert match different_errors { Err(error) => error.message == "7"; Ok(_) => false }
 assert match reversed_errors { Err(error) => error.message == "7"; Ok(_) => false }
 assert match explicit_call_errors { Err(error) => error.message == "7"; Ok(_) => false }
-assert match explicit_result_data { Ok(Err(error)) => error == 7; _ => false }
+assert match explicit_result_data { Ok(Err(error)) => error == 7; else => false }
 assert match tail_result_errors { Err(error) => error.message == "7"; Ok(_) => false }
 assert match explicit_result_errors { Err(error) => error.message == "7"; Ok(_) => false }
 assert different_success == expected_success
@@ -54602,7 +54602,7 @@ pure tag_apply(choice: Choice) -> Int {
   match choice { Selected(each) => each("tag"), Empty => 0 }
 }
 pure error_apply(failure: Error) -> Int {
-  match failure { Failure.Selected {handler} => handler("error"), _ => 0 }
+  match failure { Failure.Selected {handler} => handler("error"), else => 0 }
 }
 let alternate: Measure = measure
 assert tag_apply(Selected(count)) == 3
@@ -54688,7 +54688,7 @@ pure tag_apply(choice: Choice) -> Int {
 pure error_apply(failure: Error) -> Int {
   match failure {
     Failure.Selected {handler} => handler("error"),
-    _ => 0,
+    else => 0,
   }
 }
 

@@ -68,7 +68,7 @@ test test_expr_match { |ctx|
     ctx,
     """
 proc route_match_source() -> Int { return 2 }
-assert (match route_match_source() { 2 => 22, _ => 0 }) == 22
+assert (match route_match_source() { 2 => 22, else => 0 }) == 22
 """,
     status: 0,
   )?
@@ -79,7 +79,7 @@ test test_expr_match_pure_selection { |ctx|
   let output = test.expect(
     ctx,
     """
-assert (match 2 { 2 => 22, _ => 0 }) == 22
+assert (match 2 { 2 => 22, else => 0 }) == 22
 """,
     status: 0,
   )?

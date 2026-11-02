@@ -36,7 +36,7 @@ fn children() -> Vec<String> {
         "b?",
         "b.require(Int)",
         "if b { c } else { d }",
-        "match b { _ => c }",
+        "match b { else => c }",
         "loop { break }",
         "try { c }",
         "retry [1s] { c }",
@@ -101,8 +101,8 @@ fn parents() -> Vec<String> {
         "let w = 1\nH",
         "if c {\n  w()\n}\nH",
         "proc p() {\n  H\n}",
-        "let v = match a { _ => H }",
-        "match a {\n  _ => H\n}",
+        "let v = match a { else => H }",
+        "match a {\n  else => H\n}",
         "let v = if c { H } else { 1 }",
         "f(H, 1)",
         "f(1, H)",
@@ -325,7 +325,7 @@ impl Generator {
                 operand(self)
             ),
             12 => format!("[{} for x in {}]", operand(self), operand(self)),
-            13 => format!("match {} {{ _ => {} }}", operand(self), operand(self)),
+            13 => format!("match {} {{ else => {} }}", operand(self), operand(self)),
             _ => [
                 "run foo",
                 "spawn f()",

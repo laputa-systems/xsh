@@ -12,25 +12,25 @@ proc witness() [error] {
   let failure: DecoderPatternError = .Missing(detail: "absent")
   let direct_facet = match failure {
     is NotFound => "not found"
-    _ => "wrong facet"
+    else => "wrong facet"
   }
   assert direct_facet == "not found"
 
   let choice = Selected(17)
   let selected = match choice {
     Selected(number) => number
-    _ => 0
+    else => 0
   }
   assert selected == 17
 
   let arbitrary = dynamic_text()
   let facet_mismatch = match arbitrary {
     is NotFound => false
-    _ => true
+    else => true
   }
   let tag_mismatch = match arbitrary {
     Selected(number) => number
-    _ => 0
+    else => 0
   }
   assert facet_mismatch
   assert tag_mismatch == 0

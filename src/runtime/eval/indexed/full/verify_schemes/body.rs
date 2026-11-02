@@ -5924,7 +5924,7 @@ test verify_completion_cleanup {
 
     #[test]
     fn ordinary_generic_body_patterns_authenticate_the_actual_subject() {
-        let program = prepare("pure choose(flag: Bool, value) { let _ = match 1 { 1 => value; _ => value }; match flag { true => value; false => value } }");
+        let program = prepare("pure choose(flag: Bool, value) { let _ = match 1 { 1 => value; else => value }; match flag { true => value; false => value } }");
         let (owner, _) = generic_owner(&program);
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let mut boolean = None;
@@ -5963,8 +5963,8 @@ test verify_completion_cleanup {
     #[test]
     fn generic_null_patterns_on_an_unresolved_subject_reject_each_other_literal() {
         for source in [
-            "pure choose(value) -> Int { let _ = match 1 { 1 => 0; _ => 0 }; let _ = match true { true => 0; _ => 0 }; match value { null => 0; _ => 1 } }",
-            "pure choose(value) -> Int { let _ = match 1 { 1 => 0; _ => 0 }; let _ = match true { true => 0; _ => 0 }; if let x = value { 1 } else { 0 } }",
+            "pure choose(value) -> Int { let _ = match 1 { 1 => 0; else => 0 }; let _ = match true { true => 0; else => 0 }; match value { null => 0; else => 1 } }",
+            "pure choose(value) -> Int { let _ = match 1 { 1 => 0; else => 0 }; let _ = match true { true => 0; else => 0 }; if let x = value { 1 } else { 0 } }",
         ] {
             let program = prepare(source);
             FullVerifier::verify(&program).unwrap();

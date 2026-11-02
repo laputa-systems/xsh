@@ -545,7 +545,7 @@ test test_check_main_dependency_lowers_result_context_chain { |ctx|
 pure common_int(raw: Str) -> Result[Int] {
   match raw {
     "1" => 1
-    _ => raw.parse_int().context("usage", "bad int")?
+    else => raw.parse_int().context("usage", "bad int")?
   }
 }
 

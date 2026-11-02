@@ -22,12 +22,12 @@ test test_net_validate_root_bundle_rejects_empty_raw_der_and_mixed_invalid_pem {
   for pem in invalid {
     match net.validate_root_bundle(pem) {
       Err(NetError.TrustStore {..}) => {}
-      _ => assert false, "invalid root bundle was accepted"
+      else => assert false, "invalid root bundle was accepted"
     }
     if !pem.is_empty() {
       match net.validate_root_bundle(bytes.concat([valid_root_bundle, pem])) {
         Err(NetError.TrustStore {..}) => {}
-        _ => assert false, "invalid certificate in mixed root bundle was ignored"
+        else => assert false, "invalid certificate in mixed root bundle was ignored"
       }
     }
   }

@@ -65,7 +65,7 @@ proc statement_tail() [fs, io, error] -> Unit {
 let result = try { statement_tail() }
 match result {
   Err(AssertionError.Failed {message: _}) => print "assertion"
-  _ => print "unexpected"
+  else => print "unexpected"
 }
 """,
     status: 0,

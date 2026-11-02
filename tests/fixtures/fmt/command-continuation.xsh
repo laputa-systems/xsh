@@ -38,7 +38,7 @@ proc show(names: List[Str], mode: Int) [process, env, error] {
   match mode {
     1 => run printf "%s\n" \
       one ?
-    _ => print other
+    else => print other
   }
   let plan = process.command {
     run printf "%s\n" \

@@ -1723,7 +1723,7 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
                 open("]")
             ),
             "pattern" => format!(
-                "let v = {}1{}\nmatch v {{\n  {}x{} => print \"ok\"\n  _ => print \"no\"\n}}\n",
+                "let v = {}1{}\nmatch v {{\n  {}x{} => print \"ok\"\n  else => print \"no\"\n}}\n",
                 open("["),
                 open("]"),
                 open("["),

@@ -178,7 +178,7 @@ test test_dynamic_boundary_keeps_type_pattern_proof { |ctx|
     """let raw: Any = 7
 match raw {
   count is Int => print \${count + 1}
-  _ => print wrong
+  else => print wrong
 }
 """,
   )?
@@ -590,7 +590,7 @@ let count = json.get(raw, ["a"])?.require(Int)? + 1
 print $count
 match json.get(raw, ["name"])? {
   name is Str => print $name
-  _ => print other
+  else => print other
 }
 let row = raw.require(Row)?
 let back: Any = row

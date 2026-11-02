@@ -64,7 +64,7 @@ proc main() {
 
   let selected = match positive {
     value if value > 0 => value,
-    _ => 0,
+    else => 0,
   }
   let row: SliceRow = {label: "slice", value: selected}
   print $row.label $row.value ${factorial(5)} ${even(4)} ${odd(3)}

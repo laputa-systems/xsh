@@ -158,7 +158,7 @@ let original: Result[Int, TestBaseError] = Err(TestBaseError.Base("base message"
 let decorated = original.context({arguments})
 let same_family = match decorated {{
   Err(TestBaseError.Base) => true
-  _ => false
+  else => false
 }}
 assert same_family
 if let Err(problem) = decorated {{
@@ -171,7 +171,7 @@ if let Err(problem) = original {{
 let success: Result[Int, TestBaseError] = Ok(17)
 match success.context({arguments}) {{
   Ok(value) => assert value == 17
-  _ => assert false
+  else => assert false
 }}
 "#);
     let two_arguments = fixture(&source("\"wrapped\", \"extra\""));
@@ -385,11 +385,11 @@ let failed_int = deferred_failure(7)
 let failed_str = deferred_failure("token")
 assert match failed_int {
     Err(AssertionError.Failed {message: message}) => message == "assertion failed: false: deferred assertion"
-    _ => false
+    else => false
 }
 assert match failed_str {
     Err(AssertionError.Failed {message: message}) => message == "assertion failed: false: deferred assertion"
-    _ => false
+    else => false
 }
 assert assertion_messages == 2
 "#;
@@ -402,11 +402,11 @@ let failed_int = returned_failure(7)
 let failed_str = returned_failure("token")
 assert match failed_int {
     Err(problem) => problem.message == "requested 7"
-    _ => false
+    else => false
 }
 assert match failed_str {
     Err(problem) => problem.message == "requested token"
-    _ => false
+    else => false
 }
 "#;
         let deferred_program = fixture(deferred);
@@ -3972,8 +3972,8 @@ fn recursive_proc_return_if_keeps_callback_envelopes_at_runtime() {
 #[test]
 fn recursive_proc_return_match_keeps_callback_envelopes_at_runtime() {
     assert_recursive_proc_return_expression_runtime(
-        "match count { 0 => action(value); _ => right(action, value, count - 1) }",
-        "match count { 0 => value; _ => descend(value, count - 1) }",
+        "match count { 0 => action(value); else => right(action, value, count - 1) }",
+        "match count { 0 => value; else => descend(value, count - 1) }",
     );
 }
 

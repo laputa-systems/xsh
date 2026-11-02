@@ -61,7 +61,7 @@ const PROGRAMS: &[&str] = &[
     "pure read(raw: Str?) -> Str {\n  guard raw != null else { return \"none\" }\n  raw.trim()\n}\n",
     "var total = 0\nrepeat 3 times {\n  total += 1\n  continue when total == 2\n  break unless total < 9\n}\nprint $total\n",
     "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    guard row >= 0 else {\n      guard row > -9 else { break }\n      continue\n    }\n    yield row when row > 0\n  }\n}\n",
-    "proc pick(code: Int) -> Int {\n  match code {\n    0 => return 1 when code == 0\n    _ => { return 2 unless code > 5 }\n  }\n  3\n}\n",
+    "proc pick(code: Int) -> Int {\n  match code {\n    0 => return 1 when code == 0\n    else => { return 2 unless code > 5 }\n  }\n  3\n}\n",
     // A guarded statement proves nothing when its payload stays in the block.
     "stream rows(raw: Str?) -> Stream[Str] {\n  yield \"none\" when raw == null\n  yield raw.trim()\n}\n",
     // A condition that is not a Bool or a Status.

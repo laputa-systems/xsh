@@ -36,9 +36,9 @@ match raw.require(Row) {
 }
 print json.encode(raw)?
 let text: Any = "seen"
-match text { _ is State => print "converted"; _ => print "raw string" }
+match text { _ is State => print "converted"; else => print "raw string" }
 let tag: Any = Seen
-match tag { _ is State => print "actual enum"; _ => print "wrong tag" }
+match tag { _ is State => print "actual enum"; else => print "wrong tag" }
 """,
   )?
   {
@@ -113,7 +113,7 @@ print json.encode(a.Seen)?
 print json.encode(b.Seen)?
 print (a.prepared == a.Seen)
 print ("same".require(a.State)? == a.Seen)
-match right { _ is a.State => print "wrong identity"; _ => print "different identity" }
+match right { _ is a.State => print "wrong identity"; else => print "different identity" }
 match right.require(a.State) { Err(_) => print "require rejected"; Ok(_) => print "incorrectly accepted" }
 """,
     [],
@@ -231,7 +231,7 @@ let compact_destination = fp"{destination}.compact"
 json.write(compact_destination, packet)?
 assert compact_destination.read_text()? == "{\"history\":[\"\",\"ready\"],\"state\":\"ready\"}"
 let raw = json.read(destination)?
-match json.get(raw, ["state"])? { text is Str => print $text; _ => print "incorrectly converted" }
+match json.get(raw, ["state"])? { text is Str => print $text; else => print "incorrectly converted" }
 let restored = raw.require(Packet)?
 print (restored == packet)
 print json.encode(restored)?
@@ -374,7 +374,7 @@ let flags: Map[Bool, Str] = {[false]: "ready", [true]: ""}
 let converted = flags.require(Map[Bool, State])?
 print (converted.get(false)? == Ready)
 let actual: Any = source
-match actual { _ is Map[UInt, State] => print "unexpected type conversion"; _ => print "actual values checked" }
+match actual { _ is Map[UInt, State] => print "unexpected type conversion"; else => print "actual values checked" }
 """,
   )?
   {

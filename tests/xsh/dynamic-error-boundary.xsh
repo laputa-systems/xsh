@@ -27,7 +27,7 @@ match dynamic.call() {
 test test_opaque_error_data_stays_opaque { |ctx|
   let output = test.run_xsh(ctx, r"""pure store(value: Any) -> Any { Err(value) }
 let data: Any = store(7)
-match data { Err(value) => print ${json.encode(value)?}; _ => print "unexpected" }
+match data { Err(value) => print ${json.encode(value)?}; else => print "unexpected" }
 """)?
   assert output.status == 0, output.stderr
   assert output.stdout == "7\n", output.stdout

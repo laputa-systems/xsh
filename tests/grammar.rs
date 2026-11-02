@@ -685,10 +685,10 @@ fn cd_scope_arguments_keep_command_word_interpolation() {
 
 #[test]
 fn bare_exit_and_fail_do_not_end_before_arm_commas() {
-    for source in ["match x { _ => fail , }\n", "match x { _ => exit, }\n"] {
+    for source in ["match x { else => fail , }\n", "match x { else => exit, }\n"] {
         assert_parser_and_grammar_agree(source, false);
     }
-    for source in ["fail\n", "exit\n", "match x { _ => fail, }\n", "match x { _ => fail \"message\", }\n", "match x { _ => exit 1, }\n"] {
+    for source in ["fail\n", "exit\n", "match x { else => fail, }\n", "match x { else => fail \"message\", }\n", "match x { else => exit 1, }\n"] {
         assert_parser_and_grammar_agree(source, true);
     }
 }
@@ -1227,13 +1227,13 @@ fn line_continuation_spellings_come_from_the_operator_table() {
 fn inferred_variant_patterns_are_parsed_and_recognized_alike() {
     let recognizer = Recognizer::new(grammar());
     for source in [
-        "match r {\n  Err(.Usage {message}) => f(message)\n  Ok(.Tree(depth, _)) => g(depth)\n  Ok(k.File | .Binary) => h()\n  _ => i()\n}\n",
+        "match r {\n  Err(.Usage {message}) => f(message)\n  Ok(.Tree(depth, _)) => g(depth)\n  Ok(k.File | .Binary) => h()\n  else => i()\n}\n",
         "let found = kind is .Binary\n",
         "if kind is .Binary {\n  f()\n}\n",
         "if failure is .Rejected {status: 1, ..} {\n  f()\n}\n",
         "if let .Rejected {status, ..} = failure {\n  f(status)\n}\n",
-        "let v = match r { [.A, .B] => 1, {kind: .A} => 2, _ => 3 }\n",
-        "let v = match level {\n  Warn if box\n    .ok => 1\n  _ => 2\n}\n",
+        "let v = match r { [.A, .B] => 1, {kind: .A} => 2, else => 3 }\n",
+        "let v = match level {\n  Warn if box\n    .ok => 1\n  else => 2\n}\n",
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(
@@ -1248,9 +1248,9 @@ fn inferred_variant_patterns_are_parsed_and_recognized_alike() {
         );
     }
     for source in [
-        "match kind {\n  .File => f()\n  _ => g()\n}\n",
+        "match kind {\n  .File => f()\n  else => g()\n}\n",
         "match kind {\n  File => f()\n  .Binary => g()\n}\n",
-        "let v = match kind { .File => 1, _ => 2 }\n",
+        "let v = match kind { .File => 1, else => 2 }\n",
         "let v = match kind {\n  File => 1\n  .Tree(depth) => depth\n}\n",
     ] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

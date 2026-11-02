@@ -8,10 +8,10 @@ match original {
     let retained: ProcessError = retain(failure)
     match retained {
       ProcessError.NonzeroExit {..} => print "retained"
-      _ => exit 19
+      else => exit 19
     }
   }
-  _ => exit 20
+  else => exit 20
 }
 """,
     status: 0,
@@ -30,7 +30,7 @@ proc made() [io] -> Failure {
 }
 match made() {
   Failure.Failed {kind, message} => print $kind $message
-  _ => print "wrong"
+  else => print "wrong"
 }
 """,
     status: 0,
@@ -67,13 +67,13 @@ let inner = InputError.Missing(message: "input")
 let translated: Result[Str, BuildError] = Err(outer, cause: inner)
 match translated {
   Err(BuildError.Failed {message, cause}) => print $message $cause
-  _ => print "wrong"
+  else => print "wrong"
 }
 pure present(failure: Error) -> Error { failure }
-let observed = match translated { Err(failure) => present(failure); _ => outer }
+let observed = match translated { Err(failure) => present(failure); else => outer }
 match observed {
   is NotFound => print "wrong inner facet"
-  _ => print "outer only"
+  else => print "outer only"
 }
 print "constructed"
 let _ = translated?
@@ -98,7 +98,7 @@ let outer = OuterError.Failed(message: "outer")
 let alias = outer
 let attached = Err(outer, cause: InnerError.Failed(message: "inner"))
 let generic: Result[Int, Str] = Err("ordinary generic error")
-match generic { Err(text) => print $text; _ => print "wrong" }
+match generic { Err(text) => print $text; else => print "wrong" }
 print "constructed"
 Err(alias)?
 """,
@@ -153,10 +153,10 @@ error InnerError = Failed(message: Str)
 error LeafError = Failed(message: Str)
 let outer = OuterError.Failed(message: "outer")
 let first = Err(outer, cause: LeafError.Failed(message: "replaced"))
-let inherited = match first { Err(failure) => failure; _ => outer }
+let inherited = match first { Err(failure) => failure; else => outer }
 let inner = InnerError.Failed(message: "inner")
 let second = Err(inner, cause: LeafError.Failed(message: "retained"))
-let supplied = match second { Err(failure) => failure; _ => inner }
+let supplied = match second { Err(failure) => failure; else => inner }
 let translated = Err(inherited, cause: supplied)
 translated?
 """,
@@ -231,7 +231,7 @@ let outcome: Result[Unit, ProcessError] = try {
 }
 let translated = match outcome {
   Err(failure) => Err(BuildError.Failed(message: "build"), cause: failure)
-  _ => Err(BuildError.Failed(message: "unexpected success"))
+  else => Err(BuildError.Failed(message: "unexpected success"))
 }
 ctx "publish" { translated? }
 """,
@@ -256,7 +256,7 @@ error OuterError = Failed(message: Str)
 error InnerError = Failed(message: Str)
 let translated: Result[Unit, OuterError] = Err(OuterError.Failed(message: "outer"), cause: InnerError.Failed(message: "inner"))
 let captured: Result[Unit, OuterError] = try { ctx "attempt" { translated? } }
-let preserved: Result[Unit, OuterError] = match captured { Err(failure) => Err(failure); _ => translated }
+let preserved: Result[Unit, OuterError] = match captured { Err(failure) => Err(failure); else => translated }
 ctx "caller" { preserved? }
 """,
     status: 3,
@@ -314,7 +314,7 @@ error OuterError = Failed(message: Str)
 var current: Error = OuterError.Failed(message: "leaf")
 for index in range(1000) {
   let attached = Err(OuterError.Failed(message: "translation"), cause: current)
-  current = match attached { Err(failure) => failure; _ => current }
+  current = match attached { Err(failure) => failure; else => current }
 }
 let outcome: Result[Unit] = Err(current)
 outcome?
@@ -337,7 +337,7 @@ error OuterError = Failed(message: Str)
 let outcome: Result[Unit] = try { assert false, "checked leaf" }
 let translated = match outcome {
   Err(failure) => Err(OuterError.Failed(message: "translation"), cause: failure)
-  _ => Err(OuterError.Failed(message: "unexpected success"))
+  else => Err(OuterError.Failed(message: "unexpected success"))
 }
 translated?
 """,
@@ -380,7 +380,7 @@ match original_result {
     }
     captured?
   }
-  _ => exit 19
+  else => exit 19
 }
 """,
     status: 3,

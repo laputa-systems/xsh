@@ -265,7 +265,7 @@ test test_command_arguments_take_call_and_index_chains { |ctx|
 test test_type_pattern_arms_follow_unbraced_arm_values { |ctx|
   expect_parses(
     ctx,
-    "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n",
+    "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    else => return \"other\"\n  }\n}\n",
   )
 }
 

@@ -99,8 +99,8 @@ proc make(payload, count: Int) [io] -> Result[Unit, Failure] {
 }
 proc defaulted(payload) -> Result[Unit, Failure] { let _ = payload; Err(Failure.Default()) }
 let result = make(7, 3)
-assert match result { Err(Failure.Rejected {message, code}) => message == "failed" and code == 3; _ => false }
-assert match defaulted("kept") { Err(Failure.Default {message}) => message == "Failure.Default"; _ => false }
+assert match result { Err(Failure.Rejected {message, code}) => message == "failed" and code == 3; else => false }
+assert match defaulted("kept") { Err(Failure.Default {message}) => message == "Failure.Default"; else => false }
 """)?
   assert output.success, output.stderr
   assert output.stdout == "code\nmessage\n"

@@ -222,7 +222,7 @@ enum Tok { TOp(Str), TEOF }
 pure is_op(t: Tok, name: Str) -> Bool {
   match t {
     TOp(s) => return s == name
-    _ => return false
+    else => return false
   }
 }
 """,
@@ -233,7 +233,7 @@ pure kind_name(k: Kind) -> Str {
   match k {
     A => return "a"
     B => return "b"
-    _ => return "other"
+    else => return "other"
   }
 }
 """,
@@ -285,7 +285,7 @@ pure label(value: Any) -> Result[Str] {
     f is Float => return Ok(f.format(precision: 1))
     s is Str => return Ok(s)
     _ is Null => return Ok("null")
-    _ => return Ok("other")
+    else => return Ok("other")
   }
 }
 """,

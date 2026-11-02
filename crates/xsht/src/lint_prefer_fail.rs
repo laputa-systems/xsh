@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn a_private_family_with_a_pattern_and_error_type_consumer_is_preserved() {
-        let source = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int, LoadError] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nproc report(result: Result[Int, LoadError]) -> Str {\n  match result {\n    Err(LoadError.Failed {message}) => message\n    Ok(_) => \"ok\"\n    _ => \"other\"\n  }\n}\n";
+        let source = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int, LoadError] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nproc report(result: Result[Int, LoadError]) -> Str {\n  match result {\n    Err(LoadError.Failed {message}) => message\n    Ok(_) => \"ok\"\n    else => \"other\"\n  }\n}\n";
         assert!(lint(source).is_empty());
     }
 

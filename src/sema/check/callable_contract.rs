@@ -1143,7 +1143,7 @@ mod tests {
             "let result = Disk(mount: mount, used: 7); result",
             "if mount == \"early\" { return Disk(mount: mount, used: 7) }; Disk(mount: mount, used: 9)",
             "if mount == \"early\" { let result = Disk(mount: mount, used: 7); result } else { Disk(mount: mount, used: 9) }",
-            "match mount { \"early\" => Disk(mount: mount, used: 7); _ => Disk(mount: mount, used: 9) }",
+            "match mount { \"early\" => Disk(mount: mount, used: 7); else => Disk(mount: mount, used: 9) }",
         ] {
             let original = root_schema_contract(&format!("{declarations}proc describe(mount: Str) -> Result[Disk] {{ {body} }}\n"));
             let inferred = root_schema_contract(&format!("{declarations}proc describe(mount: Str) {{ {body} }}\n"));

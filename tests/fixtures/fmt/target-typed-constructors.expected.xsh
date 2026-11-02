@@ -19,7 +19,7 @@ const entries: List[Entry] = [
 ]
 let picked: Kind = match entries[0].kind {
   File => .Binary,
-  _ => .File,
+  else => .File,
 }
 let found = [f"{e.path}" for e in entries if check(e) is Ok(_)]
 print f"{found.join(" ")}"

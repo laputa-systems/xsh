@@ -76,11 +76,11 @@ proc labeled(value: Str) -> Str {
 }
 match Err(E.Mixed(marked(1), labeled("b"))) {
   Err(E.Mixed {second, first}) => print f"second={second} first={first}"
-  _ => print "other"
+  else => print "other"
 }
 match Err(E.Pair(right: marked(2), left: marked(3))) {
   Err(E.Pair {left, right}) => print f"left={left} right={right}"
-  _ => print "other"
+  else => print "other"
 }
 """,
     status: 0,
@@ -222,7 +222,7 @@ let usage = E.Usage(1)
     """error E = Usage | Other(code: Int)
 match Err(E.Usage("x")) {
   Err(E.Usage {code}) => print $code
-  _ => print "other"
+  else => print "other"
 }
 """,
   )?
@@ -281,7 +281,7 @@ export proc refuse(reason: Str) -> Result[Unit, FetchError] {
     r"""use fetch
 match fetch.refuse("not a URL") {
   Err(fetch.FetchError.Usage {message}) => print f"usage: {message}"
-  _ => print "other"
+  else => print "other"
 }
 print ${fetch.FetchError.Usage().message}
 print ${fetch.FetchError.Usage("local").message}
@@ -361,7 +361,7 @@ export proc refuse(reason: Str) -> Result[Unit, FetchError] {
   let importer_source = r"""use fetch
 match fetch.refuse("not a URL") {
   Err(fetch.FetchError.Usage {message}) => print f"usage: {message}"
-  _ => print "other"
+  else => print "other"
 }
 print ${fetch.FetchError.Usage(message: "imported").message}
 """

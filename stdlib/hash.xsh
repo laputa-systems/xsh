@@ -90,7 +90,7 @@ export proc verify_file(file: Path, checksum: Str, algorithm: Str) [error] -> Re
     "sha1" => return verify_digest(hash.sha1(file)?, algorithm, checksum)
     "sha256" => return verify_digest(hash.sha256(file)?, algorithm, checksum)
     "sha512" => return verify_digest(hash.sha512(file)?, algorithm, checksum)
-    _ => return Err(
+    else => return Err(
       format_error(f"unsupported checksum algorithm `{algorithm}`"),
     )
   }

@@ -21,7 +21,7 @@ proc show(error: Error) {
     Err(Single.Usage) => print "single"
     Err(Commented.Offline {}) => print "commented offline"
     Err(is NotFound) => print "missing"
-    _ => print $error.message
+    else => print $error.message
   }
 }
 

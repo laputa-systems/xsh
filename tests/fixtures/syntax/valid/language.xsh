@@ -25,7 +25,7 @@ proc compile(src: Path, obj: Path, mode: Str = "opt", ...labels: List[Str]) {
   match status {
     s if s.ok => print "compiled "${src},
     s if s.exited_with(1) => eprint ${mode},
-    _ => return Err(CompileError.Failed(message: "failed"))
+    else => return Err(CompileError.Failed(message: "failed"))
   }
 
   for flag in flags {

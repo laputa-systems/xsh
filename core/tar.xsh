@@ -400,7 +400,7 @@ pure wrapping(name: Str) -> archive.Compression {
     "gz" => .Gzip
     "bz2" => .Bzip2
     "xz" => .Xz
-    _ => .Plain
+    else => .Plain
   }
 }
 

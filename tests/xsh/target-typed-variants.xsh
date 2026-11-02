@@ -46,7 +46,7 @@ let by_name: Map[Kind] = {sh: .Symlink}
 let entry = Entry(path: p"usr/bin/sh", kind: .Symlink)
 let picked: Kind = match entry.kind {
   Symlink => .File
-  _ => .Binary
+  else => .Binary
 }
 
 print label(annotated)
@@ -340,7 +340,7 @@ pure describe(step: Int) -> Str {
     Err(.Rejected {url, status}) => f"{url} {status}"
     Ok(.Fault(reason)) => f"fault {reason}"
     Ok(.Warn | .Info) => "calm"
-    _ => "other"
+    else => "other"
   }
 }
 
@@ -356,7 +356,7 @@ pure owned(kind: k.Kind) -> Str {
     Ok(k.Binary | .File) => "plain"
     Err(.Unowned {message}) => f"unowned: {message}"
     Err(.Conflict {owner, ..}) => f"conflict with {owner}"
-    _ => "other"
+    else => "other"
   }
 }
 
@@ -386,7 +386,7 @@ if let Err(.Usage {message}) = fetch(0) {
 let guarded = match level {
   Warn if failure
     .message != "" => "a guard still continues onto a .name line"
-  _ => "other"
+  else => "other"
 }
 print $guarded
 """,
@@ -418,7 +418,7 @@ test test_target_typed_variant_patterns_cannot_head_a_match_arm { |ctx|
 let level: Level = Warn
 match level {
   .Info => print "info"
-  _ => print "other"
+  else => print "other"
 }
 """,
     """enum Level { Info, Warn, Fault(Str) }
@@ -426,7 +426,7 @@ let level: Level = Warn
 let label = match level {
   Info => "info"
   .Fault(reason) => reason
-  _ => "other"
+  else => "other"
 }
 """,
     """error E = Usage | Other(code: Int)
@@ -438,7 +438,7 @@ match failure {
 """,
     """enum Level { Info, Warn }
 let level: Level = Warn
-let label = match level { .Info => "info", _ => "other" }
+let label = match level { .Info => "info", else => "other" }
 """,
   ] {
     let rejected = test.run_script(ctx, source)?
@@ -523,7 +523,7 @@ pure describe(step: Int) -> Str {
     Err(FetchError.Rejected {url, status}) => f"{url} {status}"
     Ok(k.Tree(depth)) => f"tree {depth}"
     Ok(k.Binary | k.File) => "plain"
-    _ => "other"
+    else => "other"
   }
 }
 
@@ -537,7 +537,7 @@ for step in range(4) {
   print $label (kind is k.Binary) (fetch(step) is Err(FetchError.Usage))
   match broad(step) {
     Err(FetchError.Usage {message}) => print f"broad usage {message}"
-    _ => print "broad other"
+    else => print "broad other"
   }
 }
 """

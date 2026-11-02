@@ -825,7 +825,7 @@ proc log(level: Str = "info", ...parts: List[Str]) -> Result[Unit] {
   match Ok(level) {
     Ok(value) if value == "info" => print ${value},
     Err(_) => return Err(Error(kind: "log")),
-    _ => print "other"
+    else => print "other"
   }
 }
 "#,
@@ -992,7 +992,7 @@ fn parser_accepts_keyword_expressions_mid_expression() {
         SourceId::new(0),
         "\
 let h = spawn run true ?
-let values = [1, if true { 2 } else { 3 }, match 4 { _ => 5 }, loop { break 6 }, retry [] { 7 }]
+let values = [1, if true { 2 } else { 3 }, match 4 { else => 5 }, loop { break 6 }, retry [] { 7 }]
 let commands = [1, run true ?, wait h?]
 ",
     );

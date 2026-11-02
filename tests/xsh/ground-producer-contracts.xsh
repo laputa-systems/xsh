@@ -4,7 +4,7 @@ test test_checked_list_storage_accepts_conditional_arms_with_null_and_empty_list
     r"""proc fuzz_main() [] -> Result[List[Str]] {
   try {
     var out: List[Str] = []
-    let nulls: List[Str?] = match -4 { 4 => [], 3 => ctx "label" { ["c"] }, _ => [null] }
+    let nulls: List[Str?] = match -4 { 4 => [], 3 => ctx "label" { ["c"] }, else => [null] }
     let mixed: List[Str?] = if nulls.len() == 1 { ["c"] } else { ["c", null] }
     let empty: List[Str] = ctx "label" { [] }
     let appended: List[Bool] = [true, false] + []
@@ -31,7 +31,7 @@ proc fuzz_main() [] -> Result[List[Str]] {
     let first: E0 = [E0V0(3, 15), E0V1(-7.75, 33)].get(1) ?? E0V2
     match first {
       E0V1(weight, _) => { out += [f"{weight}"] }
-      _ => {}
+      else => {}
     }
     out
   }
@@ -139,7 +139,7 @@ proc fuzz_main() [] -> Result[List[Str]] {
   try {
     var out: List[Str] = []
     out += [f"{keyed(map.empty(), bonus: 3)}"]
-    let counts: Map[Int?] = match 6 { 3 => map.empty(), 4 => {["a"]: null}, _ => {["b"]: 5, ["c"]: null} }
+    let counts: Map[Int?] = match 6 { 3 => map.empty(), 4 => {["a"]: null}, else => {["b"]: 5, ["c"]: null} }
     out += [f"{counts.len()}"]
     out
   }

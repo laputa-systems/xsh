@@ -45,7 +45,7 @@ export pure increment(value: Int = 1) -> Str { f"{value}" }
 let loaded = module.load(Path(args[0]))?
 match loaded.require(Plugin) {
   Err(is MismatchedExport) => print "rejected"
-  _ => exit 98
+  else => exit 98
 }
 """,
     status: 0,

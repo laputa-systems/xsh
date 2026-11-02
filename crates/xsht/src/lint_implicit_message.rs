@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn exported_error_payloads_remain_matchable_public_fields() {
-        let source = "export error AccountError = Database(message: Str) | Policy(message: Str)\n\nexport proc lookup() -> Result[Int, AccountError] {\n  Err(AccountError.Database(\"unknown database\"))\n}\n\nexport proc describe(result: Result[Int, AccountError]) -> Str {\n  match result {\n    Err(AccountError.Database {message}) => message\n    Err(AccountError.Policy {message}) => message\n    Ok(_) => \"ok\"\n    _ => \"other\"\n  }\n}\n";
+        let source = "export error AccountError = Database(message: Str) | Policy(message: Str)\n\nexport proc lookup() -> Result[Int, AccountError] {\n  Err(AccountError.Database(\"unknown database\"))\n}\n\nexport proc describe(result: Result[Int, AccountError]) -> Str {\n  match result {\n    Err(AccountError.Database {message}) => message\n    Err(AccountError.Policy {message}) => message\n    Ok(_) => \"ok\"\n    else => \"other\"\n  }\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);

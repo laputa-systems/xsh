@@ -153,14 +153,14 @@ test test_lint_does_not_suggest_unparseable_tail_return_for_typed_records { |ctx
 test test_lint_removes_checked_tail_returns_in_value_branches { |ctx|
   let root = test.temp_dir(ctx, name: "tail-return-branches")?
   let file = fp"{root}/tail.xsh"
-  let source = "pure label(code: Int) -> Str {\n  match code {\n    0 => return \"ok\"\n    _ => {\n      let detail: Str = f\"exit {code}\"\n      return detail # retain this comment\n    }\n  }\n}\n"
+  let source = "pure label(code: Int) -> Str {\n  match code {\n    0 => return \"ok\"\n    else => {\n      let detail: Str = f\"exit {code}\"\n      return detail # retain this comment\n    }\n  }\n}\n"
   file.write(source)
   assert_checks(file)
   let reported = lint(file, ["--only", "lint.redundant-tail-return"])?
   assert codes(reported.stderr) == ["lint.redundant-tail-return", "lint.redundant-tail-return"], reported.stderr
 
   let fixed = fixed_by(file, "lint.redundant-tail-return", source)?
-  assert fixed == "pure label(code: Int) -> Str {\n  match code {\n    0 => \"ok\"\n    _ => {\n      let detail: Str = f\"exit {code}\"\n      detail # retain this comment\n    }\n  }\n}\n", fixed
+  assert fixed == "pure label(code: Int) -> Str {\n  match code {\n    0 => \"ok\"\n    else => {\n      let detail: Str = f\"exit {code}\"\n      detail # retain this comment\n    }\n  }\n}\n", fixed
   assert_checks(file)
   let again = lint(file, ["--only", "lint.redundant-tail-return"])?
   assert codes(again.stderr) == [], again.stderr
@@ -171,7 +171,7 @@ test test_lint_removes_checked_tail_returns_in_value_branches { |ctx|
 test test_lint_tail_return_keeps_match_arm_record_an_expression { |ctx|
   let root = test.temp_dir(ctx, name: "tail-return-record")?
   let file = fp"{root}/tail.xsh"
-  let source = "type Row = {value: Int}\npure row(code: Int) -> Row {\n  match code {\n    0 => return {value: 1}\n    _ => return {value: 2}\n  }\n}\n"
+  let source = "type Row = {value: Int}\npure row(code: Int) -> Row {\n  match code {\n    0 => return {value: 1}\n    else => return {value: 2}\n  }\n}\n"
   file.write(source)
   assert_checks(file)
   let reported = lint(file, ["--only", "lint.redundant-tail-return"])?

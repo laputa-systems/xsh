@@ -102,7 +102,7 @@ proc describe(pkg: Package, prefix: Str = "pkg", ...labels: List[Str]) -> Result
   match Ok(pkg.name) {
     Ok(name) if name == "demo" => print ${prefix} ${name},
     Err(e) => return Err(e),
-    _ => print "other"
+    else => print "other"
   }
 
   for label in labels {

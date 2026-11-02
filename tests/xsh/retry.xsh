@@ -248,7 +248,7 @@ let result = retry [delay(), delay()] on (FetchError.Busy) {
 }
 match result {
   Err(FetchError.Fatal {message}) => print \${message}
-  _ => print "wrong"
+  else => print "wrong"
 }
 print f"{attempts} {delays} {cleaned}"
 """,
@@ -275,7 +275,7 @@ proc exhausted() -> Result[Str, FetchError] {
 let last = retry [0ms, 0ms] on (FetchError.Busy | FetchError.Timeout) { exhausted()? }
 match last {
   Err(FetchError.Busy {message}) => print \${message}
-  _ => print "wrong"
+  else => print "wrong"
 }
 attempts = 0
 proc mixed() -> Result[Str, FetchError] {
@@ -286,7 +286,7 @@ proc mixed() -> Result[Str, FetchError] {
 let result = retry [0ms, 0ms] on (FetchError.Busy | FetchError.Timeout) { mixed()? }
 match result {
   Err(FetchError.Fatal {message}) => print \${message}
-  _ => print "wrong"
+  else => print "wrong"
 }
 print \${attempts}
 """,
@@ -320,7 +320,7 @@ let nested = retry [0ms] on (FetchError.Busy) {
   retry [] on (FetchError.Busy) { attempt()? }?
 }
 print \${attempts}
-match nested { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
+match nested { Err(FetchError.Busy {message}) => print \${message}; else => print "wrong" }
 """,
   )?
   {
@@ -341,7 +341,7 @@ test test_retry_filter_trace_records_selection_and_stop_reason { |ctx|
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Fatal(message: "original")) }
 let result = retry [0ms] on (FetchError.Busy) { attempt()? }
-match result { Err(_) => print "stopped"; _ => print "wrong" }
+match result { Err(_) => print "stopped"; else => print "wrong" }
 """,
     ["--raw", "--trace-format", "jsonl"],
   )?
@@ -399,7 +399,7 @@ let result = retry [0ms] on (NotFound) {
   defer cleanup()?
   attempt()?
 }
-match result { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
+match result { Err(FetchError.Busy {message}) => print \${message}; else => print "wrong" }
 print f"{attempts} {cleaned}"
 """,
   )?
@@ -458,7 +458,7 @@ let result = retry [0ms] on (FetchError.Busy) {
   defer cleanup()?
   "success"
 }
-match result { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
+match result { Err(FetchError.Fatal {message}) => print \${message}; else => print "wrong" }
 print \${cleaned}
 """,
   )?
@@ -498,7 +498,7 @@ let result = retry [0ms] on (FetchError.Busy) {
     Err(FetchError.Fatal(message: "local"))?
     "unreachable"
   }
-  match local { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
+  match local { Err(FetchError.Fatal {message}) => print \${message}; else => print "wrong" }
   busy()?
 }
 print \${attempts}
@@ -508,7 +508,7 @@ proc escaped() -> Result[Str, FetchError] {
   }
   "wrong"
 }
-match escaped() { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
+match escaped() { Err(FetchError.Fatal {message}) => print \${message}; else => print "wrong" }
 """,
   )?
   {
