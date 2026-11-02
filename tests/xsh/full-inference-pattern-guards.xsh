@@ -236,3 +236,52 @@ print "absent"
   assert inferred.stdout == "b\ntrue\nfalse\nabsent\n"
   assert annotated.stdout == inferred.stdout
 }
+
+test test_inferred_nested_optional_bindings_on_independent_sources_match_annotations { |ctx|
+  let source = r"""pure value_form(name: NAME, other: NAME) -> Str {
+  if let found = name { if let o = other { f"{found} {o}" } else { f"{found}" } } else { "none" }
+}
+pure early_return_form(name: NAME, other: NAME) -> Str {
+  if let found = name {
+    if let o = other { return f"{found} {o}" }
+    return f"{found}"
+  }
+  "none"
+}
+pure bound_form(name: NAME, other: NAME) -> Str {
+  if let found = name {
+    let tail = if let o = other { f"{found} {o}" } else { f"{found}" }
+    return tail
+  }
+  "none"
+}
+pure else_form(name: NAME, other: NAME) -> Str {
+  if let found = name { f"{found}" } else { if let o = other { f"-{o}" } else { "none" } }
+}
+pure deep_form(a: NAME, b: NAME, c: NAME) -> Str {
+  if let x = a { if let y = b { if let z = c { f"{x}{y}{z}" } else { f"{x}{y}" } } else { f"{x}" } } else { "none" }
+}
+print value_form("a", "b")
+print value_form("a", null)
+print value_form(null, "b")
+print early_return_form("a", "b")
+print early_return_form("a", null)
+print early_return_form(null, "b")
+print bound_form("a", "b")
+print bound_form("a", null)
+print bound_form(null, "b")
+print else_form("a", "b")
+print else_form(null, "b")
+print else_form(null, null)
+print deep_form("a", "b", "c")
+print deep_form("a", "b", null)
+print deep_form("a", null, "c")
+print deep_form(null, "b", "c")
+"""
+  let inferred = test.run_xsh(ctx, source.replace(": NAME", with: ""))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "a b\na\nnone\na b\na\nnone\na b\na\nnone\na\n-b\nnone\nabc\nab\na\nnone\n"
+  assert inferred.stdout == annotated.stdout
+}

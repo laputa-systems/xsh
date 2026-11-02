@@ -467,3 +467,70 @@ visit(null, 1)
   assert inferred.stdout == "got a\nnone\n"
   assert inferred.stdout == annotated.stdout
 }
+
+test test_full_inference_self_recursive_callable_keeps_nested_guards { |ctx|
+  let source = r"""pure left(name: NAME, other: NAME, depth: Int) -> Str {
+  if depth > 0 { return left(name, other, depth - 1) }
+  if let found = name { if let o = other { f"left {found} {o}" } else { f"left {found}" } } else { "left none" }
+}
+pure locate(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return locate(name, depth - 1) }
+  if let found = name { if let at = found.find("b") { f"at {at}" } else { f"no b in {found}" } } else { "none" }
+}
+print left("a", "b", 1)
+print left("a", null, 2)
+print left(null, "c", 1)
+print locate("abc", 1)
+print locate("xyz", 1)
+print locate(null, 1)
+"""
+  let inferred = test.run_xsh(ctx, source.replace(": NAME", with: ""))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "left a b\nleft a\nleft none\nat 1\nno b in xyz\nnone\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_mutual_recursion_keeps_nested_guards { |ctx|
+  let source = r"""pure left(name: NAME, other: NAME, depth: Int) -> Str {
+  if depth > 0 { return right(name, other, depth - 1) }
+  if let found = name { if let o = other { f"left {found} {o}" } else { f"left {found}" } } else { "left none" }
+}
+pure right(name: NAME, other: NAME, depth: Int) -> Str {
+  if depth > 0 { return left(name, other, depth - 1) }
+  if let found = name { f"right {found}" } else { "right none" }
+}
+print left("a", "b", 1)
+print left("a", null, 2)
+print right(null, "c", 1)
+"""
+  let inferred = test.run_xsh(ctx, source.replace(": NAME", with: ""))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "right a\nleft a\nleft none\n"
+  assert inferred.stdout == annotated.stdout
+}
+
+test test_full_inference_mutual_recursion_keeps_nested_guards_on_a_found_value { |ctx|
+  let source = r"""pure left(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return right(name, depth - 1) }
+  if let found = name { if let at = found.find("b") { f"left {at}" } else { f"left {found}" } } else { "left none" }
+}
+pure right(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return left(name, depth - 1) }
+  if let found = name { f"right {found}" } else { "right none" }
+}
+print left("abc", 1)
+print left(null, 2)
+print left("abc", 2)
+print left("xyz", 2)
+"""
+  let inferred = test.run_xsh(ctx, source.replace(": NAME", with: ""))?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "right abc\nleft none\nleft 1\nleft xyz\n"
+  assert inferred.stdout == annotated.stdout
+}

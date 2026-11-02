@@ -3510,6 +3510,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
     ) -> Option<BuildExprId> {
         let statement = self.program.arena.core_stmt_id(statement);
+        let start = { let scratch = self.scratch.borrow(); (scratch.expressions.len(), scratch.statements.len()) };
+        let result = self.lower_scheme_tail_value_inner(statement, slots, current_function, facts, visited, lowered_types, body);
+        self.record_scheme_guard_rows(facts.guard_scopes().statements.get(&statement).copied(), start);
+        result
+    }
+
+    fn lower_scheme_tail_value_inner(
+        &mut self, statement: StmtId, slots: &mut SlotScope, current_function: Name,
+        facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>,
+        lowered_types: &mut BTreeMap<BuildExprId, SchemeType>, body: &mut Vec<BuildStmtId>,
+    ) -> Option<BuildExprId> {
         match self.program.arena.stmt(statement).kind {
             ArenaStmtKind::Return(None) if facts.scheme().kind() == CallableKind::Proc => {
                 let value = push_build_row!(self, expr, BuildExprRow::Unit);
