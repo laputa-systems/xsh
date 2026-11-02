@@ -110,6 +110,18 @@ pub(super) struct GuardDependencies {
 }
 
 impl GuardDependencies {
+    pub(super) fn owned_by(guards: &[std::sync::Arc<GuardRequirements>]) -> Self {
+        let mut owned = Self::default();
+        let mut pending = guards.iter().collect::<Vec<_>>();
+        while let Some(guard) = pending.pop() {
+            owned.types.extend(guard.type_parameters.iter().copied());
+            owned.rows.extend(guard.row_parameters.iter().map(|parameter| parameter.id));
+            owned.effects.extend(guard.requirements.effect_parameters.iter().copied());
+            pending.extend(&guard.requirements.guards);
+        }
+        owned
+    }
+
     fn add_type(&mut self, ty: &SchemeType) {
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {

@@ -1496,9 +1496,10 @@ impl TypeConstraints {
             if scope.owner != CallableApplicationScope::Declaration(owner) {
                 return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
             }
-            let type_arguments = scope.types.iter().map(|(&variable, &parameter)| (parameter, Type::Inference(variable))).collect::<BTreeMap<_, _>>();
-            let row_arguments = scope.rows.iter().map(|(&variable, &parameter)| (parameter, variable)).collect::<BTreeMap<_, _>>();
-            let effect_arguments = scope.effects.iter().map(|(&variable, &parameter)| (parameter, variable)).collect::<BTreeMap<_, _>>();
+            let guarded = super::guarded_requirements::GuardDependencies::owned_by(&callable.requirements().guards);
+            let type_arguments = scope.types.iter().filter(|(_, parameter)| !guarded.types.contains(parameter)).map(|(&variable, &parameter)| (parameter, Type::Inference(variable))).collect::<BTreeMap<_, _>>();
+            let row_arguments = scope.rows.iter().filter(|(_, parameter)| !guarded.rows.contains(parameter)).map(|(&variable, &parameter)| (parameter, variable)).collect::<BTreeMap<_, _>>();
+            let effect_arguments = scope.effects.iter().filter(|(_, parameter)| !guarded.effects.contains(parameter)).map(|(&variable, &parameter)| (parameter, variable)).collect::<BTreeMap<_, _>>();
             if type_arguments.keys().copied().collect::<BTreeSet<_>>() != callable.type_parameters().iter().copied().collect()
                 || row_arguments.keys().copied().collect::<BTreeSet<_>>() != callable.row_parameters().iter().map(|parameter| parameter.id).collect()
                 || effect_arguments.keys().copied().collect::<BTreeSet<_>>() != callable.requirements().effect_parameters.iter().copied().collect()
@@ -1549,14 +1550,20 @@ impl TypeConstraints {
             return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedCallableApplication));
         }
         let mut generalization = self.requirement_generalization(callable, scope, view);
-        if view.guard.is_none() && self.generalized_map_keys(&generalization)? != view.requirements.map_key_parameters {
-            return Err(SchemeOperationError::Build(SchemeBuildError::MapKey));
-        }
-        if view.guard.is_none() && self.generalized_conversions(&generalization)? != view.requirements.conversion_parameters {
-            return Err(SchemeOperationError::Build(SchemeBuildError::Conversion));
-        }
-        if view.guard.is_none() && self.generalized_iterations(0, &mut generalization)? != view.requirements.iteration_parameters {
-            return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+        if view.guard.is_none() {
+            let guarded = super::guarded_requirements::GuardDependencies::owned_by(&callable.requirements().guards);
+            let (guard_types, root_types) = std::mem::take(&mut generalization.type_ids).into_iter().partition::<BTreeMap<_, _>, _>(|(_, parameter)| guarded.types.contains(parameter));
+            generalization.type_ids = root_types;
+            if self.generalized_map_keys(&generalization)? != view.requirements.map_key_parameters {
+                return Err(SchemeOperationError::Build(SchemeBuildError::MapKey));
+            }
+            if self.generalized_conversions(&generalization)? != view.requirements.conversion_parameters {
+                return Err(SchemeOperationError::Build(SchemeBuildError::Conversion));
+            }
+            if self.generalized_iterations(0, &mut generalization)? != view.requirements.iteration_parameters {
+                return Err(SchemeOperationError::Build(SchemeBuildError::BodyTypeNotBound));
+            }
+            generalization.type_ids.extend(guard_types);
         }
         for &(ordinal, id) in &applications {
             let application = self.generalize_callable_application(id, 0, &mut generalization)?;

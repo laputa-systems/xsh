@@ -255,6 +255,22 @@ print "built"
   assert inferred.stdout == annotated.stdout
 }
 
+test test_full_inference_self_recursive_guard_keeps_a_local_view_binder { |ctx|
+  let source = r"""pure render(name: NAME, depth: Int) -> Str {
+  if depth > 0 { return render(name, depth - 1) }
+  if let found = name { f"got {found}" } else { "none" }
+}
+print render("text", 2)
+print render(null, 1)
+"""
+  let inferred = test.run_xsh(ctx, source.replace("name: NAME", with: "name") + "print render(5, 1)\n")?
+  let annotated = test.run_xsh(ctx, source.replace("NAME", with: "Str?"))?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == annotated.stdout + "got 5\n"
+  assert annotated.stdout == "got text\nnone\n"
+}
+
 test test_full_inference_recursive_null_argument_makes_the_shared_parameter_nullable { |ctx|
   let inferred = test.run_xsh(
     ctx,
