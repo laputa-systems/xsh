@@ -1504,3 +1504,9 @@ fn a_type_name_before_a_range_is_not_a_qualified_name() {
     assert_parser_and_grammar_agree("let v = c[y as T ..]\n", true);
     assert_parser_and_grammar_agree("let v = c[y as T.U ..]\n", true);
 }
+
+#[test]
+fn an_error_facet_before_a_range_is_not_a_qualified_facet() {
+    assert_parser_and_grammar_agree("let v = c[y is is f ..]\n", true);
+    assert_parser_and_grammar_agree("let v = x is Err(is a.b)\n", true);
+}

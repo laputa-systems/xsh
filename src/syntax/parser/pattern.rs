@@ -464,7 +464,10 @@ impl<'a> Parser<'a> {
                 }
                 if name == "is" {
                     let facet = self.expect_ident("expected error facet after `is`")?;
-                    let facet = if self.consume(TokenKindMatch::Dot).is_some() {
+                    let facet = if self.at(TokenKindMatch::Dot)
+                        && self.peek_tag(1) == Some(TokenTag::Ident)
+                    {
+                        self.bump();
                         let member = self.expect_ident("expected error facet after `.`")?;
                         crate::symbol::Name::intern(format!("{facet}.{member}"))
                     } else {
