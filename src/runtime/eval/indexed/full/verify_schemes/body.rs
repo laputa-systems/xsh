@@ -8865,6 +8865,26 @@ driver()?
     }
 
     #[test]
+    fn a_fallback_on_a_null_tested_field_authenticates_its_guard_polarity() {
+        let mut program = prepare(r#"
+pure bound(item) -> Bool { item.mark != null and (item.mark ?? -1) == 1 }
+"#);
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "bound").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let comparison = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Ne, .. }))
+        }).expect("the null test survives lowering");
+        let comparison_words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let equal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Eq).unwrap();
+        let mut flipped = program.clone();
+        assert!(flipped.store.in_place.get().is_none());
+        flipped.store.extra[comparison_words.start] = equal as u32;
+        let error = FullVerifier::verify(&flipped).expect_err("the absent branch cannot own the payload");
+        assert_eq!(error.message, "guard-local body fact has no dominating non-null source proof", "{error:?}");
+    }
+
+    #[test]
     fn guarded_requirements_authenticate_sources_polarity_scope_and_absence() {
         let mut program = prepare(r#"
 pure selected(value, other) -> Str {

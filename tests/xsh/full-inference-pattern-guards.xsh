@@ -399,3 +399,28 @@ print $outside(3, above)
 assert outside({kind: 1}, {threshold: {kind: 2}})
 """, status: 2, stderr: ["[check."])?
 }
+
+test test_full_inference_fallback_on_a_null_tested_field_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Socket = {family: Int, mark: Int?}
+pure bound(item) -> Bool { item.mark != null and (item.mark ?? -1) == 1 }
+pure bound_annotated(item: Socket) -> Bool { item.mark != null and (item.mark ?? -1) == 1 }
+let present: Socket = {family: 1, mark: 1}
+let other: Socket = {family: 1, mark: 2}
+let absent: Socket = {family: 1, mark: null}
+for socket in [present, other, absent] {
+  assert bound(socket) == bound_annotated(socket)
+  print $bound(socket)
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true\nfalse\nfalse\n"
+  test.expect(
+    ctx,
+    "type Plain = {family: Int, mark: Int}\npure bound(item) -> Bool { item.family != null and (item.mark ?? -1) == 1 }\nlet plain: Plain = {family: 1, mark: 1}\nlet rejected = bound(plain)\n",
+    status: 2,
+    stderr: ["[check.result-fallback]", "UnsupportedSource"],
+  )?
+}

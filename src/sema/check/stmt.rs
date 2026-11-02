@@ -3884,6 +3884,11 @@ impl Checker {
         self.proof_subject_arena(arena, expr).is_some_and(|(_, path, _, binding)| {
             let unrefined = binding.unrefined_ty.as_ref().and_then(|ty| super::proof::projected_type(ty, &path));
             match unrefined {
+                None => binding.guarded_field_views.iter().any(|(narrowing, _)| {
+                    *narrowing.path == *path
+                        && binding.proof.accepts(narrowing)
+                        && matches!(narrowing.refinement, super::proof::Refinement::NonNull { .. })
+                }),
                 Some(Type::Optional(_)) => true,
                 Some(unrefined @ Type::Inference(_)) => super::proof::projected_type(&binding.ty, &path).is_some_and(|refined| matches!(refined, Type::Inference(_)) && refined != unrefined),
                 _ => false,
