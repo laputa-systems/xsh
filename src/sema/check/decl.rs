@@ -1099,7 +1099,7 @@ impl Checker {
                 let wrapper = self.type_constraints.generalized_wrapper_ordinal(wrapper, effect_declaration, &callable, pending.generalized_scope()?);
                 match (operation, wrapper) {
                     (Ok(Some(operation)), Ok(Some(wrapper))) => { map_key_sites.insert(span, (expression, operation, wrapper)); }
-                    (Ok(None), Ok(None)) => {}
+                    (Ok(None), Ok(None)) | (Ok(Some(_)), Ok(None)) => {}
                     _ => { self.error(span, "map key validation has no checked scope", DiagnosticCode::CheckLocalInference); return None; }
                 }
             }

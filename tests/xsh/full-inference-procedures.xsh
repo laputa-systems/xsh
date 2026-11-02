@@ -106,6 +106,36 @@ visit_annotated(environment)
   )?
 }
 
+test test_full_inference_map_key_fixed_to_text_after_the_lookup_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure lookup(environment, key) -> Bytes {
+  let value = environment.get(key) ?? b""
+  bytes.concat([bytes.from_text(key), b"=", value])
+}
+pure lookup_annotated(environment: Map[Str, Bytes], key: Str) -> Bytes {
+  let value = environment.get(key) ?? b""
+  bytes.concat([bytes.from_text(key), b"=", value])
+}
+let environment: Map[Str, Bytes] = {HOME: b"/root"}
+for key in ["HOME", "PATH"] {
+  assert lookup(environment, key) == lookup_annotated(environment, key)
+  print $lookup(environment, key).len()
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "10\n5\n"
+  for key_type in ["UInt", "Int"] {
+    test.expect(
+      ctx,
+      "pure lookup(environment, key) -> Bytes {\n  let value = environment.get(key) ?? b\"\"\n  bytes.concat([bytes.from_text(key), b\"=\", value])\n}\nlet environment: Map[" + key_type + ", Bytes] = {}\nlet found = lookup(environment, \"HOME\")\n",
+      status: 2,
+      stderr: ["err["],
+    )?
+  }
+}
+
 proc full_inference_procedure_modules(ctx: TestContext) [fs, error] -> Result[Path] {
   let modules = test.temp_dir(ctx, name: "full-inference-procedure-modules")?
   let fixture = fp"{ctx.file.parent()}/../fixtures/modules/full-inference-procedures/wrappers.xsh"
