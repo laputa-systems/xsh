@@ -24840,6 +24840,30 @@ pure lookup(colors) { let _ = read(colors, 1); 0 }
     }
 
     #[test]
+    fn repeated_guarded_reads_must_name_the_same_binding() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("guarded-repeated-reads.xsh", r#"
+pure show(value) -> Int { 0 }
+pure outer(ctx, other, flagged) -> Int {
+    let pair = [ctx, other]
+    if flagged.link != null { show(ctx) + show(ctx) } else { 0 }
+}
+"#));
+            FullVerifier::verify(&program).unwrap();
+            let decoder = function_view_decoder(&program.store, scheme_fixture_root_function(&program, "outer"));
+            let reads = function_instruction_indices(&program, "outer", FullTag::ExprParam).into_iter()
+                .filter(|param| matches!(decoder.expression_view(*param).unwrap(), schema::ExprView::Param(0)))
+                .collect::<Vec<_>>();
+            let last = *reads.last().unwrap();
+            assert!(reads.len() >= 3);
+            let payload = program.store.data[last].range().bounds(program.store.extra.len()).unwrap();
+            let mut other_binding = (*program).clone();
+            other_binding.store.extra[payload.start] = 1;
+            assert!(FullVerifier::verify(&other_binding).is_err());
+        });
+    }
+
+    #[test]
     fn generic_arguments_authenticate_mutable_cursor_writers() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture("generic-mutable-cursor-argument.xsh", r#"

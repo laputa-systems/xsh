@@ -243,3 +243,28 @@ pure count(entry) -> Int { entry.elements.len() }
 pure unanchored() -> Int { count({elements: []}) }
 """, status: 2, stderr: ["[check.local-inference]", "local type needs an annotation"])?
 }
+
+test test_full_inference_guard_scope_keeps_repeated_reads_of_an_unrelated_parameter { |ctx|
+  let checks = r"""
+assert outer(1, {link: "a"}) == 2
+assert outer(1, {link: null}) == 0
+print "repeated"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+pure show(value) -> Int { 1 }
+pure outer(context, entry) -> Int {
+  if entry.link != null { show(context) + show(context) } else { 0 }
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Entry = {link: Str?}
+pure show(value: Int) -> Int { 1 }
+pure outer(context: Int, entry: Entry) -> Int {
+  if entry.link != null { show(context) + show(context) } else { 0 }
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "repeated\n"
+}

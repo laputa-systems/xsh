@@ -739,7 +739,17 @@ impl ProducerPrefixContext<'_> {
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         let Some(target) = self.guard_source_binding_path(decoder, instruction, instruction, charge)? else { return Ok(false); };
-        Ok(self.guard_value_expression(decoder, source, source, &target, charge)? == Some(instruction))
+        let Some(resolved) = self.guard_value_expression(decoder, source, source, &target, charge)? else { return Ok(false); };
+        if resolved == instruction { return Ok(true); }
+        let (schema::ExprView::Param(read_slot), schema::ExprView::Param(source_slot)) = (decoder.expression_view(instruction)?, decoder.expression_view(resolved)?) else { return Ok(false); };
+        let read_binding = self.evidence.binding(decoder.store, decoder.owner, instruction, read_slot)?;
+        if !target.1.is_empty() || self.evidence.binding(decoder.store, decoder.owner, resolved, source_slot)? != read_binding { return Ok(false); }
+        charge(1)?;
+        Ok(match (self.evidence.writers.get(&read_binding), read_binding) {
+            (None, _) => true,
+            (Some(writers), ProducerBinding::ScopedDeclaration(declaration, _)) => writers.as_slice() == [declaration],
+            (Some(_), _) => false,
+        })
     }
 
     pub(super) fn guard_output_condition(&self, decoder: &FullDecoder<'_>, condition: usize, comparison: usize, source: usize, nonnull_when: bool,
