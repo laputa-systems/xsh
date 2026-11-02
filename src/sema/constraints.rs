@@ -1148,10 +1148,10 @@ impl TypeConstraints {
                 &mut |generalization, ty| self.generalize_type(ty, environment_level, generalization, 0),
                 &mut |generalization, source, (callable, instantiated)| {
                     Ok((source, self.generalize_call_instantiation(callable, instantiated, generalization, environment_level, ground_caller,
-                        &requirements.applications, &requirements.operations, &requirements.methods, &requirements.guard_calls, &requirements.wrappers)?))
+                        &requirements.applications, &requirements.operations, &requirements.methods, &requirements.guard_calls, &requirements.wrappers, false)?))
                 },
                 &mut |generalization, (callable, instantiated)| self.generalize_call_instantiation(callable, instantiated, generalization, environment_level, ground_caller,
-                    &requirements.applications, &requirements.operations, &requirements.methods, &requirements.guard_calls, &requirements.wrappers),
+                    &requirements.applications, &requirements.operations, &requirements.methods, &requirements.guard_calls, &requirements.wrappers, false),
                 ).map_err(materialization_operation_error)
             })?;
             call_instantiations.insert(span, call);
@@ -1250,6 +1250,7 @@ impl TypeConstraints {
         caller_methods: &[super::schemes::MethodFamilyRequirement<SchemeType>],
         caller_guard_calls: &[Arc<super::guarded_requirements::GuardCallRequirement>],
         caller_wrappers: &[super::wrapper_operation::WrapperRequirement<SchemeType, SchemeEffectParameterId>],
+        recursive: bool,
     ) -> Result<CallInstantiation, SchemeOperationError> {
         let type_arguments = instantiated
             .type_arguments
@@ -1316,7 +1317,7 @@ impl TypeConstraints {
             &ground_scope
         } else { &*generalization };
         CallInstantiation::with_method_bindings(
-            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?, self.resolved_guard_packets(callable.requirements(), instantiated, Some((forwarding_scope, self.call_root_is_open(callable, instantiated)?)))?,
+            callable, type_arguments, row_arguments, effect_arguments, bindings, self.sealed_operation_bindings(instantiated, forwarding_scope)?, method_bindings, self.wrapper_bindings(instantiated, forwarding_scope)?, if recursive { self.recursive_guard_packets(callable.requirements(), instantiated)? } else { self.resolved_guard_packets(callable.requirements(), instantiated, Some((forwarding_scope, self.call_root_is_open(callable, instantiated)?)))? },
             &generalization.type_parameters, &generalization.row_parameters, &generalization.effect_parameters,
             caller_applications, caller_operations, caller_methods, caller_guard_calls, caller_wrappers, &self.generalized_map_keys(generalization)?, &self.generalized_conversions(generalization)?)
         .map_err(SchemeOperationError::Build)
@@ -1328,6 +1329,7 @@ impl TypeConstraints {
         scope: &CallableGeneralizationScope,
         callee: &CallableScheme,
         instance: &InstantiatedScheme,
+        recursive: bool,
     ) -> Result<CallInstantiation, SchemeOperationError> {
         self.validate_generalized_applications(caller, scope)?;
         self.validate_generalized_operations(caller, scope)?;
@@ -1338,6 +1340,7 @@ impl TypeConstraints {
             callee, instance, &mut generalization, 0,
             caller.type_parameters().is_empty() && caller.row_parameters().is_empty(),
             &caller.requirements().applications, &caller.requirements().operations, &caller.requirements().methods, &caller.requirements().guard_calls, &caller.requirements().wrappers,
+            recursive,
         )?;
         if generalization.type_ids != scope.types || generalization.row_ids != scope.rows
             || generalization.effect_ids != scope.effects || generalization.applications != scope.applications || generalization.operations != scope.operations || generalization.methods != scope.methods || generalization.wrappers != scope.wrappers

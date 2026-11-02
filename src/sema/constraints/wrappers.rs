@@ -435,6 +435,16 @@ impl TypeConstraints {
         }).collect()
     }
 
+    pub(super) fn recursive_guard_packets(&self, requirements: &crate::sema::schemes::CallableRequirements, instance: &super::InstantiatedRequirements) -> Result<crate::sema::guarded_requirements::GuardBindings, SchemeOperationError> {
+        if !instance.guards.is_empty() || !instance.guard_calls.is_empty() || !requirements.guard_calls.is_empty() {
+            return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedGuardScope));
+        }
+        Ok(crate::sema::guarded_requirements::GuardBindings {
+            scopes: vec![crate::sema::guarded_requirements::GuardBinding::Recursive; requirements.guards.len()],
+            calls: Vec::new(),
+        })
+    }
+
     pub(super) fn resolved_guard_packets(&self, requirements: &crate::sema::schemes::CallableRequirements, instance: &super::InstantiatedRequirements, forwarding: Option<(&super::Generalization, bool)>) -> Result<crate::sema::guarded_requirements::GuardBindings, SchemeOperationError> {
         let templates = requirements.guard_calls.iter().map(|call| std::sync::Arc::clone(&call.template)).collect::<Vec<_>>();
         Ok(crate::sema::guarded_requirements::GuardBindings {

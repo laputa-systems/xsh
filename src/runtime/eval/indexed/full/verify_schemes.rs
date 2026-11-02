@@ -187,6 +187,14 @@ struct SymbolicCallSubstitution {
     effects: Vec<EffectContract<SchemeEffectParameterId>>,
 }
 
+impl SymbolicCallSubstitution {
+    fn is_identity(&self, scope: &SchemeScope) -> bool {
+        self.types.iter().zip(&scope.type_parameters).all(|(ty, parameter)| matches!(ty, SchemeType::Parameter(id) if id.0 == parameter.id))
+            && self.rows.iter().zip(&scope.row_parameters).all(|(row, parameter)| row.fields.is_empty() && matches!(row.tail, SchemeRowTail::Parameter(id) if id.0 == parameter.id))
+            && self.effects.iter().zip(&scope.effects.parameters).all(|(effect, parameter)| *effect == EffectContract::variable(SchemeEffectParameterId(parameter.id)))
+    }
+}
+
 enum SchemeTypeExpectation {
     Encoded(SchemeTypeId),
     Ground(Type),
@@ -1007,7 +1015,7 @@ fn verify_scheme_tables(
         {
             match binding {
                 super::guard_schemes::FullGuardBinding::NonNull(local) | super::guard_schemes::FullGuardBinding::Optional(local) => pending_instantiations.push((instruction, *local)),
-                super::guard_schemes::FullGuardBinding::Null | super::guard_schemes::FullGuardBinding::Call(_) => {},
+                super::guard_schemes::FullGuardBinding::Null | super::guard_schemes::FullGuardBinding::Call(_) | super::guard_schemes::FullGuardBinding::Recursive => {},
             }
         }
         let caller = caller_scheme_for_instruction(
@@ -3550,7 +3558,8 @@ fn verify_call_instantiations(
                 Some(&mut row_field_coverage),
                 &mut budget,
             )?;
-            if !guard_calls::verify_forwarded_bindings(store, scheme, scope, caller_scope, instantiation.instruction, instantiation.arguments, &mut budget)? {
+            let recursion = (scheme_id == caller_scheme).then_some(&substitution);
+            if !guard_calls::verify_forwarded_bindings(store, scheme, scope, caller_scope, instantiation.instruction, instantiation.arguments, recursion, &mut budget)? {
                 let closed = closed_symbolic_substitution(scope, &substitution, &mut budget)?;
                 guards::verify_ground_bindings(store, scheme, scope, scopes, instantiation.arguments, &closed, &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage, &mut budget)?;
             }

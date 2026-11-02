@@ -215,3 +215,42 @@ test test_full_inference_rejected_recursive_proc_reports_its_own_error_not_an_ef
   assert "[check.type-mismatch]" in output.stderr, output.stderr
   assert "[check.local-inference]" not in output.stderr, output.stderr
 }
+
+test test_full_inference_self_recursive_proc_keeps_its_guard_over_an_unresolved_parameter { |ctx|
+  let inferred = test.run_xsh(
+    ctx,
+    r"""pure render(name, depth: Int) -> Str {
+  if depth > 0 { return render(name, depth - 1) }
+  if let found = name { found } else { "none" }
+}
+proc build(name, depth: Int) [error] {
+  if depth > 0 { build(name, depth - 1) }
+  if let found = name { assert found.byte_len() == 4 }
+}
+print render("text", 2)
+print render(null, 2)
+build("deep", 1)
+print "built"
+""",
+  )?
+  let annotated = test.run_xsh(
+    ctx,
+    r"""pure render(name: Str?, depth: Int) -> Str {
+  if depth > 0 { return render(name, depth - 1) }
+  if let found = name { found } else { "none" }
+}
+proc build(name: Str?, depth: Int) [error] {
+  if depth > 0 { build(name, depth - 1) }
+  if let found = name { assert found.byte_len() == 4 }
+}
+print render("text", 2)
+print render(null, 2)
+build("deep", 1)
+print "built"
+""",
+  )?
+  assert inferred.success, inferred.stderr
+  assert annotated.success, annotated.stderr
+  assert inferred.stdout == "text\nnone\nbuilt\n"
+  assert inferred.stdout == annotated.stdout
+}

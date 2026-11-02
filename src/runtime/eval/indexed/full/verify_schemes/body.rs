@@ -9143,6 +9143,58 @@ observe()?
     }
 
     #[test]
+    fn recursive_guard_bindings_are_authenticated_against_the_calls_own_callable() {
+        use super::super::super::guard_schemes::FullGuardBinding;
+        let mut program = prepare(r#"
+pure render(name, depth: Int) -> Str {
+    if depth > 0 { return render(name, depth - 1) }
+    if let found = name { found } else { "none" }
+}
+pure relay(name) -> Str { render(name, 1) }
+proc observe() -> Result[Unit] {
+    assert relay("a") == "a"
+    assert relay(null) == "none"
+    Ok()
+}
+observe()?
+"#);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let function = |name: &str| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let call_in = |program: &FullProgram, owner: usize| {
+            let range = program.store.function_instruction_range(owner).unwrap();
+            program.store.call_instantiations.iter().position(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 1).unwrap()
+        };
+        let binding_of = |program: &FullProgram, call: usize| program.store.call_instantiations[call].arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap().start;
+        let recursive = call_in(&program, function("render"));
+        let recursive_binding = binding_of(&program, recursive);
+        assert_eq!(program.store.call_guard_bindings[recursive_binding], FullGuardBinding::Recursive);
+
+        let mut concrete = program.clone();
+        concrete.store.call_guard_bindings[recursive_binding] = FullGuardBinding::Null;
+        assert!(FullVerifier::verify(&concrete).is_err(), "a recursive slot cannot be replaced by a concrete classification");
+
+        let mut foreign = program.clone();
+        let relay = call_in(&foreign, function("relay"));
+        let relay_binding = binding_of(&foreign, relay);
+        assert!(!matches!(foreign.store.call_guard_bindings[relay_binding], FullGuardBinding::Recursive));
+        foreign.store.call_guard_bindings[relay_binding] = FullGuardBinding::Recursive;
+        let error = FullVerifier::verify(&foreign).unwrap_err();
+        assert!(error.message == "guard call origin disagrees with its actual target binding" || error.message == "recursive guard binding is outside its own callable", "{error:?}");
+
+        let mut shifted = program.clone();
+        let arguments = shifted.store.call_instantiations[recursive].arguments;
+        let types = arguments.type_arguments.bounds(shifted.store.call_type_arguments.len()).unwrap();
+        let super::super::super::FullCallableContract::Scheme(render) = shifted.store.functions[function("render")].contract else { panic!("render is generic") };
+        let ground = shifted.store.scheme_params[shifted.store.schemes[render.index()].params.bounds(shifted.store.scheme_params.len()).unwrap()][1].ty;
+        let argument = shifted.store.call_type_arguments[types.start].ty;
+        assert_ne!(argument, ground);
+        shifted.store.scheme_types[argument.index()] = shifted.store.scheme_types[ground.index()];
+        let error = FullVerifier::verify(&shifted).unwrap_err();
+        assert!(error.message == "recursive guard binding has a non-identity call substitution", "{error:?}");
+    }
+
+    #[test]
     fn forwarded_runtime_guard_packets_retain_caller_and_callsite_provenance() {
         let program = prepare(r#"
 pure render(value) -> Str { if value == null { "" } else { f"{value}" } }

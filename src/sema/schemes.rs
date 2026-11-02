@@ -1332,7 +1332,7 @@ impl CallInstantiation {
         for guard in mapped.guard_bindings.scopes.iter_mut().chain(&mut mapped.guard_bindings.calls) {
             match guard {
                 super::guarded_requirements::GuardBinding::NonNull(binding) | super::guarded_requirements::GuardBinding::Optional(binding) => **binding = binding.map_ground_types(map),
-                super::guarded_requirements::GuardBinding::Null | super::guarded_requirements::GuardBinding::Call(_) => {},
+                super::guarded_requirements::GuardBinding::Null | super::guarded_requirements::GuardBinding::Call(_) | super::guarded_requirements::GuardBinding::Recursive => {},
             }
         }
         for ty in mapped.type_arguments.values_mut() { ty.map_ground_types(map); }
@@ -1372,7 +1372,7 @@ impl CallInstantiation {
             .saturating_add(self.operation_bindings.capacity() * size_of::<SealedOperationBinding>())
             .saturating_add(self.method_bindings.capacity() * size_of::<SealedMethodBinding>())
             .saturating_add((self.guard_bindings.scopes.capacity() + self.guard_bindings.calls.capacity()) * size_of::<super::guarded_requirements::GuardBinding>())
-            .saturating_add(self.guard_bindings.scopes.iter().chain(&self.guard_bindings.calls).map(|binding| match binding { super::guarded_requirements::GuardBinding::NonNull(binding) | super::guarded_requirements::GuardBinding::Optional(binding) => binding.retained_bytes(), super::guarded_requirements::GuardBinding::Null | super::guarded_requirements::GuardBinding::Call(_) => 0 }).sum::<usize>())
+            .saturating_add(self.guard_bindings.scopes.iter().chain(&self.guard_bindings.calls).map(|binding| match binding { super::guarded_requirements::GuardBinding::NonNull(binding) | super::guarded_requirements::GuardBinding::Optional(binding) => binding.retained_bytes(), super::guarded_requirements::GuardBinding::Null | super::guarded_requirements::GuardBinding::Call(_) | super::guarded_requirements::GuardBinding::Recursive => 0 }).sum::<usize>())
             .saturating_add(self.wrapper_bindings.capacity() * size_of::<super::wrapper_operation::WrapperBinding>())
             .saturating_add(self.application_bindings.capacity() * size_of::<CallableApplicationBinding>())
             .saturating_add(self.application_bindings.iter().map(|binding| {

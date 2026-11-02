@@ -232,7 +232,7 @@ mod tests {
             assert_eq!(first_instance.applications, vec![first_id, second_id]);
             assert_eq!(second_instance.applications, first_instance.applications);
             assert_eq!(counts, (constraints.variables.len(), constraints.rows.len(), constraints.applications.entries.len()));
-            let call = constraints.generalize_scoped_call_instantiation(&first_scheme, &first_scope, &second_scheme, &second_instance).unwrap();
+            let call = constraints.generalize_scoped_call_instantiation(&first_scheme, &first_scope, &second_scheme, &second_instance, false).unwrap();
             assert_eq!(call.application_bindings(), &[crate::sema::schemes::CallableApplicationBinding::Forwarded(0), crate::sema::schemes::CallableApplicationBinding::Forwarded(1)]);
             assert_ne!(first_instance.type_arguments, second_instance.type_arguments);
             let peer_reference = constraints.callable_application_reference(second_id).unwrap();
@@ -248,7 +248,7 @@ mod tests {
             let mut wrong_ordinal = first_scope.clone();
             wrong_ordinal.applications.insert(first_id, 1);
             wrong_ordinal.applications.insert(second_id, 0);
-            assert!(matches!(constraints.generalize_scoped_call_instantiation(&first_scheme, &wrong_ordinal, &second_scheme, &second_instance), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))));
+            assert!(matches!(constraints.generalize_scoped_call_instantiation(&first_scheme, &wrong_ordinal, &second_scheme, &second_instance, false), Err(super::super::SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedCallableApplication))));
             assert!(constraints.generalized_application_ordinal(peer_reference, first_owner, &first_scheme, &wrong_ordinal).is_err());
             let mut wrong_type = first_scope.clone();
             let ids = wrong_type.types.keys().copied().take(2).collect::<Vec<_>>();

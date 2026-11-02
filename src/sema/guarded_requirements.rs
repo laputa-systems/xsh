@@ -204,6 +204,7 @@ pub(crate) enum GuardBinding {
     Optional(Box<CallInstantiation>),
     Null,
     Call(GuardCallId),
+    Recursive,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

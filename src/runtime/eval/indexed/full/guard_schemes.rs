@@ -69,6 +69,7 @@ pub(super) enum FullGuardBinding {
     Optional(FullInstantiation),
     Null,
     Call(u32),
+    Recursive,
 }
 
 impl FullBuilder {
@@ -194,6 +195,7 @@ impl FullBuilder {
                 GuardBinding::Optional(local) => FullGuardBinding::Optional(self.encode_instantiation(local)?),
                 GuardBinding::Null => FullGuardBinding::Null,
                 GuardBinding::Call(call) => FullGuardBinding::Call(call.raw()),
+                GuardBinding::Recursive => FullGuardBinding::Recursive,
             });
         }
         let start = self.store.call_guard_bindings.len();

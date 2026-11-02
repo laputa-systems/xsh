@@ -78,7 +78,7 @@ pub(super) fn verify_origin(store: &FullStore, call: FullGuardCall, ordinal: u32
     Ok(())
 }
 
-pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullScheme, callee_scope: &SchemeScope, caller: &SchemeScope, instruction: u32, arguments: FullInstantiation, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
+pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullScheme, callee_scope: &SchemeScope, caller: &SchemeScope, instruction: u32, arguments: FullInstantiation, recursion: Option<&super::SymbolicCallSubstitution>, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
     let caller = caller.at_instruction(instruction as usize)?;
     let calls = bounded(caller.guard_calls, &store.scheme_guard_calls, "forwarded guard call source range is invalid")?;
     let guards = bounded(callee.guards, &store.scheme_guards, "forwarded guard target range is invalid")?;
@@ -87,6 +87,13 @@ pub(super) fn verify_forwarded_bindings(store: &FullStore, callee: &super::FullS
     let residual = bounded(arguments.guard_call_bindings, &store.call_guard_bindings, "forwarded guard call binding range is invalid")?;
     let target_calls = bounded(callee_scope.guard_calls, &store.scheme_guard_calls, "forwarded target call range is invalid")?;
     if roots.len() != physical.len() || target_calls.len() != residual.len() { return Err(IrVerifyError::new("forwarded guard bindings are incomplete")); }
+    if physical.iter().chain(residual).any(|binding| *binding == FullGuardBinding::Recursive) {
+        let substitution = recursion.ok_or_else(|| IrVerifyError::new("recursive guard binding is outside its own callable"))?;
+        if !residual.is_empty() || physical.iter().any(|binding| *binding != FullGuardBinding::Recursive) { return Err(IrVerifyError::new("recursive guard binding is mixed with another binding")); }
+        budget.charge(physical.len())?;
+        if !substitution.is_identity(callee_scope) { return Err(IrVerifyError::new("recursive guard binding has a non-identity call substitution")); }
+        return Ok(true);
+    }
     let mut concrete = false;
     for (target, binding) in roots.iter().map(|guard| FullGuardCallTarget::Scope(guard.id)).zip(physical)
         .chain(target_calls.iter().enumerate().map(|(ordinal, _)| FullGuardCallTarget::Call(ordinal as u32)).zip(residual))

@@ -242,7 +242,7 @@ impl super::FullProgram {
         self.validate_scheme_callable_target(*source, target, prepared.kind)?;
         let relationship = leaf.relationship;
         self.validate_scheme_callable_target(relationship, target, prepared.kind)?;
-        let bindings = self.invocation_payload(&leaf.instance, Some(relationship), target, caller, call_source)?;
+        let bindings = self.invocation_payload(&leaf.instance, Some(relationship), target, caller, None, call_source)?;
         *value = super::LoweredValue::Callable(crate::runtime::value::CallableValue::prepared(callable.identity(), std::sync::Arc::new(PreparedCallable {
             program: std::sync::Arc::clone(&prepared.program), function: prepared.function, kind: prepared.kind,
             state: PreparedCallableState::Instance(bindings),
