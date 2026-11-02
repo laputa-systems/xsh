@@ -6043,6 +6043,22 @@ test verify_completion_cleanup {
         assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "generic body expression disagrees with its checked type");
     }
 
+    #[test]
+    fn generic_path_conversion_authenticates_its_operand_requirement() {
+        let program = prepare("proc path_of(item, flag: Bool) [error] -> Result[Path] { let _ = flag; Ok(item as Path) }\nproc main() [error] { let _ = path_of(\"a\", true)?; let _ = path_of(b\"b\", false)? }\n");
+        let mut accepted = program.clone();
+        accepted.store.in_place.take();
+        FullVerifier::verify(&accepted).unwrap();
+        let operand = 1 << (ValueConversion::PathOperand as u8);
+        let parameter = program.store.scheme_type_parameters.iter().position(|parameter| parameter.conversions == operand).expect("the operand carries only the Path source requirement");
+        for conversions in [0, 1 << (ValueConversion::Display as u8), 1 << (ValueConversion::ProcessInput as u8)] {
+            let mut changed = program.clone();
+            changed.store.scheme_type_parameters[parameter].conversions = conversions;
+            changed.store.in_place.take();
+            assert_eq!(FullVerifier::verify(&changed).unwrap_err().message, "generic Path conversion operand is not required to be Str or Bytes", "requirement bits {conversions}");
+        }
+    }
+
     fn literal_patterns(program: &FullProgram, owner: usize) -> BTreeMap<&'static str, usize> {
         let decoder = decoder_for_function(&program.store, owner).unwrap();
         let mut found = BTreeMap::new();

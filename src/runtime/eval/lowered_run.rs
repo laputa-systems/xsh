@@ -6213,6 +6213,17 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error.with_span(span)),
                 }
             }
+            callable; RuntimeOp::PathParseSource if values.len() == 1 => {
+                let bytes = match values.pop().expect("checked value length") {
+                    LoweredValue::Str(text) => text.as_bytes().to_vec(),
+                    LoweredValue::StrView(text) => text.as_str().as_bytes().to_vec(),
+                    value => lowered_bytes_arg(&value, "Path conversion", span)?.to_vec(),
+                };
+                match PathValue::new(bytes) {
+                    Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
+                    Err(error) => lowered_result_err_value(error.with_span(span)),
+                }
+            }
             callable; RuntimeOp::PatchApply
                 if values.len() == 2 || values.len() == 3 || values.len() == 4 =>
             {

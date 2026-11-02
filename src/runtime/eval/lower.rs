@@ -4661,6 +4661,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Conversion::TextToFloat => method("parse_float"),
             Conversion::BytesToText => method("utf8"),
             Conversion::BytesToPath => path_from_bytes(value),
+            Conversion::SourceToPath => BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::PathParseSource, args: vec![Some(value)], span },
             Conversion::TextToPath => {
                 let bytes = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: RuntimeOp::BytesFromText, args: vec![Some(value)], span });
                 record(bytes, Type::Bytes);

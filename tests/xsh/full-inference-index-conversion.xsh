@@ -20,11 +20,19 @@ assert paths(nonempty)?.len() == 1
 }
 
 test test_index_conversion_does_not_train_from_callers { |ctx|
-  let result = test.run_xsh(ctx, r"""pure paths(values) -> Result[List[Path]] { [item as Path for item in values] }
-let _ = paths([b"one"])
+  let output = test.run_xsh(ctx, r"""pure paths(values) -> Result[List[Path]] { [item as Path for item in values] }
+let first = paths([b"one"])?
+let second = paths(["two"])?
+print $first.len()
+print $second.len()
 """)?
-  assert result.success == false
-  assert "err[check.conversion]" in result.stderr, result.stderr
+  assert output.success, output.stderr
+  assert output.stdout == "1\n1\n", output.stdout
+  let rejected = test.run_xsh(ctx, r"""pure paths(values) -> Result[List[Path]] { [item as Path for item in values] }
+let _ = paths([1])
+""")?
+  assert rejected.success == false
+  assert "err[check." in rejected.stderr, rejected.stderr
 }
 
 test test_index_conversion_rejects_maps_and_dynamic_inputs { |ctx|
@@ -72,10 +80,23 @@ assert tail_paths(nonempty)?.len() == 2
   }
 }
 
-test test_slice_iteration_conversion_needs_an_element_anchor { |ctx|
-  test.expect(ctx, r"""pure tail_paths(values) -> Result[List[Path]] {
+test test_slice_iteration_conversion_follows_each_element_type { |ctx|
+  let output = test.run_xsh(ctx, r"""pure tail_paths(values) -> Result[List[Path]] {
   [item as Path for item in values[1..]]
 }
-let _ = tail_paths([b"one", b"two"])
-""", status: 2, stderr: ["[check.conversion]"])?
+let bytes_tail = tail_paths([b"one", b"two"])?
+let text_tail = tail_paths(["one", "two"])?
+print $bytes_tail.len()
+print $text_tail.len()
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "1\n1\n", output.stdout
+  for argument in ["b\"xy\"", "[1, 2]"] {
+    let rejected = test.run_xsh(ctx, r"""pure tail_paths(values) -> Result[List[Path]] {
+  [item as Path for item in values[1..]]
+}
+let _ = tail_paths(""" + argument + ")\n")?
+    assert rejected.success == false, argument
+    assert "err[check.operator-type]" in rejected.stderr, rejected.stderr
+  }
 }

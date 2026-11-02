@@ -35,10 +35,10 @@ pub(crate) struct SchemeEffectParameterId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord, Env, ProcessInput }
+pub(crate) enum ValueConversion { Display, Argv, ArgvOrList, ArgvList, ProcessWord, Env, ProcessInput, PathOperand }
 
 impl ValueConversion {
-    pub(crate) const ALL: [Self; 7] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env, Self::ProcessInput];
+    pub(crate) const ALL: [Self; 8] = [Self::Display, Self::Argv, Self::ArgvOrList, Self::ArgvList, Self::ProcessWord, Self::Env, Self::ProcessInput, Self::PathOperand];
 
     pub(crate) fn requirement(self) -> &'static str {
         match self {
@@ -49,6 +49,7 @@ impl ValueConversion {
             Self::ProcessWord => "as a command word, which must be Str or Path",
             Self::Env => "as an environment value",
             Self::ProcessInput => "as command input, which must be Bytes or Path",
+            Self::PathOperand => "as a Path operand, which must be Str or Bytes",
         }
     }
 
@@ -59,6 +60,7 @@ impl ValueConversion {
             Self::Env => ty.can_be_env_value(),
             Self::ProcessWord => ty.can_be_process_command_argv_item(),
             Self::ProcessInput => matches!(ty.unvalidated(), Type::Bytes | Type::Path),
+            Self::PathOperand => matches!(ty.unvalidated(), Type::Str | Type::Bytes),
             Self::Argv => ty.can_be_argv_item(),
             Self::ArgvOrList => ty.can_be_argv_item() || matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
             Self::ArgvList => matches!(ty.unvalidated(), Type::List(item) if item.can_be_argv_item()),
@@ -71,7 +73,7 @@ pub(crate) struct ValueConversionSet(u8);
 
 impl ValueConversionSet {
     pub(crate) fn from_bits(bits: u8) -> Option<Self> {
-        (bits & !((1 << ValueConversion::ALL.len()) - 1) == 0).then_some(Self(bits))
+        (u16::from(bits) & !((1u16 << ValueConversion::ALL.len()) - 1) == 0).then_some(Self(bits))
     }
 
     pub(crate) fn bits(self) -> u8 { self.0 }

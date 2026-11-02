@@ -3436,6 +3436,10 @@ fn verify_body_expression(
                 if call_plan.is_some() || plan.receiver.is_some() || plan.signature.op != op || !crate::sema::builtin_templates::verify_registered_call(plan, None, &references, ty, &|name| wire_types.contains(&name)) { return Err(IrVerifyError::new("generic module call disagrees with its selected registry signature")); }
                 registered_coverage.insert(instruction as u32);
                 ty.clone()
+            } else if call_plan.is_none() && op == crate::modules::RuntimeOp::PathParseSource {
+                let [Some(operand)] = arguments.as_slice() else { return Err(IrVerifyError::new("generic Path conversion has no single operand")); };
+                if !scheme_conversion(operand, ValueConversion::PathOperand, scheme_scope, budget)? { return Err(IrVerifyError::new("generic Path conversion operand is not required to be Str or Bytes")); }
+                SchemeType::Ground(Type::Result(Box::new(Type::Path), Box::new(Type::Error)))
             } else if call_plan.is_none() {
                 SchemeType::Ground(commands::native_call(decoder, op, &arguments, budget)?)
             } else {

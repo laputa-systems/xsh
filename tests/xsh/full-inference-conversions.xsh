@@ -56,7 +56,6 @@ proc main() [error] {
 
 test test_conversion_rejects_unresolved_invalid_and_dynamic_sources { |ctx|
   for source in [
-    "pure bad(value) -> Result[Path] { value as Path }",
     "pure bad(value: Str) -> Result[Str] { value as Str }",
     "pure bad(value: Any) -> Result[Str] { value as Str }",
   ] {

@@ -742,6 +742,7 @@ fn native_effect_rule<'a>(mut signatures: impl Iterator<Item = &'a ModuleFnSig>)
 }
 
 pub(crate) fn native_static_operation_effect_rule(op: RuntimeOp) -> Option<NativeEffectRule> {
+    if op == RuntimeOp::PathParseSource { return Some(NativeEffectRule::Uniform { effects: &[], pure: true }); }
     native_effect_rule(native_static_operation_signatures(op))
 }
 

@@ -2955,7 +2955,10 @@ the bounds. A bounded value converts as the integer it is, and text converts
 in two steps, `(text as Int) as Port`.
 
 The pair is the value's static type and the written type, matched exactly;
-every other pair is a check error (`check.conversion`), so no conversion
+inside a generic callable, `value as Path` over a value whose type is still
+unresolved requires that type to be `Str` or `Bytes`, and each call chooses
+the row of the table for the type it passes (a call with any other type is a
+check error). Every other pair is a check error (`check.conversion`), so no conversion
 loses information without saying so. A `Float` does not convert to `Int`,
 because the rounding is the author's choice (`.floor()`, `.ceil()`,
 `.round()`); an `Int` does not convert to `Float` (`.float()`), nor a `Path`

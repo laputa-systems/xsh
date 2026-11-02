@@ -3005,3 +3005,37 @@ print $shown
     stderr: ["[check.callable-mismatch]", "expected `Str`, found `Int`"],
   )?
 }
+
+test test_full_inference_path_conversion_of_a_generic_operand_follows_each_instantiation { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type TextItem = {name: Str}
+type BytesItem = {name: Bytes}
+proc path_of_inferred(item) [error] -> Result[Path] {
+  Ok(item.name as Path)
+}
+proc path_of_text(item: TextItem) [error] -> Result[Path] {
+  Ok(item.name as Path)
+}
+proc path_of_bytes(item: BytesItem) [error] -> Result[Path] {
+  Ok(item.name as Path)
+}
+let text = path_of_inferred({name: "alpha"})?
+let raw = path_of_inferred({name: b"beta"})?
+assert text == path_of_text({name: "alpha"})?
+assert raw == path_of_bytes({name: b"beta"})?
+print $text.display()
+print $raw.display()
+assert path_of_inferred({name: "bad\0name"}) is Err(_)
+assert path_of_inferred({name: b"bad\0name"}) is Err(_)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "alpha\nbeta\n", output.stdout
+  test.expect(
+    ctx,
+    "proc path_of_inferred(item) [error] -> Result[Path] {\n  Ok(item.name as Path)\n}\nlet _ = path_of_inferred({name: 5})\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "found Int"],
+  )?
+}

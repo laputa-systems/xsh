@@ -53,6 +53,11 @@ impl TypeConstraints {
         }
     }
 
+    pub(crate) fn requires_conversion(&self, ty: &Type, conversion: ValueConversion) -> bool {
+        let Type::Inference(id) = ty else { return false };
+        self.conversion_requirements(*id).is_ok_and(|required| required.contains(conversion))
+    }
+
     pub(crate) fn conversion_requirement_rejecting(&self, variable: &Type, value: &Type) -> Option<ValueConversion> {
         let Type::Inference(id) = variable else { return None };
         if value.contains_inference() || value.contains_recovery() { return None; }

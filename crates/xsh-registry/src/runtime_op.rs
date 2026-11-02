@@ -682,6 +682,7 @@ pub enum RuntimeOp {
     UserAdd,
     UserRemove,
     PathParseBytes,
+    PathParseSource,
     ResultContext,
     EnvPathPrepend,
     EnvPathAppend,

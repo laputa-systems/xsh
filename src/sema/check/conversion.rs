@@ -36,6 +36,10 @@ pub enum Conversion {
     /// The target is the type the conversion names, so it has no row in the
     /// table of fixed pairs.
     IntToBounded,
+    /// `value as Path` where the operand is a generic parameter that must be
+    /// `Str` or `Bytes`: the callable is shared by every instantiation, so
+    /// the value, not the checker, picks `TextToPath` or `BytesToPath`.
+    SourceToPath,
 }
 
 #[derive(Clone)]
@@ -75,6 +79,7 @@ impl Conversion {
     /// pair of types. A conversion to a bounded integer yields the type it
     /// names and has no target of its own.
     pub fn target(self) -> Option<Type> {
+        if self == Self::SourceToPath { return Some(Type::Path); }
         Self::TABLE
             .iter()
             .find(|(_, _, conversion)| *conversion == self)
@@ -144,9 +149,13 @@ impl Checker {
             let Type::Inference(item) = from else { continue; };
             if conversion.to.int_range().is_some() { continue; }
             let mut sources = Conversion::TABLE.iter().filter(|(_, target, _)| target == &conversion.to).map(|(source, _, _)| source);
-            if let Some(source) = sources.next() && sources.next().is_none() {
-                if let Err(conflict) = self.type_constraints.constrain(&Type::Inference(item), source, conversion.span) {
-                    self.report_inferred_type_conflict(conflict);
+            if let Some(source) = sources.next() {
+                if sources.next().is_none() {
+                    if let Err(conflict) = self.type_constraints.constrain(&Type::Inference(item), source, conversion.span) {
+                        self.report_inferred_type_conflict(conflict);
+                    }
+                } else if conversion.to == Type::Path && self.boundary.current_return.is_some() {
+                    self.require_value_conversion(&Type::Inference(item), crate::sema::schemes::ValueConversion::PathOperand, conversion.span);
                 }
             }
             let Some(owner) = conversion.owner else { continue; };
@@ -177,6 +186,10 @@ impl Checker {
         }
         for conversion in pending {
             match self.type_constraints.resolve(&conversion.from) {
+                Ok(Type::Inference(item)) if conversion.to == Type::Path
+                    && self.type_constraints.requires_conversion(&Type::Inference(item), crate::sema::schemes::ValueConversion::PathOperand) => {
+                    self.conversions.insert(conversion.span, Conversion::SourceToPath);
+                }
                 Ok(from) => { self.publish_conversion(&from, &conversion.to, conversion.span); }
                 Err(error) => { self.reject_host_inference_resolution(error, conversion.span); }
             }
