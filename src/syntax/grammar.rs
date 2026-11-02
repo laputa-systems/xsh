@@ -904,6 +904,8 @@ pub enum Class {
     Label,
     /// A member name after `.`: a label or a hyphenated identifier.
     Member,
+    /// A quoted record key that is not an identifier or keyword.
+    QuotedKey,
     /// A token that can be part of a bare command word.
     WordPart(bool),
     /// A closing parenthesis usable as a run boundary inside an expression group.
@@ -929,6 +931,14 @@ impl Class {
                 token.tag,
                 TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword
             ),
+            Self::QuotedKey => {
+                let text = token.text.strip_prefix('r').unwrap_or(token.text);
+                let body = ["\"\"\"", "\""]
+                    .into_iter()
+                    .find_map(|quote| text.strip_prefix(quote)?.strip_suffix(quote));
+                token.tag == TokenTag::String
+                    && !body.is_some_and(crate::syntax::literal::is_label_text)
+            }
             Self::WordPart(grouped) => is_word_part(token.tag, grouped),
             Self::GroupedEnd(grouped) => grouped && token.tag == TokenTag::RParen,
             Self::PathPart => {

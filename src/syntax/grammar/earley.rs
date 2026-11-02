@@ -418,13 +418,17 @@ impl Recognizer {
             } else {
                 // Only identifier-like words and short tokens are spelled in
                 // the grammar; other text never changes which terminals match
-                // except for bare-path parts, which are decided by character.
+                // except for bare-path parts, which are decided by character,
+                // and quoted strings, which a record key tells apart by
+                // whether the text is an identifier.
                 if token
                     .text
                     .chars()
                     .all(crate::syntax::literal::is_bare_path_literal_char)
                 {
                     "/"
+                } else if token.tag == TokenTag::String && !super::Class::QuotedKey.matches(token) {
+                    "\"label"
                 } else {
                     "\""
                 }

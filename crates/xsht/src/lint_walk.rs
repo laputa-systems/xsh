@@ -236,13 +236,6 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Record(fields) => {
-                if !self.suppress_expr_autofixes {
-                    rules::expression_rule(
-                        self.linter,
-                        DiagnosticCode::LintPreferBareFieldLabel,
-                        expr,
-                    );
-                }
                 for field in arena.record_fields(fields).to_vec() {
                     self.visit_record_field(&field);
                 }

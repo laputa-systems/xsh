@@ -1206,3 +1206,13 @@ mod fmt_chunk_tests {
         assert_eq!(scan("f\"${{x}}\"").1, []);
     }
 }
+
+pub(crate) fn is_label_text(text: &str) -> bool {
+    let lexed = crate::syntax::lexer::Lexer::new(crate::source::SourceId::new(0), text).lex_compact();
+    lexed.diagnostics.is_empty()
+        && lexed
+            .token_table
+            .label_text_at(0)
+            .is_some_and(|label| label.as_ref() == text)
+        && lexed.token_table.tag_at(1) == Some(crate::syntax::token::TokenTag::Eof)
+}

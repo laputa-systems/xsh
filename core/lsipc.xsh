@@ -298,7 +298,7 @@ proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Sel
 }
 
 proc posix_entry(observation: ipc.PosixObject, selection: report.Selection) [fs, time, env, error] -> IpcEntry {
-  var values: Map[Str, Str] = {"NAME": observation.name}
+  var values: Map[Str, Str] = {NAME: observation.name}
   values = add_user_fields(values, observation.uid, observation.gid, observation.uid, observation.gid, observation.mode, selection.numeric_perms, false)
   match observation.details {
     ipc.PosixQueue(queue) => {
@@ -403,7 +403,7 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
 }
 
 proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Str, usage: Bool, byte_unit: Bool) [error] -> report.Row {
-  var values: Map[Str, Str] = {"RESOURCE": resource, "DESCRIPTION": description}
+  var values: Map[Str, Str] = {RESOURCE: resource, DESCRIPTION: description}
   values = values.set("LIMIT", if byte_unit and !selection.bytes { human_limit(limit) } else { limit })
   if usage {
     values = values.set("USED", if byte_unit and !selection.bytes { human_size(used) } else { f"{used}" })

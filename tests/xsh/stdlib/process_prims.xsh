@@ -330,7 +330,7 @@ test test_flush_stdout_is_a_no_op_for_captured_output {
 
 test test_unix_exec_env_passes_bytes_values_through { |ctx|
   let result = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf %s \"$RAW\" | od -An -tx1"])
-let environment: Map[Str, Bytes] = {"RAW": b"a\x80b"}
+let environment: Map[Str, Bytes] = {RAW: b"a\x80b"}
 unix.exec_env(command, environment)?
 """, status: 0)?
   assert result.stdout.fields() == ["61", "80", "62"]

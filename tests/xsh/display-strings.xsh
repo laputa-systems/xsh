@@ -173,13 +173,13 @@ print f"hi $name"
 
 test test_display_strings_round_trip_through_the_formatter { |ctx|
   let source = """let x = 7
-let m = {"k": "v"}
+let m = {k: "v"}
 print f"{ {a: 1}.a } {m["k"]} {{x}} {x:>4} {f"{x}"} $5 \\$x"
 print fp"/tmp/{{{x}}}"
 print f"{({a: 2}).a}"
 """
   let expected = """let x = 7
-let m = {"k": "v"}
+let m = {k: "v"}
 print f"{ {a: 1}.a } {m["k"]} {{x}} {x:>4} {f"{x}"} $5 \\$x"
 print fp"/tmp/{{{x}}}"
 print f"{ {a: 2}.a }"

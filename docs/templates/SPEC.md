@@ -1924,8 +1924,11 @@ narrows it.
   splices a `List[T]` in place; without `@` a list is one nested element.
   Results and streams must be unwrapped or collected before splicing.
   Elements evaluate once in order, and a failure stops construction.
-- **Records.** Fields may be labeled, quoted (a quoted key containing a dot is
-  one key), punned (`{name}`), or spread from a statically known record.
+- **Records.** Fields may be labeled, quoted, punned (`{name}`), or spread from
+  a statically known record. A quoted label is for a key that is not an
+  identifier, such as one containing a dot, which is one key; a key that is an
+  identifier is written bare, and `{"type": v}` is `parse.quoted-field-label`
+  with the `type: v` field to write.
   Later spreads replace earlier fields, and explicit fields after a spread
   replace earlier fields. Every entry evaluates once in source order. An
   explicit field repeated before any spread is an error.

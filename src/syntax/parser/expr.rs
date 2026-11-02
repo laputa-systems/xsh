@@ -2099,10 +2099,14 @@ impl<'a> Parser<'a> {
                     }));
                 } else {
                     written_field = true;
+                    let field = self.span(field_start, value.span.end());
+                    if label_tag == TokenTag::String && literal::is_label_text(&name.as_str()) {
+                        self.report_quoted_field_label(label_span, name, field);
+                    }
                     entries.push(BraceEntry::Field(ArenaRecordFieldInput::Named {
                         name,
                         value: value.id,
-                        span: self.span(field_start, value.span.end()),
+                        span: field,
                     }));
                 }
             } else {
@@ -2265,6 +2269,25 @@ impl<'a> Parser<'a> {
                 .with_label(Label::primary(leading_entries, "these entries come before the comprehension"))
                 .with_label(Label::secondary(self.current_span(), "its `for` clause"))
                 .with_note("build the comprehension on its own and add the other entries with `.set(key, value)`"),
+        );
+    }
+
+    fn report_quoted_field_label(&mut self, label: Span, name: Name, field: Span) {
+        let written = self.span_text(field);
+        let rewritten = if written.contains('\n') {
+            format!("{name}:")
+        } else {
+            let value = written
+                .split_once(':')
+                .map_or("", |(_, value)| value)
+                .trim_start();
+            format!("{name}: {value}")
+        };
+        self.diagnostics.push(
+            Diagnostic::error("a field label that is an identifier is written without quotes")
+                .with_code(DiagnosticCode::ParseQuotedFieldLabel)
+                .with_label(Label::primary(label, "write the label bare"))
+                .with_note(format!("write `{rewritten}`")),
         );
     }
 

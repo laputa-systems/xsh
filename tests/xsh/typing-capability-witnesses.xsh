@@ -377,7 +377,7 @@ test test_typing_host_untemplated_receiver_domains_select_per_use { |ctx|
     ctx,
     r"""pure keys(value) -> List[Str] { value.keys() }
 assert keys({value: 1}) == ["value"]
-let table: Map[Str, Int] = {"k": 1}
+let table: Map[Str, Int] = {k: 1}
 assert keys(table) == ["k"]
 """,
     status: 0,

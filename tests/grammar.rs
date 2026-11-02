@@ -431,6 +431,23 @@ fn assert_parser_and_grammar_agree(source: &str, accepted: bool) {
 }
 
 #[test]
+fn quoted_record_labels_are_only_for_keys_that_are_not_identifiers() {
+    for source in [
+        "let row = {\"a.b\": 1, \"x-y\": 2, \"\": 3}\n",
+        "let row = {type: 1, r\"two words\": 2}\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in [
+        "let row = {\"type\": 1}\n",
+        "let row = {r\"in\": 2}\n",
+        "let row = {\"\"\"size\"\"\": 2}\n",
+    ] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
 fn typed_codec_calls_require_ordered_values_and_a_trailing_type() {
     for source in [
         "let value = codec.decode_as(\"ini\", \"value=1\", ValueField[Union[Int, Float]])\n",

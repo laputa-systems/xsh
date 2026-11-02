@@ -539,6 +539,11 @@ impl<'g> Generator<'g> {
                     (TokenTag::Ident, None, pick(self, &NAMES))
                 }
             }
+            Class::QuotedKey => (
+                TokenTag::String,
+                None,
+                pick(self, &["\"a.b\"", "\"x-y\"", "\"\"", "r\"raw key\""]),
+            ),
             Class::GroupedEnd(_) => (TokenTag::RParen, None, ")".to_string()),
             Class::WordPart(grouped) => {
                 let options: [(TokenTag, &str); 13] = [

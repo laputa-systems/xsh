@@ -42,7 +42,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.pattern-conditional` | Use `if let` for a two-arm match with a complementary pattern |
 | `lint.positional-error-arguments` | Name error constructor arguments that follow a named one or fill fields a single value fits two of |
 | `lint.prefer-atomically-replace` | Use `atomically replace DEST as NAME` for a file produced at a temporary path and renamed into place |
-| `lint.prefer-bare-field-label` | Write identifier-shaped record field labels without quotes |
 | `lint.prefer-block-string` | Use a block string for a constant multiline string concatenation |
 | `lint.prefer-callable-alias` | Use an immutable alias for a callable that exactly forwards to another |
 | `lint.prefer-comparison-chain` | Use an ordering chain like `a < b < c` for repeated adjacent comparisons |

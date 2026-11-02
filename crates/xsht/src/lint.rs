@@ -4594,58 +4594,6 @@ impl<'a> Linter<'a> {
             && lexed.token_table.tag_at(1) == Some(xsh::frontend::syntax::token::TokenTag::Eof)
     }
 
-    fn lint_quoted_field_labels(&mut self, fields: ArenaRange) {
-        for field in self.arena.record_fields(fields) {
-            let ArenaRecordFieldKind::Named { name, span, .. } = field.kind else {
-                continue;
-            };
-            if !self.bare_field_label(name.as_str().as_str()) {
-                continue;
-            }
-            let span = self.arena.span(span);
-            let Some(source) = self.source.get(span.range()) else {
-                continue;
-            };
-            let lexed =
-                xsh::frontend::syntax::lexer::Lexer::new(span.source_id, source).lex_compact();
-            if !lexed.diagnostics.is_empty()
-                || lexed.token_table.tag_at(0)
-                    != Some(xsh::frontend::syntax::token::TokenTag::String)
-                || lexed.token_table.tag_at(1)
-                    != Some(xsh::frontend::syntax::token::TokenTag::Colon)
-            {
-                continue;
-            }
-            let key = lexed
-                .token_table
-                .span_at(0, span.source_id, source)
-                .unwrap();
-            let key = Span::new(
-                span.source_id,
-                span.start() + key.start(),
-                span.start() + key.end(),
-            );
-            self.diagnostics.push(
-                Diagnostic::new(
-                    Severity::Warning,
-                    "identifier-shaped field labels can be bare",
-                )
-                .with_code(DiagnosticCode::LintPreferBareFieldLabel)
-                .with_label(Label::secondary(
-                    key,
-                    "quoting does not change this explicit key",
-                ))
-                .with_fix_hint(FixHint::replacement(
-                    key,
-                    "use the exact bare label",
-                    name.as_str().to_string(),
-                )),
-            );
-        }
-    }
-
-
-
     fn lint_prefer_slice(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
             return;

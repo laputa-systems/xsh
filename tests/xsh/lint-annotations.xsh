@@ -97,7 +97,7 @@ test test_needless_annotation_skips_a_dynamic_method_call_initializer { |ctx|
   assert_retained(
     file,
     rule,
-    "let metadata: Map[Str, Any] = {\"name\": \"pkg\"}\nlet name: Str = metadata.get(\"name\").require()?\nprint \$name\n",
+    "let metadata: Map[Str, Any] = {name: \"pkg\"}\nlet name: Str = metadata.get(\"name\").require()?\nprint \$name\n",
   )
   assert_unchecked_is_left(file, "let name: Str = metadata.get(\"name\")?\n", "check.unresolved-name")
 }

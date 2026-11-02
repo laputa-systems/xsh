@@ -19,7 +19,7 @@ const keyed_rules: List[KeyedRule] = [
   {
     code: "lint.prefer-set",
     off: "",
-    source: "let seen: Map[Str, Bool] = {\"a\": false}\nprint seen.len()\n",
+    source: "let seen: Map[Str, Bool] = {a: false}\nprint seen.len()\n",
   },
   {
     code: "lint.prefer-text-pattern",

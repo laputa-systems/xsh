@@ -115,22 +115,35 @@ test test_record_constructor_requires_static_schema_and_keeps_constant_bits { |c
   assert findings(file, "lint.prefer-record-constructor")? == 2
 }
 
+test test_quoted_identifier_labels_are_rejected_with_the_bare_label { |ctx|
+  for case in [
+    {source: "let row = {\"type\": \"file\"}\n", rewrite: "type: \"file\""},
+    {source: "let row = {r\"in\": 2}\n", rewrite: "in: 2"},
+    {source: "let row = {size: 1, \"size2\": 5 + 1}\n", rewrite: "size2: 5 + 1"},
+  ] {
+    let rejected = test.run_script(ctx, case.source)?
+    assert ! rejected.success, rejected.stderr
+    assert "err[parse.quoted-field-label]" in rejected.stderr, rejected.stderr
+    assert f"write `{case.rewrite}`" in rejected.stderr, rejected.stderr
+  }
+  let kept = test.run_script(ctx, "let row = {\"a.b\": 3, \"x-y\": 4, \"\": 5}\nassert row[\"a.b\"] == 3\n")?
+  assert kept.success, kept.stderr
+}
+
 test test_field_label_fixes_keep_key_bytes_conversions_and_comments_and_converge { |ctx|
-  let labels = "lint.prefer-bare-field-label,lint.prefer-known-field-access"
   let file = script(
     ctx,
-    r"""let row = {"type": "file", r"in": 2, "a.b": 3, "x-y": 4, "size": 5} # retained
+    r"""let row = {type: "file", in: 2, "a.b": 3, "x-y": 4, size: 5} # retained
 let label: Str = row.get("type")?
 print $label ${row.in}
 """,
   )?
-  assert fixed(file, labels)? == r"""let row = {type: "file", in: 2, "a.b": 3, "x-y": 4, size: 5} # retained
+  assert fixed(file, "lint.prefer-known-field-access")? == r"""let row = {type: "file", in: 2, "a.b": 3, "x-y": 4, size: 5} # retained
 let label: Str = row.type
 print $label ${row.in}
 """
   assert_checked(file)
   assert_formats_stably(file)
-  assert findings(file, "lint.prefer-bare-field-label")? == 0
   assert findings(file, "lint.prefer-known-field-access")? == 0
 }
 

@@ -1878,7 +1878,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     r("expression_item"),
                 ]),
                 seq([
-                    alt([label(), t(T::String)]),
+                    alt([label(), class(Class::QuotedKey)]),
                     star(seq([t(T::Dot), label()])),
                     t(T::Colon),
                     r("expression_item"),

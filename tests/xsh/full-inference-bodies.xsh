@@ -609,7 +609,7 @@ proc has_path(values) -> Bool {
   guard let _ = values.get("DEVPATH") else { return false }
   true
 }
-let present: Map[Str, Bytes] = {"ACTION": b"add", "DEVPATH": b"/devices/x"}
+let present: Map[Str, Bytes] = {ACTION: b"add", DEVPATH: b"/devices/x"}
 let absent: Map[Str, Bytes] = {}
 print (action(present).utf8() ?? "-")
 print (action(absent).utf8() ?? "-")
@@ -2271,16 +2271,16 @@ let _ = plan(true)
 
 test test_full_inference_optional_return_accepts_present_and_nullable_map_values { |ctx|
   let output = test.run_xsh(ctx, r"""pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }
-let present: Map[Str, Str] = {"name": "x"}
-let absent: Map[Str, Str] = {"other": "y"}
-let nullable: Map[Str, Str?] = {"name": null, "other": null}
+let present: Map[Str, Str] = {name: "x"}
+let absent: Map[Str, Str] = {other: "y"}
+let nullable: Map[Str, Str?] = {name: null, other: null}
 assert lookup({values: present}) == "x"
 assert lookup({values: absent}) == null
 assert lookup({values: nullable}) == null
 """)?
   assert output.success, output.stderr
   let mismatch = test.run_xsh(ctx, r"""pure lookup(row) -> Str? { if let Ok(text) = row.values.get("name") { text } else { null } }
-let counts: Map[Str, Int] = {"name": 1}
+let counts: Map[Str, Int] = {name: 1}
 let found = lookup({values: counts})
 """)?
   assert !mismatch.success and "check.callable-mismatch" in mismatch.stderr, mismatch.stderr

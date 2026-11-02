@@ -206,15 +206,13 @@ test test_grep_and_refactor_field_labels_preserve_keyword_key_identity { |ctx|
     ctx,
     "labels.xsh",
     r"""let bare = {type: "file"}
-let quoted = {"type": "file"}
 let different = {"wire.type": "file"}
 let first = bare.type
-let second = quoted.type
-print $first $second
+print $first
 """,
   )?
   let stdout = found("EXPR.type", file)?
-  assert "2 matches" in stdout, stdout
+  assert "1 match" in stdout, stdout
   assert "wire.type" not in stdout, stdout
   let _ = rewritten("EXPR.type", "EXPR.type", file)?
   assert_checks(file)

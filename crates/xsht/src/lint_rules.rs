@@ -188,7 +188,6 @@ lint_rules! {
     LintPathDisplaySink: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPathTextQuery: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPositionalErrorArguments: (RuleSetting::Migration, [CheckerDiagnostics], FixPolicy::Migration, []);
-    LintPreferBareFieldLabel: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Expression(run_quoted_field_labels)]);
     LintPreferCallableAlias: (RuleSetting::Always, [CheckerDiagnostics, PreparedConstants, ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::CallableAlias, run_callable_alias_hook)]);
     LintPreferConst: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::PreparedConstants, run_prepared_constants_hook)]);
     LintPreferContextScopeValue: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::ContextScopeScaffolds, |linter, statements| linter.lint_context_scope_scaffolds(statements))]);
@@ -296,12 +295,6 @@ fn run_missing_f_prefix(linter: &mut Linter<'_>, expr: ExprId) {
         ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_)
     ) {
         linter.lint_missing_f_prefix(expr);
-    }
-}
-
-fn run_quoted_field_labels(linter: &mut Linter<'_>, expr: ExprId) {
-    if let ArenaExprKind::Record(fields) = linter.arena.expr(expr).kind {
-        linter.lint_quoted_field_labels(fields);
     }
 }
 

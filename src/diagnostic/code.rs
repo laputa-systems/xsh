@@ -245,6 +245,7 @@ diagnostic_codes! {
         ParsePatternTestAlternation = "parse.pattern-test-alternation", error, "Reject an ungrouped alternation in a pattern test; write `(P | Q)`";
         ParsePipelineHole = "parse.pipeline-hole", error, "Reject a value pipeline call without exactly one `_` argument placeholder";
         ParsePipelineRun = "parse.pipeline-run", error, "Reject a byte pipeline segment that does not start with `run`";
+        ParseQuotedFieldLabel = "parse.quoted-field-label", error, "Reject a quoted record field label that is an identifier; write the label bare";
         ParseRequiredSignature = "parse.required-signature", error, "Reject a function or `stream` producer declared without a parameter list";
         ParseRequiredValue = "parse.required-value", error, "Reject `yield` without a value";
         ParseRestDefault = "parse.rest-default", error, "Reject a default value on a rest parameter";
@@ -559,7 +560,6 @@ diagnostic_codes! {
         LintPatternConditional = "lint.pattern-conditional", warning, "Use `if let` for a two-arm match with a complementary pattern";
         LintPositionalErrorArguments = "lint.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
         LintPreferAtomicallyReplace = "lint.prefer-atomically-replace", warning, "Use `atomically replace DEST as NAME` for a file produced at a temporary path and renamed into place";
-        LintPreferBareFieldLabel = "lint.prefer-bare-field-label", warning, "Write identifier-shaped record field labels without quotes";
         LintPreferBlockString = "lint.prefer-block-string", warning, "Use a block string for a constant multiline string concatenation";
         LintPreferCallableAlias = "lint.prefer-callable-alias", warning, "Use an immutable alias for a callable that exactly forwards to another";
         LintPreferComparisonChain = "lint.prefer-comparison-chain", warning, "Use an ordering chain like `a < b < c` for repeated adjacent comparisons";

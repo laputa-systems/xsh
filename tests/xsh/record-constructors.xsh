@@ -61,8 +61,8 @@ test test_record_constructor_reads_a_literal_map_field { |ctx|
     ctx,
     r"""type Colors = {ind: Map[Str]}
 type Counts = {ok: Bool, by_name: Map[Int]}
-let colors = Colors(ind: {"di": "01;34", "ln": "01;36"})
-let counts = Counts(ok: true, by_name: {"a": 1})
+let colors = Colors(ind: {di: "01;34", ln: "01;36"})
+let counts = Counts(ok: true, by_name: {a: 1})
 print $colors.ind.len()
 print (colors.ind.get("ln") ?? "-")
 print $counts.by_name.keys().len()

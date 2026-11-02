@@ -1,5 +1,5 @@
 test test_command_argv_byte_environment_overlays_inherited_entries { |ctx|
-  let result = test.expect(ctx, r"""let environment: Map[Str, Bytes] = {"RAW": b"a\x80b", "REPLACED": b"new"}
+  let result = test.expect(ctx, r"""let environment: Map[Str, Bytes] = {RAW: b"a\x80b", REPLACED: b"new"}
 env INHERITED="parent" REPLACED="old" {
   let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf '%s|%s|' \"$INHERITED\" \"$REPLACED\"; printf %s \"$RAW\" | od -An -tx1"], env: environment)
   assert process.run(command)?.ok
@@ -18,7 +18,7 @@ let _ = process.run(command)?
 """, status: 3, args: [f"{index}"], stderr: ["env-name"])?
     assert result.stdout == ""
   }
-  let result = test.expect(ctx, r"""let environment: Map[Str, Bytes] = {"VALID": b"a\0b"}
+  let result = test.expect(ctx, r"""let environment: Map[Str, Bytes] = {VALID: b"a\0b"}
 let command = process.command_argv("true", ["true"], env: environment)
 let _ = process.run(command)?
 """, status: 3, stderr: ["env-value"])?

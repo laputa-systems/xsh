@@ -45,6 +45,7 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 | `IDENT` | an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword |
 | `NAME` | an identifier that may also contain `-` after its first character |
 | `LABEL` | an identifier or keyword used as a field label |
+| `QUOTED_KEY` | a quoted record key that is not an identifier or keyword |
 | `MEMBER` | a label or a hyphenated name after `.` |
 | `INT` | a decimal or `0o` octal integer, or a decimal byte count with a size unit (`64MiB`) |
 | `FLOAT` | a decimal number with a fraction or exponent |
@@ -345,7 +346,7 @@ comprehension = "for" binding_target "in" expression ( NEWLINE* ( "for" binding_
 record_literal = "{" list(record_field) "}" ;
 record_field = "." ~"." ~"." expression
              | "[" NEWLINE* expression NEWLINE* "]" ":" expression_item
-             | ( LABEL | STRING ) ( "." LABEL )* ":" expression_item
+             | ( LABEL | QUOTED_KEY ) ( "." LABEL )* ":" expression_item
              | IDENT ;
 set_literal = "{" NEWLINE* set_lead expression_item NEWLINE* "," list(!( "[" | LABEL ":" | STRING ":" ) expression_item) "}" ;
 set_lead = &( STRING | PATH | FMT_STRING | PATH_FMT | ENV_STRING | INT | FLOAT | DURATION | BYTES | "(" | "-" | "!" | "true" | "false" | "null" | "not" | "if" | "match" | NAME ~"(" | NAME ~"." | NAME ~"[" | NAME ~"?" | NAME "??" | NAME "or" | NAME "and" | NAME "==" | NAME "!=" | NAME "<" | NAME "<=" | NAME ">" | NAME ">=" | NAME "in" | NAME "not" | NAME "+" | NAME "-" | NAME "*" | NAME "/" | NAME "%" | NAME "|" | NAME "&" | NAME "is" | NAME "as" | NAME "|>" | NAME "as" | NAME "," | NAME "for" ) ;

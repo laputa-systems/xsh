@@ -17,6 +17,7 @@ pub fn terminal_text(class: &Class) -> String {
         Class::Name => "NAME".to_string(),
         Class::Label => "LABEL".to_string(),
         Class::Member => "MEMBER".to_string(),
+        Class::QuotedKey => "QUOTED_KEY".to_string(),
         Class::WordPart(_) => "WORD_PART".to_string(),
         Class::GroupedEnd(_) => "GROUP_END".to_string(),
         Class::PathPart => "PATH_PART".to_string(),
@@ -54,7 +55,7 @@ fn tag_name(tag: TokenTag) -> String {
 }
 
 /// The terminals named in EBNF text, with what each stands for.
-pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 20] = [
+pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 21] = [
     (
         "IDENT",
         "an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword",
@@ -64,6 +65,10 @@ pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 20] = [
         "an identifier that may also contain `-` after its first character",
     ),
     ("LABEL", "an identifier or keyword used as a field label"),
+    (
+        "QUOTED_KEY",
+        "a quoted record key that is not an identifier or keyword",
+    ),
     ("MEMBER", "a label or a hyphenated name after `.`"),
     (
         "INT",

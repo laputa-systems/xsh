@@ -853,11 +853,11 @@ test test_fmt_keeps_a_path_method_receiver_quoted { |ctx|
 }
 
 test test_fmt_round_trips_value_branch_blocks_and_record_arms { |ctx|
-  let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, _ => {\"run\": 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, _ => \"other\" }\n"
+  let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, _ => {run: 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, _ => \"other\" }\n"
   let actual = formatted(ctx, source)?
   assert "{ {" not in actual, actual
   assert "let detail = 2" in actual, actual
-  assert "\"run\": 4" in actual, actual
+  assert "{run: 4}" in actual, actual
 }
 
 test test_fmt_keeps_bare_block_and_literal_distinctions { |ctx|

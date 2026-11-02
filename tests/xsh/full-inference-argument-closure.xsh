@@ -128,8 +128,8 @@ pure classify(code: Int, tag: Str) -> Str {
 
 test test_full_inference_forwarded_map_read_with_text_key_needs_no_uint_validation { |ctx|
   let checks = r"""
-let present: Map[Str, Str] = {"ec": "x"}
-let absent: Map[Str, Str] = {"zz": "x"}
+let present: Map[Str, Str] = {ec: "x"}
+let absent: Map[Str, Str] = {zz: "x"}
 assert lookup(present) == "x"
 assert lookup(absent) == "none"
 print "forwarded"

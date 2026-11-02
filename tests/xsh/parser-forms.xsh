@@ -40,8 +40,8 @@ test test_keywords_are_schema_and_record_field_labels { |ctx|
   expect_checks(ctx, "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n")
 }
 
-test test_quoted_reserved_words_are_record_fields { |ctx|
-  expect_parses(ctx, "let rec = {\"run\": 0, \"lines\": []}\n")
+test test_reserved_words_are_record_fields { |ctx|
+  expect_parses(ctx, "let rec = {run: 0, lines: []}\n")
 }
 
 # A brace or quote inside a nested raw, block, or formatted string does not

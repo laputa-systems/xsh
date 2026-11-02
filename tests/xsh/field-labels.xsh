@@ -52,7 +52,7 @@ test test_keyword_field_labels_in_update_paths_and_constant_map_keys { |ctx|
   assert bare.keys() == ["match", "type"]
   let duplicate = test.run_script(
     ctx,
-    """let row = {type: 1, "type": 2}
+    """let row = {type: 1, type: 2}
 """,
   )?
   assert ! duplicate.success, duplicate.stderr
@@ -200,7 +200,7 @@ let result = selected(type: 1)
 }
 
 test test_keyword_field_label_tooling_preserves_execution_and_converges { |ctx|
-  let source = r"""let row = {"type": "file", r"in": 2, "wire.type": 3} # Keep the wire explanation.
+  let source = r"""let row = {type: "file", in: 2, "wire.type": 3} # Keep the wire explanation.
 let label: Str = row.get("type")?
 print $label $row.in ${row["wire.type"]}
 """
