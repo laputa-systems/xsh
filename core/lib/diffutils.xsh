@@ -88,7 +88,7 @@ export pure parse_size(text: Str) -> Size? {
       used = 3
     }
     var power = 1
-    repeat steps times { power = scale(power, factor) }
+    for _ in range(steps) { power = scale(power, factor) }
     value = scale(value, power)
     cursor += used
   }

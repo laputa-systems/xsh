@@ -32,7 +32,7 @@ pub(super) enum StatementSite { PropagationContext, TempdirScopeCandidate, Bindi
 enum StatementSequenceSite { ContextScopeScaffolds, RecordDestructuring, FreshMapInitializations, ListElementReconstruction, NegativeIfGuard, OptionalBinding, WriteMode, TestExpect, EmptySentinel }
 type StatementSequenceHook = for<'source> fn(&mut Linter<'source>, &[StmtId]);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LoopSite { ByteIteration, MapEntryIteration, YieldDelegation, FileLines, CountedLoop }
+enum LoopSite { ByteIteration, MapEntryIteration, YieldDelegation, FileLines }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ExpressionAnalysisSite { PropagationContexts, RedundantCloseUses, StreamProducers, FailCandidates, SetLikeBindings, EmptyFallbacks, RedundantConditionPropagation, RedundantCapturePropagation, SizeProducts, RunArgv, NegatedCalls, NameReferenceUses, TempdirScopeUses }
 const EXPRESSION_ANALYSIS_ORDER: [ExpressionAnalysisSite; 13] = [
@@ -214,7 +214,6 @@ lint_rules! {
     LintPreferReadLines: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferRecordConstructor: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::RecordConstructor, |linter, statement, _| { let stmt = linter.arena.stmt(statement).clone(); let (ty, initializer) = match stmt.kind { ArenaStmtKind::Let { ty, initializer, .. } | ArenaStmtKind::Const { ty, initializer, .. } | ArenaStmtKind::Var { ty, initializer, .. } => (ty, initializer), _ => return }; linter.lint_record_constructor(ty, &initializer); })]);
     LintPreferRecordDestructuring: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::RecordDestructuring, |linter, statements| linter.lint_record_destructuring(statements))]);
-    LintPreferRepeat: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Loop(LoopSite::CountedLoop, |linter, _, target, iter, block, span| super::prefer_repeat::lint_counted_loop(linter, span, target, iter, block))]);
     LintPreferScalarIteration: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::BindingInitializerType, |linter, statement, _| linter.observe_binding_initializer_type(statement)), RuleHook::ScalarIteration(|linter, expr| linter.lint_scalar_split_iteration(expr)), RuleHook::Loop(LoopSite::ByteIteration, |linter, statement, target, iter, block, _| linter.lint_byte_iteration(statement, target, iter, block))]);
     LintPreferRunArgv: (RuleSetting::Always, [StandardCallIdentities], FixPolicy::ProducerProof, [RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::RunArgv, |linter, expr| { if let Some(finding) = super::lint_run_argv::run_argv_diagnostic(linter.arena, linter.source, &linter.standard_call_spans, expr) { linter.diagnostics.push(finding); } })]);
     LintPreferSignatureCli: (RuleSetting::Always, [CheckerDiagnostics, ExpressionTypes, StatementPositions, FunctionReturns], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::SignatureCli, run_signature_cli_hook)]);
@@ -1287,12 +1286,11 @@ pub(super) fn for_loop(
     span: Span,
 ) {
     scalar_iteration(linter, iter);
-    const ORDER: [LoopSite; 5] = [
+    const ORDER: [LoopSite; 4] = [
         LoopSite::ByteIteration,
         LoopSite::MapEntryIteration,
         LoopSite::YieldDelegation,
         LoopSite::FileLines,
-        LoopSite::CountedLoop,
     ];
     for site in ORDER {
         for rule in LINT_RULES {
@@ -2814,7 +2812,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 143);
+        assert_eq!(codes.len(), 142);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());

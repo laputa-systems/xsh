@@ -101,7 +101,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
   let exe = applet.current_exe()?
   let probe = process.command_argv(exe, [exe, "--startup"])
 
-  repeat 3 times {
+  for _ in range(3) {
     let _ = time.measure(probe, quiet: true)?
   }
 
@@ -110,7 +110,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
   var system_total = 0
   let n = 10
 
-  repeat n times {
+  for _ in range(n) {
     let result = time.measure(probe, quiet: true)?
     wall_total += result.wall_ns
     user_total += result.user_ns
@@ -123,7 +123,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
 proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Summary] {
   let command = build_command(text, opts)
 
-  repeat opts.warmup times {
+  for _ in range(opts.warmup) {
     let _ = time.measure(command, quiet: true)?
   }
 
@@ -132,7 +132,7 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
   var failures = 0
 
   let times_ns = collect {
-    repeat opts.runs times {
+    for _ in range(opts.runs) {
       let result = time.measure(command, quiet: true)?
 
       if ! result.status.exited_with(0) {

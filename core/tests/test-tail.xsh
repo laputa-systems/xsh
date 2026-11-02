@@ -29,7 +29,7 @@ proc tail_append(file: Path, data: Bytes) [fs, process, net, error] {
 }
 
 proc tail_wait_for_bytes(file: Path, expected: Bytes) [fs, time, error] -> Result[Bool] {
-  repeat 100 times {
+  for _ in range(100) {
     return Ok(true) when file.read_bytes()? == expected
     time.sleep(10ms)
   }

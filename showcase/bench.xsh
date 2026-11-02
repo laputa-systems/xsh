@@ -31,7 +31,7 @@ proc main(...cmd: List[Str]) [time, error] {
   let command = process.command_argv(opts.argv.get(0)?, opts.argv)
   var times = []
 
-  repeat opts.warmup times {
+  for _ in range(opts.warmup) {
     let result = time.measure(command)?
 
     if ! result.status.exited_with(0) {
@@ -40,7 +40,7 @@ proc main(...cmd: List[Str]) [time, error] {
     }
   }
 
-  repeat opts.runs times {
+  for _ in range(opts.runs) {
     let result = time.measure(command)?
 
     if ! result.status.exited_with(0) {

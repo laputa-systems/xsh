@@ -1,6 +1,6 @@
 pure runs(count: Int) -> Int {
   var total = 0
-  repeat count times {
+  for _ in range(count) {
     total += 1
   }
 
@@ -28,7 +28,7 @@ test test_repeat_evaluates_the_count_once { |ctx|
   3
 }
 
-repeat attempts() times {
+for _ in range(attempts()) {
   print "body"
 }
 """,
@@ -37,27 +37,10 @@ repeat attempts() times {
   assert output.stdout == "count\nbody\nbody\nbody\n"
 }
 
-# A line break in the head leaves an ordinary statement that begins with the
-# name `repeat`, which is not a command here.
-test test_repeat_head_is_one_line { |ctx|
-  let output = test.run_script(
-    ctx,
-    """repeat [
-  1,
-  2,
-].len() times {
-  print "never"
-}
-""",
-  )?
-  assert output.status != 0
-  assert output.stdout == ""
-}
-
 test test_repeat_count_reads_the_value_before_the_loop {
   var remaining = 4
   var total = 0
-  repeat remaining times {
+  for _ in range(remaining) {
     remaining = 0
     total += 1
   }
@@ -69,7 +52,7 @@ test test_repeat_break_and_continue_target_the_repeat {
   var visited = 0
   var counted = 0
   for outer in [1, 2] {
-    repeat 5 times {
+    for _ in range(5) {
       visited += 1
       continue when visited % 2 == 0
       break when visited > 6
@@ -84,8 +67,8 @@ test test_repeat_break_and_continue_target_the_repeat {
 
 test test_repeat_nests {
   var cells = 0
-  repeat 3 times {
-    repeat cells + 1 times {
+  for _ in range(3) {
+    for _ in range(cells + 1) {
       cells += 1
     }
   }
@@ -97,8 +80,8 @@ test test_repeat_nests {
 pure repeat_arm(count: Int) -> Int {
   var total = 0
   match count {
-    0 => repeat 2 times { total += 10 }
-    else => repeat count times { total += 1 }
+    0 => for _ in range(2) { total += 10 }
+    else => for _ in range(count) { total += 1 }
   }
 
   total
@@ -113,7 +96,7 @@ test test_repeat_and_times_stay_ordinary_names {
   let times = 2
   let repeat = 3
   var total = 0
-  repeat times times {
+  for _ in range(times) {
     total += repeat
   }
 
@@ -126,7 +109,7 @@ test test_repeat_at_script_top_level { |ctx|
   let output = test.expect(
     ctx,
     """var total = 0
-repeat 2 + 1 times {
+for _ in range(2 + 1) {
   total += 2
 }
 print \$total
@@ -139,7 +122,7 @@ print \$total
 test test_repeat_count_must_be_an_int { |ctx|
   let output = test.run_script(
     ctx,
-    """repeat "x" times {
+    """for _ in range("x") {
   print "never"
 }
 """,
@@ -148,7 +131,7 @@ test test_repeat_count_must_be_an_int { |ctx|
   assert "check.type-mismatch" in output.stderr
   assert "expected Int, found Str" in output.stderr
   # The diagnostic points at the count the user wrote.
-  assert ":1:8" in output.stderr
+  assert ":1:16" in output.stderr
   assert output.stdout == ""
 }
 
@@ -156,7 +139,7 @@ test test_repeat_body_is_checked_as_a_loop_body { |ctx|
   let output = test.run_script(
     ctx,
     """proc flaky() -> Result[Int] { Ok(1) }
-repeat 2 times {
+for _ in range(2) {
   1 == 1
   flaky()
 }
@@ -190,7 +173,7 @@ test test_repeat_failure_traceback_names_the_written_lines { |ctx|
 }
 
 var index = 0
-repeat 3 times {
+for _ in range(3) {
   step(index)?
   index += 1
 }
@@ -201,9 +184,9 @@ repeat 3 times {
   assert ":7:" in output.stderr
 }
 
-test test_repeat_formats_and_lints_as_written { |ctx|
+test test_range_loop_formats_as_written { |ctx|
   let source = """var total = 0
-repeat   2+1   times{
+for _ in range(2+1) {
   total += 1
 }
 for _ in range(total) { total += 1 }
@@ -216,7 +199,7 @@ print \$total
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == """var total = 0
 
-repeat 2 + 1 times {
+for _ in range(2 + 1) {
   total += 1
 }
 
@@ -225,34 +208,27 @@ for _ in range(total) { total += 1 }
 print \$total
 """
 
-  # The lint reports the written `for`, never the expansion of a `repeat`.
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate
-  let report = linted.stdout + linted.stderr
-  assert report.split("lint.prefer-repeat").len() == 2, report
-  let fixed = run.capture --text "xsht" lint --fix $candidate
-  assert fixed.status.exited_with(0), fixed.stderr
-  assert "repeat total times { total += 1 }" in candidate.read_text()?
-  assert "range" not in candidate.read_text()?
-
   let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
 }
 
-test test_repeat_expansion_is_invisible_to_grep { |ctx|
-  let candidate = test.temp_file(
+test test_repeat_statement_is_rejected_with_the_range_loop_to_write { |ctx|
+  let output = test.run_script(
     ctx,
-    name: "repeat-grep.xsh",
-    contents: bytes.from_text("""repeat 2 times {
-  print "tick"
+    """var total = 0
+repeat 2 times {
+  total += 1
 }
-for _ in range(3) {
-  print "tock"
-}
-"""),
+  repeat (total + 1) times { total += 1 }
+print \$total
+""",
   )?
-  let found = run.capture --text "xsht" grep "range(N)" $candidate
-  assert found.stdout.split("range(").len() == 2, found.stdout
-  assert ":4:" in found.stdout
+  assert output.status != 0
+  assert output.stdout == ""
+  assert output.stderr.split("err[parse.repeat-statement]").len() == 3, output.stderr
+  assert "write `for _ in range(2) {`" in output.stderr, output.stderr
+  assert "write `for _ in range(total + 1) { total += 1 }`" in output.stderr, output.stderr
+  assert "check." not in output.stderr, output.stderr
 }

@@ -920,7 +920,7 @@ proc main(...args: List[Str]) {
       assert time.now() < deadline, f"racer did not reach its first conflicting create: {error_output.read_text()?}"
       time.sleep(1ms)
     }
-    repeat 100 times {
+    for _ in range(100) {
       let args = (if symbolic { ["--force", "-s"] } else { ["--force"] }).extend(["b", "link"])
       uu.succeeds(uu.invoke(s, "ln", args, timeout: 5s)?)
     }

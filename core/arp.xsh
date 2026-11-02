@@ -59,10 +59,10 @@ pure parse_address(word: Str) -> Bytes? {
   var tail = values[parts.len() - 1]
   let room = 4 - octets.len()
   var limit = 1
-  repeat room times { limit = limit * 256 }
+  for _ in range(room) { limit = limit * 256 }
   return null when tail >= limit
   var last = []
-  repeat room times {
+  for _ in range(room) {
     last = [tail % 256, @last]
     tail = tail / 256
   }

@@ -43,7 +43,7 @@ proc main() [fs, time, io, error] {
   let _ = measured_process_join(current_2000, previous_2000)
   var samples_1000 = []
   var samples_2000 = []
-  repeat 5 times {
+  for _ in range(5) {
     samples_1000 += [measured_process_join(current.processes.processes, previous.processes.processes)]
     samples_2000 += [measured_process_join(current_2000, previous_2000)]
   }
@@ -59,7 +59,7 @@ proc main() [fs, time, io, error] {
   let initial_update = surface.prepare(surface.initial(), initial_surface)
   var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
   let samples = collect {
-    repeat 20 times {
+    for _ in range(20) {
       let started_ns = time.monotonic()?
       let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
       let screen = renderer.render(updated.value, 120, 40)?

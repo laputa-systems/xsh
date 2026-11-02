@@ -15,7 +15,7 @@ proc tally(rows: List[Row], limit: Int) -> Int {
       return -1
     }
 
-    repeat 2 times {
+    for _ in range(2) {
       total += row.size
     }
   }
@@ -76,13 +76,13 @@ test test_desugar_leaves_the_script_alone_and_refuses_one_that_does_not_parse { 
   let script = test.temp_file(
     ctx,
     name: "kept.xsh",
-    contents: bytes.from_text("""repeat 2 times { print "tick" }
+    contents: bytes.from_text("""print "tick" when true
 """),
   )?
   let printed = run.capture --text "xsht" desugar $script
-  assert printed.stdout == """for _ in range(2) { print "tick" }
+  assert printed.stdout == """if true { print "tick" }
 """, printed.stdout
-  assert script.read_text()? == """repeat 2 times { print "tick" }
+  assert script.read_text()? == """print "tick" when true
 """
 
   let broken = fp"{test.temp_dir(ctx, name: "refused")?}/broken.xsh"

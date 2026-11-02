@@ -154,7 +154,6 @@ compound_statement = if_statement
                    | with_statement
                    | signal_hook
                    | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
-                   | repeat_statement
                    | without_statement
                    | atomically_statement ;
 simple_statement = binding
@@ -239,7 +238,6 @@ condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME
 while_statement = "while" condition !builder_callback_before_condition_body block ;
 for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression !builder_callback_before_condition_body block ;
 loop_statement = "loop" block ;
-repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
 atomically_statement = "atomically" "replace" condition_expression "as" IDENT block ;
 match_statement = "match" condition_expression !builder_callback_before_condition_body "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;

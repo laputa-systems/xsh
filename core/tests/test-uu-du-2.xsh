@@ -421,7 +421,7 @@ test test_uu_du_du_very_deep_directory { |ctx|
   let s = scene(ctx)?
   var current = "x"
   uu.mkdir(s, current)
-  repeat 10 times {
+  for _ in range(10) {
     current = f"{current}/x"
     uu.mkdir_all(s, current)
   }

@@ -70,7 +70,7 @@ type ZipFile = {name: Str, data: Bytes}
 pure tar_octal(value: Int, digits: Int) -> Str {
   var rest = value
   var text = ""
-  repeat digits times {
+  for _ in range(digits) {
     text = f"{rest % 8}{text}"
     rest = rest / 8
   }
@@ -178,7 +178,7 @@ proc inode(file: Path) [process, error] -> Result[Str] {
 # `text` written `count` times.
 pure repeated(text: Str, count: Int) -> Str {
   var result = ""
-  repeat count times {
+  for _ in range(count) {
     result = f"{result}{text}"
   }
 

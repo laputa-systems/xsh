@@ -515,7 +515,7 @@ mod child_tests {
     #[test]
     fn sugar_views_reach_written_operands_or_the_expansion_once() {
         use ArenaChild::{Block, Expr, Stmt};
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), "print \"ready\" when true\nrepeat 2 times { print \"tick\" }\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), "print \"ready\" when true\nguard true else { print \"tick\" }\n");
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let arena = &parsed.arena.arena;
         let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
@@ -524,7 +524,7 @@ mod child_tests {
             let ArenaStmtKind::Sugar { operands, expansion, .. } = arena.stmt(stmt).kind else { panic!("expected sugar"); };
             let expected = match arena.sugar_operands(operands) {
                 [ArenaSugarOperand::Expr(condition), ArenaSugarOperand::Stmt(body)] if index == 0 => vec![Expr(*condition), Stmt(*body)],
-                [ArenaSugarOperand::Expr(count), ArenaSugarOperand::Block(body)] if index == 1 => vec![Expr(*count), Block(*body)],
+                [ArenaSugarOperand::Expr(condition), ArenaSugarOperand::Block(body)] if index == 1 => vec![Expr(*condition), Block(*body)],
                 operands => panic!("unexpected operands: {operands:?}"),
             };
             let mut source = Vec::new();
@@ -6479,16 +6479,6 @@ impl AstArena {
     pub fn sugar(&self, form: SugarForm, operands: ArenaRange) -> ArenaSugar {
         match (form, self.sugar_operands(operands)) {
             (
-                SugarForm::Repeat,
-                &[
-                    ArenaSugarOperand::Expr(count),
-                    ArenaSugarOperand::Block(body),
-                ],
-            ) => ArenaSugar::Repeat { count, body },
-            (SugarForm::Repeat, operands) => {
-                unreachable!("`repeat` has a count and a body, found {operands:?}")
-            }
-            (
                 SugarForm::When | SugarForm::Unless,
                 &[
                     ArenaSugarOperand::Expr(condition),
@@ -7285,9 +7275,6 @@ pub enum ArenaStmtKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum SugarForm {
-    /// `repeat COUNT times { BODY }`: operands are the count expression and
-    /// the body block.
-    Repeat,
     /// `STMT when CONDITION`: operands are the condition and the guarded
     /// statement, in the order they run.
     When,
@@ -7315,8 +7302,7 @@ pub enum SugarForm {
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 8] = [
-        Self::Repeat,
+    pub const ALL: [Self; 7] = [
         Self::When,
         Self::Unless,
         Self::Guard,
@@ -7329,7 +7315,7 @@ impl SugarForm {
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
-            Self::Repeat | Self::Guard | Self::Atomically | Self::ForIndex => true,
+            Self::Guard | Self::Atomically | Self::ForIndex => true,
             Self::When | Self::Unless | Self::Fail | Self::WaitUntil => false,
         }
     }
@@ -7377,10 +7363,6 @@ pub enum SugarView {
 /// match one particular form. Everything else walks `sugar_operands`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArenaSugar {
-    Repeat {
-        count: ExprId,
-        body: BlockId,
-    },
     /// `stmt when condition`, or `stmt unless condition` when `negate`.
     Guarded {
         stmt: StmtId,

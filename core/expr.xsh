@@ -673,7 +673,7 @@ pure parse_branch(pat: List[Int], state: Parsed, depth: Int) -> Parsed {
 
       var expanded: List[Instr] = []
 
-      repeat lo times {
+      for _ in range(lo) {
         expanded += atom
       }
 
@@ -686,7 +686,7 @@ pure parse_branch(pat: List[Int], state: Parsed, depth: Int) -> Parsed {
       } else {
         var tail: List[Instr] = []
 
-        repeat hi - lo times {
+        for _ in range(hi - lo) {
           tail = [{op: 3, a: 1, b: size + tail.len() + 1}] + atom + tail
         }
 

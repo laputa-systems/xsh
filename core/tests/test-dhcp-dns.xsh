@@ -199,7 +199,7 @@ test test_concurrent_processes_converge_on_one_consistent_file { |ctx|
 proc main(...argv: List[Str]) [fs, time, error] {{
   let layout = dns_owner.Layout(run_dir: fp"{{argv[0]}}", destination_dir: fp"{{argv[1]}}", destination: "resolv.conf", static_path: null, lock_wait_ms: 20000)
   let interface = argv[2]
-  repeat 5 times {{
+  for _ in range(5) {{
     let _ = dns_owner.update(layout, interface, dns_owner.Contribution(interface:, servers: [argv[3]], search: []))?
   }}
 }}

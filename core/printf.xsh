@@ -285,14 +285,14 @@ pure pad_text(text: Str, width: Int, left: Bool, fill: Str) -> Str {
   let count = width - text.count_chars()
   return text when count <= 0
   var padding = ""
-  repeat count times { padding += fill }
+  for _ in range(count) { padding += fill }
   if left { text + padding } else { padding + text }
 }
 
 proc write_repeat(fill: Bytes, count: Int) [process, env, io, error] {
   return when count <= 0
   let full_size = 65536
-  let atoms: List[Bytes] = collect { repeat full_size times { yield fill } }
+  let atoms: List[Bytes] = collect { for _ in range(full_size) { yield fill } }
   let full = bytes.concat(atoms)
   var remaining = count
   while remaining > 0 {
@@ -497,7 +497,7 @@ pure hex_long_double(text: Str, precision: Int?, alternate: Bool) -> Str {
   # Subnormal x87 values share the minimum normal exponent in GNU output.
   if exponent < -16385 {
     var digits = alphabet.byte_slice(whole, length: 1) + fraction
-    repeat -16385 - exponent times {
+    for _ in range(-16385 - exponent) {
       var shifted = ""
       var carry = 0
       for at in range(digits.byte_len()) {

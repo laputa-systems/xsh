@@ -28,7 +28,7 @@ export type Screen = {
 
 pure repeated(character: Str, count: Int) -> Str {
   var text = ""
-  repeat count times {
+  for _ in range(count) {
     text += character
   }
   text

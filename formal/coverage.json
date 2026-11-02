@@ -920,7 +920,6 @@
       "declaration": "ArenaSugar",
       "extractor": "rust-enum",
       "items": [
-        "Repeat{count:tokens:[\"ExprId\"],body:tokens:[\"BlockId\"]}",
         "Guarded{stmt:tokens:[\"StmtId\"],negate:tokens:[\"bool\"],condition:tokens:[\"ExprId\"]}",
         "Guard{condition:tokens:[\"ExprId\"],else_block:tokens:[\"BlockId\"]}",
         "Fail{failure:tokens:[\"ExprId\"]}",
@@ -1046,7 +1045,6 @@
       "declaration": "SugarForm",
       "extractor": "rust-enum",
       "items": [
-        "Repeat",
         "When",
         "Unless",
         "Guard",

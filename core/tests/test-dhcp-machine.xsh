@@ -343,7 +343,7 @@ test test_address_conflict_declines_and_waits_before_discovering_again {
 test test_server_absence_backs_off_with_jitter_to_the_cap_and_never_gives_up {
   var ses = begin(fast())
   let delays = collect {
-    repeat 12 times {
+    for _ in range(12) {
       ses = feed(ses, .OnTick, wake(ses))
       assert state_of(ses) == "selecting"
       yield wake(ses) - ses.now
@@ -576,7 +576,7 @@ test test_wake_follows_every_transition_and_effects_stay_bounded {
   ses = feed(ses, .OnReceived(message(reply(2, xid))?), 1010)
   ses = feed(ses, .OnReceived(message(reply(5, xid))?), 1020)
   var armed = ses.machine.wake_at
-  repeat 300 times {
+  for _ in range(300) {
     assert wake(ses) != -1
     ses = feed(ses, .OnTick, wake(ses))
     assert ses.effects.len() <= machine.MAX_EFFECTS

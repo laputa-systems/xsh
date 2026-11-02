@@ -252,7 +252,7 @@ test test_gnu_du_long_from_unreadable_log { |ctx|
   let component = ["x" for _ in range(200)].join("")
   let child_name = fp"{component}".require(RelPath)?
   var directory = fs.open_root(s.root)?
-  repeat 52 times {
+  for _ in range(52) {
     directory.mkdir(child_name)
     let child = directory.open_root(child_name)?
     directory.close()

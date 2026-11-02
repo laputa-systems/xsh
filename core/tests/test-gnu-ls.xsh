@@ -655,7 +655,7 @@ test test_gnu_ls_block_size_log { |ctx|
 
 pure size_tail(line: Str) -> Str {
   var offset = 0
-  repeat 2 times {
+  for _ in range(2) {
     while offset < line.byte_len() and line.byte_at(offset) != 32 { offset += 1 }
     while offset < line.byte_len() and line.byte_at(offset) == 32 { offset += 1 }
   }

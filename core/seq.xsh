@@ -223,7 +223,7 @@ pure mul_pow(text: Str, base: Int, exponent: Int) -> Str {
     let step = if left > widest { widest } else { left }
     var factor = 1
 
-    repeat step times {
+    for _ in range(step) {
       factor *= base
     }
 

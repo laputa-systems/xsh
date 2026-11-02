@@ -358,7 +358,7 @@ export proc execute(argv: List[Str]) {
   while ttl <= max_hops and ! finished {
     linux.setsockopt_int(fd, if v6 { c.SOL_IPV6 } else { c.SOL_IP }, if v6 { c.IPV6_UNICAST_HOPS } else { c.IP_TTL }, ttl)
     var progress = -1
-    repeat 3 times {
+    for _ in range(3) {
       let before = walk.mtu
       let reading = probe(fd, ttl, walk, setup, clock)?
       walk = reading.walk

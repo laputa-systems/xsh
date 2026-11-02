@@ -281,7 +281,7 @@ pure big_is_one(a: List[Int]) -> Bool {
 pure big_pow(base: List[Int], exponent: Int) -> List[Int] {
   var out = [1]
 
-  repeat exponent times {
+  for _ in range(exponent) {
     out = big_mul(out, base)
   }
 
@@ -338,7 +338,7 @@ pure mod_info(m: Int) -> Mod {
 
   var shift = 1
 
-  repeat 62 - bits times {
+  for _ in range(62 - bits) {
     shift = shift * 2
   }
 
@@ -422,7 +422,7 @@ pure is_prime_int(n: Int) -> Bool {
     if x != 0 and x != 1 and x != n - 1 {
       var witness = true
 
-      repeat twos - 1 times {
+      for _ in range(twos - 1) {
         x = mulmod(x, x, info)
 
         if x == n - 1 {
@@ -457,7 +457,7 @@ pure rho_int(n: Int, c: Int, limit: Int) -> Int {
   while g == 1 and steps < limit {
     x = y
 
-    repeat r times {
+    for _ in range(r) {
       y = rho_step(y, c, info)
     }
 
@@ -468,7 +468,7 @@ pure rho_int(n: Int, c: Int, limit: Int) -> Int {
 
       let count = if r - k < 32 { r - k } else { 32 }
 
-      repeat count times {
+      for _ in range(count) {
         y = rho_step(y, c, info)
         q = mulmod(q, if x > y { x - y } else { y - x }, info)
       }
@@ -545,7 +545,7 @@ pure is_prime_big(n: List[Int]) -> Bool {
     if ! x.is_empty() and ! big_is_one(x) and big_cmp(x, below) != 0 {
       var witness = true
 
-      repeat twos - 1 times {
+      for _ in range(twos - 1) {
         x = mulmod_big(x, x, n)
 
         if big_cmp(x, below) == 0 {
@@ -599,7 +599,7 @@ pure rho_big(n: List[Int], c: Int, limit: Int) -> List[Int] {
   while big_is_one(g) and steps < limit {
     x = y
 
-    repeat r times {
+    for _ in range(r) {
       y = rho_step_big(y, c, n)
     }
 
@@ -610,7 +610,7 @@ pure rho_big(n: List[Int], c: Int, limit: Int) -> List[Int] {
 
       let count = if r - k < 24 { r - k } else { 24 }
 
-      repeat count times {
+      for _ in range(count) {
         y = rho_step_big(y, c, n)
         q = mulmod_big(q, distance(x, y), n)
       }
@@ -946,7 +946,7 @@ pure factorize(n: List[Int], small: List[Int]) -> Factors {
       let power = perfect_power(current)
 
       if power.exponent > 1 {
-        repeat power.exponent times {
+        for _ in range(power.exponent) {
           work += [power.root]
         }
       } else {
@@ -1000,7 +1000,7 @@ pure render(text: Str, primes: List[Str], exponents: Bool) -> Str {
     if exponents and count > 1 {
       line += f" {primes[at]}^{count}"
     } else {
-      repeat count times {
+      for _ in range(count) {
         line += f" {primes[at]}"
       }
     }

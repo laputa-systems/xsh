@@ -453,7 +453,7 @@ pure hex_text(value) -> Str {
 pure octal_text(value: Int, digits: Int) -> Str {
   var left = value
   var text = ""
-  repeat digits times {
+  for _ in range(digits) {
     text = f"{"01234567".byte_slice(left % 8, length: 1)}{text}"
     left = left / 8
   }
@@ -462,7 +462,7 @@ pure octal_text(value: Int, digits: Int) -> Str {
 
 pure fits_octal(value: Int, digits: Int) -> Bool {
   var limit = 1
-  repeat digits times { limit = limit * 8 }
+  for _ in range(digits) { limit = limit * 8 }
   value < limit
 }
 

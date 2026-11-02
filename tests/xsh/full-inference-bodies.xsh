@@ -257,7 +257,7 @@ test test_full_inference_body_yield_delegation_closes_nested_streams { |ctx|
     ctx,
     r"""stream child(value, count) {
   defer { print "child closed" }
-  repeat count times {
+  for _ in range(count) {
     yield value
   }
 }

@@ -7,7 +7,7 @@ export proc apply(transform, value) {
 
 ## Yields callback results from a lazy producer.
 export stream apply_many(transform, value, count) {
-  repeat count times {
+  for _ in range(count) {
     yield apply(transform, value)
   }
 }

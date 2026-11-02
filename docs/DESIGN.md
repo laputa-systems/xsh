@@ -134,6 +134,7 @@ that names its survivor:
   call with typed arguments (C01)
 - set literals and comprehensions, `{"a", "b"}` and `{x for x in xs}`; write
   `set.from([...])` (C02)
+- `repeat N times { }`; write `for _ in range(N) { }` (C03)
 - the unguarded `_ =>` match arm; write `else =>` (C04)
 - `guard COND else fail MSG`; write `guard COND else { fail MSG }` (C05)
 - `fail MSG because CAUSE`; return an `Err` that carries the cause (C06)
@@ -143,8 +144,6 @@ that names its survivor:
 - quoted record labels that are identifiers, `{"type": v}`; write `{type: v}`
   (C11)
 - the `prefer-method` rewrites of functions that no longer exist (C12)
-
-`repeat N times { }` (C03) is next: its survivor is `for _ in range(N) { }`.
 
 Keep sigils' meanings fixed: `$` and `${...}` interpolate command words, `@`
 splices argv, and `?` propagates a result. Do not reuse a sigil or add delimiter

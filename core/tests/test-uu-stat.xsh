@@ -28,7 +28,7 @@ proc radix(value: Int, base: Int) [error] -> Result[Str, Error] {
   var digits = []
   if value < 0 {
     assert base == 16
-    repeat 16 times {
+    for _ in range(16) {
       digits = ["0123456789abcdef".byte_slice(15 - remaining % 16, length: 1)].extend(digits)
       remaining /= 16
     }

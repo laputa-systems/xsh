@@ -88,7 +88,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
       return when opts.once
     }
 
-    repeat interval times {
+    for _ in range(interval) {
       time.sleep(1s)
     }
 

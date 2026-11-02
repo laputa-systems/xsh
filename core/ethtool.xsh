@@ -467,7 +467,7 @@ proc show_coalesce(fd: Int, device: Str, rest: List[Str]) {
 
 pure range_zero(count: Int) -> List[Int] {
   let zeros = collect {
-    repeat count times { yield 0 }
+    for _ in range(count) { yield 0 }
   }
   zeros
 }
@@ -590,7 +590,7 @@ proc show_settings(fd: Int, device: Str) {
   let first = eth_request(fd, device, dec.link_settings_request(0)?, LINK_HEAD_SIZE)
   if let Err(failure) = first {
     if (failure.errno ?? 0) == 19 {
-      repeat 7 times { netlink_error(failure) }
+      for _ in range(7) { netlink_error(failure) }
       gnu.write_text("No data available\n")
       exit 75
     }
@@ -749,7 +749,7 @@ proc apply_link_settings(fd: Int, device: Str, speed: Int?, duplex: Int?, port: 
   var advertising = settings.advertising
   if advertise != null {
     advertising = [advertise]
-    repeat settings.nwords - 1 times { advertising += [0] }
+    for _ in range(settings.nwords - 1) { advertising += [0] }
   } else if final_autoneg == 1 and (autoneg != null or speed != null or duplex != null) {
     advertising = settings.supported
   }

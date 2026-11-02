@@ -216,7 +216,7 @@ fn statement_pair_reordering_keeps_candidate_offsets_aligned() {
 
 #[test]
 fn only_root_names_from_statement_regions_suppress_name_warnings() {
-    let source = "root.field = 1\nitems[0] = 2\ne\"XSH_ASSIGNMENT_FACT\" = 3\nlet result = try {\n  nested = 4\n  0\n}\natomically replace output as temporary {\n  repeat 1 times { atomic_written = 6 }\n}\nwait until ready within 5s backoff 1s..4s\nlet root_text = \"$root\"\nlet items_text = \"$items\"\nlet environment_text = \"$XSH_ASSIGNMENT_FACT\"\nlet nested_text = \"$nested\"\nlet atomic_text = \"$atomic_written\"\nlet delay_text = \"$delay\"\nproc show() {\n  defer { deferred = 5 }\n  let deferred_text = \"$deferred\"\n}\n";
+    let source = "root.field = 1\nitems[0] = 2\ne\"XSH_ASSIGNMENT_FACT\" = 3\nlet result = try {\n  nested = 4\n  0\n}\natomically replace output as temporary {\n  for _ in range(1) { atomic_written = 6 }\n}\nwait until ready within 5s backoff 1s..4s\nlet root_text = \"$root\"\nlet items_text = \"$items\"\nlet environment_text = \"$XSH_ASSIGNMENT_FACT\"\nlet nested_text = \"$nested\"\nlet atomic_text = \"$atomic_written\"\nlet delay_text = \"$delay\"\nproc show() {\n  defer { deferred = 5 }\n  let deferred_text = \"$deferred\"\n}\n";
     let diagnostics = lint_source_only(
         source,
         vec![DiagnosticCode::LintDollarInExpressionString],

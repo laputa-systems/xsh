@@ -29,7 +29,7 @@ pure hex8(value: Int) -> Str {
   var out = ""
   var rest = value % 4294967296
 
-  repeat 8 times {
+  for _ in range(8) {
     out = f"{"0123456789abcdef".byte_slice(rest % 16, length: 1)}{out}"
     rest = rest / 16
   }

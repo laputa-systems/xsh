@@ -7,7 +7,7 @@ export proc preserve(value) {
 
 ## Yields the supplied value the requested number of times.
 export stream replay(value, count) {
-  repeat count times {
+  for _ in range(count) {
     yield value
   }
 }

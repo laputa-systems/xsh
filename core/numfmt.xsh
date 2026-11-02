@@ -339,7 +339,7 @@ pure scale_bases(iec: Bool) -> List[Float] {
   var current = 1.0
 
   let out: List[Float] = collect {
-    repeat 11 times {
+    for _ in range(11) {
       yield current
       current = current * (if iec { 1024.0 } else { 1000.0 })
     }
@@ -818,7 +818,7 @@ proc to_unit_text(
       let magnitude = if scaled.mag.is_empty() { [1] } else { scaled.mag }
       var power = [1]
 
-      repeat if precision > 19 { 19 } else { precision } times {
+      for _ in range(if precision > 19 { 19 } else { precision }) {
         power = big_mul_small(power, 10)
       }
 
@@ -928,7 +928,7 @@ pure parse_format(text: Str) -> FormatParse {
     }
   }
 
-  repeat doubles times {
+  for _ in range(doubles) {
     prefix = prefix[..prefix.count_chars() - 1]
   }
 
@@ -1433,7 +1433,7 @@ pure parse_unit_size(text: Str) -> Int? {
 
     return null when index < 0 or ! (suffix.byte_len() == 1 or (suffix.byte_len() == 2 and suffix.ends_with("i")))
 
-    repeat index + 1 times {
+    for _ in range(index + 1) {
       multiplier = multiplier * (if suffix.byte_len() == 2 { 1024 } else { 1000 })
     }
   }

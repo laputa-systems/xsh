@@ -356,7 +356,7 @@ impl Scan<'_> {
                     !mentions(self.text(arena.expr(condition).span), self.name)
                         && self.statement(guarded, top)
                 }
-                ArenaSugar::Repeat { body, .. } | ArenaSugar::ForIndex { body, .. } => {
+                ArenaSugar::ForIndex { body, .. } => {
                     self.compound(span, &[body])
                 }
                 _ => !mentions(self.text(span), self.name),

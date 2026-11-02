@@ -918,12 +918,6 @@ impl<'a> Writer<'a> {
             }
             ArenaStmtKind::Sugar { form, operands, .. } => {
                 match self.arena.sugar(*form, *operands) {
-                    ArenaSugar::Repeat { count, body } => {
-                        output.push_str("repeat ");
-                        self.write_expr(count, WORD, output);
-                        output.push_str(" times ");
-                        self.write_block(body, indent, output);
-                    }
                     ArenaSugar::Guarded {
                         stmt: inner,
                         negate,
@@ -5862,30 +5856,6 @@ mod tests {
     #[test]
     fn equivalence_ignores_lowered_value_pipeline_sugar() {
         assert_round_trip("let t = \" x \" |> trim()\n", "let t = \" x \".trim()\n");
-    }
-
-    #[test]
-    fn repeat_prints_its_operands_and_keeps_needed_grouping() {
-        for (source, expected) in [
-            (
-                "repeat   n+1   times{\nprint \"tick\"\n}\n",
-                "repeat n + 1 times {\n  print \"tick\"\n}\n",
-            ),
-            (
-                "repeat (n) times { # each\n  total += 1 # one\n}\n",
-                "repeat n times {\n  # each\n  total += 1 # one\n}\n",
-            ),
-            (
-                "repeat times times { repeat (a |> len()) times { total += 1 } }\n",
-                "repeat times times { repeat a.len() times { total += 1 } }\n",
-            ),
-            (
-                "match n {\n  0 => repeat 2 times { total += 1 }\n  else => {}\n}\n",
-                "match n {\n  0 => repeat 2 times { total += 1 }\n  else => {}\n}\n",
-            ),
-        ] {
-            assert_round_trip(source, expected);
-        }
     }
 
     #[test]

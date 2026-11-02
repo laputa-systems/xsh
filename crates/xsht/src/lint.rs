@@ -17,8 +17,6 @@ mod item_shorthand;
 #[path = "lint_tempdir_scope.rs"]
 mod tempdir_scope;
 
-#[path = "lint_prefer_repeat.rs"]
-mod prefer_repeat;
 
 #[path = "lint_prefer_atomically.rs"]
 mod prefer_atomically;

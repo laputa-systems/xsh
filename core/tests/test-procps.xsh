@@ -37,7 +37,7 @@ while ! release.exists()? { time.sleep(10ms) }
   let child = spawn run ${ctx.xsh_bin} $fixture -- $ready $release ?
   # The marker is written after exec and interpreter naming; observing a process
   # row alone can catch a command name that changes during program startup.
-  repeat 20 times {
+  for _ in range(20) {
     break when ready.exists()
     time.sleep(10ms)
   }
@@ -177,7 +177,7 @@ proc start_sleeper(ctx: TestContext, tag: Str, token = "", reading: Path? = null
   let script = test.temp_file(ctx, name: f"{name}.xsh", contents: bytes.from_text("""
 fp"{args[0]}".write("up")
 let release = fp"{args[1]}"
-repeat 1000 times {
+for _ in range(1000) {
   break when release.exists()?
   time.sleep(10ms)
 }
@@ -189,7 +189,7 @@ repeat 1000 times {
   } else {
     spawn run $link $script -- $ready $release $token ?
   }
-  repeat 200 times {
+  for _ in range(200) {
     break when ready.exists()
     time.sleep(10ms)
   }

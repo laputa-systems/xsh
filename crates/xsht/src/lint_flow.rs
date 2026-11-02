@@ -205,9 +205,6 @@ fn stmt_flow(arena: &AstArena, facts: &FlowFacts, stmt: StmtId) -> FlowSummary {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Export(inner) => facts.statement(inner),
         ArenaStmtKind::Sugar { form, operands, .. } => match arena.sugar(form, operands) {
-            ArenaSugar::Repeat { count, body } => {
-                zero_or_more_loop(facts.expression(count), facts.block(body))
-            }
             ArenaSugar::Guarded {
                 stmt,
                 condition,

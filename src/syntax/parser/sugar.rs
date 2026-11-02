@@ -37,10 +37,11 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::StreamStageKind;
 
-/// The word that begins a `repeat` statement. It stays an ordinary identifier
-/// everywhere else (`repeat` is also a stream stage).
+/// The word that begins the removed `repeat` statement, which is still read
+/// so it can be reported. It stays an ordinary identifier everywhere else
+/// (`repeat` is also a stream stage).
 const REPEAT_WORD: &str = "repeat";
-/// The word that ends a `repeat` statement's count.
+/// The word that ends the removed `repeat` statement's count.
 const TIMES_WORD: &str = "times";
 /// The word that begins a `fail` statement. It stays an ordinary identifier
 /// everywhere else (`test.fail`, a record field named `fail`).
@@ -49,7 +50,7 @@ const FAIL_WORD: &str = "fail";
 const BECAUSE_WORD: &str = "because";
 
 impl Parser<'_> {
-    /// Whether the statement at the cursor is `repeat COUNT times {`.
+    /// Whether the statement at the cursor is the removed `repeat COUNT times {`.
     ///
     /// `repeat` is not reserved, so the statement is recognized by its whole
     /// head, written on one line: the word `repeat`, a count, and then,
@@ -110,55 +111,63 @@ impl Parser<'_> {
             );
             return None;
         }
-        self.bump();
+        let times = self.bump();
         let head = self.span(start, self.previous_end());
+        self.report_repeat_statement(keyword, times);
         let body = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
-        let operands = RepeatOperands {
-            keyword,
-            head,
-            count,
-            body,
-        };
-        arena.push_sugar(
-            SugarForm::Repeat,
-            &[
-                ArenaSugarOperand::Expr(count),
-                ArenaSugarOperand::Block(body),
-            ],
-            span,
-            |arena| expand_repeat(arena, operands, span),
-        );
+        let callee = arena.push_ident_expr(Name::intern("range"), keyword);
+        arena.begin_call_args();
+        arena.push_call_arg_input(ArenaCallArgInput::Positional(count));
+        let args = arena.finish_call_args();
+        let iter = arena.push_call_expr(callee, args, head);
+        let target = arena.push_binding_target_name(Name::intern("_"));
+        arena.push_for_id(target, iter, body, span);
         Some(())
+    }
+
+    fn report_repeat_statement(&mut self, keyword: Span, times: Span) {
+        let line_start = self.source[..keyword.start()]
+            .rfind('\n')
+            .map_or(0, |newline| newline + 1);
+        let line_end = self.source[times.end()..]
+            .find('\n')
+            .map_or(self.source.len(), |newline| times.end() + newline);
+        let count = self.source[keyword.end()..times.start()].trim();
+        let count = strip_enclosing_parens(count);
+        let rewritten = format!(
+            "{}for _ in range({count}){}",
+            &self.source[line_start..keyword.start()],
+            &self.source[times.end()..line_end]
+        );
+        self.diagnostics.push(
+            Diagnostic::error("`repeat N times` is written `for _ in range(N)`")
+                .with_code(DiagnosticCode::ParseRepeatStatement)
+                .with_label(Label::primary(
+                    self.span(keyword.start(), times.end()),
+                    "write `for _ in range(N)`",
+                ))
+                .with_note(format!("write `{}`", rewritten.trim())),
+        );
     }
 }
 
-struct RepeatOperands {
-    /// The `repeat` word.
-    keyword: Span,
-    /// `repeat COUNT times`, everything before the body.
-    head: Span,
-    count: ExprId,
-    body: BlockId,
-}
-
-/// `repeat COUNT times { BODY }` is `for _ in range(COUNT) { BODY }`.
-///
-/// The `range` callee sits on the `repeat` word and the call on the whole
-/// head, so a diagnostic about the count lands on the count the user wrote
-/// and one about the call lands on `repeat COUNT times`.
-fn expand_repeat(
-    arena: &mut ArenaProgramBuilder<'_>,
-    operands: RepeatOperands,
-    span: Span,
-) -> StmtId {
-    let callee = arena.push_ident_expr(Name::intern("range"), operands.keyword);
-    arena.begin_call_args();
-    arena.push_call_arg_input(ArenaCallArgInput::Positional(operands.count));
-    let args = arena.finish_call_args();
-    let iter = arena.push_call_expr(callee, args, operands.head);
-    let target = arena.push_binding_target_name(Name::intern("_"));
-    arena.push_for_id(target, iter, operands.body, span)
+fn strip_enclosing_parens(text: &str) -> &str {
+    let Some(inner) = text.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) else {
+        return text;
+    };
+    let mut depth = 0usize;
+    for byte in inner.bytes() {
+        match byte {
+            b'(' => depth += 1,
+            b')' => match depth.checked_sub(1) {
+                Some(outer) => depth = outer,
+                None => return text,
+            },
+            _ => {}
+        }
+    }
+    if depth == 0 { inner.trim() } else { text }
 }
 
 impl Parser<'_> {
@@ -621,28 +630,6 @@ mod tests {
     use crate::syntax::grammar::generate::Generator;
     use crate::syntax::grammar::{grammar, lex_grammar_tokens};
     use crate::syntax::parser::Parser;
-
-    /// `repeat` is recognized by lookahead, not by a reserved word, so a head
-    /// the lookahead missed would still parse, as a command or an expression.
-    /// Every sentence of the production must come out as the sugar statement.
-    #[test]
-    fn every_repeat_sentence_of_the_grammar_parses_as_a_repeat_statement() {
-        let mut sentences = 0;
-        for (depth, seed, source) in sentences_of("repeat_statement") {
-            sentences += 1;
-            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-            assert!(
-                parsed.diagnostics.is_empty(),
-                "depth {depth} seed {seed}: {}\n{source}",
-                parsed.diagnostics[0].message
-            );
-            assert!(
-                first_statement_is(&parsed.arena, SugarForm::Repeat),
-                "depth {depth} seed {seed} is not a repeat statement:\n{source}"
-            );
-        }
-        assert!(sentences > 300, "only {sentences} sentences");
-    }
 
     /// The two spellings the formatter prints for a propagated `spawn run`:
     /// a space before `?` ends the words of a bare one, and a parenthesized
@@ -1288,7 +1275,6 @@ mod tests {
     fn the_grammar_recognizes_written_sugar_statements() {
         assert_grammar_recognizes(&[
             include_str!("../../../tests/xsh/repeat.xsh"),
-            include_str!("../../../docs/snippets/spec/45-repeat.xsh"),
             include_str!("../../../tests/xsh/tempdir.xsh"),
             include_str!("../../../docs/snippets/spec/60-tempdir.xsh"),
             include_str!("../../../tests/xsh/exit.xsh"),

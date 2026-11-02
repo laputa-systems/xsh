@@ -250,7 +250,7 @@ pure reply_frames(world: World, request: wire.Message, link: client.Link) -> Lis
       let broadcast = reply.dest == "broadcast"
       let destination = if broadcast { b"\xff\xff\xff\xff\xff\xff" } else { link.mac }
       let target = if broadcast { 4294967295 } else { wire.ip_parse(responder.destination(reply, responder.Request(kind:, message: request, source: wire.ip_text(request.ciaddr), source_port: 68))) ?? 4294967295 }
-      repeat max_of(reply.repeat, 1) times {
+      for _ in range(max_of(reply.repeat, 1)) {
         yield {at: world.now + reply.delay_ms, kind: "frame", text: hex(pcap.udp_frame(destination, SERVER_MAC, SERVER_ADDRESS, target, 67, 68, datagram))}
       }
     }

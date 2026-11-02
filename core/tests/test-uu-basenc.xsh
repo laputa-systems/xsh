@@ -188,7 +188,7 @@ test test_uu_basenc_base58_large_file_no_chunking { |ctx|
   let s = uu.scene(ctx)?
   # Base58 treats the whole input as one integer, including files larger than 1024 bytes.
   var input = ""
-  repeat 50 times {
+  for _ in range(50) {
     input += "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
   }
   uu.write(s, "large_file.txt", input)

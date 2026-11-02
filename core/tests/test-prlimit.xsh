@@ -87,7 +87,7 @@ proc reporter(ctx: TestContext, names: List[Str]) [fs, process, error] -> Result
 # child is still executing the program, and a limit set then would fail the
 # exec, so the name the kernel reports tells when `sleep` is really running.
 proc wait_for_sleep(pid: Int) [fs, time, error] {
-  repeat 500 times {
+  for _ in range(500) {
     if let Ok(name) = fp"/proc/{pid}/comm".read_text() {
       return when name.trim() == "sleep"
     }

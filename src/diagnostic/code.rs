@@ -247,6 +247,7 @@ diagnostic_codes! {
         ParsePipelineHole = "parse.pipeline-hole", error, "Reject a value pipeline call without exactly one `_` argument placeholder";
         ParsePipelineRun = "parse.pipeline-run", error, "Reject a byte pipeline segment that does not start with `run`";
         ParseQuotedFieldLabel = "parse.quoted-field-label", error, "Reject a quoted record field label that is an identifier; write the label bare";
+        ParseRepeatStatement = "parse.repeat-statement", error, "Reject the removed `repeat N times` statement; write `for _ in range(N)`";
         ParseRequiredSignature = "parse.required-signature", error, "Reject a function or `stream` producer declared without a parameter list";
         ParseRequiredValue = "parse.required-value", error, "Reject `yield` without a value";
         ParseRestDefault = "parse.rest-default", error, "Reject a default value on a rest parameter";
@@ -600,7 +601,6 @@ diagnostic_codes! {
         LintPreferRecordConstructor = "lint.prefer-record-constructor", warning, "Use the named schema constructor for a record literal of a schema type";
         LintPreferRecordDestructuring = "lint.prefer-record-destructuring", warning, "Bind adjacent fields of one record together with a destructuring `let`";
         LintPreferRegexLiteral = "lint.prefer-regex-literal", warning, "Prepare a static regex pattern with an `rx` literal instead of a call";
-        LintPreferRepeat = "lint.prefer-repeat", warning, "Use `repeat N times` instead of `for _ in range(N)`";
         LintPreferScalarIteration = "lint.prefer-scalar-iteration", warning, "Iterate a Str by scalars or bytes without a split List or unused offsets";
         LintPreferRunArgv = "lint.prefer-run-argv", warning, "Run a command vector with `run.status @argv ?` instead of rebuilding it with `process.command_argv(argv[0], argv)`";
         LintPreferSignatureCli = "lint.prefer-signature-cli", warning, "Declare a literal CLI schema as a `cli main(...)` entry signature";

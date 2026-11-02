@@ -435,7 +435,7 @@ pure parse_block_size(text: Str) -> Block {
   let base = if parts[3] == "B" { 1000 } else { 1024 }
 
   if unit != "" {
-    repeat ("KMGTPEZYRQ".find(unit) ?? 0) + 1 times {
+    for _ in range(("KMGTPEZYRQ".find(unit) ?? 0) + 1) {
       size *= base
     }
   }
@@ -2326,7 +2326,7 @@ pure lpad(text: Str, width: Int) -> Str {
 pure spaces(count: Int) -> Str {
   var out = ""
 
-  repeat count times {
+  for _ in range(count) {
     out = f"{out} "
   }
 

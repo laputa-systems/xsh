@@ -544,7 +544,7 @@ test test_eager_pipeline_repeat_capacity_failure_is_catchable {
 
 test test_repeat_statement_capacity_failure_is_catchable {
   let failed = try {
-    repeat 9223372036854775807 times {
+    for _ in range(9223372036854775807) {
       test.fail("unaddressable repeat entered its body")
     }
   }

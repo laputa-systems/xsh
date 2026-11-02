@@ -236,7 +236,7 @@ for i, {name, size} in entries {
 for row, n in range(3) {
   print \$row \$n
 }
-repeat 2 times {
+for _ in range(2) {
   print "tick"
 }
 """),

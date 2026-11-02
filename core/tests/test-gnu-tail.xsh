@@ -13,7 +13,7 @@ proc following(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result
 }
 proc seen(s: uu.Scene, file: Str, needle: Str, attempts = 7) [fs, process, time, error] {
   var delay = 100ms
-  repeat attempts times {
+  for _ in range(attempts) {
     return when needle in uu.read_text(s, file)?
     time.sleep(delay)
     delay = delay * 2
@@ -182,7 +182,7 @@ test test_gnu_tail_inotify_hash_abuse2_log { |ctx|
     uu.touch(s, "f")
     let child = following(s, fast(["-F", "f"], mode))?
     defer stop(child)
-    repeat 200 times {
+    for _ in range(200) {
       live(child)
       uu.touch(s, "g")
       uu.at(s, "g").rename(to: uu.at(s, "f"), overwrite: true)
@@ -192,7 +192,7 @@ test test_gnu_tail_inotify_hash_abuse2_log { |ctx|
 }
 # origin: gnu tail/inotify-rotate.log
 test test_gnu_tail_inotify_rotate_log { |ctx|
-  repeat 50 times {
+  for _ in range(50) {
     let s = uu.scene(ctx)?
     uu.touch(s, "k")
     uu.touch(s, "x")
@@ -373,7 +373,7 @@ test test_gnu_tail_tail_n0f_log { |ctx|
         defer stop(child)
         var sleeping = false
         var delay = 100ms
-        repeat 4 times {
+        for _ in range(4) {
           time.sleep(delay)
           let state = fp"/proc/{child.pid}/status".read_text()?
           if "State:\tS" in state { sleeping = true; break }
@@ -408,7 +408,7 @@ test test_gnu_tail_pid_pipe_log { |ctx|
       defer stop(reader)
       var ready = false
       var delay = 100ms
-      repeat 7 times {
+      for _ in range(7) {
         if uu.exists(s, "writer-ready") { ready = true; break }
         time.sleep(delay)
         delay = delay * 2

@@ -33,7 +33,7 @@ proc send_reply(socket: Int, reply: types.Reply, request: responder.Request) [pr
   if reply.delay_ms > 0 {
     time.sleep(reply.delay_ms * 1ms)
   }
-  repeat max_of(reply.repeat, 1) times {
+  for _ in range(max_of(reply.repeat, 1)) {
     let _ = linux.sendto(socket, responder.reply_datagram(reply, request.message), {family: "inet", address: responder.destination(reply, request), port: wire.CLIENT_PORT})?
   }
 }

@@ -573,7 +573,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     }
     if sending and now >= next_send_ms {
       let burst = if stats.sent == 0 { plan.preload } else { 1 }
-      repeat burst times {
+      for _ in range(burst) {
         let sequence = (stats.sent + 1) % 65536
         if opts.outstanding and stats.sent > 0 and stats.sent % 65536 not in seen {
           gnu.write_text(f"no answer yet for icmp_seq={stats.sent % 65536}\n")

@@ -14,7 +14,7 @@ export proc wrap(value) {
 
 ## Yields each value lazily and records the pull order.
 export stream replay(value, count) {
-  repeat count times {
+  for _ in range(count) {
     print f"pull:{value}"
     yield value
   }

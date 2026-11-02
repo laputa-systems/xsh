@@ -284,7 +284,7 @@ pure to_base(value: Int, base: Int, upper: Bool) -> Str {
 pure spaces(count: Int, fill: Str) -> Str {
   var out = ""
 
-  repeat count times {
+  for _ in range(count) {
     out = out + fill
   }
 

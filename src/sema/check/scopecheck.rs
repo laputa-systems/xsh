@@ -1010,7 +1010,7 @@ mod tests {
             "  0\n",
             "}\n",
             "atomically replace output as temporary {\n",
-            "  repeat 1 times { atomic_written = 6 }\n",
+            "  for _ in range(1) { atomic_written = 6 }\n",
             "}\n",
             "total = run.text make ? when ready\n",
             "wait until ready within 5s backoff 1s..4s\n",

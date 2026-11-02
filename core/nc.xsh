@@ -603,7 +603,7 @@ proc connect_tcp_udp(host: Str, port: Int, opts: Options) [net, fs, process, io,
 # ICMP port-unreachable: the only way the utility has to see a closed UDP port.
 proc udp_probe(fd: Int) [net, process] -> Bool {
   var delivered = false
-  repeat 4 times {
+  for _ in range(4) {
     delivered = unix.write_fd(fd, bytes.from_text("X")) is Ok(_)
   }
   delivered

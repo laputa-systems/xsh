@@ -1789,7 +1789,7 @@ pure band_lines(index: Int, band: Bytes) -> List[Str] {
   let factor = pick_uint(fields, BAND_HT_AMPDU_FACTOR)
   if factor != null {
     var length = 8192
-    repeat factor times {
+    for _ in range(factor) {
       length *= 2
     }
     lines += [f"\t\tMaximum RX AMPDU length {length - 1} bytes (exponent: 0x0{hex(factor, 2)})"]

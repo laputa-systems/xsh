@@ -2003,7 +2003,7 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
 
   let maximum = 9223372036854775807
   var multiplier = 1
-  repeat power times {
+  for _ in range(power) {
     if multiplier > maximum / 1024 {
       gnu.error(f"-S argument {gnu.quote(value)} too large")
       exit 2

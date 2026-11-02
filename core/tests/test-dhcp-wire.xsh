@@ -345,11 +345,11 @@ test test_mutated_replies_yield_only_ok_or_typed_rejects {
   var state = 20260101
   var accepted = 0
   var reasons = []
-  repeat 1500 times {
+  for _ in range(1500) {
     var mutant = seed
     state = next_random(state)
     let edits = 1 + state / 65536 % 4
-    repeat edits times {
+    for _ in range(edits) {
       state = next_random(state)
       let offset = state / 256 % 300
       state = next_random(state)

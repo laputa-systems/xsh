@@ -100,7 +100,7 @@ export pure build(
     var predecessor = null
     var walked = []
     var path_index: Map[Int, Int] = {}
-    repeat ordered.len() + 1 times {
+    for _ in range(ordered.len() + 1) {
       break when cursor in finished
       if let Ok(_) = path_index.get(cursor) {
         let broken = predecessor ?? cursor

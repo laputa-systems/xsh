@@ -33,24 +33,6 @@ enum Core {
 /// least one other case states the expansion by hand.
 fn cases(form: SugarForm) -> &'static [Case] {
     match form {
-        SugarForm::Repeat => &[
-            Case {
-                sugar: include_str!("../../../docs/snippets/spec/45-repeat.xsh"),
-                core: Core::Desugared,
-            },
-            Case {
-                sugar: "var n = 0\nrepeat 2 times {\n  repeat (n + 1) * 2 times {\n    n += 1\n    continue when n == 3\n  }\n}\n",
-                core: Core::Written(
-                    "var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    if n == 3 {\n      continue\n    }\n  }\n}\n",
-                ),
-            },
-            Case {
-                sugar: "proc poll(times: Int) {\n  match times {\n    0 => repeat 1 times { print \"once\" }\n    else => {\n      repeat times times {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
-                core: Core::Written(
-                    "proc poll(times: Int) {\n  match times {\n    0 => for _ in range(1) { print \"once\" }\n    else => {\n      for _ in range(times) {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
-                ),
-            },
-        ],
         SugarForm::When => &[
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/47-when.xsh"),
@@ -141,7 +123,7 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // local that holds a destination is written under the name
             // `xsht desugar` gives it.
             Case {
-                sugar: "let root = p\"/tmp\"\natomically replace fp\"{root}/out\" as partial {\n  defer { print \"outer\" }\n  repeat 2 times {\n    atomically replace { fp\"{partial}.d/inner\" } as inner {\n      break when inner.exists()?\n    }\n  }\n}\n",
+                sugar: "let root = p\"/tmp\"\natomically replace fp\"{root}/out\" as partial {\n  defer { print \"outer\" }\n  for _ in range(2) {\n    atomically replace { fp\"{partial}.d/inner\" } as inner {\n      break when inner.exists()?\n    }\n  }\n}\n",
                 core: Core::Written(
                     "let root = p\"/tmp\"\n{\n  let dest_1: Path = fp\"{root}/out\"\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer partial.remove(missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let dest_1: Path = { fp\"{partial}.d/inner\" }\n        let inner: Path = fs.temp_sibling(dest_1)?\n        defer inner.remove(missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n        inner.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n  partial.rename(to: dest_1, overwrite: true)?\n}\n",
                 ),
@@ -178,7 +160,7 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // in a loop and a match arm; with durations that are names. The
             // locals are written under the names `xsht desugar` gives them.
             Case {
-                sugar: "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nrepeat 2 times {\n  wait until n > 3 within limits.patience\n  match n {\n    0 => wait until { n += 1\n    n > 1 } within 5s every limits.step\n    else => {\n      wait until n is Int within limits.patience backoff limits.step..limits.patience\n    }\n  }\n}\n",
+                sugar: "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  wait until n > 3 within limits.patience\n  match n {\n    0 => wait until { n += 1\n    n > 1 } within 5s every limits.step\n    else => {\n      wait until n is Int within limits.patience backoff limits.step..limits.patience\n    }\n  }\n}\n",
                 core: Core::Written(
                     "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  {\n    let delay_1: Duration = 100ms\n    (within limits.patience {\n      loop {\n        if n > 3 { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  match n {\n    0 => {\n      {\n        let delay_1: Duration = limits.step\n        (within 5s {\n          loop {\n            if { n += 1\n            n > 1 } { break }\n            time.sleep(delay_1)\n          }\n        })?\n      }\n    }\n    else => {\n      {\n        var delay_1: Duration = limits.step\n        let cap_1: Duration = limits.patience\n        (within limits.patience {\n          loop {\n            if n is Int { break }\n            time.sleep(delay_1)\n            delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n          }\n        })?\n      }\n    }\n  }\n}\n",
                 ),

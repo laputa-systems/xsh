@@ -249,7 +249,7 @@ export pure mask_prefix(mask: Int) -> Int? {
 export pure prefix_mask(prefix: Int) -> Int? {
   return null when prefix < 0 or prefix > 32
   var host = 1
-  repeat 32 - prefix times {
+  for _ in range(32 - prefix) {
     host *= 2
   }
   4294967295 - (host - 1)

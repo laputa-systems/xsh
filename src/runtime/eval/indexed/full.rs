@@ -25418,7 +25418,7 @@ assert observe(b"\xff", 7).raw_bytes_base64 == "/w=="
   transform(value)
 }
 stream apply_many(transform, value, count) {
-  repeat count times {
+  for _ in range(count) {
     yield apply(transform, value)
   }
 }

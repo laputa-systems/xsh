@@ -289,7 +289,7 @@ proc xz_scan(file: Path, size: Int) [fs, error] -> Result[XzScan] {
     var cursor = counted.next
     var payload = 0
     var uncompressed = 0
-    repeat counted.value times {
+    for _ in range(counted.value) {
       let unpadded = xz_varint(index, cursor)
       return Ok(corrupt) when unpadded.next < 0
       let plain = xz_varint(index, unpadded.next)

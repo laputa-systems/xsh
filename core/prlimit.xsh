@@ -246,7 +246,7 @@ pure padded(text: Str, width: Int, right: Bool, last: Bool) -> Str {
 
   var fill = ""
 
-  repeat width - text.byte_len() times {
+  for _ in range(width - text.byte_len()) {
     fill = f"{fill} "
   }
 

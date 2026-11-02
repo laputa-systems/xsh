@@ -66,7 +66,7 @@ export pure play(desired: machine.Lease?, metric: Int, owned: network.Owned, ker
   var ledgers = []
   var mutations = []
   var observations = 0
-  repeat 60 times {
+  for _ in range(60) {
     match move.action {
       network.Finished(outcome) => {
         return {kernel: state, outcome: outcome, ledgers: ledgers, mutations: mutations}

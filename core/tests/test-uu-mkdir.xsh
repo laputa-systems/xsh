@@ -439,7 +439,7 @@ test test_uu_mkdir_mkdir_acl_inheritance_with_restrictive_mask { |ctx|
 # origin: uutils test_mkdir::test_mkdir_concurrent_creation
 test test_uu_mkdir_mkdir_concurrent_creation { |ctx|
   let _ = uu.scene(ctx)?
-  repeat 10 times {
+  for _ in range(10) {
     let separate = uu.scene(ctx)?
     let target = uu.at(separate, ["concurrent_test", ["a" for _ in range(41)].join("/")].join("/"))
     let jobs = [spawn (uu.command(separate, "mkdir", ["-p", target.display()],

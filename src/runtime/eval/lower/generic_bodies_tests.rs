@@ -2316,7 +2316,7 @@ fn callable_kind_stream_aliases_keep_independent_invocation_bindings() {
 
 #[test]
 fn callable_kind_stream_aliases_preserve_lazy_defaults_and_cleanup() {
-    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; repeat count times { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let words = create(\"row\", count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var text = \"\"; for item in words { text = item; break }; {before, after_first, defaults, pulls, closed, integer, text} }\n";
+    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; for _ in range(count) { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let words = create(\"row\", count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var text = \"\"; for item in words { text = item; break }; {before, after_first, defaults, pulls, closed, integer, text} }\n";
     let (program, sources, source_id) = record_form_program(source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
@@ -2337,7 +2337,7 @@ fn callable_kind_stream_aliases_preserve_lazy_defaults_and_cleanup() {
 
 #[test]
 fn monomorphic_stream_aliases_preserve_lazy_defaults_and_cleanup() {
-    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value: Int, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; repeat count times { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let second = create(8, count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var other = 0; for item in second { other = item; break }; {before, after_first, defaults, pulls, closed, integer, other} }\n";
+    let source = "var defaults = 0\nvar pulls = 0\nvar closed = 0\nproc count_default() [] -> Int { defaults = defaults + 1; 1 }\nproc close() [] { closed = closed + 1 }\nstream rows(value: Int, count: Int = count_default()) [error] { defer close(); pulls = pulls + 1; for _ in range(count) { yield value }; pulls = pulls + 100 }\nproc exercise() [error] { let create = rows; let integers = create(7); let second = create(8, count: 1); let before = {defaults, pulls, closed}; var integer = 0; for item in integers { integer = item; break }; let after_first = {defaults, pulls, closed}; var other = 0; for item in second { other = item; break }; {before, after_first, defaults, pulls, closed, integer, other} }\n";
     let (program, sources, source_id) = record_form_program(source);
     for force_frames in [false, true] {
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());

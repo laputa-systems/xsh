@@ -203,7 +203,7 @@ def _generic_stream(size):
         signature = '(value: Int, count: Int) -> Stream[Int]' if annotated else '(value, count)'
         list_type = ': List[Int]' if annotated else ''
         lines = [f'stream repeated{signature} {{',
-                 '  repeat count times {',
+                 '  for _ in range(count) {',
                  '    yield value',
                  '  }',
                  '}',

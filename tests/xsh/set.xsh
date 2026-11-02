@@ -283,7 +283,7 @@ show(["b", "a", "b"])
 
   # Two fixes that overlap are applied one per pass. The advice has no fix
   # and stays reported.
-  repeat 2 times {
+  for _ in range(2) {
     run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-set $candidate
   }
 

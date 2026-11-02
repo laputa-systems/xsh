@@ -55,7 +55,7 @@ export const CAPABILITIES: List[CapabilityName] = [
   {name: "cap_checkpoint_restore", bit: 40},
 ]
 
-pure power(index: Int) -> Int { var value = 1; repeat index times { value *= 2 }; value }
+pure power(index: Int) -> Int { var value = 1; for _ in range(index) { value *= 2 }; value }
 pure empty() -> Mask { {low: 0, high: 0} }
 pure union(a: Mask, b: Mask) -> Mask { {low: a.low.bit_or(b.low), high: a.high.bit_or(b.high)} }
 pure minus(a: Mask, b: Mask) -> Mask { {low: a.low.clear_bits(b.low), high: a.high.clear_bits(b.high)} }

@@ -95,7 +95,7 @@ test test_expr_deep_and_long_expressions { |ctx|
 
   var chain = ["1"]
 
-  repeat 3000 times {
+  for _ in range(3000) {
     chain += ["+", "1"]
   }
 

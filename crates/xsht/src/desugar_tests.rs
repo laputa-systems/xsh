@@ -59,7 +59,7 @@ const PROGRAMS: &[&str] = &[
     "pure read(raw: Str?) -> Str {\n  return \"none\" when raw == null\n  raw.trim()\n}\n",
     "pure read(raw: Str?) -> Str {\n  return \"none\" unless raw != null\n  raw.trim()\n}\n",
     "pure read(raw: Str?) -> Str {\n  guard raw != null else { return \"none\" }\n  raw.trim()\n}\n",
-    "var total = 0\nrepeat 3 times {\n  total += 1\n  continue when total == 2\n  break unless total < 9\n}\nprint $total\n",
+    "var total = 0\nfor _ in range(3) {\n  total += 1\n  continue when total == 2\n  break unless total < 9\n}\nprint $total\n",
     "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    guard row >= 0 else {\n      guard row > -9 else { break }\n      continue\n    }\n    yield row when row > 0\n  }\n}\n",
     "proc pick(code: Int) -> Int {\n  match code {\n    0 => return 1 when code == 0\n    else => { return 2 unless code > 5 }\n  }\n  3\n}\n",
     // A guarded statement proves nothing when its payload stays in the block.
@@ -67,7 +67,6 @@ const PROGRAMS: &[&str] = &[
     // A condition that is not a Bool or a Status.
     "pure pick() -> Int { return 1 when 2; return 3 }\n",
     "for n in [1] {\n  continue unless n + 1\n}\n",
-    "repeat \"twice\" times {\n  print \"tick\"\n}\n",
     // A body that can fall through.
     "pure pick(flag: Bool) -> Int { return 1 when flag }\n",
     "pure pick(flag: Bool) -> Int { guard flag else { return 1 } }\n",

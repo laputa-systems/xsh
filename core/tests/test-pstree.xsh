@@ -1,7 +1,7 @@
 type Process = ProcessEntry
 
 proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
-  repeat 10 times {
+  for _ in range(10) {
     let rows: List[Process] = process.list()? |> where .pid == pid
 
     return rows[0].parent_pid when ! rows.is_empty()

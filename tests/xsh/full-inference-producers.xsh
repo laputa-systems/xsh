@@ -3,7 +3,7 @@ test test_full_inference_unannotated_generic_stream_infers_items_and_closes_earl
     ctx,
     r"""stream values(value, count) {
   defer { print "closed" }
-  repeat count times {
+  for _ in range(count) {
     yield value
   }
 }
@@ -119,7 +119,7 @@ test test_full_inference_live_producer_keeps_its_item_type_monomorphic { |ctx|
   test.expect(
     ctx,
     r"""stream values(value: Int, count: Int) -> Stream[Int] {
-  repeat count times {
+  for _ in range(count) {
     yield value
   }
 }

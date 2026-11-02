@@ -423,7 +423,7 @@ mod tests {
         use crate::source::SourceMap;
         use crate::syntax::arena::ArenaProgramBuilder;
         let source = "use shared\nlet create = shared.fixed\nlet output: Stream[Int] = create(7)\n";
-        let module_text = "##! Ground stream export.\n## Yields the requested values.\nexport stream fixed(value: Int, count: Int = 1) [io] -> Stream[Int] { repeat count times { yield value } }\n";
+        let module_text = "##! Ground stream export.\n## Yields the requested values.\nexport stream fixed(value: Int, count: Int = 1) [io] -> Stream[Int] { for _ in range(count) { yield value } }\n";
         let mut sources = SourceMap::new();
         let mut builder = ArenaProgramBuilder::with_token_capacity(256);
         let source_id = sources.add_file("ground-stream-entry.xsh", source);

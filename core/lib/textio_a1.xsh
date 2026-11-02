@@ -216,7 +216,7 @@ export pure parse_count(text: Str) -> Int? {
 
     return MAX_COUNT when number > 0 and exponent > 6
 
-    repeat exponent times {
+    for _ in range(exponent) {
       factor *= base
     }
   }

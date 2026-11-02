@@ -937,7 +937,7 @@ pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
 
 pure smartcols_json_indent(depth: Int) -> Str {
   var output = ""
-  repeat depth times { output += "   " }
+  for _ in range(depth) { output += "   " }
   output
 }
 

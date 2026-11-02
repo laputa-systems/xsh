@@ -70,7 +70,7 @@ proc alive(child: ProcessHandle) [process, error] {
 }
 
 proc wait_output(s: uu.Scene, out: Bytes, err: Bytes) [fs, process, time, error] {
-  repeat 500 times {
+  for _ in range(500) {
     let current = streams(s)?
     return when current.stdout == out and current.stderr == err
     time.sleep(10ms)
@@ -477,7 +477,7 @@ test test_uu_tail_fifo_with_pid { |ctx|
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
   let writer = unix.open_fd(uu.at(s, ".dummy-input"), write: true)?
   defer unix.close_fd(writer)
-  repeat 500 times {
+  for _ in range(500) {
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
@@ -761,7 +761,7 @@ test test_uu_tail_follow_name_truncate1 { |ctx|
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   alive(child)
-  repeat 500 times {
+  for _ in range(500) {
     break when streams(s)?.stdout == bytes.from_text(prefix)
     time.sleep(10ms)
   }
@@ -1001,7 +1001,7 @@ test test_uu_tail_follow_with_pid { |ctx|
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
   let writer = unix.open_fd(uu.at(s, ".dummy-input"), write: true)?
   defer unix.close_fd(writer)
-  repeat 500 times {
+  for _ in range(500) {
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
@@ -1040,11 +1040,11 @@ test test_uu_tail_following_with_pid { |ctx|
   let dummy_plan = process.command_argv(p"/bin/sh", [p"/bin/sh", p"-c", r"""echo $$ > .dummy-pid; exec sleep 999d""" as Path], s.root, {}, b"", uu.at(s, ".dummy-out"), uu.at(s, ".dummy-err"))
   let dummy = spawn dummy_plan ?
   defer dummy.cancel(signal: "KILL", kill_after: 0ms)
-  repeat 500 times {
+  for _ in range(500) {
     break when uu.at(s, ".dummy-pid").exists()
     time.sleep(10ms)
   }
-  repeat 500 times {
+  for _ in range(500) {
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }

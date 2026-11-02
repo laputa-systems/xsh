@@ -98,7 +98,7 @@ test test_lint_keeps_pattern_condition_fallback_reachable { |ctx|
 test test_lint_flow_preserves_defer_try_and_sugar_continuations { |ctx|
   let reported = dead_code(
     ctx,
-    "proc deferred() {\n  defer { print \"cleanup\" }\n  print \"reachable after defer\"\n}\n\nproc repeated(count: Int) {\n  repeat count times { return }\n  print \"reachable after repeat\"\n}\n\nproc indexed() {\n  for index, item in [\"item\"] { return }\n  print \"reachable after indexed loop\"\n}\n\nproc propagated() [error] {\n  let value = \"7\".parse_int()?\n  print \"reachable after try\"\n}\n\nproc guarded(ready: Bool) [error] {\n  guard ready else { fail \"not ready\" }\n  print \"reachable after guard\"\n}\n\nproc waited() [time, error] {\n  wait until true within 1ms\n  print \"reachable after wait\"\n}\n",
+    "proc deferred() {\n  defer { print \"cleanup\" }\n  print \"reachable after defer\"\n}\n\nproc repeated(count: Int) {\n  for _ in range(count) { return }\n  print \"reachable after repeat\"\n}\n\nproc indexed() {\n  for index, item in [\"item\"] { return }\n  print \"reachable after indexed loop\"\n}\n\nproc propagated() [error] {\n  let value = \"7\".parse_int()?\n  print \"reachable after try\"\n}\n\nproc guarded(ready: Bool) [error] {\n  guard ready else { fail \"not ready\" }\n  print \"reachable after guard\"\n}\n\nproc waited() [time, error] {\n  wait until true within 1ms\n  print \"reachable after wait\"\n}\n",
   )?
   assert reported.status.exited_with(0), reported.stderr
   assert headers(reported.stderr) == [], reported.stderr

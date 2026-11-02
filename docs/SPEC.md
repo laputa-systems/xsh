@@ -112,8 +112,7 @@ resource scope (10.4).
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `tempdir`, `test`, `nominal` directly before `type` (4.7), `repeat` and
-`times` in the head of a `repeat` statement (8.6), `at` in the head of a
+`on`, `tempdir`, `test`, `nominal` directly before `type` (4.7), `at` in the head of a
 `tempdir NAME at PATH` scope (10.4),
 `fail` at the start of a `fail` statement (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
@@ -3326,30 +3325,17 @@ expression with that value. `break` and `continue` target the nearest loop in
 the same callable or stage callback. A stage callback cannot break or continue
 an enclosing loop; loops created inside its own block remain valid targets.
 
-`repeat count times { ... }` runs its block once per item of `range(count)`.
-It is sugar, defined by its expansion:
+`for _ in range(count) { ... }` runs its block `count` times. The count is an
+`Int` evaluated once before the first iteration, a count of zero runs the block
+no times, and a negative count runs it `-count` times because `range` then
+counts down from zero. `repeat count times { ... }` is `parse.repeat-statement`,
+reported with the `for _ in range(count)` line to write:
 
 ```xsh
-repeat attempts times {
-  print "poll"
+repeat 3 times { # error: parse.repeat-statement
+  total += 1
 }
 ```
-
-means exactly
-
-```xsh
-for _ in range(attempts) {
-  print "poll"
-}
-```
-
-So the count is an `Int` evaluated once before the first iteration, `break`
-and `continue` target the `repeat`, a count of zero runs the block no times,
-and a negative count runs it `-count` times because `range` then counts down
-from zero. Diagnostics about the count are those of the `range` argument. A
-statement is a `repeat` statement when it begins with the word `repeat` and,
-on the same line, its count is followed by the word `times` directly before
-`{`; neither word is reserved.
 
 Eager `range` and stream `repeat` materialization failures raise catchable
 `HostIo` errors carrying `errno: ENOMEM`, including capacity overflow.

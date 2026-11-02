@@ -30,7 +30,7 @@ pure expand_cpu_list(text: Str) -> List[Int] {
 proc wait_for_sleep(pid: Int) [fs, time, error] {
   return unless fp"/proc/{pid}/comm".exists()
 
-  repeat 500 times {
+  for _ in range(500) {
     return when fp"/proc/{pid}/comm".read_text()?.trim() == "sleep"
 
     time.sleep(10ms)

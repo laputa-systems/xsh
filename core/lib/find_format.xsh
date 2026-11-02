@@ -22,7 +22,7 @@ export type Segment = {kind: Str, text: Bytes, flags: Str, width: Int, precision
 
 pure spaces(count: Int) -> Bytes {
   let parts = collect {
-    repeat count times { yield b" " }
+    for _ in range(count) { yield b" " }
   }
   bytes.concat(parts)
 }
@@ -37,7 +37,7 @@ pure pad_text(data: Bytes, flags: Str, width: Int, precision: Int) -> Bytes {
 
 pure zeros(count: Int) -> Str {
   var out = ""
-  repeat count times { out = f"{out}0" }
+  for _ in range(count) { out = f"{out}0" }
   out
 }
 

@@ -14,7 +14,7 @@ const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 pure reverse_byte(value: Int) -> Int {
   var n = value
   var out = 0
-  repeat 8 times {
+  for _ in range(8) {
     out = out * 2 + n % 2
     n /= 2
   }
@@ -48,7 +48,7 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
     for block in data.chunks(4) {
       var n = bytes.unpack_be(block, 4)?
       var word = ""
-      repeat 5 times {
+      for _ in range(5) {
         word = Z85.byte_slice(n % 85, length: 1) + word
         n /= 85
       }

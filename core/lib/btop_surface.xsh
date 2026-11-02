@@ -31,13 +31,13 @@ pure valid_dimensions(width: Int, height: Int) -> Bool {
 
 pure repeated(character: Str, count: Int) -> Str {
   var result = ""
-  repeat count times { result += character }
+  for _ in range(count) { result += character }
   result
 }
 
 pure no_roles(height: Int) -> List[color.Role?] {
   let roles: List[color.Role?] = collect {
-    repeat height times { yield null }
+    for _ in range(height) { yield null }
   }
   roles
 }
@@ -53,7 +53,7 @@ export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
   }
   let line = repeated(" ", width)
   let lines = collect {
-    repeat height times { yield line }
+    for _ in range(height) { yield line }
   }
   Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }

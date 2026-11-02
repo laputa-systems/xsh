@@ -353,7 +353,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         removed: &[],
         options_end_at_first_argument: false,
         notes: &[
-            "Each sugar statement, such as `repeat N times { ... }` or `return x when c`,",
+            "Each sugar statement, such as `return x when c` or `wait until c within 5s`,",
             "  is replaced by the core statements that define it, with its comments.",
             "The output is formatted XSH on stdout. SCRIPT is not modified and not",
             "  checked: the output checks when SCRIPT does.",

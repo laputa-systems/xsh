@@ -346,7 +346,7 @@ pure fixed_name(value: Int, radix: Int, width: Int) -> Str {
   var rest = value
   var out = ""
 
-  repeat width times {
+  for _ in range(width) {
     out = digit_char(rest % radix, radix) + out
     rest = rest / radix
   }
@@ -373,14 +373,14 @@ pure suffix_name(index: Int, naming: Naming) -> Str {
 
   var digits = ""
 
-  repeat width times {
+  for _ in range(width) {
     digits = digit_char(remaining % naming.radix, naming.radix) + digits
     remaining = remaining / naming.radix
   }
 
   var fill = ""
 
-  repeat width - 2 times {
+  for _ in range(width - 2) {
     fill = fill + digit_char(naming.radix - 1, naming.radix)
   }
 
@@ -560,7 +560,7 @@ pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
       }
 
       if k == 0 and ! elide {
-        repeat chunk - current - 1 times {
+        for _ in range(chunk - current - 1) {
           out += [b""]
         }
       }
@@ -577,7 +577,7 @@ pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
   }
 
   if k == 0 and ! elide {
-    repeat count - current times {
+    for _ in range(count - current) {
       out += [b""]
     }
   } else if k > 0 and out.is_empty() {
@@ -614,7 +614,7 @@ pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
   var out: List[Bytes] = [bytes.concat(parts) for parts in buckets]
 
   if ! elide {
-    repeat count - width times {
+    for _ in range(count - width) {
       out += [b""]
     }
   }

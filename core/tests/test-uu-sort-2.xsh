@@ -399,7 +399,7 @@ proc merge_write_error_repetitions(ctx: TestContext, count: Int) [fs, process, e
   assert input.byte_len() > 65536, "merge error input must cross one output chunk"
   uu.write(s, "a.txt", input)
   uu.write(s, "b.txt", input)
-  repeat count times {
+  for _ in range(count) {
     let r = uu.invoke(s, "sort", ["-m", "a.txt", "b.txt"], stdout: p"/dev/full", timeout: 30s)?
     uu.fails(r)
     uu.fails_with_code(r, 2)
