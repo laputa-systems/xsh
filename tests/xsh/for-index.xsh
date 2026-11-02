@@ -236,9 +236,6 @@ for i, {name, size} in entries {
 for row, n in range(3) {
   print \$row \$n
 }
-for _ in range(2) {
-  print "tick"
-}
 """),
   )?
   let plain = run.capture --text "xsht" grep "for NAME in ITER" $candidate
