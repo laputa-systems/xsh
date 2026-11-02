@@ -4964,6 +4964,16 @@ impl<'a> ProducerProof<'a> {
                         None => return Err(IrVerifyError::new("captured Stream producer completes without a value tail")),
                     }
                 }
+                schema::ExprView::Capture { mut body, .. } => {
+                    if path.last() == Some(&FunctionProjection::ResultPayload(false)) { continue; }
+                    if path.pop() != Some(FunctionProjection::ResultPayload(true)) { return Err(IrVerifyError::new("captured callable producer has no Result success projection")); }
+                    let block = body.block_identity();
+                    match decoder.derive_checked_block_tail_expression(&mut body)? {
+                        Some(value) => pending.push((owner, CallableProducer::Expression(value), path)),
+                        None if super::super::indexed_block_can_return_with_decoder(self.store, block, Some(&decoder))? => {}
+                        None => return Err(IrVerifyError::new("captured callable producer completes without a value tail")),
+                    }
+                }
                 schema::ExprView::ErrorContext { mut body, .. } if purpose == ProducerTargetPurpose::Stream => {
                     let block = body.block_identity();
                     match decoder.derive_checked_block_tail_expression(&mut body)? {

@@ -39559,6 +39559,8 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 ("", "let actions: List[Action] = [target]; let selected: List[Action] = [action for action in actions]; selected[0](1)"),
                 ("enum Holder { Selected(Action) }", "let holder = Selected(target); match holder { Selected(action) => action(1) }"),
                 ("", "let holder: Result[Action] = Ok(target); match holder { Ok(action) => action(1), Err(_) => 0 }"),
+                ("", "let holder = try { target }; match holder { Ok(action) => action(1), Err(_) => 0 }"),
+                ("", "let actions: Map[Str, Action] = {[\"value\"]: target}; match try { actions[\"value\"] } { Ok(action) => action(1), Err(_) => 0 }"),
                 ("pure apply(...actions: List[Action]) -> Int { actions[0](1) }", "apply(target)"),
                 ("pure apply(...actions: List[Action]) -> Int { actions[0](1) }", "let actions: List[Action] = [target]; apply(@actions)"),
             ] {

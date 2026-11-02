@@ -668,6 +668,27 @@ test test_typed_callable_container_methods_keep_their_element_types {
   }
 }
 
+test test_typed_callables_flow_through_a_try_capture {
+  let by_name: Map[Str, Scale] = {}
+  let stored = by_name.set("double", double)
+  match try { stored.get("double")? } {
+    Ok(selected) => { assert selected(4) == 8 }
+    Err(failure) => { test.fail(failure.message) }
+  }
+  match try { stored.get("missing")? } {
+    Ok(selected) => { test.fail("a missing key selected a callable") }
+    Err(failure) => { assert failure.message != "" }
+  }
+  let captured = try {
+    let chosen: Scale = double
+    chosen
+  }
+  match captured {
+    Ok(chosen) => { assert chosen(5) == 10 }
+    Err(failure) => { test.fail(failure.message) }
+  }
+}
+
 test test_registered_method_checks_intrinsic_formatted_string_receiver {
   assert parse_number(12) == 12
 }
