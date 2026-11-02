@@ -4184,6 +4184,9 @@ warnings.
 
 In statement position a scope returns `Result[Unit]`. In value position it
 returns `Result[T]` of the body's tail. A `Result` tail stays nested.
+A generic callable may leave a `cd`, `env`, or `within` scope from every path of
+its body, as with `return` or `exit` in each branch of a trailing `match`. Such a
+scope has no tail value to infer and stays `Result[Unit]`.
 
 The previous directory and environment are restored when the body ends for any
 reason (completion, propagation, `return`, loop control, cancellation, or

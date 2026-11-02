@@ -2762,3 +2762,52 @@ assert append(table, "x", 7, false).len() == 0
 """, status: 0)?
   assert output.stderr == "", output.stderr
 }
+
+test test_full_inference_context_scope_that_never_completes_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc quit_inferred(value, flag: Bool) [env, process, io, error] {
+  let _ = value
+  env ({SCOPED: "1"}) {
+    match flag {
+      true => {
+        io.write_stdout("left\n")
+        return
+      }
+      false => {
+        io.write_stdout("exit\n")
+        exit 3
+      }
+    }
+  }
+}
+proc quit_annotated(value: Int, flag: Bool) [env, process, io, error] {
+  let _ = value
+  env ({SCOPED: "1"}) {
+    match flag {
+      true => {
+        io.write_stdout("left\n")
+        return
+      }
+      false => {
+        io.write_stdout("exit\n")
+        exit 3
+      }
+    }
+  }
+}
+proc leave_inferred(value, flag: Bool) [env, process, error] {
+  let _ = value
+  cd (".") {
+    if flag { exit 4 } else { exit 5 }
+  }
+}
+quit_inferred(7, true)
+quit_inferred("seven", true)
+quit_annotated(7, true)
+leave_inferred([7], false)
+""",
+  )?
+  assert output.stdout == "left\nleft\nleft\n", output.stdout
+  assert output.status == 5, output.stderr
+}

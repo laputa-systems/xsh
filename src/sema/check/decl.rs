@@ -351,7 +351,7 @@ impl Checker {
             return None;
         }
         let defaults = program.arena.params(def.params).iter().filter_map(|parameter| parameter.default).collect::<Vec<_>>();
-        let (mut body_types, tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
+        let (mut body_types, mut tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
                 |expression| { let span = program.arena.expr(expression).span; self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
                 |expression| self.expr_types.get(&program.arena.expr(expression).span).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
@@ -381,6 +381,17 @@ impl Checker {
             }).collect::<Vec<_>>())
         }).flatten().collect::<Vec<_>>();
         for (branch, joined) in diverging_branches { body_types.insert(branch, joined); }
+        let unreachable_scope_values = body_types.iter().filter_map(|(&expression, ty)| {
+            let crate::syntax::arena::ArenaExprKind::ContextScope { block, .. } = program.arena.expr(expression).kind else { return None };
+            let Type::Result(ok, error) = ty else { return None };
+            (**ok == Type::Unknown && !self.stream_block_may_complete(program, block)).then(|| (expression, block, Type::Result(Box::new(Type::Unit), error.clone())))
+        }).collect::<Vec<_>>();
+        for (scope, block, ty) in unreachable_scope_values {
+            if let Some(tail) = program.arena.stmt_ids(program.arena.block(block).statements).last().map(|statement| program.arena.core_stmt_id(statement))
+                && tail_types.get(&tail) == Some(&Type::Unknown)
+            { tail_types.insert(tail, Type::Unit); }
+            body_types.insert(scope, ty);
+        }
         let branch_joins = program.arena.source_rows().expr_ids(body_span.source_id).filter_map(|expression| {
             let span = program.arena.expr(expression).span;
             if span.start() < body_span.start() || span.end() > body_span.end() { return None; }
