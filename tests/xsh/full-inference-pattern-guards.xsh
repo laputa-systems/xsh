@@ -533,3 +533,28 @@ for slot in [present, absent] {
     )?
   }
 }
+
+test test_full_inference_null_test_over_a_plain_field_is_the_optional_injection_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Plain = {family: Int, mark: Int}
+type Opt = {family: Int, mark: Int?}
+pure bound(item) -> Int { if item.mark != null { item.mark ?? -1 } else { -2 } }
+pure bound_optional(item: Opt) -> Int { if item.mark != null { item.mark ?? -1 } else { -2 } }
+let plain: Plain = {family: 1, mark: 7}
+let absent: Opt = {family: 1, mark: null}
+assert bound(plain) == bound_optional(plain)
+assert bound(absent) == bound_optional(absent)
+print $bound(plain)
+print $bound(absent)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "7\n-2\n"
+  test.expect(
+    ctx,
+    "type Plain = {family: Int, mark: Int}\npure bound_plain(item: Plain) -> Int { if item.mark != null { item.mark ?? -1 } else { -2 } }\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "expected Int, found Null"],
+  )?
+}
