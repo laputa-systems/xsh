@@ -4574,9 +4574,6 @@ impl<'a> Linter<'a> {
         if selected(self, DiagnosticCode::LintFsRootReceiver) {
             self.lint_fs_root_receiver(callee, args, span);
         }
-        if selected(self, DiagnosticCode::LintPreferMethod) {
-            self.lint_prefer_method(callee, args, span);
-        }
         if selected(self, DiagnosticCode::LintPreferStringConcat) {
             self.lint_join_to_concat(callee, args, span);
         }
@@ -5266,60 +5263,6 @@ impl<'a> Linter<'a> {
             ));
         }
         self.diagnostics.push(diagnostic);
-    }
-
-    fn lint_prefer_method(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
-        let ArenaExprKind::Field { base, name: func } = self.arena.expr(callee).kind else {
-            return;
-        };
-        let ArenaExprKind::Ident(module) = self.arena.expr(base).kind else {
-            return;
-        };
-        // Check module.func is a known module-function with a method equivalent.
-        // The first positional arg becomes the receiver; the rest become method args.
-        let min_args = module_func_min_args(module.as_str().as_str(), func.as_str().as_str());
-        let Some(min_args) = min_args else {
-            return;
-        };
-        if args.len() < min_args {
-            return;
-        }
-        let arg_list = self.arena.call_args(args).to_vec();
-        let Some(ArenaCallArgKind::Positional(receiver_expr)) =
-            arg_list.first().map(|a| a.kind.clone())
-        else {
-            return;
-        };
-        let receiver_span = self.arena.expr(receiver_expr).span;
-        let receiver_text = &self.source[receiver_span.start()..receiver_span.end()];
-        let rest: Vec<&str> = arg_list[1..]
-            .iter()
-            .filter_map(|a| match a.kind {
-                ArenaCallArgKind::Positional(e) => {
-                    let s = self.arena.expr(e).span;
-                    Some(&self.source[s.start()..s.end()])
-                }
-                _ => None,
-            })
-            .collect();
-        let replacement = if rest.is_empty() {
-            format!("{receiver_text}.{func}()")
-        } else {
-            format!("{receiver_text}.{func}({})", rest.join(", "))
-        };
-        self.diagnostics.push(
-            Diagnostic::new(
-                Severity::Warning,
-                format!("prefer method form `{replacement}`"),
-            )
-            .with_code(DiagnosticCode::LintPreferMethod)
-            .with_label(Label::secondary(span, "use method syntax instead"))
-            .with_fix_hint(FixHint::replacement(
-                span,
-                "rewrite as method call",
-                replacement,
-            )),
-        );
     }
 
     fn expression_source_span(&self, span: Span) -> Span {
@@ -6209,41 +6152,6 @@ fn only_argument_with_layout(source: &str, arg: Span) -> Span {
 // Returns the minimum expected argument count for a module.function call that
 // has a method equivalent, or None if no such mapping exists. The first argument
 // is always the receiver, so min_args >= 1.
-fn module_func_min_args(module: &str, func: &str) -> Option<usize> {
-    match (module, func) {
-        ("list", "len") => Some(1),
-        ("list", "push") => Some(2),
-        ("list", "extend") => Some(2),
-        ("list", "contains") => Some(2),
-        ("list", "get") => Some(2),
-        ("map", "has") => Some(2),
-        ("map", "get") => Some(2),
-        ("map", "set") => Some(3),
-        ("map", "remove") => Some(2),
-        ("map", "keys") => Some(1),
-        ("map", "values") => Some(1),
-        // record.* stays as module functions — designed for Unknown/dynamic data (e.g. json.decode)
-        ("text", "trim") => Some(1),
-        ("text", "lines") => Some(1),
-        ("text", "words") => Some(1),
-        ("text", "split") => Some(2),
-        ("text", "fields") => Some(1),
-        ("text", "join") => Some(2),
-        ("text", "replace") => Some(3),
-        ("text", "starts_with") => Some(2),
-        ("text", "ends_with") => Some(2),
-        ("text", "wrap") => Some(2),
-        ("text", "translate") => Some(3),
-        ("text", "delete") => Some(2),
-        ("text", "squeeze") => Some(1),
-        ("text", "reverse") => Some(1),
-        ("text", "count_lines") => Some(1),
-        ("text", "count_words") => Some(1),
-        ("text", "count_chars") => Some(1),
-        ("text", "count_bytes") => Some(1),
-        _ => None,
-    }
-}
 
 /// Returns true if the expression is `.kind == "file"` — the inline Where
 /// expression that `fs.walk |> where .kind == "file"` generates.

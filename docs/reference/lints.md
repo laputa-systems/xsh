@@ -72,7 +72,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-map-entry-iteration` | Iterate map entries instead of looping over keys and looking each value up |
 | `lint.prefer-map-literal` | Construct a fresh Map with one literal instead of incremental insertion |
 | `lint.prefer-match-else` | Write a last `_ =>` match arm as the catch-all `else =>` |
-| `lint.prefer-method` | Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)` |
 | `lint.prefer-named-argument-pun` | Use the named-argument shorthand when the argument repeats its value name |
 | `lint.prefer-named-argument-spread` | Forward record fields with a named argument spread such as `...record` |
 | `lint.prefer-nested-record-update` | Use disjoint static field paths instead of nested record spreads |

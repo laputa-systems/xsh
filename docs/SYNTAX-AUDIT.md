@@ -616,6 +616,7 @@ Items land in the order below. C10 and C13 are deferred by the owner; no D or K 
 | C07 | done | `parse.last-status` | the audit counted one site; the expression was also an IR node with tag `ExprLastStatus`, a checker rule, and four native tests, all removed. The evaluator still tracks the last status for the interactive shell |
 | C05 | done | `parse.guard-else-fail` | `SugarForm::GuardFail`, its formatter, flow, and highlight branches, and the `guard_fail_statement` production are gone. The generated-sentence suite then reached two latent grammar and parser disagreements about a run form's `?` followed by `( )` or `[`; the productions now reject them as the parser does |
 | C06 | done | `parse.fail-because` | `lint.prefer-fail` no longer respells a returned `Err` that carries `cause:`; the cause operand of `SugarForm::Fail` and the `because` highlight rule are gone |
+| C12 | done | none | every function `lint.prefer-method` named (`list`, `map`, `text`) is already gone from the API and resolves as `check.unresolved-name` or `check.unknown-module-api`, so the lint had nothing to report and is deleted without a replacement diagnostic |
 
 ## Owner decisions
 

@@ -590,7 +590,6 @@ diagnostic_codes! {
         LintPreferMapEntryIteration = "lint.prefer-map-entry-iteration", warning, "Iterate map entries instead of looping over keys and looking each value up";
         LintPreferMapLiteral = "lint.prefer-map-literal", warning, "Construct a fresh Map with one literal instead of incremental insertion";
         LintPreferMatchElse = "lint.prefer-match-else", warning, "Write a last `_ =>` match arm as the catch-all `else =>`";
-        LintPreferMethod = "lint.prefer-method", warning, "Use method form `receiver.func(...)` instead of calling `module.func(receiver, ...)`";
         LintPreferNamedArgumentPun = "lint.prefer-named-argument-pun", warning, "Use the named-argument shorthand when the argument repeats its value name";
         LintPreferNamedArgumentSpread = "lint.prefer-named-argument-spread", warning, "Forward record fields with a named argument spread such as `...record`";
         LintPreferNestedRecordUpdate = "lint.prefer-nested-record-update", warning, "Use disjoint static field paths instead of nested record spreads";
