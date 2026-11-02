@@ -851,7 +851,12 @@ test test_ls_gnu_option_and_environment_regressions { |ctx|
   assert "invalid line width: '=4'" in width.err, width.err
   let time_style = ls_in(ctx, work, ["-l", "--time-style=posix-bogus", "exe"])?
   assert time_style.status == 0, time_style.err
-  let term = ls_in(ctx, work, ["--color=always", "exe"])?
+  let term = ls_in(
+    ctx,
+    work,
+    ["--color=always", "exe"],
+    vars: {LC_ALL: "C", TZ: "UTC", TERM: "dumb", COLORTERM: "", LS_COLORS: ""},
+  )?
   assert term.text == "exe\n", term.text
   let invalid = ls_in(ctx, work, ["--lo"])?
   assert invalid.status == 2, invalid.err
