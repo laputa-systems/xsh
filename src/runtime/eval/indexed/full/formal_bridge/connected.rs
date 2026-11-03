@@ -303,6 +303,57 @@ fn wire_target(target: &FunctionTarget) -> Result<WireValue, String> {
     ]))
 }
 
+fn wire_effect_contract(effects: &crate::sema::effects::CheckedEffects) -> WireValue {
+    use crate::sema::effects::EffectContract;
+    match effects.contract() {
+        EffectContract::Unknown => wire_object([
+            ("kind", wire_string("unknown")),
+            ("direct", WireValue::Array(vec![])),
+            ("variables", WireValue::Array(vec![])),
+        ]),
+        EffectContract::Known(expression) => wire_object([
+            ("kind", wire_string("known")),
+            ("direct", WireValue::Array(expression.direct().iter().map(|effect| wire_string(effect.as_str())).collect())),
+            ("variables", WireValue::Array(expression.variables().map(|(id, mask)| wire_object([
+                ("id", wire_string(hex_u32(id.0))),
+                ("mask", WireValue::Array(mask.iter().map(|effect| wire_string(effect.as_str())).collect())),
+            ])).collect())),
+        ]),
+    }
+}
+
+fn wire_effect_identity(identity: crate::sema::check::EffectDeclarationId) -> Result<WireValue, String> {
+    Ok(wire_object([
+        ("namespace", WireValue::Array(identity.namespace.into_iter().map(|name| wire_string(name_text(name))).collect())),
+        ("body", wire_span(identity.body)?),
+    ]))
+}
+
+fn wire_declaration_effects(
+    facts: &BTreeMap<crate::sema::check::EffectDeclarationId, crate::sema::check::FunctionEffectFact>,
+    source: SourceId,
+) -> Result<WireValue, String> {
+    let declarations = facts.iter().filter(|(identity, _)| identity.body.source_id == source)
+        .map(|(identity, fact)| {
+            let owner = fact.scope.owner().map(wire_effect_identity).transpose()?.into_iter().collect();
+            Ok(wire_object([
+                ("identity", wire_effect_identity(*identity)?),
+                ("effective", wire_effect_contract(&fact.effective)),
+                ("required", wire_effect_contract(&fact.required)),
+                ("owner", WireValue::Array(owner)),
+                ("parameters", WireValue::Array(fact.scope.parameters().iter().map(|id| wire_string(hex_u32(id.0))).collect())),
+                ("inferred", wire_string(fact.inferred.to_string())),
+                ("inferenceAllowed", wire_string(fact.inference_allowed.to_string())),
+                ("redundantClause", wire_string(fact.redundant_clause.to_string())),
+                ("unknownChain", WireValue::Array(fact.unknown_chain.iter().map(wire_string).collect())),
+            ]))
+        }).collect::<Result<Vec<_>, String>>()?;
+    Ok(wire_object([
+        ("schema", wire_string("xsh-connected-declaration-effects-v1")),
+        ("declarations", WireValue::Array(declarations)),
+    ]))
+}
+
 fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
     let functions = facts.functions.iter().map(wire_target).collect::<Result<Vec<_>, _>>()?;
     let bodies = facts.bodies.iter().map(|body| {
@@ -392,6 +443,12 @@ mod tests {
         let source = "pure identity(value) { value }\npure one() -> Int { identity(1) }\npure truth() -> Bool { identity(true) }\nassert one() == 1\nassert truth()\n";
         let (_, _, parsed, published) = check_fixture(source).unwrap();
         let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
+        println!("CONNECTED_IDENTITY_EFFECT_FACTS {:?}", published.declarations.function_effect_facts);
+        let document = encode_connected_facts(&facts).unwrap();
+        println!("CONNECTED_IDENTITY_FACTS {document}");
+        let lean_documents = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/formal/Xsh/Conformance/Connected/Documents.lean")).unwrap();
+        assert_eq!(lean_document_from(&lean_documents, "identityFactsCodes").as_deref(), Some(document.as_str()));
         let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
         assert!(body.expression_types.is_empty());
         assert_eq!(body.tail_types.len(), 1);
@@ -399,6 +456,25 @@ mod tests {
         assert_eq!(body.resolved_tails.values().next().unwrap(), &body.read_bindings[0]);
         let actual = facts.calls.iter().map(|call| call.type_arguments.get(&0)).collect::<Vec<_>>();
         assert_eq!(actual, [Some(&CheckedType::Int), Some(&CheckedType::Bool)]);
+    }
+
+    #[test]
+    fn declaration_effect_export_retains_checked_contracts() {
+        let source = "proc clock() [time] -> Int { time.now() }\n";
+        let (_, source_id, _, published) = check_fixture(source).unwrap();
+        let facts = &published.declarations.function_effect_facts;
+        let declaration = facts.iter().find(|(identity, _)| identity.body.source_id == source_id).unwrap();
+        assert_eq!(declaration.1.effective.concrete(), Ok(Some(vec![crate::syntax::node::Effect::Time])));
+        assert_eq!(declaration.1.required.concrete(), Ok(Some(vec![crate::syntax::node::Effect::Time])));
+        let wire = wire_declaration_effects(facts, source_id).unwrap();
+        let document = json_text(&wire);
+        println!("CONNECTED_CLOCK_EFFECTS {document}");
+        let lean_documents = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/formal/Xsh/Conformance/Connected/Documents.lean")).unwrap();
+        assert_eq!(lean_document_from(&lean_documents, "effectFactsCodes").as_deref(), Some(document.as_str()));
+        let mut changed = facts.clone();
+        changed.get_mut(declaration.0).unwrap().required = crate::sema::effects::CheckedEffects::finite([]);
+        assert_ne!(wire, wire_declaration_effects(&changed, source_id).unwrap());
     }
 
     #[test]
@@ -449,6 +525,7 @@ mod tests {
     fn field_scheme_export_retains_body_sites_and_call_evidence() {
         let (_, _, parsed, published) = check_fixture(SOURCE).unwrap();
         let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
+        println!("CONNECTED_EFFECT_FACTS {:?}", published.declarations.function_effect_facts);
         let document = encode_connected_facts(&facts).unwrap();
         println!("CONNECTED_FACTS {document}");
         let lean_documents = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"),

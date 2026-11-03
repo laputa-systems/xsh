@@ -276,6 +276,32 @@ def decodeFactsDocument (fuel : Nat) (names : NameResolver) (variables : Variabl
   let value ← parseCodes codes
   decodeFactsValue fuel names variables value
 
+def decodeBodyScope (value : WireValue) : Option (SourceSite × List Nat) := do
+  let .object fields := value | none
+  let body ← siteField fields "span"
+  let parameters ← listField fields "typeParameters" decodeWord
+  if parameters.Nodup then some (body, parameters) else none
+
+def scopedVariableResolver (scopes : List (SourceSite × List Nat)) : VariableResolver := fun body id => do
+  let (_, parameters) ← scopes.find? (fun entry => decide (entry.1 = body))
+  if id ∈ parameters then some ⟨id, .value⟩ else none
+
+def factScopesValue (value : WireValue) : Option (List (SourceSite × List Nat)) := do
+  let fields ← value.closedObject? ["schema", "functions", "bodies", "calls"]
+  let scopes ← listField fields "bodies" decodeBodyScope
+  if (scopes.map Prod.fst).Nodup then some scopes else none
+
+def decodeSelfScopedFactsValue (fuel : Nat) (names : NameResolver) (value : WireValue) :
+    Option (FactsDocument × List (SourceSite × List Nat)) := do
+  let scopes ← factScopesValue value
+  let facts ← decodeFactsValue fuel names (scopedVariableResolver scopes) value
+  pure (facts, scopes)
+
+def decodeSelfScopedFactsDocument (fuel : Nat) (names : NameResolver) (codes : ExchangeCodes) :
+    Option (FactsDocument × List (SourceSite × List Nat)) := do
+  let value ← parseCodes codes
+  decodeSelfScopedFactsValue fuel names value
+
 private def exampleNames : NameMap := fun name =>
   if name = "amount" then some generatedProjectionField
   else if name = "enabled" then some additionalField
@@ -320,6 +346,31 @@ private def scopedBody (start : String) : WireValue := .object [
   ("inferredEffects", .string "false"), ("operations", .array []), ("expressionTypes", .array []),
   ("tailTypes", .array []), ("readBindings", .array []), ("resolvedReads", .array []),
   ("resolvedTails", .array []), ("operationSites", .array [])]
+
+theorem scoped_variable_requires_declared_parameter (scopes : List (SourceSite × List Nat))
+    (body : SourceSite) (id : Nat) (typeVariable : Variable)
+    (accepted : scopedVariableResolver scopes body id = some typeVariable) :
+    ∃ parameters, scopes.find? (fun entry => decide (entry.1 = body)) = some (body, parameters) ∧
+      id ∈ parameters ∧ typeVariable = ⟨id, .value⟩ := by
+  unfold scopedVariableResolver at accepted
+  cases found : scopes.find? (fun entry => decide (entry.1 = body)) with
+  | none => simp [found] at accepted
+  | some entry =>
+    obtain ⟨site, parameters⟩ := entry
+    have sameSite : site = body := by
+      have foundSite := List.find?_some found
+      simpa using foundSite
+    subst site
+    by_cases member : id ∈ parameters
+    · simp [found, member] at accepted
+      exact ⟨parameters, rfl, member, accepted.symm⟩
+    · simp [found, member] at accepted
+
+theorem self_scoped_variables_refuse_undeclared_ids :
+    scopedVariableResolver [(⟨0, 20, 1⟩, [0])] ⟨0, 20, 1⟩ 0 = some ⟨0, .value⟩ ∧
+    scopedVariableResolver [(⟨0, 20, 1⟩, [0])] ⟨0, 20, 1⟩ 1 = none ∧
+    scopedVariableResolver [(⟨0, 20, 1⟩, [0])] ⟨0, 21, 1⟩ 0 = none := by
+  decide +kernel
 
 theorem scheme_variables_are_scoped_by_body_site :
     (decodeLocatedBody 8 (fun _ _ => none) (fun body id => some ⟨body.start + id, .value⟩)

@@ -487,6 +487,8 @@ relevant effect boundaries. Each stage states its exact domain; the domain is
 non-empty and contains the milestone's accepted and rejected programs, and
 reports give accepted and rejected counts.
 
+A source-bound fact check also validates a polymorphic identity body and its `Int` and `Bool` call arguments against the captured Rust document. The self-scoped decoder derives type-parameter identities from each declared body, and the call check authenticates its source target and operation bindings. Its admitted callers currently have no parameters and consist of a single outer call. A separate captured declaration-effect document for an unshadowed direct `time.now()` proc matches the independently classified source; forged contract, owner, inference and provenance facts are refused. General calls, lexical effect boundaries, symbolic effect parameters, and effect-to-runtime agreement remain open.
+
 The current local verification checker rejects an uncalled `Int` field access but accepts an uncalled mutable local whose assignment requires `value` to contain a field of its own type. The qualified Lean checker rejects both: the latter requirement has no finite solution. This observed acceptance difference is not Rust/Lean rejection agreement; it still needs reproduction at the eventual matching freeze.
 
 The milestone requires the independent contract and its connected theorems;

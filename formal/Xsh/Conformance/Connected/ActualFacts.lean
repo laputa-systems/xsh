@@ -1,6 +1,6 @@
 import Xsh.Conformance.Connected.SparseFacts
 import Xsh.Conformance.Connected.Documents
-import Xsh.Conformance.Connected.QualifiedFacts
+import Xsh.Conformance.Connected.CallFacts
 
 namespace Xsh.Conformance.Connected
 
@@ -113,11 +113,56 @@ theorem rust_field_facts_decode_exactly : decodedProjectionFacts = some projecti
   rw [decoded_projection_uses_shared_wire, admitted_projection_uses_names]
   exact projection_wire_decodes_exactly
 
-def sourceFieldSites (nodes : List (SourceSite × Xsh.Syntax.Expr)) :
-    List (SourceSite × Xsh.Foundation.NameId) :=
-  nodes.filterMap fun (site, expression) => match expression with
-    | .field _ name => some (site, name)
-    | _ => none
+def projectionScopes : List (SourceSite × List Nat) := [(⟨0, 20, 16⟩, [0, 1])]
+
+theorem projection_wire_has_declared_scopes : factScopesValue connectedFactsWire = some projectionScopes := by
+  simp [factScopesValue, decodeBodyScope, listField, siteField, site, textField, wordField, decodeWord,
+    Xsh.Conformance.Transport.WireValue.closedObject?, Xsh.Conformance.Transport.WireValue.field?, Xsh.Conformance.Transport.WireValue.items?, Xsh.Conformance.Transport.WireValue.text?, connectedFactsWire, projectionScopes]
+  decide +kernel
+
+theorem projection_resolver_is_self_scoped : scopedVariableResolver projectionScopes = projectionVariables := by
+  funext body id
+  by_cases same : body = ⟨0, 20, 16⟩
+  · subst body
+    simp [scopedVariableResolver, projectionScopes, projectionVariables, List.mem_cons]
+  · have different : (⟨0, 20, 16⟩ : SourceSite) ≠ body := Ne.symm same
+    simp [scopedVariableResolver, projectionScopes, projectionVariables, same, different]
+
+set_option maxRecDepth 100000 in
+theorem projection_self_scoped_wire_decodes :
+    decodeSelfScopedFactsValue 32 projectionNameResolver connectedFactsWire = some (projectionFacts, projectionScopes) := by
+  unfold decodeSelfScopedFactsValue
+  rw [projection_wire_has_declared_scopes]
+  change (do
+    let facts ← decodeFactsValue 32 projectionNameResolver (scopedVariableResolver projectionScopes) connectedFactsWire
+    pure (facts, projectionScopes)) = _
+  rw [projection_resolver_is_self_scoped]
+  change (do
+    let facts ← decodedProjectionWithNames
+    pure (facts, projectionScopes)) = _
+  rw [projection_wire_decodes_exactly]
+  rfl
+
+theorem rust_projection_self_scoped_document :
+    (match admitSource 0 projectionSource with
+      | .ok unit => decodeSelfScopedFactsDocument 32 (sourceNameResolver unit) connectedFactsCodes
+      | .error _ => none) = some (projectionFacts, projectionScopes) := by
+  cases admitted : admitSource 0 projectionSource with
+  | error error =>
+    have names := admitted_projection_has_expected_names
+    rw [admitted] at names
+    have impossible : False := by simpa [projectionNames] using names
+    exact False.elim impossible
+  | ok unit =>
+    have names := admitted_projection_has_expected_names
+    rw [admitted] at names
+    simp only at names
+    have sourceIdentity := (admitted_source_has_tokenization 0 projectionSource unit admitted).choose_spec.2.1
+    have resolver : sourceNameResolver unit = projectionNameResolver := by
+      funext origin name
+      simp [sourceNameResolver, projectionNameResolver, sourceIdentity, names]
+    simp only [admitted, resolver, decodeSelfScopedFactsDocument, connected_facts_parse_to_wire]
+    exact projection_self_scoped_wire_decodes
 
 def sourceCallsFunction (name : Xsh.Foundation.NameId) (site : SourceSite)
     (nodes : List (SourceSite × Xsh.Syntax.Expr)) : Bool :=
@@ -125,23 +170,6 @@ def sourceCallsFunction (name : Xsh.Foundation.NameId) (site : SourceSite)
     match expression with
     | .call (.ident callee) _ => decide (candidateSite = site ∧ callee = name)
     | _ => false
-
-def sourceFunctionIdentities (unit : SourceUnit) : List (Xsh.Foundation.NameId × SourceSite) :=
-  unit.declarations.filterMap fun declaration => match declaration with
-    | .function function => some (function.name, function.bodySite)
-    | _ => none
-
-def targetSourceIdentity (unit : SourceUnit) (target : FunctionTarget) : Option (Xsh.Foundation.NameId × SourceSite) := do
-  if target.moduleName = none ∧ target.body.source = unit.source then pure () else none
-  let name ← sourceNameResolver unit target.body.source target.name
-  pure (name, target.body)
-
-def checksSourceFunctions (unit : SourceUnit) (functions : List FunctionTarget) : Bool :=
-  match functions.mapM (targetSourceIdentity unit) with
-  | none => false
-  | some identities =>
-    decide ((functions.map FunctionTarget.definition).Nodup) && decide identities.Nodup &&
-      decide (identities.Perm (sourceFunctionIdentities unit))
 
 def projectionSchemeValidation (sparseFuel : Nat) (functions : List FunctionTarget) (body : BodyDocument) (call : CallDocument) :
     Except ValidationError Unit := do
@@ -173,20 +201,18 @@ def projectionSchemeValidation (sparseFuel : Nat) (functions : List FunctionTarg
     decide (fieldSites.Perm (sourceFieldSites source.expressions)))
   let (_, generated) ← ((block 64 names [rawParameter] rawResult source.body).run
     (initialBlockState [rawParameter] rawResult)).mapError generationFailure
-  let principal ← validateDecodedFieldInstance 64 (sourceNameResolver unit) projectionVariables names
+  let _ ← validateDecodedFieldInstance 64 (sourceNameResolver unit) projectionVariables names
     [rawParameter] [] rawResult source.body generated.constraints.reverse [.bindLeft] 1
     candidate (fun _ => none) call.target body.operations body call
-  let some scheme := schemeFromBody projectionVariables body | throw .mismatch
   let some arguments := argumentsFromCall projectionVariables body call | throw .mismatch
-  let qualifiedPrincipal ← validateQualifiedFunction 64 names [rawParameter] [] rawResult source.body
-    generated.constraints.reverse [.bindLeft] 1 scheme candidate (fun _ => none) (fun _ => some body.result) arguments
-  requireCheck (checksQualifiedExpressionFacts 64 [rawParameter] qualifiedPrincipal scheme.requirements
-    (fun _ => some body.result) source candidate body &&
-    checksQualifiedTailFacts 64 [rawParameter] qualifiedPrincipal scheme.requirements
-      (fun _ => some body.result) source candidate body)
-  let instantiation := witnessSubstitution arguments
-  validateSparseFacts sparseFuel unit.names [rawParameter] (compose instantiation principal)
-    instantiation source candidate body
+  let some scheme := schemeFromBody projectionVariables body | throw .mismatch
+  let target : Binding := ⟨source.name, binder, .immutable, scheme⟩
+  let callResult ← validatePublishedCallFromSource 64 0 projectionSource 1 functions [target] identity source.name binder
+    scheme projectionVariables body call
+  requireCheck (decide (callResult = .primitive .integer))
+  let _ ← validateSourceQualifiedBodyFacts sparseFuel 0 projectionSource 0 projectionVariables names [rawParameter] [] rawResult
+    generated.constraints.reverse [.bindLeft] 1 candidate (fun _ => none) (fun _ => some body.result) arguments body
+  pure ()
 
 def projectionSchemeChecksFor (functions : List FunctionTarget) (body : BodyDocument) (call : CallDocument) : Bool :=
   match projectionSchemeValidation 64 functions body call with | .ok _ => true | .error _ => false
@@ -211,12 +237,59 @@ theorem rust_field_scheme_checks_against_admitted_source : checkDecodedProjectio
   rw [rust_field_facts_decode_exactly]
   exact admitted_projection_scheme_matches_rust_facts
 
+def directProjectionCallCheckWithScheme (call : CallDocument) (scheme : Scheme) : Bool :=
+  match admitSource 0 projectionSource with
+  | .ok unit =>
+    match unit.declarations with
+    | .function source :: _ =>
+      let binder : Xsh.Foundation.BinderId := ⟨⟨0, by decide⟩⟩
+      let target : Binding := ⟨source.name, binder, .immutable, scheme⟩
+      match validatePublishedCallFromSource 64 0 projectionSource 1 projectionFunctions [target] identity
+          source.name binder scheme projectionVariables projectionBodyFacts call with
+      | .ok (.primitive .integer) => true
+      | _ => false
+    | _ => false
+  | .error _ => false
+
+def directProjectionCallCheck (call : CallDocument) : Bool :=
+  match schemeFromBody projectionVariables projectionBodyFacts with
+  | none => false
+  | some scheme => directProjectionCallCheckWithScheme call scheme
+
+def forgedProjectionSchemeCall : Bool :=
+  match schemeFromBody projectionVariables projectionBodyFacts with
+  | none => true
+  | some scheme =>
+    let record := MonoType.record (.rowField projectionAmount (.primitive .integer)
+      (.rowField projectionEnabled (.primitive .boolean) .rowEmpty))
+    let forged := { scheme with body := .function (.argument record .argumentsEmpty) (.primitive .integer) }
+    directProjectionCallCheckWithScheme projectionCallFacts forged
+
+def forgedProjectionTarget : CallDocument :=
+  { projectionCallFacts with target := { projectionCallFacts.target with definition := 99 } }
+def foreignProjectionTarget : CallDocument :=
+  { projectionCallFacts with target := { projectionCallFacts.target with moduleName := some "foreign" } }
+
+set_option maxRecDepth 100000 in
+theorem shared_call_entry_authenticates_published_target_and_operations :
+    directProjectionCallCheck projectionCallFacts = true ∧
+    directProjectionCallCheck forgedProjectionTarget = false ∧
+    directProjectionCallCheck foreignProjectionTarget = false ∧ forgedProjectionSchemeCall = false ∧
+    directProjectionCallCheck { projectionCallFacts with operationBindings := [] } = false := by
+  constructor <;> decide +kernel
+
 def wrongFieldTypeFacts : BodyDocument :=
   { projectionBodyFacts with expressionTypes :=
       [(0, ⟨0, 22, 5⟩, .variable ⟨0, .value⟩), (1, ⟨0, 22, 12⟩, .variable ⟨0, .value⟩)] }
 def concretizedFieldTypeFacts : BodyDocument :=
   { projectionBodyFacts with expressionTypes :=
       [(0, ⟨0, 22, 5⟩, .variable ⟨0, .value⟩), (1, ⟨0, 22, 12⟩, .primitive .integer)] }
+
+def wrongCallArgumentFacts : CallDocument :=
+  { projectionCallFacts with typeArguments :=
+      [(0, .record (.rowField projectionAmount (.primitive .integer)
+        (.rowField projectionEnabled (.primitive .integer) .rowEmpty))),
+       (1, .primitive .integer)] }
 
 def wrongRead : ReadBinding := { projectionRead with name := "amount" }
 def wrongReadFacts : BodyDocument :=
@@ -226,11 +299,15 @@ set_option maxRecDepth 100000 in
 theorem projection_sparse_fact_mutations_are_refused :
     projectionSchemeChecksFor projectionFunctions wrongFieldTypeFacts projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions concretizedFieldTypeFacts projectionCallFacts = false ∧
+    projectionSchemeChecksFor projectionFunctions projectionBodyFacts wrongCallArgumentFacts = false ∧
     projectionSchemeChecksFor projectionFunctions { projectionBodyFacts with explicitReturn := true } projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions { projectionBodyFacts with operationSites := [] } projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions { projectionBodyFacts with resolvedReads := [] } projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions wrongReadFacts projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions projectionBodyFacts { projectionCallFacts with role := .value } = false ∧
+    projectionSchemeChecksFor projectionFunctions projectionBodyFacts { projectionCallFacts with operationBindings := [] } = false ∧
+    projectionSchemeChecksFor projectionFunctions projectionBodyFacts
+      { projectionCallFacts with target := { projectionCallFacts.target with moduleName := some "foreign" } } = false ∧
     projectionSchemeChecksFor projectionFunctions projectionBodyFacts
       { projectionCallFacts with target := { projectionCallFacts.target with name := "use_project" } } = false := by
   constructor <;> decide +kernel

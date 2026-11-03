@@ -11,6 +11,8 @@ import Xsh.Conformance.Connected.FieldFacts
 import Xsh.Conformance.Connected.FactsDocument
 import Xsh.Conformance.Connected.FieldLink
 import Xsh.Conformance.Connected.ActualFacts
+import Xsh.Conformance.Connected.IdentityFacts
+import Xsh.Conformance.Connected.SourceEffects
 import Xsh.Semantics.Connected.Witness
 import Xsh.Semantics.Connected.Invariant
 import Xsh.Values.Scalars

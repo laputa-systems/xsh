@@ -145,7 +145,8 @@ def expectName (names : List String) : List SourceToken → Except AdmissionFail
     (Xsh.Foundation.NameId × SourceToken × List SourceToken)
   | token :: rest => match token.kind with
     | .word text =>
-      if reservedName text then .error .malformed
+      if text = "_" then .error .unsupported
+      else if reservedName text then .error .malformed
       else match sourceName names text with
         | some name => .ok (name, token, rest)
         | none => .error .unsupported
@@ -353,6 +354,8 @@ structure SourceParameter where
   annotation : Option Xsh.Syntax.TypeExpr
 
 structure SourceFunction where
+  kind : CallableKind
+  declaredEffects : Option (List Xsh.Syntax.Effect)
   name : Xsh.Foundation.NameId
   nameSite : SourceSite
   bodySite : SourceSite
@@ -500,6 +503,7 @@ mutual
         match rest with
         | terminator :: _ =>
           if terminator.kind = .newline || terminator.kind = .symbol ";" || terminator.kind = .symbol "}" then do
+            if ["print", "eprint"].contains name then throw .unsupported else pure ()
             if reservedName name then
               let (value, remaining) ← parseExpression fuel names 0 (token :: rest)
               pure ⟨.expression value.expression, value.nodes, value.statements, remaining⟩
@@ -551,22 +555,63 @@ mutual
           else .error .unsupported
 end
 
+def effectName : String → Option Xsh.Syntax.Effect
+  | "fs" => some .fs
+  | "net" => some .net
+  | "process" => some .process
+  | "env" => some .env
+  | "time" => some .time
+  | "error" => some .error
+  | "io" => some .io
+  | _ => none
+
+def parseEffectClause : Nat → List SourceToken → Except AdmissionFailure (List Xsh.Syntax.Effect × List SourceToken)
+  | 0, _ => .error .exhausted
+  | _ + 1, [] => .error .malformed
+  | fuel + 1, token :: rest =>
+    if token.kind = .symbol "]" then .ok ([], rest)
+    else match token.kind with
+      | .word name => do
+        let some effect := effectName name | throw .unsupported
+        match rest with
+        | separator :: remaining =>
+          if separator.kind = .symbol "]" then pure ([effect], remaining)
+          else if separator.kind = .symbol "," then do
+            if remaining.head?.map SourceToken.kind = some (.symbol "]") then throw .unsupported else pure ()
+            let (others, suffix) ← parseEffectClause fuel remaining
+            if effect ∈ others then throw .unsupported else pure (effect :: others, suffix)
+          else throw .malformed
+        | [] => throw .malformed
+      | _ => .error .malformed
+
 def parseFunction (fuel : Nat) (names : List String) (tokens : List SourceToken) :
     Except AdmissionFailure (SourceFunction × List SourceToken) := do
-  let (_, afterPure) ← expectWord "pure" tokens
-  let (name, label, afterName) ← expectName names afterPure
+  let (kind, afterKind) ← match tokens with
+    | token :: rest =>
+      if token.kind = .word "pure" then pure (CallableKind.pure, rest)
+      else if token.kind = .word "proc" then pure (CallableKind.proc, rest)
+      else throw .unsupported
+    | [] => throw .malformed
+  let (name, label, afterName) ← expectName names afterKind
   let (_, afterOpen) ← expectSymbol "(" afterName
   let (parameters, afterParameters) ← parseParameters fuel names afterOpen
-  let (result, afterResult) ← match afterParameters with
+  let (declaredEffects, afterEffects) ← match afterParameters with
+    | openToken :: rest =>
+      if openToken.kind = .symbol "[" && kind = .proc then do
+        let (effects, remaining) ← parseEffectClause fuel rest
+        pure (some effects, remaining)
+      else pure (none, afterParameters)
+    | [] => pure (none, [])
+  let (result, afterResult) ← match afterEffects with
     | arrow :: rest =>
       if arrow.kind = .symbol "->" then do
         let (annotation, suffix) ← parseType fuel names rest
         pure (some annotation, suffix)
-      else pure (none, afterParameters)
+      else pure (none, afterEffects)
     | [] => pure (none, [])
   let (openToken, afterBodyOpen) ← expectSymbol "{" afterResult
   let (body, expressions, statements, close, suffix) ← parseBlock fuel names afterBodyOpen
-  pure (⟨name, label.site, coveringSite openToken.site close.site, parameters, result, body, expressions, statements⟩, suffix)
+  pure (⟨kind, declaredEffects, name, label.site, coveringSite openToken.site close.site, parameters, result, body, expressions, statements⟩, suffix)
 
 def parseDeclarations : Nat → List String → List SourceToken → Except AdmissionFailure (List SourceDeclaration)
   | 0, _, _ => .error .exhausted
@@ -574,7 +619,7 @@ def parseDeclarations : Nat → List String → List SourceToken → Except Admi
     match dropSeparators tokens with
     | [] => .ok []
     | token :: rest =>
-      if token.kind = .word "pure" then do
+      if token.kind = .word "pure" || token.kind = .word "proc" then do
         let (declaration, remaining) ← parseFunction fuel names (token :: rest)
         let following ← parseDeclarations fuel names remaining
         pure (.function declaration :: following)
@@ -680,6 +725,17 @@ def expressionIfCheck : Bool :=
 
 def admissionIsUnsupported (text : String) : Bool :=
   match admitSource 0 text with | .error .unsupported => true | _ => false
+
+theorem source_admission_refuses_bare_core_commands :
+    admissionIsUnsupported "proc f() { print }\n" = true ∧
+    admissionIsUnsupported "pure f(eprint: Int) -> Int { eprint }\n" = true ∧
+    admissionIsUnsupported "pure f(print: Int) -> Int { return print }\n" = false := by
+  constructor <;> decide +kernel
+
+theorem source_admission_refuses_discard_names :
+    admissionIsUnsupported "pure f() { let _ = 1; 2 }\n" = true ∧
+    admissionIsUnsupported "pure f(_) { 1 }\n" = true := by
+  constructor <;> decide +kernel
 
 theorem source_admission_keeps_if_forms_and_rejects_ambiguous_syntax :
     statementIfCheck = true ∧ expressionIfCheck = true ∧
