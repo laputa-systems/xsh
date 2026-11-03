@@ -160,8 +160,8 @@ out of scope.
 
 - **Area:** Tests
 - **Where:** `crates/xsht/`, `src/trace/`, `tests/`
-- **Problem:** Scoped mocks, call recording and structured traces exist, but their ability to reproduce a real service or publication failure with no ambient-host fallback is unproven. A trace alone is not a replay contract.
-- **Recommendation:** Select one counterexample from Laputa LAP-34. Use existing XSHT facilities to record necessary ordered boundary inputs/results and expected effects, then shrink the sequence to an ordinary native regression. Define input completeness, ordering and redaction. Add a minimal reusable test helper only if existing fixtures cannot express the case; no generic replay platform or campaign controller.
+- **Problem:** Laputa xinit has a native fake replay of a crashed leader with an owned descendant, corroborated by a disposable Linux x86-64 guest and a deliberately broken cleanup. The replay's input completeness, ordering, redaction and rejection of ambient-host fallback remain unqualified.
+- **Recommendation:** Qualify the existing LAP-34 counterexample against an explicit ordered, complete and redacted input contract. Add a minimal reusable test helper only if existing fixtures cannot express the case; no generic replay platform or campaign controller.
 - **Acceptance:** The reduced case reproduces offline, fails when the repaired invariant is deliberately broken, and rejects missing/mismatched observations rather than consulting the host. Test fixtures contain no secrets. Corroborate with the real guest; mock agreement does not establish OS conformance or power-loss durability.
 - **Fix with:** root-cause
 - **Effort:** M
