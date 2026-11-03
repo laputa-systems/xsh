@@ -314,6 +314,15 @@ struct FunctionWalk<'a> {
     locals: Vec<BindingId>,
 }
 
+fn require_int_expression(published: &PublishedFacts, expression: ExprId) -> Result<(), String> {
+    let ty = published.declarations.bodies.expr_types.get(&expression)
+        .ok_or_else(|| "the checker published no type for an expression".to_string())?;
+    if FactType::from_type(ty)? != FactType::Int {
+        return Err("the expression is not checked as Int".to_string());
+    }
+    Ok(())
+}
+
 impl FunctionWalk<'_> {
     fn expression_type(&self, expression: ExprId) -> Result<FactType, String> {
         let ty = self
@@ -360,7 +369,10 @@ impl FunctionWalk<'_> {
                     .map_err(|_| "negative integer literal is outside the fact projection".to_string())?;
                 output.push(NodeFact::Literal(bits));
             }
-            ArenaExprKind::Ident(_) => output.push(NodeFact::Read(self.resolution(expression)?)),
+            ArenaExprKind::Ident(_) => {
+                require_int_expression(self.published, expression)?;
+                output.push(NodeFact::Read(self.resolution(expression)?));
+            }
             ArenaExprKind::Binary { left, right, .. } => {
                 self.nodes(left, output)?;
                 self.nodes(right, output)?;
@@ -380,6 +392,7 @@ impl FunctionWalk<'_> {
                 });
             }
             ArenaExprKind::Call { args, .. } => {
+                require_int_expression(self.published, expression)?;
                 let mut arguments = 0;
                 for argument in ast.call_args(args) {
                     let crate::syntax::arena::ArenaCallArgKind::Positional(value) = argument.kind
@@ -414,6 +427,7 @@ impl FunctionWalk<'_> {
                 });
             }
             ArenaExprKind::ValueBlock(block) => {
+                require_int_expression(self.published, expression)?;
                 let statements = ast.stmt_ids(ast.block(block).statements).collect::<Vec<_>>();
                 let [statement] = statements.as_slice() else {
                     return Err("a value block holds exactly one statement".to_string());
@@ -424,6 +438,7 @@ impl FunctionWalk<'_> {
                 self.nodes(value, output)?;
             }
             ArenaExprKind::If { branches, else_value } => {
+                require_int_expression(self.published, expression)?;
                 let [branch] = ast.if_expr_branches(branches) else {
                     return Err("only a single-branch conditional is in the projection".to_string());
                 };
@@ -493,7 +508,8 @@ fn export_function_facts(
     for statement in ast.stmt_ids(body.statements) {
         let node = ast.stmt(statement);
         match node.kind {
-            ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(_), .. } => {
+            ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } => {
+                require_int_expression(published, value)?;
                 locals.push(local_binding(bindings, target)?);
                 local_types.push(FactType::from_type(
                     declarations
@@ -702,6 +718,39 @@ mod tests {
         let identifier = |occurrence| expression_of(&|kind| matches!(kind, ArenaExprKind::Ident(_)), occurrence);
         let binary = |occurrence| expression_of(&|kind| matches!(kind, ArenaExprKind::Binary { .. }), occurrence);
 
+        for (name, kind) in [
+            ("a call result typed as Bool", 0),
+            ("a conditional result typed as Bool", 1),
+            ("a value block result typed as Bool", 2),
+            ("a call argument typed as Bool", 3),
+        ] {
+            let expression = match kind {
+                0 => expression_of(&|node| matches!(node, ArenaExprKind::Call { .. }), 0),
+                1 => expression_of(&|node| matches!(node, ArenaExprKind::If { .. }), 0),
+                2 => expression_of(&|node| matches!(node, ArenaExprKind::ValueBlock(_)), 0),
+                _ => {
+                    let call = expression_of(&|node| matches!(node, ArenaExprKind::Call { .. }), 0);
+                    let ArenaExprKind::Call { args, .. } = ast.expr(call).kind else { unreachable!() };
+                    let crate::syntax::arena::ArenaCallArgKind::Positional(value) = ast.call_args(args)[0].kind
+                    else { unreachable!() };
+                    value
+                }
+            };
+            refuses(name, "checked as Int", &|published| {
+                published.declarations.bodies.expr_types.insert(expression, Type::Bool);
+            });
+        }
+        let body = ast.block(ast.function_def(FunctionDefId::from_index(1)).body);
+        let initializer = ast.stmt_ids(body.statements).find_map(|statement| {
+            match ast.stmt(statement).kind {
+                ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. } => Some(value),
+                _ => None,
+            }
+        }).unwrap();
+        refuses("a let initializer typed as Bool", "checked as Int", &|published| {
+            published.declarations.bodies.expr_types.insert(initializer, Type::Bool);
+        });
+
         changes("a parameter read resolved to the other parameter", &|published| {
             let bindings = std::sync::Arc::make_mut(&mut published.declarations.bodies.resolved_bindings);
             let other = bindings.expressions[&identifier(1)];
@@ -720,7 +769,7 @@ mod tests {
         changes("a comparison typed as Int", &|published| {
             published.declarations.bodies.expr_types.insert(binary(0), Type::Int);
         });
-        refuses("an operand typed as Bool", "different checked types", &|published| {
+        refuses("an operand typed as Bool", "checked as Int", &|published| {
             published.declarations.bodies.expr_types.insert(identifier(0), Type::Bool);
         });
         changes("a subtraction recorded as an addition", &|published| {
