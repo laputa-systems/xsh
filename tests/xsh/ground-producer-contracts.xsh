@@ -290,3 +290,26 @@ for line in fuzz_main()? { print ${line} }
   assert output.success, output.stderr
   assert output.stdout == "2\n"
 }
+
+test test_empty_list_argument_reaches_an_optional_list_parameter_by_name { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""pure first_word(words: List[Str]? = null) -> Bool {
+  words != null
+}
+type Holder = {words: List[Str]}
+pure held(holder: Holder?) -> Bool {
+  holder != null
+}
+let named = first_word(words: [])
+let positional = first_word([])
+let absent = first_word()
+let nested = held(holder: Holder(words: []))
+assert first_word(words: [])
+assert held(holder: {words: []})
+print f"{named} {positional} {absent} {nested}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "true true false true\n"
+}

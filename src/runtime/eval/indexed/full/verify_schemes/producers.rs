@@ -5393,15 +5393,16 @@ impl<'a> ProducerProof<'a> {
             None if self.skips_derived_type(&decoder, instruction, &expected, returned)? => None,
             None => self.declared_type(&decoder, instruction)?,
         };
-        if (matches!(expected.as_ref(), Type::List(_) | Type::Map(_, _)) || matches!(expected.as_ref(), Type::Record(_)) && actual.is_none())
+        let aggregate = optional_aggregate_payload(&expected);
+        if (matches!(aggregate, Type::List(_) | Type::Map(_, _)) || matches!(aggregate, Type::Record(_)) && actual.is_none())
             && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
-            && let Some(source) = self.deferrable_aggregate_source(&decoder, instruction, &expected)?
+            && let Some(source) = self.deferrable_aggregate_source(&decoder, instruction, aggregate)?
             && self.declared_type(&decoder, source)?.is_none()
         {
             let binding = self.binding(owner, instruction, slot)?;
             self.deferred_sources.insert((owner, binding), source);
-            self.budget.charge_clone(&expected)?;
-            self.contextual_reads.entry((owner, binding)).or_default().push(Arc::clone(&expected));
+            self.budget.charge_clone(aggregate)?;
+            self.contextual_reads.entry((owner, binding)).or_default().push(Arc::new(aggregate.clone()));
             return Ok(());
         }
         let contextual_list_source = if matches!(expected.as_ref(), Type::List(_))
@@ -7120,6 +7121,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn contextual_argument(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        let expected = optional_aggregate_payload(expected);
         if !matches!(expected, Type::List(_) | Type::Map(_, _) | Type::Record(_)) { return Ok(false); }
         let schema::ExprView::Param(slot) = decoder.expression_view(argument)? else { return Ok(false) };
         if matches!(expected, Type::Record(_)) && self.declared_type(decoder, argument)?.is_some() { return Ok(false); }
@@ -8857,6 +8859,13 @@ fn comp_slot_type(target: super::super::decode::CompTargetView<'_>, slot: usize,
         current = next;
     }
     Ok(Some(current.clone()))
+}
+
+fn optional_aggregate_payload(expected: &Type) -> &Type {
+    match expected {
+        Type::Optional(payload) if matches!(payload.as_ref(), Type::List(_) | Type::Map(_, _) | Type::Record(_)) => payload,
+        other => other,
+    }
 }
 
 fn function_index(owner: u32) -> Result<usize, IrVerifyError> {

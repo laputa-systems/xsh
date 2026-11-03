@@ -2,7 +2,7 @@ use super::*;
 use crate::sema::check::Checker;
 use std::path::PathBuf;
 
-fn checked_program(name: &str, source: &str) -> FullProgram {
+pub(super) fn checked_program(name: &str, source: &str) -> FullProgram {
     let module_roots = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("core")];
     let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
         name,
@@ -37,7 +37,7 @@ fn checked_program(name: &str, source: &str) -> FullProgram {
     .expect("source should pass full IR verification")
 }
 
-fn function_index(program: &FullProgram, name: &str) -> usize {
+pub(super) fn function_index(program: &FullProgram, name: &str) -> usize {
     program
         .store
         .functions

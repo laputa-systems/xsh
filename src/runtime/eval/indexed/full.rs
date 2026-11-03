@@ -58177,6 +58177,9 @@ mod formal_bridge;
 mod noncompletion_tests;
 
 #[cfg(test)]
+mod consumer_defect_tests;
+
+#[cfg(test)]
 mod namespace_error_body_tests {
     fn prepare(root: &std::path::Path, source: &str) -> super::FullProgram {
         let entry = root.join("entry.xsh");
