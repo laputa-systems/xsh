@@ -11,7 +11,9 @@ fixtures, and host.
 The gate allows a candidate-minus-reference increase of at most
 `max(5% of reference, 1 ms)` for cold-start workloads and
 `max(10% of reference, 2 ms)` for end-to-end workloads. The runner exits
-nonzero when a workload fails its budget or parity check.
+nonzero when a workload fails its budget or parity check. Before timing, require
+`perf-gate-ready` to exit 0. Run `perf-gate-ready -1` immediately afterward and
+discard results if it fails. A busy host defers the timing gate.
 
 ## Historical reports
 
@@ -91,8 +93,8 @@ python3 -B bench/stdlib-port/run.py \
 `XSH_TEST_IMAGE` selects the Docker image; it defaults to `xsh-test`. Linux
 workloads read committed fixtures mounted at fixed `/proc` paths in the
 container's private mount namespace. `linux-runner.xsh` measures each child,
-excluding container startup and Python aggregation. This ARM64 route is
-separate from the repository's current x86_64 Linux verification target.
+excluding container startup and Python aggregation. This ARM64 route is fixed; the general Linux test runner selects its target
+from the host architecture.
 
 ## Fixed-path `system.os_release` test
 
