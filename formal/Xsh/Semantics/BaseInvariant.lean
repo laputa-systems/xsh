@@ -40,6 +40,7 @@ def faultsProgram (config : MachineConfig) : Prop :=
 def MachineSound (config : MachineConfig) : Prop :=
   wellFormed config ∧ faultsSpecified config
 
+mutual
 def exprWork : BaseExpr → Nat
   | .integerLiteral _ => 1
   | .scalarLiteral _ => 1
@@ -47,11 +48,24 @@ def exprWork : BaseExpr → Nat
   | .identifier _ => 1
   | .negate operand => exprWork operand + 2
   | .binary _ left right => exprWork left + exprWork right + 3
+  | .compare _ left right => exprWork left + exprWork right + 3
+  | .conditional condition thenBranch elseBranch =>
+    exprWork condition + exprWork thenBranch + exprWork elseBranch + 2
+  | .call _ body arguments => exprWork body + argumentsWork arguments + 1
+
+def argumentsWork : List BaseExpr → Nat
+  | [] => 0
+  | argument :: rest => exprWork argument + argumentsWork rest + 1
+end
 
 def frameWork : BaseFrame → Nat
   | .negate => 1
   | .binaryLeft _ right => exprWork right + 2
   | .binaryRight _ _ => 1
+  | .compareLeft _ right => exprWork right + 2
+  | .compareRight _ _ => 1
+  | .branch thenBranch elseBranch => exprWork thenBranch + exprWork elseBranch + 1
+  | .callArgument _ body _ remaining => exprWork body + argumentsWork remaining + 1
 
 def continuationWork : List BaseFrame → Nat
   | [] => 0

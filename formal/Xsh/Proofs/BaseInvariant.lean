@@ -16,17 +16,22 @@ theorem step_is_an_update {config next : MachineConfig} (takesStep : step config
   | mk names activations store control continuation =>
     cases control with
     | evaluate expression =>
-      cases expression <;> simp only [step, Option.some.injEq] at takesStep <;>
-        (subst takesStep; exact ⟨_, _, rfl⟩)
+      cases expression with
+      | call parameters body arguments =>
+        cases arguments <;> simp only [step, Option.some.injEq] at takesStep <;>
+          (subst takesStep; exact ⟨_, _, rfl⟩)
+      | _ =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        exact ⟨_, _, rfl⟩
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
       | cons frame rest =>
-        cases frame <;> simp only [step, Option.some.injEq] at takesStep
-        · subst takesStep; exact ⟨_, _, rfl⟩
-        · subst takesStep
-          split <;> exact ⟨_, _, rfl⟩
-        · subst takesStep; exact ⟨_, _, rfl⟩
+        cases frame <;> simp only [step, Option.some.injEq] at takesStep <;> subst takesStep <;>
+          first
+            | exact ⟨_, _, rfl⟩
+            | (split <;> (try split) <;> exact ⟨_, _, rfl⟩)
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 
@@ -45,6 +50,41 @@ private theorem work_update_without_control (config : MachineConfig) (control : 
     (continuation : List BaseFrame) (noWork : controlWork control = 0) :
     work (updateState config control continuation) = continuationWork continuation := by
   simp [work, updateState, noWork]
+
+mutual
+theorem exprWork_substitute (bindings : List (Xsh.Syntax.RawName × IntValue)) :
+    ∀ expression : BaseExpr, exprWork (substitute bindings expression) = exprWork expression
+  | .integerLiteral _ => rfl
+  | .scalarLiteral _ => rfl
+  | .timeNow => rfl
+  | .identifier name => by
+      cases found : bindings.lookup name <;> simp [substitute, found, exprWork]
+  | .negate operand => by simp [substitute, exprWork, exprWork_substitute bindings operand]
+  | .binary _ left right => by
+      simp [substitute, exprWork, exprWork_substitute bindings left,
+        exprWork_substitute bindings right]
+  | .compare _ left right => by
+      simp [substitute, exprWork, exprWork_substitute bindings left,
+        exprWork_substitute bindings right]
+  | .conditional condition thenBranch elseBranch => by
+      simp [substitute, exprWork, exprWork_substitute bindings condition,
+        exprWork_substitute bindings thenBranch, exprWork_substitute bindings elseBranch]
+  | .call _ body arguments => by
+      simp [substitute, exprWork, argumentsWork_substituteArguments bindings arguments]
+
+theorem argumentsWork_substituteArguments (bindings : List (Xsh.Syntax.RawName × IntValue)) :
+    ∀ arguments : List BaseExpr,
+      argumentsWork (substituteArguments bindings arguments) = argumentsWork arguments
+  | [] => rfl
+  | argument :: rest => by
+      simp [substituteArguments, argumentsWork, exprWork_substitute bindings argument,
+        argumentsWork_substituteArguments bindings rest]
+end
+
+theorem call_body_has_the_work_of_the_callee (parameters : List Xsh.Syntax.RawName)
+    (body : BaseExpr) (values : List IntValue) :
+    exprWork (callBody parameters body values) = exprWork body :=
+  exprWork_substitute _ body
 
 theorem step_decreases_work {config next : MachineConfig} (takesStep : step config = some next) :
     work next < work config := by
@@ -85,6 +125,29 @@ theorem step_decreases_work {config next : MachineConfig} (takesStep : step conf
         subst takesStep
         simp [work, updateState, controlWork, continuationWork, frameWork, exprWork]
         omega
+      | compare operator left right =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [work, updateState, controlWork, continuationWork, frameWork, exprWork]
+        omega
+      | conditional condition thenBranch elseBranch =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [work, updateState, controlWork, continuationWork, frameWork, exprWork]
+        omega
+      | call parameters body arguments =>
+        cases arguments with
+        | nil =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          simp [work, updateState, controlWork, exprWork, argumentsWork,
+            call_body_has_the_work_of_the_callee]
+        | cons argument remaining =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          simp [work, updateState, controlWork, continuationWork, frameWork, exprWork,
+            argumentsWork]
+          omega
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -114,6 +177,40 @@ theorem step_decreases_work {config next : MachineConfig} (takesStep : step conf
           · split
             · exact controlWork_of_integer_result _
             · rfl
+        | compareLeft operator right =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split
+          · simp [work, updateState, controlWork, continuationWork, frameWork]
+            omega
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
+        | compareRight operator left =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          rw [work_update_without_control]
+          · simp [work, controlWork, continuationWork, frameWork]
+          · split <;> rfl
+        | branch thenBranch elseBranch =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split
+          · rename_i truth _
+            cases truth <;>
+              simp [work, updateState, controlWork, continuationWork, frameWork] <;> omega
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
+        | callArgument parameters body evaluated remaining =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split
+          · split
+            · simp [work, updateState, controlWork, continuationWork, frameWork, argumentsWork,
+                call_body_has_the_work_of_the_callee]
+            · simp [work, updateState, controlWork, continuationWork, frameWork, argumentsWork]
+              omega
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 
@@ -225,14 +322,26 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
         simp only [step, Option.some.injEq] at takesStep
         subst takesStep
         simp [updateState] at failed
+      | compare operator left right =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at failed
+      | conditional condition thenBranch elseBranch =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at failed
+      | call parameters body arguments =>
+        cases arguments <;> simp only [step, Option.some.injEq] at takesStep <;>
+          (subst takesStep; simp [updateState] at failed)
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
       | cons frame rest =>
-        have payload : (integerPayload? value).isSome = true := by
+        have valueType : value.typeTag = frame.consumes := by
           simpa [controlFitsContinuation] using fits
         cases frame with
         | negate =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
           simp only [step, Option.some.injEq] at takesStep
           subst takesStep
           cases found : integerPayload? value with
@@ -241,12 +350,14 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
             simp only [updateState, found] at failed
             exact integer_result_fault_is_a_program_fault _ fault failed
         | binaryLeft operator right =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
           simp only [step, Option.some.injEq] at takesStep
           subst takesStep
           cases found : integerPayload? value with
           | none => simp [found] at payload
           | some integer => simp [updateState, found] at failed
         | binaryRight operator left =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
           simp only [step, Option.some.injEq] at takesStep
           subst takesStep
           cases found : integerPayload? value with
@@ -254,6 +365,35 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
           | some integer =>
             simp only [updateState, found] at failed
             exact integer_result_fault_is_a_program_fault _ fault failed
+        | compareLeft operator right =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer => simp [updateState, found] at failed
+        | compareRight operator left =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer => simp [updateState, found] at failed
+        | branch thenBranch elseBranch =>
+          have payload := Xsh.Proofs.BaseMachine.typed_boolean_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : booleanPayload? value with
+          | none => simp [found] at payload
+          | some truth => simp [updateState, found] at failed
+        | callArgument parameters body evaluated remaining =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer =>
+            cases remaining <;> simp [updateState, found] at failed
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 
@@ -301,6 +441,17 @@ theorem step_awaits_only_after_a_clock_read {config next : MachineConfig}
         simp only [step, Option.some.injEq] at takesStep
         subst takesStep
         simp [updateState] at awaiting
+      | compare operator left right =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at awaiting
+      | conditional condition thenBranch elseBranch =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at awaiting
+      | call parameters body arguments =>
+        cases arguments <;> simp only [step, Option.some.injEq] at takesStep <;>
+          (subst takesStep; simp [updateState] at awaiting)
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -324,6 +475,25 @@ theorem step_awaits_only_after_a_clock_read {config next : MachineConfig}
           split at awaiting
           · exact absurd awaiting (integer_result_is_not_awaiting _ _)
           · simp at awaiting
+        | compareLeft operator right =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split at awaiting <;> simp [updateState] at awaiting
+        | compareRight operator left =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          simp only [updateState] at awaiting
+          split at awaiting <;> simp at awaiting
+        | branch thenBranch elseBranch =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split at awaiting <;> simp [updateState] at awaiting
+        | callArgument parameters body evaluated remaining =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split at awaiting
+          · split at awaiting <;> simp [updateState] at awaiting
+          · simp [updateState] at awaiting
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 

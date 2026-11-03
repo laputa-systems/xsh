@@ -161,10 +161,14 @@ theorem accepted_host_response_preserves_wellFormed
       have controlWaiting : control = .awaitingHost .timeNow := waiting
       subst control
       simp only [wellFormed] at wellFormedConfig
-      rcases wellFormedConfig with ⟨_, continuationValid, _⟩
+      rcases wellFormedConfig with ⟨_, continuationValid, fits⟩
       simp only [wellFormed, updateState]
       refine ⟨trivial, continuationValid, ?_⟩
-      cases continuation <;> simp [controlFitsContinuation, integerPayload]
+      cases continuation with
+      | nil => rfl
+      | cons frame rest =>
+        simp only [controlFitsContinuation, BaseHostRequest.responseType, beq_iff_eq] at fits
+        simp [controlFitsContinuation, valueInteger, fits]
 
 theorem rejected_host_response_preserves_wellFormed
     {config : MachineConfig} {responseType : BaseType}
