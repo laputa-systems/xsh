@@ -4,7 +4,7 @@ use super::{LoweredValue, Value};
 use crate::map_key::{MapKey, MapKeyRef};
 use crate::runtime::value::{RecordIter, RuntimeError};
 use crate::source::Span;
-use crate::symbol::Name;
+use crate::symbol::{Name, NameText};
 use std::collections::BTreeMap;
 use std::borrow::Cow;
 use deser::{Atom, Error, ErrorKind, Serialize, State};
@@ -230,13 +230,13 @@ impl Serialize for BorrowedValue<'_> {
                 Emit::Atom(Atom::Str(v.into()))
             }
             CodecNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
-            CodecNode::Sequence(items) => Emit::seq(Items { items, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Sequence(items) => Emit::seq(Items { items, current: None, pretty: value.pretty, span: value.span, format: value.format }, state),
             CodecNode::Map(fields) => {
                 if !value.pretty && !fields.all_string_keys() { return Err(rejected(NON_STRING_KEY_MESSAGE)); }
-                Emit::structure(Fields { fields: fields.fields(), pretty: value.pretty, span: value.span, format: value.format }, state)
+                Emit::structure(Fields { fields: fields.fields(), current: None, key: None, pretty: value.pretty, span: value.span, format: value.format }, state)
             }
-            CodecNode::Object(fields) => Emit::structure(Fields { fields, pretty: value.pretty, span: value.span, format: value.format }, state),
-            CodecNode::Stats(stats) => Emit::structure(StatsFields { stats, index: 0, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Object(fields) => Emit::structure(Fields { fields, current: None, key: None, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Stats(stats) => Emit::structure(StatsFields { stats, current: None, index: 0, pretty: value.pretty, span: value.span, format: value.format }, state),
             CodecNode::Key(MapKeyRef::Str(v)) => Emit::Atom(Atom::Str(v.into())),
             CodecNode::Key(MapKeyRef::Int(v)) => Emit::Atom(Atom::I64(v)),
             CodecNode::Key(MapKeyRef::Bool(v)) => Emit::Atom(Atom::Bool(v)),
@@ -247,35 +247,39 @@ impl Serialize for BorrowedValue<'_> {
     }
 }
 
-struct Items<'a> { items: CodecSequence<'a>, pretty: bool, span: Span, format: Format }
+struct Items<'a> { items: CodecSequence<'a>, current: Option<BorrowedValue<'a>>, pretty: bool, span: Span, format: Format }
 impl SeqEmitter for Items<'_> {
-    fn next(&mut self, state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
+    fn next(&mut self, _state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
         let value = match &mut self.items {
             CodecSequence::Paths(items) => items.next().map(CodecInput::Path),
             CodecSequence::Runtime(items) => items.next().map(CodecInput::Runtime),
             CodecSequence::Lowered(items) => items.next().map(CodecInput::Lowered),
             CodecSequence::Set(items) => items.next().map(|v| CodecInput::Key(v.as_ref())),
         };
-        Ok(value.map(|value| SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format }, state)))
+        self.current = value.map(|value| BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format });
+        Ok(self.current.as_ref().map(SerializeHandle::to))
     }
 }
 
-struct Fields<'a> { fields: CodecFields<'a>, pretty: bool, span: Span, format: Format }
+struct Fields<'a> { fields: CodecFields<'a>, current: Option<BorrowedValue<'a>>, key: Option<NameText>, pretty: bool, span: Span, format: Format }
 impl StructEmitter for Fields<'_> {
-    fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
+    fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let Some((key, value)) = self.fields.next() else { return Ok(None); };
         let key = match key {
             CodecFieldKey::Str(key) | CodecFieldKey::Map(MapKeyRef::Str(key)) => Cow::Borrowed(key),
-            CodecFieldKey::Name(name) => Cow::Owned(name.to_string()),
+            CodecFieldKey::Name(name) => {
+                Cow::Borrowed(self.key.insert(name.as_str()).as_str())
+            }
             CodecFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
         };
-        Ok(Some((key, SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format }, state))))
+        let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format });
+        Ok(Some((key, SerializeHandle::to(current))))
     }
 }
 
-struct StatsFields<'a> { stats: CodecStats<'a>, index: usize, pretty: bool, span: Span, format: Format }
+struct StatsFields<'a> { stats: CodecStats<'a>, current: Option<BorrowedValue<'a>>, index: usize, pretty: bool, span: Span, format: Format }
 impl StructEmitter for StatsFields<'_> {
-    fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
+    fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let (key, value) = match self.index {
             0 => ("blanks", CodecInput::Integer(self.stats.blanks)),
             1 => ("blobs", self.stats.blobs.map_or(CodecInput::EmptyObject, |v| CodecInput::LoweredMap(v))),
@@ -284,7 +288,8 @@ impl StructEmitter for StatsFields<'_> {
             _ => return Ok(None),
         };
         self.index += 1;
-        Ok(Some((Cow::Borrowed(key), SerializeHandle::arena(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format }, state))))
+        let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format });
+        Ok(Some((Cow::Borrowed(key), SerializeHandle::to(current))))
     }
 }
 
@@ -386,6 +391,29 @@ mod tests {
             assert_eq!(crate::modules::codec::decode_json(&encoded, span()).unwrap(), runtime);
         }
         assert_eq!(encode_runtime(&runtime, false, span()).unwrap(), r#"{"a":{"empty":[]},"z":[null,true,-9223372036854775808,0.125,"\u0000"]}"#);
+    }
+
+    #[test]
+    fn paused_encoder_keeps_nested_values_and_dynamic_keys() {
+        let symbols = SymbolOwner::new();
+        let _scope = symbols.enter();
+        let runtime = crate::modules::codec::decode_json(r#"{"dynamic_outer":[{"dynamic_inner":"value"},7]}"#, span()).unwrap();
+        let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&runtime).unwrap();
+        let value = borrowed_lowered(Format::Json, &lowered, span());
+        let mut driver = deser::ser::SerializeDriver::new(&value);
+        let mut events = Vec::new();
+        while let Some((event, _, _)) = driver.next().unwrap() {
+            events.push(match event {
+                deser::Event::MapStart(_) => "{".to_owned(),
+                deser::Event::MapEnd => "}".to_owned(),
+                deser::Event::SeqStart(_) => "[".to_owned(),
+                deser::Event::SeqEnd => "]".to_owned(),
+                deser::Event::Atom(Atom::Str(text)) => text.as_ref().to_owned(),
+                deser::Event::Atom(Atom::I64(value)) => value.to_string(),
+                other => panic!("unexpected event: {other:?}"),
+            });
+        }
+        assert_eq!(events, ["{", "dynamic_outer", "[", "{", "dynamic_inner", "value", "}", "7", "]", "}"]);
     }
 
     #[test]
