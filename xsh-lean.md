@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 832
+**State:** `formal/coverage.json` is the only inventory. It lists 837
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -809,6 +809,17 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   refused, with exhausted derivations distinct. The machine currently admits
   decimal integer lexemes only. These are Lean inputs and a finite execution,
   not the required general source-to-IR simulation or Rust correspondence.
+
+
+- 2026-11-03: Every modeled execution preserves saved cell types and existing
+  immutable contents. Named-record `require` retains module/declaration identity;
+  a matching runtime schema table gives the checked Result type on either guard
+  outcome. The certificates check globally unique candidate binders and explicit
+  propagation contexts. The machine instantiates stored schemes per read and
+  retains globals across calls. Review controls cover branch completion, literal
+  bounds, sibling binder reuse, nominal identity and incompatible propagation.
+  Statement tails outside the selected domain report unsupported. General
+  typing/progress, source modules, Rust facts and raw-IR simulation remain open.
 
 ## For the owner afterwards
 

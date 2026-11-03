@@ -1,5 +1,5 @@
 import Xsh.Semantics.Connected.Values
-import Xsh.Typing.Connected.Generation
+import Xsh.Typing.Connected.Validate
 import Xsh.Values.IntegerOps
 
 namespace Xsh.Semantics.Connected
@@ -16,12 +16,14 @@ structure Function where
   parameters : List BinderId
   body : List StatementNode
   scheme : Scheme
+  elaboration : Substitution
 
 
 def runtimeMonotype : RuntimeType → Option MonoType
   | .integer => some (.primitive .integer)
   | .boolean => some (.primitive .boolean)
   | .string => some (.primitive .string)
+  | .error => some (.primitive .error)
   | .record row => (runtimeMonotype row).map MonoType.record
   | .rowEmpty => some .rowEmpty
   | .rowField name value tail => do
@@ -29,11 +31,47 @@ def runtimeMonotype : RuntimeType → Option MonoType
   | .argumentsEmpty => some .argumentsEmpty
   | .argument value tail => do
       some (.argument (← runtimeMonotype value) (← runtimeMonotype tail))
-  | .result value error => do
-      some (.result (← runtimeMonotype value) (← runtimeMonotype error))
+  | .result value failure => do
+      some (.result (← runtimeMonotype value) (← runtimeMonotype failure))
   | .function arguments result => do
       some (.function (← runtimeMonotype arguments) (← runtimeMonotype result))
-  | .nominal _ _ => none
+  | .schemeFunction => none
+  | .nominal identity base => (runtimeMonotype base).map (.nominal identity)
+
+
+def monoRuntime : MonoType → Option RuntimeType
+  | .primitive .integer => some .integer
+  | .primitive .boolean => some .boolean
+  | .primitive .string => some .string
+  | .primitive .error => some .error
+  | .record row => (monoRuntime row).map RuntimeType.record
+  | .rowEmpty => some .rowEmpty
+  | .rowField name value tail => do
+      some (.rowField name (← monoRuntime value) (← monoRuntime tail))
+  | .argumentsEmpty => some .argumentsEmpty
+  | .argument value tail => do
+      some (.argument (← monoRuntime value) (← monoRuntime tail))
+  | .result value failure => do
+      some (.result (← monoRuntime value) (← monoRuntime failure))
+  | .function arguments result => do
+      some (.function (← monoRuntime arguments) (← monoRuntime result))
+  | .nominal identity base => (monoRuntime base).map (.nominal identity)
+  | _ => none
+
+def instantiateFunction (solution : Substitution) (scheme : Scheme)
+    (arguments : List (Variable × MonoType)) :
+    Option (RuntimeType × RuntimeType × List (Variable × MonoType)) := do
+  if instantiationKeysValid scheme arguments && instantiationSortsValid solution arguments then pure () else none
+  let substitution := schemeSubstitution scheme (witnessSubstitution arguments)
+  if checksConstraints solution (scheme.requirements.map (mapConstraint substitution)) then pure () else none
+  let .function parameters result := substitute solution (substitute substitution scheme.body) | none
+  let parameterTypes ← monoRuntime parameters
+  let resultType ← monoRuntime result
+  some (parameterTypes, resultType, arguments.map fun (id, ty) => (id, substitute solution ty))
+
+def ordinaryValue : Value → Bool
+  | .schemeFunction _ _ => false
+  | _ => true
 
 def SignatureInstance (scheme : Scheme) (arguments result : RuntimeType) : Prop :=
   ∃ argumentType resultType substitution requirements,
@@ -55,6 +93,9 @@ def emptyCells : ActiveCells := fun _ => none
 def bindActive (cells : ActiveCells) (binder : BinderId) (cell : CellId) : ActiveCells :=
   fun other => if other = binder then some cell else cells other
 
+def withGlobals (locals globals : ActiveCells) : ActiveCells := fun binder =>
+  (locals binder).orElse fun _ => globals binder
+
 def allocate (store : Store) (cell : CellId) (mutability : Mutability) (value : Value) : Option Store :=
   if (store cell).isSome then none else
     match found : valueType value with
@@ -69,6 +110,7 @@ def read (store : Store) (cells : ActiveCells) (binder : BinderId) : Option Valu
   some entry.contents.value
 
 inductive Fault where
+  | unsupported
   | missingBinding (binder : BinderId)
   | badLiteral
   | expectedBoolean
@@ -82,14 +124,6 @@ inductive Fault where
   | rejectedWrite
   | integer (fault : IntegerFault)
 
-
-def parseInteger (text : String) : Option IntValue :=
-  match text.toList with
-  | [] => none
-  | digits =>
-    if digits.all (fun digit => 48 ≤ digit.toNat && digit.toNat ≤ 57) then
-      validateInt? (Int.ofNat (digits.foldl (fun value digit => value * 10 + (digit.toNat - 48)) 0))
-    else none
 
 def integerOperator : BinaryOp → Option IntegerBinaryOp
   | .add => some .add
@@ -131,6 +165,28 @@ def bindParameters (activation : Nat) : List BinderId → List Value → Runtime
     pure (bindActive cells binder cell, final)
   | _, _, _, _ => .error .wrongArguments
 
+inductive Guard where
+  | integerRange (minimum maximum : IntValue)
+  | recordShape (row : RuntimeType)
+
+def guardBase : Guard → RuntimeType
+  | .integerRange _ _ => .integer
+  | .recordShape row => .record row
+
+
+def guardPlain (guard : Guard) (value : Value) : Option Bool :=
+  match guard, value with
+  | .integerRange minimum maximum, .scalar (.integer candidate) =>
+      some (decide (minimum.val ≤ candidate.val ∧ candidate.val ≤ maximum.val))
+  | .recordShape row, record@(.record _) =>
+      (valueType record).map (typeFits (.record row))
+  | _, _ => some false
+
+def guardDecision (guard : Guard) (value : Value) : Option Bool :=
+  guardPlain guard (eraseNominal value)
+
+abbrev SchemaTable := BinderId → Option (Xsh.Validation.Nominal.NominalId × Guard)
+
 inductive Request where
   | timeNow
   deriving DecidableEq
@@ -145,6 +201,7 @@ inductive Control where
   | invoke (target : Value) (arguments : List Value)
   | statements (body : List StatementNode)
   | returned (value : Value)
+  | completed (value : Value)
   | propagated (value : Value)
   | fault (fault : Fault)
 
@@ -157,26 +214,31 @@ inductive Frame where
   | field (name : NameId)
   | conditional (branches : List (Node × Node)) (otherwise : Node)
   | propagate
+  | requireGuard (identity : Xsh.Validation.Nominal.NominalId) (guard : Guard)
   | bind (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind) (rest : List StatementNode)
   | assign (binder : BinderId) (rest : List StatementNode)
   | discard (rest : List StatementNode)
   | returnValue
+  | tailValue
   | branch (branches : List (Node × List StatementNode)) (otherwise rest : List StatementNode)
   | continueBlock (cells : ActiveCells) (rest : List StatementNode)
-  | caller (cells : ActiveCells) (activation : Nat) (result : RuntimeType)
+  | caller (cells : ActiveCells) (activation : Nat) (solution : Substitution) (result : RuntimeType)
 
 structure Machine where
   functions : FunctionTable
+  schemas : SchemaTable
+  globals : ActiveCells
   cells : ActiveCells
   store : Store
   activation : Nat
   nextActivation : Nat
+  solution : Substitution
   control : Control
   stack : List Frame
 
 
 def isCaller : Frame → Bool
-  | .caller _ _ _ => true
+  | .caller _ _ _ _ => true
   | _ => false
 
 inductive Step : Machine → Label → Machine → Prop where
@@ -195,9 +257,22 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .expression (.string value) } .internal
         { state with control := .value (.scalar (.string value)) }
   | read (state : Machine) (binder : BinderId) (arguments : List (Variable × MonoType)) (value : Value)
-      (found : Connected.read state.store state.cells binder = some value) :
+      (found : Connected.read state.store state.cells binder = some value) (ordinary : ordinaryValue value = true) :
       Step { state with control := .expression (.read binder arguments) } .internal
         { state with control := .value value }
+  | readFunction (state : Machine) (binder : BinderId) (arguments : List (Variable × MonoType))
+      (declaration : DeclarationId) (scheme : Scheme) (parameters result : RuntimeType)
+      (normalized : List (Variable × MonoType))
+      (found : Connected.read state.store state.cells binder = some (.schemeFunction declaration scheme))
+      (instantiated : instantiateFunction state.solution scheme arguments = some (parameters, result, normalized)) :
+      Step { state with control := .expression (.read binder arguments) } .internal
+        { state with control := .value (.instantiatedFunction declaration parameters result state.solution arguments) }
+  | readFunctionUnsupported (state : Machine) (binder : BinderId) (arguments : List (Variable × MonoType))
+      (declaration : DeclarationId) (scheme : Scheme)
+      (found : Connected.read state.store state.cells binder = some (.schemeFunction declaration scheme))
+      (unsupported : instantiateFunction state.solution scheme arguments = none) :
+      Step { state with control := .expression (.read binder arguments) } .internal
+        { state with control := .fault .unsupported }
   | readMissing (state : Machine) (binder : BinderId) (arguments : List (Variable × MonoType))
       (missing : Connected.read state.store state.cells binder = none) :
       Step { state with control := .expression (.read binder arguments) } .internal
@@ -252,8 +327,8 @@ inductive Step : Machine → Label → Machine → Prop where
       (missing : fields.lookup name = none) :
       Step { state with control := .value (.record fields), stack := .field name :: state.stack } .internal
         { state with control := .fault (.missingField name) }
-  | propagateStart (state : Machine) (inner : Node) :
-      Step { state with control := .expression (.propagate inner) } .internal
+  | propagateStart (state : Machine) (inner : Node) (error : MonoType) :
+      Step { state with control := .expression (.propagate inner error) } .internal
         { state with control := .expression inner, stack := .propagate :: state.stack }
   | propagateOk (state : Machine) (value : Value) (errorType : RuntimeType) :
       Step { state with control := .value (.ok value errorType), stack := .propagate :: state.stack } .internal
@@ -262,6 +337,26 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .value (.error error valueType), stack := .propagate :: state.stack } .internal
         { state with control := .propagated (.error error valueType) }
 
+  | requireStart (state : Machine) (binder : BinderId) (identity : Xsh.Validation.Nominal.NominalId)
+      (value : Node) (guard : Guard) (found : state.schemas binder = some (identity, guard)) :
+      Step { state with control := .expression (.requireValue binder identity value) } .internal
+        { state with control := .expression value, stack := .requireGuard identity guard :: state.stack }
+  | requireMissing (state : Machine) (binder : BinderId) (identity : Xsh.Validation.Nominal.NominalId)
+      (value : Node) (missing : ∀ guard, state.schemas binder ≠ some (identity, guard)) :
+      Step { state with control := .expression (.requireValue binder identity value) } .internal
+        { state with control := .fault .invalidValue }
+  | requireSuccess (state : Machine) (identity : Xsh.Validation.Nominal.NominalId) (guard : Guard)
+      (value : Value) (accepted : guardDecision guard value = some true) :
+      Step { state with control := .value value, stack := .requireGuard identity guard :: state.stack } .internal
+        { state with control := .value (.ok (.nominal identity (guardBase guard) (eraseNominal value)) .error) }
+  | requireFailure (state : Machine) (identity : Xsh.Validation.Nominal.NominalId) (guard : Guard)
+      (value : Value) (rejected : guardDecision guard value = some false) :
+      Step { state with control := .value value, stack := .requireGuard identity guard :: state.stack } .internal
+        { state with control := .value (.error .validationError (.nominal identity (guardBase guard))) }
+  | requireUnsupported (state : Machine) (identity : Xsh.Validation.Nominal.NominalId) (guard : Guard)
+      (value : Value) (unsupported : guardDecision guard value = none) :
+      Step { state with control := .value value, stack := .requireGuard identity guard :: state.stack } .internal
+        { state with control := .fault .unsupported }
   | recordEmpty (state : Machine) :
       Step { state with control := .expression (.record []) } .internal
         { state with control := .value (.record []) }
@@ -310,13 +405,23 @@ inductive Step : Machine → Label → Machine → Prop where
         { state with control := .fault (.missingBinding binder) }
   | evaluateTail (state : Machine) (value : Node) :
       Step { state with control := .statements [.evaluated value] } .internal
-        { state with control := .expression value, stack := .returnValue :: state.stack }
+        { state with control := .expression value, stack := .tailValue :: state.stack }
   | evaluateAndContinue (state : Machine) (value : Node) (next : StatementNode) (rest : List StatementNode) :
       Step { state with control := .statements (.evaluated value :: next :: rest) } .internal
         { state with control := .expression value, stack := .discard (next :: rest) :: state.stack }
   | discarded (state : Machine) (value : Value) (rest : List StatementNode) :
       Step { state with control := .value value, stack := .discard rest :: state.stack } .internal
         { state with control := .statements rest }
+  | tailValue (state : Machine) (value : Value) :
+      Step { state with control := .value value, stack := .tailValue :: state.stack } .internal
+        { state with control := .completed value }
+  | tailBranchComplete (state : Machine) (value : Value) (cells : ActiveCells) :
+      Step { state with control := .completed value, stack := .continueBlock cells [] :: state.stack } .internal
+        { state with control := .completed value, cells := cells }
+  | nonTailBranchComplete (state : Machine) (value : Value) (cells : ActiveCells)
+      (next : StatementNode) (rest : List StatementNode) :
+      Step { state with control := .completed value, stack := .continueBlock cells (next :: rest) :: state.stack } .internal
+        { state with control := .statements (next :: rest), cells := cells }
   | returnStart (state : Machine) (value : Node) (rest : List StatementNode) :
       Step { state with control := .statements (.returned value :: rest) } .internal
         { state with control := .expression value, stack := .returnValue :: state.stack }
@@ -340,12 +445,13 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .value value, stack := .callArguments target done [] :: state.stack } .internal
         { state with control := .invoke target (done ++ [value]) }
   | callFunction (state : Machine) (declaration : DeclarationId) (arguments : List Value)
-      (parameterTypes resultType : RuntimeType) (function : Function) (cells : ActiveCells) (store : Store)
+      (parameterTypes resultType : RuntimeType) (captured : Substitution)
+      (typeArguments normalized : List (Variable × MonoType)) (function : Function) (cells : ActiveCells) (store : Store)
       (found : state.functions declaration = some (.function function))
-      (signature : SignatureInstance function.scheme parameterTypes resultType)
+      (signature : instantiateFunction captured function.scheme typeArguments = some (parameterTypes, resultType, normalized))
       (bound : bindParameters state.nextActivation function.parameters arguments parameterTypes state.store = .ok (cells, store)) :
-      Step { state with control := .invoke (.function declaration parameterTypes resultType) arguments } .internal
-        { state with control := .statements function.body, cells := cells, store := store, activation := state.nextActivation, nextActivation := state.nextActivation + 1, stack := .caller state.cells state.activation resultType :: state.stack }
+      Step { state with control := .invoke (.instantiatedFunction declaration parameterTypes resultType captured typeArguments) arguments } .internal
+        { state with control := .statements function.body, cells := withGlobals cells state.globals, store := store, activation := state.nextActivation, nextActivation := state.nextActivation + 1, solution := compose captured (compose (schemeSubstitution function.scheme (witnessSubstitution typeArguments)) function.elaboration), stack := .caller state.cells state.activation state.solution resultType :: state.stack }
   | callOk (state : Machine) (declaration : DeclarationId) (value : Value) (valueType' errorType : RuntimeType)
       (found : state.functions declaration = some .resultOk) (typed : valueType value = some valueType') :
       Step { state with control := .invoke (.function declaration (.argument valueType' .argumentsEmpty)
@@ -360,14 +466,18 @@ inductive Step : Machine → Label → Machine → Prop where
       (found : state.functions declaration = some .timeNow) :
       Step { state with control := .invoke (.function declaration .argumentsEmpty .integer) [] } (.request .timeNow response)
         { state with control := .value (.scalar (.integer response)) }
-  | returnedToCaller (state : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (ty : RuntimeType)
+  | returnedToCaller (state : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (saved : Substitution) (ty : RuntimeType)
       (typed : valueType value = some ty) :
-      Step { state with control := .returned value, stack := .caller cells activation ty :: state.stack } .internal
-        { state with control := .value value, cells := cells, activation := activation }
+      Step { state with control := .returned value, stack := .caller cells activation saved ty :: state.stack } .internal
+        { state with control := .value value, cells := cells, activation := activation, solution := saved }
+  | completedToCaller (state : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (saved : Substitution) (ty : RuntimeType)
+      (typed : valueType value = some ty) :
+      Step { state with control := .completed value, stack := .caller cells activation saved ty :: state.stack } .internal
+        { state with control := .value value, cells := cells, activation := activation, solution := saved }
   | propagatedToCaller (state : Machine) (error : Value) (oldType valueType' errorType : RuntimeType)
-      (cells : ActiveCells) (activation : Nat) (typed : valueType error = some errorType) :
-      Step { state with control := .propagated (.error error oldType), stack := .caller cells activation (.result valueType' errorType) :: state.stack } .internal
-        { state with control := .value (.error error valueType'), cells := cells, activation := activation }
+      (cells : ActiveCells) (activation : Nat) (saved : Substitution) (typed : valueType error = some errorType) :
+      Step { state with control := .propagated (.error error oldType), stack := .caller cells activation saved (.result valueType' errorType) :: state.stack } .internal
+        { state with control := .value (.error error valueType'), cells := cells, activation := activation, solution := saved }
   | returnUnwind (state : Machine) (value : Value) (frame : Frame) (notCaller : isCaller frame = false) :
       Step { state with control := .returned value, stack := frame :: state.stack } .internal
         { state with control := .returned value }

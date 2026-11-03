@@ -1,5 +1,6 @@
 import Xsh.Semantics.Connected.Machine
 import Xsh.Typing.Connected.BlockCertificate
+import Xsh.Typing.Connected.ContextCertificate
 
 namespace Xsh.Semantics.Connected
 
@@ -44,7 +45,7 @@ theorem assignment_then_return_reads_new_value (state : Machine) (binder : Binde
   refine .next (Step.assignmentCommit state binder (.scalar (.integer value)) rest cell next active written) ?_
   refine .next (Step.returnStart stored (.read binder []) []) ?_
   have visible := read_after_assignment state.store next state.cells binder cell (.scalar (.integer value)) active written
-  refine .next (Step.read { stored with stack := .returnValue :: state.stack } binder [] _ visible) ?_
+  refine .next (Step.read { stored with stack := .returnValue :: state.stack } binder [] _ visible rfl) ?_
   exact .next (Step.returnValue stored _) (.done _)
 
 
@@ -106,5 +107,226 @@ theorem certified_integer_local_executes (state : Machine)
     refine .next (Step.bindingCommit state integerLocalBinder .mutable (.scalar (.integer intOne))
       rest allocated allocatedProof) ?_
     exact run
+
+
+
+
+def recordNominal : Xsh.Validation.Nominal.NominalId := ⟨"module.example", "Item"⟩
+def schemaName : NameId := exampleName 21 (by decide)
+def fieldName : NameId := exampleName 22 (by decide)
+def schemaBinder : BinderId := ⟨⟨21, by decide⟩⟩
+def schemaRow : MonoType := .rowField fieldName (.primitive .integer) .rowEmpty
+def schemaScope : Scope :=
+  [⟨schemaName, schemaBinder, .schema, ⟨[], .nominal recordNominal (.record schemaRow), []⟩⟩]
+def recordSource : Xsh.Syntax.Expr :=
+  .require (.record [.named fieldName (.literal (.integer "7"))]) (some (.named schemaName))
+def recordCandidate : Node := .requireValue schemaBinder recordNominal (.record [(fieldName, .integer "7")])
+def integerSeven : IntValue := ⟨7, by decide⟩
+def recordGuard : Guard := .recordShape (.rowField fieldName .integer .rowEmpty)
+
+def recordCertificateAccepted : Bool :=
+  match validateDerivedExpression 16 schemaScope recordSource recordCandidate [] with
+  | .ok (.result (.nominal identity (.record _)) (.primitive .error)) => decide (identity = recordNominal)
+  | _ => false
+
+def wrongNominalRejected : Bool :=
+  let wrong : Xsh.Validation.Nominal.NominalId := ⟨"other.module", "Item"⟩
+  match validateDerivedExpression 16 schemaScope recordSource
+      (.requireValue schemaBinder wrong (.record [(fieldName, .integer "7")])) [] with
+  | .error .mismatch => true
+  | _ => false
+
+theorem record_nominal_certificate_and_identity_control :
+    recordCertificateAccepted = true ∧ wrongNominalRejected = true := by
+  constructor <;> decide +kernel
+
+theorem record_nominal_guard_executes (state : Machine)
+    (found : state.schemas schemaBinder = some (recordNominal, recordGuard)) :
+    recordCertificateAccepted = true ∧
+    Execution { state with control := .expression recordCandidate }
+      [.internal, .internal, .internal, .internal, .internal]
+      { state with control := .value (.ok (.nominal recordNominal (.record (.rowField fieldName .integer .rowEmpty))
+        (.record [(fieldName, .scalar (.integer integerSeven))])) .error) } := by
+  constructor
+  · exact record_nominal_certificate_and_identity_control.1
+  · let outer := { state with stack := .requireGuard recordNominal recordGuard :: state.stack }
+    refine .next (Step.requireStart state schemaBinder recordNominal (.record [(fieldName, .integer "7")]) recordGuard found) ?_
+    refine .next (Step.recordStart outer fieldName (.integer "7") []) ?_
+    refine .next (Step.integer { outer with stack := .recordFields [] fieldName [] :: outer.stack }
+      "7" integerSeven (by decide +kernel)) ?_
+    refine .next (Step.recordFinish outer [] fieldName (.scalar (.integer integerSeven))) ?_
+    exact .next (Step.requireSuccess state recordNominal recordGuard
+      (.record [(fieldName, .scalar (.integer integerSeven))]) (by decide +kernel)) (.done _)
+
+def invalidRecordSource : Xsh.Syntax.Expr :=
+  .require (.record [.named fieldName (.literal (.bool true))]) (some (.named schemaName))
+def invalidRecordCandidate : Node := .requireValue schemaBinder recordNominal (.record [(fieldName, .boolean true)])
+
+def invalidRecordCertificateAccepted : Bool :=
+  match validateDerivedExpression 16 schemaScope invalidRecordSource invalidRecordCandidate [] with
+  | .ok (.result (.nominal identity (.record _)) (.primitive .error)) => decide (identity = recordNominal)
+  | _ => false
+
+def omittedGuardRejected : Bool :=
+  match validateDerivedExpression 16 schemaScope recordSource (.record [(fieldName, .integer "7")]) [] with
+  | .error .mismatch => true
+  | _ => false
+
+theorem record_guard_refusal_remains_a_result (state : Machine)
+    (found : state.schemas schemaBinder = some (recordNominal, recordGuard)) :
+    invalidRecordCertificateAccepted = true ∧ omittedGuardRejected = true ∧
+    Execution { state with control := .expression invalidRecordCandidate }
+      [.internal, .internal, .internal, .internal, .internal]
+      { state with control := .value (.error .validationError
+        (.nominal recordNominal (.record (.rowField fieldName .integer .rowEmpty)))) } := by
+  refine ⟨by decide +kernel, by decide +kernel, ?_⟩
+  let outer := { state with stack := .requireGuard recordNominal recordGuard :: state.stack }
+  refine .next (Step.requireStart state schemaBinder recordNominal (.record [(fieldName, .boolean true)]) recordGuard found) ?_
+  refine .next (Step.recordStart outer fieldName (.boolean true) []) ?_
+  refine .next (Step.boolean { outer with stack := .recordFields [] fieldName [] :: outer.stack } true) ?_
+  refine .next (Step.recordFinish outer [] fieldName (.scalar (.boolean true))) ?_
+  exact .next (Step.requireFailure state recordNominal recordGuard
+    (.record [(fieldName, .scalar (.boolean true))]) (by decide +kernel)) (.done _)
+
+
+theorem branch_tail_value_continues_non_tail_block (state : Machine) (value : Value)
+    (cells : ActiveCells) (next : StatementNode) (rest : List StatementNode) :
+    Execution { state with control := .value value, stack := .tailValue :: .continueBlock cells (next :: rest) :: state.stack }
+      [.internal, .internal]
+      { state with control := .statements (next :: rest), cells := cells } := by
+  let outer := { state with stack := .continueBlock cells (next :: rest) :: state.stack }
+  exact .next (Step.tailValue outer value) (.next (Step.nonTailBranchComplete state value cells next rest) (.done _))
+
+
+def integerIdentityArguments : List (Variable × MonoType) := [(identityVariable, .primitive .integer)]
+def booleanIdentityArguments : List (Variable × MonoType) := [(identityVariable, .primitive .boolean)]
+
+theorem stored_polymorphic_function_reads_at_two_types (state : Machine) (declaration : DeclarationId)
+    (found : Connected.read state.store state.cells identityBinding.binder = some (.schemeFunction declaration identityScheme)) :
+    Step { state with control := .expression (.read identityBinding.binder integerIdentityArguments) } .internal
+      { state with control := .value (.instantiatedFunction declaration (.argument .integer .argumentsEmpty)
+        .integer state.solution integerIdentityArguments) } ∧
+    Step { state with control := .expression (.read identityBinding.binder booleanIdentityArguments) } .internal
+      { state with control := .value (.instantiatedFunction declaration (.argument .boolean .argumentsEmpty)
+        .boolean state.solution booleanIdentityArguments) } := by
+  constructor
+  · apply Step.readFunction _ _ _ _ _ _ _ integerIdentityArguments found
+    simp [instantiateFunction, integerIdentityArguments, instantiationKeysValid, instantiationSortsValid,
+      witnessSubstitution, schemeSubstitution, identityScheme, identityVariable, substitute,
+      checksConstraints, checksWellFormed, typeSort, VariableKind.sort, monoRuntime]
+  · apply Step.readFunction _ _ _ _ _ _ _ booleanIdentityArguments found
+    simp [instantiateFunction, booleanIdentityArguments, instantiationKeysValid, instantiationSortsValid,
+      witnessSubstitution, schemeSubstitution, identityScheme, identityVariable, substitute,
+      checksConstraints, checksWellFormed, typeSort, VariableKind.sort, monoRuntime]
+
+theorem global_binding_visible_under_fresh_locals (locals globals : ActiveCells)
+    (binder : BinderId) (cell : Xsh.Semantics.Environments.CellId)
+    (unshadowed : locals binder = none) (global : globals binder = some cell) :
+    withGlobals locals globals binder = some cell := by
+  simp [withGlobals, unshadowed, global]
+
+
+def invalidPropagationLocal : NameId := exampleName 23 (by decide)
+def invalidPropagationBinder : BinderId := ⟨⟨22, by decide⟩⟩
+def invalidPropagationSource : List Xsh.Syntax.Statement :=
+  [.binding .letBinding (.name invalidPropagationLocal) none (.tryExpr invalidRecordSource),
+   .returnValue (some (.literal (.integer "7")))]
+def invalidPropagationCandidate : List StatementNode :=
+  [.binding invalidPropagationBinder .immutable (.propagate invalidRecordCandidate (.primitive .error)),
+   .returned (.integer "7")]
+
+theorem propagation_outside_result_boundary_is_never_certified (types : BinderTypes)
+    (steps : List DerivationStep) :
+    validateDerivedBlock 32 exampleTypeNames schemaScope (.primitive .integer) invalidPropagationSource
+      invalidPropagationCandidate types steps ≠ .ok () := by
+  intro accepted
+  obtain ⟨_, _, solution, _, _, _, _, matching, _⟩ :=
+    derived_block_certificate_sound 32 exampleTypeNames schemaScope (.primitive .integer)
+      invalidPropagationSource invalidPropagationCandidate types steps accepted
+  have member : MonoType.primitive .error ∈ blockPropagationErrors invalidPropagationCandidate := by
+    simp [invalidPropagationCandidate, invalidRecordCandidate, blockPropagationErrors, propagationErrors,
+      recordErrors]
+  obtain ⟨expected, impossible, _⟩ := matching (.primitive .error) member
+  cases impossible
+
+
+def guardedTrySource : Xsh.Syntax.Expr := .tryExpr recordSource
+def guardedTryCandidate : Node := .propagate recordCandidate (.primitive .error)
+def guardedTryDerivation : List DerivationStep := [.result, .bindRight, .bindRight, .reflexive]
+
+def guardedTryAccepted : Bool :=
+  match validateContextualExpression 32 schemaScope (some (.primitive .error)) guardedTrySource
+      guardedTryCandidate guardedTryDerivation with
+  | .ok (.nominal identity (.record _)) => decide (identity = recordNominal)
+  | _ => false
+
+def guardedTryWithoutContext : Bool :=
+  match validateContextualExpression 32 schemaScope none guardedTrySource guardedTryCandidate [] with
+  | .error .invalidContext => true
+  | _ => false
+
+theorem guarded_try_accepts_matching_context_and_reports_missing_context :
+    guardedTryAccepted = true ∧ guardedTryWithoutContext = true := by
+  constructor <;> decide +kernel
+
+theorem guarded_try_with_wrong_error_context_is_never_certified (steps : List DerivationStep)
+    (ty : MonoType) :
+    validateContextualExpression 32 schemaScope (some (.primitive .boolean)) guardedTrySource
+      guardedTryCandidate steps ≠ .ok ty := by
+  intro accepted
+  obtain ⟨_, _, _, solution, _, _, _, _, matching, _, _⟩ :=
+    contextual_expression_certificate_sound 32 schemaScope (some (.primitive .boolean))
+      guardedTrySource guardedTryCandidate steps ty accepted
+  have member : MonoType.primitive .error ∈ propagationErrors guardedTryCandidate := by
+    simp [guardedTryCandidate, recordCandidate, propagationErrors, recordErrors]
+  obtain ⟨expected, same, matchingError⟩ := matching (.primitive .error) member
+  simp only [Option.map, substitute, Option.some.injEq] at same
+  simp only [substitute] at matchingError
+  have impossible : MonoType.primitive .boolean = .primitive .error := same.trans matchingError.symm
+  cases impossible
+
+
+def branchContinuationSource : List Xsh.Syntax.Statement :=
+  [.ifStmt [(.literal (.bool true), [.expression (.literal (.integer "1"))])]
+      (some [.expression (.literal (.integer "2"))]),
+   .returnValue (some (.literal (.integer "3")))]
+
+def branchContinuationCandidate : List StatementNode :=
+  [.conditional [(.boolean true, [.evaluated (.integer "1")])] [.evaluated (.integer "2")],
+   .returned (.integer "3")]
+
+def branchContinuationUnsupported : Bool :=
+  match validateDerivedBlock 32 exampleTypeNames [] (.primitive .integer) branchContinuationSource
+      branchContinuationCandidate (fun _ => none) [.reflexive, .reflexive, .reflexive, .reflexive] with
+  | .error .unsupported => true
+  | _ => false
+
+def integerThree : IntValue := ⟨3, by decide⟩
+
+theorem unsupported_non_tail_value_does_not_abort_machine (state : Machine) :
+    branchContinuationUnsupported = true ∧
+    Execution { state with control := .statements branchContinuationCandidate }
+      [.internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal]
+      { state with control := .returned (.scalar (.integer integerThree)) } := by
+  constructor
+  · decide +kernel
+  · let body : List StatementNode := [.evaluated (.integer "1")]
+    let fallback : List StatementNode := [.evaluated (.integer "2")]
+    let rest : List StatementNode := [.returned (.integer "3")]
+    let branches : List (Node × List StatementNode) := [(.boolean true, body)]
+    let branchFrame := Frame.branch branches fallback rest
+    let blockFrame := Frame.continueBlock state.cells rest
+    let withBranch := { state with stack := branchFrame :: state.stack }
+    let withBlock := { state with stack := blockFrame :: state.stack }
+    refine .next (Step.statementConditionalStart state (.boolean true) body [] fallback rest) ?_
+    refine .next (Step.boolean withBranch true) ?_
+    refine .next (Step.statementConditionalTrue state (.boolean true) body [] fallback rest) ?_
+    refine .next (Step.evaluateTail withBlock (.integer "1")) ?_
+    refine .next (Step.integer { withBlock with stack := .tailValue :: withBlock.stack } "1" intOne (by decide +kernel)) ?_
+    refine .next (Step.tailValue withBlock (.scalar (.integer intOne))) ?_
+    refine .next (Step.nonTailBranchComplete state (.scalar (.integer intOne)) state.cells _ []) ?_
+    refine .next (Step.returnStart state (.integer "3") []) ?_
+    refine .next (Step.integer { state with stack := .returnValue :: state.stack } "3" integerThree (by decide +kernel)) ?_
+    exact .next (Step.returnValue state _) (.done _)
 
 end Xsh.Semantics.Connected

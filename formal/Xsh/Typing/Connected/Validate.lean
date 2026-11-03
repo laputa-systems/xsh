@@ -7,6 +7,8 @@ open Xsh.Syntax
 
 inductive ValidationError where
   | exhausted
+  | invalidLiteral
+  | invalidContext
   | unsupported
   | mismatch
   | unresolvedName
@@ -34,6 +36,8 @@ mutual
     | fuel + 1, scope, solution, source, candidate => do
       match source, candidate with
       | .literal (.integer text), .integer other => do
+          if decimalLexeme text then pure () else throw .unsupported
+          let some _ := parseInteger text | throw .invalidLiteral
           requireCheck (decide (text = other))
           pure (.primitive .integer)
       | .literal (.bool value), .boolean other => do
@@ -46,6 +50,7 @@ mutual
           let some binding := scope.find? (fun item => decide (item.name = name))
             | throw .unresolvedName
           requireCheck (decide (binding.binder = binder))
+          requireCheck (decide (binding.kind ≠ .schema))
           requireCheck (instantiationKeysValid binding.scheme arguments)
           requireCheck (instantiationSortsValid solution arguments)
           let instantiation := schemeSubstitution binding.scheme (witnessSubstitution arguments)
@@ -86,10 +91,21 @@ mutual
           let result ← validateExpression fuel scope solution otherwise fallback
           validateBranches fuel scope solution result branches recorded
           pure result
-      | .tryExpr value, .propagate recorded => do
+      | .require value (some (.named name)), .requireValue binder identity recorded => do
+          let some binding := scope.find? (fun item => decide (item.name = name))
+            | throw .unresolvedName
+          requireCheck (decide (binding.binder = binder) && decide (binding.kind = .schema))
+          requireCheck (binding.scheme.quantified.isEmpty && binding.scheme.requirements.isEmpty)
+          let .nominal expected (.record row) := binding.scheme.body | throw .mismatch
+          requireCheck (decide (identity = expected) && checksWellFormed (.nominal expected (.record row)))
+          let _ ← validateExpression fuel scope solution value recorded
+          pure (.result (.nominal expected (.record (substitute solution row))) (.primitive .error))
+      | .tryExpr value, .propagate recorded expectedError => do
           let result ← validateExpression fuel scope solution value recorded
           match result with
-          | .result ty _ => pure ty
+          | .result ty error => do
+              requireCheck (decide (error = substitute solution expectedError))
+              pure ty
           | _ => throw .mismatch
       | _, _ => throw .mismatch
 
@@ -175,8 +191,8 @@ theorem validate_read_sound (fuel : Nat) (scope : Scope) (solution : Substitutio
   | some binding =>
     simp [validateExpression, found, except_bind_ok, except_map_ok, exists_require_ok,
       Bool.and_eq_true, checks_well_formed_iff, checks_constraints_iff] at accepted
-    obtain ⟨_, _, _, solved, ⟨wellFormed, sorted⟩, rfl⟩ := accepted
-    exact .read found ⟨rfl, rfl⟩ solved wellFormed sorted
+    obtain ⟨_, notSchema, _, _, solved, ⟨wellFormed, sorted⟩, rfl⟩ := accepted
+    exact .read found notSchema ⟨rfl, rfl⟩ solved wellFormed sorted
 
 theorem validate_binary_sound (fuel : Nat) (ih : ExpressionSound fuel) (scope : Scope)
     (solution : Substitution) (operator recorded : BinaryOp) (left right : Expr)

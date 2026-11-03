@@ -11,6 +11,7 @@ inductive DerivationStep where
   | result
   | record
   | row
+  | nominal
   | field
   deriving DecidableEq
 
@@ -83,6 +84,9 @@ def checkDerivation : List DerivationStep → List Constraint → Except Validat
     | .row, .equal (.rowField name value tail) (.rowField otherName otherValue otherTail) => do
         requireCheck (decide (name = otherName))
         checkDerivation steps (.equal value otherValue :: .equal tail otherTail :: rest)
+    | .nominal, .equal (.nominal identity base) (.nominal otherIdentity otherBase) => do
+        requireCheck (decide (identity = otherIdentity))
+        checkDerivation steps (.equal base otherBase :: rest)
     | .field, .field (.record row) name value => do
         let some field := fieldAt? name row | throw .unsupported
         checkDerivation steps (.equal field value :: rest)
@@ -198,6 +202,17 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             simp [solves_cons_iff, satisfies, substitute, and_assoc]
         | field _ _ _ => cases accepted
 
+      | nominal =>
+        cases constraint with
+        | equal left right =>
+          cases left <;> cases right <;> try cases accepted
+          case nominal.nominal identity base otherIdentity otherBase =>
+            simp [checkDerivation, except_bind_ok, exists_require_ok] at accepted
+            obtain ⟨rfl, accepted⟩ := accepted
+            apply principal_of_equivalent _ (ih _ solution accepted)
+            intro other
+            simp [solves_cons_iff, satisfies, substitute]
+        | field _ _ _ => cases accepted
       | field =>
         cases constraint with
         | equal _ _ => cases accepted

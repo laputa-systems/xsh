@@ -4,11 +4,60 @@ namespace Xsh.Typing.Connected
 
 open Xsh.Syntax
 
+
+mutual
+  def declaredBinders : List StatementNode → List Xsh.Foundation.BinderId
+    | [] => []
+    | .binding binder _ _ :: rest => binder :: declaredBinders rest
+    | .conditional branches fallback :: rest =>
+        branchBinders branches ++ declaredBinders fallback ++ declaredBinders rest
+    | _ :: rest => declaredBinders rest
+
+  def branchBinders : List (Node × List StatementNode) → List Xsh.Foundation.BinderId
+    | [] => []
+    | (_, body) :: rest => declaredBinders body ++ branchBinders rest
+end
+
+
+mutual
+  def blockPropagationErrors : List StatementNode → List MonoType
+    | [] => []
+    | .binding _ _ value :: rest | .assignment _ value :: rest |
+      .evaluated value :: rest | .returned value :: rest =>
+        propagationErrors value ++ blockPropagationErrors rest
+    | .conditional branches fallback :: rest =>
+        statementBranchErrors branches ++ blockPropagationErrors fallback ++ blockPropagationErrors rest
+
+  def statementBranchErrors : List (Node × List StatementNode) → List MonoType
+    | [] => []
+    | (condition, body) :: rest =>
+        propagationErrors condition ++ blockPropagationErrors body ++ statementBranchErrors rest
+end
+
+
+mutual
+  def supportedStatementTails (tail : Bool) : List StatementNode → Bool
+    | [] => true
+    | .evaluated _ :: rest => tail && rest.isEmpty
+    | .conditional branches fallback :: rest =>
+        supportedBranchTails (tail && rest.isEmpty) branches &&
+          supportedStatementTails (tail && rest.isEmpty) fallback && supportedStatementTails tail rest
+    | _ :: rest => supportedStatementTails tail rest
+
+  def supportedBranchTails (tail : Bool) : List (Node × List StatementNode) → Bool
+    | [] => true
+    | (_, body) :: rest => supportedStatementTails tail body && supportedBranchTails tail rest
+end
+
 def validateDerivedBlock (fuel : Nat) (names : TypeNames) (scope : Scope)
     (result : MonoType) (source : List Statement) (candidate : List StatementNode)
     (binderTypes : BinderTypes) (steps : List DerivationStep) : Except ValidationError Unit := do
   let (_, state) ← ((block fuel names scope result source).run (initialState scope)).mapError generationFailure
   let solution ← checkDerivation steps state.constraints
+  requireCheck (decide (declaredBinders candidate).Nodup)
+  if supportedStatementTails true candidate then pure () else throw .unsupported
+  requireCheck (checksPropagationErrors (propagationContext (substitute solution result)) solution
+    (blockPropagationErrors candidate))
   validateBlock fuel names scope solution binderTypes (substitute solution result) source candidate
 
 theorem derived_block_certificate_sound (fuel : Nat) (names : TypeNames) (scope : Scope)
@@ -18,7 +67,8 @@ theorem derived_block_certificate_sound (fuel : Nat) (names : TypeNames) (scope 
     ∃ generated state solution,
       (block fuel names scope result source).run (initialState scope) = .ok (generated, state) ∧
       checkDerivation steps state.constraints = .ok solution ∧
-      KindedPrincipal state.constraints solution ∧
+      KindedPrincipal state.constraints solution ∧ (declaredBinders candidate).Nodup ∧
+      PropagationMatches (propagationContext (substitute solution result)) solution (blockPropagationErrors candidate) ∧
       BlockHasType names solution scope (substitute solution result) source := by
   unfold validateDerivedBlock at accepted
   cases found : (block fuel names scope result source).run (initialState scope) with
@@ -27,10 +77,16 @@ theorem derived_block_certificate_sound (fuel : Nat) (names : TypeNames) (scope 
     cases accepted
   | ok output =>
     obtain ⟨generated, state⟩ := output
-    simp [found, Except.mapError, except_bind_ok] at accepted
-    obtain ⟨solution, derived, checked⟩ := accepted
-    exact ⟨generated, state, solution, rfl, derived, check_derivation_principal steps _ _ derived,
-      accepted_block_has_type fuel names scope solution binderTypes _ source candidate checked⟩
+    cases supported : supportedStatementTails true candidate with
+    | false =>
+      simp only [found, Except.mapError, except_bind_ok, supported, Bool.false_eq_true, ↓reduceIte] at accepted
+      simp [exists_require_ok, except_bind_ok] at accepted
+    | true =>
+      simp [found, Except.mapError, except_bind_ok, supported] at accepted
+      simp [exists_require_ok, checks_propagation_errors_iff] at accepted
+      obtain ⟨solution, derived, unique, propagation, checked⟩ := accepted
+      exact ⟨generated, state, solution, rfl, derived, check_derivation_principal steps _ _ derived, unique, propagation,
+        accepted_block_has_type fuel names scope solution binderTypes _ source candidate checked⟩
 
 
 def integerLocalName : Xsh.Foundation.NameId := exampleName 20 (by decide)
@@ -83,5 +139,25 @@ theorem integer_local_rejects_wrong_binder_and_type_and_distinguishes_exhaustion
   constructor
   · decide +kernel
   constructor <;> decide +kernel
+
+
+def siblingLocalSource : List Statement :=
+  [.ifStmt [(.literal (.bool true), [.binding .var (.name (exampleName 30 (by decide))) none (.literal (.integer "1"))])] none,
+   .ifStmt [(.literal (.bool true), [.binding .var (.name (exampleName 31 (by decide))) none (.literal (.integer "2"))])] none,
+   .returnValue (some (.literal (.integer "3")))]
+
+def reusedSiblingCandidate : List StatementNode :=
+  [.conditional [(.boolean true, [.binding integerLocalBinder .mutable (.integer "1")])] [],
+   .conditional [(.boolean true, [.binding integerLocalBinder .mutable (.integer "2")])] [],
+   .returned (.integer "3")]
+
+def siblingReuseRejected : Bool :=
+  match validateDerivedBlock 32 exampleTypeNames [] (.primitive .integer) siblingLocalSource
+      reusedSiblingCandidate integerLocalTypes [.reflexive, .reflexive, .reflexive] with
+  | .error .mismatch => true
+  | _ => false
+
+theorem sibling_local_binder_reuse_is_rejected : siblingReuseRejected = true := by
+  decide +kernel
 
 end Xsh.Typing.Connected

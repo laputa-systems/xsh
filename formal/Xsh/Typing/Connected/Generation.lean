@@ -9,6 +9,7 @@ open Xsh.Syntax
 inductive BindingKind where
   | immutable
   | mutable
+  | schema
   deriving DecidableEq
 
 structure Binding where
@@ -29,7 +30,51 @@ inductive Node where
   | record (fields : List (NameId × Node))
   | field (base : Node) (name : NameId)
   | conditional (branches : List (Node × Node)) (otherwise : Node)
-  | propagate (value : Node)
+  | propagate (value : Node) (error : MonoType)
+  | requireValue (binder : BinderId) (identity : Xsh.Validation.Nominal.NominalId) (value : Node)
+
+
+mutual
+  def propagationErrors : Node → List MonoType
+    | .integer _ | .boolean _ | .string _ | .read _ _ => []
+    | .binary _ left right => propagationErrors left ++ propagationErrors right
+    | .call target arguments => propagationErrors target ++ argumentErrors arguments
+    | .record fields => recordErrors fields
+    | .field base _ => propagationErrors base
+    | .conditional branches otherwise => branchErrors branches ++ propagationErrors otherwise
+    | .propagate value error => error :: propagationErrors value
+    | .requireValue _ _ value => propagationErrors value
+
+  def argumentErrors : List Node → List MonoType
+    | [] => []
+    | node :: rest => propagationErrors node ++ argumentErrors rest
+
+  def recordErrors : List (NameId × Node) → List MonoType
+    | [] => []
+    | (_, node) :: rest => propagationErrors node ++ recordErrors rest
+
+  def branchErrors : List (Node × Node) → List MonoType
+    | [] => []
+    | (condition, value) :: rest => propagationErrors condition ++ propagationErrors value ++ branchErrors rest
+end
+
+
+def propagationContext : MonoType → Option MonoType
+  | .result _ error => some error
+  | _ => none
+
+def checksPropagationErrors (context : Option MonoType) (solution : Substitution) (errors : List MonoType) : Bool :=
+  errors.all fun error => match context with
+    | none => false
+    | some expected => decide (substitute solution error = expected)
+
+def PropagationMatches (context : Option MonoType) (solution : Substitution) (errors : List MonoType) : Prop :=
+  ∀ error ∈ errors, ∃ expected, context = some expected ∧ substitute solution error = expected
+
+theorem checks_propagation_errors_iff (context : Option MonoType) (solution : Substitution)
+    (errors : List MonoType) : checksPropagationErrors context solution errors = true ↔
+      PropagationMatches context solution errors := by
+  cases context <;> simp [checksPropagationErrors, PropagationMatches, List.all_eq_true]
 
 structure Generated where
   ty : MonoType
@@ -37,6 +82,7 @@ structure Generated where
 
 inductive GenerationError where
   | exhausted
+  | invalidLiteral
   | unresolvedName
   | unsupportedExpression
   | unsupportedArgument
@@ -173,11 +219,15 @@ mutual
     | 0, _, _ => throw .exhausted
     | fuel + 1, scope, source => do
       match source with
-      | .literal (.integer lexeme) => pure ⟨.primitive .integer, .integer lexeme⟩
+      | .literal (.integer lexeme) => do
+          if decimalLexeme lexeme then pure () else throw .unsupportedExpression
+          if (parseInteger lexeme).isSome then pure () else throw .invalidLiteral
+          pure ⟨.primitive .integer, .integer lexeme⟩
       | .literal (.bool value) => pure ⟨.primitive .boolean, .boolean value⟩
       | .literal (.string value) => pure ⟨.primitive .string, .string value⟩
       | .ident name => do
           let binding ← resolve scope name
+          if binding.kind = .schema then throw .unsupportedExpression else pure ()
           let (ty, arguments) ← instantiate binding.scheme
           pure ⟨ty, .read binding.binder arguments⟩
       | .binary operator left right => do
@@ -210,12 +260,23 @@ mutual
           let fallback ← expression fuel scope otherwise
           emit (.equal fallback.ty result)
           pure ⟨result, .conditional branches fallback.node⟩
+      | .require value (some (.named name)) => do
+          let binding ← resolve scope name
+          if binding.kind = .schema then pure () else throw .unsupportedExpression
+          if binding.scheme.quantified.isEmpty && binding.scheme.requirements.isEmpty then pure ()
+            else throw .unsupportedExpression
+          let .nominal identity (.record row) := binding.scheme.body | throw .unsupportedExpression
+          let base := MonoType.record row
+          if checksWellFormed (.nominal identity base) then pure () else throw .unsupportedExpression
+          let generated ← expression fuel scope value
+          pure ⟨.result (.nominal identity base) (.primitive .error),
+            .requireValue binding.binder identity generated.node⟩
       | .tryExpr value => do
           let inner ← expression fuel scope value
           let result ← fresh .value
           let error ← fresh .value
           emit (.equal inner.ty (.result result error))
-          pure ⟨result, .propagate inner.node⟩
+          pure ⟨result, .propagate inner.node error⟩
       | _ => throw .unsupportedExpression
 
   def callArguments : Nat → Scope → List CallArgument → Generator (List MonoType × List Node)
@@ -272,6 +333,12 @@ inductive StatementNode where
   | returned (value : Node)
   | conditional (branches : List (Node × List StatementNode)) (otherwise : List StatementNode)
 
+
+def constrainPropagation (result : MonoType) (node : Node) : Generator Unit := do
+  for error in propagationErrors node do
+    let value ← fresh .value
+    emit (.equal result (.result value error))
+
 mutual
   def block : Nat → TypeNames → Scope → MonoType → List Statement → Generator (List StatementNode)
     | 0, _, _, _, _ => throw .exhausted
@@ -280,6 +347,7 @@ mutual
       match statement with
       | .binding kind (.name name) typeAnnotation initializer => do
           let generated ← expression fuel scope initializer
+          constrainPropagation result generated.node
           match typeAnnotation with
           | some declared =>
               let some ty := annotation names declared | throw .unsupportedAnnotation
@@ -294,16 +362,19 @@ mutual
           let binding ← resolve scope name
           if binding.kind = .mutable then pure () else throw .immutableAssignment
           let generated ← expression fuel scope value
+          constrainPropagation result generated.node
           emit (.equal generated.ty binding.scheme.body)
           let following ← block fuel names scope result rest
           pure (.assignment binding.binder generated.node :: following)
       | .returnValue (some value) => do
           let generated ← expression fuel scope value
+          constrainPropagation result generated.node
           emit (.equal generated.ty result)
           let following ← block fuel names scope result rest
           pure (.returned generated.node :: following)
       | .expression value => do
           let generated ← expression fuel scope value
+          constrainPropagation result generated.node
           if rest.isEmpty then emit (.equal generated.ty result) else pure ()
           let following ← block fuel names scope result rest
           pure (.evaluated generated.node :: following)
@@ -322,6 +393,7 @@ mutual
     | _ + 1, _, _, _, [] => pure []
     | fuel + 1, names, scope, result, (condition, body) :: rest => do
       let condition ← expression fuel scope condition
+      constrainPropagation result condition.node
       emit (.equal condition.ty (.primitive .boolean))
       let body ← block fuel names scope result body
       let others ← statementBranches fuel names scope result rest

@@ -31,7 +31,8 @@ theorem binary_signature_complete {operator : BinaryOp} {left right result : Mon
 
 mutual
   inductive ExpressionHasType (scope : Scope) (solution : Substitution) : Expr → MonoType → Prop where
-    | integer {lexeme : String} :
+    | integer {lexeme : String} {value : Xsh.Values.IntValue} :
+        parseInteger lexeme = some value →
         ExpressionHasType scope solution (.literal (.integer lexeme)) (.primitive .integer)
     | boolean {value : Bool} :
         ExpressionHasType scope solution (.literal (.bool value)) (.primitive .boolean)
@@ -40,6 +41,7 @@ mutual
     | read {name : NameId} {binding : Binding} {arguments : Substitution}
         {ty : MonoType} {requirements : List Constraint} :
         scope.find? (fun item => decide (item.name = name)) = some binding →
+        binding.kind ≠ .schema →
         Instantiates binding.scheme arguments ty requirements →
         Solves requirements solution → WellFormed (substitute solution ty) →
         typeSort (substitute solution ty) = .value →
@@ -62,6 +64,14 @@ mutual
     | conditional {branches : List (Expr × Expr)} {otherwise : Expr} {result : MonoType} :
         BranchesHaveType scope solution branches result → ExpressionHasType scope solution otherwise result →
         ExpressionHasType scope solution (.ifExpr branches otherwise) result
+    | requireValue {value : Expr} {name : NameId} {binding : Binding} {identity : Xsh.Validation.Nominal.NominalId}
+        {row input : MonoType} :
+        scope.find? (fun item => decide (item.name = name)) = some binding →
+        binding.kind = .schema → binding.scheme.quantified = [] → binding.scheme.requirements = [] →
+        binding.scheme.body = .nominal identity (.record row) → WellFormed (.nominal identity (.record row)) →
+        ExpressionHasType scope solution value input →
+        ExpressionHasType scope solution (.require value (some (.named name)))
+          (.result (.nominal identity (.record (substitute solution row))) (.primitive .error))
     | propagate {value : Expr} {result error : MonoType} :
         ExpressionHasType scope solution value (.result result error) →
         ExpressionHasType scope solution (.tryExpr value) result

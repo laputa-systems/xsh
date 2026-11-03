@@ -2,6 +2,7 @@ import Xsh.Values.Composite
 import Xsh.Validation.Nominal
 import Xsh.Semantics.Environments
 import Xsh.Syntax.Foundation.ResolvedIdentity
+import Xsh.Typing.Connected.Types
 
 namespace Xsh.Semantics.Connected
 
@@ -15,6 +16,7 @@ inductive RuntimeType where
   | integer
   | boolean
   | string
+  | error
   | record (fields : RuntimeType)
   | rowEmpty
   | rowField (name : NameId) (value tail : RuntimeType)
@@ -22,16 +24,22 @@ inductive RuntimeType where
   | argument (value tail : RuntimeType)
   | result (value error : RuntimeType)
   | function (arguments result : RuntimeType)
+  | schemeFunction
   | nominal (identity : NominalId) (base : RuntimeType)
   deriving DecidableEq
 
 inductive Value where
   | scalar (value : CompositeValue)
+  | validationError
   | record (fields : List (NameId × Value))
   | ok (value : Value) (errorType : RuntimeType)
   | error (value : Value) (valueType : RuntimeType)
   | function (declaration : DeclarationId) (arguments result : RuntimeType)
-  | nominal (identity : NominalId) (value : Value)
+  | schemeFunction (declaration : DeclarationId) (scheme : Xsh.Typing.Connected.Scheme)
+  | instantiatedFunction (declaration : DeclarationId) (arguments result : RuntimeType)
+      (solution : Xsh.Typing.Connected.Substitution)
+      (typeArguments : List (Xsh.Typing.Connected.Variable × Xsh.Typing.Connected.MonoType))
+  | nominal (identity : NominalId) (base : RuntimeType) (value : Value)
 
 
 def insertField (field : NameId × RuntimeType) : List (NameId × RuntimeType) → List (NameId × RuntimeType)
@@ -44,12 +52,35 @@ def canonicalFields : List (NameId × RuntimeType) → List (NameId × RuntimeTy
   | [] => []
   | field :: rest => insertField field (canonicalFields rest)
 
+def rowFieldType (name : NameId) : RuntimeType → Option RuntimeType
+  | .rowField other value tail => if name = other then some value else rowFieldType name tail
+  | _ => none
+
+mutual
+  def typeFits : RuntimeType → RuntimeType → Bool
+    | .record expected, .record actual => rowFits expected actual
+    | .result expectedValue expectedError, .result actualValue actualError =>
+        typeFits expectedValue actualValue && typeFits expectedError actualError
+    | .nominal expected base, .nominal actual actualBase =>
+        decide (expected = actual) && typeFits base actualBase
+    | expected, actual => decide (expected = actual)
+
+  def rowFits : RuntimeType → RuntimeType → Bool
+    | .rowEmpty, _ => true
+    | .rowField name value rest, actual =>
+        match rowFieldType name actual with
+        | none => false
+        | some actualValue => typeFits value actualValue && rowFits rest actual
+    | _, _ => false
+end
+
 mutual
   def valueType : Value → Option RuntimeType
     | .scalar (.integer _) => some .integer
     | .scalar (.boolean _) => some .boolean
     | .scalar (.string _) => some .string
     | .scalar _ => none
+    | .validationError => some .error
     | .record fields =>
       if (fields.map Prod.fst).Nodup then
         (recordTypes fields).map fun types =>
@@ -58,7 +89,11 @@ mutual
     | .ok value errorType => (valueType value).map (fun ty => .result ty errorType)
     | .error value valueType' => (valueType value).map (fun ty => .result valueType' ty)
     | .function _ arguments result => some (.function arguments result)
-    | .nominal identity value => (valueType value).map (.nominal identity)
+    | .schemeFunction _ _ => some .schemeFunction
+    | .instantiatedFunction _ arguments result _ _ => some (.function arguments result)
+    | .nominal identity base value => do
+      let actual ← valueType value
+      if typeFits base actual then some (.nominal identity base) else none
 
   def recordTypes : List (NameId × Value) → Option (List (NameId × RuntimeType))
     | [] => some []
@@ -67,6 +102,10 @@ mutual
       let others ← recordTypes rest
       some ((name, ty) :: others)
 end
+
+def eraseNominal : Value → Value
+  | .nominal _ _ value => eraseNominal value
+  | value => value
 
 def HasType (ty : RuntimeType) (value : Value) : Prop := valueType value = some ty
 

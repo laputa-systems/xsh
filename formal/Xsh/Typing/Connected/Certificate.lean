@@ -7,6 +7,7 @@ open Xsh.Syntax
 
 def generationFailure : GenerationError → ValidationError
   | .exhausted => .exhausted
+  | .invalidLiteral => .invalidLiteral
   | .unresolvedName => .unresolvedName
   | _ => .unsupported
 
@@ -14,6 +15,7 @@ def validateGeneratedExpression (fuel : Nat) (scope : Scope) (solution : Substit
     (source : Expr) (candidate : Node) : Except ValidationError MonoType := do
   let (generated, state) ← ((expression fuel scope source).run (initialState scope)).mapError generationFailure
   requireCheck (checksConstraints solution state.constraints)
+  if (propagationErrors candidate).isEmpty then pure () else throw .invalidContext
   let actual ← validateExpression fuel scope solution source candidate
   requireCheck (decide (actual = substitute solution generated.ty))
   pure actual
@@ -32,10 +34,15 @@ theorem generated_expression_certificate_sound (fuel : Nat) (scope : Scope)
     cases accepted
   | ok output =>
     obtain ⟨generated, state⟩ := output
-    simp [found, Except.mapError, except_bind_ok, except_map_ok, exists_require_ok, checks_constraints_iff] at accepted
-    obtain ⟨solved, checked, same⟩ := accepted
-    exact ⟨accepted_expression_has_type fuel scope solution source candidate _ checked,
-      generated, state, rfl, solved, same⟩
+    cases empty : (propagationErrors candidate).isEmpty with
+    | false =>
+      simp only [found, Except.mapError, empty, Bool.false_eq_true, ↓reduceIte] at accepted
+      simp [except_bind_ok] at accepted
+    | true =>
+      simp [found, Except.mapError, empty, except_bind_ok, except_map_ok, exists_require_ok, checks_constraints_iff] at accepted
+      obtain ⟨solved, checked, same⟩ := accepted
+      exact ⟨accepted_expression_has_type fuel scope solution source candidate _ checked,
+        generated, state, rfl, solved, same⟩
 
 
 def generatedIdentityCandidate : Node :=
@@ -71,5 +78,16 @@ theorem generated_identity_rejects_wrong_solution_and_binding :
 
 theorem generated_expression_exhaustion_is_not_a_rejection : generatedIdentityExhausted = true := by
   decide +kernel
+
+
+def literalClassification (text : String) : ValidationError → Bool := fun error =>
+  match validateGeneratedExpression 4 [] identity (.literal (.integer text)) (.integer text) with
+  | .error actual => decide (actual = error)
+  | .ok _ => false
+
+theorem integer_literal_overflow_and_unsupported_syntax_are_distinct :
+    literalClassification "9223372036854775808" .invalidLiteral = true ∧
+      literalClassification "0xff" .unsupported = true := by
+  constructor <;> decide +kernel
 
 end Xsh.Typing.Connected

@@ -11224,6 +11224,51 @@
       "status": "fragment",
       "scope": "The independently certified integer local binding, assignment and read has an execution that returns the assigned value from any machine with a fresh activation cell.",
       "boundary": "The source and candidate are constructed Lean terms; this finite bridge is not general preservation, Rust conformance, source admission, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.execution_preserves_saved_cell_types",
+      "module": "Xsh.Semantics.Connected.Invariant",
+      "declaration": "Xsh.Semantics.Connected.execution_preserves_saved_cell_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled finite execution preserves the type and liveness of already typed cells retained by any saved activation mapping.",
+      "boundary": "This invariant does not establish current-control typing, machine progress, source admission or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.execution_preserves_immutable_cells",
+      "module": "Xsh.Semantics.Connected.Invariant",
+      "declaration": "Xsh.Semantics.Connected.execution_preserves_immutable_cells",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled finite execution preserves the complete contents of pre-existing immutable cells, including saved global function bindings.",
+      "boundary": "The machine remains partial; this is not full typing preservation, Rust execution, or source-to-IR correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.validated_require_decision_preserves_type",
+      "module": "Xsh.Semantics.Connected.Invariant",
+      "declaration": "Xsh.Semantics.Connected.validated_require_decision_preserves_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For an independently validated named-record require and a matching runtime schema table, either supported guard decision steps to a Result whose runtime type projects to the checked type.",
+      "boundary": "The schema-table match is an explicit assumption; general preservation, source modules, Rust facts and IR remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.contextual_expression_certificate_sound",
+      "module": "Xsh.Typing.Connected.ContextCertificate",
+      "declaration": "Xsh.Typing.Connected.contextual_expression_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted contextual expression has a declarative typing derivation and a principal solution for generated constraints including its propagation error obligations.",
+      "boundary": "The context and scope are inputs; generator completeness, source admission, general machine preservation and Rust correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.record_guard_refusal_remains_a_result",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.record_guard_refusal_remains_a_result",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A constructed named-record require with a wrong field type is statically admitted and evaluates to an error Result; omitting its guard is rejected.",
+      "boundary": "The source, schema and machine table are Lean inputs. This is not Rust execution or a source-byte projection."
     }
   ],
   "artifact_certificates": [

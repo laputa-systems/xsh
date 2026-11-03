@@ -1,13 +1,25 @@
 import Xsh.Syntax.Core
+import Xsh.Validation.Nominal
+import Xsh.Values.Scalars
 
 namespace Xsh.Typing.Connected
 
 open Xsh.Foundation
 
+
+def decimalLexeme (text : String) : Bool :=
+  !text.toList.isEmpty && text.toList.all (fun digit => 48 ≤ digit.toNat && digit.toNat ≤ 57)
+
+def parseInteger (text : String) : Option Xsh.Values.IntValue :=
+  if decimalLexeme text then
+    Xsh.Values.validateInt? (Int.ofNat (text.toList.foldl (fun value digit => value * 10 + (digit.toNat - 48)) 0))
+  else none
+
 inductive Primitive where
   | integer
   | boolean
   | string
+  | error
   | unit
   deriving DecidableEq, Repr
 
@@ -29,6 +41,7 @@ inductive MonoType where
   | argument (value rest : MonoType)
   | result (value error : MonoType)
   | record (row : MonoType)
+  | nominal (identity : Xsh.Validation.Nominal.NominalId) (base : MonoType)
   | rowEmpty
   | rowField (name : NameId) (value tail : MonoType)
   deriving DecidableEq
@@ -45,7 +58,7 @@ def VariableKind.sort : VariableKind → TypeSort
 
 def typeSort : MonoType → TypeSort
   | .variable id => id.kind.sort
-  | .primitive _ | .function _ _ | .result _ _ | .record _ => .value
+  | .primitive _ | .function _ _ | .result _ _ | .record _ | .nominal _ _ => .value
   | .rowEmpty | .rowField _ _ _ => .row
   | .argumentsEmpty | .argument _ _ => .arguments
 
@@ -61,6 +74,7 @@ def WellFormed : MonoType → Prop
       WellFormed value ∧ typeSort value = .value ∧
         WellFormed error ∧ typeSort error = .value
   | .record row => WellFormed row ∧ typeSort row = .row
+  | .nominal _ base => WellFormed base ∧ typeSort base = .value
   | .rowField _ value tail =>
       WellFormed value ∧ typeSort value = .value ∧
         WellFormed tail ∧ typeSort tail = .row
@@ -77,6 +91,7 @@ def checksWellFormed : MonoType → Bool
       checksWellFormed value && decide (typeSort value = .value) &&
         checksWellFormed error && decide (typeSort error = .value)
   | .record row => checksWellFormed row && decide (typeSort row = .row)
+  | .nominal _ base => checksWellFormed base && decide (typeSort base = .value)
   | .rowField _ value tail =>
       checksWellFormed value && decide (typeSort value = .value) &&
         checksWellFormed tail && decide (typeSort tail = .row)
@@ -94,6 +109,7 @@ def substitute (substitution : Substitution) : MonoType → MonoType
   | .argument value rest => .argument (substitute substitution value) (substitute substitution rest)
   | .result value error => .result (substitute substitution value) (substitute substitution error)
   | .record row => .record (substitute substitution row)
+  | .nominal identity base => .nominal identity (substitute substitution base)
   | .rowEmpty => .rowEmpty
   | .rowField name value tail => .rowField name (substitute substitution value) (substitute substitution tail)
 
@@ -119,7 +135,7 @@ theorem substitute_well_formed (substitution : Substitution) (sorted : WellSorte
     simp only [WellFormed] at wellFormed
     simp only [substitute, WellFormed, substitute_sort substitution sorted]
     exact ⟨left wellFormed.1, wellFormed.2.1, right wellFormed.2.2.1, wellFormed.2.2.2⟩
-  | record _ ih =>
+  | record _ ih | nominal _ _ ih =>
     simp only [WellFormed] at wellFormed
     simp only [substitute, WellFormed, substitute_sort substitution sorted]
     exact ⟨ih wellFormed.1, wellFormed.2⟩
@@ -136,6 +152,7 @@ def freeVariables : MonoType → List Variable
   | .primitive _ | .rowEmpty | .argumentsEmpty => []
   | .function argument result | .argument argument result | .result argument result => freeVariables argument ++ freeVariables result
   | .record row => freeVariables row
+  | .nominal _ base => freeVariables base
   | .rowField _ value tail => freeVariables value ++ freeVariables tail
 
 def occurs (id : Variable) (ty : MonoType) : Bool := decide (id ∈ freeVariables ty)
@@ -153,7 +170,7 @@ theorem substitute_absent (id : Variable) (replacement ty : MonoType)
   | function _ _ left right | argument _ _ left right | result _ _ left right | rowField _ _ _ left right =>
     simp only [freeVariables, List.mem_append, not_or] at absent
     simp [substitute, left absent.1, right absent.2]
-  | record _ ih => simp [freeVariables] at absent; simp [substitute, ih absent]
+  | record _ ih | nominal _ _ ih => simp [freeVariables] at absent; simp [substitute, ih absent]
 
 inductive Constraint where
   | equal (left right : MonoType)
@@ -208,7 +225,7 @@ theorem field_occurs_iff {name : NameId} {value row : MonoType} :
         | later _ tailFound => exact ih.mp tailFound
       · intro found
         exact .later same (ih.mpr found)
-  | «variable» _ | primitive _ | function _ _ _ _ | argumentsEmpty | argument _ _ _ _ | result _ _ _ _ | record _ _ | rowEmpty =>
+  | «variable» _ | primitive _ | function _ _ _ _ | argumentsEmpty | argument _ _ _ _ | result _ _ _ _ | record _ _ | nominal _ _ _ | rowEmpty =>
     simp only [fieldAt?]
     constructor
     · intro found; cases found

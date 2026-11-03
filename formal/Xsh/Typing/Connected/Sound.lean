@@ -10,9 +10,17 @@ theorem validate_integer_sound (fuel : Nat) (scope : Scope) (solution : Substitu
     (accepted : validateExpression (fuel + 1) scope solution
       (.literal (.integer lexeme)) (.integer candidate) = .ok ty) :
     ExpressionHasType scope solution (.literal (.integer lexeme)) ty := by
-  simp [validateExpression, except_map_ok, exists_require_ok] at accepted
-  obtain ⟨_, rfl⟩ := accepted
-  exact .integer
+  cases decimal : decimalLexeme lexeme with
+  | false =>
+    simp only [validateExpression, decimal, Bool.false_eq_true, ↓reduceIte] at accepted
+    cases accepted
+  | true =>
+    cases parsed : parseInteger lexeme with
+    | none => simp [validateExpression, decimal, parsed] at accepted
+    | some value =>
+      simp [validateExpression, decimal, parsed, except_map_ok, exists_require_ok] at accepted
+      obtain ⟨_, rfl⟩ := accepted
+      exact .integer parsed
 
 theorem validate_boolean_sound (fuel : Nat) (scope : Scope) (solution : Substitution)
     (value candidate : Bool) (ty : MonoType)
@@ -87,17 +95,38 @@ theorem validate_field_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
       exact .field (exprIH scope solution base node _ baseAccepted) (field_occurs_iff.mpr found)
 
 theorem validate_propagate_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
-    (scope : Scope) (solution : Substitution) (value : Expr) (node : Node) (ty : MonoType)
+    (scope : Scope) (solution : Substitution) (value : Expr) (node : Node) (expectedError ty : MonoType)
     (accepted : validateExpression (fuel + 1) scope solution (.tryExpr value)
-      (.propagate node) = .ok ty) :
+      (.propagate node expectedError) = .ok ty) :
     ExpressionHasType scope solution (.tryExpr value) ty := by
   simp [validateExpression, except_bind_ok] at accepted
   obtain ⟨valueType, valueAccepted, rest⟩ := accepted
   cases valueType <;> simp at rest
   case result inner error =>
-    change Except.ok inner = .ok ty at rest
-    cases rest
+    simp [except_map_ok, exists_require_ok] at rest
+    obtain ⟨_, rfl⟩ := rest
     exact .propagate (exprIH scope solution value node _ valueAccepted)
+
+theorem validate_require_sound (fuel : Nat) (ih : ExpressionSound fuel)
+    (scope : Scope) (solution : Substitution) (value : Expr) (name : NameId)
+    (binder : BinderId) (identity : Xsh.Validation.Nominal.NominalId) (node : Node) (ty : MonoType)
+    (accepted : validateExpression (fuel + 1) scope solution (.require value (some (.named name)))
+      (.requireValue binder identity node) = .ok ty) :
+    ExpressionHasType scope solution (.require value (some (.named name))) ty := by
+  cases found : scope.find? (fun item => decide (item.name = name)) with
+  | none => simp [validateExpression, found] at accepted
+  | some binding =>
+    cases body : binding.scheme.body with
+    | nominal expected base =>
+      cases base with
+      | record row =>
+        simp [validateExpression, found, body, except_bind_ok, except_map_ok, exists_require_ok,
+          Bool.and_eq_true, checks_well_formed_iff] at accepted
+        obtain ⟨⟨_, kind⟩, ⟨quantified, requirements⟩, ⟨_, wellFormed⟩, ⟨inner, innerAccepted⟩, rfl⟩ := accepted
+        exact .requireValue found kind quantified requirements body wellFormed
+          (ih scope solution value node inner innerAccepted)
+      | _ => simp [validateExpression, found, body, except_bind_ok] at accepted
+    | _ => simp [validateExpression, found, body, except_bind_ok] at accepted
 
 theorem validate_argument_cons_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (argsIH : ArgumentsSound fuel) (scope : Scope) (solution : Substitution)
@@ -178,9 +207,16 @@ theorem validate_expressions_sound : ∀ fuel,
         cases node <;> first
           | exact validate_conditional_sound fuel exprIH branchesIH scope solution branches otherwise _ _ ty accepted
           | cases accepted
+      | require value schema =>
+        cases schema with
+        | none => cases node <;> cases accepted
+        | some annotation =>
+          cases annotation <;> cases node <;> first
+            | exact validate_require_sound fuel exprIH scope solution value _ _ _ _ ty accepted
+            | cases accepted
       | tryExpr value =>
         cases node <;> first
-          | exact validate_propagate_sound fuel exprIH scope solution value _ ty accepted
+          | exact validate_propagate_sound fuel exprIH scope solution value _ _ ty accepted
           | cases accepted
       | _ => cases node <;> cases accepted
     · intro scope solution arguments nodes types accepted
