@@ -10658,6 +10658,195 @@
       "status": "fragment",
       "scope": "Lowering a list of functions in order leaves a state whose function rows fold to the source programs for every extension.",
       "boundary": "Lean lowerer only."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.atom_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.atom_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The atom fact checker computes exactly the facts the declarative atom rules derive: an in-range integer literal, or a name the scope resolves.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.atoms_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.atoms_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The argument-list fact checker computes exactly the concatenated atom facts, in source order.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.value_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.value_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The value fact checker computes exactly the facts of an atom or of one non-comparison binary operation, operands before the selected operation.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.expression_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.expression_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The expression fact checker computes exactly the facts of a value, a call that resolves an earlier function of the right arity, or a conditional on a comparison, in evaluation order.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.function_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.function_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The function fact checker computes exactly the scheme, effects and node facts the rules determine for one function against the functions before it.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.function_facts_are_determined",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.function_facts_are_determined",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Two valid fact sets for the same function against the same earlier functions are equal: the rules determine the observable content.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.program_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.program_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The program fact checker computes exactly the in-order facts of every function against the functions before it.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.validate_facts_iff",
+      "module": "Xsh.Conformance.Vertical.Facts",
+      "declaration": "Xsh.Conformance.Vertical.validate_facts_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fact validator accepts a candidate fact set exactly when it lists, once each and in any order, the facts the declarative rules determine for functions with distinct names; every valid derivation is accepted.",
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.the_fixture_facts_are_accepted",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.the_fixture_facts_are_accepted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The validator accepts the Lean-authored candidate fact set for the six fixture functions.",
+      "boundary": "A closed proposition about that candidate; it is not the Rust checker's output."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.the_fixture_facts_are_a_valid_derivation",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.the_fixture_facts_are_a_valid_derivation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The candidate fixture facts are a valid derivation under the declarative rules, which witnesses that the validator accepts something.",
+      "boundary": "Same boundary as the acceptance theorem."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.the_fixture_facts_are_accepted_in_any_order",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.the_fixture_facts_are_accepted_in_any_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The reversed candidate is accepted: function facts are a set keyed by name, while node order inside a function is evaluation order.",
+      "boundary": "Same boundary as the acceptance theorem."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_forged_binding_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_forged_binding_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A name use resolved to the wrong parameter or the wrong declaration kind is rejected.",
+      "boundary": "Finite mutations of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_selected_operation_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_wrong_selected_operation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A different arithmetic operation, or a comparison typed with integer operands, is rejected.",
+      "boundary": "Finite mutations of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_forged_effect_fact_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_forged_effect_fact_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A pure function claimed to carry an effect is rejected.",
+      "boundary": "Finite mutation of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_forged_scheme_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_forged_scheme_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A wrong parameter type, parameter count or result type is rejected.",
+      "boundary": "Finite mutations of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_changed_evaluation_order_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_changed_evaluation_order_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Swapped call arguments or swapped operands are rejected because node order is evaluation order.",
+      "boundary": "Finite mutations of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_declaration_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_wrong_declaration_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call to the wrong earlier function, or with the wrong argument count, is rejected.",
+      "boundary": "Finite mutations of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_missing_or_extra_fact_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_missing_or_extra_fact_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A missing, extra or duplicated function fact, a dropped node and a function claimed under another name are rejected.",
+      "boundary": "Finite mutations of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_forged_literal_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_forged_literal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A literal fact that differs from the source literal is rejected.",
+      "boundary": "Finite mutation of one candidate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validator_rejects",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validator_rejects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A validator that takes the candidate's word accepts a forged fact set that this validator rejects.",
+      "boundary": "Control for the trusting-validator mutant class."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.a_source_that_resolves_nothing_has_no_valid_facts",
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "declaration": "Xsh.Conformance.Vertical.a_source_that_resolves_nothing_has_no_valid_facts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A source with an unbound name, an out-of-range literal or a call to a later function has no valid fact set, so no candidate is accepted for it.",
+      "boundary": "Finite sources."
     }
   ],
   "artifact_certificates": [

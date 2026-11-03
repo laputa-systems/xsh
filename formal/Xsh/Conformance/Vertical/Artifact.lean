@@ -6,6 +6,16 @@ namespace Xsh.Conformance.Vertical
 open Xsh.Foundation
 open Xsh.Conformance.Transport
 
+/-- A validation step that continues only when its condition holds. -/
+def check (holds : Bool) : Option Unit := if holds then some () else none
+
+@[simp] theorem check_bind (holds : Bool) (next : Unit → Option α) :
+    (check holds).bind next = if holds = true then next () else none := by
+  unfold check; split <;> simp_all
+
+theorem check_eq_some {holds : Bool} {unit : Unit} : check holds = some unit ↔ holds = true := by
+  unfold check; split <;> simp_all
+
 def sourceSchema : String := "xsh-source-v1"
 
 def rawIrSchema : String := "xsh-raw-ir-v1"

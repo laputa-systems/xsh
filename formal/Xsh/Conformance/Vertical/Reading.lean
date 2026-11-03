@@ -7,10 +7,6 @@ open Xsh.Conformance.Transport
 open Xsh.IR.Raw
 open Xsh.Semantics.BaseMachine
 
-@[simp] theorem check_bind (holds : Bool) (next : Unit → Option α) :
-    (check holds).bind next = if holds = true then next () else none := by
-  unfold check; split <;> simp_all
-
 /-- A lowering state extends another when every table only grew by appending. -/
 structure StateLE (s F : LoweringState) : Prop where
   rows : s.rows <+: F.rows

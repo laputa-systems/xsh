@@ -83,8 +83,6 @@ def blockWords? (context : MeaningContext) (id : Word32) : Option (List Word32) 
   let block ← context.blocks.find? fun block => block.id.raw == id
   Decode.readPayload? context.tables ⟨DirectIndex.decode block.start, block.len⟩
 
-def check (holds : Bool) : Option Unit := if holds then some () else none
-
 /-- The rows of a call's argument table: each entry is a single value (kind zero) that precedes
 the call. -/
 def argumentRows? (user : Word32) : List Word32 → Option (List Word32)
