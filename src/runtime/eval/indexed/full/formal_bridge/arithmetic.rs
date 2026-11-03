@@ -866,22 +866,40 @@ mod tests {
         ScheduledCall { function: "surplus", arguments: &[] },
     ];
 
-    const FIXTURE_SOURCE: &str = include_str!(concat!(
+    const LOCALS_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-integer-locals.xsh"
+    ));
+
+    const FAILURES_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-integer-failures.xsh"
+    ));
+
+    const FAILURES_SCHEDULE: [ScheduledCall; 2] = [
+        ScheduledCall { function: "divided", arguments: &[] },
+        ScheduledCall { function: "overflowed", arguments: &[] },
+    ];
+
+    const CALLS_SOURCE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/runtime/formal-bridge-integer-calls.xsh"
     ));
+
+    const CALLS_SCHEDULE: [ScheduledCall; 3] = [
+        ScheduledCall { function: "excess", arguments: &[12, 9] },
+        ScheduledCall { function: "excess", arguments: &[3, 9] },
+        ScheduledCall { function: "surplus", arguments: &[] },
+    ];
 
     const LEAN_DOCUMENTS: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/formal/Xsh/Conformance/Vertical/Documents.lean"
     ));
 
-    fn lean_document(definition: &str) -> String {
+    fn lean_document(definition: &str) -> Option<String> {
         let header = format!("def {definition} : List Nat :=\n");
-        let start = LEAN_DOCUMENTS
-            .find(&header)
-            .unwrap_or_else(|| panic!("the Lean documents define {definition}"))
-            + header.len();
+        let start = LEAN_DOCUMENTS.find(&header)? + header.len();
         let mut bytes = Vec::new();
         for line in LEAN_DOCUMENTS[start..].lines() {
             let last = line.ends_with(']');
@@ -892,7 +910,7 @@ mod tests {
                 }));
             }
             if last {
-                return String::from_utf8(bytes).expect("Lean documents hold UTF-8 text");
+                return Some(String::from_utf8(bytes).expect("Lean documents hold UTF-8 text"));
             }
         }
         panic!("the Lean code list {definition} is not terminated");
@@ -915,7 +933,7 @@ mod tests {
     fn assert_lean_documents(documents: &[(&str, &str)]) {
         let stale = documents
             .iter()
-            .filter(|(definition, text)| lean_document(definition) != *text)
+            .filter(|(definition, text)| lean_document(definition).as_deref() != Some(*text))
             .map(|(definition, text)| lean_definition(definition, text))
             .collect::<Vec<_>>();
         assert!(
@@ -933,16 +951,17 @@ mod tests {
         document: ArithmeticDocument,
     }
 
-    fn fixture() -> Fixture {
-        let source = SourceDocument {
-            id: source_document_id(SourceId::new(0)).unwrap(),
-            text: FIXTURE_SOURCE.to_string(),
-        };
+    fn fixture_of(text: String, schedule: &[ScheduledCall]) -> Fixture {
+        let source = SourceDocument { id: source_document_id(SourceId::new(0)).unwrap(), text };
         let (sources, parsed, program) = build_fixture(&source.text).unwrap();
         let document =
-            export_arithmetic_document(&program, &parsed.arena, &sources, source.id, &SCHEDULE)
+            export_arithmetic_document(&program, &parsed.arena, &sources, source.id, schedule)
                 .unwrap();
         Fixture { source, sources, parsed, program, document }
+    }
+
+    fn fixture() -> Fixture {
+        fixture_of(format!("{LOCALS_SOURCE}\n{CALLS_SOURCE}"), &SCHEDULE)
     }
 
     fn function_body_statements(fixture: &Fixture, name: &str) -> Vec<usize> {
@@ -974,28 +993,34 @@ mod tests {
 
     #[test]
     fn exported_documents_are_the_lean_certified_bytes() {
-        let fixture = fixture();
-        let source_text = encode_source_document(&fixture.source);
-        let raw_text = encode_arithmetic_document(&fixture.document).unwrap();
-        assert_lean_documents(&[
-            ("sourceDocumentCodes", &source_text),
-            ("rawIrDocumentCodes", &raw_text),
-        ]);
-
-        assert_eq!(decode_source_document(&source_text).unwrap(), fixture.source);
-        let decoded = decode_arithmetic_document(&raw_text).unwrap();
-        assert_eq!(decoded, fixture.document);
-        assert_eq!(encode_arithmetic_document(&decoded).unwrap(), raw_text);
-        assert_eq!(decoded.source_id, fixture.source.id);
-
-        check_artifact_against_program(
-            &decoded,
-            &fixture.program,
-            &fixture.parsed.arena,
-            &fixture.sources,
-            &SCHEDULE,
-        )
-        .unwrap();
+        let failures = fixture_of(FAILURES_SOURCE.to_string(), &FAILURES_SCHEDULE);
+        let calls = fixture_of(CALLS_SOURCE.to_string(), &CALLS_SCHEDULE);
+        let mut documents = Vec::new();
+        for (fixture, schedule, source_name, raw_name) in [
+            (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
+            (&calls, &CALLS_SCHEDULE[..], "callsSourceDocumentCodes", "callsRawIrDocumentCodes"),
+        ] {
+            let source_text = encode_source_document(&fixture.source);
+            let raw_text = encode_arithmetic_document(&fixture.document).unwrap();
+            assert_eq!(decode_source_document(&source_text).unwrap(), fixture.source);
+            let decoded = decode_arithmetic_document(&raw_text).unwrap();
+            assert_eq!(decoded, fixture.document);
+            assert_eq!(encode_arithmetic_document(&decoded).unwrap(), raw_text);
+            assert_eq!(decoded.source_id, fixture.source.id);
+            check_artifact_against_program(
+                &decoded,
+                &fixture.program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                schedule,
+            )
+            .unwrap();
+            documents.push((source_name, source_text));
+            documents.push((raw_name, raw_text));
+        }
+        assert_lean_documents(
+            &documents.iter().map(|(name, text)| (*name, text.as_str())).collect::<Vec<_>>(),
+        );
     }
 
     #[test]

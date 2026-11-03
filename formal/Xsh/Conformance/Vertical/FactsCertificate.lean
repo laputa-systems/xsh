@@ -1,5 +1,5 @@
 import Xsh.Conformance.Vertical.Facts
-import Xsh.Conformance.Vertical.Certificate
+import Xsh.Conformance.Vertical.CallsCertificate
 
 namespace Xsh.Conformance.Vertical
 
@@ -7,7 +7,14 @@ def letRead : NodeFact := .read (.letBinding 0)
 
 def arithmetic (op : FragmentOp) : NodeFact := .operate op .int .int
 
-/-- A candidate fact set for the fixture's six functions, written in Lean. It is not emitted by
+/-- The six functions of the combined Rust bridge fixture, in source order: the two success
+functions are Lean data here, the failure and call functions are the certified fixtures'. -/
+def factsFunctions : List SourceFunction :=
+  [⟨"shifted", [], [("x", 2)], .value (.binary .add (.var "x") (.int 3))⟩,
+    ⟨"scaled", [], [("y", 7)], .value (.binary .mul (.var "y") (.int 6))⟩] ++
+    fixtureFunctions ++ callsFunctions
+
+/-- A candidate fact set for the six fixture functions, written in Lean. It is not emitted by
 Rust. -/
 def fixtureFacts : List FunctionFacts :=
   [⟨"shifted", [], .int, [], [letRead, .literal 3, arithmetic .add]⟩,
@@ -19,15 +26,15 @@ def fixtureFacts : List FunctionFacts :=
         .read (.parameter 1), arithmetic .sub, .literal 0, .branch]⟩,
     ⟨"surplus", [], .int, [], [letRead, .literal 9, .call 4 2]⟩]
 
-theorem the_fixture_facts_are_accepted : validateFacts fixtureFunctions fixtureFacts = true := by
+theorem the_fixture_facts_are_accepted : validateFacts factsFunctions fixtureFacts = true := by
   decide +kernel
 
 theorem the_fixture_facts_are_a_valid_derivation :
-    ProgramHolds fixtureFunctions fixtureFacts :=
+    ProgramHolds factsFunctions fixtureFacts :=
   validate_facts_iff.mp the_fixture_facts_are_accepted
 
 theorem the_fixture_facts_are_accepted_in_any_order :
-    validateFacts fixtureFunctions fixtureFacts.reverse = true := by
+    validateFacts factsFunctions fixtureFacts.reverse = true := by
   decide +kernel
 
 def withFact (facts : List FunctionFacts) (index : Nat) (change : FunctionFacts → FunctionFacts) :
@@ -37,7 +44,7 @@ def withFact (facts : List FunctionFacts) (index : Nat) (change : FunctionFacts 
   | none => facts
 
 def fixtureVerdict (candidate : List FunctionFacts) : Bool :=
-  validateFacts fixtureFunctions candidate
+  validateFacts factsFunctions candidate
 
 theorem a_forged_binding_is_rejected :
     fixtureVerdict (withFact fixtureFacts 4 fun facts =>
@@ -99,7 +106,7 @@ theorem a_forged_literal_is_rejected :
 def trustingValidator (_ : List SourceFunction) (_ : List FunctionFacts) : Bool := true
 
 theorem a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validator_rejects :
-    trustingValidator fixtureFunctions (withFact fixtureFacts 5 fun facts =>
+    trustingValidator factsFunctions (withFact fixtureFacts 5 fun facts =>
       { facts with nodes := [.literal 9, letRead, .call 4 2] }) = true ∧
     fixtureVerdict (withFact fixtureFacts 5 fun facts =>
       { facts with nodes := [.literal 9, letRead, .call 4 2] }) = false := by

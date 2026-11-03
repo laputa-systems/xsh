@@ -10851,7 +10851,7 @@
   ],
   "artifact_certificates": [
     {
-      "id": "artifact.integer-calls-conditional",
+      "id": "artifact.integer-arithmetic-locals",
       "evidence_class": "ARTIFACT_CERTIFIED",
       "artifact_kind": "source-ir-pair",
       "artifact_module": "Xsh.Conformance.Vertical.Documents",
@@ -10882,13 +10882,42 @@
         "Xsh.Conformance.Vertical.the_certificate_fails_for_other_claims",
         "Xsh.Conformance.Vertical.malformed_ir_is_rejected",
         "Xsh.Conformance.Vertical.a_wrong_lowering_is_rejected",
-        "Xsh.Conformance.Vertical.a_substituted_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_source_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (integer functions with one integer let and one return of at most one binary operation); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `divided` and `overflowed` end with a division-by-zero failure and an integer-overflow failure, recorded in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong binding identifier, operation, operand, recorded result or failure kind, a missing, reordered or repeated observation, structurally malformed IR rows, a changed source, and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The artifact has no parameters, calls or control flow; the second certificate covers those."
+    },
+    {
+      "id": "artifact.integer-calls-conditional",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.callsSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.callsRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.CallsCertificate",
+      "certificate": "Xsh.Conformance.Vertical.calls_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.calls_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.calls_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_calls_source_parses_to_the_calls_functions",
+        "Xsh.Conformance.Vertical.the_calls_functions_lower_to_the_calls_artifact",
+        "Xsh.Conformance.Vertical.the_calls_artifact_validates",
+        "Xsh.Conformance.Vertical.the_calls_functions_mean_the_same_as_the_calls_artifact",
+        "Xsh.Conformance.Vertical.the_calls_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.calls_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_calls_artifact_is_certified"
+      ],
+      "rejection_theorems": [
         "Xsh.Conformance.Vertical.a_wrong_branch_is_rejected",
         "Xsh.Conformance.Vertical.a_wrong_argument_binding_is_rejected",
         "Xsh.Conformance.Vertical.the_rejected_branch_and_binding_mutations_mean_something_else",
-        "Xsh.Conformance.Vertical.malformed_blocks_and_calls_are_rejected"
+        "Xsh.Conformance.Vertical.malformed_blocks_and_calls_are_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_calls_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_calls_lowering_is_rejected"
       ],
-      "proposition": "The source document parses in the admitted productions (integer functions with integer parameters or one integer let, returning an integer value, a call of an earlier function, or a conditional on a comparison of atoms); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the seven recorded calls (`shifted`, `scaled`, `divided`, `overflowed`, `excess` on 12, 9 and on 3, 9, and `surplus`) end with 5, 42, a division-by-zero failure, an integer-overflow failure, 3, 0 and 3, recorded in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong binding identifier, operation, operand, branch, argument binding, recorded result or failure kind, a missing, reordered or repeated observation, structurally malformed IR rows, blocks and calls, a changed source, and a wrong lowering fail the same checks.",
+      "proposition": "The source document parses in the admitted productions (`excess`, a function of two integer parameters that returns a conditional on a comparison of its parameters, and `surplus`, a function with one integer let that returns a call of `excess` on atoms); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `excess` on 12, 9 and on 3, 9 and of `surplus` end with 3, 0 and 3, recorded in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong branch, a wrong argument binding, a wrong recorded argument list, parameter count or callee, malformed blocks and call tables, a changed source, and a wrong lowering fail the same checks.",
       "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The artifact covers integer parameters, a direct call of an earlier let-free function and an integer conditional; it has no loops, strings, records, effects or recursion, and a call to a function with a let is outside the lowered shape."
     }
   ],
