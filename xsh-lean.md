@@ -487,6 +487,8 @@ relevant effect boundaries. Each stage states its exact domain; the domain is
 non-empty and contains the milestone's accepted and rejected programs, and
 reports give accepted and rejected counts.
 
+The current local verification checker rejects an uncalled `Int` field access but accepts an uncalled mutable local whose assignment requires `value` to contain a field of its own type. The qualified Lean checker rejects both: the latter requirement has no finite solution. This observed acceptance difference is not Rust/Lean rejection agreement; it still needs reproduction at the eventual matching freeze.
+
 The milestone requires the independent contract and its connected theorems;
 actual emitted Rust facts and raw IR in the closed exchange documents; the Rust
 structural verifier together with the milestone's independent Lean fact and
