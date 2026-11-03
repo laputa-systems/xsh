@@ -61,3 +61,25 @@ print ${pkg.name}
     stderr: ["schema", "missing required field root"],
   )?
 }
+
+test test_schema_runtime_names_the_wrong_kind_of_value_for_a_record_slot { |ctx|
+  let script = r"""
+type Inner = { name: Str }
+type Outer = { inner: Inner }
+let value = json.decode("{\"inner\":VALUE}")?
+print ${value.require(Outer)?.inner.name}
+"""
+  for case in [
+    {value: "null", found: "Null"},
+    {value: "7", found: "Int"},
+    {value: "\\\"text\\\"", found: "Str"},
+    {value: "[1]", found: "List"},
+  ] {
+    test.expect(
+      ctx,
+      script.replace("VALUE", with: case.value),
+      status: 3,
+      stderr: [f"schema check failed at inner: expected Record, found {case.found}"],
+    )?
+  }
+}

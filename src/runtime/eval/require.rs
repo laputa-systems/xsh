@@ -319,7 +319,9 @@ impl PreparedSchema {
                         LoweredValue::RecordVec(Arc::new(stats.to_record_vec())),
                     value => value,
                 };
-                if fields.is_empty() && !matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_)) {
+                let has_fields = matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_))
+                    || (!fields.is_empty() && matches!(value, LoweredValue::Module(_) | LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)));
+                if !has_fields {
                     return Err(failure(format!("expected Record, found {}", value.type_name())));
                 }
                 let mut value = value;
