@@ -68,6 +68,7 @@ enum InternalOperation {
     TestLinuxCiSplit,
     GateLane,
     GateFull,
+    GateValidateFull,
     Coverage,
 }
 
@@ -80,6 +81,7 @@ pure internal_operation(value: Str) -> Result[InternalOperation] {
     "test-linux-ci-split" => TestLinuxCiSplit
     "gate-lane" => GateLane
     "gate-full" => GateFull
+    "gate-validate-full" => GateValidateFull
     "coverage" => Coverage
     else => Err(usage(f"unsupported internal operation {value}"))
   }
@@ -355,6 +357,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
           return container_internal.gate_lane(ctx, rest)
         }
         GateFull => return container_internal.gate_full(ctx, args[0])
+        GateValidateFull => return gates.validate_full(ctx)
         Coverage => return container_internal.container_coverage(ctx)
       }
     }
@@ -380,7 +383,7 @@ proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
 
 pure gate_request(arguments: List[Str]) -> Bool {
   ! arguments.is_empty() and (arguments[0] == "gate" or
-    (arguments.len() > 1 and arguments[0] == "internal" and arguments[1] in ["gate-lane", "gate-full"]))
+    (arguments.len() > 1 and arguments[0] == "internal" and arguments[1] in ["gate-lane", "gate-full", "gate-validate-full"]))
 }
 
 on INT [process] {
