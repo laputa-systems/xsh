@@ -34,9 +34,9 @@ out of scope.
 
 - **Area:** Runtime contracts
 - **Where:** `src/modules/time.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `docs/templates/SPEC.md`
-- **Problem:** Wall time is epoch milliseconds while `time.monotonic()` returns nanoseconds from a process-local origin, and `time.boottime()` (XSH-53) returns nanoseconds since boot including suspend. All three use integers; Laputa's xinit currently constructs elapsed deadlines from wall time. A mechanical replacement would change units and origin. Unproven: which other deadline consumers mix domains.
-- **Recommendation:** Inventory the actual wait/retry/deadline consumers, document units and restart/pause semantics, and qualify one shared elapsed-deadline boundary. Prefer existing Duration and nominal-type machinery over new syntax or a units framework. Keep wall timestamps for calendar/security decisions; never persist a process-local instant as a restart-stable timestamp.
-- **Acceptance:** Native tests separate wall and monotonic inputs, cover backward/forward wall jumps, zero/expired budgets, overflow and cancellation; host tests establish the units/origin. Qualify VM pause separately from physical suspend. Migrate the first real consumer with unit-safe conversions and update authored docs before regeneration; no host clock changes.
+- **Problem:** Wall time is epoch milliseconds, `time.monotonic()` is nanoseconds from a process-local origin, and `time.boottime()` uses nanoseconds from a host clock. Linux boottime includes suspend; macOS uses its monotonic clock. All three use integers. Laputa xinit now converts monotonic nanoseconds to milliseconds for elapsed deadlines; other consumers and conversion boundaries remain unqualified.
+- **Recommendation:** Inventory the remaining wait, retry and deadline consumers and qualify their units and restart or pause semantics. Build on xinit's elapsed clock and existing Duration and nominal-type machinery. Keep wall timestamps for calendar and security decisions; never persist a process-local instant as a restart-stable timestamp.
+- **Acceptance:** Native tests separate wall and monotonic inputs, cover backward/forward wall jumps, zero/expired budgets, overflow and cancellation; host tests establish the units/origin. Qualify VM pause separately from physical suspend. Qualify xinit's conversion and any further consumer migration with unit-safe conversions; update authored docs before regeneration; no host clock changes.
 - **Coordination:** Laputa LAP-27 owns xinit migration and disposable-guest clock tests.
 - **Fix with:** make-invalid-states-unrepresentable
 - **Effort:** M
@@ -149,8 +149,8 @@ out of scope.
 
 - **Area:** Host I/O
 - **Where:** `src/modules/`, `crates/xsh-registry/`, `core/lib/`, `tests/`
-- **Problem:** Low-level descriptor/socket operations exist; the portable owned stream-I/O contract needed to replace Laputa's Python QMP helper has not been established. Do not assume an entirely new socket subsystem is needed.
-- **Recommendation:** Probe current APIs on Linux and macOS, then fill only the missing connect/read/write/deadline/cancellation boundary using XSH-35/XSH-36. Framing and QMP policy belong in XSH at the consumer, not a QMP-specific Rust intrinsic. Reuse existing JSON/codec contracts rather than starting another parser.
+- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Its local peer tests cover fragmented and coalesced frames and timeouts. The portable owned stream-I/O contract and remaining failure cases are not fully qualified.
+- **Recommendation:** Qualify the existing operations and QMP consumer, then fill only demonstrated gaps in the connect, read, write, deadline and cancellation boundary using XSH-35 and XSH-36. Keep framing and QMP policy in the XSH consumer.
 - **Acceptance:** Fragmented/coalesced reads, partial writes, EOF, oversized input, timeout and cancellation are bounded and release resources on both supported host paths. A local socket fixture and Laputa LAP-35 demonstrate the same primitives; no futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
 - **Effort:** M
