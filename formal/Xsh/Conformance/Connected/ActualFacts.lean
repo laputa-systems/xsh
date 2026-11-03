@@ -166,6 +166,7 @@ def projectionSchemeValidation (sparseFuel : Nat) (functions : List FunctionTarg
   let fieldSites := body.operations.map fun operation => (operation.site, operation.name)
   requireCheck (checksSourceFunctions unit functions && decide (call.target ∈ functions) &&
     decide (parameter.name = readName) && decide (body.site = source.bodySite) &&
+    decide (body.explicitReturn = source.result.isSome) &&
     decide (call.target.moduleName = none) &&
     decide (sourceNameResolver unit call.site.source call.target.name = some source.name) &&
     sourceCallsFunction source.name call.site caller.expressions &&
@@ -223,6 +224,7 @@ set_option maxRecDepth 100000 in
 theorem projection_sparse_fact_mutations_are_refused :
     projectionSchemeChecksFor projectionFunctions wrongFieldTypeFacts projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions concretizedFieldTypeFacts projectionCallFacts = false ∧
+    projectionSchemeChecksFor projectionFunctions { projectionBodyFacts with explicitReturn := true } projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions { projectionBodyFacts with operationSites := [] } projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions { projectionBodyFacts with resolvedReads := [] } projectionCallFacts = false ∧
     projectionSchemeChecksFor projectionFunctions wrongReadFacts projectionCallFacts = false ∧
