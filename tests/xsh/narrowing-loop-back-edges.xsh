@@ -350,3 +350,71 @@ print (label(1))
   assert "err[check.operator-type]" in output.stderr, output.stderr
   assert !("runtime." in output.stderr), output.stderr
 }
+
+test test_a_loop_keeps_a_field_narrowing_through_the_verifier_when_a_sibling_is_written { |ctx|
+  let output = test.run_xsh(ctx, r"""
+type Entry = {file: Int?, other: Int}
+pure sibling_in_loop(found: Int) -> Int {
+  var entry: Entry = {file: found, other: 0}
+  var total = 0
+  if entry.file != null {
+    for i in range(2) { total += entry.file; entry.other = i }
+  }
+  total
+}
+pure sibling_after_loop(found: Int) -> Int {
+  var entry: Entry = {file: found, other: 0}
+  var total = 0
+  if entry.file != null {
+    for i in range(2) { total += entry.file }
+  }
+  entry.other = 1
+  total
+}
+pure sibling_in_while(found: Int) -> Int {
+  var entry: Entry = {file: found, other: 0}
+  var total = 0
+  if entry.file != null {
+    while entry.other < 3 { total += entry.file; entry.other += 1 }
+  }
+  total
+}
+pure guarded_in_outer_loop(found: Int) -> Int {
+  var entry: Entry = {file: found, other: 0}
+  var total = 0
+  for i in range(2) {
+    if entry.file != null {
+      for j in range(2) { total += entry.file }
+    }
+    entry.other = i
+  }
+  total
+}
+pure guard_then_loop(found: Int) -> Int {
+  var entry: Entry = {file: found, other: 0}
+  var total = 0
+  guard entry.file != null else { return 0 }
+  for i in range(2) { total += entry.file; entry.other = i }
+  entry.other = 9
+  total
+}
+pure generic_after_loop(opts) -> Int {
+  var entry = {file: opts.mnt, other: 0}
+  var total = 0
+  if entry.file != null {
+    for i in range(2) { total += entry.file }
+  }
+  entry.other = 1
+  total
+}
+assert sibling_in_loop(4) == 8
+assert sibling_after_loop(4) == 8
+assert sibling_in_while(1) == 3
+assert guarded_in_outer_loop(2) == 8
+assert guard_then_loop(3) == 6
+assert generic_after_loop({mnt: 5}) == 10
+print (sibling_in_loop(1))
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n"
+}

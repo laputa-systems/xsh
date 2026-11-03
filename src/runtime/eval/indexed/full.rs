@@ -15309,9 +15309,10 @@ impl<'a> FullDecoder<'a> {
         if let Some((conditions, body_roots)) = branch {
             for (condition, when_true, is_boolean) in conditions {
                 charge(1)?;
-                if (matches!(stability, GuardPathStability::ImmutableSnapshot) || !self.checked_parent_path_crosses_repeatable_loop(
+                if (matches!(stability, GuardPathStability::ImmutableSnapshot) || !self.checked_parent_path_crosses_overwriting_loop(
                     field_instruction,
                     parent,
+                    target,
                     charge,
                 )?) && self.checked_condition_proves_nonnull_with_prefix(
                     condition,
@@ -15751,10 +15752,11 @@ impl<'a> FullDecoder<'a> {
         Ok(!self.checked_instruction_is_in_roots(child, &[source], charge)?)
     }
 
-    fn checked_parent_path_crosses_repeatable_loop(
+    fn checked_parent_path_crosses_overwriting_loop(
         &self,
         mut child: usize,
         ancestor: usize,
+        target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
         charge(1)?;
@@ -15768,7 +15770,9 @@ impl<'a> FullDecoder<'a> {
             if parent == ancestor {
                 return Ok(false);
             }
-            if self.checked_child_is_in_repeatable_loop_body(parent, child, charge)? {
+            if self.checked_child_is_in_repeatable_loop_body(parent, child, charge)?
+                && !self.checked_prefix_roots_preserve_binding_path(&[parent], target, charge)?
+            {
                 return Ok(true);
             }
             child = parent;
@@ -15776,6 +15780,21 @@ impl<'a> FullDecoder<'a> {
         Err(IrVerifyError::new(
             "checked optional field receiver has a cyclic guard path",
         ))
+    }
+
+    fn checked_path_crosses_overwriting_loop_through(
+        &self,
+        child: usize,
+        anchor: usize,
+        target: &(usize, Vec<Name>),
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if self.checked_child_is_in_repeatable_loop_body(anchor, child, charge)?
+            && !self.checked_prefix_roots_preserve_binding_path(&[anchor], target, charge)?
+        {
+            return Ok(true);
+        }
+        self.checked_parent_path_crosses_overwriting_loop(child, anchor, target, charge)
     }
 
     fn derive_checked_field_type(&self, instruction: usize) -> Result<Type, IrVerifyError> {
@@ -51754,6 +51773,124 @@ pure apply_outer_guard_loop(holder: Holder?, n: Int, repeat: Bool) -> Int {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn optional_field_guard_outside_a_loop_requires_the_loop_to_preserve_the_path() {
+        run_with_large_stack(|| {
+            for (name, guard) in [
+                ("optional-field-if-across-loop.xsh", "if entry.file != null {\n    for i in range(2) { total += entry.file; entry.other = i }\n  }"),
+                ("optional-field-guard-across-loop.xsh", "guard entry.file != null else { return 0 }\n  for i in range(2) { total += entry.file; entry.other = i }"),
+                ("optional-field-while-across-loop.xsh", "if entry.file != null {\n    var n = 0\n    while n < 2 { total += entry.file; entry.other = n; n += 1 }\n  }"),
+            ] {
+                let source = format!(
+                    "type Entry = {{file: Int?, other: Int?}}\npure scan(found: Int) -> Int {{\n  var entry: Entry = {{file: found, other: 0}}\n  var total = 0\n  {guard}\n  entry.other = found\n  total\n}}\nassert scan(4) == 8\n"
+                );
+                let program = fixture(name, &source);
+                FullVerifier::verify(&program).unwrap();
+
+                let owner = scheme_fixture_root_function(&program, "scan");
+                let file_field = function_instruction_indices(&program, "scan", FullTag::ExprField)
+                    .into_iter()
+                    .map(|instruction| program.store.payload(program.store.data[instruction].range()).unwrap()[1])
+                    .find(|&name| program.store.string(name).unwrap() == "file")
+                    .expect("the loop body reads the guarded field");
+                let writes = function_instruction_indices(&program, "scan", FullTag::StmtAssignField);
+                assert_eq!(writes.len(), 2, "{name}: one write inside the loop and one after it");
+                for (position, write) in writes.into_iter().enumerate() {
+                    let mut forged = program.clone();
+                    let words = forged.store.data[write].range().bounds(forged.store.extra.len()).unwrap();
+                    forged.store.extra[words.start + 1] = file_field;
+                    let decoder = function_view_decoder(&forged.store, owner);
+                    assert!(matches!(decoder.statement_view(write).unwrap(), schema::StmtView::AssignField { field: "file", .. }));
+                    let verdict = FullVerifier::verify(&forged);
+                    if position == 0 {
+                        let error = verdict.expect_err("a write to the guarded field inside the loop ends the guard");
+                        assert_eq!(error.message, "checked optional field receiver has no non-null branch proof", "{name}");
+                    } else {
+                        verdict.expect("a write to the guarded field after the loop leaves the guard intact");
+                    }
+                }
+            }
+        });
+    }
+
+    fn field_name_word(program: &FullProgram, function: &str, field: &str) -> u32 {
+        function_instruction_indices(program, function, FullTag::ExprField)
+            .into_iter()
+            .map(|instruction| program.store.payload(program.store.data[instruction].range()).unwrap()[1])
+            .find(|&name| program.store.string(name).unwrap() == field)
+            .unwrap_or_else(|| panic!("{function} reads field {field}"))
+    }
+
+    fn assert_guard_ended(label: &str, program: &FullProgram) {
+        let error = FullVerifier::verify(program).expect_err(label);
+        assert_eq!(error.message, "checked optional field receiver has no non-null branch proof", "{label}");
+    }
+
+    #[test]
+    fn optional_field_guard_across_a_loop_ends_at_every_write_the_loop_can_make() {
+        run_with_large_stack(|| {
+            let flat = "type Entry = {file: Int?, other: Int?}\n";
+            let nested = "type Inner = {file: Int?}\ntype Entry = {inner: Inner, spare: Inner}\n";
+            let field_cases = [
+                ("loop-nested", flat, "{file: found, other: 0}", "if entry.file != null {\n    for i in range(2) { for j in range(2) { total += entry.file }; entry.other = i }\n  }", "other", "file", 16),
+                ("if-let", flat, "{file: found, other: 0}", "if let f = entry.file {\n    for i in range(2) { total += entry.file + f; entry.other = i }\n  }", "other", "file", 16),
+                ("guard-nested", flat, "{file: found, other: 0}", "guard entry.file != null else { return 0 }\n  for i in range(2) { for j in range(2) { total += entry.file }; entry.other = i }", "other", "file", 16),
+                ("guard-let", flat, "{file: found, other: 0}", "guard let f = entry.file else { return 0 }\n  for i in range(2) { for j in range(2) { total += entry.file + f }; entry.other = i }", "other", "file", 32),
+                ("prefix", nested, "{inner: {file: found}, spare: {file: 0}}", "if entry.inner.file != null {\n    for i in range(2) { total += entry.inner.file; entry.spare = {file: i} }\n  }", "spare", "inner", 8),
+            ];
+            for (name, types, init, guard, sibling, guarded, expected) in field_cases {
+                let after = if sibling == "other" { "entry.other = found" } else { "entry.spare = {file: found}" };
+                let source = format!(
+                    "{types}pure scan(found: Int) -> Int {{\n  var entry: Entry = {init}\n  var total = 0\n  {guard}\n  {after}\n  total\n}}\nassert scan(4) == {expected}\n"
+                );
+                let program = fixture(&format!("{name}.xsh"), &source);
+                FullVerifier::verify(&program).unwrap();
+                let writes = function_instruction_indices(&program, "scan", FullTag::StmtAssignField);
+                assert_eq!(writes.len(), 2, "{name}: one write inside the loop and one after it");
+                let guarded_name = field_name_word(&program, "scan", guarded);
+                for (position, write) in writes.into_iter().enumerate() {
+                    let mut forged = program.clone();
+                    let start = payload_start(&forged, write);
+                    assert_ne!(forged.store.extra[start + 1], guarded_name);
+                    forged.store.extra[start + 1] = guarded_name;
+                    if position == 0 {
+                        assert_guard_ended(name, &forged);
+                    } else {
+                        FullVerifier::verify(&forged).unwrap_or_else(|error| panic!("{name}: {}", error.message));
+                    }
+                }
+            }
+
+            let source = "type Entry = {file: Int?, other: Int?}\npure scan(found: Int) -> Int {\n  var entry: Entry = {file: found, other: 0}\n  var scratch: Entry = {file: 1, other: 0}\n  var total = 0\n  if entry.file != null {\n    for i in range(2) { total += entry.file; scratch = {file: i, other: i} }\n  }\n  entry.other = found\n  total\n}\nassert scan(4) == 8\n";
+            let program = fixture("whole-variable.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            let entry_slot = program.store.extra[payload_start(&program, function_instruction_indices(&program, "scan", FullTag::StmtAssignField)[0])];
+            let scratch_write = *function_instruction_indices(&program, "scan", FullTag::StmtAssign).last().unwrap();
+            let mut forged = program.clone();
+            let start = payload_start(&forged, scratch_write);
+            assert_ne!(forged.store.extra[start], entry_slot);
+            forged.store.extra[start] = entry_slot;
+            assert_guard_ended("whole-variable", &forged);
+
+            let source = "type Entry = {file: Int?, other: Int?}\nvar entry: Entry = {file: 4, other: 0}\npure id(n: Int) -> Int { n }\nproc bump(n: Int) [] -> Int { n }\nproc scan() [] -> Int {\n  var total = bump(0)\n  if entry.file != null {\n    for i in range(2) { total += entry.file + id(i); entry.other = i }\n  }\n  total\n}\nassert scan() == 9\n";
+            let program = fixture("shared-writer.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            let pure_call = function_instruction_indices(&program, "scan", FullTag::ExprDirectPureCall)[0];
+            let proc_call = function_instruction_indices(&program, "scan", FullTag::ExprCall)[0];
+            let mut forged = program.clone();
+            let proc_key = forged.store.extra[payload_start(&forged, proc_call)];
+            forged.store.tags[pure_call] = FullTag::ExprCall;
+            let start = payload_start(&forged, pure_call);
+            assert_ne!(forged.store.extra[start], proc_key);
+            forged.store.extra[start] = proc_key;
+            let proc_target = forged.store.checked_call_targets.iter().find(|fact| fact.instruction as usize == proc_call).unwrap().function;
+            let pure_fact = forged.store.checked_call_targets.iter_mut().find(|fact| fact.instruction as usize == pure_call).unwrap();
+            assert_ne!(pure_fact.function, proc_target);
+            pure_fact.function = proc_target;
+            assert_guard_ended("shared-writer", &forged);
+        });
     }
 
     #[test]

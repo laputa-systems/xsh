@@ -1213,8 +1213,7 @@ impl ProducerOwner {
                     { return Ok(false); }
                     if snapshot { return Ok(true); }
                     if !decoder.checked_expression_preserves_binding_path(value, target, charge)?
-                        || decoder.checked_child_is_in_repeatable_loop_body(anchor, instruction, charge)?
-                        || decoder.checked_parent_path_crosses_repeatable_loop(instruction, anchor, charge)?
+                        || decoder.checked_path_crosses_overwriting_loop_through(instruction, anchor, target, charge)?
                     { return Ok(false); }
                     charge(roots.len())?;
                     return decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), instruction, target, charge);
@@ -1241,8 +1240,7 @@ impl ProducerOwner {
                     return Ok(true);
                 }
                 if !self.guard_fallthrough_preserves_binding_path(decoder, guard, branch_index, target, charge)?
-                    || decoder.checked_child_is_in_repeatable_loop_body(anchor, instruction, charge)?
-                    || decoder.checked_parent_path_crosses_repeatable_loop(instruction, anchor, charge)?
+                    || decoder.checked_path_crosses_overwriting_loop_through(instruction, anchor, target, charge)?
                 { return Ok(false); }
                 charge(roots.len())?;
                 decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), instruction, target, charge)
