@@ -36,7 +36,8 @@ impl Default for RekeyLimits {
     }
 }
 
-/// The most time connection setup, authentication or one key exchange may take in all.
+/// The least time connection setup, authentication or one key exchange may take in all, unless
+/// the configuration sets its own deadline.
 pub const DEFAULT_PHASE_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Explicit connection, authentication, and trust options.
@@ -97,7 +98,7 @@ impl ClientConfig {
             trust,
             timeout,
             rekey: RekeyLimits::default(),
-            deadline: DEFAULT_PHASE_DEADLINE,
+            deadline: timeout.max(DEFAULT_PHASE_DEADLINE),
             interrupt: None,
         }
     }
