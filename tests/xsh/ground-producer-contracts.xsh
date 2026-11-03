@@ -361,3 +361,38 @@ print guarded(.There(Installed(version: "1", ordering: null)))
   assert output.success, output.stderr
   assert output.stdout == "gone\nnone\nholds\nno\ntrue\nfalse\n"
 }
+
+test test_empty_map_literal_reaches_a_map_of_any_in_every_argument_position { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""type Host = {name: Str, vars: Map[Str, Any]}
+pure size(vars: Map[Str, Any]) -> Int {
+  vars.len()
+}
+pure host_named(name: Str) -> Host {
+  Host(name: name, vars: {})
+}
+pure pick(cond: Bool, table: Map[Str, Any]) -> Map[Str, Any] {
+  let chosen = if cond { table } else { {} }
+  chosen
+}
+pure fallback(table: Map[Str, Any]?) -> Host {
+  Host(name: "fallback", vars: table ?? {})
+}
+pure conditional(cond: Bool, table: Map[Str, Any]) -> Int {
+  size(vars: if cond { table } else { {} })
+}
+let table: Map[Str, Any] = {["k"]: 1}
+print host_named("a").vars.len()
+print size(vars: {})
+print pick(false, table).len()
+print pick(true, table).len()
+print fallback(null).vars.len()
+print fallback(table).vars.len()
+print conditional(false, table)
+print conditional(true, table)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "0\n0\n0\n1\n0\n1\n0\n1\n"
+}

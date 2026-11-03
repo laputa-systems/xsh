@@ -11498,6 +11498,22 @@ impl<'a> FullDecoder<'a> {
         Ok(args.len() == 0 && matches!((op, annotation.unvalidated()), (RuntimeOp::SetEmpty, Type::Set(_)) | (RuntimeOp::MapEmpty, Type::Map(_, _))))
     }
 
+    fn is_empty_map_literal_expression(&self, mut instruction: usize) -> Result<bool, IrVerifyError> {
+        for _ in self.instruction_range.clone() {
+            match self.expression_view(instruction)? {
+                schema::ExprView::EmptyMap => return Ok(true),
+                schema::ExprView::MapLiteral(mut entries) => return Ok(entries.next().is_none()),
+                schema::ExprView::ModuleCall { .. } => return self.is_empty_map_module_call(instruction),
+                schema::ExprView::ValueBlock { mut body, .. } => match self.derive_checked_block_tail_expression(&mut body)? {
+                    Some(tail) => instruction = tail,
+                    None => return Ok(false),
+                },
+                _ => return Ok(false),
+            }
+        }
+        Ok(false)
+    }
+
     fn is_empty_map_module_call(&self, instruction: usize) -> Result<bool, IrVerifyError> {
         let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = self.expression_view(instruction)? else { return Ok(false) };
         Ok(op == RuntimeOp::MapEmpty && args.len() == 0)

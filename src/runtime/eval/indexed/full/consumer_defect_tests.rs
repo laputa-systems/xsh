@@ -94,3 +94,67 @@ fn narrowed_enum_field_read_needs_its_dominating_null_test() {
         "ground producer value disagrees with its checked contract",
     );
 }
+
+const EMPTY_MAP_CONDITIONAL: &str = "pure pick(cond: Bool, table: Map[Str, Any]) -> Map[Str, Any] {\n\
+  let chosen = if cond { table } else { {} }\n\
+  chosen\n\
+}\n\
+assert pick(false, {}).len() == 0\n";
+
+#[test]
+fn conditional_with_an_empty_map_arm_keeps_dynamic_values_for_empty_maps_only() {
+    let program = checked_program("empty-map-conditional.xsh", EMPTY_MAP_CONDITIONAL);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function_index(&program, "pick");
+    let empty = function_view_decoder(&program.store, owner)
+        .instruction_range
+        .clone()
+        .find(|&instruction| matches!(program.store.tags[instruction], FullTag::ExprMapLiteral | FullTag::ExprEmptyMap))
+        .expect("the else arm holds an empty map");
+    let mut forged = program.clone();
+    forged.store.tags[empty] = FullTag::ExprList;
+    assert_eq!(
+        FullVerifier::verify(&forged).unwrap_err().message,
+        "generic call substitution contains dynamic type Map[Any]",
+    );
+}
+
+fn build_error(name: &str, source: &str) -> String {
+    let module_roots = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("core")];
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+        name,
+        crate::loader::entry_source_from_text(name, source.to_owned()),
+        module_roots,
+    );
+    let source_id = sources.files().first().map(crate::source::SourceFile::id).expect("entry source is present");
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = crate::sema::check::Checker::check_arena_with_sources_and_options(
+        &parsed.arena,
+        &sources,
+        source_id,
+        crate::sema::check::CheckOptions { reveal_types: true, embedded_bodies: true, ..crate::sema::check::CheckOptions::default() },
+    );
+    let declarations = crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let error = FullBuilder::build_compact(&parsed.arena, &declarations, source, Arc::new(sources), source_id)
+        .expect_err("source should fail full IR verification");
+    format!("{error:?}")
+}
+
+#[test]
+fn named_empty_map_argument_takes_a_dynamic_map_contract_but_a_populated_literal_does_not() {
+    let program = checked_program(
+        "named-empty-map-argument.xsh",
+        "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\n\
+         pure named() -> Int { size(vars: {}) }\n\
+         assert named() == 0\n",
+    );
+    FullVerifier::verify(&program).unwrap();
+    let message = build_error(
+        "named-populated-map-argument.xsh",
+        "pure size(vars: Map[Str, List[Any]]) -> Int { vars.len() }\n\
+         pure named() -> Int { size(vars: {[\"k\"]: []}) }\n\
+         assert named() == 1\n",
+    );
+    assert!(message.contains("generic call substitution contains dynamic type Map[List[Any]]"), "{message}");
+}

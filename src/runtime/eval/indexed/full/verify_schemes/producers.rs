@@ -3564,17 +3564,19 @@ impl<'a> ProducerProof<'a> {
         arms: impl Iterator<Item = Result<usize, IrVerifyError>>) -> Result<Option<Arc<Type>>, IrVerifyError>
     {
         let mut joined = ConditionalProducerType::new();
+        let mut only_empty_maps_untyped = true;
         for arm in arms {
             self.budget.charge(1)?;
             let Some(arm) = decoder.checked_branch_value_instruction(arm?)? else { continue };
             let arm_type = self.need_context(decoder, arm)?;
             if arm_type.as_deref() == Some(&Type::Unknown) { continue; }
+            if arm_type.is_none() { only_empty_maps_untyped &= decoder.is_empty_map_literal_expression(arm)?; }
             joined.observe(arm_type);
         }
         let (candidate, unknown) = joined.finish(&mut self.budget)?;
         let Some(candidate) = candidate else { return Ok(None) };
         if unknown {
-            if matches!(candidate.as_ref(), Type::List(_)) {
+            if matches!(candidate.as_ref(), Type::List(_)) || only_empty_maps_untyped && matches!(candidate.as_ref(), Type::Map(_, _)) {
                 ensure_closed_type(&candidate)?;
             } else { ensure_substitution_type(&candidate)?; }
             self.expression(decoder.owner, instruction, Arc::clone(&candidate), false);
@@ -7135,7 +7137,9 @@ impl<'a> ProducerProof<'a> {
         if !matches!((self.store.tags[source], expected),
             (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprModuleCall, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)) | (FullTag::ExprPreparedConstant, Type::List(_) | Type::Map(_, _) | Type::Record(_)))
         { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
-        ensure_producer_context_type(self.store.tags[source], expected)?;
+        if matches!(expected, Type::Map(_, _)) && decoder.is_empty_map_literal_expression(source)? {
+            ensure_closed_type(expected)?;
+        } else { ensure_producer_context_type(self.store.tags[source], expected)?; }
         let binding = self.binding(decoder.owner, argument, slot)?;
         let key = (decoder.owner, binding);
         self.deferred_sources.insert(key, source);
