@@ -33,6 +33,6 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
 | campaign status and open milestones | [Roadmap](docs/ROADMAP.md) |
-| paused performance and deployment campaign, inference evidence | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
+| performance and deployment campaign, inference evidence | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
 | open work and design drafts | [TODO](TODO.md) |
 | generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |

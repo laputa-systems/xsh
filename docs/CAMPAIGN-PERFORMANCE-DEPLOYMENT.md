@@ -16,13 +16,10 @@ do not qualify it.
 Twenty-seven backlog tickets are closed. XSH-1, XSH-3, XSH-14 and XSH-19 remain
 open in `TODO.md`, and XSH-23 is owner-deferred. Accepted feature delivery ends
 at `25639900b`, including typed CLI entries and the Laputa migration `c8cdb73`.
-Winddown also integrated the lint candidate `97e361171` (merge `6300eb05b`) and
-the lsmem fallback simplification `f60a72f41`. The lint change preserves
-diagnostics and passes its focused tests, RSS-only pairs, binary-size checks and
-the xsht compiler check. Its CPU acceptance ran on 2026-11-01 in readiness
-brackets and shows no speedup and no regression (see the log): the batching is
-neutral on the three lint workloads. No speedup or full qualification is
-claimed.
+Winddown integrated the lsmem fallback simplification `f60a72f41`. The lint
+candidate `97e361171` (merge `6300eb05b`) was reverted by `d71eca39c` after its
+CPU measurements showed no benefit outside the spread. See XSH-14 and the
+historical measurements below. No current-source full qualification is claimed.
 
 No current source has G1 qualification. The R13 baseline `0dfebb001` is the
 last source that passed most gates, and old passes do not qualify later source.
