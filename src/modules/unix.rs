@@ -5,9 +5,9 @@ use crate::runtime::cgroup::{CgroupError, CgroupScope};
 use crate::runtime::process::{
     ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind,
     ProcessStatus, RedirectionStream, apply_redirections, resolve_executable, validate_input_sources,
-    set_sigchld_action, wait_any_child_nohang,
+    retain_child_status, set_sigchld_action, wait_any_child_nohang,
 };
-use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
+use crate::runtime::value::{ErrorContext, LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustix::event::{PollFd, PollFlags, poll};
 use rustix::fd::BorrowedFd;
@@ -210,6 +210,11 @@ pub(crate) fn spawn_process_group_with_stdio_native(
     notify: bool,
     span: Span,
 ) -> Result<SpawnedChild, RuntimeError> {
+    let _status_retention = if invocation.cpu_max.is_some() {
+        Some(retain_child_status().map_err(|error| RuntimeError::host("unix-spawn", &error).with_span(span))?)
+    } else {
+        None
+    };
     let mut command = command_from_invocation(invocation, span)?;
     let cgroup = invocation_cgroup(invocation, "xsh-unix", span)?;
     command
@@ -220,13 +225,15 @@ pub(crate) fn spawn_process_group_with_stdio_native(
         .map_err(|error| RuntimeError::host("unix-notify", &error).with_span(span))?;
     let notify_write = notify_pipe.as_ref().map(|(_, write)| write.as_raw_fd());
     configure_init_child(&mut command, None, notify_write);
-    let child = match command.spawn() {
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             return Err(RuntimeError::host("unix-spawn", &error).with_span(span));
         }
     };
-    assign_cgroup_pid(&cgroup, child.id() as i64, span)?;
+    if let Err(error) = assign_cgroup_pid(&cgroup, child.id() as i64, span) {
+        return Err(cleanup_spawn_failure(error, &mut [&mut child], span));
+    }
     Ok(SpawnedChild {
         pid: child.id() as i64,
         command: String::from_utf8_lossy(&invocation.target).into_owned(),
@@ -243,6 +250,8 @@ pub(crate) fn spawn_logged_process_group_native(
     logger: &ProcessInvocation,
     span: Span,
 ) -> Result<LoggedSpawnedChild, RuntimeError> {
+    let _status_retention = retain_child_status()
+        .map_err(|error| RuntimeError::host("unix-spawn", &error).with_span(span))?;
     let mut command = command_from_invocation(invocation, span)?;
     let mut logger_command = command_from_invocation(logger, span)?;
     let cgroup = invocation_cgroup(invocation, "xsh-unix", span)?;
@@ -258,7 +267,7 @@ pub(crate) fn spawn_logged_process_group_native(
     command.stdout(Stdio::from(stdout));
     command.stderr(Stdio::from(stderr));
     configure_init_child(&mut command, None, None);
-    let child = match command.spawn() {
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             return Err(RuntimeError::host("unix-spawn", &error).with_span(span));
@@ -266,21 +275,23 @@ pub(crate) fn spawn_logged_process_group_native(
     };
 
     let pid = child.id() as i64;
-    assign_cgroup_pid(&cgroup, pid, span)?;
+    if let Err(error) = assign_cgroup_pid(&cgroup, pid, span) {
+        return Err(cleanup_spawn_failure(error, &mut [&mut child], span));
+    }
     logger_command.stdin(Stdio::from(reader));
     logger_command.stdout(Stdio::null());
     logger_command.stderr(Stdio::null());
     configure_logger_child(&mut logger_command, child.id() as libc::pid_t);
-    let logger_child = match logger_command.spawn() {
+    let mut logger_child = match logger_command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            if let Some(pid) = rprocess::Pid::from_raw(child.id() as i32) {
-                let _ = rprocess::kill_process_group(pid, rprocess::Signal::TERM);
-            }
-            return Err(RuntimeError::host("unix-spawn-logger", &error).with_span(span));
+            let error = RuntimeError::host("unix-spawn-logger", &error).with_span(span);
+            return Err(cleanup_spawn_failure(error, &mut [&mut child], span));
         }
     };
-    assign_cgroup_pid(&cgroup, logger_child.id() as i64, span)?;
+    if let Err(error) = assign_cgroup_pid(&cgroup, logger_child.id() as i64, span) {
+        return Err(cleanup_spawn_failure(error, &mut [&mut child, &mut logger_child], span));
+    }
 
     Ok(LoggedSpawnedChild {
         pid,
@@ -1027,6 +1038,11 @@ fn spawn_child(
     notify: bool,
     span: Span,
 ) -> Result<SpawnedChild, RuntimeError> {
+    let _status_retention = if invocation.cpu_max.is_some() {
+        Some(retain_child_status().map_err(|error| RuntimeError::host("unix-spawn", &error).with_span(span))?)
+    } else {
+        None
+    };
     let mut command = command_from_invocation(invocation, span)?;
     let cgroup = invocation_cgroup(invocation, "xsh-unix", span)?;
     let new_session = tty.is_some();
@@ -1040,13 +1056,15 @@ fn spawn_child(
         .map_err(|error| RuntimeError::host("unix-notify", &error).with_span(span))?;
     let notify_write = notify_pipe.as_ref().map(|(_, write)| write.as_raw_fd());
     configure_init_child(&mut command, tty, notify_write);
-    let child = match command.spawn() {
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             return Err(RuntimeError::host("unix-spawn", &error).with_span(span));
         }
     };
-    assign_cgroup_pid(&cgroup, child.id() as i64, span)?;
+    if let Err(error) = assign_cgroup_pid(&cgroup, child.id() as i64, span) {
+        return Err(cleanup_spawn_failure(error, &mut [&mut child], span));
+    }
     Ok(SpawnedChild {
         pid: child.id() as i64,
         command: String::from_utf8_lossy(&invocation.target).into_owned(),
@@ -1105,6 +1123,45 @@ fn assign_cgroup_pid(scope: &CgroupScope, pid: i64, span: Span) -> Result<(), Ru
     scope
         .assign_pid(pid)
         .map_err(|error| cgroup_runtime_error(error, span))
+}
+
+fn cleanup_spawn_failure(
+    mut primary: RuntimeError,
+    children: &mut [&mut std::process::Child],
+    span: Span,
+) -> RuntimeError {
+    let group = rprocess::Pid::from_raw(children[0].id() as i32).expect("spawn returns a positive pid");
+    if let Err(error) = rprocess::kill_process_group(group, rprocess::Signal::KILL)
+        && error != rio::Errno::SRCH
+    {
+        primary.contexts.push(ErrorContext {
+            kind: "unix-spawn-cleanup".to_string(),
+            message: Some(format!("cannot terminate process group: {error}")),
+            span: Some(span),
+        });
+    }
+    for child in children {
+        let stopped = match child.kill() {
+            Ok(()) => true,
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => true,
+            Err(error) => {
+                primary.contexts.push(ErrorContext {
+                    kind: "unix-spawn-cleanup".to_string(),
+                    message: Some(format!("cannot terminate child: {error}")),
+                    span: Some(span),
+                });
+                false
+            }
+        };
+        if stopped && let Err(error) = child.wait() {
+            primary.contexts.push(ErrorContext {
+                kind: "unix-spawn-cleanup".to_string(),
+                message: Some(format!("cannot reap child: {error}")),
+                span: Some(span),
+            });
+        }
+    }
+    primary
 }
 
 fn cgroup_runtime_error(error: CgroupError, span: Span) -> RuntimeError {
