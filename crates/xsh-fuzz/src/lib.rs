@@ -16,3 +16,4 @@ pub mod mutate;
 pub mod probes;
 pub mod rng;
 pub mod shrink;
+pub mod ssh;

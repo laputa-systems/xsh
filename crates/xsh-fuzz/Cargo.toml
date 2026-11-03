@@ -12,6 +12,7 @@ rustc-hash = "2.1.3"
 tempfile = "3"
 xsh = { path = "../..", default-features = false, features = ["net", "tools"] }
 xsh-registry = { path = "../xsh-registry" }
+xsh-ssh = { path = "../xsh-ssh" }
 xsht = { path = "../xsht" }
 
 [[bin]]

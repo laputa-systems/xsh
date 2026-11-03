@@ -2334,6 +2334,7 @@ dependencies = [
  "tempfile",
  "xsh",
  "xsh-registry",
+ "xsh-ssh",
  "xsht",
 ]
 

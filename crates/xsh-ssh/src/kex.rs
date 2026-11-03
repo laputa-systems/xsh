@@ -260,6 +260,11 @@ fn parse_kexinit(payload: &[u8]) -> Result<ServerKexInit, Error> {
     })
 }
 
+/// Parse a server `KEXINIT` payload and negotiate algorithms with it exactly as a client does.
+pub fn negotiate_payload(payload: &[u8], require_strict: bool) -> Result<Algorithms, Error> {
+    negotiate(&parse_kexinit(payload)?, require_strict).map(|negotiated| negotiated.names)
+}
+
 fn first_common(
     client: &[&str],
     server: &[String],

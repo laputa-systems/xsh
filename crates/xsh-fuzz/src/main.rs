@@ -8,6 +8,7 @@ use xsh_fuzz::harness::Sandbox;
 const USAGE: &str = "usage: xsh-fuzz [check|run|all] [OPTIONS]
        xsh-fuzz probes
        xsh-fuzz print SEED
+       xsh-fuzz ssh [--seed N] [--iterations N] [--duration SECS]
 
 modes:
   check   generate well-typed programs (must check), mutate them and corpus
@@ -29,6 +30,9 @@ options:
   --shard-size N    iterations per worker process (default 500; 0 = this process)
   --worker-memory M kill a worker process above M MiB (default 384)
   --no-shrink       write failures without minimizing them
+
+ssh fuzzes the native SSH client's packet decoder and parsers in this process
+(default 60 seconds); a failure reproduces with --seed N --iterations 1.
 
 Each program runs in its own child, killed above 256 MiB or after
 --timeout; each worker process handles one batch and exits, so at most
@@ -56,6 +60,28 @@ fn main() {
             args.next();
             let script = args.next().unwrap_or_else(|| fail("exec needs a script"));
             xsh_fuzz::harness::exec_worker(std::path::Path::new(&script));
+        }
+        Some("ssh") => {
+            args.next();
+            let mut options = default_options(Mode::Check);
+            parse_options(&mut args, &mut options);
+            let duration = match (options.iterations, options.duration) {
+                (None, None) => Some(Duration::from_secs(60)),
+                (_, duration) => duration,
+            };
+            let started = Instant::now();
+            let summary = xsh_fuzz::ssh::run(options.seed, options.iterations, duration);
+            for failure in &summary.failures {
+                eprintln!("FAIL {failure}");
+            }
+            eprintln!(
+                "xsh-fuzz ssh: {} iterations from seed {}, {} failures in {:.1}s",
+                summary.iterations,
+                options.seed,
+                summary.failures.len(),
+                started.elapsed().as_secs_f64()
+            );
+            std::process::exit(i32::from(!summary.failures.is_empty()));
         }
         Some("print") => {
             args.next();
