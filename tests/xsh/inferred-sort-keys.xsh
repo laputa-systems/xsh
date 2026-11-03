@@ -33,3 +33,24 @@ test inferred_sort_keys_wait_for_the_body_result_context {
   assert rows[0].revision == null
   assert rows[1].revision == null
 }
+
+type DynamicSortRow = {value: Any, revision: Str?, rank: Int}
+
+pure sorted_dynamic_rows(value: Any) -> List[DynamicSortRow] {
+  var rows = []
+  for rank in [2, 1] {
+    rows += [{value, revision: null, rank}]
+  }
+  rows |> sort-by .rank
+}
+
+test inferred_sort_keys_preserve_nullable_siblings_of_any_fields {
+  let rows = sorted_dynamic_rows("kept")
+  assert rows.len() == 2
+  assert rows[0].rank == 1
+  assert rows[1].rank == 2
+  assert rows[0].revision == null
+  assert rows[1].revision == null
+  assert rows[0].value.require(Str)? == "kept"
+  assert rows[1].value.require(Str)? == "kept"
+}

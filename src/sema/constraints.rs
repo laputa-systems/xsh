@@ -825,7 +825,7 @@ impl TypeConstraints {
         }
     }
 
-    fn commit_constraint_transaction<T, E>(
+    pub(crate) fn commit_constraint_transaction<T, E>(
         &mut self,
         operation: impl FnOnce(&mut Self) -> Result<T, E>,
     ) -> Result<T, E> {
@@ -2806,7 +2806,7 @@ impl TypeConstraints {
         }
     }
 
-    fn bind_record(
+    pub(crate) fn bind_record(
         &mut self,
         id: TypeVariableId,
         shape: &RowShape,
