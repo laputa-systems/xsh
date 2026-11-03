@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 837
+**State:** `formal/coverage.json` is the only inventory. It lists 838
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -820,6 +820,12 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   bounds, sibling binder reuse, nominal identity and incompatible propagation.
   Statement tails outside the selected domain report unsupported. General
   typing/progress, source modules, Rust facts and raw-IR simulation remain open.
+
+
+- 2026-11-03: Scheme-valued builtins now dispatch after read-time instantiation;
+  a connected Ok call exercises the actual read, argument evaluation and call
+  transitions. Independent source review found no further concrete defect in
+  the reviewed fixes; general progress, effects and Rust/IR links stay open.
 
 ## For the owner afterwards
 

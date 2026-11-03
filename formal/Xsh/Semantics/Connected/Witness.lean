@@ -329,4 +329,33 @@ theorem unsupported_non_tail_value_does_not_abort_machine (state : Machine) :
     refine .next (Step.integer { state with stack := .returnValue :: state.stack } "3" integerThree (by decide +kernel)) ?_
     exact .next (Step.returnValue state _) (.done _)
 
+
+def okArguments : List (Variable × MonoType) :=
+  [(identityVariable, .primitive .integer), (resultValueVariable, .primitive .string)]
+
+theorem scheme_valued_ok_dispatches_after_read (state : Machine) (binder : BinderId)
+    (declaration : DeclarationId)
+    (foundValue : Connected.read state.store state.cells binder = some (.schemeFunction declaration okScheme))
+    (foundFunction : state.functions declaration = some .resultOk) :
+    Execution { state with control := .expression (.call (.read binder okArguments) [.integer "1"]) }
+      [.internal, .internal, .internal, .internal, .internal, .internal]
+      { state with control := .value (.ok (.scalar (.integer intOne)) .string) } := by
+  let target : Value := .instantiatedFunction declaration (.argument .integer .argumentsEmpty)
+    (.result .integer .string) state.solution okArguments
+  let withTarget := { state with stack := .callTarget [.integer "1"] :: state.stack }
+  let withArgument := { state with stack := .callArguments target [] [] :: state.stack }
+  have instantiates : instantiateFunction state.solution okScheme okArguments =
+      some (.argument .integer .argumentsEmpty, .result .integer .string, okArguments) := by
+    have different : ((⟨1, .value⟩ : Variable) == ⟨0, .value⟩) = false := by decide
+    simp [instantiateFunction, okArguments, instantiationKeysValid, instantiationSortsValid,
+      witnessSubstitution, schemeSubstitution, okScheme, identityVariable, resultValueVariable,
+      substitute, checksConstraints, checksWellFormed, typeSort, VariableKind.sort, monoRuntime, List.lookup, different]
+  refine .next (Step.callStart state (.read binder okArguments) [.integer "1"]) ?_
+  refine .next (Step.readFunction withTarget binder okArguments declaration okScheme _ _ okArguments foundValue instantiates) ?_
+  refine .next (Step.callFirstArgument state target (.integer "1") []) ?_
+  refine .next (Step.integer withArgument "1" intOne (by decide +kernel)) ?_
+  refine .next (Step.callArgumentsComplete state target (.scalar (.integer intOne)) []) ?_
+  exact .next (Step.callOkInstantiated state declaration (.scalar (.integer intOne)) .integer .string
+    state.solution okArguments foundFunction rfl) (.done _)
+
 end Xsh.Semantics.Connected

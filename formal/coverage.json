@@ -11269,6 +11269,15 @@
       "status": "fragment",
       "scope": "A constructed named-record require with a wrong field type is statically admitted and evaluates to an error Result; omitting its guard is rejected.",
       "boundary": "The source, schema and machine table are Lean inputs. This is not Rust execution or a source-byte projection."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scheme_valued_ok_dispatches_after_read",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.scheme_valued_ok_dispatches_after_read",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scheme-valued Ok binding instantiates on read and dispatches through argument evaluation to a Result value.",
+      "boundary": "The function table and stored scheme are assumptions; this is not general progress or Rust runtime correspondence."
     }
   ],
   "artifact_certificates": [

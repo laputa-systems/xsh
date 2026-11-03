@@ -462,6 +462,23 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .invoke (.function declaration (.argument errorType .argumentsEmpty)
         (.result valueType' errorType)) [value] } .internal
         { state with control := .value (.error value valueType') }
+  | callOkInstantiated (state : Machine) (declaration : DeclarationId) (value : Value)
+      (valueType' errorType : RuntimeType) (captured : Substitution) (typeArguments : List (Variable × MonoType))
+      (found : state.functions declaration = some .resultOk) (typed : valueType value = some valueType') :
+      Step { state with control := .invoke (.instantiatedFunction declaration (.argument valueType' .argumentsEmpty)
+        (.result valueType' errorType) captured typeArguments) [value] } .internal
+        { state with control := .value (.ok value errorType) }
+  | callErrorInstantiated (state : Machine) (declaration : DeclarationId) (value : Value)
+      (valueType' errorType : RuntimeType) (captured : Substitution) (typeArguments : List (Variable × MonoType))
+      (found : state.functions declaration = some .resultError) (typed : valueType value = some errorType) :
+      Step { state with control := .invoke (.instantiatedFunction declaration (.argument errorType .argumentsEmpty)
+        (.result valueType' errorType) captured typeArguments) [value] } .internal
+        { state with control := .value (.error value valueType') }
+  | callTimeInstantiated (state : Machine) (declaration : DeclarationId) (captured : Substitution)
+      (typeArguments : List (Variable × MonoType)) (response : IntValue)
+      (found : state.functions declaration = some .timeNow) :
+      Step { state with control := .invoke (.instantiatedFunction declaration .argumentsEmpty .integer captured typeArguments) [] }
+        (.request .timeNow response) { state with control := .value (.scalar (.integer response)) }
   | callTime (state : Machine) (declaration : DeclarationId) (response : IntValue)
       (found : state.functions declaration = some .timeNow) :
       Step { state with control := .invoke (.function declaration .argumentsEmpty .integer) [] } (.request .timeNow response)
