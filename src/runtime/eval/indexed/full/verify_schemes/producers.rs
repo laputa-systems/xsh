@@ -5261,7 +5261,9 @@ impl<'a> ProducerProof<'a> {
                     { return Err(IrVerifyError::new("contextual aggregate read disagrees with its consumer contract")); }
                 }
                 let decoder = self.owner(owner)?;
-                if let Some(context) = self.need_context(&decoder, source)? && context != expected {
+                if let Some(context) = self.need_context(&decoder, source)? && context != expected
+                    && !map_literal_takes_contract(self.store.tags[source], &context, &expected)
+                {
                     return Err(IrVerifyError::new("contextual aggregate hint disagrees with its consumer contract"));
                 }
                 self.expression(owner, source, expected, false);
@@ -5401,7 +5403,7 @@ impl<'a> ProducerProof<'a> {
         if (matches!(aggregate, Type::List(_) | Type::Map(_, _)) || matches!(aggregate, Type::Record(_)) && actual.is_none())
             && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
             && let Some(source) = self.deferrable_aggregate_source(&decoder, instruction, aggregate)?
-            && self.declared_type(&decoder, source)?.is_none()
+            && (self.declared_type(&decoder, source)?.is_none() || self.registered_map_literal_contract(&decoder, instruction, slot, source, aggregate)?)
         {
             let binding = self.binding(owner, instruction, slot)?;
             self.deferred_sources.insert((owner, binding), source);
@@ -7139,11 +7141,11 @@ impl<'a> ProducerProof<'a> {
             None => None,
         };
         let Some(source) = source else { return Ok(false) };
-        if self.declared_type(decoder, source)?.is_some() { return Ok(false); }
+        if !self.source_awaits_consumer_contract(decoder, source, expected)? { return Ok(false); }
         if !matches!((self.store.tags[source], expected),
             (FullTag::ExprList | FullTag::ExprListBuild, Type::List(_)) | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprModuleCall, Type::Map(_, _)) | (FullTag::ExprRecord, Type::Record(_)) | (FullTag::ExprValueBlock, Type::List(_)) | (FullTag::ExprPreparedConstant, Type::List(_) | Type::Map(_, _) | Type::Record(_)))
         { return Err(IrVerifyError::new("contextual aggregate argument has an incompatible consumer contract")); }
-        if matches!(expected, Type::Map(_, _)) && decoder.is_empty_map_literal_expression(source)? {
+        if matches!(expected, Type::Map(_, _)) && (self.store.tags[source] == FullTag::ExprMapLiteral || decoder.is_empty_map_literal_expression(source)?) {
             ensure_closed_type(expected)?;
         } else { ensure_producer_context_type(self.store.tags[source], expected)?; }
         let binding = self.binding(decoder.owner, argument, slot)?;
@@ -7713,6 +7715,18 @@ impl<'a> ProducerProof<'a> {
         let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
         if !decoder.is_empty_map_module_call(value.raw() as usize)? { return Ok(None); }
         Ok(self.checked_match_binding(decoder, parent)?.filter(|(actual, _)| *actual == binding).map(|(_, source)| source))
+    }
+
+    fn registered_map_literal_contract(&mut self, decoder: &FullDecoder<'a>, instruction: usize, slot: usize, source: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        let binding = self.binding(decoder.owner, instruction, slot)?;
+        Ok(self.contextual_sources.contains_key(&(decoder.owner, binding)) && self.source_awaits_consumer_contract(decoder, source, expected)?)
+    }
+
+    fn source_awaits_consumer_contract(&mut self, decoder: &FullDecoder<'a>, source: usize, expected: &Type) -> Result<bool, IrVerifyError> {
+        Ok(match self.declared_type(decoder, source)? {
+            None => true,
+            Some(declared) => map_literal_takes_contract(self.store.tags[source], &declared, expected),
+        })
     }
 
     fn deferrable_aggregate_source(&mut self, decoder: &FullDecoder<'a>, argument: usize, expected: &Type) -> Result<Option<usize>, IrVerifyError> {
@@ -8869,6 +8883,12 @@ fn comp_slot_type(target: super::super::decode::CompTargetView<'_>, slot: usize,
         current = next;
     }
     Ok(Some(current.clone()))
+}
+
+fn map_literal_takes_contract(tag: FullTag, declared: &Type, expected: &Type) -> bool {
+    tag == FullTag::ExprMapLiteral
+        && matches!(declared.unvalidated(), Type::Map(_, _))
+        && matches!(expected.unvalidated(), Type::Map(_, _))
 }
 
 fn optional_aggregate_payload(expected: &Type) -> &Type {

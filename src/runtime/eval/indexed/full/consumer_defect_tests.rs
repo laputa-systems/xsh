@@ -119,44 +119,44 @@ fn conditional_with_an_empty_map_arm_keeps_dynamic_values_for_empty_maps_only() 
     );
 }
 
-fn build_error(name: &str, source: &str) -> String {
-    let module_roots = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("core")];
-    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
-        name,
-        crate::loader::entry_source_from_text(name, source.to_owned()),
-        module_roots,
+#[test]
+fn named_map_literals_take_a_dynamic_map_contract_like_positional_ones() {
+    for (name, source) in [
+        ("named-empty-map-argument.xsh", "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\npure named() -> Int { size(vars: {}) }\nassert named() == 0\n"),
+        ("named-populated-map-argument.xsh", "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\npure named() -> Int { size(vars: {[\"k\"]: 1}) }\nassert named() == 1\n"),
+        ("named-nested-dynamic-map-argument.xsh", "pure size(vars: Map[Str, List[Any]]) -> Int { vars.len() }\npure named() -> Int { size(vars: {[\"k\"]: []}) }\nassert named() == 1\n"),
+        ("positional-populated-map-argument.xsh", "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\npure named() -> Int { size({[\"k\"]: 1}) }\nassert named() == 1\n"),
+    ] {
+        FullVerifier::verify(&checked_program(name, source)).unwrap();
+    }
+}
+
+const NAMED_POPULATED_MAP: &str = "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\n\
+pure named() -> Int { size(vars: {[\"k\"]: 1}) }\n\
+assert named() == 1\n";
+
+#[test]
+fn named_populated_map_reaches_a_dynamic_map_only_through_a_map_contract() {
+    let program = checked_program("named-populated-map.xsh", NAMED_POPULATED_MAP);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function_index(&program, "size");
+    let forged = reissued(&program, owner, |callable| {
+        callable.params[0].ty = Type::List(Box::new(Type::Any));
+    });
+    assert_eq!(
+        FullVerifier::verify(&forged).unwrap_err().message,
+        "ground producer value disagrees with its checked contract",
     );
-    let source_id = sources.files().first().map(crate::source::SourceFile::id).expect("entry source is present");
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let checked = crate::sema::check::Checker::check_arena_with_sources_and_options(
-        &parsed.arena,
-        &sources,
-        source_id,
-        crate::sema::check::CheckOptions { reveal_types: true, embedded_bodies: true, ..crate::sema::check::CheckOptions::default() },
-    );
-    let declarations = crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
-    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-    let error = FullBuilder::build_compact(&parsed.arena, &declarations, source, Arc::new(sources), source_id)
-        .expect_err("source should fail full IR verification");
-    format!("{error:?}")
 }
 
 #[test]
-fn named_empty_map_argument_takes_a_dynamic_map_contract_but_a_populated_literal_does_not() {
-    let program = checked_program(
-        "named-empty-map-argument.xsh",
-        "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\n\
-         pure named() -> Int { size(vars: {}) }\n\
-         assert named() == 0\n",
-    );
-    FullVerifier::verify(&program).unwrap();
-    let message = build_error(
-        "named-populated-map-argument.xsh",
-        "pure size(vars: Map[Str, List[Any]]) -> Int { vars.len() }\n\
-         pure named() -> Int { size(vars: {[\"k\"]: []}) }\n\
-         assert named() == 1\n",
-    );
-    assert!(message.contains("generic call substitution contains dynamic type Map[List[Any]]"), "{message}");
+fn named_populated_map_source_must_stay_a_map_literal() {
+    let program = checked_program("named-populated-map-source.xsh", NAMED_POPULATED_MAP);
+    let owner = function_index(&program, "named");
+    let literal = instruction_with_tag(&program, owner, FullTag::ExprMapLiteral, 0);
+    let mut forged = program.clone();
+    forged.store.tags[literal] = FullTag::ExprList;
+    assert!(FullVerifier::verify(&forged).is_err());
 }
 
 const FINISHING_ARMS: &str = "proc ready(x: Int) -> Result[Int, Error] { Ok(x) }\n\

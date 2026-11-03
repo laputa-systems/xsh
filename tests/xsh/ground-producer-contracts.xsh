@@ -445,3 +445,18 @@ print $finished
   assert output.success, output.stderr
   assert output.stdout == "doubled 4\nfine\ntrue\ntrue\ntrue\n"
 }
+
+test test_populated_map_argument_reaches_a_dynamic_map_parameter_by_name { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""pure size(w: Map[Str, Any]) -> Int {
+  w.len()
+}
+let named = size(w: {["a"]: 1})
+let positional = size({["a"]: 1})
+print f"{named} {positional}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "1 1\n"
+}
