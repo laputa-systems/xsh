@@ -26,7 +26,7 @@ out of scope.
 
 - **Area:** Performance
 - **Where:** `dev/util-linux/resources.py:1632`, `dev/util-linux/acceptance.py:926`
-- **Problem:** Final private/resource qualification remains unrun on the current frozen source. The scheduler comparison failed, so composed baseline close cannot proceed.
+- **Problem:** Final private/resource qualification remains open on current source. The historical scheduler comparison failed, so composed baseline close cannot proceed.
 - **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks.
 - **Fix with:** benchmark-checklist
 - **Effort:** S
