@@ -837,6 +837,11 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   independently checked concrete call instance also validates its body against
   the composed solution, including an executable finite substitution sort check;
   generic-body typing for all qualified instances is open.
+  A pinned Rust probe of `project(value) { value.amount }` published a
+  body-span scheme with two type parameters and a Field operation requirement,
+  not a row parameter. Its call supplied a ground record and a selected Field
+  binding; the effect contract was unknown. Field-operation correspondence and
+  a separate actual row/lacks witness remain open.
 
 ## For the owner afterwards
 
