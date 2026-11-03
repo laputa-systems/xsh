@@ -24,6 +24,7 @@ pub(super) struct SealedMethods {
     watchers: BTreeMap<ApplicationDependency, BTreeSet<SealedMethodId>>,
     pending: VecDeque<SealedMethodId>,
     queued: BTreeSet<SealedMethodId>,
+    abandoned: BTreeSet<SealedMethodId>,
     source_sites: BTreeMap<(super::CallableApplicationScope, Span), SealedMethodId>,
 }
 
@@ -54,6 +55,7 @@ impl SealedMethods {
             + self.watchers.values().map(|ids| ids.len() * size_of::<SealedMethodId>()).sum::<usize>()
             + self.pending.capacity() * size_of::<SealedMethodId>()
             + self.queued.len() * size_of::<SealedMethodId>()
+            + self.abandoned.len() * size_of::<SealedMethodId>()
     }
 
     pub(super) fn rollback(&mut self, change: MethodChange) {
@@ -75,7 +77,7 @@ impl SealedMethods {
     }
 
     fn enqueue(&mut self, id: SealedMethodId, changes: &mut Vec<ConstraintChange>) {
-        if self.queued.insert(id) {
+        if !self.abandoned.contains(&id) && self.queued.insert(id) {
             self.pending.push_back(id);
             changes.push(ConstraintChange::Method(MethodChange::Queued(id)));
         }
@@ -106,6 +108,15 @@ impl SealedMethods {
 }
 
 impl TypeConstraints {
+    pub(crate) fn abandon_method_families(&mut self, ids: &[SealedMethodId]) {
+        for id in ids {
+            self.methods.abandoned.insert(*id);
+            self.methods.queued.remove(id);
+        }
+        let abandoned = &self.methods.abandoned;
+        self.methods.pending.retain(|id| !abandoned.contains(id));
+    }
+
     pub(crate) fn register_method_family(
         &mut self,
         owner: super::CallableApplicationScope,

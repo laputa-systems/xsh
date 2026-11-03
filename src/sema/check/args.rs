@@ -340,6 +340,8 @@ impl Checker {
             Err(error) => {
                 if let Some((_, instantiated)) = &contract.instantiation {
                     self.type_constraints.abandon_callable_applications(&instantiated.requirements.applications);
+                    self.type_constraints.abandon_method_families(&instantiated.requirements.methods);
+                    self.type_constraints.abandon_sealed_operations(&instantiated.requirements.operations);
                 }
                 if let Err(error) = self.type_constraints.reject_constructor_arguments(constructor_arguments) {
                     self.error(span, &format!("constructor argument scope cannot close: {error:?}"), DiagnosticCode::CheckLocalInference);
