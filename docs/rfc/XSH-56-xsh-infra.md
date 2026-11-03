@@ -1,8 +1,12 @@
 # XSH-56: xsh-infra, configuration management written in XSH
 
-Status: planned. Starts after [XSH-55](XSH-55-native-ssh-client.md) delivers
-its native SSH contract; pure planner and resource work may start earlier. See
-the [roadmap](../ROADMAP.md#sequence).
+Status: implemented in the local `xsh-infra` repository over the native
+client, against Alpine 3.22 OpenSSH containers, with XSH pinned at
+`84ee78f06`. Open: native macOS (deferred), a full-init Alpine VM, a
+Laputa/xinit adapter, pyinfra differential coverage beyond directory, file,
+symlink, user and group, and parallel connection setup, which waits on
+[XSH-55](XSH-55-native-ssh-client.md) letting a worker hand a session to its
+enclosing scope. See the [roadmap](../ROADMAP.md#sequence).
 
 ## Summary
 
