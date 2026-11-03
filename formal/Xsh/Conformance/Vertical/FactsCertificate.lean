@@ -172,7 +172,8 @@ theorem changed_bytes_are_not_certified :
   obtain ⟨h1, h2, h3, h4⟩ := changed_fact_documents_decode
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   all_goals
-    simp only [certifiesFacts, calls_artifact_is_the_decoded_source_document, h1, h2, h3, h4,
+    simp only [certifiesFacts, calls_artifact_is_the_decoded_source_document,
+      the_calls_emitted_facts_are_the_decoded_document, h1, h2, h3, h4,
       the_calls_source_parses_to_the_calls_functions]
     decide +kernel
 
