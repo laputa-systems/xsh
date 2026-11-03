@@ -475,6 +475,8 @@ limits on the specified host.
 
 ### Connected milestone (successor Phase F)
 
+The in-progress connected path checks independently generated qualified schemes and supported function bodies for every well-sorted solution of their requirements. Acceptance also requires an explicit ground solution, so inconsistent residual field requirements cannot certify an uncalled body. A test-only Rust export supplies a generic projection scheme, its sparse expression facts, selected field operation, call instantiation, and source-scoped function identities; Lean checks its captured bytes and rejects mutations, including a concrete type substituted for a symbolic one. The parser projection is limited to the supported source subset and is not yet proved equivalent to Rust parsing. Effects, general sparse body facts, structural raw-IR validation, machine preservation and progress, execution observations, and fault blame remain open. This work has not received a new source freeze or the final fresh conformance and kernel checks.
+
 The integrator owns this milestone and composes slices from G1, G1b, G2 and G3
 interfaces, G4, G7b, G8, and the fact validator; it opens no new formal domain.
 Its path is resolved lexical names, constraints, substitutions and schemes,

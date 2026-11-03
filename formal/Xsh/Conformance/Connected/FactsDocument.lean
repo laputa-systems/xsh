@@ -54,6 +54,7 @@ structure BodyDocument where
   tailTypes : List (Nat × SourceSite × MonoType)
   readBindings : List ReadBinding
   resolvedReads : List (Nat × ReadBinding)
+  resolvedTails : List (Nat × ReadBinding)
   operationSites : List (Nat × Nat)
   deriving DecidableEq
 
@@ -67,45 +68,46 @@ structure CallDocument where
   deriving DecidableEq
 
 structure FactsDocument where
+  functions : List FunctionTarget
   bodies : List BodyDocument
   calls : List CallDocument
   deriving DecidableEq
 
-private def textField (fields : List (String × WireValue)) (name : String) : Option String :=
+def textField (fields : List (String × WireValue)) (name : String) : Option String :=
   (WireValue.field? fields name).bind WireValue.text?
 
-private def wordField (fields : List (String × WireValue)) (name : String) : Option Nat := do
+def wordField (fields : List (String × WireValue)) (name : String) : Option Nat := do
   pure (← (textField fields name).bind decodeHex32?).val
 
-private def listField (fields : List (String × WireValue)) (name : String)
+def listField (fields : List (String × WireValue)) (name : String)
     (decode : WireValue → Option α) : Option (List α) :=
   ((WireValue.field? fields name).bind WireValue.items?).bind fun items => items.mapM decode
 
-private def boolField (fields : List (String × WireValue)) (name : String) : Option Bool :=
+def boolField (fields : List (String × WireValue)) (name : String) : Option Bool :=
   match textField fields name with
   | some "true" => some true
   | some "false" => some false
   | _ => none
 
-private def optionalText (fields : List (String × WireValue)) (name : String) : Option (Option String) := do
+def optionalText (fields : List (String × WireValue)) (name : String) : Option (Option String) := do
   let values ← listField fields name WireValue.text?
   match values with
   | [] => some none
   | [value] => some (some value)
   | _ => none
 
-private def site (value : WireValue) : Option SourceSite := do
+def site (value : WireValue) : Option SourceSite := do
   let fields ← value.closedObject? ["source", "start", "length"]
   pure ⟨← wordField fields "source", ← wordField fields "start", ← wordField fields "length"⟩
 
-private def siteField (fields : List (String × WireValue)) (name : String) : Option SourceSite :=
+def siteField (fields : List (String × WireValue)) (name : String) : Option SourceSite :=
   (WireValue.field? fields name).bind site
 
 abbrev NameMap := String → Option NameId
 abbrev VariableMap := Nat → Option Variable
 
 mutual
-  private def decodeType : Nat → NameMap → VariableMap → WireValue → Option MonoType
+  def decodeType : Nat → NameMap → VariableMap → WireValue → Option MonoType
     | 0, _, _, _ => none
     | fuel + 1, names, variables, value => do
       let .object fields := value | none
@@ -142,7 +144,7 @@ mutual
         else none
       | _ => none
 
-  private def decodeTypeField (fuel : Nat) (names : NameMap) (variables : VariableMap)
+  def decodeTypeField (fuel : Nat) (names : NameMap) (variables : VariableMap)
       (value : WireValue) : Option (NameId × MonoType) := do
     let fields ← value.closedObject? ["name", "type"]
     let name ← names (← textField fields "name")
@@ -150,12 +152,12 @@ mutual
     pure (name, ty)
 end
 
-private def decodeRead (value : WireValue) : Option ReadBinding := do
+def decodeRead (value : WireValue) : Option ReadBinding := do
   let fields ← value.closedObject? ["name", "span", "namespace", "global", "exported"]
   pure ⟨← textField fields "name", ← siteField fields "span", ← optionalText fields "namespace",
     ← boolField fields "global", ← boolField fields "exported"⟩
 
-private def decodeEffects (value : WireValue) : Option EffectFact := do
+def decodeEffects (value : WireValue) : Option EffectFact := do
   let fields ← value.closedObject? ["kind", "effects"]
   let effects ← listField fields "effects" WireValue.text?
   match textField fields "kind" with
@@ -163,7 +165,7 @@ private def decodeEffects (value : WireValue) : Option EffectFact := do
   | some "known" => some (.known effects)
   | _ => none
 
-private def decodeOperation (fuel : Nat) (names : NameMap) (variables : VariableMap)
+def decodeOperation (fuel : Nat) (names : NameMap) (variables : VariableMap)
     (value : WireValue) : Option FieldOperation := do
   let fields ← value.closedObject? ["kind", "receiver", "name", "result", "span"]
   if textField fields "kind" = some "field" then pure () else none
@@ -172,33 +174,37 @@ private def decodeOperation (fuel : Nat) (names : NameMap) (variables : Variable
     ← names (← textField fields "name"),
     ← (WireValue.field? fields "result").bind (decodeType fuel names variables)⟩
 
-private def decodeTypedSite (fuel : Nat) (names : NameMap) (variables : VariableMap)
+def decodeTypedSite (fuel : Nat) (names : NameMap) (variables : VariableMap)
     (value : WireValue) : Option (Nat × SourceSite × MonoType) := do
   let fields ← value.closedObject? ["id", "span", "type"]
   pure (← wordField fields "id", ← siteField fields "span",
     ← (WireValue.field? fields "type").bind (decodeType fuel names variables))
 
-private def decodeResolvedRead (value : WireValue) : Option (Nat × ReadBinding) := do
+def decodeResolvedRead (value : WireValue) : Option (Nat × ReadBinding) := do
   let fields ← value.closedObject? ["expression", "binding"]
   pure (← wordField fields "expression", ← (WireValue.field? fields "binding").bind decodeRead)
 
-private def decodeOperationSite (value : WireValue) : Option (Nat × Nat) := do
+def decodeResolvedTail (value : WireValue) : Option (Nat × ReadBinding) := do
+  let fields ← value.closedObject? ["statement", "binding"]
+  pure (← wordField fields "statement", ← (WireValue.field? fields "binding").bind decodeRead)
+
+def decodeOperationSite (value : WireValue) : Option (Nat × Nat) := do
   let fields ← value.closedObject? ["expression", "operation"]
   pure (← wordField fields "expression", ← wordField fields "operation")
 
-private def decodeParameter (fuel : Nat) (names : NameMap) (variables : VariableMap)
+def decodeParameter (fuel : Nat) (names : NameMap) (variables : VariableMap)
     (value : WireValue) : Option (String × MonoType) := do
   let fields ← value.closedObject? ["name", "type"]
   pure (← textField fields "name", ← (WireValue.field? fields "type").bind (decodeType fuel names variables))
 
-private def decodeWord (value : WireValue) : Option Nat := do
+def decodeWord (value : WireValue) : Option Nat := do
   pure (← value.text?.bind decodeHex32?).val
 
-private def decodeBody (fuel : Nat) (names : NameMap) (variables : VariableMap)
+def decodeBody (fuel : Nat) (names : NameMap) (variables : VariableMap)
     (value : WireValue) : Option BodyDocument := do
   let fields ← value.closedObject? ["span", "kind", "typeParameters", "parameters", "result", "explicitReturn",
     "effects", "inferredEffects", "operations", "expressionTypes", "tailTypes", "readBindings",
-    "resolvedReads", "operationSites"]
+    "resolvedReads", "resolvedTails", "operationSites"]
   let kind ← match textField fields "kind" with
     | some "pure" => some CallableKind.pure
     | some "proc" => some CallableKind.proc
@@ -212,24 +218,24 @@ private def decodeBody (fuel : Nat) (names : NameMap) (variables : VariableMap)
     ← listField fields "expressionTypes" (decodeTypedSite fuel names variables),
     ← listField fields "tailTypes" (decodeTypedSite fuel names variables),
     ← listField fields "readBindings" decodeRead, ← listField fields "resolvedReads" decodeResolvedRead,
-    ← listField fields "operationSites" decodeOperationSite⟩
+    ← listField fields "resolvedTails" decodeResolvedTail, ← listField fields "operationSites" decodeOperationSite⟩
 
-private def decodeTarget (value : WireValue) : Option FunctionTarget := do
+def decodeTarget (value : WireValue) : Option FunctionTarget := do
   let fields ← value.closedObject? ["definition", "name", "namespace", "body"]
   pure ⟨← wordField fields "definition", ← textField fields "name", ← optionalText fields "namespace",
     ← siteField fields "body"⟩
 
-private def decodeTypeArgument (fuel : Nat) (names : NameMap) (variables : VariableMap)
+def decodeTypeArgument (fuel : Nat) (names : NameMap) (variables : VariableMap)
     (value : WireValue) : Option (Nat × MonoType) := do
   let fields ← value.closedObject? ["parameter", "type"]
   pure (← wordField fields "parameter", ← (WireValue.field? fields "type").bind (decodeType fuel names variables))
 
-private def decodeBinding (value : WireValue) : Option OperationBinding :=
+def decodeBinding (value : WireValue) : Option OperationBinding :=
   match value.text? with
   | some "field" => some .field
   | _ => none
 
-private def decodeCall (fuel : Nat) (names : NameMap) (variables : VariableMap)
+def decodeCall (fuel : Nat) (names : NameMap) (variables : VariableMap)
     (value : WireValue) : Option CallDocument := do
   let fields ← value.closedObject? ["expression", "span", "role", "target", "typeArguments", "operationBindings"]
   let role ← match textField fields "role" with
@@ -244,26 +250,31 @@ private def decodeCall (fuel : Nat) (names : NameMap) (variables : VariableMap)
 abbrev NameResolver := Nat → NameMap
 abbrev VariableResolver := SourceSite → VariableMap
 
-private def decodeLocatedBody (fuel : Nat) (names : NameResolver) (variables : VariableResolver)
+def decodeLocatedBody (fuel : Nat) (names : NameResolver) (variables : VariableResolver)
     (value : WireValue) : Option BodyDocument := do
   let .object fields := value | none
   let body ← siteField fields "span"
   decodeBody fuel (names body.source) (variables body) value
 
-private def decodeLocatedCall (fuel : Nat) (names : NameResolver) (variables : VariableResolver)
+def decodeLocatedCall (fuel : Nat) (names : NameResolver) (variables : VariableResolver)
     (value : WireValue) : Option CallDocument := do
   let .object fields := value | none
   let call ← siteField fields "span"
   let target ← (WireValue.field? fields "target").bind decodeTarget
   decodeCall fuel (names call.source) (variables target.body) value
 
+def decodeFactsValue (fuel : Nat) (names : NameResolver) (variables : VariableResolver)
+    (value : WireValue) : Option FactsDocument := do
+  let fields ← value.closedObject? ["schema", "functions", "bodies", "calls"]
+  if textField fields "schema" = some "xsh-connected-field-facts-v1" then pure () else none
+  pure ⟨← listField fields "functions" decodeTarget,
+    ← listField fields "bodies" (decodeLocatedBody fuel names variables),
+    ← listField fields "calls" (decodeLocatedCall fuel names variables)⟩
+
 def decodeFactsDocument (fuel : Nat) (names : NameResolver) (variables : VariableResolver)
     (codes : ExchangeCodes) : Option FactsDocument := do
   let value ← parseCodes codes
-  let fields ← value.closedObject? ["schema", "bodies", "calls"]
-  if textField fields "schema" = some "xsh-connected-field-facts-v1" then pure () else none
-  pure ⟨← listField fields "bodies" (decodeLocatedBody fuel names variables),
-    ← listField fields "calls" (decodeLocatedCall fuel names variables)⟩
+  decodeFactsValue fuel names variables value
 
 private def exampleNames : NameMap := fun name =>
   if name = "amount" then some generatedProjectionField
@@ -307,7 +318,8 @@ private def scopedBody (start : String) : WireValue := .object [
   ("explicitReturn", .string "false"),
   ("effects", .object [("kind", .string "unknown"), ("effects", .array [])]),
   ("inferredEffects", .string "false"), ("operations", .array []), ("expressionTypes", .array []),
-  ("tailTypes", .array []), ("readBindings", .array []), ("resolvedReads", .array []), ("operationSites", .array [])]
+  ("tailTypes", .array []), ("readBindings", .array []), ("resolvedReads", .array []),
+  ("resolvedTails", .array []), ("operationSites", .array [])]
 
 theorem scheme_variables_are_scoped_by_body_site :
     (decodeLocatedBody 8 (fun _ _ => none) (fun body id => some ⟨body.start + id, .value⟩)

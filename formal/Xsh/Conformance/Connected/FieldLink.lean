@@ -87,7 +87,7 @@ private def testNames : NameResolver := fun _ name =>
 private def testVariables : VariableResolver := fun _ id => some ⟨id, .value⟩
 private def testBody : BodyDocument :=
   ⟨testSite, .pure, [0, 1], [("value", .variable generatedParameterVariable)],
-    .variable generatedReturnVariable, false, .unknown, false, [projectionOperation], [], [], [], [], []⟩
+    .variable generatedReturnVariable, false, .unknown, false, [projectionOperation], [], [], [], [], [], []⟩
 private def testCall : CallDocument :=
   ⟨0, ⟨0, 55, 20⟩, .call, testTarget,
     [(0, .record (.rowField generatedProjectionField (.primitive .integer)

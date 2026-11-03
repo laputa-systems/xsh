@@ -69,6 +69,7 @@ struct BodyFacts {
     statement_sites: BTreeMap<usize, Span>,
     read_bindings: Vec<ReadBinding>,
     resolved_reads: BTreeMap<usize, ReadBinding>,
+    resolved_tails: BTreeMap<usize, ReadBinding>,
     operation_sites: BTreeMap<usize, u32>,
 }
 
@@ -94,9 +95,16 @@ struct CallFacts {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ConnectedFacts { bodies: Vec<BodyFacts>, calls: Vec<CallFacts> }
+struct ConnectedFacts { functions: Vec<FunctionTarget>, bodies: Vec<BodyFacts>, calls: Vec<CallFacts> }
 
 fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput) -> Result<ConnectedFacts, String> {
+    if !arena.modules.is_empty() || arena.root_nominal_namespace.is_some() {
+        return Err("module-qualified source identity is unsupported".into());
+    }
+    let functions = arena.arena.function_defs.iter().enumerate().map(|(index, definition)| FunctionTarget {
+        definition: index, namespace: None, name: name_text(definition.name),
+        body: arena.arena.span(arena.arena.block(definition.body).span),
+    }).collect::<Vec<_>>();
     if !declarations.function_schemes.is_empty() {
         return Err("qualified function schemes require qualified source identity".into());
     }
@@ -184,6 +192,11 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
                 .map(|binding| (expression, binding)))
             .map(|(expression, binding)| Ok((expression.index(), read_binding(binding)?)))
             .collect::<Result<BTreeMap<_, _>, String>>()?;
+        let resolved_tails = facts.tail_types().keys().filter_map(|statement|
+            declarations.bodies.resolved_bindings.tails.get(statement)
+                .map(|binding| (statement, binding)))
+            .map(|(statement, binding)| Ok((statement.index(), read_binding(binding)?)))
+            .collect::<Result<BTreeMap<_, _>, String>>()?;
         read_bindings.sort_by_key(|binding| (binding.span, binding.name.clone(), binding.namespace.clone()));
         if read_bindings.windows(2).any(|pair| pair[0].span == pair[1].span &&
             pair[0].name == pair[1].name && pair[0].namespace == pair[1].namespace) {
@@ -195,7 +208,7 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
             effects, inferred_effects: scheme.inferred_effects(), operations,
             expression_types: facts.expression_types().iter().map(|(id, ty)| Ok((id.index(), checked_type(ty)?))).collect::<Result<_, String>>()?,
             expression_sites, tail_types: facts.tail_types().iter().map(|(id, ty)| Ok((id.index(), checked_type(ty)?))).collect::<Result<_, String>>()?,
-            statement_sites, read_bindings, resolved_reads, operation_sites,
+            statement_sites, read_bindings, resolved_reads, resolved_tails, operation_sites,
         });
     }
     let mut calls = Vec::new();
@@ -243,7 +256,7 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
         });
     }
     calls.sort_by_key(|call| (call.expression, call.role));
-    Ok(ConnectedFacts { bodies, calls })
+    Ok(ConnectedFacts { functions, bodies, calls })
 }
 
 fn wire_index(index: usize) -> Result<WireValue, String> {
@@ -282,7 +295,16 @@ fn wire_read(binding: &ReadBinding) -> Result<WireValue, String> {
     ]))
 }
 
+fn wire_target(target: &FunctionTarget) -> Result<WireValue, String> {
+    Ok(wire_object([
+        ("definition", wire_index(target.definition)?), ("name", wire_string(&target.name)),
+        ("namespace", WireValue::Array(target.namespace.iter().map(wire_string).collect())),
+        ("body", wire_span(target.body)?),
+    ]))
+}
+
 fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
+    let functions = facts.functions.iter().map(wire_target).collect::<Result<Vec<_>, _>>()?;
     let bodies = facts.bodies.iter().map(|body| {
         let effects = match &body.effects {
             EffectFact::Unknown => wire_object([("kind", wire_string("unknown")), ("effects", WireValue::Array(vec![]))]),
@@ -305,6 +327,9 @@ fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
         let reads = body.resolved_reads.iter().map(|(id, binding)| Ok(wire_object([
             ("expression", wire_index(*id)?), ("binding", wire_read(binding)?),
         ]))).collect::<Result<Vec<_>, String>>()?;
+        let tails_resolved = body.resolved_tails.iter().map(|(id, binding)| Ok(wire_object([
+            ("statement", wire_index(*id)?), ("binding", wire_read(binding)?),
+        ]))).collect::<Result<Vec<_>, String>>()?;
         let sites = body.operation_sites.iter().map(|(id, ordinal)| Ok(wire_object([
             ("expression", wire_index(*id)?), ("operation", wire_string(hex_u32(*ordinal))),
         ]))).collect::<Result<Vec<_>, String>>()?;
@@ -323,18 +348,15 @@ fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
             ("operations", WireValue::Array(operations)), ("expressionTypes", WireValue::Array(expressions)),
             ("tailTypes", WireValue::Array(tails)),
             ("readBindings", WireValue::Array(body.read_bindings.iter().map(wire_read).collect::<Result<_, _>>()?)),
-            ("resolvedReads", WireValue::Array(reads)), ("operationSites", WireValue::Array(sites)),
+            ("resolvedReads", WireValue::Array(reads)), ("resolvedTails", WireValue::Array(tails_resolved)),
+            ("operationSites", WireValue::Array(sites)),
         ]))
     }).collect::<Result<Vec<_>, String>>()?;
     let calls = facts.calls.iter().map(|call| {
         let role = match call.role { InstantiationRole::Call => "call", InstantiationRole::Value => "value" };
         Ok(wire_object([
             ("expression", wire_index(call.expression)?), ("span", wire_span(call.span)?), ("role", wire_string(role)),
-            ("target", wire_object([
-                ("definition", wire_index(call.target.definition)?), ("name", wire_string(&call.target.name)),
-                ("namespace", WireValue::Array(call.target.namespace.iter().map(wire_string).collect())),
-                ("body", wire_span(call.target.body)?),
-            ])),
+            ("target", wire_target(&call.target)?),
             ("typeArguments", WireValue::Array(call.type_arguments.iter().map(|(id, ty)| wire_object([
                 ("parameter", wire_string(hex_u32(*id))), ("type", wire_checked_type(ty)),
             ])).collect())),
@@ -345,6 +367,7 @@ fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
     }).collect::<Result<Vec<_>, String>>()?;
     Ok(wire_object([
         ("schema", wire_string("xsh-connected-field-facts-v1")),
+        ("functions", WireValue::Array(functions)),
         ("bodies", WireValue::Array(bodies)), ("calls", WireValue::Array(calls)),
     ]))
 }
@@ -363,6 +386,20 @@ mod tests {
     use crate::sema::schemes::InstantiationRole;
 
     const SOURCE: &str = "pure project(value) { value.amount }\npure use_project() -> Int { project({amount: 7, enabled: true}) }\nassert use_project() == 7\n";
+
+    #[test]
+    fn polymorphic_tail_read_retains_statement_binding_and_call_types() {
+        let source = "pure identity(value) { value }\npure one() -> Int { identity(1) }\npure truth() -> Bool { identity(true) }\nassert one() == 1\nassert truth()\n";
+        let (_, _, parsed, published) = check_fixture(source).unwrap();
+        let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
+        let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
+        assert!(body.expression_types.is_empty());
+        assert_eq!(body.tail_types.len(), 1);
+        assert_eq!(body.resolved_tails.len(), 1);
+        assert_eq!(body.resolved_tails.values().next().unwrap(), &body.read_bindings[0]);
+        let actual = facts.calls.iter().map(|call| call.type_arguments.get(&0)).collect::<Vec<_>>();
+        assert_eq!(actual, [Some(&CheckedType::Int), Some(&CheckedType::Bool)]);
+    }
 
     #[test]
     fn changing_published_field_sites_and_call_roles_changes_export() {
@@ -413,10 +450,14 @@ mod tests {
         let (_, _, parsed, published) = check_fixture(SOURCE).unwrap();
         let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
         let document = encode_connected_facts(&facts).unwrap();
-        let lean_documents = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
-            "/formal/Xsh/Conformance/Connected/Documents.lean"));
-        assert_eq!(lean_document_from(lean_documents, "connectedFactsCodes").as_deref(), Some(document.as_str()));
+        println!("CONNECTED_FACTS {document}");
+        let lean_documents = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/formal/Xsh/Conformance/Connected/Documents.lean")).unwrap();
+        assert_eq!(lean_document_from(&lean_documents, "connectedFactsCodes").as_deref(), Some(document.as_str()));
         assert_eq!(parse_wire_document(&document).unwrap(), connected_wire(&facts).unwrap());
+        assert_eq!(facts.functions.len(), 2);
+        assert_eq!(facts.functions[0].name, "project");
+        assert_eq!(facts.functions[1].name, "use_project");
         let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
         assert_eq!(body.span.start(), 20);
         assert_eq!(body.span.end(), 36);
@@ -442,6 +483,7 @@ mod tests {
         let [call] = facts.calls.as_slice() else { panic!("one generic call") };
         assert_eq!(call.role, InstantiationRole::Call);
         assert_eq!(call.target.name, "project");
+        assert_eq!(call.target, facts.functions[0]);
         assert_eq!(call.target.body, body.span);
         assert_eq!(call.operation_bindings, [FieldBinding::Selected]);
         assert_eq!(call.type_arguments.get(&1), Some(&CheckedType::Int));
