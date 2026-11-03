@@ -85,15 +85,15 @@ pub(crate) fn runtime_error(error: Error, format: &str, span: Span) -> RuntimeEr
     codec_error(variant, format, error.message().to_string(), error.line(), error.column(), error.offset(), span)
 }
 
-pub(crate) fn decode_json(text: &str, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn decode_json_into<T: DecodeValue>(text: &str, span: Span) -> Result<T, RuntimeError> {
     if text.len() > INPUT_LIMIT {
         return Err(runtime_error(Error::new(ErrorKind::LimitExceeded, "codec input exceeds 64 MiB"), "json", span));
     }
     deser_json::DeserializerConfig::builder().context(decode_context(Format::Json)).build()
-        .from_str::<Decoded>(text).map(|v| v.0).map_err(|e| runtime_error(e, "json", span))
+        .from_str::<Decoded<T>>(text).map(|v| v.0).map_err(|e| runtime_error(e, "json", span))
 }
 
-pub(crate) fn decode_json_bytes(bytes: &[u8], span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn decode_json_bytes<T: DecodeValue>(bytes: &[u8], span: Span) -> Result<T, RuntimeError> {
     if bytes.len() > INPUT_LIMIT {
         return Err(runtime_error(Error::new(ErrorKind::LimitExceeded, "codec input exceeds 64 MiB"), "json", span));
     }
@@ -101,7 +101,7 @@ pub(crate) fn decode_json_bytes(bytes: &[u8], span: Span) -> Result<Value, Runti
         let error = runtime_error(Error::with_offset(ErrorKind::Syntax, "invalid UTF-8", error.valid_up_to()), "json", span);
         RuntimeError::structured("CodecError", "Encoding", error.payload, error.facets, error.message).with_span(span)
     })?;
-    decode_json(text, span)
+    decode_json_into(text, span)
 }
 
 pub(crate) fn drive_text<'de>(
@@ -124,13 +124,13 @@ pub(crate) fn drive_text<'de>(
     }
 }
 
-pub(crate) fn decode_table(format: Format, text: &str, span: Span) -> Result<Value, RuntimeError> {
+fn decode_table_into<T: DecodeValue>(format: Format, text: &str, span: Span) -> Result<T, RuntimeError> {
     let mut output = None;
     let mut driver = DeserializeDriver::from_fn(|state| Decoded::deserialize_into(&mut output, state));
     drive_text(format, text, &mut driver, span)?;
     drop(driver);
     output
-        .map(|decoded: Decoded| decoded.0)
+        .map(|decoded: Decoded<T>| decoded.0)
         .ok_or_else(|| failure("Syntax", format.identifier(), "table input produced no value", span))
 }
 
@@ -142,19 +142,62 @@ pub(crate) fn encode_table<T: deser::Serialize + ?Sized>(
     table::encode(format, value, table::EncodeOptions::defaults(format), span)
 }
 
-pub(crate) struct Decoded(pub(crate) Value);
-struct DecodeSink<'a> {
-    out: &'a mut Option<Decoded>,
-    value: Option<Value>,
-    key: Option<MapKey>,
-    slot: Option<Decoded>,
+pub(crate) enum DecodedAtom {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Float(FloatValue),
+    Str(Arc<str>),
+    Bytes(Vec<u8>),
 }
 
-fn decoded_float(value: f64, format: Format) -> Result<Value, Error> {
+pub(crate) trait DecodeValue: Sized + Send {
+    fn atom(value: DecodedAtom) -> Self;
+    fn list(values: Vec<Self>) -> Self;
+    fn record(fields: std::collections::BTreeMap<Arc<str>, Self>, state: &mut State) -> Self;
+}
+
+impl DecodeValue for Value {
+    fn atom(value: DecodedAtom) -> Self {
+        match value {
+            DecodedAtom::Null => Self::Null,
+            DecodedAtom::Bool(value) => Self::Bool(value),
+            DecodedAtom::Int(value) => Self::Int(value),
+            DecodedAtom::Float(value) => Self::Float(value),
+            DecodedAtom::Str(value) => Self::Str(value),
+            DecodedAtom::Bytes(value) => Self::Bytes(value),
+        }
+    }
+    fn list(values: Vec<Self>) -> Self { Self::List(values) }
+    fn record(fields: std::collections::BTreeMap<Arc<str>, Self>, state: &mut State) -> Self {
+        state.get_mut::<crate::symbol::SymbolOwner>().with_current(|| {
+            Self::Record(RecordMap::from_name_values(
+                fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
+            ))
+        })
+    }
+}
+
+pub(crate) struct Decoded<T: DecodeValue = Value>(pub(crate) T);
+
+enum DecodeContainer<T> {
+    Atom(T),
+    List(Vec<T>),
+    Record(std::collections::BTreeMap<Arc<str>, T>),
+}
+
+struct DecodeSink<'a, T: DecodeValue> {
+    out: &'a mut Option<Decoded<T>>,
+    value: Option<DecodeContainer<T>>,
+    key: Option<MapKey>,
+    slot: Option<Decoded<T>>,
+}
+
+fn decoded_float(value: f64, format: Format) -> Result<DecodedAtom, Error> {
     if !value.is_finite() { return Err(Error::new(ErrorKind::OutOfRange, "non-finite number")); }
     if format == Format::Json && value.fract() == 0.0 && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&value) && (value as i64) as f64 == value {
-        Ok(Value::Int(value as i64))
-    } else { Ok(Value::Float(FloatValue::new(value))) }
+        Ok(DecodedAtom::Int(value as i64))
+    } else { Ok(DecodedAtom::Float(FloatValue::new(value))) }
 }
 
 pub(crate) fn charge_scalar_bytes(total: &mut usize, event: &deser::Event<'_>) -> Result<(), Error> {
@@ -170,17 +213,19 @@ pub(crate) fn charge_scalar_bytes(total: &mut usize, event: &deser::Event<'_>) -
     Ok(())
 }
 
-impl DecodeSink<'_> {
+impl<T: DecodeValue> DecodeSink<'_, T> {
     fn flush(&mut self) -> Result<(), Error> {
         if let Some(Decoded(child)) = self.slot.take() {
             match self.value.as_mut() {
-                Some(Value::List(items)) => items.push(child),
-                Some(Value::Record(fields)) => {
+                Some(DecodeContainer::List(items)) => items.push(child),
+                Some(DecodeContainer::Record(fields)) => {
                     let MapKey::Str(key) = self.key.take().expect("decoded object key") else { return Err(Error::new(ErrorKind::UnsupportedType, "textual object keys must be strings")); };
-                    if fields.get(&key).is_some() {
-                        return Err(Error::new(ErrorKind::DuplicateKey, format!("duplicate key `{key}`")));
+                    match fields.entry(key) {
+                        std::collections::btree_map::Entry::Occupied(entry) => {
+                            return Err(Error::new(ErrorKind::DuplicateKey, format!("duplicate key `{}`", entry.key())));
+                        }
+                        std::collections::btree_map::Entry::Vacant(entry) => { entry.insert(child); }
                     }
-                    fields.insert(key, child);
                 }
                 _ => return Err(Error::new(ErrorKind::InvalidState, "decoded child without container")),
             }
@@ -189,42 +234,43 @@ impl DecodeSink<'_> {
     }
 }
 
-impl<'de> Deserialize<'de> for Decoded {
+impl<'de, T: DecodeValue> Deserialize<'de> for Decoded<T> {
     fn deserialize_into<'out>(out: &'out mut Option<Self>, state: &mut State) -> SinkHandle<'out, 'de> {
         SinkHandle::arena(DecodeSink { out, value: None, key: None, slot: None }, state)
     }
 }
 
-impl<'de> Sink<'de> for DecodeSink<'_> {
+impl<'de, T: DecodeValue> Sink<'de> for DecodeSink<'_, T> {
     fn atom(&mut self, atom: Atom, state: &mut State) -> Result<(), Error> {
         let format = *state.get::<Format>().expect("codec decode format");
         let atom = match atom { Atom::Implicit(value) => value.value().to_atom(), other => other };
-        self.value = Some(match atom {
-            Atom::Null => Value::Null,
-            Atom::Bool(v) => Value::Bool(v),
-            Atom::I64(v) => Value::Int(v),
-            Atom::U64(v) => Value::Int(i64::try_from(v).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?),
+        let value = match atom {
+            Atom::Null => DecodedAtom::Null,
+            Atom::Bool(v) => DecodedAtom::Bool(v),
+            Atom::I64(v) => DecodedAtom::Int(v),
+            Atom::U64(v) => DecodedAtom::Int(i64::try_from(v).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?),
             Atom::F64(v) => decoded_float(v, format)?,
             Atom::F32(v) => decoded_float(f64::from(v), format)?,
-            Atom::Str(v) | Atom::Lexical(v) => Value::Str(v.as_ref().into()),
-            Atom::Bytes(v) if format.supports_bytes() => Value::Bytes(v.into_owned()),
+            Atom::Str(v) | Atom::Lexical(v) => DecodedAtom::Str(v.as_ref().into()),
+            Atom::Bytes(v) if format.supports_bytes() => DecodedAtom::Bytes(v.into_owned()),
             Atom::Ext(v) => {
                 if let Some(number) = v.downcast_value_ref::<deser::ext::Number>() {
                     if number.is_integer() { return Err(Error::new(ErrorKind::OutOfRange, "integer exceeds i64")); }
                     decoded_float(number.value(), format)?
                 } else if let Some(&integer) = v.downcast_ref::<i128>() {
-                    Value::Int(i64::try_from(integer).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?)
+                    DecodedAtom::Int(i64::try_from(integer).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?)
                 } else if let Some(&integer) = v.downcast_ref::<u128>() {
-                    Value::Int(i64::try_from(integer).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?)
+                    DecodedAtom::Int(i64::try_from(integer).map_err(|_| Error::new(ErrorKind::OutOfRange, "integer exceeds i64"))?)
                 } else { return Err(Error::new(ErrorKind::UnsupportedType, "unsupported codec extension")); }
             }
             _ => return Err(Error::new(ErrorKind::UnsupportedType, "unsupported codec atom")),
-        });
+        };
+        self.value = Some(DecodeContainer::Atom(T::atom(value)));
         Ok(())
     }
-    fn seq(&mut self, _: &mut State) -> Result<(), Error> { self.value = Some(Value::List(Vec::new())); Ok(()) }
+    fn seq(&mut self, _: &mut State) -> Result<(), Error> { self.value = Some(DecodeContainer::List(Vec::new())); Ok(()) }
     fn map(&mut self, _: &mut State) -> Result<(), Error> {
-        self.value = Some(Value::Record(RecordMap::new()));
+        self.value = Some(DecodeContainer::Record(std::collections::BTreeMap::new()));
         Ok(())
     }
     fn next_key(&mut self, state: &mut State) -> Result<SinkHandle<'_, 'de>, Error> {
@@ -238,12 +284,9 @@ impl<'de> Sink<'de> for DecodeSink<'_> {
     fn finish(&mut self, state: &mut State) -> Result<(), Error> {
         self.flush()?;
         let value = match self.value.take().expect("decoded value") {
-            Value::Record(RecordMap::Dynamic(fields)) => state.get_mut::<crate::symbol::SymbolOwner>().with_current(|| {
-                Value::Record(RecordMap::from_name_values(
-                    fields.into_iter().map(|(key, value)| (Name::intern(&key), value)).collect(),
-                ))
-            }),
-            value => value,
+            DecodeContainer::Atom(value) => value,
+            DecodeContainer::List(values) => T::list(values),
+            DecodeContainer::Record(fields) => T::record(fields, state),
         };
         *self.out = Some(Decoded(value));
         Ok(())
@@ -358,7 +401,7 @@ mod tests {
                 (Format::Csv, format!("{key}\n7\n"), Value::Str("7".into())),
                 (Format::Tsv, format!("{key}\n7\n"), Value::Str("7".into())),
             ] {
-                values.push((decode_text(format, &text, span()).unwrap(), expected));
+                values.push((decode_text_into::<Value>(format, &text, span()).unwrap(), expected));
                 assert_eq!(program.dynamic_stats(), before, "{format:?}");
                 assert_eq!(crate::symbol::SymbolOwner::current().expect("decode restores the calling owner").dynamic_stats(), program.dynamic_stats());
             }
@@ -385,7 +428,7 @@ mod tests {
             (Format::Yaml, "unfinished-yaml-key: 1\n42: 2\n", "UnsupportedValue"),
             (Format::Json, "{\"unfinished-syntax-key\":1,", "Syntax"),
         ] {
-            assert_eq!(decode_text(format, text, span()).unwrap_err().variant, variant);
+            assert_eq!(decode_text_into::<Value>(format, text, span()).unwrap_err().variant, variant);
             assert_eq!(symbols.dynamic_stats(), (0, 0));
         }
     }
@@ -414,7 +457,7 @@ mod tests {
                 (Format::Csv, "name,version\npkg-one,1\npkg-two,2\n"),
                 (Format::Tsv, "name\tversion\npkg-one\t1\npkg-two\t2\n"),
             ] {
-                let decoded = decode_text(format, text, span()).unwrap();
+                let decoded = decode_text_into::<Value>(format, text, span()).unwrap();
                 let start = shapes.len(); collect(&decoded, &mut shapes);
                 assert_eq!(shapes.len() - start, 2, "{format:?}");
                 if format == Format::Json {
@@ -426,7 +469,7 @@ mod tests {
                 }
             }
             assert!(shapes.iter().all(|shape| Arc::ptr_eq(shape, &shapes[0])));
-            assert_eq!(decode_json(r#"{"name":"first","name":"second"}"#, span()).unwrap_err().variant, "DuplicateKey");
+            assert_eq!(decode_json_into::<Value>(r#"{"name":"first","name":"second"}"#, span()).unwrap_err().variant, "DuplicateKey");
         });
     }
 
@@ -435,12 +478,12 @@ mod tests {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();
         for (input, expected) in [("-9223372036854775808", i64::MIN), ("9223372036854775807", i64::MAX), ("-0.0", 0), ("1e2", 100)] {
-            assert!(matches!(decode_json(input, span()).unwrap(), Value::Int(value) if value == expected), "{input}");
+            assert!(matches!(decode_json_into::<Value>(input, span()).unwrap(), Value::Int(value) if value == expected), "{input}");
         }
         for input in ["1e999", "9223372036854775808", "-9223372036854775809", "18446744073709551616", "99999999999999999999999999999999999999999999999999999999999999"] {
-            assert_eq!(decode_json(input, span()).unwrap_err().variant, "Overflow", "{input}");
+            assert_eq!(decode_json_into::<Value>(input, span()).unwrap_err().variant, "Overflow", "{input}");
         }
-        let value = decode_json(r#"{"a":[null,true,"\uD834\uDD1E",0.10000000000000000001]}"#, span()).unwrap();
+        let value = decode_json_into::<Value>(r#"{"a":[null,true,"\uD834\uDD1E",0.10000000000000000001]}"#, span()).unwrap();
         let Value::Record(fields) = value else { panic!("record"); };
         let Value::List(items) = fields.get("a").unwrap() else { panic!("list"); };
         assert!(matches!(&items[2], Value::Str(text) if text.as_ref() == "𝄞"));
@@ -450,17 +493,17 @@ mod tests {
     #[test]
     fn json_rejects_duplicate_keys_partial_values_and_excessive_depth() {
         for input in [r#"{"a":1,"a":2}"#, r#"{"outer":{"a":1,"a":2}}"#] {
-            let error = decode_json(input, span()).unwrap_err();
+            let error = decode_json_into::<Value>(input, span()).unwrap_err();
             assert_eq!(error.family, "CodecError");
             assert_eq!(error.variant, "DuplicateKey");
             assert!(error.facets.iter().any(|facet| facet == "InvalidData"));
         }
         for input in ["[1,", "{} false", r#""\uD800""#, "{", "1e"] {
-            assert_eq!(decode_json(input, span()).unwrap_err().variant, "Syntax", "{input}");
+            assert_eq!(decode_json_into::<Value>(input, span()).unwrap_err().variant, "Syntax", "{input}");
         }
         let nested = format!("{}0{}", "[".repeat(129), "]".repeat(129));
-        assert_eq!(decode_json(&nested, span()).unwrap_err().variant, "Limit");
-        assert!(decode_json(&format!("{}0{}", "[".repeat(128), "]".repeat(128)), span()).is_ok());
+        assert_eq!(decode_json_into::<Value>(&nested, span()).unwrap_err().variant, "Limit");
+        assert!(decode_json_into::<Value>(&format!("{}0{}", "[".repeat(128), "]".repeat(128)), span()).is_ok());
     }
 
     #[test]
@@ -474,21 +517,21 @@ mod tests {
     }
 }
 
-pub(crate) fn decode_text(format: Format, text: &str, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn decode_text_into<T: DecodeValue>(format: Format, text: &str, span: Span) -> Result<T, RuntimeError> {
     if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
     match format {
-        Format::Json => decode_json(text, span),
-        Format::Yaml | Format::Toml | Format::Ini => config::decode(format, text, span),
-        Format::Csv | Format::Tsv => decode_table(format, text, span),
+        Format::Json => decode_json_into(text, span),
+        Format::Yaml | Format::Toml | Format::Ini => config::decode_into(format, text, span),
+        Format::Csv | Format::Tsv => decode_table_into(format, text, span),
     }
 }
 
-pub(crate) fn decode_bytes(format: Format, bytes: &[u8], span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn decode_bytes_into<T: DecodeValue>(format: Format, bytes: &[u8], span: Span) -> Result<T, RuntimeError> {
     if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
     let text = std::str::from_utf8(bytes).map_err(|error| {
         codec_error("Encoding", format.identifier(), "invalid UTF-8".into(), None, None, Some(error.valid_up_to()), span)
     })?;
-    decode_text(format, text, span)
+    decode_text_into(format, text, span)
 }
 
 pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<String, RuntimeError> {
@@ -525,9 +568,9 @@ pub(crate) fn read_input(path: &std::path::Path, span: Span) -> Result<Vec<u8>, 
     Ok(bytes)
 }
 
-pub(crate) fn read(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn read_into<T: DecodeValue>(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<T, RuntimeError> {
     let bytes = read_input(path, span)?;
-    decode_bytes(format, &bytes, span).map_err(|mut error| {
+    decode_bytes_into(format, &bytes, span).map_err(|mut error| {
         error.payload.insert("input_path".into(), Value::Path(input_path.clone()));
         error
     })

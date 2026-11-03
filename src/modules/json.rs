@@ -12,19 +12,15 @@ fn btree_map<K: Ord, V>(entries: impl IntoIterator<Item = (K, V)>) -> BTreeMap<K
 
 
 #[allow(clippy::single_call_fn)]
-pub(crate) fn parse_json_lines(text: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
+pub(crate) fn parse_json_lines<T: crate::modules::codec::DecodeValue>(text: &str, span: Span) -> Result<Vec<T>, RuntimeError> {
     let mut values = Vec::new();
     for line in text.lines() {
         if line.trim().is_empty() {
             continue;
         }
-        values.push(crate::modules::codec::decode_json(line, span)?);
+        values.push(crate::modules::codec::decode_json_into(line, span)?);
     }
     Ok(values)
-}
-
-pub(crate) fn parse_json(text: &str, span: Span) -> Result<Value, RuntimeError> {
-    crate::modules::codec::decode_json(text, span)
 }
 
 pub(crate) fn encode_json(value: &Value, pretty: bool, span: Span) -> Result<String, RuntimeError> {
@@ -332,7 +328,7 @@ fn remove_at_path(
     }
 }
 
-pub(crate) fn read_json(path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn read_json<T: crate::modules::codec::DecodeValue>(path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<T, RuntimeError> {
     use std::io::Read;
     let file = std::fs::File::open(path).map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
     let mut bytes = Vec::new();

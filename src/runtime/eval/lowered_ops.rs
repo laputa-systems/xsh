@@ -1245,8 +1245,9 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
     }
 }
 
+pub(super) const MAX_COMPACT_RECORD_FIELDS: usize = 16;
+
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
-    const MAX_COMPACT_RECORD_FIELDS: usize = 16;
     if value.len() <= MAX_COMPACT_RECORD_FIELDS
         && value.owned_key_iter().all(|(key, _)| Name::lookup_owned(key.as_str()).is_some())
     {

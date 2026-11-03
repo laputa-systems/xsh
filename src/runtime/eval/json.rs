@@ -14,6 +14,32 @@ use std::sync::Arc;
 const NON_FINITE_FLOAT_MESSAGE: &str = "non-finite Float values are not JSON-compatible";
 const NON_STRING_KEY_MESSAGE: &str = "JSON objects require Str map keys";
 
+impl crate::modules::codec::DecodeValue for LoweredValue {
+    fn atom(value: crate::modules::codec::DecodedAtom) -> Self {
+        use crate::modules::codec::DecodedAtom;
+        match value {
+            DecodedAtom::Null => Self::Null,
+            DecodedAtom::Bool(value) => Self::Bool(value),
+            DecodedAtom::Int(value) => Self::Int(value),
+            DecodedAtom::Float(value) => Self::Float(value),
+            DecodedAtom::Str(value) => Self::Str(value),
+            DecodedAtom::Bytes(value) => Self::Bytes(value.into()),
+        }
+    }
+    fn list(values: Vec<Self>) -> Self { Self::List(values) }
+    fn record(fields: BTreeMap<Arc<str>, Self>, _: &mut State) -> Self {
+        if fields.len() <= super::lowered_ops::MAX_COMPACT_RECORD_FIELDS {
+            let names = fields.keys().map(|key| Name::lookup_owned(key)).collect::<Option<Vec<_>>>();
+            if let Some(names) = names {
+                let mut fields = names.into_iter().zip(fields.into_values()).collect::<Vec<_>>();
+                fields.sort_by_key(|(name, _)| *name);
+                return Self::RecordVec(Arc::new(fields));
+            }
+        }
+        Self::Record(Arc::new(fields))
+    }
+}
+
 #[derive(Clone, Copy)]
 enum CodecInput<'a> {
     Runtime(&'a Value),
@@ -337,6 +363,64 @@ mod tests {
     }
 
     #[test]
+    fn direct_decoding_preserves_formats_without_enrolling_data_names() {
+        let program = SymbolOwner::new();
+        let values = program.with_current(|| {
+            let before = program.dynamic_stats();
+            let mut values = Vec::new();
+            for (format, text) in [
+                (Format::Json, r#"{"direct_foreign_key_7q":[null,true,-9223372036854775808,0.125,{"direct_child_7q":"value"}]}"#),
+                (Format::Yaml, "direct_foreign_key_7q: [null, true, 0.125]\n"),
+                (Format::Toml, "direct_foreign_key_7q = [1, 2]\n"),
+                (Format::Ini, "direct_foreign_key_7q=raw\n"),
+                (Format::Csv, "direct_foreign_key_7q\n\"a,b\"\n"),
+                (Format::Tsv, "direct_foreign_key_7q\nraw\n"),
+            ] {
+                let runtime = crate::modules::codec::decode_text_into::<Value>(format, text, span()).unwrap();
+                let direct = crate::modules::codec::decode_text_into::<LoweredValue>(format, text, span()).unwrap();
+                let expected = encode_runtime(&runtime, false, span()).unwrap();
+                assert_eq!(encode_lowered(&direct, false, span()).unwrap(), expected, "{format:?}");
+                assert_eq!(program.dynamic_stats(), before, "{format:?}");
+                values.push((direct, expected));
+            }
+            values
+        });
+        drop(program);
+        for (value, expected) in values {
+            assert_eq!(encode_lowered(&value, false, span()).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn direct_decoding_preserves_rejections_and_program_owned_fields() {
+        let program = SymbolOwner::new();
+        let _scope = program.enter();
+        let name = Name::intern("direct_program_key_7q");
+        let before = program.dynamic_stats();
+        let direct = crate::modules::codec::decode_json_into::<LoweredValue>(r#"{"direct_program_key_7q":7}"#, span()).unwrap();
+        let LoweredValue::RecordVec(fields) = direct else { panic!("program-owned field remains compact") };
+        assert!(matches!(fields.as_slice(), [(field, LoweredValue::Int(7))] if *field == name));
+        for (format, text) in [
+            (Format::Json, r#"{"direct_bad_key_7q":1,"direct_bad_key_7q":2}"#),
+            (Format::Json, "9223372036854775808"),
+            (Format::Json, "1e400"),
+            (Format::Json, "{\"direct_bad_key_7q\":1,"),
+            (Format::Yaml, "direct_bad_key_7q: 1\n42: 2\n"),
+            (Format::Yaml, "--- 1\n--- 2\n"),
+            (Format::Toml, "direct_bad_key_7q = 2026-10-26\n"),
+            (Format::Ini, "direct_bad_key_7q=1\ndirect_bad_key_7q=2\n"),
+        ] {
+            let expected = crate::modules::codec::decode_text_into::<Value>(format, text, span()).unwrap_err();
+            let actual = crate::modules::codec::decode_text_into::<LoweredValue>(format, text, span()).unwrap_err();
+            assert_eq!((actual.family, actual.variant, actual.message, actual.payload),
+                (expected.family, expected.variant, expected.message, expected.payload), "{format:?}");
+            assert_eq!(program.dynamic_stats(), before, "{format:?}");
+        }
+        let deep = format!("{}0{}", "[".repeat(129), "]".repeat(129));
+        assert_eq!(crate::modules::codec::decode_json_into::<LoweredValue>(&deep, span()).unwrap_err().variant, "Limit");
+    }
+
+    #[test]
     fn json_lines_embedded_and_write_encoders_preserve_result_semantics() {
         use crate::runtime::value::{PathValue, ResultValue};
         let symbols = crate::symbol::SymbolOwner::new();
@@ -383,12 +467,12 @@ mod tests {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();
         let input = r#"{"z":[null,true,-9223372036854775808,0.125,"\u0000"],"a":{"empty":[]}}"#;
-        let runtime = crate::modules::codec::decode_json(input, span()).unwrap();
+        let runtime = crate::modules::codec::decode_json_into::<Value>(input, span()).unwrap();
         let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&runtime).unwrap();
         for pretty in [false, true] {
             let encoded = encode_runtime(&runtime, pretty, span()).unwrap();
             assert_eq!(encoded, encode_lowered(&lowered, pretty, span()).unwrap());
-            assert_eq!(crate::modules::codec::decode_json(&encoded, span()).unwrap(), runtime);
+            assert_eq!(crate::modules::codec::decode_json_into::<Value>(&encoded, span()).unwrap(), runtime);
         }
         assert_eq!(encode_runtime(&runtime, false, span()).unwrap(), r#"{"a":{"empty":[]},"z":[null,true,-9223372036854775808,0.125,"\u0000"]}"#);
     }
@@ -397,7 +481,7 @@ mod tests {
     fn paused_encoder_keeps_nested_values_and_dynamic_keys() {
         let symbols = SymbolOwner::new();
         let _scope = symbols.enter();
-        let runtime = crate::modules::codec::decode_json(r#"{"dynamic_outer":[{"dynamic_inner":"value"},7]}"#, span()).unwrap();
+        let runtime = crate::modules::codec::decode_json_into::<Value>(r#"{"dynamic_outer":[{"dynamic_inner":"value"},7]}"#, span()).unwrap();
         let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&runtime).unwrap();
         let value = borrowed_lowered(Format::Json, &lowered, span());
         let mut driver = deser::ser::SerializeDriver::new(&value);

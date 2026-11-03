@@ -1,4 +1,4 @@
-use super::{Decoded, EncodeLimits, Format, Output, decode_context, runtime_error};
+use super::{Decoded, DecodedAtom, DecodeValue, EncodeLimits, Format, Output, decode_context, runtime_error};
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use deser::de::DeserializeDriver;
@@ -53,6 +53,10 @@ pub(super) fn setup_encode(format: Format, driver: &mut deser::ser::SerializeDri
 }
 
 pub(crate) fn decode(format: Format, text: &str, span: Span) -> Result<Value, RuntimeError> {
+    decode_into(format, text, span)
+}
+
+pub(super) fn decode_into<T: DecodeValue>(format: Format, text: &str, span: Span) -> Result<T, RuntimeError> {
     if text.len() > super::INPUT_LIMIT {
         return Err(runtime_error(Error::new(ErrorKind::LimitExceeded, "codec input exceeds 64 MiB"), format.identifier(), span));
     }
@@ -60,21 +64,21 @@ pub(crate) fn decode(format: Format, text: &str, span: Span) -> Result<Value, Ru
         Format::Yaml => {
             let config = yaml_config();
             let mut parser = deser_yaml::Deserializer::from_str_with_config(text, config);
-            if parser.is_end() { return Ok(Value::Null); }
-            parser.deserialize_with::<Decoded, _>(|driver| setup_decode(format, driver))
+            if parser.is_end() { return Ok(T::atom(DecodedAtom::Null)); }
+            parser.deserialize_with::<Decoded<T>, _>(|driver| setup_decode(format, driver))
                 .and_then(|value| parser.end().map(|()| value))
         }
         Format::Toml => {
             let config = deser_toml::DeserializerConfig::builder().context(decode_context(format)).build();
             deser_toml::Deserializer::from_str_with_config(text, config)
-                .deserialize_with::<Decoded, _>(|driver| setup_decode(format, driver))
+                .deserialize_with::<Decoded<T>, _>(|driver| setup_decode(format, driver))
         }
         Format::Ini => {
             let config = deser_ini::DeserializerConfig::builder()
                 .allow_no_value(false).lowercase_names(false)
                 .context(decode_context(format)).build();
             deser_ini::Deserializer::from_str_with_config(text, config)
-                .deserialize_with::<Decoded, _>(|driver| setup_decode(format, driver))
+                .deserialize_with::<Decoded<T>, _>(|driver| setup_decode(format, driver))
         }
         _ => unreachable!("configuration dispatch requires a configuration format"),
     };

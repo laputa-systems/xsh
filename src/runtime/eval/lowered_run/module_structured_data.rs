@@ -1,11 +1,18 @@
 use super::{Evaluator, ControlFlow, LoweredValue, NativeArgumentValues, RuntimeError, RuntimeOp,
     Span, lowered_bool_arg_or, lowered_bytes_value, lowered_path_arg, lowered_result_err_value,
-    lowered_result_ok, lowered_runtime_result, lowered_runtime_value, lowered_str_value, lowered_unit_result};
+    lowered_result_ok, lowered_runtime_value, lowered_str_value, lowered_unit_result};
 use crate::modules::{codec, fs};
 use codec::Format;
 
 #[derive(Clone, Copy)]
 enum Operation { Decode, DecodeBytes, Encode, EncodeBytes, Read, Write }
+
+fn decoded_result(result: Result<LoweredValue, RuntimeError>) -> LoweredValue {
+    match result {
+        Ok(value) => lowered_result_ok(value),
+        Err(error) => lowered_result_err_value(error),
+    }
+}
 
 fn codec_input_error(mut error: RuntimeError, input_path: Option<&crate::runtime::value::PathValue>) -> RuntimeError {
     if error.family == "CodecError" && let Some(path) = input_path {
@@ -96,13 +103,13 @@ impl Evaluator {
                         failure.payload.insert("offset".into(), crate::runtime::value::Value::Int(error.valid_up_to() as i64)); failure
                     })?
                 }, None => lowered_str_value(&values[0]).ok_or_else(|| RuntimeError::new("type-error", "csv.decode expected Str").with_span(span))? };
-                let mut out = None::<codec::Decoded>;
+                let mut out = None::<codec::Decoded<LoweredValue>>;
                 { let mut driver = deser::de::DeserializeDriver::new(&mut out);
                     table::drive(Format::Csv, text, table::DecodeOptions { headers, delimiter }, &mut driver, span)?;
                 }
                 Ok(out.expect("CSV document sink").0)
             })().map_err(|error| codec_input_error(error, input_path.as_ref()));
-            return Ok(ControlFlow::Continue(lowered_runtime_result(result, span)?));
+            return Ok(ControlFlow::Continue(decoded_result(result)));
         };
         let result = if write {
             let overwrite = lowered_bool_arg_or(values.get(option + 4).cloned(), false, "csv.write", span)?;
@@ -193,11 +200,11 @@ impl Evaluator {
         let result = match operation {
             Operation::Decode => {
                 let text = lowered_str_value(&values[0]).ok_or_else(|| RuntimeError::new("type-error", "codec.decode expected Str").with_span(span))?;
-                lowered_runtime_result(codec::decode_text(format, text, span), span)?
+                decoded_result(codec::decode_text_into(format, text, span))
             }
             Operation::DecodeBytes => {
                 let bytes = lowered_bytes_value(&values[0]).ok_or_else(|| RuntimeError::new("type-error", "codec.decode_bytes expected Bytes").with_span(span))?;
-                lowered_runtime_result(codec::decode_bytes(format, bytes, span), span)?
+                decoded_result(codec::decode_bytes_into(format, bytes, span))
             }
             Operation::Encode => {
                 let value = super::super::json::borrowed_lowered(format, &values[0], span);
@@ -215,7 +222,7 @@ impl Evaluator {
             }
             Operation::Read => {
                 let path = lowered_path_arg(values.remove(0), "codec.read", span)?;
-                lowered_runtime_result(codec::read(format, &self.host_path(&path), &path, span), span)?
+                decoded_result(codec::read_into(format, &self.host_path(&path), &path, span))
             }
             Operation::Write => {
                 let overwrite = lowered_bool_arg_or(values.get(2).cloned(), op == RuntimeOp::IniWrite, "codec.write", span)?;

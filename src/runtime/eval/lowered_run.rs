@@ -6030,7 +6030,10 @@ impl Evaluator {
                         RuntimeError::new("type-error", "json.decode expected Str").with_span(span)
                     );
                 };
-                lowered_runtime_result(json_module::parse_json(text, span), span)?
+                match crate::modules::codec::decode_json_into(text, span) {
+                    Ok(value) => lowered_result_ok(value),
+                    Err(error) => lowered_result_err_value(error),
+                }
             }
             callable; RuntimeOp::JsonEncode if values.len() == 1 || values.len() == 2 => {
                 let pretty =
@@ -6086,7 +6089,7 @@ impl Evaluator {
                     );
                 };
                 match json_module::read_json(&self.host_path(path), path, span) {
-                    Ok(value) => lowered_runtime_value(Value::ok(value), span)?,
+                    Ok(value) => lowered_result_ok(value),
                     Err(error) => lowered_result_err_value(error),
                 }
             }

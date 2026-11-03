@@ -1448,18 +1448,7 @@ impl IndexedMaterializedStage {
                     .with_span(span));
                 };
                 let values = crate::modules::json::parse_json_lines(text, span)?;
-                let mut lowered = Vec::with_capacity(values.len());
-                for value in values {
-                    let Some(value) = lowered_value_from_runtime_any(&value) else {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!("json.lines produced unsupported {}", value.type_name()),
-                        )
-                        .with_span(span));
-                    };
-                    lowered.push(value);
-                }
-                Ok(LoweredValue::List(lowered))
+                Ok(LoweredValue::List(values))
             }
             FullStageTag::BytesChunks => {
                 let LoweredValue::Int(size) = &self.argument_values[0] else {
