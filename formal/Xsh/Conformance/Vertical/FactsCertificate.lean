@@ -52,7 +52,15 @@ empty set of a pure function, or facts the exporter does not publish. -/
 theorem emitted_facts_are_certified :
     certifiesFacts sourceDocumentCodes failuresFactsDocumentCodes = true ∧
       certifiesFacts callsSourceDocumentCodes callsFactsDocumentCodes = true := by
-  constructor <;> decide +kernel
+  constructor
+  · simp only [certifiesFacts, fixture_is_the_decoded_source_document,
+      the_failures_emitted_facts_are_the_decoded_document,
+      the_fixture_source_parses_to_the_fixture_functions]
+    decide +kernel
+  · simp only [certifiesFacts, calls_artifact_is_the_decoded_source_document,
+      the_calls_emitted_facts_are_the_decoded_document,
+      the_calls_source_parses_to_the_calls_functions]
+    decide +kernel
 
 theorem the_emitted_facts_are_a_valid_derivation :
     ProgramHolds fixtureFunctions failuresEmitted ∧ ProgramHolds callsFunctions callsEmitted := by
@@ -133,6 +141,22 @@ theorem a_forged_literal_is_rejected :
   decide +kernel
 
 set_option maxRecDepth 10000 in
+theorem changed_fact_documents_decode :
+    decodeFactsDocument (callsFactsDocumentCodes.set 893 56) =
+      some ⟨bridgeId! 1, withFact callsEmitted 1 fun facts =>
+        { facts with nodes := facts.nodes.set 1 (.literal 8) }⟩ ∧
+    decodeFactsDocument (callsFactsDocumentCodes.set 929 49) =
+      some ⟨bridgeId! 1, withFact callsEmitted 1 fun facts =>
+        { facts with nodes := facts.nodes.set 2 (.call 1 2) }⟩ ∧
+    decodeFactsDocument (callsFactsDocumentCodes.set 952 49) =
+      some ⟨bridgeId! 1, withFact callsEmitted 1 fun facts =>
+        { facts with nodes := facts.nodes.set 2 (.call 0 1) }⟩ ∧
+    decodeFactsDocument (callsFactsDocumentCodes.set 334 48) =
+      some ⟨bridgeId! 1, withFact callsEmitted 0 fun facts =>
+        { facts with nodes := facts.nodes.set 1 (.read (.parameter 0)) }⟩ := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
 /-- A pair is refused when its bytes are changed: the byte of a literal, a callee, an argument
 count and a parameter index in the facts document each decode to a different fact, and the
 operation, the literal argument and the document identifier of the source document each stop
@@ -145,7 +169,12 @@ theorem changed_bytes_are_not_certified :
       certifiesFacts (callsSourceDocumentCodes.set 130 43) callsFactsDocumentCodes = false ∧
       certifiesFacts (callsSourceDocumentCodes.set 214 56) callsFactsDocumentCodes = false ∧
       certifiesFacts (callsSourceDocumentCodes.set 39 50) callsFactsDocumentCodes = false := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+  obtain ⟨h1, h2, h3, h4⟩ := changed_fact_documents_decode
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  all_goals
+    simp only [certifiesFacts, calls_artifact_is_the_decoded_source_document, h1, h2, h3, h4,
+      the_calls_source_parses_to_the_calls_functions]
+    decide +kernel
 
 set_option maxRecDepth 10000 in
 /-- The changed facts bytes above decode, so the refusal is the validator's and not the
@@ -156,7 +185,8 @@ theorem the_changed_fact_bytes_still_decode :
       (decodeFactsDocument (callsFactsDocumentCodes.set 929 49)).isSome = true ∧
       (decodeFactsDocument (callsFactsDocumentCodes.set 952 49)).isSome = true ∧
       (decodeFactsDocument (callsFactsDocumentCodes.set 334 48)).isSome = true := by
-  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
+  obtain ⟨h1, h2, h3, h4⟩ := changed_fact_documents_decode
+  simp [h1, h2, h3, h4]
 
 /-- A validator that takes the candidate's word for its facts. -/
 def trustingValidator (_ : List SourceFunction) (_ : List FunctionFacts) : Bool := true
