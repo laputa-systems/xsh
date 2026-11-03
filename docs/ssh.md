@@ -180,7 +180,9 @@ that does not take the output waiting for it is different: when no byte of that
 output is accepted for the connect `timeout_ms`, the command fails with
 `SshError.Timeout`, however much the peer sends meanwhile, and the client stops
 reading while that output is waiting. SIGINT and SIGTERM cancel connecting,
-authenticating and a running command promptly as `SshError.Canceled`.
+authenticating and a running command promptly as `SshError.Canceled`. Work begun
+after the first signal, such as releasing a lock in a `defer`, is not cancelled by
+it; a second signal cancels that too.
 
 Closing a channel or connection does not prove that a remote process stopped,
 and the client sends no signal to it. A timed-out or cancelled command may
