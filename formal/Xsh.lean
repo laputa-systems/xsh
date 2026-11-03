@@ -4,6 +4,7 @@ import Xsh.Syntax.Foundation.ResolvedIdentity
 import Xsh.Typing.Connected.Types
 import Xsh.Typing.Connected.Generation
 import Xsh.Typing.Connected.Certificate
+import Xsh.Typing.Connected.Derivation
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality

@@ -11170,6 +11170,15 @@
       "status": "fragment",
       "scope": "Accepted annotations agree with the independently interpreted selected type names under the supplied substitution.",
       "boundary": "The type-name environment and substitution are assumptions; no parser or Rust checker correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.derived_expression_certificate_sound",
+      "module": "Xsh.Typing.Connected.Derivation",
+      "declaration": "Xsh.Typing.Connected.derived_expression_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted expression certificate with a checked unification derivation has a well-sorted principal solution for its generated constraints and a declarative typing derivation.",
+      "boundary": "The checker supports its explicitly represented derivation steps, including known record fields; open-row solving, lacks constraints, completeness, generalization, effects, source and Rust correspondence remain open."
     }
   ],
   "artifact_certificates": [

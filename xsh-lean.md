@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 826
+**State:** `formal/coverage.json` is the only inventory. It lists 827
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -781,6 +781,15 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   Lean-only results. Generator completeness and principal solving, function
   completion, effects, exact source admission, real Rust facts and target IR,
   execution and source-to-IR simulation remain open.
+
+
+- 2026-11-03: A checked unification derivation composes binding and structural
+  decomposition steps into a kind-preserving principal solution. An admitted
+  identity-call certificate uses the generated constraints and that derivation;
+  cyclic bindings and wrong steps are refused and exhaustion stays distinct.
+  Open-row solving and lacks constraints, solver completeness and scheme
+  generalization, source admission, Rust correspondence and simulation remain
+  open. This is a proof about Lean inputs, not Rust evidence.
 
 ## For the owner afterwards
 
