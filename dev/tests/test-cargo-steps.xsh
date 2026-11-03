@@ -168,6 +168,20 @@ cargo_steps.run_build(stages.command(
   }
 }
 
+test test_mold_driver_preserves_other_command_environment { |ctx|
+  let spec = stages.command(
+    "link", musl_host, "cargo", ["cargo", "build"], p"/repo",
+    {
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "/usr/local/bin/xsh-mold-linker",
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C link-arg=--defsym=__isoc23_sscanf=sscanf",
+      XSH_OS_STRESS_REPEAT: "25",
+    },
+  )
+  let adapted = cargo_steps.mold_driver_spec(spec)?
+  assert adapted.environment.get("XSH_OS_STRESS_REPEAT")?.require(Str)? == "25"
+  assert adapted.environment.get("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS")?.require(Str)? == "-C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf"
+}
+
 test test_linux_test_requires_one_harness_and_matching_target { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     test.skip("requires Linux cargo target selection")
