@@ -202,6 +202,62 @@ pub(super) struct SemanticPools {
     shape_fields: Vec<Name>,
 }
 
+#[cfg(test)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct RawSemanticTables {
+    pub(super) scheme_callable_owner: crate::sema::scheme_callable::SchemeCallableOwner,
+    pub(super) scheme_callable_count: u32,
+    pub(super) type_tags: Vec<TypeTag>,
+    pub(super) type_data: Vec<IrData>,
+    pub(super) type_extra: Vec<u32>,
+    pub(super) signature_data: Vec<IrData>,
+    pub(super) signature_extra: Vec<u32>,
+    pub(super) shapes: Vec<IrRange>,
+    pub(super) shape_fields: Vec<Name>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(super) struct RawSemanticPools {
+    pub(super) symbols: crate::symbol::SymbolOwner,
+    pub(super) tables: RawSemanticTables,
+}
+
+#[cfg(test)]
+impl SemanticPools {
+    pub(super) fn export_raw(&self, symbols: &crate::symbol::SymbolOwner) -> RawSemanticPools {
+        RawSemanticPools {
+            symbols: symbols.clone(),
+            tables: RawSemanticTables {
+                scheme_callable_owner: self.scheme_callable_owner,
+                scheme_callable_count: self.scheme_callable_count,
+                type_tags: self.type_tags.clone(),
+                type_data: self.type_data.clone(),
+                type_extra: self.type_extra.clone(),
+                signature_data: self.signature_data.clone(),
+                signature_extra: self.signature_extra.clone(),
+                shapes: self.shapes.clone(),
+                shape_fields: self.shape_fields.clone(),
+            },
+        }
+    }
+
+    pub(super) fn from_raw(raw: RawSemanticPools) -> (Self, crate::symbol::SymbolOwner) {
+        let tables = raw.tables;
+        (Self {
+            scheme_callable_owner: tables.scheme_callable_owner,
+            scheme_callable_count: tables.scheme_callable_count,
+            type_tags: tables.type_tags,
+            type_data: tables.type_data,
+            type_extra: tables.type_extra,
+            signature_data: tables.signature_data,
+            signature_extra: tables.signature_extra,
+            shapes: tables.shapes,
+            shape_fields: tables.shape_fields,
+        }, raw.symbols)
+    }
+}
+
 impl SemanticPools {
     pub(super) fn register_scheme_callable(&mut self) -> Result<crate::sema::types::SchemeCallableId, IrBuildError> {
         let index = self.scheme_callable_count;
