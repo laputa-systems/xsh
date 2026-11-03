@@ -154,6 +154,7 @@ def expressionFacts (callees : Callees) (scope : Scope) : SourceExpression → O
       let elseNodes ← valueFacts scope elseValue
       some (leftNodes ++ rightNodes ++ [.operate comparison .int .bool] ++ thenNodes ++ elseNodes ++
         [.branch])
+  | .assigned _ _ _ => none
 
 def functionFacts (callees : Callees) (function : SourceFunction) : Option FunctionFacts := do
   let scope ← function.scope
@@ -287,6 +288,7 @@ theorem expression_facts_iff {callees : Callees} {scope : Scope} {expression : S
         exact .conditional isComparison (atom_facts_iff.mp leftFound) (atom_facts_iff.mp rightFound)
           (value_facts_iff.mp thenFound) (value_facts_iff.mp elseFound)
       · simp at found
+    | assigned target assignedValue returned => simp [expressionFacts] at found
   · intro holds
     cases holds with
     | value valueHolds => exact value_facts_iff.mpr valueHolds

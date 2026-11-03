@@ -239,6 +239,45 @@ theorem reads_if {F : LoweringState} {callees : List (Option Callee)}
       blockWords_of_blockAt callees tableAt, single, conditionBefore, thenBefore, elseBefore,
       conditionReads, thenReads, elseReads]
 
+/-- An integer-family row denotes an expression in a context, at every fuel past its index. -/
+def IntReads (F : LoweringState) (callees : List (Option Callee)) (row : Word32) (e : BaseExpr) :
+    Prop :=
+  ∀ fuel, row.val < fuel → intExpression? (F.context callees) fuel row = some e
+
+theorem int_reads_int {F : LoweringState} {callees : List (Option Callee)} {row low high : Word32}
+    (at_ : F.RowAt row.val .intInt [low, high]) :
+    IntReads F callees row (.integerLiteral (signedOfWords low high)) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    simp [intExpression?, readInstruction_of_rowAt at_]
+
+theorem int_reads_slot {F : LoweringState} {callees : List (Option Callee)} {row slot : Word32}
+    (at_ : F.RowAt row.val .intSlot [slot]) :
+    IntReads F callees row (.identifier (NameId.mk slot)) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    simp [intExpression?, readInstruction_of_rowAt at_]
+
+theorem int_reads_binary {F : LoweringState} {callees : List (Option Callee)}
+    {row op left right : Word32} {operation : FragmentOp} {first second : BaseExpr}
+    (at_ : F.RowAt row.val .intBinary [op, left, right])
+    (leftBefore : left.val < row.val) (rightBefore : right.val < row.val)
+    (pooled : F.ops[op.val]? = some operation) (arithmetic : operation.isComparison = false)
+    (readsLeft : IntReads F callees left first) (readsRight : IntReads F callees right second) :
+    IntReads F callees row (operation.expression first second) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    have leftReads := readsLeft fuel (by omega)
+    have rightReads := readsRight fuel (by omega)
+    simp [intExpression?, readInstruction_of_rowAt at_, leftBefore,
+      rightBefore, pooled, arithmetic, leftReads, rightReads]
+
 theorem argument_rows_of_flat (user : Word32) :
     ∀ rows : List Word32, (∀ row ∈ rows, row.val < user.val) →
       argumentRows? user (rows.flatMap fun row => [0, row]) = some rows := by
