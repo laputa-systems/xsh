@@ -10818,124 +10818,52 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The fact validator accepts a candidate fact set exactly when it lists, once each and in any order, the facts the declarative rules determine for functions with distinct names; every valid derivation is accepted.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It says nothing about the producer of a candidate: that the exchanged facts documents are what the Rust checker publishes is a `RUST_CONFORMANCE` case, and that the validator accepts them is the certificate `artifact.checked-facts`. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.the_fixture_facts_are_accepted",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.the_fixture_facts_are_accepted",
+      "id": "fragment.Xsh.Conformance.Vertical.certifies_facts_sound",
+      "module": "Xsh.Conformance.Vertical.FactsDocument",
+      "declaration": "Xsh.Conformance.Vertical.certifies_facts_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The validator accepts the Lean-authored candidate fact set for the six fixture functions.",
-      "boundary": "A closed proposition about that candidate; it is not the Rust checker's output."
+      "scope": "A facts-and-source byte pair that the composed check accepts decodes as a source document and a facts document naming it, the source parses in the admitted productions, and the listed facts are a valid derivation of the declarative rules for the parsed functions.",
+      "boundary": "Universal over the admitted productions and the closed v1 facts exchange; a theorem about the Lean decoder, parser and validator. It says nothing about how the bytes were produced."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.the_fixture_facts_are_a_valid_derivation",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.the_fixture_facts_are_a_valid_derivation",
+      "id": "fragment.Xsh.Conformance.Vertical.empty_documents_certify_nothing",
+      "module": "Xsh.Conformance.Vertical.FactsDocument",
+      "declaration": "Xsh.Conformance.Vertical.empty_documents_certify_nothing",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The candidate fixture facts are a valid derivation under the declarative rules, which witnesses that the validator accepts something.",
-      "boundary": "Same boundary as the acceptance theorem."
+      "scope": "Empty exchange documents are not certified.",
+      "boundary": "A single decided instance."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.the_fixture_facts_are_accepted_in_any_order",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.the_fixture_facts_are_accepted_in_any_order",
+      "id": "fragment.Xsh.Conformance.Vertical.a_facts_document_with_an_unknown_node_kind_is_rejected",
+      "module": "Xsh.Conformance.Vertical.FactsDocument",
+      "declaration": "Xsh.Conformance.Vertical.a_facts_document_with_an_unknown_node_kind_is_rejected",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The reversed candidate is accepted: function facts are a set keyed by name, while node order inside a function is evaluation order.",
-      "boundary": "Same boundary as the acceptance theorem."
+      "scope": "The facts decoder rejects an unknown node kind, a node with an extra field, and a node that is not an object.",
+      "boundary": "Finite decoder cases."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_forged_binding_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_forged_binding_is_rejected",
+      "id": "fragment.Xsh.Conformance.Vertical.a_read_decodes_only_as_a_parameter_or_a_let",
+      "module": "Xsh.Conformance.Vertical.FactsDocument",
+      "declaration": "Xsh.Conformance.Vertical.a_read_decodes_only_as_a_parameter_or_a_let",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A name use resolved to the wrong parameter or the wrong declaration kind is rejected.",
-      "boundary": "Finite mutations of one candidate."
+      "scope": "A read node decodes with a parameter or a let resolution and with no other resolution name.",
+      "boundary": "Finite decoder cases."
     },
     {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_selected_operation_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_selected_operation_is_rejected",
+      "id": "fragment.Xsh.Conformance.Vertical.an_operation_decodes_only_with_its_own_ordinal",
+      "module": "Xsh.Conformance.Vertical.FactsDocument",
+      "declaration": "Xsh.Conformance.Vertical.an_operation_decodes_only_with_its_own_ordinal",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A different arithmetic operation, or a comparison typed with integer operands, is rejected.",
-      "boundary": "Finite mutations of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_forged_effect_fact_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_forged_effect_fact_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A pure function claimed to carry an effect is rejected.",
-      "boundary": "Finite mutation of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_forged_scheme_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_forged_scheme_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A wrong parameter type, parameter count or result type is rejected.",
-      "boundary": "Finite mutations of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_changed_evaluation_order_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_changed_evaluation_order_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Swapped call arguments or swapped operands are rejected because node order is evaluation order.",
-      "boundary": "Finite mutations of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_wrong_declaration_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_wrong_declaration_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A call to the wrong earlier function, or with the wrong argument count, is rejected.",
-      "boundary": "Finite mutations of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_missing_or_extra_fact_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_missing_or_extra_fact_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A missing, extra or duplicated function fact, a dropped node and a function claimed under another name are rejected.",
-      "boundary": "Finite mutations of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_forged_literal_is_rejected",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_forged_literal_is_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A literal fact that differs from the source literal is rejected.",
-      "boundary": "Finite mutation of one candidate."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validator_rejects",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validator_rejects",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A validator that takes the candidate's word accepts a forged fact set that this validator rejects.",
-      "boundary": "Control for the trusting-validator mutant class."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Vertical.a_source_that_resolves_nothing_has_no_valid_facts",
-      "module": "Xsh.Conformance.Vertical.FactsCertificate",
-      "declaration": "Xsh.Conformance.Vertical.a_source_that_resolves_nothing_has_no_valid_facts",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A source with an unbound name, an out-of-range literal or a call to a later function has no valid fact set, so no candidate is accepted for it.",
-      "boundary": "Finite sources."
+      "scope": "An operation node decodes only with its own ordinal and a known operand type.",
+      "boundary": "Finite decoder cases."
     }
   ],
   "artifact_certificates": [
@@ -11008,6 +10936,41 @@
       ],
       "proposition": "The source document parses in the admitted productions (`excess`, a function of two integer parameters that returns a conditional on a comparison of its parameters, and `surplus`, a function with one integer let that returns a call of `excess` on atoms); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `excess` on 12, 9 and on 3, 9 and of `surplus` end with 3, 0 and 3, recorded in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong branch, a wrong argument binding, a wrong recorded argument list, parameter count or callee, malformed blocks and call tables, a changed source, and a wrong lowering fail the same checks.",
       "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The artifact covers integer parameters, a direct call of an earlier let-free function and an integer conditional; it has no loops, strings, records, effects or recursion, and a call to a function with a let is outside the lowered shape."
+    },
+    {
+      "id": "artifact.checked-facts",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "candidate-fact-set",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.failuresFactsDocumentCodes",
+        "Xsh.Conformance.Vertical.callsFactsDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.FactsCertificate",
+      "certificate": "Xsh.Conformance.Vertical.emitted_facts_are_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.the_failures_emitted_facts_are_the_decoded_document",
+        "Xsh.Conformance.Vertical.the_calls_emitted_facts_are_the_decoded_document",
+        "Xsh.Conformance.Vertical.the_emitted_facts_are_a_valid_derivation",
+        "Xsh.Conformance.Vertical.the_emitted_facts_are_accepted_in_any_order",
+        "Xsh.Conformance.Vertical.the_unmodified_emitted_calls_facts_are_accepted"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_forged_binding_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_selected_operation_is_rejected",
+        "Xsh.Conformance.Vertical.a_forged_effect_fact_is_rejected",
+        "Xsh.Conformance.Vertical.a_forged_scheme_is_rejected",
+        "Xsh.Conformance.Vertical.a_changed_evaluation_order_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_declaration_is_rejected",
+        "Xsh.Conformance.Vertical.a_missing_or_extra_fact_is_rejected",
+        "Xsh.Conformance.Vertical.a_forged_literal_is_rejected",
+        "Xsh.Conformance.Vertical.changed_bytes_are_not_certified",
+        "Xsh.Conformance.Vertical.the_changed_fact_bytes_still_decode",
+        "Xsh.Conformance.Vertical.a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validator_rejects",
+        "Xsh.Conformance.Vertical.a_source_that_resolves_nothing_has_no_valid_facts"
+      ],
+      "proposition": "For each of two pairs, a source document (`sourceDocumentCodes`, `callsSourceDocumentCodes`) and the checked-facts document the Rust checker published for it, both decode, the facts document names the source document, the source text parses in the admitted productions, and the CERT-FACTS validator accepts the decoded facts, which therefore are a valid derivation of the declarative rules for the parsed functions: every resolution, selected callee, argument count, operand and result type, scheme, let type, effect set and evaluation order the Rust checker published equals what the rules determine. The validator reads nothing from the candidate except the facts it lists. The rejection theorems show that a forged binding, selected operation, effect, scheme or let type, a changed evaluation order, a wrong declaration or argument count, a missing or extra function, a forged literal, changed bytes in either document, and a validator that trusts the candidate are caught.",
+      "boundary": "The identity is the bytes of the two facts code lists, which the Rust bridge test `facts::tests::exported_facts_are_the_lean_certified_bytes` requires Rust's exporter to produce from the checker's published tables. The exporter is test-only bridge code that reads `CompactDeclOutput` and the checker's recorded binary operators; operand and result types, resolutions, selected callees, signatures and effect facts come from those tables, and literal values and evaluation order come from the parse. The Lean parser is independent and agrees with Rust on these sources only; the facts cover the admitted productions (integer parameters, one let, a value, a call or a conditional) and carry no guard, nominal or module identity. Nothing relates the facts to the raw IR yet, and nothing shows the checker publishes correct facts for other programs."
     }
   ],
   "source_identity": {

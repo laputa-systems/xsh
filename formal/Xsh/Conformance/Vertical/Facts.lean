@@ -25,11 +25,12 @@ inductive NodeFact where
   | branch
   deriving DecidableEq, Repr
 
-/-- The checked facts a candidate frontend claims for one function: its scheme, its effects, and
-its nodes in evaluation order. -/
+/-- The checked facts a candidate frontend claims for one function: its scheme, the types of its
+let bindings, its effects, and its nodes in evaluation order. -/
 structure FunctionFacts where
   name : String
   parameterTypes : List FactType
+  localTypes : List FactType
   resultType : FactType
   effects : List String
   nodes : List NodeFact
@@ -96,7 +97,8 @@ def FunctionHolds (callees : Callees) (function : SourceFunction) (facts : Funct
     Prop :=
   ∃ scope nodes, function.scope = some scope ∧
     ExpressionHolds callees scope function.result nodes ∧
-    facts = ⟨function.name, function.parameters.map fun _ => .int, .int, [], nodes⟩
+    facts = ⟨function.name, function.parameters.map fun _ => .int, function.lets.map fun _ => .int,
+      .int, [], nodes⟩
 
 def calleesAfter (callees : Callees) (function : SourceFunction) : Callees :=
   callees ++ [(function.name, function.parameters.length)]
@@ -156,7 +158,8 @@ def expressionFacts (callees : Callees) (scope : Scope) : SourceExpression → O
 def functionFacts (callees : Callees) (function : SourceFunction) : Option FunctionFacts := do
   let scope ← function.scope
   let nodes ← expressionFacts callees scope function.result
-  some ⟨function.name, function.parameters.map fun _ => .int, .int, [], nodes⟩
+  some ⟨function.name, function.parameters.map fun _ => .int, function.lets.map fun _ => .int, .int,
+    [], nodes⟩
 
 def programFacts : Callees → List SourceFunction → Option (List FunctionFacts)
   | _, [] => some []

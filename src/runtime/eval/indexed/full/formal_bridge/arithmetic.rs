@@ -92,7 +92,7 @@ impl ProjectedTag {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ProjectedOp {
+pub(super) enum ProjectedOp {
     Add,
     Sub,
     Mul,
@@ -104,7 +104,7 @@ enum ProjectedOp {
 impl ProjectedOp {
     const ALL: [Self; 6] = [Self::Add, Self::Sub, Self::Mul, Self::Div, Self::Rem, Self::Gt];
 
-    fn from_binary_op(op: BinaryOp) -> Result<Self, String> {
+    pub(super) fn from_binary_op(op: BinaryOp) -> Result<Self, String> {
         Self::ALL
             .into_iter()
             .find(|projected| projected.binary_op() == op)
@@ -122,14 +122,14 @@ impl ProjectedOp {
         }
     }
 
-    fn from_name(name: &str) -> Result<Self, String> {
+    pub(super) fn from_name(name: &str) -> Result<Self, String> {
         Self::ALL
             .into_iter()
             .find(|projected| projected.name() == name)
             .ok_or_else(|| format!("unknown binary operation {name:?}"))
     }
 
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Self::Add => "Add",
             Self::Sub => "Sub",
@@ -140,7 +140,7 @@ impl ProjectedOp {
         }
     }
 
-    fn ordinal(self) -> u32 {
+    pub(super) fn ordinal(self) -> u32 {
         self.binary_op() as u32
     }
 }
@@ -891,57 +891,6 @@ mod tests {
         ScheduledCall { function: "excess", arguments: &[3, 9] },
         ScheduledCall { function: "surplus", arguments: &[] },
     ];
-
-    const LEAN_DOCUMENTS: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/formal/Xsh/Conformance/Vertical/Documents.lean"
-    ));
-
-    fn lean_document(definition: &str) -> Option<String> {
-        let header = format!("def {definition} : List Nat :=\n");
-        let start = LEAN_DOCUMENTS.find(&header)? + header.len();
-        let mut bytes = Vec::new();
-        for line in LEAN_DOCUMENTS[start..].lines() {
-            let last = line.ends_with(']');
-            let numbers = line.trim_start_matches(['[', ' ']).trim_end_matches([',', ']']);
-            for number in numbers.split(", ") {
-                bytes.push(number.parse::<u8>().unwrap_or_else(|_| {
-                    panic!("malformed Lean code point {number:?} in {definition}")
-                }));
-            }
-            if last {
-                return Some(String::from_utf8(bytes).expect("Lean documents hold UTF-8 text"));
-            }
-        }
-        panic!("the Lean code list {definition} is not terminated");
-    }
-
-    const LEAN_CODES_PER_LINE: usize = 20;
-
-    fn lean_definition(definition: &str, text: &str) -> String {
-        let rows = text.as_bytes().chunks(LEAN_CODES_PER_LINE).collect::<Vec<_>>();
-        let mut output = format!("def {definition} : List Nat :=\n");
-        for (index, row) in rows.iter().enumerate() {
-            let opener = if index == 0 { "  [" } else { "   " };
-            let closer = if index + 1 == rows.len() { "]" } else { "," };
-            let numbers = row.iter().map(u8::to_string).collect::<Vec<_>>().join(", ");
-            output.push_str(&format!("{opener}{numbers}{closer}\n"));
-        }
-        output
-    }
-
-    fn assert_lean_documents(documents: &[(&str, &str)]) {
-        let stale = documents
-            .iter()
-            .filter(|(definition, text)| lean_document(definition).as_deref() != Some(*text))
-            .map(|(definition, text)| lean_definition(definition, text))
-            .collect::<Vec<_>>();
-        assert!(
-            stale.is_empty(),
-            "Lean documents must hold the exported bytes; the current export is\n{}",
-            stale.join("\n")
-        );
-    }
 
     struct Fixture {
         source: SourceDocument,
