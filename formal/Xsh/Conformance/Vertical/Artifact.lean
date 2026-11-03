@@ -89,7 +89,8 @@ def ofWord? (value : Word32) : Option FragmentTag := all.find? fun tag => tag.wo
 end FragmentTag
 
 /-- The binary operations of the integer fragment, named and numbered as the Rust `BinaryOp`
-enumeration: the five arithmetic operations and the one comparison the fixture exercises. -/
+enumeration: the five arithmetic operations, the one comparison the fixture exercises, and the
+two logical operations that join comparisons. -/
 inductive FragmentOp where
   | add
   | sub
@@ -97,11 +98,13 @@ inductive FragmentOp where
   | div
   | rem
   | gt
+  | and
+  | or
   deriving DecidableEq, Repr
 
 namespace FragmentOp
 
-def all : List FragmentOp := [add, sub, mul, div, rem, gt]
+def all : List FragmentOp := [add, sub, mul, div, rem, gt, and, or]
 
 def name : FragmentOp → String
   | add => "Add"
@@ -110,6 +113,8 @@ def name : FragmentOp → String
   | div => "Div"
   | rem => "Rem"
   | gt => "Gt"
+  | and => "And"
+  | or => "Or"
 
 def word : FragmentOp → Word32
   | add => ⟨11, by decide⟩
@@ -118,10 +123,16 @@ def word : FragmentOp → Word32
   | div => ⟨14, by decide⟩
   | rem => ⟨15, by decide⟩
   | gt => ⟨7, by decide⟩
+  | and => ⟨2, by decide⟩
+  | or => ⟨1, by decide⟩
 
 def isComparison : FragmentOp → Bool
   | gt => true
-  | add | sub | mul | div | rem => false
+  | add | sub | mul | div | rem | and | or => false
+
+def isLogical : FragmentOp → Bool
+  | and | or => true
+  | add | sub | mul | div | rem | gt => false
 
 def ofName? (text : String) : Option FragmentOp := all.find? fun op => op.name == text
 

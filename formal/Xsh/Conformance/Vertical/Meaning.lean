@@ -22,6 +22,18 @@ def FragmentOp.expression : FragmentOp → BaseExpr → BaseExpr → BaseExpr
   | .div => .binary .divide
   | .rem => .binary .remainder
   | .gt => .compare .greater
+  | .and | .or => fun left _ => left
+
+/-- The base expression of a conditional whose condition joins two comparisons. The first
+comparison runs first, and the second runs only when the first does not settle the join, so each
+branch value is evaluated at most once: `and` takes the branch when both hold, `or` when either
+does. -/
+def FragmentOp.guard : FragmentOp → BaseExpr → BaseExpr → BaseExpr → BaseExpr → BaseExpr
+  | .and, first, second, thenBranch, elseBranch =>
+      .conditional first (.conditional second thenBranch elseBranch) elseBranch
+  | .or, first, second, thenBranch, elseBranch =>
+      .conditional first thenBranch (.conditional second thenBranch elseBranch)
+  | _, first, _, thenBranch, elseBranch => .conditional first thenBranch elseBranch
 
 def FragmentFailure.fault : FragmentFailure → IntegerFault
   | .divisionByZero => .divisionByZero
@@ -107,6 +119,7 @@ def expression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
       | .exprBinary, [op, left, right, _] => do
           check (decide (left.val < index.val) && decide (right.val < index.val))
           let operation ← context.ops[op.val]?
+          check (!operation.isLogical)
           let leftExpression ← expression? context fuel left
           let rightExpression ← expression? context fuel right
           some (operation.expression leftExpression rightExpression)
@@ -125,10 +138,21 @@ def expression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
           | [count, condition, thenRow] => do
               check (count.val == 1 && decide (condition.val < index.val) &&
                 decide (thenRow.val < index.val) && decide (elseRow.val < index.val))
-              let conditionExpression ← expression? context fuel condition
               let thenExpression ← expression? context fuel thenRow
               let elseExpression ← expression? context fuel elseRow
-              some (.conditional conditionExpression thenExpression elseExpression)
+              match expression? context fuel condition with
+              | some conditionExpression =>
+                  some (.conditional conditionExpression thenExpression elseExpression)
+              | none =>
+                  match ← readInstruction? context.tables condition with
+                  | (.exprBinary, [op, left, right, _]) => do
+                      check (decide (left.val < condition.val) && decide (right.val < condition.val))
+                      let combine ← context.ops[op.val]?
+                      check combine.isLogical
+                      let first ← expression? context fuel left
+                      let second ← expression? context fuel right
+                      some (combine.guard first second thenExpression elseExpression)
+                  | _ => none
           | _ => none
       | .exprDirectPureCall, [function, arguments, _] => do
           check (function.val != 0)
@@ -155,7 +179,7 @@ def intExpression? (context : MeaningContext) : Nat → Word32 → Option BaseEx
       | .intBinary, [op, left, right] => do
           check (decide (left.val < index.val) && decide (right.val < index.val))
           let operation ← context.ops[op.val]?
-          check (!operation.isComparison)
+          check (!operation.isComparison && !operation.isLogical)
           let leftExpression ← intExpression? context fuel left
           let rightExpression ← intExpression? context fuel right
           some (operation.expression leftExpression rightExpression)
@@ -370,7 +394,13 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
           | .intInt, _ => true
           | .exprInt, _ => true
           | .exprParam, _ => true
-          | .exprBinary, _ => expressionAt word
+          | .exprBinary, [op, left, right, _] =>
+              expressionAt word ||
+                match context.ops[op.val]? with
+                | some combine =>
+                    combine.isLogical && decide (left.val < index) && decide (right.val < index) &&
+                      expressionAt left && expressionAt right
+                | none => false
           | .exprValueBlock, _ => expressionAt word
           | .exprIf, _ => expressionAt word
           | .exprDirectPureCall, _ => expressionAt word
