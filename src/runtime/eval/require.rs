@@ -75,22 +75,12 @@ impl PreparedSchema {
         })
     }
 
-    fn converts_wire(&self) -> bool {
-        match self {
-            Self::UnknownFields(_, _) | Self::WireEnum(_) | Self::Set(_) => true,
-            Self::Record(fields) => fields.iter().any(|(_, schema)| schema.converts_wire()),
-            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) | Self::Validated(_, schema) => schema.converts_wire(),
-            Self::Union(_, members) => members.iter().any(|schema| schema.converts_wire()),
-            Self::Validate(_) => false,
-        }
-    }
-
     fn rebuilds_value(&self) -> bool {
         match self {
             Self::UnknownFields(_, _) | Self::WireEnum(_) | Self::Set(_) | Self::List(_) => true,
             Self::Record(fields) => fields.iter().any(|(_, schema)| schema.rebuilds_value()),
-            Self::Map(_, schema)
-            | Self::Optional(schema)
+            Self::Map(_, _) => true,
+            Self::Optional(schema)
             | Self::Validated(_, schema) => schema.rebuilds_value(),
             Self::Union(_, members) => members.iter().any(|schema| schema.rebuilds_value()),
             Self::Validate(_) => false,
@@ -434,17 +424,13 @@ impl PreparedSchema {
             Self::Map(key_type, schema) => {
                 let items = match value {
                     LoweredValue::Map(items) => super::lower::take_shared(items),
-                    LoweredValue::Record(items)
-                        if *key_type == Type::Str && (lexical || schema.converts_wire()) =>
-                    {
+                    LoweredValue::Record(items) if *key_type == Type::Str => {
                         super::lower::take_shared(items)
                             .into_iter()
                             .map(|(name, value)| (name.to_string().into(), value))
                             .collect()
                     }
-                    LoweredValue::RecordVec(items)
-                        if *key_type == Type::Str && (lexical || schema.converts_wire()) =>
-                    {
+                    LoweredValue::RecordVec(items) if *key_type == Type::Str => {
                         super::lower::take_shared(items)
                             .into_iter()
                             .map(|(name, value)| (name.to_string().into(), value))

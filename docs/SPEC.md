@@ -2083,7 +2083,9 @@ Two forms establish a concrete type:
   slots, and the result is published only if the whole value passes. Extra
   fields are kept. A `T?` field must still be present (it may be `null`).
   Defaults are never filled in, and Str-backed enum slots are converted from
-  their wire strings.
+  their wire strings. A `Map[Str, V]` slot accepts a map or a record and
+  publishes a map of the record's fields, because JSON objects and TOML tables
+  decode to records; maps with other key types accept only maps.
 - A type pattern `name is T` in a `match`, or a test `value is T`, checks the
   runtime value and narrows the binding (see 6.10).
 
@@ -2112,9 +2114,9 @@ result and does not mutate its source.
 No policy fills missing fields, including nullable fields and fields with
 constructor defaults. All three operations retain the existing container
 admission and schema-directed wire conversion rules. Choosing a field policy
-does not add record-to-map coercion. JSON encoding writes the resulting runtime fields: preserved
-unknown fields are encoded, stripped fields are absent, and encoding never
-reapplies constructor defaults.
+does not change which containers a slot admits. JSON encoding writes the
+resulting runtime fields: preserved unknown fields are encoded, stripped
+fields are absent, and encoding never reapplies constructor defaults.
 
 ```xsh
 type Config = {name: Str}

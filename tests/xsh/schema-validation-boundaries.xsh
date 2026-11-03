@@ -74,3 +74,41 @@ print reached
     assert "check.require-target" in output.stderr
   }
 }
+
+type TableSection = {size: Int}
+
+test test_decoded_tables_and_objects_require_as_string_keyed_maps {
+  let table = toml.decode("[a]\nsize = 1\n[b]\nsize = 2\n")?
+  let sections = table.require(Map[Str, Any])?
+  assert sections.len() == 2
+  assert sections.keys() == ["a", "b"]
+  assert json.encode(sections)? == r"""{"a":{"size":1},"b":{"size":2}}"""
+  let typed = table.require(Map[Str, TableSection])?
+  assert typed.get("b")?.size == 2
+  let object = json.decode(r"""{"x": 1, "y": 2}""")?
+  let counts = object.require(Map[Str, Int])?
+  assert counts.get("y")? == 2
+  let nested = json.decode(r"""{"outer": {"inner": 1}}""")?
+  assert nested.require(Map[Str, Map[Str, Int]])?.get("outer")?.get("inner")? == 1
+}
+
+type TableWrapper = {sections: Map[Str, Any], tags: List[Map[Str, Any]]}
+
+test test_map_slots_inside_records_and_lists_hold_maps_after_require {
+  let raw = json.decode(r"""{"sections": {"a": 1}, "tags": [{"k": 1}, {}]}""")?
+  let wrapper = raw.require(TableWrapper)?
+  let expected: Map[Str, Any] = {["a"]: 1}
+  assert wrapper.sections == expected
+  assert wrapper.tags.len() == 2
+  assert wrapper.tags[0].keys() == ["k"]
+  assert wrapper.tags[1].is_empty()
+}
+
+test test_map_requirements_still_reject_other_shapes {
+  let wrong_value = json.decode(r"""{"x": "text"}""")?
+  assert wrong_value.require(Map[Str, Int]) is Err(_)
+  let not_a_table: Any = [1, 2]
+  assert not_a_table.require(Map[Str, Any]) is Err(_)
+  let object = json.decode(r"""{"1": 1}""")?
+  assert object.require(Map[Int, Int]) is Err(_)
+}
