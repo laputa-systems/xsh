@@ -30,6 +30,7 @@ with session = ssh.connect(options)? {
 | `ssh.exec(session, command, options)` | `{exit_code, signal, missing, stdout, stderr, certainty}` |
 | `ssh.connect_all({targets, jobs})` | one owned `SshSession` or `SshError` per target, in order |
 | `ssh.info(session)` | `{host, port, user, usable, host_key, kex, host_key_algorithm, cipher_client_to_server, cipher_server_to_client}` |
+| `ssh.certainty(error)` | `"not-submitted"` or `"submitted"`, read from any `SshError` |
 | `ssh.close(session)` | `Unit` |
 
 `ssh.connect` options: `host`, `port`, `user`, `timeout_ms`, and one value for
@@ -100,6 +101,9 @@ Every failure is an `SshError` variant. Each carries `message` and
 retry is safe; `"submitted"` means the command may have run, so observe its
 effect before retrying. The client never replays a command after a failure and
 never reconnects on its own.
+
+Read the certainty of an error of any variant with `ssh.certainty(error)`; a
+value typed `SshError` exposes only `message` as a field.
 
 | Variant | Meaning |
 |---|---|

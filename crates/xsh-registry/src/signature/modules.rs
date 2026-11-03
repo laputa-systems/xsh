@@ -1288,6 +1288,15 @@ fn ssh_module() -> ModuleSig {
             ),
         ),
         (
+            "certainty",
+            sig(
+                vec![param("error", Type::ErrorFamily("SshError"))],
+                Type::Str,
+                false,
+                RuntimeOp::SshCertainty,
+            ),
+        ),
+        (
             "close",
             sig(
                 vec![param("session", Type::SshSession)],

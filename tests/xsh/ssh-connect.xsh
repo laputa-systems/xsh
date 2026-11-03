@@ -279,3 +279,17 @@ test ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller {
   assert names.len() == 2
   assert names[0] != names[1]
 }
+
+test ssh_certainty_reads_the_certainty_of_any_ssh_error {
+  match ssh.connect({}) {
+    Ok(_) => assert false, "connect without options succeeded"
+    Err(error) => assert ssh.certainty(error) == "not-submitted"
+  }
+  match ssh.connect({host: "example.invalid"}) {
+    Ok(_) => assert false, "connect without trust succeeded"
+    Err(error) => {
+      let certainty: Str = ssh.certainty(error)
+      assert certainty == "not-submitted"
+    }
+  }
+}

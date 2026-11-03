@@ -220,6 +220,7 @@ pub enum RuntimeOp {
     SshConnectAll,
     SshExec,
     SshInfo,
+    SshCertainty,
     SshClose,
     SshCloseIfOpen,
     EnvGet,

@@ -418,8 +418,10 @@ test ssh_lost_connection_after_submission_is_a_submitted_transport_error {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "kill -9 $PPID; sleep 5", {}) {
       Ok(result) => assert result.missing or result.signal != "", "the connection survived"
-      Err(SshError.Transport {certainty, ..}) => assert certainty == "submitted"
-      Err(other) => assert false, other.message
+      Err(error) => {
+        assert error is SshError.Transport {..}
+        assert ssh.certainty(error) == "submitted"
+      }
     }
   }
 }

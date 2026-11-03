@@ -122,6 +122,14 @@ fn structured(
     RuntimeError::structured("SshError", variant, payload, facets, message)
 }
 
+/// The execution certainty carried by every `SshError` variant.
+pub(crate) fn certainty(error: &RuntimeError, span: Span) -> Result<String, RuntimeError> {
+    match error.payload.get("certainty") {
+        Some(Value::Str(certainty)) if error.family == "SshError" => Ok(certainty.to_string()),
+        _ => Err(RuntimeError::new("type-error", "ssh.certainty expected SshError").with_span(span)),
+    }
+}
+
 /// A failure that never reached the server.
 fn failure(variant: &'static str, message: impl Into<String>) -> RuntimeError {
     structured(variant, message.into(), "not-submitted")

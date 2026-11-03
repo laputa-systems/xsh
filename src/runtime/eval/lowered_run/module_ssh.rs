@@ -18,6 +18,10 @@ fn session_arg(
     }
 }
 
+fn not_ssh_error(span: Span) -> RuntimeError {
+    RuntimeError::new("type-error", "ssh.certainty expected SshError").with_span(span)
+}
+
 impl Evaluator {
     pub(super) fn eval_lowered_ssh_connect_values(
         &mut self,
@@ -97,6 +101,21 @@ impl Evaluator {
             )?)),
             Err(error) => Ok(ControlFlow::Continue(lowered_result_err_value(error))),
         }
+    }
+
+    pub(super) fn eval_lowered_ssh_certainty_values(
+        &mut self,
+        mut values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let certainty = match values.pop() {
+            Some(LoweredValue::Error(error)) => match *error {
+                Value::Error(error) => ssh_module::certainty(&error, span)?,
+                _ => return Err(not_ssh_error(span)),
+            },
+            _ => return Err(not_ssh_error(span)),
+        };
+        Ok(ControlFlow::Continue(LoweredValue::Str(certainty.into())))
     }
 
     pub(super) fn eval_lowered_ssh_close_values(

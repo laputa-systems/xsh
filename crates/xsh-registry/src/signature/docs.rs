@@ -476,6 +476,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Returns the host, port, user, usable (false once a failure has made the session unusable), verified host-key fingerprint, key exchange, host-key algorithm and both ciphers. Fails with SshError.Busy while a command runs on the session.",
             &["ssh", "session", "trust"],
         )),
+        ("ssh", "certainty") => Some((
+            "Reads the execution certainty of an SshError.",
+            "Returns not-submitted when the failed request never reached the server, so retrying is safe, and submitted when it may have, so the outcome must be observed before any retry. Every SshError variant carries a certainty, but only message is readable as a field on a value typed SshError; this reads it without matching each variant.",
+            &["ssh", "error", "retry"],
+        )),
         ("ssh", "close") => Some((
             "Closes an SSH session.",
             "Closing is explicit release; the owning scope closes a session that is still open. Closing the connection does not prove that remote descendants ended.",
