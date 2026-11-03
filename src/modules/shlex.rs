@@ -2,10 +2,17 @@
 /// byte requires quotes; character iteration preserves the original UTF-8
 /// while escaping apostrophes inside those quotes.
 pub(crate) fn quote(value: &str) -> String {
+    quote_word(value, false)
+}
+
+fn quote_word(value: &str, command_position_safe: bool) -> String {
     if value.is_empty() {
         return "''".to_string();
     }
-    if value.bytes().all(is_safe_shell_word_byte) {
+    if value
+        .bytes()
+        .all(|byte| is_safe_shell_word_byte(byte) && !(command_position_safe && byte == b'='))
+    {
         return value.to_string();
     }
 
@@ -23,7 +30,7 @@ pub(crate) fn quote(value: &str) -> String {
 
 pub(crate) fn join(argv: &[String]) -> String {
     argv.iter()
-        .map(|word| quote(word))
+        .map(|word| quote_word(word, true))
         .collect::<Vec<_>>()
         .join(" ")
 }

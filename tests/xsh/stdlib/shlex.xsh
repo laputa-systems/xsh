@@ -24,6 +24,12 @@ b'"""
   assert shlex.quote("~") == "'~'"
 }
 
+test test_shlex_join_never_lets_an_argument_become_a_shell_assignment {
+  assert shlex.join(["A=B", "run"]) == "'A=B' run"
+  assert shlex.join(["run", "A=B", "--opt=1"]) == "run 'A=B' '--opt=1'"
+  assert shlex.join(["A", "B"]) == "A B"
+}
+
 test test_shlex_join_quotes_each_argument_independently {
   assert shlex.join([]) == ""
   assert shlex.join([""]) == "''"
