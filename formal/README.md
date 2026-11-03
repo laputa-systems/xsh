@@ -76,4 +76,5 @@ The audit rejects unsafe declarations, project axioms, `native_decide`, and
 `sorry`; its permitted dependency list is defined in the linked script. The
 paranoid kernel check is separate. It requires `bubblewrap` on `PATH` and
 enabled user namespaces or a working setuid installation, and checks a
-temporary workspace under `.work/tmp/`.
+temporary workspace under `.work/tmp/`. Its sandbox passes the Lake thread
+limit to con-leche's `--jobs` option as well as to Lean.

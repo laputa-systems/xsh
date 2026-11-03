@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 
 def sandbox_args(args: list[str], *, threads: str, stack_size_kb: str) -> list[str]:
@@ -14,10 +15,13 @@ def sandbox_args(args: list[str], *, threads: str, stack_size_kb: str) -> list[s
     if mounts[root + 1 : root + 3] != ["/", "/"]:
         raise ValueError("expected Lake's read-only root mount")
     mounts[root + 3 : root + 3] = ["--tmpfs", "/run"]
+    command = args[boundary + 1:]
+    if Path(command[0]).name == "con-leche":
+        command = [command[0], f"--jobs={threads}", *command[1:]]
     return mounts + [
         "--setenv", "LEAN_NUM_THREADS", threads,
         "--setenv", "LEAN_STACK_SIZE_KB", stack_size_kb,
-    ] + args[boundary:]
+    ] + ["--", *command]
 
 
 def main() -> None:

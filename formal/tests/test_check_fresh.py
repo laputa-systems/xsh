@@ -24,9 +24,19 @@ def load_script(name: str):
 
 
 CHECK = load_script("check-fresh")
+SANDBOX = load_script("check-sandbox")
 
 
 class ParanoidCheckTests(unittest.TestCase):
+    def test_sandbox_forwards_the_project_worker_limit_to_con_leche(self):
+        args = ["--ro-bind", "/", "/", "--", "/lean/bin/con-leche", "/work/export"]
+        result = SANDBOX.sandbox_args(args, threads="3", stack_size_kb="32768")
+        self.assertEqual(result[result.index("--") + 1:],
+                         ["/lean/bin/con-leche", "--jobs=3", "/work/export"])
+        other = ["--ro-bind", "/", "/", "--", "/lean/bin/leanchecker", "/work/export"]
+        result = SANDBOX.sandbox_args(other, threads="3", stack_size_kb="32768")
+        self.assertEqual(result[result.index("--") + 1:], ["/lean/bin/leanchecker", "/work/export"])
+
     def test_failed_build_stops_check_and_removes_its_scratch(self):
         workspaces = []
 
