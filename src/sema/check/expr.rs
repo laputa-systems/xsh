@@ -1576,12 +1576,12 @@ impl Checker {
             // A backoff's three durations are checked as written delays are:
             // each is a `Duration`, and the form needs the `time` effect.
             ArenaExprKind::Retry {
-                schedule: _,
+                schedule,
                 delays,
                 pattern,
                 block,
             } => self.check_retry_arena(
-                arena, source, *delays, *pattern, *block, expected, expr.span,
+                arena, source, *schedule, *delays, *pattern, *block, expected, expr.span,
             ),
             ArenaExprKind::Run(run_id) => self.check_run_expr_arena(arena, source, *run_id),
             ArenaExprKind::Spawn(form) => self.check_spawn_form_arena(arena, source, form),
@@ -2753,6 +2753,7 @@ impl Checker {
         expected: Option<&Type>,
         span: Span,
     ) -> Type {
+        self.end_narrowings_the_loop_can_overwrite(arena, &[crate::syntax::arena::ArenaChild::Block(block)]);
         self.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::Loop);
         self.boundary.loop_depth += 1;
         self.boundary.value_loops.push(super::ValueLoopResult {
@@ -2821,6 +2822,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        schedule: crate::syntax::arena::RetrySchedule,
         delays: ArenaRange,
         pattern: Option<PatternId>,
         block: BlockId,
@@ -2858,6 +2860,9 @@ impl Checker {
             self.check_effect_not_excluded(&Effect::Time, span, "`retry` with delays");
         }
 
+        if !delay_ids.is_empty() || schedule == crate::syntax::arena::RetrySchedule::Backoff {
+            self.end_narrowings_the_loop_can_overwrite(arena, &[crate::syntax::arena::ArenaChild::Block(block)]);
+        }
         self.push_scope();
         self.begin_error_boundary();
         self.boundary.retry_block_depth += 1;

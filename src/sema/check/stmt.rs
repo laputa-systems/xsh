@@ -3589,6 +3589,7 @@ impl Checker {
                 self.check_for_arena(arena, source, target, iter, block, stmt.span);
             }
             ArenaStmtKind::Loop { block } => {
+                self.end_narrowings_the_loop_can_overwrite(arena, &[ArenaChild::Block(block)]);
                 self.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::Loop);
                 self.boundary.loop_depth += 1;
                 self.check_block_arena(arena, source, block);
@@ -4252,6 +4253,7 @@ impl Checker {
         condition: ExprId,
         block: BlockId,
     ) {
+        self.end_narrowings_the_loop_can_overwrite(arena, &[ArenaChild::Expr(condition), ArenaChild::Block(block)]);
         self.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::While(condition));
         let narrowings = self.check_condition_arena(
             arena,
@@ -4367,6 +4369,7 @@ impl Checker {
                     Type::Unknown
                 }
             });
+        self.end_narrowings_the_loop_can_overwrite(arena, &[ArenaChild::Block(block)]);
         self.push_scope();
         let item_origin = self.stream_iteration_origin(arena, iter, &iter_ty);
         self.define_binding_target_arena(arena, target, &item_ty, false, span, &item_origin);
@@ -5833,46 +5836,13 @@ impl Checker {
     fn invalidate_binding_projection_arena(
         &mut self,
         arena: &ArenaProgram,
-        mut target: AssignTargetId,
+        target: AssignTargetId,
         selected: &Binding,
     ) {
-        let mut path = Vec::new();
-        loop {
-            match arena.arena.assign_target(target).kind {
-                ArenaAssignTargetKind::Field { base, name } if path.len() < 128 => {
-                    path.push(name);
-                    target = base;
-                }
-                ArenaAssignTargetKind::Name(_) => {
-                    path.reverse();
-                    break;
-                }
-                _ => {
-                    path.clear();
-                    break;
-                }
-            }
-        }
-        let identity = selected.proof.clone();
-        for scope in &mut self.scopes {
-            for binding in scope
-                .values_mut()
-                .filter(|binding| {
-                    binding.id == selected.id && binding.proof.same_binding(&identity)
-                })
-            {
-                if !binding.mutable {
-                    continue;
-                }
-                binding.proof.mutate(&path);
-                if let Some(original) = &binding.unrefined_ty {
-                    super::proof::restore_projection(&mut binding.ty, original, &path);
-                }
-                if path.is_empty() {
-                    binding.unrefined_ty = None;
-                }
-            }
-        }
+        let path = super::loop_back_edge::assign_target_path(arena, target)
+            .map(|(_, path)| path)
+            .unwrap_or_default();
+        self.forget_binding_projection(selected, &path);
     }
 
     pub(super) fn invalidate_mutable_narrowings(&mut self) {

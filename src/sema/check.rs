@@ -315,6 +315,8 @@ fn assignment_owner_for_root(
 
 #[path = "check/args.rs"]
 mod args;
+#[path = "check/loop_back_edge.rs"]
+mod loop_back_edge;
 #[path = "check/assignment_facts.rs"]
 mod assignment_facts;
 pub use assignment_facts::assignment_target_root_name;

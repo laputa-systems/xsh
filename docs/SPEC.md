@@ -2158,7 +2158,12 @@ Facts may refer to a binding or a statically known field path. Assigning to the
 binding or to an overlapping path invalidates them; writes to disjoint sibling
 fields do not. Calls that may mutate captured `var`s invalidate facts about
 them. Deferred blocks and callables check mutable captures again, because they
-run later. Narrowing never infers numeric ranges, filesystem state, or
+run later. A loop body, and a `retry` body with delays, runs again after its
+first pass, so a fact that held on entry holds at the loop head only if no pass
+can end it: the loop ends every fact about a binding or path that its body
+assigns, and every fact about a `var` when its body calls a proc or another
+effectful callable, before the first pass is checked. The fact stays ended
+after the loop. Narrowing never infers numeric ranges, filesystem state, or
 arbitrary implications.
 
 During `xsht check`, `reveal_type(expr)` reports the inferred type of `expr` as
