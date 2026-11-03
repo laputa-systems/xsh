@@ -618,3 +618,45 @@ print $length_line(none, nothing)
   assert output.success, output.stderr
   assert output.stdout == "Length: 7 [text]\n\nLength: unspecified\n\n", output.stdout
 }
+
+test test_full_inference_error_variant_match_with_a_catch_all_arm_infers_a_plain_error_subject { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""error IwError = Errno(code: Int, text: Str) | Missing
+proc report(failure) -> Int {
+  match failure {
+    IwError.Errno {code, text} => { code }
+    IwError.Missing => 1
+    else => { 2 }
+  }
+}
+proc report_annotated(failure: Error) -> Int {
+  match failure {
+    IwError.Errno {code, text} => { code }
+    IwError.Missing => 1
+    else => { 2 }
+  }
+}
+proc report_bound(failure) -> Int {
+  match failure {
+    IwError.Missing => 1
+    other => { 2 }
+  }
+}
+let errno: Error = IwError.Errno(7, "busy")
+let missing: Error = IwError.Missing()
+let other: Error = error.failure("plain")
+for failure in [errno, missing, other] {
+  print f"{report(failure)} {report_annotated(failure)} {report_bound(failure)}"
+}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "7 7 2\n1 1 1\n2 2 2\n"
+  test.expect(
+    ctx,
+    "error IwError = Missing\nproc report(failure) -> Int {\n  match failure {\n    IwError.Missing => 1\n    else => 2\n  }\n}\nreport(5)\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]", "expected Error, found Int"],
+  )?
+}

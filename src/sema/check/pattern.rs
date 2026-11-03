@@ -64,10 +64,15 @@ impl Checker {
         if !matches!(resolved, Type::Inference(_)) {
             return resolved;
         }
+        let mut general = general;
         let mut family = None;
         let mut pending: Vec<_> = patterns.collect();
         while let Some(pattern) = pending.pop() {
             let (name, variant) = match arena.arena.pattern(pattern).kind {
+                ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_) => {
+                    general = true;
+                    continue;
+                }
                 ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => {
                     pending.push(child);
                     continue;
