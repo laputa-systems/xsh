@@ -1292,7 +1292,7 @@ fn ssh_module() -> ModuleSig {
             sig(
                 vec![param("error", Type::ErrorFamily("SshError"))],
                 Type::Str,
-                false,
+                true,
                 RuntimeOp::SshCertainty,
             ),
         ),

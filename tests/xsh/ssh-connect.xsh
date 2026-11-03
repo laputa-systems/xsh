@@ -280,6 +280,17 @@ test ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller {
   assert names[0] != names[1]
 }
 
+pure certainty_of(error: SshError) -> Str {
+  ssh.certainty(error)
+}
+
+test ssh_certainty_is_callable_from_a_pure_function {
+  match ssh.connect({}) {
+    Ok(_) => assert false, "connect without options succeeded"
+    Err(error) => assert certainty_of(error) == "not-submitted"
+  }
+}
+
 test ssh_certainty_reads_the_certainty_of_any_ssh_error {
   match ssh.connect({}) {
     Ok(_) => assert false, "connect without options succeeded"
