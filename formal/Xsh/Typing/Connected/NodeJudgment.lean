@@ -5,6 +5,19 @@ namespace Xsh.Typing.Connected
 open Xsh.Foundation
 open Xsh.Syntax
 
+
+theorem instantiation_sorts_compose (principal later : Substitution)
+    (arguments : List (Variable × MonoType)) (sorted : WellSorted later)
+    (valid : instantiationSortsValid principal arguments = true) :
+    instantiationSortsValid (compose later principal) arguments = true := by
+  simp only [instantiationSortsValid, List.all_eq_true] at valid ⊢
+  intro pair member
+  obtain ⟨id, ty⟩ := pair
+  have prior := valid (id, ty) member
+  simp only [Bool.and_eq_true, decide_eq_true_eq, checks_well_formed_iff] at prior ⊢
+  rw [substitute_compose, substitute_sort later sorted]
+  exact ⟨substitute_well_formed later sorted _ prior.1, prior.2⟩
+
 mutual
   inductive NodeHasType (scope : Scope) (solution : Substitution) : Node → MonoType → Prop where
     | integer {lexeme : String} {value : Xsh.Values.IntValue} :
