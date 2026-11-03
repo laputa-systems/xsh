@@ -1272,7 +1272,7 @@ class RunnerInvocationTests(unittest.TestCase):
             env["XSH_GATE_LAPUTA_CORPUS"] = str(laputa_corpus)
         env.update(extra_env or {})
         result = subprocess.run(
-            ["bash", str(NATIVE_RUNNER), str(selected_tree), mode, *command],
+            ["/bin/bash", str(NATIVE_RUNNER), str(selected_tree), mode, *command],
             env=env,
             capture_output=True,
             text=True,
