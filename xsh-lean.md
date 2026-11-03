@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 844
+**State:** `formal/coverage.json` is the only inventory. It lists 846
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -852,6 +852,10 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   sites, expression types or call roles changes the document; a forged target
   is refused. It rejects unsupported scheme and invocation details. The emitted
   bytes have not yet been authenticated by Lean or replayed at a new freeze.
+  Lean has a closed decoder for that proposed shape; body sites scope type
+  parameter mappings, record names map through their source, and unknown
+  effects remain distinct from a known empty set. The mapping inputs are not
+  authenticated yet, and the Rust-emitted bytes have not been decoded in Lean.
 
 ## For the owner afterwards
 

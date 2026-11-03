@@ -7,6 +7,7 @@ import Xsh.Typing.Connected.Certificate
 import Xsh.Typing.Connected.Derivation
 import Xsh.Typing.Connected.Qualified
 import Xsh.Conformance.Connected.FieldFacts
+import Xsh.Conformance.Connected.FactsDocument
 import Xsh.Semantics.Connected.Witness
 import Xsh.Semantics.Connected.Invariant
 import Xsh.Values.Scalars

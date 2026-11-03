@@ -11332,6 +11332,24 @@
       "status": "fragment",
       "scope": "Matching field operations and selected bindings against generated qualified requirements yields a typed concrete body instance and satisfied field constraints.",
       "boundary": "The supplied source sites and operation records are Lean inputs; their source admission and Rust document exchange remain open. Generic-body typing for all instances and runtime simulation are not proved."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_record_preserves_fields_and_checks_names",
+      "module": "Xsh.Conformance.Connected.FactsDocument",
+      "declaration": "Xsh.Conformance.Connected.decoded_record_preserves_fields_and_checks_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The connected facts decoder preserves represented record fields and rejects names absent from the supplied mapping.",
+      "boundary": "The mapping is an input, not yet authenticated against source; actual Rust-emitted bytes and runtime behavior remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scheme_variables_are_scoped_by_body_site",
+      "module": "Xsh.Conformance.Connected.FactsDocument",
+      "declaration": "Xsh.Conformance.Connected.scheme_variables_are_scoped_by_body_site",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Equal Rust type parameter ordinals in different body sites use the corresponding body-scoped mappings.",
+      "boundary": "Mappings and body sites are supplied inputs. The emitted Rust document, source admission and complete candidate certificate remain unconnected."
     }
   ],
   "artifact_certificates": [
