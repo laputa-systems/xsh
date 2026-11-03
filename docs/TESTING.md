@@ -524,9 +524,10 @@ were not tested; FIFO creation was covered. CPIO hard-link sets and sparse TAR
 members are unsupported. Publication is atomic per entry, not durable; merging
 into an existing directory can publish some entries before a conflict.
 
-The XZ decoder checks the first block dictionary against the workspace limit,
-but the underlying decoder does not receive that limit for later blocks. This
-is an open implementation gap in the workspace contract, not a qualified limit.
+The XZ reader checks the first block dictionary against the workspace limit
+when its header fits the initial sniff. The underlying decoder does not receive
+that limit. This is an open implementation gap in the workspace contract, not
+a qualified limit.
 
 ## Syslog receiver
 
