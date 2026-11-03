@@ -116,3 +116,31 @@ test test_lint_failure_status_survives_notes_in_either_file_order { |ctx|
     }
   }
 }
+
+test test_lint_write_failure_status_outranks_findings_in_either_file_order { |ctx|
+  let fixable = r"""pure pick() -> Int {
+  let n: Int = 1
+  n + 1
+}
+print ${pick()}
+"""
+  let companions = [
+    {name: "warning", source: "proc unused() { print warning }\n"},
+    {name: "checked-error", source: "let value: Int = \"wrong\"\nprint value\n"},
+  ]
+  # Root writes through a read-only file, so no write fails.
+  if applet.current_euid() != 0 {
+    for companion in companions {
+      for write_first in [false, true] {
+        let root = test.temp_dir(ctx, name: "lint-write-failure-status")?
+        let write_name = if write_first { "a-fixable.xsh" } else { "z-fixable.xsh" }
+        let companion_name = if write_first { "z-companion.xsh" } else { "a-companion.xsh" }
+        fp"{root}/{write_name}".write(fixable, mode: 0o444)
+        fp"{root}/{companion_name}".write(companion.source)
+        let output = run.capture --text --accept=[0, 1, 2, 4] "xsht" lint --fix $root
+        assert output.status.exited_with(4), f"{companion.name} write_first={write_first}: {output.stderr}"
+        assert "failed to write" in output.stderr, output.stderr
+      }
+    }
+  }
+}
