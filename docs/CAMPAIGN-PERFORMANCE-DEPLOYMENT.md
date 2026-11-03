@@ -106,7 +106,7 @@ mandatory item prevents a successful close.
 | Item | Outcome and proof |
 |---|---|
 | G0 qualify exact checks | Stale `abort` benchmark inputs repaired and the two native foundation selectors pass. **Done.** |
-| G1 close the inherited acceptance queue | Reproduce and fix XSH-2 at its origin, then run the finite current-source queue (below) with zero unaccounted failures or skips. Final qualification needs G2's functional validator. |
+| G1 close the inherited acceptance queue | XSH-2 closed on historical canonical and observer evidence. Run the finite current-source queue (below) with zero unaccounted failures or skips. Final qualification needs G2's functional validator. |
 | G2 narrow measurement adapters | `dev/performance/check.py` dispatches over current tools and separates parse/load, check/solve, publish, lower, verify, execute and first-output time. `self-test`, `functional`, `baseline` and `measure` exist. **Done.** |
 | G3 audit isolated inference | Reviewed capability dependency list, source diff, original and reduced cohorts, and retained-site classes. **Done.** Evidence: [inference evidence](PERFORMANCE-INFERENCE.md). |
 | G4 disposable Laputa inputs | Synthetic PM controls, exact candidate-XSH injection, network-disabled execution, output confinement. **Done.** |
