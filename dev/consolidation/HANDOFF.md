@@ -1,5 +1,7 @@
 # Consolidation handoff
 
+This is a historical campaign record. For current status and open work, see the [roadmap](../../docs/ROADMAP.md).
+
 ## Live checkpoint, 2026-10-17
 
 Last accepted canonical and resource source:

@@ -1,5 +1,7 @@
 # Consolidation items and ownership
 
+This is a historical campaign record. For current status and open work, see the [roadmap](../../docs/ROADMAP.md).
+
 Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
