@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 827
+**State:** `formal/coverage.json` is the only inventory. It lists 830
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -790,6 +790,16 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   Open-row solving and lacks constraints, solver completeness and scheme
   generalization, source admission, Rust correspondence and simulation remain
   open. This is a proof about Lean inputs, not Rust evidence.
+
+
+- 2026-11-03: A partial connected machine now uses typed cells, function-table
+  activations, structural records, Result propagation and labeled clock
+  requests. It proves a mutable assignment followed by a read returns the
+  assigned value, and that a clock request survives successful Result
+  propagation. The table accepts distinct Int and Bool instances of the same
+  identity scheme. These are Lean models, not Rust conformance or a simulation.
+  Invalid-state progress, guard and effect typing, general preservation,
+  admission, raw artifact correspondence and full connected execution stay open.
 
 ## For the owner afterwards
 

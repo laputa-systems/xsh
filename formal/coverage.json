@@ -11179,6 +11179,33 @@
       "status": "fragment",
       "scope": "An accepted expression certificate with a checked unification derivation has a well-sorted principal solution for its generated constraints and a declarative typing derivation.",
       "boundary": "The checker supports its explicitly represented derivation steps, including known record fields; open-row solving, lacks constraints, completeness, generalization, effects, source and Rust correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
+      "module": "Xsh.Semantics.Connected.Values",
+      "declaration": "Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A typed mutable connected store rejects a value of the wrong runtime type without changing the store.",
+      "boundary": "Runtime type interpretation and store behavior are independent Lean definitions; guards, source conformance and Rust execution remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.read_after_assignment",
+      "module": "Xsh.Semantics.Connected.Machine",
+      "declaration": "Xsh.Semantics.Connected.read_after_assignment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "After an accepted typed-cell write, a read through the active binder returns the committed value.",
+      "boundary": "The machine is partial and does not yet establish preservation, progress, source parsing, effects policy or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.clock_request_survives_result_propagation",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.clock_request_survives_result_propagation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A clock request remains in a connected-machine trace through a successful Result constructor and propagation.",
+      "boundary": "The witness assumes a function table naming clock and Result constructors. It does not establish Rust correspondence, effect-bound checking or host-clock accuracy."
     }
   ],
   "artifact_certificates": [
