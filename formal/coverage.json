@@ -10755,7 +10755,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The atom fact checker computes exactly the facts the declarative atom rules derive: an in-range integer literal, or a name the scope resolves.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.atoms_facts_iff",
@@ -10764,7 +10764,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The argument-list fact checker computes exactly the concatenated atom facts, in source order.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.value_facts_iff",
@@ -10773,7 +10773,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The value fact checker computes exactly the facts of an atom or of one non-comparison binary operation, operands before the selected operation.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.expression_facts_iff",
@@ -10782,7 +10782,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The expression fact checker computes exactly the facts of a value, a call that resolves an earlier function of the right arity, or a conditional on a comparison, in evaluation order.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.function_facts_iff",
@@ -10791,7 +10791,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The function fact checker computes exactly the scheme, effects and node facts the rules determine for one function against the functions before it.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.function_facts_are_determined",
@@ -10800,7 +10800,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Two valid fact sets for the same function against the same earlier functions are equal: the rules determine the observable content.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.program_facts_iff",
@@ -10809,7 +10809,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The program fact checker computes exactly the in-order facts of every function against the functions before it.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It validates no Rust-emitted fact set: the validator's candidates are Lean data, and no exporter of the Rust checker's published facts exists. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. The theorem does not identify the producer of a candidate; the separate artifact certificate validates two fact documents, and their Rust correspondence awaits replay at a matching source freeze. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.validate_facts_iff",
@@ -10818,7 +10818,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The fact validator accepts a candidate fact set exactly when it lists, once each and in any order, the facts the declarative rules determine for functions with distinct names; every valid derivation is accepted.",
-      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It says nothing about the producer of a candidate: that the exchanged facts documents are what the Rust checker publishes is a `RUST_CONFORMANCE` case, and that the validator accepts them is the certificate `artifact.checked-facts`. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
+      "boundary": "A theorem about the Lean validator and the Lean admitted-source model. It says nothing about the producer of a candidate: that the exchanged facts documents are what the Rust checker publishes requires a `RUST_CONFORMANCE` case at a matching source freeze, and that the validator accepts them is the certificate `artifact.checked-facts`. Guards, nominal and module identity are absent from the admitted productions, so they carry no facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.certifies_facts_sound",
@@ -10968,7 +10968,7 @@
         "Xsh.Conformance.Vertical.a_wrong_assignments_lowering_is_rejected"
       ],
       "proposition": "The source document parses in the admitted productions (`scaled`, a function with one integer var, a plain assignment of an arithmetic value to it, and a returned arithmetic value over it; and `wrapped`, whose assignment overflows); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the two recorded calls end with 31 (the var holds 5, the assignment makes it 30, the return adds 1) and an integer-overflow failure raised by the assignment, in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong assigned operation, value, target, assignment word, slot read, operand row or dropped assignment statement, a wrong recorded result, a changed source and a wrong lowering fail the same checks.",
-      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The assignment is run by the base machine against the store as it stands and its result replaces the var's value (`Assignment.settle?`), a definitional model of the store write; typed store writes are proved on the environment API, not through machine steps. The artifact covers one var without parameters, one plain assignment (compound assignments lower through another row family and are outside the shape) and no loops, strings, records, effects or recursion. CERT-FACTS does not cover assignments: the fact rules give a function with an assignment no facts."
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions; Rust correspondence for this artifact awaits replay at a matching source freeze; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The assignment is run by the base machine against the store as it stands and its result replaces the var's value (`Assignment.settle?`), a definitional model of the store write; typed store writes are proved on the environment API, not through machine steps. The artifact covers one var without parameters, one plain assignment (compound assignments lower through another row family and are outside the shape) and no loops, strings, records, effects or recursion. CERT-FACTS does not cover assignments: the fact rules give a function with an assignment no facts."
     },
     {
       "id": "artifact.checked-facts",
@@ -11003,7 +11003,7 @@
         "Xsh.Conformance.Vertical.a_source_that_resolves_nothing_has_no_valid_facts"
       ],
       "proposition": "For each of two pairs, a source document (`sourceDocumentCodes`, `callsSourceDocumentCodes`) and the checked-facts document the Rust checker published for it, both decode, the facts document names the source document, the source text parses in the admitted productions, and the CERT-FACTS validator accepts the decoded facts, which therefore are a valid derivation of the declarative rules for the parsed functions: every resolution, selected callee, argument count, operand and result type, scheme, let type, effect set and evaluation order the Rust checker published equals what the rules determine. The validator reads nothing from the candidate except the facts it lists. The rejection theorems show that a forged binding, selected operation, effect, scheme or let type, a changed evaluation order, a wrong declaration or argument count, a missing or extra function, a forged literal, changed bytes in either document, and a validator that trusts the candidate are caught.",
-      "boundary": "The identity is the bytes of the two facts code lists, which the Rust bridge test `facts::tests::exported_facts_are_the_lean_certified_bytes` requires Rust's exporter to produce from the checker's published tables. The exporter is test-only bridge code that reads `CompactDeclOutput` and the checker's recorded binary operators; operand and result types, resolutions, selected callees, signatures and effect facts come from those tables, and literal values and evaluation order come from the parse. The Lean parser is independent and agrees with Rust on these sources only; the facts cover the admitted productions (integer parameters, one let, a value, a call or a conditional) and carry no guard, nominal or module identity. Nothing relates the facts to the raw IR yet, and nothing shows the checker publishes correct facts for other programs."
+      "boundary": "The identity is the bytes of the two facts code lists, which the Rust bridge test `facts::tests::exported_facts_are_the_lean_certified_bytes` requires Rust's exporter to produce from the checker's published tables. The exporter is test-only bridge code that reads `CompactDeclOutput` and the checker's recorded binary operators; operand and result types, resolutions, selected callees, signatures and effect facts come from those tables, and literal values and evaluation order come from the parse. The Lean parser is independent; Rust correspondence for these sources awaits replay at a matching source freeze; the facts cover the admitted productions (integer parameters, one let, a value, a call or a conditional) and carry no guard, nominal or module identity. Nothing relates the facts to the raw IR yet, and nothing shows the checker publishes correct facts for other programs."
     }
   ],
   "source_identity": {

@@ -1,7 +1,6 @@
 # XSH semantic soundness campaign
 
-**Status:** the owner restarted the Lean lane on 2026-11-03 and it took the
-three next steps of the connected stage. The vertical now has integer
+**Status:** the owner restarted the Lean lane on 2026-11-03. The vertical has integer
 parameters, a direct call of an earlier let-free function and an integer
 conditional in the schedule, the raw-IR rows and their base-machine meaning
 (`Xsh.Semantics.BaseMachine` gained compare, conditional and call forms). The
@@ -12,9 +11,13 @@ program its source function denotes, so the certificate keeps only the
 reproduction check tying the exchanged bytes to the lowerer. The CERT-FACTS
 validator exists for the admitted productions: `validate_facts_iff` proves it
 accepts exactly the valid derivations of the declarative rules and takes
-nothing from the candidate, with a non-vacuity witness and rejected forgeries,
-but its candidate fact set is Lean data, not Rust output. `artifact_certificates`
-now holds two ARTIFACT_CERTIFIED records, each over its own pair of exchange
+nothing from the candidate, with a non-vacuity witness and rejected forgeries.
+The test-only Rust bridge exports checker facts for the failures and calls
+fixtures, and Lean certifies the corresponding fact documents. A third
+source/IR certificate covers one integer variable and one plain assignment.
+These new Rust comparisons need replay at a matching source freeze.
+`artifact_certificates` holds four ARTIFACT_CERTIFIED records. The original
+two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
 exhausted the independent kernels, so the certificate covers `divided` and
 `overflowed` in one document and `excess` with `surplus` in another. The
@@ -22,14 +25,14 @@ source freeze moved from `a08a0a133` to `7d73310d9`; see the log entry for the
 decision. Not reached: the connected milestone. The proofs cover the Lean
 lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
 Rust's execution of the IR rest on the two artifacts and the recorded runs.
-Next, in order: an exporter of the Rust checker's published facts into a closed
-fact document, so CERT-FACTS validates emitted facts and the facts and IR can be
-related; widen the lowered shape toward the milestone (mutable and record
-locals, Bool and Result control) with the same proof pattern; a parse and
+Next, replay the recorded conformance cases and new bridge comparisons at an
+integrated source freeze. Then widen the lowered shape toward the milestone
+(record locals, Bool and Result control); add a parse and
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
-byte-level certificate theorems: it adds no axiom and all six fresh kernels
-accept it. The independent kernels hold the whole export in memory, and
+byte-level certificate theorems: it adds no axiom. All six fresh kernels
+accepted the earlier certificates; rechecking the new certificates is pending.
+The independent kernels hold the whole export in memory, and
 con-leche stops at the 8 GiB address-space cap: a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
 and 3.9 KB still failed con-leche, so the certified documents are 2.4 KB and
@@ -43,7 +46,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 826
+**State:** `formal/coverage.json` is the only inventory. It lists 818
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -54,7 +57,7 @@ core.
 `finite_conformance.cases` holds the four Float equality tests and eight
 `formal_bridge/arithmetic.rs` tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds two ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds four ARTIFACT_CERTIFIED
 records, apart from the fragment roots. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
@@ -75,10 +78,10 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   own and agree with Rust only on these artifacts (a source admission proof
   does not exist, and the lowerer theorem is about the Lean lowerer); span
   words are read from the document; the lowered shape has no loops, strings,
-  records, mutable locals or Bool and Result control, and a call to a function
-  with a let is outside it; the CERT-FACTS validator checks Lean-authored
-  candidate facts, because no exporter of the Rust checker's published facts
-  exists, and no CERT-SOUND validator exists; and execution of the IR by Rust is
+  records or Bool and Result control, and a call to a function
+  with a let is outside it. One plain integer assignment is modeled separately;
+  CERT-FACTS does not admit assignments. No CERT-SOUND validator exists, and
+  execution of the IR by Rust is
   evidence only through the recorded runs.
 - G1's base theorems cover the base machine only: integer expressions,
   comparisons, conditionals and calls of let-free integer functions, scalar
