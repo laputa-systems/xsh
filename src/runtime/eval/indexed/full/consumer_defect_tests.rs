@@ -159,6 +159,37 @@ fn named_populated_map_source_must_stay_a_map_literal() {
     assert!(FullVerifier::verify(&forged).is_err());
 }
 
+#[test]
+fn populated_map_arguments_cannot_forge_key_or_value_types() {
+    for argument in ["vars: {[\"k\"]: 1}", "{[\"k\"]: 1}"] {
+        let source = format!("pure size(vars: Map[Str, Any]) -> Int {{ vars.len() }}\npure named() -> Int {{ size({argument}) }}\nassert named() == 1\n");
+        let program = checked_program("forged-map-contents.xsh", &source);
+        let owner = function_index(&program, "size");
+        for (key, value) in [(Type::Int, Type::Any), (Type::Str, Type::Str)] {
+            let forged = reissued(&program, owner, |callable| {
+                callable.params[0].ty = Type::Map(Box::new(key), Box::new(value));
+            });
+            assert!(FullVerifier::verify(&forged).is_err());
+        }
+    }
+}
+
+#[test]
+fn named_map_binding_cannot_forge_its_value_type() {
+    let program = checked_program(
+        "forged-map-binding.xsh",
+        "pure size(vars: Map[Str, Any]) -> Int { vars.len() }\n\
+         pure named() -> Int { let vars: Map[Str, Any] = {[\"k\"]: 1}; size(vars: vars) }\n\
+         assert named() == 1\n",
+    );
+    FullVerifier::verify(&program).unwrap();
+    let owner = function_index(&program, "size");
+    let forged = reissued(&program, owner, |callable| {
+        callable.params[0].ty = Type::Map(Box::new(Type::Str), Box::new(Type::Str));
+    });
+    assert!(FullVerifier::verify(&forged).is_err());
+}
+
 const FINISHING_ARMS: &str = "proc ready(x: Int) -> Result[Int, Error] { Ok(x) }\n\
 proc finish(x: Int) -> Result[Unit, Error] {\n\
   match ready(x) {\n\
