@@ -77,6 +77,28 @@ pub enum Error {
         /// Whether the request may have reached the server.
         certainty: Certainty,
     },
+    /// The caller cancelled the operation.
+    Cancelled {
+        /// Whether the request may have reached the server.
+        certainty: Certainty,
+    },
+    /// The server refused the request; the command did not run.
+    Rejected {
+        /// The refused request.
+        request: &'static str,
+    },
+    /// A captured output stream exceeded its limit.
+    OutputLimit {
+        /// The stream that exceeded the limit.
+        stream: &'static str,
+    },
+    /// The processor lacks a feature the cryptographic provider requires.
+    UnsupportedHardware {
+        /// The missing feature.
+        feature: &'static str,
+    },
+    /// An earlier failure left the connection in an unknown state.
+    Unusable,
 }
 
 impl fmt::Display for Error {
@@ -108,6 +130,23 @@ impl fmt::Display for Error {
             Self::Timeout {
                 certainty: Certainty::Submitted,
             } => write!(formatter, "SSH operation timed out after submission"),
+            Self::Cancelled {
+                certainty: Certainty::NotSubmitted,
+            } => write!(formatter, "SSH operation cancelled before submission"),
+            Self::Cancelled {
+                certainty: Certainty::Submitted,
+            } => write!(formatter, "SSH operation cancelled after submission"),
+            Self::Rejected { request } => write!(formatter, "server rejected the {request} request"),
+            Self::OutputLimit { stream } => {
+                write!(formatter, "{stream} exceeded the capture limit")
+            }
+            Self::UnsupportedHardware { feature } => {
+                write!(formatter, "this processor lacks {feature}, which the SSH cryptography requires")
+            }
+            Self::Unusable => write!(
+                formatter,
+                "SSH connection is unusable after an earlier failure"
+            ),
         }
     }
 }
@@ -139,26 +178,26 @@ impl From<CryptoError> for Error {
 }
 
 impl Error {
-    /// Attach execution certainty to a transport failure.
-    pub fn with_certainty(self, certainty: Certainty) -> Self {
-        match certainty {
-            Certainty::NotSubmitted => match self {
-                Self::NotSubmitted { detail } | Self::Submitted { detail } => {
-                    Self::NotSubmitted { detail }
-                }
-                Self::Timeout { .. } => Self::NotSubmitted {
-                    detail: "timed out".to_owned(),
-                },
-                other => other,
-            },
-            Certainty::Submitted => match self {
-                Self::NotSubmitted { detail } | Self::Submitted { detail } => {
-                    Self::Submitted { detail }
-                }
-                Self::Timeout { .. } => Self::Submitted {
-                    detail: "timed out".to_owned(),
-                },
-                other => other,
+    /// Whether the failed request may have reached the server.
+    pub fn certainty(&self) -> Certainty {
+        match self {
+            Self::Submitted { .. } | Self::OutputLimit { .. } => Certainty::Submitted,
+            Self::Timeout { certainty } | Self::Cancelled { certainty } => *certainty,
+            _ => Certainty::NotSubmitted,
+        }
+    }
+
+    pub(crate) fn after_submission(self) -> Self {
+        match self {
+            Self::Submitted { .. }
+            | Self::OutputLimit { .. }
+            | Self::Timeout { .. }
+            | Self::Cancelled { .. }
+            | Self::Rejected { .. }
+            | Self::Unusable => self,
+            Self::NotSubmitted { detail } => Self::Submitted { detail },
+            other => Self::Submitted {
+                detail: other.to_string(),
             },
         }
     }

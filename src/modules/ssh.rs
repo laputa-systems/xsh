@@ -98,6 +98,11 @@ fn token() -> Result<String, RuntimeError> {
 }
 
 #[cfg(feature = "ssh")]
+fn interrupt() -> xsh_ssh::Interrupt {
+    Arc::new(|| crate::runtime::process::signal_snapshot().primary.is_some())
+}
+
+#[cfg(feature = "ssh")]
 fn ssh_error(error: SshError, span: Span) -> RuntimeError {
     let kind = match &error {
         SshError::InvalidHostKeyPin { .. } => "ssh-host-key-pin",
@@ -118,6 +123,16 @@ fn ssh_error(error: SshError, span: Span) -> RuntimeError {
         SshError::Timeout {
             certainty: Certainty::Submitted,
         } => "ssh-timeout-submitted",
+        SshError::Cancelled {
+            certainty: Certainty::NotSubmitted,
+        } => "ssh-cancelled-not-submitted",
+        SshError::Cancelled {
+            certainty: Certainty::Submitted,
+        } => "ssh-cancelled-submitted",
+        SshError::Rejected { .. } => "ssh-rejected",
+        SshError::OutputLimit { .. } => "ssh-output-limit",
+        SshError::UnsupportedHardware { .. } => "ssh-hardware",
+        SshError::Unusable => "ssh-unusable",
     };
     RuntimeError::new(kind, error.to_string()).with_span(span)
 }
@@ -293,7 +308,10 @@ pub(crate) fn exec(
         let result = connection
             .exec_stream(
                 command,
-                &StreamOptions { timeout },
+                &StreamOptions {
+                    timeout,
+                    interrupt: Some(interrupt()),
+                },
                 input,
                 stdout,
                 stderr,
@@ -314,6 +332,7 @@ pub(crate) fn exec(
                 stdin,
                 timeout,
                 max_output: max_output.unwrap_or(xsh_ssh::exec::DEFAULT_MAX_OUTPUT),
+                interrupt: Some(interrupt()),
             },
         )
         .map_err(|error| ssh_error(error, span))?;

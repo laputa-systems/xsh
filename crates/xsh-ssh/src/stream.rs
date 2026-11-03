@@ -1,162 +1,224 @@
 use std::io::{Read, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use oxish_proto::crypto::CryptoProvider;
 use oxish_proto::{Encode, MessageType};
 use rustix::event::PollFlags;
 
-use crate::channel::{Channel, handle_global_request};
+use crate::channel::Channel;
+use crate::client::Connection;
 use crate::error::{Certainty, Error};
 use crate::exec::{ExecResult, ExecStatus};
-use crate::host_key::HostKeyPin;
-use crate::kex;
-use crate::wire::{SshReader, Transport, put_string};
+use crate::wire::{Interrupt, Packet, SshReader, put_string};
+
+const OUTPUT_HIGH_WATER: usize = 256 * 1024;
+const STDERR_EXTENDED_DATA: u32 = 1;
 
 /// Options for one streamed exec.
-#[derive(Debug, Clone)]
+#[derive(Clone, Default)]
 pub struct StreamOptions {
-    /// The whole-command deadline.
+    /// The whole-command deadline; without one only the interrupt ends a silent command.
     pub timeout: Option<Duration>,
+    /// Reports that the caller wants the command abandoned.
+    pub interrupt: Option<Interrupt>,
 }
 
-impl Default for StreamOptions {
-    fn default() -> Self {
+impl std::fmt::Debug for StreamOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StreamOptions")
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
+}
+
+struct Input<'a> {
+    reader: Option<&'a mut dyn Read>,
+    buffer: Vec<u8>,
+    position: usize,
+    length: usize,
+    eof: bool,
+}
+
+impl<'a> Input<'a> {
+    fn new(reader: Option<&'a mut dyn Read>) -> Self {
+        let eof = reader.is_none();
         Self {
-            timeout: Some(Duration::from_secs(30)),
+            reader,
+            buffer: vec![0; 64 * 1024],
+            position: 0,
+            length: 0,
+            eof,
+        }
+    }
+
+    fn drained(&self) -> bool {
+        self.position == self.length
+    }
+
+    fn refill(&mut self) -> Result<(), Error> {
+        let Some(reader) = self.reader.as_mut() else {
+            self.eof = true;
+            return Ok(());
+        };
+        loop {
+            match reader.read(&mut self.buffer) {
+                Ok(0) => {
+                    self.eof = true;
+                    return Ok(());
+                }
+                Ok(read) => {
+                    self.length = read;
+                    self.position = 0;
+                    return Ok(());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(Error::Submitted {
+                        detail: format!("stdin read failed: {error}"),
+                    });
+                }
+            }
         }
     }
 }
 
-/// Run one remote command with streaming stdin and independent output sinks.
-pub fn exec_stream(
-    transport: &mut Transport,
+#[derive(Default)]
+struct Completion {
+    exit_status: Option<u32>,
+    exit_signal: Option<String>,
+}
+
+impl Completion {
+    fn status(&self) -> ExecStatus {
+        match (self.exit_status, &self.exit_signal) {
+            (Some(status), _) => ExecStatus::Exited(status),
+            (None, Some(signal)) => ExecStatus::Signaled(signal.clone()),
+            (None, None) => ExecStatus::Missing,
+        }
+    }
+}
+
+pub(crate) fn exec_stream(
+    connection: &mut Connection,
     command: &str,
     options: &StreamOptions,
     stdin: Option<&mut dyn Read>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    pin: &HostKeyPin,
-    provider: &dyn CryptoProvider,
-    session_id: &[u8],
-    strict_kex: bool,
 ) -> Result<ExecResult, Error> {
-    let mut channel = Channel::open(transport)?;
-    channel.exec(transport, command.as_bytes())?;
-    transport.set_nonblocking(true)?;
+    connection.require_usable()?;
+    connection
+        .transport()
+        .begin_operation(options.timeout, options.interrupt.clone());
+    let result = run(connection, command, stdin, stdout, stderr);
+    connection.transport().end_operation();
+    result.map_err(|error| {
+        let error = if connection.transport().certainty() == Certainty::Submitted {
+            error.after_submission()
+        } else {
+            error
+        };
+        connection.mark_unusable();
+        error
+    })
+}
 
-    let deadline = Instant::now() + options.timeout.unwrap_or(Duration::from_secs(30));
-    let mut stdin = stdin;
-    let mut input = vec![0u8; 64 * 1024];
-    let mut input_len = 0;
-    let mut input_pos = 0;
-    let mut input_eof = stdin.is_none();
-    let mut eof_sent = false;
-    let mut exit_status = None;
-    let mut exit_signal = None;
-    let mut closed = false;
+fn run(
+    connection: &mut Connection,
+    command: &str,
+    stdin: Option<&mut dyn Read>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExecResult, Error> {
+    let mut channel = Channel::open(connection)?;
+    channel.exec(connection, command.as_bytes())?;
+    connection.transport().await_command();
 
-    while !closed {
-        if Instant::now() >= deadline {
-            transport.shutdown();
-            return Err(Error::Timeout {
-                certainty: Certainty::Submitted,
-            });
+    let mut input = Input::new(stdin);
+    let mut completion = Completion::default();
+    while !channel.is_closed() {
+        connection.transport().check()?;
+        while let Some(packet) = connection.try_next_packet()? {
+            on_packet(connection, &mut channel, &mut completion, packet, stdout, stderr)?;
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let want_write = transport.has_pending_output()
-            || (!eof_sent && input_pos >= input_len)
-            || (input_pos < input_len && channel.remote_window > 0);
-        let events = transport.poll_ready(want_write, Some(remaining))?;
-
-        if events.contains(PollFlags::IN) {
-            if transport.fill_nonblocking()? {
-                while let Some(packet) = transport.try_recv()? {
-                    if packet.message_type == MessageType::KeyExchangeInit {
-                        transport.set_nonblocking(false)?;
-                        let queued =
-                            kex::rekey(transport, pin, provider, session_id, strict_kex, packet)?;
-                        transport.set_nonblocking(true)?;
-                        for queued_packet in queued {
-                            process_packet(
-                                queued_packet,
-                                transport,
-                                &mut channel,
-                                stdout,
-                                stderr,
-                                &mut exit_status,
-                                &mut exit_signal,
-                                &mut closed,
-                            )?;
-                        }
-                        continue;
-                    }
-                    process_packet(
-                        packet,
-                        transport,
-                        &mut channel,
-                        stdout,
-                        stderr,
-                        &mut exit_status,
-                        &mut exit_signal,
-                        &mut closed,
-                    )?;
-                }
-            }
+        let feeding = feed(connection, &mut channel, &mut input)?;
+        if channel.close_received {
+            channel.send_close(connection.transport())?;
         }
-
-        if events.contains(PollFlags::OUT) {
-            if input_pos >= input_len && !input_eof {
-                if let Some(reader) = stdin.as_mut() {
-                    input_len = reader.read(&mut input).map_err(|error| Error::Submitted {
-                        detail: format!("stdin read failed: {error}"),
-                    })?;
-                    input_pos = 0;
-                    if input_len == 0 {
-                        input_eof = true;
-                    }
-                }
-            }
-            while input_pos < input_len && channel.remote_window > 0 {
-                let limit = usize::try_from(channel.remote_window.min(channel.remote_max_packet))
-                    .unwrap_or(usize::MAX)
-                    .min(input_len - input_pos);
-                let mut packet = Vec::new();
-                MessageType::ChannelData.encode(&mut packet);
-                packet.extend_from_slice(&channel.remote_id.to_be_bytes());
-                put_string(&mut packet, &input[input_pos..input_pos + limit]);
-                transport.encode_raw(&packet)?;
-                channel.remote_window -= limit as u32;
-                input_pos += limit;
-            }
-            if input_eof && input_pos >= input_len && !eof_sent {
-                let mut packet = Vec::new();
-                MessageType::ChannelEof.encode(&mut packet);
-                packet.extend_from_slice(&channel.remote_id.to_be_bytes());
-                transport.encode_raw(&packet)?;
-                eof_sent = true;
-            }
-            transport.flush_nonblocking()?;
+        let flushed = connection.transport().flush_nonblocking()?;
+        if channel.is_closed() && flushed {
+            break;
+        }
+        if connection.rekey_due() {
+            connection.rekey(None)?;
+            continue;
+        }
+        if flushed && feeding == Feed::OutputFull {
+            continue;
+        }
+        let events = connection.transport().wait(!flushed)?;
+        if events.contains(PollFlags::IN) || events.contains(PollFlags::HUP) {
+            connection.transport().fill_nonblocking()?;
         }
     }
 
-    transport.set_nonblocking(false)?;
     Ok(ExecResult {
-        status: status_from(exit_status, exit_signal),
+        status: completion.status(),
         stdout: Vec::new(),
         stderr: Vec::new(),
         certainty: Certainty::Submitted,
     })
 }
 
-fn process_packet(
-    packet: crate::wire::Packet,
-    transport: &mut Transport,
+#[derive(PartialEq, Eq)]
+enum Feed {
+    Done,
+    WaitingForWindow,
+    OutputFull,
+}
+
+fn feed(
+    connection: &mut Connection,
     channel: &mut Channel,
+    input: &mut Input<'_>,
+) -> Result<Feed, Error> {
+    if channel.eof_sent || channel.close_received {
+        return Ok(Feed::Done);
+    }
+    loop {
+        if connection.transport().pending_output() >= OUTPUT_HIGH_WATER {
+            return Ok(Feed::OutputFull);
+        }
+        if input.drained() {
+            if input.eof {
+                break;
+            }
+            if channel.remote_window == 0 {
+                return Ok(Feed::WaitingForWindow);
+            }
+            input.refill()?;
+            continue;
+        }
+        if channel.remote_window == 0 {
+            return Ok(Feed::WaitingForWindow);
+        }
+        let sent = channel.send_data(
+            connection.transport(),
+            &input.buffer[input.position..input.length],
+        )?;
+        input.position += sent;
+    }
+    channel.send_eof(connection.transport())?;
+    Ok(Feed::Done)
+}
+
+fn on_packet(
+    connection: &mut Connection,
+    channel: &mut Channel,
+    completion: &mut Completion,
+    packet: Packet,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    exit_status: &mut Option<u32>,
-    exit_signal: &mut Option<String>,
-    closed: &mut bool,
 ) -> Result<(), Error> {
     match packet.message_type {
         MessageType::ChannelData => {
@@ -164,15 +226,11 @@ fn process_packet(
             let recipient = reader.u32()?;
             let data = reader.string()?;
             reader.finish()?;
-            if recipient != channel.local_id {
-                return Err(Error::Channel {
-                    detail: format!("data for channel {recipient}"),
-                });
-            }
-            stdout.write_all(data).map_err(|error| Error::Submitted {
-                detail: format!("stdout write failed: {error}"),
-            })?;
-            queue_window_adjust(transport, channel, data.len())?;
+            channel.expect_recipient(recipient)?;
+            check_open_for_data(channel)?;
+            channel.receive(data.len())?;
+            sink(stdout, data, "stdout")?;
+            channel.replenish(connection.transport())?;
         }
         MessageType::ChannelExtendedData => {
             let mut reader = SshReader::new(&packet.payload);
@@ -180,59 +238,63 @@ fn process_packet(
             let data_type = reader.u32()?;
             let data = reader.string()?;
             reader.finish()?;
-            if recipient != channel.local_id {
-                return Err(Error::Channel {
-                    detail: format!("extended data for channel {recipient}"),
-                });
+            channel.expect_recipient(recipient)?;
+            check_open_for_data(channel)?;
+            channel.receive(data.len())?;
+            if data_type == STDERR_EXTENDED_DATA {
+                sink(stderr, data, "stderr")?;
             }
-            if data_type == 1 {
-                stderr.write_all(data).map_err(|error| Error::Submitted {
-                    detail: format!("stderr write failed: {error}"),
-                })?;
-            }
-            queue_window_adjust(transport, channel, data.len())?;
+            channel.replenish(connection.transport())?;
         }
-        MessageType::ChannelWindowAdjust => {
-            let mut reader = SshReader::new(&packet.payload);
-            let _recipient = reader.u32()?;
-            let added = reader.u32()?;
-            reader.finish()?;
-            channel.remote_window = channel.remote_window.saturating_add(added);
-        }
+        MessageType::ChannelWindowAdjust => channel.window_adjust(&packet.payload)?,
         MessageType::ChannelRequest => {
             let mut reader = SshReader::new(&packet.payload);
-            let _recipient = reader.u32()?;
+            let recipient = reader.u32()?;
+            channel.expect_recipient(recipient)?;
             let request = reader.text()?.to_owned();
             let want_reply = reader.u8()? != 0;
             match request.as_str() {
-                "exit-status" => *exit_status = Some(reader.u32()?),
-                "exit-signal" => *exit_signal = Some(reader.text()?.to_owned()),
+                "exit-status" => {
+                    let status = reader.u32()?;
+                    reader.finish()?;
+                    record_completion(completion, Some(status), None)?;
+                }
+                "exit-signal" => {
+                    let signal = reader.text()?.to_owned();
+                    let _core_dumped = reader.u8()?;
+                    let _message = reader.string()?;
+                    let _language = reader.string()?;
+                    reader.finish()?;
+                    record_completion(completion, None, Some(signal))?;
+                }
                 _ => {}
             }
             if want_reply {
                 let mut reply = Vec::new();
                 MessageType::ChannelFailure.encode(&mut reply);
                 reply.extend_from_slice(&channel.remote_id.to_be_bytes());
-                transport.encode_raw(&reply)?;
+                connection.transport().encode_raw(&reply)?;
             }
         }
-        MessageType::ChannelEof => {}
+        MessageType::ChannelEof => {
+            expect_recipient_only(channel, &packet.payload)?;
+            channel.eof_received = true;
+        }
         MessageType::ChannelClose => {
-            let mut reply = Vec::new();
-            MessageType::ChannelClose.encode(&mut reply);
-            reply.extend_from_slice(&channel.remote_id.to_be_bytes());
-            transport.encode_raw(&reply)?;
-            *closed = true;
+            expect_recipient_only(channel, &packet.payload)?;
+            channel.close_received = true;
         }
-        MessageType::ChannelSuccess | MessageType::ChannelFailure => {}
-        MessageType::GlobalRequest => {
-            handle_global_request(transport, &packet.payload)?;
-        }
-        MessageType::Ignore | MessageType::Debug | MessageType::Unimplemented => {}
-        MessageType::Disconnect => {
-            return Err(Error::Submitted {
-                detail: "server disconnected while the command was running".to_owned(),
-            });
+        MessageType::ChannelOpen => {
+            let mut refusal = Vec::new();
+            MessageType::ChannelOpenFailure.encode(&mut refusal);
+            let mut reader = SshReader::new(&packet.payload);
+            let _kind = reader.text()?;
+            let sender = reader.u32()?;
+            refusal.extend_from_slice(&sender.to_be_bytes());
+            refusal.extend_from_slice(&1u32.to_be_bytes());
+            put_string(&mut refusal, b"channels are not accepted");
+            put_string(&mut refusal, b"");
+            connection.transport().encode_raw(&refusal)?;
         }
         other => {
             return Err(Error::Protocol {
@@ -243,25 +305,45 @@ fn process_packet(
     Ok(())
 }
 
-fn queue_window_adjust(
-    transport: &mut Transport,
-    channel: &Channel,
-    bytes: usize,
+fn record_completion(
+    completion: &mut Completion,
+    status: Option<u32>,
+    signal: Option<String>,
 ) -> Result<(), Error> {
-    if bytes == 0 {
-        return Ok(());
+    if completion.exit_status.is_some() || completion.exit_signal.is_some() {
+        return Err(Error::Protocol {
+            detail: "server reported the command's completion twice".to_owned(),
+        });
     }
-    let mut packet = Vec::new();
-    MessageType::ChannelWindowAdjust.encode(&mut packet);
-    packet.extend_from_slice(&channel.remote_id.to_be_bytes());
-    packet.extend_from_slice(&(bytes as u32).to_be_bytes());
-    transport.encode_raw(&packet)
+    completion.exit_status = status;
+    completion.exit_signal = signal;
+    Ok(())
 }
 
-fn status_from(exit_status: Option<u32>, exit_signal: Option<String>) -> ExecStatus {
-    match (exit_status, exit_signal) {
-        (Some(status), _) => ExecStatus::Exited(status),
-        (None, Some(signal)) => ExecStatus::Signaled(signal),
-        (None, None) => ExecStatus::Missing,
+fn expect_recipient_only(channel: &Channel, payload: &[u8]) -> Result<(), Error> {
+    let mut reader = SshReader::new(payload);
+    let recipient = reader.u32()?;
+    reader.finish()?;
+    channel.expect_recipient(recipient)
+}
+
+fn check_open_for_data(channel: &Channel) -> Result<(), Error> {
+    if channel.eof_received || channel.close_received {
+        return Err(Error::Protocol {
+            detail: "data after the peer ended its output".to_owned(),
+        });
     }
+    Ok(())
+}
+
+fn sink(output: &mut dyn Write, data: &[u8], stream: &'static str) -> Result<(), Error> {
+    output.write_all(data).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::OutOfMemory {
+            Error::OutputLimit { stream }
+        } else {
+            Error::Submitted {
+                detail: format!("{stream} write failed: {error}"),
+            }
+        }
+    })
 }

@@ -1,0 +1,440 @@
+mod support;
+
+use std::io::{self, Read, Write};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use sha2::{Digest, Sha256};
+use support::*;
+use xsh_ssh::{
+    Certainty, ClientConfig, Connection, Error, ExecOptions, ExecStatus, RekeyLimits, StreamOptions,
+};
+
+const TIMEOUT: Duration = Duration::from_secs(5);
+
+fn serve_exec(
+    behavior: Behavior,
+    window: u32,
+    body: impl FnOnce(&mut Link, u32) + Send + 'static,
+) -> Peer {
+    spawn(behavior, move |link| {
+        link.accept_authentication();
+        let opened = link.accept_exec(window, 32 * 1024);
+        body(link, opened.client_channel);
+    })
+}
+
+fn run(peer: &Peer) -> Result<xsh_ssh::ExecResult, Error> {
+    peer.connect(TIMEOUT).exec("command", &ExecOptions::default())
+}
+
+#[test]
+fn completion_and_output_arrive_through_the_scripted_peer() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, b"hi\n");
+        link.extended_data(channel, b"warn\n");
+        link.exit_status(channel, 3);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let result = run(&peer).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(3));
+    assert_eq!(result.stdout, b"hi\n");
+    assert_eq!(result.stderr, b"warn\n");
+    peer.finish();
+}
+
+#[test]
+fn a_channel_closed_without_completion_is_missing_never_zero() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, b"partial");
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let result = run(&peer).expect("exec");
+    assert_eq!(result.status, ExecStatus::Missing);
+    assert_eq!(result.stdout, b"partial");
+    peer.finish();
+}
+
+#[test]
+fn a_disconnect_after_submission_is_potentially_executed() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, _| link.disconnect());
+    let error = run(&peer).expect_err("disconnect fails the command");
+    assert!(matches!(error, Error::Submitted { .. }), "{error:?}");
+    assert_eq!(error.certainty(), Certainty::Submitted);
+    peer.finish();
+}
+
+#[test]
+fn a_dropped_connection_after_submission_is_potentially_executed() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, b"some");
+        link.hangup();
+    });
+    let error = run(&peer).expect_err("a dropped connection fails the command");
+    assert_eq!(error.certainty(), Certainty::Submitted, "{error:?}");
+    peer.finish();
+}
+
+#[test]
+fn a_rejected_exec_request_did_not_run() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[&number(client), &number(SERVER_CHANNEL), &number(1 << 20), &number(32768)],
+        ));
+        link.expect(CHANNEL_REQUEST);
+        link.send(&message(CHANNEL_FAILURE, &[&number(client)]));
+    });
+    let error = run(&peer).expect_err("rejected");
+    assert!(matches!(error, Error::Rejected { request: "exec" }), "{error:?}");
+    assert_eq!(error.certainty(), Certainty::NotSubmitted);
+    peer.finish();
+}
+
+#[test]
+fn oversized_data_packets_are_a_protocol_violation() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, &vec![0; 32 * 1024 + 1]);
+    });
+    let error = run(&peer).expect_err("oversized packet");
+    assert_eq!(error.certainty(), Certainty::Submitted, "{error:?}");
+    assert!(error.to_string().contains("packet size"), "{error}");
+    peer.finish();
+}
+
+#[test]
+fn data_for_another_channel_is_refused() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel + 1, b"stray");
+    });
+    let error = run(&peer).expect_err("wrong channel");
+    assert!(error.to_string().contains("unknown channel"), "{error}");
+    peer.finish();
+}
+
+#[test]
+fn data_after_end_of_file_is_refused() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.eof(channel);
+        link.data(channel, b"late");
+    });
+    let error = run(&peer).expect_err("data after eof");
+    assert!(error.to_string().contains("ended its output"), "{error}");
+    peer.finish();
+}
+
+#[test]
+fn a_window_larger_than_the_protocol_allows_is_refused() {
+    let peer = serve_exec(Behavior::default(), u32::MAX, |link, channel| {
+        link.send(&message(CHANNEL_WINDOW_ADJUST, &[&number(channel), &number(1)]));
+    });
+    let error = run(&peer).expect_err("window overflow");
+    assert!(error.to_string().contains("window"), "{error}");
+    peer.finish();
+}
+
+#[test]
+fn completion_reported_twice_is_ambiguous_and_refused() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.exit_status(channel, 0);
+        link.exit_status(channel, 1);
+    });
+    let error = run(&peer).expect_err("two statuses");
+    assert!(error.to_string().contains("completion twice"), "{error}");
+    peer.finish();
+}
+
+#[test]
+fn a_message_from_the_wrong_protocol_state_is_refused() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, _| {
+        link.send(&[USERAUTH_SUCCESS]);
+    });
+    let error = run(&peer).expect_err("wrong state");
+    assert_eq!(error.certainty(), Certainty::Submitted, "{error:?}");
+    peer.finish();
+}
+
+#[test]
+fn a_forged_authentication_tag_is_refused() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.send_with_flipped_tag(&message(CHANNEL_DATA, &[&number(channel), &text(b"forged")]));
+    });
+    let error = run(&peer).expect_err("bad tag");
+    assert_eq!(error.certainty(), Certainty::Submitted, "{error:?}");
+    peer.finish();
+}
+
+#[test]
+fn unsupported_global_and_channel_requests_are_answered() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.send(&message(GLOBAL_REQUEST, &[&text(b"keepalive@openssh.com"), &[1]]));
+        link.expect_reply(REQUEST_FAILURE);
+        link.send(&message(
+            CHANNEL_REQUEST,
+            &[&number(channel), &text(b"xon-xoff"), &[1], &[1]],
+        ));
+        link.expect_reply(CHANNEL_FAILURE);
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let result = run(&peer).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+#[test]
+fn identification_split_across_segments_is_assembled() {
+    let behavior = Behavior {
+        fragment_identification: true,
+        ..Behavior::default()
+    };
+    let peer = serve_exec(behavior, 1 << 20, |link, channel| {
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    assert_eq!(run(&peer).expect("exec").status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+#[test]
+fn a_tampered_host_signature_is_refused_before_authentication() {
+    let behavior = Behavior {
+        corrupt_signature: true,
+        ..Behavior::default()
+    };
+    let peer = spawn(behavior, |_| {});
+    match Connection::connect(&peer.config(TIMEOUT)) {
+        Err(Error::HostKey { detail }) => assert!(detail.contains("signature"), "{detail}"),
+        other => panic!("expected a host key failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_message_before_kexinit_breaks_strict_key_exchange() {
+    let behavior = Behavior {
+        ignore_before_kexinit: true,
+        ..Behavior::default()
+    };
+    let peer = spawn(behavior, |_| {});
+    match Connection::connect(&peer.config(TIMEOUT)) {
+        Err(Error::Protocol { detail }) => assert!(detail.contains("expected"), "{detail}"),
+        other => panic!("expected a protocol failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_silent_peer_hits_the_deadline_after_submission() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |_, _| {});
+    let mut connection = peer.connect(TIMEOUT);
+    let started = Instant::now();
+    let error = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                timeout: Some(Duration::from_millis(300)),
+                ..ExecOptions::default()
+            },
+        )
+        .expect_err("deadline");
+    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(matches!(
+        error,
+        Error::Timeout {
+            certainty: Certainty::Submitted
+        }
+    ));
+    assert!(matches!(
+        connection.exec("again", &ExecOptions::default()),
+        Err(Error::Unusable)
+    ));
+    drop(connection);
+    peer.finish();
+}
+
+struct Endless;
+
+impl Read for Endless {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        buffer.fill(7);
+        Ok(buffer.len())
+    }
+}
+
+#[test]
+fn a_peer_that_stops_reading_stalls_the_sender_into_a_timeout() {
+    let peer = serve_exec(Behavior::default(), u32::MAX / 2, |_, _| {
+        std::thread::sleep(Duration::from_secs(2));
+    });
+    let mut connection = peer.connect(Duration::from_millis(400));
+    let started = Instant::now();
+    let error = connection
+        .exec_stream(
+            "command",
+            &StreamOptions::default(),
+            Some(&mut Endless),
+            &mut io::sink(),
+            &mut io::sink(),
+        )
+        .expect_err("stalled");
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    assert!(
+        matches!(error, Error::Timeout { certainty: Certainty::Submitted }),
+        "{error:?}"
+    );
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn the_caller_can_cancel_a_running_command() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let peer = serve_exec(Behavior::default(), 1 << 20, |_, _| {});
+    let mut connection = peer.connect(TIMEOUT);
+    let flag = Arc::clone(&cancelled);
+    let handle = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        flag.store(true, Ordering::SeqCst);
+    });
+    let observed = Arc::clone(&cancelled);
+    let started = Instant::now();
+    let error = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                interrupt: Some(Arc::new(move || observed.load(Ordering::SeqCst))),
+                ..ExecOptions::default()
+            },
+        )
+        .expect_err("cancelled");
+    handle.join().expect("timer");
+    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(matches!(
+        error,
+        Error::Cancelled {
+            certainty: Certainty::Submitted
+        }
+    ));
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn output_past_the_capture_limit_is_reported_and_poisons_the_session() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, &[1; 4096]);
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let error = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                max_output: 1024,
+                ..ExecOptions::default()
+            },
+        )
+        .expect_err("limit");
+    assert!(matches!(error, Error::OutputLimit { stream: "stdout" }), "{error:?}");
+    assert_eq!(error.certainty(), Certainty::Submitted);
+    assert!(!connection.is_usable());
+    drop(connection);
+    peer.finish();
+}
+
+fn digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[test]
+fn client_initiated_rekeys_carry_queued_traffic_without_loss() {
+    let payload: Vec<u8> = (0..400_000u32).map(|index| (index % 251) as u8).collect();
+    let sent = payload.clone();
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        let (first, second) = sent.split_at(sent.len() / 2);
+        for (rekeys, half) in [first, second].into_iter().enumerate() {
+            for chunk in half.chunks(16 * 1024) {
+                link.data(channel, chunk);
+            }
+            let mut frames = 0;
+            while link.rekeys <= rekeys as u32 {
+                link.recv();
+                frames += 1;
+                assert!(frames < 1000, "client did not rekey after burst {rekeys}");
+            }
+        }
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = RekeyLimits {
+        bytes: 64 * 1024,
+        ..RekeyLimits::default()
+    };
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let result = connection.exec("command", &ExecOptions::default()).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert_eq!(digest(&result.stdout), digest(&payload));
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn the_session_identity_survives_a_client_rekey() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        for _ in 0..40 {
+            link.data(channel, &[9; 4096]);
+        }
+        while link.rekeys == 0 {
+            link.recv();
+        }
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = RekeyLimits {
+        bytes: 32 * 1024,
+        ..RekeyLimits::default()
+    };
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let before = connection.session_id().to_vec();
+    connection.exec("command", &ExecOptions::default()).expect("exec");
+    assert_eq!(connection.session_id(), before);
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn an_unreachable_server_is_not_submitted() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    let port = listener.local_addr().expect("address").port();
+    drop(listener);
+    let config = ClientConfig::new(
+        "127.0.0.1",
+        port,
+        "tester",
+        "/nonexistent",
+        "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        TIMEOUT,
+    )
+    .expect("pin");
+    let error = Connection::connect(&config).expect_err("refused");
+    assert_eq!(error.certainty(), Certainty::NotSubmitted);
+    let _ = io::stdout().flush();
+}

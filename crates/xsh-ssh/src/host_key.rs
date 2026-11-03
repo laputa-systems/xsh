@@ -59,6 +59,26 @@ impl HostKeyPin {
     }
 }
 
+/// How the client decides that a server host key is the intended one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostTrust {
+    /// Accept exactly the key with this fingerprint.
+    Pinned(HostKeyPin),
+}
+
+impl HostTrust {
+    /// Fail unless `host_key_blob`, whose fingerprint is `actual`, is trusted for the endpoint.
+    pub fn verify(&self, actual: &str) -> Result<(), Error> {
+        match self {
+            Self::Pinned(pin) if pin.as_str() == actual => Ok(()),
+            Self::Pinned(pin) => Err(Error::HostKeyMismatch {
+                expected: pin.as_str().to_owned(),
+                actual: actual.to_owned(),
+            }),
+        }
+    }
+}
+
 /// The SHA-256 fingerprint of an SSH public key blob.
 pub fn fingerprint(host_key_blob: &[u8], provider: &dyn CryptoProvider) -> Result<String, Error> {
     let hash: &'static dyn Hash = provider.hash(&KeyExchangeAlgorithm::Curve25519Sha256)?;

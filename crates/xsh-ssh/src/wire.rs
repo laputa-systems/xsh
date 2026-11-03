@@ -1,7 +1,8 @@
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, poll};
 use rustix::time::Timespec;
@@ -147,7 +148,12 @@ impl fmt::Debug for RawPayload<'_> {
     }
 }
 
-/// A blocking SSH transport before or after authentication.
+/// A caller-supplied check that reports whether the current operation must stop.
+pub type Interrupt = Arc<dyn Fn() -> bool + Send + Sync>;
+
+const INTERRUPT_POLL: Duration = Duration::from_millis(50);
+
+/// An SSH transport, nonblocking at the socket and bounded by deadlines.
 pub struct Transport {
     stream: TcpStream,
     read: ReadState,
@@ -155,7 +161,29 @@ pub struct Transport {
     client_identification: Vec<u8>,
     server_identification: Vec<u8>,
     certainty: Certainty,
-    timeout: Duration,
+    idle: Duration,
+    deadline: Option<Instant>,
+    interrupt: Option<Interrupt>,
+    last_progress: Instant,
+    since_kex: KexUsage,
+    awaiting_command: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct KexUsage {
+    bytes: u64,
+    packets: u64,
+    started: Instant,
+}
+
+impl KexUsage {
+    fn new() -> Self {
+        Self {
+            bytes: 0,
+            packets: 0,
+            started: Instant::now(),
+        }
+    }
 }
 
 impl Transport {
@@ -163,14 +191,14 @@ impl Transport {
     pub fn connect(
         host: &str,
         port: u16,
-        timeout: Duration,
+        idle: Duration,
         provider: &dyn CryptoProvider,
     ) -> Result<Self, Error> {
         let addresses = (host, port).to_socket_addrs()?;
         let mut last_error = None;
         let mut stream = None;
         for address in addresses {
-            match TcpStream::connect_timeout(&address, timeout) {
+            match TcpStream::connect_timeout(&address, idle) {
                 Ok(connected) => {
                     stream = Some(connected);
                     break;
@@ -190,9 +218,8 @@ impl Transport {
                 detail: format!("no address resolved for {host}:{port}"),
             },
         })?;
-        stream.set_read_timeout(Some(timeout))?;
-        stream.set_write_timeout(Some(timeout))?;
         stream.set_nodelay(true)?;
+        stream.set_nonblocking(true)?;
         Ok(Self {
             stream,
             read: ReadState::default(),
@@ -200,7 +227,12 @@ impl Transport {
             client_identification: Vec::new(),
             server_identification: Vec::new(),
             certainty: Certainty::NotSubmitted,
-            timeout,
+            idle,
+            deadline: None,
+            interrupt: None,
+            last_progress: Instant::now(),
+            since_kex: KexUsage::new(),
+            awaiting_command: false,
         })
     }
 
@@ -209,48 +241,112 @@ impl Transport {
         self.certainty = Certainty::Submitted;
     }
 
-    /// Change the read and write deadline.
-    pub fn set_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        self.stream.set_read_timeout(Some(timeout))?;
-        self.stream.set_write_timeout(Some(timeout))?;
-        self.timeout = timeout;
-        Ok(())
+    /// Whether a request may have reached the server on this connection.
+    pub fn certainty(&self) -> Certainty {
+        self.certainty
     }
 
-    /// The current read and write deadline.
-    pub fn timeout(&self) -> Duration {
-        self.timeout
+    /// Bound the following operation by a whole-operation deadline and an interrupt check.
+    pub fn begin_operation(&mut self, timeout: Option<Duration>, interrupt: Option<Interrupt>) {
+        self.deadline = timeout.map(|timeout| Instant::now() + timeout);
+        self.interrupt = interrupt;
+        self.last_progress = Instant::now();
+        self.certainty = Certainty::NotSubmitted;
+        self.awaiting_command = false;
     }
 
-    /// Switch between blocking and nonblocking transport I/O.
-    pub fn set_nonblocking(&self, enabled: bool) -> Result<(), Error> {
-        self.stream
-            .set_nonblocking(enabled)
-            .map_err(|error| self.transport_error(error))
+    /// End the operation bounds set by [`Self::begin_operation`].
+    pub fn end_operation(&mut self) {
+        self.deadline = None;
+        self.interrupt = None;
+        self.awaiting_command = false;
     }
 
-    /// Wait for read or write readiness.
-    pub fn poll_ready(
-        &self,
-        write: bool,
-        timeout: Option<Duration>,
-    ) -> Result<PollFlags, Error> {
-        let mut events = PollFlags::IN;
-        if write {
-            events |= PollFlags::OUT;
+    /// Stop timing peer silence while a submitted command runs; only the deadline and
+    /// interrupt bound the wait, except when the peer stops draining our output.
+    pub fn await_command(&mut self) {
+        self.awaiting_command = true;
+    }
+
+    /// Fail now if the operation was interrupted or its deadline passed.
+    pub fn check(&self) -> Result<(), Error> {
+        match self.limit_error() {
+            Some(error) => Err(error),
+            None => Ok(()),
         }
-        let mut descriptors = [PollFd::new(&self.stream, events)];
-        let timespec = timeout.map(|duration| Timespec {
-            tv_sec: duration.as_secs() as _,
-            tv_nsec: duration.subsec_nanos() as _,
-        });
-        match poll(&mut descriptors, timespec.as_ref()) {
-            Ok(0) => Ok(PollFlags::empty()),
-            Ok(_) => Ok(descriptors[0].revents()),
-            Err(error) if error == rustix::io::Errno::INTR => Ok(PollFlags::empty()),
-            Err(error) => Err(Error::NotSubmitted {
-                detail: error.to_string(),
-            }),
+    }
+
+    /// The most the peer may stay silent while the transport waits on it.
+    pub fn idle_timeout(&self) -> Duration {
+        self.idle
+    }
+
+    fn idle_bound(&self) -> bool {
+        !self.awaiting_command || self.has_pending_output()
+    }
+
+    fn limit_error(&self) -> Option<Error> {
+        if self.interrupt.as_ref().is_some_and(|interrupt| interrupt()) {
+            return Some(Error::Cancelled {
+                certainty: self.certainty,
+            });
+        }
+        let now = Instant::now();
+        let idle_bound = self.idle_bound();
+        if self.deadline.is_some_and(|deadline| now >= deadline)
+            || (idle_bound && now.duration_since(self.last_progress) >= self.idle)
+        {
+            return Some(Error::Timeout {
+                certainty: self.certainty,
+            });
+        }
+        None
+    }
+
+    /// Wait for read readiness, and write readiness when `write` is set.
+    pub fn wait(&mut self, write: bool) -> Result<PollFlags, Error> {
+        loop {
+            if let Some(error) = self.limit_error() {
+                return Err(error);
+            }
+            let now = Instant::now();
+            let mut remaining = if self.interrupt.is_some() {
+                INTERRUPT_POLL
+            } else {
+                Duration::from_secs(1)
+            };
+            if let Some(deadline) = self.deadline {
+                remaining = remaining.min(deadline.saturating_duration_since(now));
+            }
+            if self.idle_bound() {
+                remaining = remaining.min((self.last_progress + self.idle).saturating_duration_since(now));
+            }
+            let mut events = PollFlags::IN;
+            if write {
+                events |= PollFlags::OUT;
+            }
+            let mut descriptors = [PollFd::new(&self.stream, events)];
+            let timespec = Timespec {
+                tv_sec: remaining.as_secs() as _,
+                tv_nsec: remaining.subsec_nanos() as _,
+            };
+            match poll(&mut descriptors, Some(&timespec)) {
+                Ok(0) => continue,
+                Ok(_) => return Ok(descriptors[0].revents()),
+                Err(error) if error == rustix::io::Errno::INTR => continue,
+                Err(error) => {
+                    return Err(self.attribute(Error::NotSubmitted {
+                        detail: error.to_string(),
+                    }));
+                }
+            }
+        }
+    }
+
+    fn attribute(&self, error: Error) -> Error {
+        match (self.certainty, error) {
+            (Certainty::Submitted, Error::NotSubmitted { detail }) => Error::Submitted { detail },
+            (_, error) => error,
         }
     }
 
@@ -258,19 +354,17 @@ impl Transport {
     pub fn fill_nonblocking(&mut self) -> Result<bool, Error> {
         let mut buffer = [0u8; 16_384];
         match self.stream.read(&mut buffer) {
-            Ok(0) => Err(match self.certainty {
-                Certainty::NotSubmitted => Error::NotSubmitted {
-                    detail: "connection closed".to_owned(),
-                },
-                Certainty::Submitted => Error::Submitted {
-                    detail: "connection closed".to_owned(),
-                },
-            }),
+            Ok(0) => Err(self.attribute(Error::NotSubmitted {
+                detail: "connection closed".to_owned(),
+            })),
             Ok(read) => {
                 self.read.buf.extend_from_slice(&buffer[..read]);
+                self.last_progress = Instant::now();
+                self.since_kex.bytes += read as u64;
                 Ok(true)
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
             Err(error) => Err(self.transport_error(error)),
         }
     }
@@ -288,6 +382,7 @@ impl Transport {
                 let packet: IncomingPacket<'_> = self.read.decode_packet(sequence, length)?;
                 let message_type = packet.message_type;
                 let payload = packet.payload().to_vec();
+                self.since_kex.packets += 1;
                 Ok(Some(Packet {
                     message_type,
                     payload,
@@ -299,6 +394,7 @@ impl Transport {
     /// Encode a payload without flushing it.
     pub fn encode_raw(&mut self, payload: &[u8]) -> Result<(), Error> {
         self.write.encode(&RawPayload(payload))?;
+        self.since_kex.packets += 1;
         Ok(())
     }
 
@@ -311,11 +407,13 @@ impl Transport {
             }
             match self.stream.write(buffered) {
                 Ok(0) => {
-                    return Err(Error::Submitted {
+                    return Err(self.attribute(Error::NotSubmitted {
                         detail: "write returned zero".to_owned(),
-                    });
+                    }));
                 }
                 Ok(written) => {
+                    self.last_progress = Instant::now();
+                    self.since_kex.bytes += written as u64;
                     self.write
                         .written(Ok(written))
                         .map_err(|error| self.transport_error(error))?;
@@ -323,6 +421,7 @@ impl Transport {
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     return Ok(false);
                 }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(self.transport_error(error)),
             }
         }
@@ -333,29 +432,66 @@ impl Transport {
         !self.write.buffered().is_empty()
     }
 
+    /// The number of encoded bytes waiting to be written.
+    pub fn pending_output(&self) -> usize {
+        self.write.buffered().len()
+    }
+
     /// Close both directions of the transport.
     pub fn shutdown(&self) {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 
+    /// Bytes, packets and time spent under the current keys.
+    pub fn kex_usage(&self) -> (u64, u64, Duration) {
+        (
+            self.since_kex.bytes,
+            self.since_kex.packets,
+            self.since_kex.started.elapsed(),
+        )
+    }
+
+    fn reset_kex_usage(&mut self) {
+        self.since_kex = KexUsage::new();
+    }
+
+    fn read_byte(&mut self) -> Result<u8, Error> {
+        loop {
+            let mut byte = [0u8; 1];
+            match self.stream.read(&mut byte) {
+                Ok(0) => {
+                    return Err(self.attribute(Error::NotSubmitted {
+                        detail: "connection closed".to_owned(),
+                    }));
+                }
+                Ok(_) => {
+                    self.last_progress = Instant::now();
+                    return Ok(byte[0]);
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    self.wait(false)?;
+                }
+                Err(error) => return Err(self.transport_error(error)),
+            }
+        }
+    }
+
     /// Exchange and validate the SSH identification lines.
     pub fn exchange_identifications(&mut self, software: &str) -> Result<(), Error> {
         let client = format!("SSH-2.0-{software}");
-        self.stream
-            .write_all(client.as_bytes())
-            .map_err(|error| self.transport_error(error))?;
-        self.stream
-            .write_all(b"\r\n")
-            .map_err(|error| self.transport_error(error))?;
+        self.write.encoded(&RawPayload(client.as_bytes()));
+        self.write.encoded(&RawPayload(b"\r\n"));
+        self.flush()?;
         self.client_identification = client.into_bytes();
 
         let mut line = Vec::with_capacity(128);
         while !line.ends_with(b"\r\n") {
-            let mut byte = [0u8; 1];
-            self.stream
-                .read_exact(&mut byte)
-                .map_err(|error| self.transport_error(error))?;
-            line.push(byte[0]);
+            line.push(self.read_byte()?);
             if line.len() > 255 + 2 {
                 return Err(Error::Protocol {
                     detail: "identification line too long".to_owned(),
@@ -395,58 +531,26 @@ impl Transport {
 
     /// Send one already-framed message payload.
     pub fn send_raw(&mut self, payload: &[u8]) -> Result<(), Error> {
-        self.write.encode(&RawPayload(payload))?;
+        self.encode_raw(payload)?;
         self.flush()
     }
 
     /// Send one typed message.
     pub fn send(&mut self, payload: &(impl Encode + fmt::Debug)) -> Result<(), Error> {
         self.write.encode(payload)?;
+        self.since_kex.packets += 1;
         self.flush()
     }
 
     /// Receive one message.
     pub fn recv(&mut self) -> Result<Packet, Error> {
         loop {
-            let polled = match self.read.poll_packet() {
-                Ok(completion) => completion,
-                Err(ProtoError::Incomplete(needed)) => {
-                    self.read_more(needed)?;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            };
-            match polled {
-                Completion::Complete((sequence, length)) => {
-                    let packet: IncomingPacket<'_> = self.read.decode_packet(sequence, length)?;
-                    let message_type = packet.message_type;
-                    let payload = packet.payload().to_vec();
-                    return Ok(Packet {
-                        message_type,
-                        payload,
-                    });
-                }
-                Completion::Incomplete(needed) => self.read_more(needed)?,
+            if let Some(packet) = self.try_recv()? {
+                return Ok(packet);
             }
+            self.wait(false)?;
+            self.fill_nonblocking()?;
         }
-    }
-
-    fn read_more(&mut self, needed: Option<usize>) -> Result<(), Error> {
-        let mut buffer = [0u8; 16_384];
-        let wanted = needed.unwrap_or(buffer.len()).clamp(1, buffer.len());
-        let read = self
-            .stream
-            .read(&mut buffer[..wanted])
-            .map_err(|error| self.transport_error(error))?;
-        if read == 0 {
-            let detail = "connection closed".to_owned();
-            return Err(match self.certainty {
-                Certainty::NotSubmitted => Error::NotSubmitted { detail },
-                Certainty::Submitted => Error::Submitted { detail },
-            });
-        }
-        self.read.buf.extend_from_slice(&buffer[..read]);
-        Ok(())
     }
 
     /// Send `SSH_MSG_NEWKEYS` and reset the send sequence for strict key exchange.
@@ -489,36 +593,29 @@ impl Transport {
         provider: &dyn CryptoProvider,
     ) -> Result<(), Error> {
         self.read.opener = Some(provider.opening_key(0, keys)?);
+        self.reset_kex_usage();
         Ok(())
     }
 
-    /// Flush buffered packets to the transport.
+    /// Flush buffered packets, reading meanwhile so a peer that is also writing cannot stall both.
     pub fn flush(&mut self) -> Result<(), Error> {
-        let buffered = self.write.buffered().to_vec();
-        if buffered.is_empty() {
-            return Ok(());
+        while !self.flush_nonblocking()? {
+            let events = self.wait(true)?;
+            if events.contains(PollFlags::IN) {
+                self.fill_nonblocking()?;
+            }
         }
-        self.stream
-            .write_all(&buffered)
-            .map_err(|error| self.transport_error(error))?;
-        self.write.clear();
         Ok(())
     }
 
     fn transport_error(&self, error: std::io::Error) -> Error {
         match error.kind() {
-            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => Error::Timeout {
+            std::io::ErrorKind::TimedOut => Error::Timeout {
                 certainty: self.certainty,
             },
-            _ => match self.certainty {
-                Certainty::NotSubmitted => Error::NotSubmitted {
-                    detail: error.to_string(),
-                },
-                Certainty::Submitted => Error::Submitted {
-                    detail: error.to_string(),
-                },
-            },
+            _ => self.attribute(Error::NotSubmitted {
+                detail: error.to_string(),
+            }),
         }
     }
-
 }

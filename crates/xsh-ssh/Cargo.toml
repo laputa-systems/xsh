@@ -17,3 +17,4 @@ rustix = { version = "1.1.4", features = ["event", "time"] }
 [dev-dependencies]
 sha2 = "0.11"
 tempfile = "3"
+zeroize = "1"

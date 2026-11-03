@@ -1,17 +1,40 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use oxish_proto::MessageType;
 use oxish_proto::crypto::CryptoProvider;
 
+use crate::DEFAULT_PROVIDER;
 use crate::auth;
 use crate::error::Error;
 use crate::exec::{self, ExecOptions, ExecResult};
-use crate::host_key::HostKeyPin;
-use crate::kex::{self, Established};
+use crate::host_key::{HostKeyPin, HostTrust};
+use crate::kex::{self, Algorithms, Established};
 use crate::stream::{self, StreamOptions};
-use crate::wire::Transport;
-use crate::DEFAULT_PROVIDER;
+use crate::wire::{Packet, SshReader, Transport, put_string};
+
+/// When to start a new key exchange under the current keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RekeyLimits {
+    /// Bytes read and written.
+    pub bytes: u64,
+    /// Packets read and written.
+    pub packets: u64,
+    /// Time since the last exchange.
+    pub interval: Duration,
+}
+
+impl Default for RekeyLimits {
+    fn default() -> Self {
+        Self {
+            bytes: 1 << 30,
+            packets: 1 << 28,
+            interval: Duration::from_secs(3600),
+        }
+    }
+}
 
 /// Explicit connection, authentication, and trust options.
 #[derive(Debug, Clone)]
@@ -24,14 +47,16 @@ pub struct ClientConfig {
     pub user: String,
     /// The unencrypted Ed25519 private key file.
     pub key: PathBuf,
-    /// The mandatory server host-key fingerprint.
-    pub host_key: HostKeyPin,
-    /// The connect, read, and write deadline.
+    /// How the server host key is trusted.
+    pub trust: HostTrust,
+    /// How long the peer may stay silent while the client waits on it.
     pub timeout: Duration,
+    /// When the client starts its own key exchanges.
+    pub rekey: RekeyLimits,
 }
 
 impl ClientConfig {
-    /// Build a configuration with a parsed host-key pin.
+    /// Build a configuration that trusts exactly one host-key fingerprint.
     pub fn new(
         host: impl Into<String>,
         port: u16,
@@ -45,8 +70,9 @@ impl ClientConfig {
             port,
             user: user.into(),
             key: key.into(),
-            host_key: HostKeyPin::parse(host_key)?,
+            trust: HostTrust::Pinned(HostKeyPin::parse(host_key)?),
             timeout,
+            rekey: RekeyLimits::default(),
         })
     }
 }
@@ -56,10 +82,12 @@ pub struct Connection {
     config: ClientConfig,
     transport: Transport,
     established: Established,
+    pending: VecDeque<Packet>,
+    usable: bool,
 }
 
 impl Connection {
-    /// Connect and verify the pinned host key.
+    /// Connect and verify the host key.
     pub fn connect(config: &ClientConfig) -> Result<Self, Error> {
         Self::connect_with(config, DEFAULT_PROVIDER)
     }
@@ -69,14 +97,24 @@ impl Connection {
         config: &ClientConfig,
         provider: &dyn CryptoProvider,
     ) -> Result<Self, Error> {
-        let mut transport =
-            Transport::connect(&config.host, config.port, config.timeout, provider)?;
+        crate::cpu::require()?;
+        let mut transport = Transport::connect(&config.host, config.port, config.timeout, provider)?;
+        transport.begin_operation(None, None);
         transport.exchange_identifications("xsh_0.0.1")?;
-        let established = kex::connect(&mut transport, &config.host_key, provider)?;
+        let established = kex::connect(
+            &mut transport,
+            &kex::Context {
+                trust: &config.trust,
+                provider,
+            },
+        )?;
+        transport.end_operation();
         Ok(Self {
             config: config.clone(),
             transport,
             established,
+            pending: VecDeque::new(),
+            usable: true,
         })
     }
 
@@ -87,18 +125,21 @@ impl Connection {
 
     /// Authenticate with an explicit cryptographic provider.
     pub fn authenticate_with(&mut self, provider: &dyn CryptoProvider) -> Result<(), Error> {
-        auth::authenticate(
+        self.transport.begin_operation(None, None);
+        let result = auth::authenticate(
             &mut self.transport,
             &self.config.user,
             &self.config.key,
             self.established.session_id.as_ref(),
             provider,
-        )
+        );
+        self.transport.end_operation();
+        result
     }
 
     /// Run one remote command with bounded captured output.
     pub fn exec(&mut self, command: &str, options: &ExecOptions) -> Result<ExecResult, Error> {
-        exec::exec(&mut self.transport, command, options)
+        exec::exec(self, command, options)
     }
 
     /// Run one remote command with streaming stdin and independent output sinks.
@@ -110,26 +151,17 @@ impl Connection {
         stdout: &mut dyn std::io::Write,
         stderr: &mut dyn std::io::Write,
     ) -> Result<ExecResult, Error> {
-        let pin = self.config.host_key.clone();
-        let session_id = self.established.session_id.clone();
-        let strict_kex = self.established.strict;
-        stream::exec_stream(
-            &mut self.transport,
-            command,
-            options,
-            stdin,
-            stdout,
-            stderr,
-            &pin,
-            DEFAULT_PROVIDER,
-            session_id.as_ref(),
-            strict_kex,
-        )
+        stream::exec_stream(self, command, options, stdin, stdout, stderr)
     }
 
     /// The verified server fingerprint.
     pub fn fingerprint(&self) -> &str {
         &self.established.fingerprint
+    }
+
+    /// The algorithms negotiated by the latest key exchange.
+    pub fn algorithms(&self) -> &Algorithms {
+        &self.established.algorithms
     }
 
     /// The session identifier used by user authentication.
@@ -150,6 +182,149 @@ impl Connection {
     /// The underlying transport, for the authentication and channel layers.
     pub fn transport(&mut self) -> &mut Transport {
         &mut self.transport
+    }
+
+    /// Whether the connection can still carry a request.
+    pub fn is_usable(&self) -> bool {
+        self.usable
+    }
+
+    pub(crate) fn require_usable(&self) -> Result<(), Error> {
+        if self.usable {
+            Ok(())
+        } else {
+            Err(Error::Unusable)
+        }
+    }
+
+    pub(crate) fn mark_unusable(&mut self) {
+        self.usable = false;
+        self.transport.shutdown();
+    }
+
+    /// Say goodbye to the server and release the socket.
+    pub fn close(mut self) {
+        self.disconnect();
+    }
+
+    fn disconnect(&mut self) {
+        if !self.usable {
+            return;
+        }
+        self.usable = false;
+        let mut message = Vec::new();
+        message.push(u8::from(MessageType::Disconnect));
+        message.extend_from_slice(&11u32.to_be_bytes());
+        put_string(&mut message, b"");
+        put_string(&mut message, b"");
+        if self.transport.encode_raw(&message).is_ok() {
+            let _ = self.transport.flush_nonblocking();
+        }
+        self.transport.shutdown();
+    }
+
+    /// The next connection-layer packet, answering transport traffic on the way.
+    pub(crate) fn next_packet(&mut self) -> Result<Packet, Error> {
+        loop {
+            let packet = match self.pending.pop_front() {
+                Some(packet) => packet,
+                None => {
+                    self.rekey_if_due()?;
+                    self.transport.recv()?
+                }
+            };
+            if let Some(packet) = self.filter(packet)? {
+                return Ok(packet);
+            }
+        }
+    }
+
+    /// The next connection-layer packet already available without blocking.
+    pub(crate) fn try_next_packet(&mut self) -> Result<Option<Packet>, Error> {
+        loop {
+            let packet = match self.pending.pop_front() {
+                Some(packet) => packet,
+                None => match self.transport.try_recv()? {
+                    Some(packet) => packet,
+                    None => return Ok(None),
+                },
+            };
+            if let Some(packet) = self.filter(packet)? {
+                return Ok(Some(packet));
+            }
+        }
+    }
+
+    fn filter(&mut self, packet: Packet) -> Result<Option<Packet>, Error> {
+        match packet.message_type {
+            MessageType::Ignore | MessageType::Debug | MessageType::Unimplemented => Ok(None),
+            MessageType::GlobalRequest => {
+                let mut reader = SshReader::new(&packet.payload);
+                let _name = reader.text()?;
+                if reader.u8()? != 0 {
+                    self.transport
+                        .encode_raw(&[u8::from(MessageType::RequestFailure)])?;
+                }
+                Ok(None)
+            }
+            MessageType::KeyExchangeInit => {
+                self.rekey(Some(packet))?;
+                Ok(None)
+            }
+            MessageType::Disconnect => Err(self.disconnected(&packet)),
+            _ => Ok(Some(packet)),
+        }
+    }
+
+    fn disconnected(&self, packet: &Packet) -> Error {
+        let mut reader = SshReader::new(&packet.payload);
+        let reason = reader.u32().unwrap_or(0);
+        let description = reader.text().unwrap_or("").to_owned();
+        let detail = format!("server disconnected (reason {reason}): {description}");
+        match self.transport.certainty() {
+            crate::error::Certainty::NotSubmitted => Error::NotSubmitted { detail },
+            crate::error::Certainty::Submitted => Error::Submitted { detail },
+        }
+    }
+
+    fn rekey_if_due(&mut self) -> Result<(), Error> {
+        let limits = self.config.rekey;
+        let (bytes, packets, elapsed) = self.transport.kex_usage();
+        if bytes >= limits.bytes || packets >= limits.packets || elapsed >= limits.interval {
+            self.rekey(None)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn rekey_due(&self) -> bool {
+        let limits = self.config.rekey;
+        let (bytes, packets, elapsed) = self.transport.kex_usage();
+        bytes >= limits.bytes || packets >= limits.packets || elapsed >= limits.interval
+    }
+
+    pub(crate) fn rekey(&mut self, server_kexinit: Option<Packet>) -> Result<(), Error> {
+        let session_id = self.established.session_id.clone();
+        let (algorithms, queued) = kex::rekey(
+            &mut self.transport,
+            &kex::Context {
+                trust: &self.config.trust,
+                provider: DEFAULT_PROVIDER,
+            },
+            &kex::Session {
+                id: session_id.as_ref(),
+                strict: self.established.strict,
+            },
+            server_kexinit,
+        )?;
+        self.established.algorithms = algorithms;
+        self.pending.extend(queued);
+        Ok(())
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.disconnect();
     }
 }
 

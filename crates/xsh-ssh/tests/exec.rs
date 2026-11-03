@@ -219,3 +219,92 @@ fn timeout_before_submission_is_certain() {
         other => panic!("expected a pre-submission timeout, got {other:?}"),
     }
 }
+
+#[test]
+fn stdin_larger_than_the_window_is_echoed_exactly() {
+    let fixture = fixture();
+    let mut connection = authenticated(&fixture);
+    let input: Vec<u8> = (0..8 * 1024 * 1024u32).map(|index| (index % 253) as u8).collect();
+    let result = connection
+        .exec(
+            "cat",
+            &ExecOptions {
+                stdin: Some(input.clone()),
+                timeout: Some(Duration::from_secs(60)),
+                ..ExecOptions::default()
+            },
+        )
+        .expect("exec succeeds");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert!(result.stdout == input, "echo differs from the input");
+}
+
+#[test]
+fn one_connection_serves_successive_commands() {
+    let fixture = fixture();
+    let mut connection = authenticated(&fixture);
+    for round in 0..5 {
+        let result = connection
+            .exec(&format!("printf 'round-{round}'; exit {round}"), &ExecOptions::default())
+            .expect("exec succeeds");
+        assert_eq!(result.status, ExecStatus::Exited(round));
+        assert_eq!(result.stdout, format!("round-{round}").into_bytes());
+    }
+}
+
+#[test]
+fn independent_sessions_run_in_parallel() {
+    let fixture = fixture();
+    let started = std::time::Instant::now();
+    let workers: Vec<_> = (0..4)
+        .map(|index| {
+            let mut connection = authenticated(&fixture);
+            thread::spawn(move || {
+                connection
+                    .exec(&format!("sleep 1; printf {index}"), &ExecOptions::default())
+                    .expect("exec succeeds")
+            })
+        })
+        .collect();
+    for (index, worker) in workers.into_iter().enumerate() {
+        let result = worker.join().expect("worker finishes");
+        assert_eq!(result.stdout, index.to_string().into_bytes());
+    }
+    assert!(started.elapsed() < Duration::from_secs(3), "sessions ran serially");
+}
+
+#[test]
+fn server_initiated_rekeys_do_not_disturb_captured_output() {
+    let fixture = fixture();
+    let mut connection = authenticated(&fixture);
+    let result = connection
+        .exec(
+            "head -c 6291456 /dev/zero",
+            &ExecOptions {
+                timeout: Some(Duration::from_secs(60)),
+                ..ExecOptions::default()
+            },
+        )
+        .expect("exec succeeds");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert_eq!(result.stdout.len(), 6 * 1024 * 1024);
+    let after = connection
+        .exec("printf alive", &ExecOptions::default())
+        .expect("the connection survives the rekey");
+    assert_eq!(after.stdout, b"alive");
+}
+
+#[test]
+fn a_failed_command_makes_the_session_unusable() {
+    let fixture = fixture();
+    let mut connection = authenticated(&fixture);
+    let options = ExecOptions {
+        timeout: Some(Duration::from_millis(300)),
+        ..ExecOptions::default()
+    };
+    assert!(connection.exec("sleep 5", &options).is_err());
+    assert!(matches!(
+        connection.exec("true", &ExecOptions::default()),
+        Err(Error::Unusable)
+    ));
+}

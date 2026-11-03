@@ -120,6 +120,7 @@ fn large_echo_has_equal_digests_and_survives_rekey() {
         .exec_stream(
             "cat",
             &StreamOptions {
+                interrupt: None,
                 timeout: Some(Duration::from_secs(180)),
             },
             Some(&mut input),
@@ -142,6 +143,7 @@ fn saturated_stderr_does_not_deadlock() {
         .exec_stream(
             "head -c 8388608 /dev/zero >&2",
             &StreamOptions {
+                interrupt: None,
                 timeout: Some(Duration::from_secs(30)),
             },
             None,
@@ -162,6 +164,7 @@ fn deadline_cancels_a_running_stream() {
     match connection.exec_stream(
         "sleep 5",
         &StreamOptions {
+                interrupt: None,
             timeout: Some(Duration::from_millis(200)),
         },
         None,
@@ -189,6 +192,7 @@ fn large_stdin_is_hashed_remotely() {
         .exec_stream(
             "sha256sum",
             &StreamOptions {
+                interrupt: None,
                 timeout: Some(Duration::from_secs(180)),
             },
             Some(&mut input),

@@ -72,7 +72,7 @@ fn changed_pin_is_rejected() {
     let fixture = fixture("A");
     let mut changed = fixture.pin.clone();
     let last = changed.pop().expect("pin has a fingerprint");
-    changed.push(if last == 'A' { 'B' } else { 'A' });
+    changed.push(if last == 'A' { 'E' } else { 'A' });
     match Connection::connect(&config(&fixture, &changed)) {
         Err(Error::HostKeyMismatch { actual, .. }) => assert_eq!(actual, fixture.pin),
         Ok(_) => panic!("expected a host key mismatch, but the connection succeeded"),
@@ -98,4 +98,17 @@ fn malformed_pin_is_rejected() {
         HostKeyPin::parse("sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
         Err(Error::InvalidHostKeyPin { .. })
     ));
+}
+
+#[test]
+fn hybrid_post_quantum_exchange_is_negotiated() {
+    let fixture = fixture("A");
+    let connection = Connection::connect(&config(&fixture, &fixture.pin)).expect("connects");
+    let algorithms = connection.algorithms();
+    assert_eq!(algorithms.kex, "mlkem768x25519-sha256");
+    assert_eq!(algorithms.host_key, "ssh-ed25519");
+    assert!(
+        ["aes128-gcm@openssh.com", "chacha20-poly1305@openssh.com"]
+            .contains(&algorithms.cipher_client_to_server.as_str())
+    );
 }
