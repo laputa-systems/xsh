@@ -252,6 +252,12 @@ slices all work inside: `f"{if ok { "yes" } else { "no" {{"}}"}}"`,
 - **Restrictions.** An interpolation contains no comments, and in a
   single-line `f"..."` no line breaks; a block `f"""..."""` may break lines
   inside braces.
+- **Enums.** A Str-backed enum value displays as its wire string (4.8), so
+  `f"{level}"` is the text JSON encoding writes for it, and `{level:>6}` pads
+  that text. An enum without wire strings is not displayable
+  (`check.display-conversion`). A generic operand that is displayed is checked
+  only against the ordinary display types, so a Str-backed enum there is
+  `check.type-mismatch`; convert the enum at the call site.
 
 A plain `"..."` or `p"..."` whose `{name}` or `{name.field}` names a binding in
 scope is probably missing its prefix; `lint.missing-f-prefix` warns and adds
@@ -1066,8 +1072,9 @@ It is still nominal: assigning a `Str` never produces a `State`, and type
 patterns never convert. `.require(Schema)` converts exact wire strings in
 enum-typed slots, recursively through records, lists, optional slots, and map
 values, and publishes the result only if the whole value validates. Unknown
-strings report the field or index path. JSON encoding writes the declared
-strings. Ordinary enums cannot be JSON-encoded.
+strings report the field or index path. JSON encoding and display conversion
+(`f"..."`, `print`, interpolation in a command word) write the declared strings.
+Ordinary enums can be neither JSON-encoded nor displayed.
 
 A standard module declares its closed option sets as built-in enums named under
 the module, such as `archive.Format` and `archive.Compression`. A built-in enum
@@ -4123,7 +4130,8 @@ always contributes to that one argument (`-j${jobs}`, `"--out=$dir"`).
 
 `print` writes its arguments separated by single spaces plus a newline to
 stdout, and `eprint` does the same on stderr. They accept displayable scalars
-(`Str`, `Int`, `UInt`, `Float`, `Duration`, `Bool`, `Path`) and need no effect.
+(`Str`, `Int`, `UInt`, `Float`, `Duration`, `Bool`, `Path`) and Str-backed enum
+values, which print as their wire strings, and need no effect.
 `Path` displays its text without normalizing or resolving. `--flush` as the
 first argument writes straight to the inherited stream instead of the buffered
 script output. `xsh` writes buffered output out before it starts or waits on

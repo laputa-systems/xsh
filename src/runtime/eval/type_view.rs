@@ -22,6 +22,14 @@ pub(super) enum ValueView<'a> {
 }
 
 impl<'a> ValueView<'a> {
+    fn push_wire_display(output: &mut String, mapping: &crate::sema::wire_enums::WireEnumMapping, variant: &str, span: Span) -> Result<(), RuntimeError> {
+        match mapping.variants.get(&Name::intern(variant)) {
+            Some(text) => output.push_str(text),
+            None => return Err(RuntimeError::new("display-conversion", "enum variant has no wire string").with_span(span)),
+        }
+        Ok(())
+    }
+
     pub(super) fn push_display(self, output: &mut String, span: Span) -> Result<(), RuntimeError> {
         match self {
             Self::Runtime(Value::Str(v))
@@ -43,6 +51,12 @@ impl<'a> ValueView<'a> {
             | Self::Lowered(LoweredValue::Path(v)) => output.push_str(&v.display()),
             Self::Lowered(LoweredValue::Status(v)) => {
                 output.push_str(&format!("{:?}", v.kind).to_lowercase())
+            }
+            Self::Lowered(LoweredValue::Tag(tag)) if tag.fields.is_empty() && tag.wire.is_some() => {
+                Self::push_wire_display(output, tag.wire.as_ref().expect("guarded wire mapping"), &tag.name, span)?;
+            }
+            Self::Runtime(Value::Tag { name, fields, wire: Some(mapping), .. }) if fields.is_empty() => {
+                Self::push_wire_display(output, mapping, name, span)?;
             }
             Self::Lowered(LoweredValue::Error(v)) if matches!(v.as_ref(), Value::Error(_)) =>
                 output.push_str(v.error_message().expect("Error values have a message")),

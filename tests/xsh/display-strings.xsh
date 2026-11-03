@@ -223,3 +223,49 @@ print $called $plain $joined $braces
   assert "called = \"hello {name.len()}\"" in text, text
   assert "braces = \"{{ name }} {unbound}\"" in text, text
 }
+
+enum DisplayLevel: Str { Low = "low", High = "" }
+enum DisplayPlain { Quiet, Loud }
+
+type DisplayEntry = {level: DisplayLevel, plain: DisplayPlain}
+
+test test_display_strings_interpolate_a_str_backed_enum_as_its_wire_string {
+  let level: DisplayLevel = .Low
+  let silent: DisplayLevel = .High
+  let entry = DisplayEntry(level: .Low, plain: .Quiet)
+  assert f"{level}" == "low"
+  assert f"<{silent}>" == "<>"
+  assert f"{level}/{entry.level}" == "low/low"
+  assert f"[{level:>5}]" == "[  low]"
+  assert f"[{level:<5}]" == "[low  ]"
+  assert fp"{level}/x" == p"low/x"
+  let levels: List[DisplayLevel] = [.Low, .High]
+  assert [f"{item}" for item in levels] == ["low", ""]
+  let decoded = json.decode("\"low\"")?.require(DisplayLevel)?
+  assert f"{decoded}" == "low"
+}
+
+test test_str_backed_enums_display_in_print_and_command_words { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""enum Level: Str { Low = "low", High = "high" }
+let level: Level = .High
+print $level
+run echo level-${level}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "high\nlevel-high\n"
+}
+
+test test_display_strings_reject_an_enum_without_wire_strings { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""enum Plain { Quiet, Loud }
+let plain: Plain = .Quiet
+print f"{plain}"
+""",
+  )?
+  assert ! output.success
+  assert "check.display-conversion" in output.stderr, output.stderr
+}

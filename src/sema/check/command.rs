@@ -59,6 +59,7 @@ pub(super) fn valid_env_name(name: &str) -> bool {
 impl Checker {
     pub(super) fn require_value_conversion(&mut self, ty: &Type, conversion: ValueConversion, span: Span) -> bool {
         if matches!(ty, Type::Unknown | Type::Invalid) { return true; }
+        if conversion == ValueConversion::Display && matches!(ty, Type::Tag(name) if self.wire_enums.mappings.contains_key(name)) { return true; }
         match self.type_constraints.require_conversion(ty, conversion, span) {
             Ok(()) => true,
             Err(crate::sema::constraints::ConversionConstraintError::Invalid { .. }) => false,
