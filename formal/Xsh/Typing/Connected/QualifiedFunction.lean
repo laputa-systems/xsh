@@ -18,6 +18,7 @@ def validateQualifiedFunction (fuel : Nat) (names : TypeNames) (parameters globa
   let principal ← validateGeneratedFunctionScheme fuel names parameters globals result body ordered steps solvedCount scheme
   requireCheck (decide (declaredBinders candidate).Nodup)
   if supportedStatementTails true candidate then pure () else throw .unsupported
+  if guaranteesFunctionResult candidate then pure () else throw .unsupported
   requireCheck (checksPropagationErrors (propagationContext (substitute principal result)) principal
     (blockPropagationErrors candidate))
   validateQualifiedBlock fuel names (parameters ++ globals) principal scheme.requirements fields binderTypes
@@ -39,17 +40,23 @@ theorem qualified_function_types_every_solution (fuel : Nat) (names : TypeNames)
         (.function (parameterTypes parameters) result) state.constraints principal scheme ∧
       Solves state.constraints (compose later principal) ∧
       (declaredBinders candidate).Nodup ∧
+      guaranteesFunctionResult candidate = true ∧
       WellSorted (witnessSubstitution inhabitant) ∧
       checksGroundScheme scheme inhabitant = true ∧
       Solves scheme.requirements (witnessSubstitution inhabitant) ∧
       BlockHasType names (compose later principal) (parameters ++ globals)
         (substitute (compose later principal) result) body := by
-  cases supported : supportedStatementTails true candidate with
+  cases complete : guaranteesFunctionResult candidate with
   | false =>
-    simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported,
-      Bool.and_eq_true, checks_constraints_iff] at accepted
+    cases supported : supportedStatementTails true candidate <;>
+      simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, complete, supported] at accepted
   | true =>
-    simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported,
+   cases supported : supportedStatementTails true candidate with
+   | false =>
+    simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported, complete,
+      Bool.and_eq_true, checks_constraints_iff] at accepted
+   | true =>
+    simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported, complete,
       Bool.and_eq_true, checks_constraints_iff] at accepted
     obtain ⟨⟨⟨finite, ground⟩, inhabited⟩, chosen, found, unique, propagation, checked, same⟩ := accepted
     subst chosen
@@ -59,7 +66,7 @@ theorem qualified_function_types_every_solution (fuel : Nat) (names : TypeNames)
       generated_function_scheme_is_principal fuel names parameters globals result body ordered
         steps solvedCount scheme principal found
     refine ⟨generated, state, generatedBody, qualified,
-      (qualified.1.2.1 later sorted).mpr solves, unique,
+      (qualified.1.2.1 later sorted).mpr solves, unique, rfl,
       finite_substitution_is_well_sorted inhabitant finite, ground, inhabited, ?_⟩
     rw [substitute_compose]
     exact validated_qualified_block_instantiates fuel names (parameters ++ globals) principal later

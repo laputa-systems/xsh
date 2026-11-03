@@ -485,6 +485,7 @@ def validateQualifiedFunctionInstance (fuel : Nat) (names : TypeNames)
   let solution := compose instantiation principal
   requireCheck (decide (declaredBinders candidate).Nodup)
   if supportedStatementTails true candidate then pure () else throw .unsupported
+  if guaranteesFunctionResult candidate then pure () else throw .unsupported
   requireCheck (checksPropagationErrors (propagationContext (substitute solution result)) solution
     (blockPropagationErrors candidate))
   validateBlock fuel names (parameters ++ globals) solution binderTypes
@@ -510,13 +511,19 @@ theorem qualified_function_instance_sound (fuel : Nat) (names : TypeNames)
         (compose instantiation principal) (blockPropagationErrors candidate) ∧
       BlockHasType names (compose instantiation principal) (parameters ++ globals)
         (substitute (compose instantiation principal) result) body := by
-  cases supported : supportedStatementTails true candidate with
+  cases complete : guaranteesFunctionResult candidate with
   | false =>
+    cases supported : supportedStatementTails true candidate <;>
+      simp [validateQualifiedFunctionInstance, except_bind_ok, except_map_ok,
+        exists_require_ok, complete, supported] at accepted
+  | true =>
+   cases supported : supportedStatementTails true candidate with
+   | false =>
     simp [validateQualifiedFunctionInstance, except_bind_ok, except_map_ok,
       exists_require_ok, supported] at accepted
-  | true =>
+   | true =>
     simp [validateQualifiedFunctionInstance, except_bind_ok, except_map_ok,
-      exists_require_ok, supported, checks_constraints_iff,
+      exists_require_ok, supported, complete, checks_constraints_iff,
       checks_propagation_errors_iff] at accepted
     obtain ⟨chosen, found, requirements, unique, propagation, checked, same⟩ := accepted
     subst chosen

@@ -49,6 +49,21 @@ mutual
     | (_, body) :: rest => supportedStatementTails tail body && supportedBranchTails tail rest
 end
 
+mutual
+  def guaranteesFunctionResult : List StatementNode → Bool
+    | [] => false
+    | .returned _ :: _ => true
+    | .evaluated _ :: rest => rest.isEmpty || guaranteesFunctionResult rest
+    | .conditional branches fallback :: rest =>
+        if rest.isEmpty then guaranteesBranchResults branches && guaranteesFunctionResult fallback
+        else guaranteesFunctionResult rest
+    | _ :: rest => guaranteesFunctionResult rest
+
+  def guaranteesBranchResults : List (Node × List StatementNode) → Bool
+    | [] => true
+    | (_, body) :: rest => guaranteesFunctionResult body && guaranteesBranchResults rest
+end
+
 def validateDerivedBlock (fuel : Nat) (names : TypeNames) (scope : Scope)
     (result : MonoType) (source : List Statement) (candidate : List StatementNode)
     (binderTypes : BinderTypes) (steps : List DerivationStep) : Except ValidationError Unit := do

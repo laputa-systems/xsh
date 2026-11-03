@@ -57,6 +57,59 @@ def intFieldRejected : Bool :=
       (fun _ => none) (fun _ => some (.primitive .integer)) [] with
   | .error .mismatch => true | _ => false
 
+def emptyIntScheme : Scheme := ⟨[], .function .argumentsEmpty (.primitive .integer), []⟩
+def emptyFunctionRejected : Bool :=
+  match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) [] [] [] 0
+      emptyIntScheme [] (fun _ => none) (fun _ => none) [] with
+  | .error .unsupported => true | _ => false
+
+def emptyInstanceRejected : Bool :=
+  match validateQualifiedFunctionInstance 24 exampleTypeNames [] [] (.primitive .integer) [] [] [] 0
+      emptyIntScheme identity [] (fun _ => none) with
+  | .error .unsupported => true | _ => false
+
+def partialBranchBody : List Statement :=
+  [.ifStmt [(.literal (.bool true), [.returnValue (some (.literal (.integer "1")))])] none]
+def partialBranchCandidate : List StatementNode :=
+  [.conditional [(.boolean true, [.returned (.integer "1")])] []]
+def partialBranchConstraints : List Constraint :=
+  [.equal (.primitive .boolean) (.primitive .boolean), .equal (.primitive .integer) (.primitive .integer)]
+def partialBranchPrincipalAccepted : Bool :=
+  match validateGeneratedFunctionScheme 24 exampleTypeNames [] [] (.primitive .integer) partialBranchBody
+      partialBranchConstraints [.reflexive, .reflexive] 2 emptyIntScheme with
+  | .ok _ => true | _ => false
+
+def partialBranchRejected : Bool :=
+  match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) partialBranchBody
+      partialBranchConstraints [.reflexive, .reflexive] 2 emptyIntScheme partialBranchCandidate
+      (fun _ => none) (fun _ => none) [] with
+  | .error .unsupported => true | _ => false
+
+def partialBranchInstanceRejected : Bool :=
+  match validateQualifiedFunctionInstance 24 exampleTypeNames [] [] (.primitive .integer) partialBranchBody
+      partialBranchConstraints [.reflexive, .reflexive] 2 emptyIntScheme identity partialBranchCandidate
+      (fun _ => none) with
+  | .error .unsupported => true | _ => false
+
+def completeBranchBody : List Statement :=
+  [.ifStmt [(.literal (.bool true), [.returnValue (some (.literal (.integer "1")))])]
+    (some [.returnValue (some (.literal (.integer "2")))])]
+def completeBranchCandidate : List StatementNode :=
+  [.conditional [(.boolean true, [.returned (.integer "1")])] [.returned (.integer "2")]]
+def completeBranchConstraints : List Constraint :=
+  partialBranchConstraints ++ [.equal (.primitive .integer) (.primitive .integer)]
+def completeBranchAccepted : Bool :=
+  match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) completeBranchBody
+      completeBranchConstraints [.reflexive, .reflexive, .reflexive] 3 emptyIntScheme completeBranchCandidate
+      (fun _ => none) (fun _ => none) [] with
+  | .ok _ => true | _ => false
+
+theorem function_fallthrough_is_not_accepted :
+    emptyFunctionRejected = true ∧ emptyInstanceRejected = true ∧
+    partialBranchPrincipalAccepted = true ∧ partialBranchRejected = true ∧
+    partialBranchInstanceRejected = true ∧ completeBranchAccepted = true := by
+  decide +kernel
+
 theorem field_occurs_smaller {name : NameId} {value row : MonoType}
     (found : FieldOccurs name value row) : sizeOf value < sizeOf row := by
   induction found with
