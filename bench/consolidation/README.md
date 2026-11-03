@@ -72,8 +72,10 @@ measuring. Failures stop the run and retain raw observations. Process-group
 timeouts kill descendants and scratch is removed on exit. The runner pins one
 allowed host CPU, disables swap, and limits memory to 4 GiB.
 
-For measurement, add `--measure --functional-close /absolute/close.json`.
-The integrator supplies that JSON record with `functional_complete: true`
+For measurement, require `perf-gate-ready` to exit 0, then add
+`--measure --functional-close /absolute/close.json`. Run `perf-gate-ready -1`
+immediately afterward and discard results if it fails. A busy host defers the
+timing gate. The integrator supplies that JSON record with `functional_complete: true`
 and `commit` equal to `--source-commit`. Parity always runs first. One warmup
 per tool/workload precedes three rounds of 30 fresh process samples per tool,
 or 60 for startup. Filesystem caches are warm. Tools rotate cyclically within
