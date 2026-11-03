@@ -14,7 +14,8 @@ The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
 items remain open. The performance/deployment and Lean campaigns retain their
 own pause/launch rules; this queue update resumes neither. The Deser
-codec cutover is accepted and qualified on Linux; native macOS qualification
+codec cutover was functionally qualified on an earlier Linux source; current-source
+qualification is active. Native macOS qualification
 is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
 which items block a release; performance and resource items such as XSH-1 and
 XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
