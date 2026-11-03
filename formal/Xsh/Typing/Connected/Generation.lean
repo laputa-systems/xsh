@@ -122,6 +122,16 @@ def initialState (scope : Scope) : GenerationState :=
   ⟨nextAfter ((scopeVariables scope).map Variable.id),
     nextAfter (scope.map fun binding => binding.binder.value), []⟩
 
+
+def initialBlockState (scope : Scope) (result : MonoType) : GenerationState :=
+  let state := initialState scope
+  { state with nextType := max state.nextType (nextAfter ((freeVariables result).map Variable.id)) }
+
+theorem initial_result_ids_are_fresh {scope : Scope} {result : MonoType} {id : Variable}
+    (member : id ∈ freeVariables result) : id.id < (initialBlockState scope result).nextType := by
+  apply Nat.lt_of_lt_of_le (member_lt_next_after (List.mem_map.mpr ⟨id, member, rfl⟩))
+  exact Nat.le_max_right _ _
+
 theorem initial_type_ids_are_fresh {scope : Scope} {varId : Variable}
     (member : varId ∈ scopeVariables scope) : varId.id < (initialState scope).nextType := by
   apply member_lt_next_after

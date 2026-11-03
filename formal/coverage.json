@@ -11278,6 +11278,33 @@
       "status": "fragment",
       "scope": "A scheme-valued Ok binding instantiates on read and dispatches through argument evaluation to a Result value.",
       "boundary": "The function table and stored scheme are assumptions; this is not general progress or Rust runtime correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.generated_function_scheme_is_principal",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.generated_function_scheme_is_principal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted generated function scheme is qualified-principal for its generated constraint set, after checking a candidate ordering and generalization.",
+      "boundary": "The function body, parameters, globals and residual requirements are Lean inputs. Solver completeness, source admission and Rust scheme correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.solved_projection_iff_row_lacks",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.solved_projection_iff_row_lacks",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any closed uniquely named row, a solved projection constraint is equivalent to a field-plus-lacks decomposition modulo field permutation.",
+      "boundary": "This is a Lean semantic representation theorem; the correspondence to published Rust row schemes and their identity mappings remains open."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.qualified_call_preserves_required_field",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.qualified_call_preserves_required_field",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked instantiation of a qualified-principal scheme discharges its original field obligations.",
+      "boundary": "Kind-correct substitution and qualified source scheme are assumptions; actual Rust call instances and general runtime preservation remain unconnected."
     }
   ],
   "artifact_certificates": [

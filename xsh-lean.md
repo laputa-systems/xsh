@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 838
+**State:** `formal/coverage.json` is the only inventory. It lists 841
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -826,6 +826,14 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   a connected Ok call exercises the actual read, argument evaluation and call
   transitions. Independent source review found no further concrete defect in
   the reviewed fixes; general progress, effects and Rust/IR links stay open.
+
+
+- 2026-11-03: Qualified-principal checking retains unresolved field constraints,
+  checks generalization and a candidate constraint ordering, and proves checked
+  call instances discharge original field requirements. For closed unique rows,
+  field projection is equivalent to field-plus-lacks decomposition modulo
+  permutation. These are Lean results; actual Rust row/lacks scheme and call
+  facts, source admission and target simulation remain to be connected.
 
 ## For the owner afterwards
 

@@ -52,7 +52,7 @@ end
 def validateDerivedBlock (fuel : Nat) (names : TypeNames) (scope : Scope)
     (result : MonoType) (source : List Statement) (candidate : List StatementNode)
     (binderTypes : BinderTypes) (steps : List DerivationStep) : Except ValidationError Unit := do
-  let (_, state) ← ((block fuel names scope result source).run (initialState scope)).mapError generationFailure
+  let (_, state) ← ((block fuel names scope result source).run (initialBlockState scope result)).mapError generationFailure
   let solution ← checkDerivation steps state.constraints
   requireCheck (decide (declaredBinders candidate).Nodup)
   if supportedStatementTails true candidate then pure () else throw .unsupported
@@ -65,13 +65,13 @@ theorem derived_block_certificate_sound (fuel : Nat) (names : TypeNames) (scope 
     (binderTypes : BinderTypes) (steps : List DerivationStep)
     (accepted : validateDerivedBlock fuel names scope result source candidate binderTypes steps = .ok ()) :
     ∃ generated state solution,
-      (block fuel names scope result source).run (initialState scope) = .ok (generated, state) ∧
+      (block fuel names scope result source).run (initialBlockState scope result) = .ok (generated, state) ∧
       checkDerivation steps state.constraints = .ok solution ∧
       KindedPrincipal state.constraints solution ∧ (declaredBinders candidate).Nodup ∧
       PropagationMatches (propagationContext (substitute solution result)) solution (blockPropagationErrors candidate) ∧
       BlockHasType names solution scope (substitute solution result) source := by
   unfold validateDerivedBlock at accepted
-  cases found : (block fuel names scope result source).run (initialState scope) with
+  cases found : (block fuel names scope result source).run (initialBlockState scope result) with
   | error error =>
     simp only [found, Except.mapError] at accepted
     cases accepted
