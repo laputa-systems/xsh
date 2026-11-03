@@ -91,9 +91,15 @@ fn optional_bytes(record: &RecordMap, name: &str, span: Span) -> Result<Option<V
     }
 }
 
+/// Reports that a signal arrived while ssh work was running. Work begun after the first signal,
+/// such as cleanup in a `defer`, is not cancelled by it; only a second signal cancels that.
 #[cfg(feature = "ssh")]
 fn interrupt() -> xsh_ssh::Interrupt {
-    Arc::new(|| crate::runtime::process::signal_snapshot().primary.is_some())
+    let already_pending = crate::runtime::process::signal_snapshot().primary.is_some();
+    Arc::new(move || {
+        let snapshot = crate::runtime::process::signal_snapshot();
+        snapshot.escalation.is_some() || (snapshot.primary.is_some() && !already_pending)
+    })
 }
 
 fn structured(

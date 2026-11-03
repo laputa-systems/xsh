@@ -244,6 +244,70 @@ test ssh_exec_file_options_leave_the_capture_limit_on_every_other_stream { |ctx|
   }
 }
 
+proc command_for(xsh_bin: Path, program: Path, ready: Path) -> List[Str] {
+  [xsh_bin.display(), program.display(), ready.display()]
+}
+
+const CLEANUP_PROGRAM = """
+proc main(...argv: List[Str]) [env, fs, net, time, error] {
+let ready = fp"{argv[0]}"
+let options = {
+  host: env.get("XINFRA_FIXTURE_A_HOST")?,
+  port: env.get("XINFRA_FIXTURE_A_PORT")?.parse_int()?,
+  user: env.get("XINFRA_FIXTURE_USER")?,
+  key: fp"{env.get("XINFRA_FIXTURE_KEY")?}",
+  host_key: env.get("XINFRA_FIXTURE_A_HOST_KEY")?,
+  timeout_ms: 10000,
+}
+defer {
+  let reopened = ssh.connect(options)
+  match reopened {
+    Ok(again) => {
+      let _ = ssh.exec(again, "touch /tmp/xsh-cleanup-after-signal", {})
+      let _ = ssh.close(again)
+    }
+    Err(_) => {}
+  }
+}
+ready.write("ready")?
+time.sleep(60s)
+}
+"""
+
+test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  let root = test.temp_dir(ctx, name: "cleanup")?
+  let program = fp"{root}/cleanup.xsh"
+  let ready = fp"{root}/ready"
+  program.write(CLEANUP_PROGRAM)?
+  with session = ssh.connect(options)? {
+    assert ssh.exec(session, "rm -f /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0
+    let child = spawn run @(command_for(ctx.xsh_bin, program, ready)) ?
+    for _ in range(100) {
+      if ready.exists()? { break }
+      time.sleep(50ms)
+    }
+    assert ready.exists()?, "the program never connected"
+    child.cancel(signal: "TERM", kill_after: 10s)
+    time.sleep(1s)
+    assert ssh.exec(session, "test -e /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0
+  }
+}
+
 test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
   let fixture = match fixture("A") {
     Ok(value) => value,
