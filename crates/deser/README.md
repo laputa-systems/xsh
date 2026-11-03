@@ -4,9 +4,10 @@ Upstream: https://github.com/mitsuhiko/deser
 
 Frozen revision: `8c15055178fcf2488dcd1ac70e6d1ff18689b486` (0.10.1).
 
-Retained packages provide JSON, YAML, TOML, INI, CSV/TSV, CBOR and MessagePack,
-the core drivers, derive, path/location tracking, the host tooling value tree,
-and encoding helpers used by retained conformance tests. External collection and
+Retained packages provide JSON, YAML, TOML, INI, CSV/TSV and CBOR, the core
+drivers, derive, path/location tracking, the host tooling value tree, and
+encoding helpers used by retained conformance tests. XSH's public codec API
+does not expose CBOR. External collection and
 calendar/decimal adapters are removed, except jiff for retained TOML conformance
 tests; it is not enabled in production. Other codecs, bridges,
 benchmarks and repository automation are excluded. Apache-2.0 applies.
