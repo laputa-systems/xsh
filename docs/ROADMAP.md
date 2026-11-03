@@ -42,29 +42,18 @@ external engines where they reduce risk. No new language syntax, async runtime,
 or mandatory resident management daemon is implied, and XSH itself gains no
 configuration-management framework; xsh-infra is a separate application.
 
-Two campaigns implement it. [XSH-55](rfc/XSH-55-native-ssh-client.md) builds a
+[XSH-55](rfc/XSH-55-native-ssh-client.md) provides a
 native SSH client on OxiSH's sans-I/O protocol code and Graviola, exposed
-through a small typed XSH API. [XSH-56](rfc/XSH-56-xsh-infra.md) builds
+through a small typed XSH API. [XSH-56](rfc/XSH-56-xsh-infra.md) provides
 xsh-infra, a small pyinfra-inspired configuration-management tool written in
 XSH in its own repository, as the first substantial consumer: native Rust
 handles SSH protocol and I/O, XSH handles infrastructure policy.
 
 ### Sequence
 
-1. The inference campaign (row 3) and the Deser qualification (row 6) are
-   closed.
-2. Reclaim the accumulated build and worktree state: retire every integrated
-   or superseded lane checkout and keep only protected historical references.
-3. Start three lanes in parallel from the cleaned `master`: XSH-55, XSH-56,
-   and the Lean restart (row 4). Lean touches only `formal/` and test-only
-   bridge code, so it does not contend with the other two.
-
-XSH-56's pure planner and resource work runs alongside XSH-55, but its remote
-execution is not complete until it runs over the native client. XSH-55 has
-first claim on host capacity, since it serves G2. Laputa's serial Asterinas
-successor lane runs in the same window and takes the quiet-host periods its
-qualification needs. Native macOS qualification is deferred: no macOS host is
-available. Laputa's administration library
+XSH-55 and xsh-infra have delivered Linux implementations. Qualification and
+review remain open in their RFCs. Native macOS qualification is deferred because
+no macOS host is available. Laputa's administration library
 ([R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#ssh-native-xsh-administration))
 consumes the same client.
 

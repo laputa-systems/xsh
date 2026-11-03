@@ -85,12 +85,12 @@ out of scope.
 - **Fix with:** security
 - **Effort:** L
 
-### XSH-56 · P2 · Build xsh-infra over the native SSH client
+### XSH-56 · P2 · Complete xsh-infra qualification
 
 - **Area:** Remote execution consumer
-- **Where:** new repository `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
-- **Problem:** No substantial XSH application exercises remote reconciliation; it would show whether XSH supports such an application without moving its logic into Rust.
-- **Recommendation:** Follow the RFC: a small pyinfra-inspired tool written in XSH with typed resources, plan/apply/check, per-host failure data, safe file staging and a remote lock, using only XSH-55 for transport.
+- **Where:** `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
+- **Problem:** xsh-infra implements remote reconciliation over native SSH and has Linux Alpine container coverage, but the RFC's full qualification remains open. Its pyinfra comparison covers directory, file, symlink, user and group; packages, services, commands and failure comparisons remain open.
+- **Recommendation:** Complete the remaining RFC scenarios and differential comparisons against the existing XSH implementation and native SSH transport.
 - **Acceptance:** The RFC's per-resource and integration scenarios pass against disposable Alpine SSH hosts, with pyinfra as a differential reference on equivalent hosts; XSH defects found get minimal reproducers in XSH.
 - **Coordination:** Remote execution uses the experimental XSH-55 client.
 - **Fix with:** isolate-effects
