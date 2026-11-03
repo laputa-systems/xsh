@@ -10,6 +10,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 mod arithmetic;
+mod connected;
 mod facts;
 
 const SOURCE_SCHEMA: &str = "xsh-source-v1";

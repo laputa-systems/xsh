@@ -846,6 +846,12 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   locations with the independently generated requirements and checks a concrete
   body instance. Source-derived locations, Rust document exchange and generic
   body typing remain open; the supplied locations are not source admission.
+  A test-only Rust projection now emits a closed field-facts document from the
+  published body scheme and call instance, including checker node IDs, source
+  sites, selected target, bindings and effect state. Mutating published field
+  sites, expression types or call roles changes the document; a forged target
+  is refused. It rejects unsupported scheme and invocation details. The emitted
+  bytes have not yet been authenticated by Lean or replayed at a new freeze.
 
 ## For the owner afterwards
 
