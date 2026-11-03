@@ -6,7 +6,7 @@ use crate::Text;
 use crate::arena::Buffer;
 use crate::de::layer::{Layer, LayerEvent, Next};
 use crate::de::lexical::ContentKey;
-use crate::de::limits::{Limits, LimitsLayer};
+use crate::de::limits::{Limits, LimitsGuard};
 use crate::de::{Deserialize, InlineEvent, Sink, SinkHandle};
 use crate::error::{Error, ErrorKind};
 use crate::event::{Atom, ContainerShape, Event};
@@ -57,8 +57,6 @@ pub struct DeserializeDriver<'a, 'de: 'a> {
     // passes events through the layers, set by `push_layer`.  The code of
     // the layers is only linked into programs that add layers.
     emit_layered: Option<EmitLayered<'de>>,
-    // `true` if the last layer enforces the limits of the context
-    has_limits: bool,
     // the sinks borrow for 'a
     _marker: PhantomData<&'a mut ()>,
 }
@@ -70,6 +68,7 @@ type EmitLayered<'de> =
 /// The state and the sinks of a driver.
 pub(crate) struct DriverCore<'de> {
     pub(crate) state: State,
+    limits: Option<LimitsGuard>,
     // The sinks borrow from each other: every sink on the stack can borrow
     // from the sink below it.  The lifetimes of these borrows are erased
     // (to `'de` as the handles cannot outlive that) and it's the driver's
@@ -188,6 +187,7 @@ impl Drop for Lent<'_, '_> {
             &mut driver.core,
             DriverCore {
                 state: State::new(),
+                limits: None,
                 root: None,
                 sink_stack: Vec::new(),
                 transient: 0,
@@ -382,6 +382,7 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
         DeserializeDriver {
             core: DriverCore {
                 state,
+                limits: None,
                 sink_stack,
                 // SAFETY: the driver cannot outlive 'a
                 root: Some(unsafe { erase_lifetime(sink) }),
@@ -389,7 +390,6 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
             },
             layers: Vec::new(),
             emit_layered: None,
-            has_limits: false,
             _marker: PhantomData,
         }
     }
@@ -419,16 +419,9 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
     /// [`push_layer`](Self::push_layer)).  This way the errors of the
     /// limits have the context the layers add (like the path).
     pub fn set_context(&mut self, context: Context) {
-        if core::mem::take(&mut self.has_limits) {
-            self.layers.pop();
-        }
-        if let Some(limits) = context.get::<Limits>()
-            && !limits.is_unlimited()
-        {
-            self.layers.push(Box::new(LimitsLayer::new(*limits)));
-            self.emit_layered = Some(emit_layered);
-            self.has_limits = true;
-        }
+        self.core.limits = context.get::<Limits>()
+            .filter(|limits| !limits.is_unlimited())
+            .map(|limits| LimitsGuard::new(*limits));
         self.core.state.set_context(context);
     }
 
@@ -462,9 +455,7 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
     /// see [`set_context`](Self::set_context)).  See [`Layer`] for more
     /// information.
     pub fn push_layer<L: Layer + 'static>(&mut self, layer: L) {
-        // the limits of the context come last
-        let idx = self.layers.len() - usize::from(self.has_limits);
-        self.layers.insert(idx, Box::new(layer));
+        self.layers.push(Box::new(layer));
         self.emit_layered = Some(emit_layered);
     }
 
@@ -616,7 +607,7 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
         if !self.layers.is_empty() {
             return self.emit_layered(LayerEvent::new(Event::Atom(atom)));
         }
-        let rv = self.core.deliver_atom(atom);
+        let rv = self.core.dispatch(Event::Atom(atom));
         self.core.finish_event(rv)
     }
 
@@ -625,7 +616,7 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
         if !self.layers.is_empty() {
             return self.emit_layered(LayerEvent::borrowed(Event::Atom(atom)));
         }
-        let rv = self.core.deliver_borrowed_atom(atom);
+        let rv = self.core.dispatch_borrowed(Event::Atom(atom));
         self.core.finish_event(rv)
     }
 
@@ -639,7 +630,8 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
             };
             return self.emit_layered(LayerEvent::new(event));
         }
-        let rv = self.core.deliver_start(is_map, shape);
+        let event = if is_map { Event::MapStart(shape) } else { Event::SeqStart(shape) };
+        let rv = self.core.dispatch(event);
         self.core.finish_event(rv)
     }
 
@@ -649,7 +641,8 @@ impl<'a, 'de> DeserializeDriver<'a, 'de> {
             let event = if is_map { Event::MapEnd } else { Event::SeqEnd };
             return self.emit_layered(LayerEvent::new(event));
         }
-        let rv = self.core.deliver_end(is_map);
+        let event = if is_map { Event::MapEnd } else { Event::SeqEnd };
+        let rv = self.core.dispatch(event);
         self.core.finish_event(rv)
     }
 
@@ -710,6 +703,7 @@ impl<'de> DriverCore<'de> {
     /// Delivers an event to the sinks.
     #[inline(always)]
     pub(crate) fn dispatch(&mut self, event: Event<'_>) -> Result<(), Error> {
+        self.check_limits(&event)?;
         match event {
             Event::Atom(atom) => self.deliver_atom(atom),
             Event::MapStart(shape) => self.deliver_start(true, shape),
@@ -722,6 +716,7 @@ impl<'de> DriverCore<'de> {
     /// Delivers an event that borrows from the data to the sinks.
     #[inline(always)]
     pub(crate) fn dispatch_borrowed(&mut self, event: Event<'de>) -> Result<(), Error> {
+        self.check_limits(&event)?;
         match event {
             Event::Atom(atom) => self.deliver_borrowed_atom(atom),
             Event::MapStart(shape) => self.deliver_start(true, shape),
@@ -729,6 +724,15 @@ impl<'de> DriverCore<'de> {
             Event::MapEnd => self.deliver_end(true),
             Event::SeqEnd => self.deliver_end(false),
         }
+    }
+
+    #[inline]
+    fn check_limits(&mut self, event: &Event<'_>) -> Result<(), Error> {
+        if self.limits.is_some() {
+            self.update_position(event);
+            self.limits.as_mut().expect("active limits").check(event, &self.state)?;
+        }
+        Ok(())
     }
 
     // The `deliver_*` functions deliver an event to the sinks.  If the event

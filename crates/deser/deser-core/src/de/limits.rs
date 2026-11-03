@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::de::{Layer, LayerEvent, Next};
+use crate::State;
 use crate::error::{Error, ErrorKind};
 use crate::event::{Atom, Event};
 use crate::ext::RawInput;
@@ -248,24 +248,21 @@ impl RawLimits {
     }
 }
 
-/// The layer that enforces [`Limits`] (installed by the driver).
-pub(crate) struct LimitsLayer {
+pub(crate) struct LimitsGuard {
     limits: Limits,
     events: usize,
-    // the number of items of the open containers if items are limited
     items: Vec<(bool, usize)>,
 }
 
-impl LimitsLayer {
-    pub(crate) fn new(limits: Limits) -> LimitsLayer {
-        LimitsLayer {
+impl LimitsGuard {
+    pub(crate) fn new(limits: Limits) -> LimitsGuard {
+        LimitsGuard {
             limits,
             events: 0,
             items: Vec::new(),
         }
     }
 
-    /// Accounts for an item in the current container.
     fn count_item(&mut self, is_map_key: bool) -> Result<(), Error> {
         if let (Some(max), Some((is_map, count))) = (self.limits.max_items, self.items.last_mut())
             && (!*is_map || is_map_key)
@@ -293,20 +290,21 @@ fn limit_error(msg: &'static str) -> Error {
     Error::new(ErrorKind::LimitExceeded, msg)
 }
 
-impl Layer for LimitsLayer {
-    fn event<'de>(
+impl LimitsGuard {
+    #[inline]
+    pub(crate) fn check(
         &mut self,
-        event: LayerEvent<'_, 'de>,
-        next: &mut Next<'_, 'de>,
+        event: &Event<'_>,
+        state: &State,
     ) -> Result<(), Error> {
-        if let Event::Atom(Atom::Ext(ext)) = event.event()
+        if let Event::Atom(Atom::Ext(ext)) = event
             && let Some(input) = ext.downcast_value_ref::<RawInput>()
         {
-            self.count_item(next.state().is_map_key())?;
-            let mut limits = RawLimits::new(self.limits, self.events, next.state().depth());
+            self.count_item(state.is_map_key())?;
+            let mut limits = RawLimits::new(self.limits, self.events, state.depth());
             input.check_limits(&mut limits)?;
             self.events = limits.events;
-            return next.emit(event);
+            return Ok(());
         }
         if let Some(max) = self.limits.max_events {
             self.events += 1;
@@ -314,20 +312,20 @@ impl Layer for LimitsLayer {
                 return Err(limit_error("too many events"));
             }
         }
-        let is_map_key = next.state().is_map_key();
-        match event.event() {
+        let is_map_key = state.is_map_key();
+        match event {
             Event::MapStart(_) | Event::SeqStart(_) => {
                 if self
                     .limits
                     .max_depth
-                    .is_some_and(|max| next.state().depth() >= max)
+                    .is_some_and(|max| state.depth() >= max)
                 {
                     return Err(limit_error("recursion limit exceeded"));
                 }
                 self.count_item(is_map_key)?;
                 if self.limits.max_items.is_some() {
                     self.items
-                        .push((matches!(event.event(), Event::MapStart(_)), 0));
+                        .push((matches!(event, Event::MapStart(_)), 0));
                 }
             }
             Event::MapEnd | Event::SeqEnd => {
@@ -343,6 +341,6 @@ impl Layer for LimitsLayer {
                 self.count_item(is_map_key)?;
             }
         }
-        next.emit(event)
+        Ok(())
     }
 }
