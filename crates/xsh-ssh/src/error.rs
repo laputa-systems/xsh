@@ -109,6 +109,11 @@ pub enum Error {
         /// Whether the request may have reached the server.
         certainty: Certainty,
     },
+    /// An environment variable name or value cannot be sent.
+    InvalidEnvironment {
+        /// What is wrong with it.
+        detail: String,
+    },
     /// The server refused the request; the command did not run.
     Rejected {
         /// The refused request.
@@ -172,6 +177,7 @@ impl fmt::Display for Error {
             Self::Cancelled {
                 certainty: Certainty::Submitted,
             } => write!(formatter, "SSH operation cancelled after submission"),
+            Self::InvalidEnvironment { detail } => write!(formatter, "invalid environment: {detail}"),
             Self::Rejected { request } => write!(formatter, "server rejected the {request} request"),
             Self::OutputLimit { stream } => {
                 write!(formatter, "{stream} exceeded the capture limit")

@@ -23,6 +23,30 @@ fn protocol_error(detail: impl Into<String>) -> Error {
     }
 }
 
+const MAX_ENVIRONMENT: usize = 64;
+const MAX_ENVIRONMENT_VALUE: usize = 4096;
+
+/// Refuse an environment the client will not send.
+pub fn validate_environment(env: &[(String, String)]) -> Result<(), Error> {
+    let invalid = |detail: String| Error::InvalidEnvironment { detail };
+    if env.len() > MAX_ENVIRONMENT {
+        return Err(invalid(format!("more than {MAX_ENVIRONMENT} variables")));
+    }
+    for (name, value) in env {
+        let mut characters = name.chars();
+        let starts = characters
+            .next()
+            .is_some_and(|first| first == '_' || first.is_ascii_alphabetic());
+        if !starts || !characters.all(|c| c == '_' || c.is_ascii_alphanumeric()) || name.len() > 128 {
+            return Err(invalid(format!("{name:?} is not a portable variable name")));
+        }
+        if value.contains('\0') || value.len() > MAX_ENVIRONMENT_VALUE {
+            return Err(invalid(format!("the value of {name} has a NUL byte or exceeds {MAX_ENVIRONMENT_VALUE} bytes")));
+        }
+    }
+    Ok(())
+}
+
 /// An open session channel.
 #[derive(Debug)]
 pub struct Channel {
@@ -97,6 +121,34 @@ impl Channel {
             other => Err(protocol_error(format!(
                 "unexpected channel-open message {other:?}"
             ))),
+        }
+    }
+
+    /// Ask the server to set one environment variable for the command and wait for its answer.
+    pub fn set_environment(
+        &mut self,
+        connection: &mut Connection,
+        name: &str,
+        value: &str,
+    ) -> Result<(), Error> {
+        let mut request = Vec::new();
+        MessageType::ChannelRequest.encode(&mut request);
+        request.extend_from_slice(&self.remote_id.to_be_bytes());
+        put_string(&mut request, b"env");
+        request.push(1);
+        put_string(&mut request, name.as_bytes());
+        put_string(&mut request, value.as_bytes());
+        connection.transport().send_raw(&request)?;
+        loop {
+            let packet = connection.next_packet()?;
+            match packet.message_type {
+                MessageType::ChannelSuccess => return Ok(()),
+                MessageType::ChannelFailure => return Err(Error::Rejected { request: "env" }),
+                MessageType::ChannelWindowAdjust => self.window_adjust(&packet.payload)?,
+                other => {
+                    return Err(protocol_error(format!("unexpected env reply {other:?}")));
+                }
+            }
         }
     }
 

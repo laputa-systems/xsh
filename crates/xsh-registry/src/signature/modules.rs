@@ -1226,6 +1226,7 @@ fn ssh_info_type() -> Type {
         ("host".to_owned(), Type::Str),
         ("port".to_owned(), Type::Int),
         ("user".to_owned(), Type::Str),
+        ("usable".to_owned(), Type::Bool),
         ("host_key".to_owned(), Type::Str),
         ("kex".to_owned(), Type::Str),
         ("host_key_algorithm".to_owned(), Type::Str),
@@ -1254,6 +1255,15 @@ fn ssh_module() -> ModuleSig {
                 ssh_result(ssh_session_type()),
                 false,
                 RuntimeOp::SshConnect,
+            ),
+        ),
+        (
+            "connect_all",
+            sig(
+                vec![param("options", Type::Record(BTreeMap::new()))],
+                ssh_result(Type::List(Box::new(ssh_result(ssh_session_type())))),
+                false,
+                RuntimeOp::SshConnectAll,
             ),
         ),
         (

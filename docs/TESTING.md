@@ -93,7 +93,10 @@ none; run the suites with `cargo test -p PACKAGE --test NAME`. Three more
 stay with manual lanes: `core_compat_extra_privileged` and `linux_priv` need the
 privileged `cargo dev test linux` container, and `profile_parity` compares
 builds that exist only on aarch64 Linux and macOS. The `xsh-ssh` connect, exec,
-and stream harnesses need the `XINFRA` fixtures from `dev/fixtures.xsh`.
+stream and agent harnesses and the native `tests/xsh/ssh-` tests need disposable
+OpenSSH servers: run them through `crates/xsh-ssh/fixture/ssh-fixture.sh exec
+COMMAND` (Docker, loopback only). The `protocol` and `descriptors` harnesses use
+a scripted peer and need only `ssh-keygen`.
 `split::` runs in its resource-limited container, and the `runtime::coverage`
 test and the external-corpus tests that the XSHT runs skip by name are manual.
 `test-root-unit` is Linux-only because xsh-root's unit tests cover `openat2`;

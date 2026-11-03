@@ -208,3 +208,119 @@ test ssh_exec_output_past_the_limit_is_an_outcome_error {
     }
   }
 }
+
+test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let root = test.temp_dir(ctx, name: "chained-stdin")?
+  let body = fp"{root}/body.bin"
+  body.write("tail-from-file")?
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    let result = ssh.exec(session, "cat", {stdin: bytes.from_text("head-inline|"), stdin_path: body})?
+    assert result.stdout.utf8()? == "head-inline|tail-from-file"
+  }
+}
+
+test ssh_exec_environment_is_sent_when_the_server_accepts_it { |ctx|
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    let accepted = ssh.exec(session, "printenv LC_XSH", {env: {LC_XSH: "set by the client"}})?
+    assert accepted.stdout.utf8()? == "set by the client\n"
+    assert ssh.exec(session, "printenv", {env: {["1BAD"]: "x"}}) is Err(SshError.Options {..})
+    assert ssh.exec(session, "true", {})?.exit_code == 0
+    match ssh.exec(session, "touch /tmp/ran-despite-refused-env", {env: {NOT_ACCEPTED: "x"}}) {
+      Ok(_) => assert false, "a refused variable still ran the command"
+      Err(SshError.Rejected {certainty, ..}) => assert certainty == "not-submitted"
+      Err(other) => assert false, other.message
+    }
+  }
+  with session = ssh.connect(options)? {
+    assert ssh.exec(session, "test -e /tmp/ran-despite-refused-env", {})?.exit_code != 0
+  }
+}
+
+test ssh_session_reports_itself_dead_after_a_stdin_timeout { |ctx|
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let root = test.temp_dir(ctx, name: "stdin-timeout")?
+  let payload = fp"{root}/payload.bin"
+  let _ = bytes.zero_at(payload, 0, 64 * 1024 * 1024, create: true)?
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    assert ssh.info(session)?.usable
+    match ssh.exec(session, "sleep 30", {stdin_path: payload, timeout_ms: 300}) {
+      Ok(_) => assert false, "the command finished"
+      Err(SshError.Timeout {certainty, ..}) => assert certainty == "submitted"
+      Err(other) => assert false, other.message
+    }
+    assert ! ssh.info(session)?.usable
+    assert ssh.exec(session, "true", {}) is Err(SshError.Unusable {..})
+  }
+  with session = ssh.connect(options)? {
+    assert ssh.exec(session, "true", {})?.exit_code == 0
+  }
+}
+
+test ssh_lost_connection_after_submission_is_a_submitted_transport_error {
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    match ssh.exec(session, "kill -9 $PPID; sleep 5", {}) {
+      Ok(result) => assert result.missing or result.signal != "", "the connection survived"
+      Err(SshError.Transport {certainty, ..}) => assert certainty == "submitted"
+      Err(other) => assert false, other.message
+    }
+  }
+}

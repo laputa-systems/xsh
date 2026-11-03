@@ -257,3 +257,31 @@ proc leave_early(options: Record) [fs, net, error] -> Result[Str, Error] {
   }
   ""
 }
+
+proc open_both(a: Base, b: Base, wrong_pin: Str, fingerprint_a: Str, fingerprint_b: Str) [net, error] -> Result[List[Str], Error] {
+  let first = {...a, host_key: fingerprint_a}
+  let second = {...b, host_key: fingerprint_b}
+  let third = {...b, host_key: wrong_pin}
+  let results = ssh.connect_all({targets: [first, second, third], jobs: 3})?
+  assert results.len() == 3
+  assert results[2] is Err(SshError.HostKeyMismatch {..})
+  let sessions = [results[0]?, results[1]?]
+  let names = sessions |> par-map(jobs: 2) { |session| ssh.exec(session, "hostname", {})?.stdout.utf8()?.trim() }
+  names
+}
+
+test ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller {
+  let a = match connect_options("A") {
+    Ok(value) => value
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let b = connect_options("B")?
+  let fingerprint_a = env.get("XINFRA_FIXTURE_A_HOST_KEY")?
+  let fingerprint_b = env.get("XINFRA_FIXTURE_B_HOST_KEY")?
+  let names = open_both(a, b, fingerprint_a, fingerprint_a, fingerprint_b)?
+  assert names.len() == 2
+  assert names[0] != names[1]
+}

@@ -28,7 +28,8 @@ with session = ssh.connect(options)? {
 |---|---|
 | `ssh.connect(options)` | an owned session capability |
 | `ssh.exec(session, command, options)` | `{exit_code, signal, missing, stdout, stderr, certainty}` |
-| `ssh.info(session)` | `{host, port, user, host_key, kex, host_key_algorithm, cipher_client_to_server, cipher_server_to_client}` |
+| `ssh.connect_all({targets, jobs})` | one owned session or `SshError` per target, in order |
+| `ssh.info(session)` | `{host, port, user, usable, host_key, kex, host_key_algorithm, cipher_client_to_server, cipher_server_to_client}` |
 | `ssh.close(session)` | `Unit` |
 
 `ssh.connect` options: `host`, `port`, `user`, `timeout_ms`, and one value for
@@ -44,11 +45,22 @@ environment variable and no `~/.ssh` file; a caller that wants `SSH_AUTH_SOCK`
 passes it with `env.get`.
 
 `ssh.exec` takes a command string, not an argv vector, and does not interpret
-it. Options: `timeout_ms`, `max_output`, `stdin` (`Bytes`), `stdin_path`,
-`stdout_path` and `stderr_path`. Supplying both `stdin` and `stdin_path` is an
-error. Path options stream file contents without loading them into the
-controller, so a transfer can exceed `max_output` (default 16 MiB, applied to
-each captured stream).
+it. Options: `timeout_ms`, `max_output`, `env`, `stdin` (`Bytes`), `stdin_path`,
+`stdout_path` and `stderr_path`. `env` is a record of `Str` values sent as SSH `env` requests before the
+command; a server runs only the names it allows (OpenSSH's default is `LANG`
+and `LC_*`, Dropbear sends none), and a refused name is `SshError.Rejected`
+with `certainty = "not-submitted"`: the command did not run. The client has no
+working-directory option; put `cd` in the command. With both `stdin` and `stdin_path` the bytes go
+first and the file follows, so a framing header can precede a streamed payload.
+Path options stream file contents without loading them into the controller, so
+a transfer can exceed `max_output` (default 16 MiB, applied to each captured
+stream).
+
+`ssh.connect_all` opens several hosts in parallel (`jobs`, 1 to 16, default 4)
+and returns a list with a session or an `SshError` for each target, so one
+failure does not hide the others. Every session belongs to the scope that called
+it, which keeps it alive for the `par-map` workers that use it later; a session
+returned from a worker is closed when that worker ends.
 
 The session is an owned capability. Its scope closes it after the body's
 defers; `ssh.close(session)` releases it early. One command runs per session at
@@ -93,8 +105,11 @@ never reconnects on its own.
 | `OutputLimit` | a captured stream passed `max_output` |
 | `Unusable`, `Busy`, `Session`, `Local` | an earlier failure poisoned the session; it is in use; the handle is closed or unknown; a local stdin or output file failed |
 
-After any failure the session is unusable (`SshError.Unusable`), because a
-half-read channel cannot be reused: close it and connect again.
+After any failure the session is dead: `ssh.info(session).usable` is false and
+every later call fails with `SshError.Unusable` and `certainty = "not-submitted"`,
+because a half-read channel cannot be reused. Close it and connect again.
+A failure that left the command possibly running (`certainty = "submitted"`) is
+reconciled through the new session; the old command may still be running.
 
 ## Trust
 

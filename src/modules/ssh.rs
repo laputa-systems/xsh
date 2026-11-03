@@ -145,6 +145,7 @@ fn ssh_error(error: SshError, span: Span) -> RuntimeError {
         SshError::KeyFile { .. } | SshError::EncryptedKey | SshError::Agent { .. } => "Key",
         SshError::Authentication { .. } => "Authentication",
         SshError::Rejected { .. } => "Rejected",
+        SshError::InvalidEnvironment { .. } => "Options",
         SshError::Channel { .. } => "Channel",
         SshError::Protocol { .. } => "Protocol",
         SshError::NotSubmitted { .. } | SshError::Submitted { .. } => "Transport",
@@ -181,14 +182,47 @@ fn result_value(result: xsh_ssh::ExecResult) -> Value {
     ]))
 }
 
-/// Connect, authenticate, and register a session capability.
 #[cfg(feature = "ssh")]
-pub(crate) fn connect(
-    options: &RecordMap,
-    owner: Arc<()>,
-    scope: u64,
-    span: Span,
-) -> Result<Value, RuntimeError> {
+fn environment(options: &RecordMap, span: Span) -> Result<Vec<(String, String)>, RuntimeError> {
+    match options.get("env") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Record(record)) => record
+            .iter()
+            .map(|(name, value)| match value {
+                Value::Str(text) => Ok((name.to_string(), text.to_string())),
+                _ => Err(failure("Options", format!("env.{name} must be Str")).with_span(span)),
+            })
+            .collect(),
+        Some(_) => Err(failure("Options", "env must be a Record of Str").with_span(span)),
+    }
+}
+
+/// Standard input made of an inline prefix followed by the contents of a file.
+#[cfg(feature = "ssh")]
+struct ChainedInput {
+    head: Option<std::io::Cursor<Vec<u8>>>,
+    tail: Option<std::fs::File>,
+}
+
+#[cfg(feature = "ssh")]
+impl std::io::Read for ChainedInput {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(head) = self.head.as_mut() {
+            let read = head.read(buffer)?;
+            if read > 0 {
+                return Ok(read);
+            }
+            self.head = None;
+        }
+        match self.tail.as_mut() {
+            Some(tail) => tail.read(buffer),
+            None => Ok(0),
+        }
+    }
+}
+
+#[cfg(feature = "ssh")]
+fn config_from_options(options: &RecordMap, span: Span) -> Result<ClientConfig, RuntimeError> {
     let host = text_field(options, "host", span)?;
     let port = int_field(options, "port", span)?;
     if !(1..=65535).contains(&port) {
@@ -240,16 +274,30 @@ pub(crate) fn connect(
                 .with_span(span));
         }
     };
-    let config = ClientConfig::new(
+    Ok(ClientConfig::new(
         host,
         port,
         user,
         identity,
         trust,
         std::time::Duration::from_millis(timeout_ms as u64),
-    );
-    let mut connection = Connection::connect(&config).map_err(|error| ssh_error(error, span))?;
-    connection.authenticate().map_err(|error| ssh_error(error, span))?;
+    ))
+}
+
+#[cfg(feature = "ssh")]
+fn open(config: &ClientConfig) -> Result<Connection, SshError> {
+    let mut connection = Connection::connect(config)?;
+    connection.authenticate()?;
+    Ok(connection)
+}
+
+#[cfg(feature = "ssh")]
+fn register(
+    connection: Connection,
+    owner: Arc<()>,
+    scope: u64,
+    span: Span,
+) -> Result<Value, RuntimeError> {
     let token = token()?;
     sessions()
         .lock()
@@ -268,6 +316,93 @@ pub(crate) fn connect(
     )])))
 }
 
+/// Connect, authenticate, and register a session capability.
+#[cfg(feature = "ssh")]
+pub(crate) fn connect(
+    options: &RecordMap,
+    owner: Arc<()>,
+    scope: u64,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let config = config_from_options(options, span)?;
+    let connection = open(&config).map_err(|error| ssh_error(error, span))?;
+    register(connection, owner, scope, span)
+}
+
+/// The most hosts `connect_all` opens at once.
+#[cfg(feature = "ssh")]
+const CONNECT_ALL_JOBS: usize = 16;
+
+/// Connect to several hosts in parallel and register each success in the calling scope.
+///
+/// The result lists one `Ok` session or `Err` failure per target, in order, so a
+/// failure on one host never hides the others.
+#[cfg(feature = "ssh")]
+pub(crate) fn connect_all(
+    batch: &RecordMap,
+    owner: &Arc<()>,
+    scope: u64,
+    span: Span,
+) -> Result<Vec<Value>, RuntimeError> {
+    let Some(Value::List(targets)) = batch.get("targets") else {
+        return Err(failure("Options", "targets must be List[Record]").with_span(span));
+    };
+    let jobs = match optional_int(batch, "jobs", span)? {
+        None => 4,
+        Some(jobs) if (1..=CONNECT_ALL_JOBS as i64).contains(&jobs) => jobs as usize,
+        Some(_) => {
+            return Err(
+                failure("Options", format!("jobs must be 1..={CONNECT_ALL_JOBS}")).with_span(span)
+            );
+        }
+    };
+    let configs: Vec<Result<ClientConfig, RuntimeError>> = targets
+        .iter()
+        .map(|target| match target {
+            Value::Record(record) => config_from_options(record, span),
+            _ => Err(failure("Options", "targets must be List[Record]").with_span(span)),
+        })
+        .collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let opened: Vec<Mutex<Option<Result<Connection, SshError>>>> =
+        configs.iter().map(|_| Mutex::new(None)).collect();
+    std::thread::scope(|workers| {
+        for _ in 0..jobs.min(configs.len()) {
+            workers.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(Ok(config)) = configs.get(index) else {
+                        if index >= configs.len() {
+                            return;
+                        }
+                        continue;
+                    };
+                    let outcome = open(config);
+                    if let Ok(mut slot) = opened[index].lock() {
+                        *slot = Some(outcome);
+                    }
+                }
+            });
+        }
+    });
+    let mut results = Vec::with_capacity(configs.len());
+    for (config, slot) in configs.into_iter().zip(opened) {
+        let outcome = match config {
+            Err(error) => Err(error),
+            Ok(_) => match slot.into_inner().ok().flatten() {
+                Some(Ok(connection)) => register(connection, Arc::clone(owner), scope, span),
+                Some(Err(error)) => Err(ssh_error(error, span)),
+                None => Err(failure("Session", "connection worker did not finish").with_span(span)),
+            },
+        };
+        results.push(match outcome {
+            Ok(value) => Value::ok(value),
+            Err(error) => Value::err(Value::Error(Box::new(error))),
+        });
+    }
+    Ok(results)
+}
+
 #[cfg(not(feature = "ssh"))]
 pub(crate) fn connect(
     _options: &RecordMap,
@@ -275,6 +410,16 @@ pub(crate) fn connect(
     _scope: u64,
     span: Span,
 ) -> Result<Value, RuntimeError> {
+    Err(failure("Disabled", "ssh feature is disabled").with_span(span))
+}
+
+#[cfg(not(feature = "ssh"))]
+pub(crate) fn connect_all(
+    _batch: &RecordMap,
+    _owner: &Arc<()>,
+    _scope: u64,
+    span: Span,
+) -> Result<Vec<Value>, RuntimeError> {
     Err(failure("Disabled", "ssh feature is disabled").with_span(span))
 }
 
@@ -321,9 +466,7 @@ pub(crate) fn exec(
     };
     let stdin = optional_bytes(options, "stdin", span)?;
     let stdin_path = optional_path(options, "stdin_path", span)?;
-    if stdin.is_some() && stdin_path.is_some() {
-        return Err(failure("Options", "stdin and stdin_path conflict").with_span(span));
-    }
+    let env = environment(options, span)?;
     let stdout_path = optional_path(options, "stdout_path", span)?;
     let stderr_path = optional_path(options, "stderr_path", span)?;
     let mut connection = connection.try_lock().map_err(|_| {
@@ -331,19 +474,18 @@ pub(crate) fn exec(
     })?;
 
     if stdout_path.is_some() || stderr_path.is_some() || stdin_path.is_some() {
-        let mut input_file = match stdin_path {
+        let input_file = match stdin_path {
             Some(path) => Some(std::fs::File::open(&path).map_err(|error| {
                 failure("Local", format!("cannot open {}: {error}", path.display()))
                     .with_span(span)
             })?),
             None => None,
         };
-        let mut input_bytes = stdin.map(std::io::Cursor::new);
-        let input: Option<&mut dyn std::io::Read> = match (&mut input_file, &mut input_bytes) {
-            (Some(file), _) => Some(file),
-            (None, Some(bytes)) => Some(bytes),
-            (None, None) => None,
+        let mut chained = ChainedInput {
+            head: stdin.map(std::io::Cursor::new),
+            tail: input_file,
         };
+        let input: Option<&mut dyn std::io::Read> = Some(&mut chained);
         let mut stdout_buffer = Vec::new();
         let mut stderr_buffer = Vec::new();
         let mut stdout_file = match &stdout_path {
@@ -374,6 +516,7 @@ pub(crate) fn exec(
                 &StreamOptions {
                     timeout,
                     interrupt: Some(interrupt()),
+                    env,
                 },
                 input,
                 stdout,
@@ -396,6 +539,7 @@ pub(crate) fn exec(
                 timeout,
                 max_output: max_output.unwrap_or(xsh_ssh::exec::DEFAULT_MAX_OUTPUT),
                 interrupt: Some(interrupt()),
+                env,
             },
         )
         .map_err(|error| ssh_error(error, span))?;
@@ -434,6 +578,7 @@ pub(crate) fn info(session_record: &RecordMap, span: Span) -> Result<Value, Runt
         (Arc::from("host"), text(connection.host())),
         (Arc::from("port"), Value::Int(i64::from(connection.port()))),
         (Arc::from("user"), text(connection.user())),
+        (Arc::from("usable"), Value::Bool(connection.is_usable())),
         (Arc::from("host_key"), text(connection.fingerprint())),
         (Arc::from("kex"), text(&algorithms.kex)),
         (Arc::from("host_key_algorithm"), text(&algorithms.host_key)),

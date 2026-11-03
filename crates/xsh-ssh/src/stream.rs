@@ -4,7 +4,7 @@ use std::time::Duration;
 use oxish_proto::{Encode, MessageType};
 use rustix::event::PollFlags;
 
-use crate::channel::Channel;
+use crate::channel::{Channel, validate_environment};
 use crate::client::Connection;
 use crate::error::{Certainty, Error};
 use crate::exec::{ExecResult, ExecStatus};
@@ -20,6 +20,8 @@ pub struct StreamOptions {
     pub timeout: Option<Duration>,
     /// Reports that the caller wants the command abandoned.
     pub interrupt: Option<Interrupt>,
+    /// Variables to ask the server to set, by SSH `env` request.
+    pub env: Vec<(String, String)>,
 }
 
 impl std::fmt::Debug for StreamOptions {
@@ -107,10 +109,11 @@ pub(crate) fn exec_stream(
     stderr: &mut dyn Write,
 ) -> Result<ExecResult, Error> {
     connection.require_usable()?;
+    validate_environment(&options.env)?;
     connection
         .transport()
         .begin_operation(options.timeout, options.interrupt.clone());
-    let result = run(connection, command, stdin, stdout, stderr);
+    let result = run(connection, command, &options.env, stdin, stdout, stderr);
     connection.transport().end_operation();
     result.map_err(|error| {
         let error = if connection.transport().certainty() == Certainty::Submitted {
@@ -126,11 +129,15 @@ pub(crate) fn exec_stream(
 fn run(
     connection: &mut Connection,
     command: &str,
+    env: &[(String, String)],
     stdin: Option<&mut dyn Read>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExecResult, Error> {
     let mut channel = Channel::open(connection)?;
+    for (name, value) in env {
+        channel.set_environment(connection, name, value)?;
+    }
     channel.exec(connection, command.as_bytes())?;
     connection.transport().await_command();
 

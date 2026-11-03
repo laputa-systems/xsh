@@ -29,6 +29,26 @@ impl Evaluator {
         }
     }
 
+    pub(super) fn eval_lowered_ssh_connect_all_values(
+        &mut self,
+        mut values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let batch = lowered_record_arg(values.pop(), "ssh.connect_all", span)?;
+        let scope = self.current_scope_id();
+        match ssh_module::connect_all(&batch, &self.resource_owner, scope, span) {
+            Ok(results) => {
+                for result in &results {
+                    if matches!(result, Value::Result(crate::runtime::value::ResultValue::Ok(_))) {
+                        self.register_owned_resource(scope, ResourceKind::Capability);
+                    }
+                }
+                Ok(ControlFlow::Continue(lowered_runtime_value(Value::ok(Value::List(results)), span)?))
+            }
+            Err(error) => Ok(ControlFlow::Continue(lowered_result_err_value(error))),
+        }
+    }
+
     pub(super) fn eval_lowered_ssh_exec_values(
         &mut self,
         mut values: NativeArgumentValues,

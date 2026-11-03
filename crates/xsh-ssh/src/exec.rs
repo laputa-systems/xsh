@@ -20,6 +20,8 @@ pub struct ExecOptions {
     pub max_output: usize,
     /// Reports that the caller wants the command abandoned.
     pub interrupt: Option<Interrupt>,
+    /// Variables to ask the server to set, by SSH `env` request.
+    pub env: Vec<(String, String)>,
 }
 
 impl Default for ExecOptions {
@@ -29,6 +31,7 @@ impl Default for ExecOptions {
             timeout: None,
             max_output: DEFAULT_MAX_OUTPUT,
             interrupt: None,
+            env: Vec::new(),
         }
     }
 }
@@ -40,6 +43,7 @@ impl std::fmt::Debug for ExecOptions {
             .field("stdin_len", &self.stdin.as_ref().map(Vec::len))
             .field("timeout", &self.timeout)
             .field("max_output", &self.max_output)
+            .field("env_names", &self.env.iter().map(|(name, _)| name).collect::<Vec<_>>())
             .finish()
     }
 }
@@ -122,6 +126,7 @@ pub(crate) fn exec(
         &StreamOptions {
             timeout: options.timeout,
             interrupt: options.interrupt.clone(),
+            env: options.env.clone(),
         },
         stdin.as_mut().map(|bytes| bytes as &mut dyn std::io::Read),
         &mut stdout,

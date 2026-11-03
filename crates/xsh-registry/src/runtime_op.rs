@@ -217,6 +217,7 @@ pub enum RuntimeOp {
     NetClosePool,
     NetCloseAllPools,
     SshConnect,
+    SshConnectAll,
     SshExec,
     SshInfo,
     SshClose,

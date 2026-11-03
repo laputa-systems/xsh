@@ -10,3 +10,4 @@ LogLevel VERBOSE
 StrictModes no
 PerSourcePenalties no
 MaxStartups 500:30:1000
+AcceptEnv LANG LC_*

@@ -438,3 +438,101 @@ fn an_unreachable_server_is_not_submitted() {
     assert_eq!(error.certainty(), Certainty::NotSubmitted);
     let _ = io::stdout().flush();
 }
+
+fn serve_with_environment(reply: u8, accepted: usize) -> Peer {
+    spawn(Behavior::default(), move |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[&number(client), &number(SERVER_CHANNEL), &number(1 << 20), &number(32768)],
+        ));
+        for round in 0..accepted {
+            let request = link.expect(CHANNEL_REQUEST);
+            assert_eq!(request.string_at(4), b"env", "environment request {round}");
+            link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        }
+        let request = link.expect(CHANNEL_REQUEST);
+        if reply == CHANNEL_SUCCESS {
+            assert_eq!(request.string_at(4), b"exec");
+            link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+            link.exit_status(client, 0);
+            link.eof(client);
+            link.close(client);
+            link.expect_close();
+        } else {
+            assert_eq!(request.string_at(4), b"env");
+            link.send(&message(CHANNEL_FAILURE, &[&number(client)]));
+        }
+    })
+}
+
+#[test]
+fn environment_requests_precede_the_command_in_order() {
+    let peer = serve_with_environment(CHANNEL_SUCCESS, 2);
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                env: vec![
+                    ("LC_ALL".to_owned(), "C".to_owned()),
+                    ("LANG".to_owned(), "C".to_owned()),
+                ],
+                ..ExecOptions::default()
+            },
+        )
+        .expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn a_refused_environment_request_means_the_command_did_not_run() {
+    let peer = serve_with_environment(CHANNEL_FAILURE, 0);
+    let mut connection = peer.connect(TIMEOUT);
+    let error = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                env: vec![("NOT_ACCEPTED".to_owned(), "x".to_owned())],
+                ..ExecOptions::default()
+            },
+        )
+        .expect_err("refused");
+    assert!(matches!(error, Error::Rejected { request: "env" }), "{error:?}");
+    assert_eq!(error.certainty(), Certainty::NotSubmitted);
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn environment_names_and_values_are_validated_before_anything_is_sent() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    for bad in [
+        ("", "x"),
+        ("1BAD", "x"),
+        ("A-B", "x"),
+        ("NAME", "has\0nul"),
+    ] {
+        let error = connection
+            .exec(
+                "command",
+                &ExecOptions {
+                    env: vec![(bad.0.to_owned(), bad.1.to_owned())],
+                    ..ExecOptions::default()
+                },
+            )
+            .expect_err("invalid");
+        assert!(matches!(error, Error::InvalidEnvironment { .. }), "{bad:?}: {error:?}");
+        assert_eq!(error.certainty(), Certainty::NotSubmitted);
+    }
+    assert!(connection.is_usable(), "nothing was sent, so the session is intact");
+    drop(connection);
+    peer.finish();
+}

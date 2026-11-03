@@ -121,6 +121,7 @@ fn large_echo_has_equal_digests_and_survives_rekey() {
             "cat",
             &StreamOptions {
                 interrupt: None,
+                env: Vec::new(),
                 timeout: Some(Duration::from_secs(180)),
             },
             Some(&mut input),
@@ -144,6 +145,7 @@ fn saturated_stderr_does_not_deadlock() {
             "head -c 8388608 /dev/zero >&2",
             &StreamOptions {
                 interrupt: None,
+                env: Vec::new(),
                 timeout: Some(Duration::from_secs(30)),
             },
             None,
@@ -165,6 +167,7 @@ fn deadline_cancels_a_running_stream() {
         "sleep 5",
         &StreamOptions {
                 interrupt: None,
+                env: Vec::new(),
             timeout: Some(Duration::from_millis(200)),
         },
         None,
@@ -193,6 +196,7 @@ fn large_stdin_is_hashed_remotely() {
             "sha256sum",
             &StreamOptions {
                 interrupt: None,
+                env: Vec::new(),
                 timeout: Some(Duration::from_secs(180)),
             },
             Some(&mut input),

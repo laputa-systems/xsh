@@ -461,14 +461,19 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Options: host, port, user, timeout_ms; exactly one of host_key (a SHA256 fingerprint) or known_hosts (a Path); exactly one of key (an unencrypted Ed25519 OpenSSH key file) or agent (the agent socket Path) with agent_identity (the SHA256 fingerprint of the Ed25519 identity to sign with). Unknown, changed, revoked and malformed trust fail before authentication. The agent is used only to sign and is never forwarded. The returned session is an owned capability; close it or let its scope release it.",
             &["ssh", "connect", "trust", "session"],
         )),
+        ("ssh", "connect_all") => Some((
+            "Connects several hosts in parallel and returns one result per target.",
+            "Takes {targets: List[Record], jobs: Int}; each target has the ssh.connect options and jobs (1 to 16, default 4) bounds the connections opened at once. The result lists, in order, either an owned session or the SshError for that target, so one host's failure does not hide the others. Every session belongs to the calling scope, outlives the workers that later use it, and is closed with that scope.",
+            &["ssh", "connect", "parallel", "session"],
+        )),
         ("ssh", "exec") => Some((
             "Runs one remote command string over an SSH session.",
-            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. A nonzero exit or signal is a result; a channel closed without either has missing = true and exit_code -1, never zero. Options: timeout_ms (whole command; none means only cancellation ends a silent command), max_output, stdin (Bytes), stdin_path, stdout_path, stderr_path. After any failure the session is unusable. An SshError carries certainty: not-submitted means retrying is safe, submitted means the command may have run.",
+            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. A nonzero exit or signal is a result; a channel closed without either has missing = true and exit_code -1, never zero. Options: timeout_ms (whole command; none means only cancellation ends a silent command), max_output, env (a Record of Str values sent as SSH env requests before the command; servers accept only the names they allow, commonly LANG and LC_*, and a refused one is SshError.Rejected with the command not run), stdin (Bytes), stdin_path, stdout_path, stderr_path; when both stdin and stdin_path are given the bytes are sent first and then the file, so a framing header can precede a streamed payload. After any failure the session is unusable. An SshError carries certainty: not-submitted means retrying is safe, submitted means the command may have run.",
             &["ssh", "exec", "remote", "stream"],
         )),
         ("ssh", "info") => Some((
             "Reports the authenticated host identity and negotiated algorithms of a session.",
-            "Returns the host, port, user, verified host-key fingerprint, key exchange, host-key algorithm and both ciphers. Fails with SshError.Busy while a command runs on the session.",
+            "Returns the host, port, user, usable (false once a failure has made the session unusable), verified host-key fingerprint, key exchange, host-key algorithm and both ciphers. Fails with SshError.Busy while a command runs on the session.",
             &["ssh", "session", "trust"],
         )),
         ("ssh", "close") => Some((
