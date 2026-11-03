@@ -191,3 +191,41 @@ fn match_arm_blocks_finish_a_unit_result_function() {
         "ground producer value disagrees with its checked contract",
     );
 }
+
+fn loaded_module_program(source: &str) -> FullProgram {
+    let path = "loaded-deployment.xsh";
+    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only_with_linkage(
+        path,
+        crate::loader::entry_source_from_text(path, source.to_owned()),
+        Vec::new(),
+        crate::loader::StdlibLinkage::LinkToPrepared,
+    );
+    let source_id = sources.files().first().map(crate::source::SourceFile::id).expect("entry source is present");
+    let file = crate::loader::CompactFileUnit::new(path, source_id, parsed);
+    assert!(file.parse_diagnostics().is_empty(), "{:?}", file.parse_diagnostics());
+    let declarations = crate::sema::check::Checker::check_compact_declarations(file.program(), &sources, source_id);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let graph = crate::loader::CompactModuleGraph::from_file_unit(&file, &declarations);
+    FullBuilder::build_compact_external_stdlib(file.program(), &declarations, &graph, source, Arc::new(sources), source_id)
+        .expect("loaded module should pass full IR verification")
+}
+
+const RENDERED_PAGE: &str = "##! A loaded module that renders before it uses the page.\n\
+pure keep(text: Str) -> Str { text }\n\
+## Renders one page.\n\
+export proc page() [error] -> Result[Str, Error] {\n\
+  let rendered = template.render(\"a\", 1)?\n\
+  Ok(keep(rendered))\n\
+}\n";
+
+#[test]
+fn external_script_call_is_typed_by_the_registry_contract() {
+    let program = loaded_module_program(RENDERED_PAGE);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function_index(&program, "keep");
+    let forged = reissued(&program, owner, |callable| callable.params[0].ty = Type::Int);
+    assert_eq!(
+        FullVerifier::verify(&forged).unwrap_err().message,
+        "ground producer value disagrees with its checked contract",
+    );
+}

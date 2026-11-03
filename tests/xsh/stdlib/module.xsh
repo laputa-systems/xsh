@@ -1853,3 +1853,28 @@ if loaded.ready(){propagation} {{ print "unexpected" }}
 """, status: 3, stderr: ["missing-field", "ready"])?
   }
 }
+
+type Deployment = module {
+  export proc resources() [error] -> Result[List[Str], Error]
+}
+
+test test_module_load_passes_a_script_backed_standard_call_to_an_imported_function { |ctx|
+  let root = test.temp_dir(ctx, name: "module-script-backed-call")?
+  fp"{root}/declare.xsh".write("""##! Declarations the deployment imports.
+## Names a rendered file.
+export pure file(id: Str, text: Str) -> Result[Str, Error] {
+  Ok(f"{id}:{text}")
+}
+""")
+  fp"{root}/deployment.xsh".write("""##! A deployment that renders before it declares.
+use declare
+
+## Declares one rendered file.
+export proc resources() [error] -> Result[List[Str], Error] {
+  let page = template.render("hello {{.}}", "world")?
+  [declare.file(id: "x", text: page)?, declare.file(id: "y", text: template.render("n", 1)?)?]
+}
+""")
+  let deployment = module.load(fp"{root}/deployment.xsh")?.require(Deployment)?
+  assert deployment.resources()? == ["x:hello world", "y:n"]
+}

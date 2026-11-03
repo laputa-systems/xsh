@@ -3832,6 +3832,8 @@ impl<'a> ProducerProof<'a> {
                 let errors = self.captured_error_types(decoder, instruction)?;
                 Some(Type::Result(Box::new((*ok).clone()), Box::new(self.join_captured_errors(&errors)?)))
             }
+            schema::ExprView::ExternalCall { function, .. } => crate::stdlib::find_by_namespace(&function.namespace.as_str())
+                .and_then(|module| crate::modules::signature::script_implementation_return_type(module.identity, &function.member.as_str())),
             schema::ExprView::ProcessCommandArgv(_) => FullDecoder::derive_registered_api_operation_return_type(super::super::RuntimeOp::ProcessCommandArgv)?,
             schema::ExprView::SpawnRun(_) | schema::ExprView::SpawnCommand { .. } => Some(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError))),
             schema::ExprView::Wait { target, .. } => Some(self.process_wait_contract(decoder, target.raw() as usize)?.1),

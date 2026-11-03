@@ -757,6 +757,19 @@ pub(crate) fn script_implementation_effect_rule(module: &str, function: &str) ->
     }))
 }
 
+pub(crate) fn script_implementation_return_type(module: &str, function: &str) -> Option<Type> {
+    let spec = api_spec();
+    let module_signatures = spec.module_entries().flat_map(|(_, module)| module.functions.iter())
+        .flat_map(|function| function.overloads.iter());
+    let method_signatures = spec.method_entries().flat_map(|(_, methods)| methods.iter())
+        .flat_map(|method| method.overloads.iter().map(|overload| &overload.sig));
+    let mut returns = module_signatures.chain(method_signatures).filter(|signature| {
+        signature.script_impl().is_some_and(|implementation| implementation.module == module && implementation.function == function)
+    }).map(|signature| &signature.return_ty);
+    let first = returns.next()?;
+    (returns.all(|ty| ty == first) && !first.contains_builtin_parameter() && !first.contains_inference()).then(|| first.clone())
+}
+
 struct NativeMethodEffectRules {
     names: BTreeMap<&'static str, NativeEffectRule>,
     operand_dependent: BTreeSet<usize>,
