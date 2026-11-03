@@ -83,6 +83,14 @@ inductive Fault where
   | integer (fault : IntegerFault)
 
 
+def parseInteger (text : String) : Option IntValue :=
+  match text.toList with
+  | [] => none
+  | digits =>
+    if digits.all (fun digit => 48 ≤ digit.toNat && digit.toNat ≤ 57) then
+      validateInt? (Int.ofNat (digits.foldl (fun value digit => value * 10 + (digit.toNat - 48)) 0))
+    else none
+
 def integerOperator : BinaryOp → Option IntegerBinaryOp
   | .add => some .add
   | .sub => some .subtract
@@ -173,11 +181,11 @@ def isCaller : Frame → Bool
 
 inductive Step : Machine → Label → Machine → Prop where
   | integer (state : Machine) (text : String) (value : IntValue)
-      (parsed : text.toInt?.bind validateInt? = some value) :
+      (parsed : parseInteger text = some value) :
       Step { state with control := .expression (.integer text) } .internal
         { state with control := .value (.scalar (.integer value)) }
   | integerInvalid (state : Machine) (text : String)
-      (invalid : text.toInt?.bind validateInt? = none) :
+      (invalid : parseInteger text = none) :
       Step { state with control := .expression (.integer text) } .internal
         { state with control := .fault .badLiteral }
   | boolean (state : Machine) (value : Bool) :
@@ -426,5 +434,28 @@ theorem read_after_assignment (store next : Store) (cells : ActiveCells)
   obtain ⟨_, _, ⟨replaced, replacedAt, _, value, _⟩, _⟩ :=
     write_accepted_replaces_only_its_cell (fun _ _ => inferInstance) store cell candidate next accepted
   simp [Connected.read, active, replacedAt, value]
+
+
+theorem allocate_fresh_typed_cell (store : Store) (cell : CellId) (mutability : Mutability)
+    (value : Value) (ty : RuntimeType) (fresh : store cell = none)
+    (typed : valueType value = some ty) :
+    ∃ next current, allocate store cell mutability value = some next ∧
+      next cell = some current ∧ current.mutability = mutability ∧
+      current.contents.typeTag = ty ∧ current.contents.value = value := by
+  let current : StoreCell RuntimeType Value HasType := ⟨⟨ty, value, typed⟩, mutability⟩
+  let next : Store := fun other => if other = cell then some current else store other
+  refine ⟨next, current, ?_, ?_, rfl, rfl, rfl⟩
+  · unfold allocate
+    rw [fresh]
+    simp only [Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
+    split
+    · rename_i found
+      rw [typed] at found
+      cases found
+    · rename_i found same
+      rw [typed] at same
+      cases same
+      rfl
+  · simp [next]
 
 end Xsh.Semantics.Connected

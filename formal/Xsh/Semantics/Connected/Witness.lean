@@ -1,4 +1,5 @@
 import Xsh.Semantics.Connected.Machine
+import Xsh.Typing.Connected.BlockCertificate
 
 namespace Xsh.Semantics.Connected
 
@@ -28,7 +29,7 @@ theorem clock_request_survives_result_propagation (state : Machine)
 
 theorem assignment_then_return_reads_new_value (state : Machine) (binder : BinderId)
     (cell : Xsh.Semantics.Environments.CellId) (text : String) (value : IntValue) (next : Store)
-    (parsed : text.toInt?.bind validateInt? = some value)
+    (parsed : parseInteger text = some value)
     (active : state.cells binder = some cell)
     (written : write state.store cell (.scalar (.integer value)) = .accepted next) :
     let source := [.assignment binder (.integer text), .returned (.read binder [])]
@@ -62,7 +63,7 @@ theorem identity_function_accepts_integer_and_boolean_activations :
 theorem mutable_integer_assignment_executes (state : Machine) (binder : BinderId)
     (cell : Xsh.Semantics.Environments.CellId) (text : String) (value : IntValue)
     (current : Xsh.Semantics.Environments.StoreCell RuntimeType Value HasType)
-    (parsed : text.toInt?.bind validateInt? = some value)
+    (parsed : parseInteger text = some value)
     (active : state.cells binder = some cell) (present : state.store cell = some current)
     (mutable : current.mutability = .mutable)
     (typed : HasType current.contents.typeTag (.scalar (.integer value))) :
@@ -74,5 +75,36 @@ theorem mutable_integer_assignment_executes (state : Machine) (binder : BinderId
     (Xsh.Semantics.Environments.write_accepted_iff (fun _ _ => inferInstance)
       state.store cell (.scalar (.integer value))).mpr ⟨current, present, mutable, typed⟩
   exact ⟨next, assignment_then_return_reads_new_value state binder cell text value next parsed active written⟩
+
+
+def integerTwo : IntValue := ⟨2, by decide⟩
+
+theorem certified_integer_local_executes (state : Machine)
+    (fresh : state.store ⟨state.activation, integerLocalBinder⟩ = none) :
+    integerLocalCertificateAccepted = true ∧
+    ∃ next, Execution { state with control := .statements integerLocalCandidate }
+      [.internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal]
+      { state with control := .returned (.scalar (.integer integerTwo)), cells := bindActive state.cells integerLocalBinder ⟨state.activation, integerLocalBinder⟩, store := next } := by
+  constructor
+  · exact integer_local_derived_certificate_is_inhabited
+  · let cell : Xsh.Semantics.Environments.CellId := ⟨state.activation, integerLocalBinder⟩
+    obtain ⟨allocated, current, allocatedProof, present, mutable, tag, _⟩ :=
+      allocate_fresh_typed_cell state.store cell .mutable (.scalar (.integer intOne)) .integer fresh rfl
+    let afterBinding := { state with cells := bindActive state.cells integerLocalBinder cell, store := allocated }
+    have active : afterBinding.cells integerLocalBinder = some cell := by simp [afterBinding, bindActive]
+    have member : HasType current.contents.typeTag (.scalar (.integer integerTwo)) := by
+      rw [tag]
+      rfl
+    obtain ⟨next, run⟩ := mutable_integer_assignment_executes afterBinding integerLocalBinder cell "2"
+      integerTwo current (by decide +kernel) active present mutable member
+    refine ⟨next, ?_⟩
+    let rest : List StatementNode := [.assignment integerLocalBinder (.integer "2"),
+      .returned (.read integerLocalBinder [])]
+    refine .next (Step.bindingStart state integerLocalBinder .mutable (.integer "1") rest) ?_
+    refine .next (Step.integer { state with stack := .bind integerLocalBinder .mutable rest :: state.stack }
+      "1" intOne (by decide +kernel)) ?_
+    refine .next (Step.bindingCommit state integerLocalBinder .mutable (.scalar (.integer intOne))
+      rest allocated allocatedProof) ?_
+    exact run
 
 end Xsh.Semantics.Connected

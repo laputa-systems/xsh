@@ -11206,6 +11206,24 @@
       "status": "fragment",
       "scope": "A clock request remains in a connected-machine trace through a successful Result constructor and propagation.",
       "boundary": "The witness assumes a function table naming clock and Result constructors. It does not establish Rust correspondence, effect-bound checking or host-clock accuracy."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.derived_block_certificate_sound",
+      "module": "Xsh.Typing.Connected.BlockCertificate",
+      "declaration": "Xsh.Typing.Connected.derived_block_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted block candidate has a declarative typing derivation and the checked derivation is principal for its independently generated constraints.",
+      "boundary": "The scope, binder type witnesses, and result type are inputs. It does not establish completeness, source admission, effect typing, or target correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.certified_integer_local_executes",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.certified_integer_local_executes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The independently certified integer local binding, assignment and read has an execution that returns the assigned value from any machine with a fresh activation cell.",
+      "boundary": "The source and candidate are constructed Lean terms; this finite bridge is not general preservation, Rust conformance, source admission, or raw-IR simulation."
     }
   ],
   "artifact_certificates": [

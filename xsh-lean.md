@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 830
+**State:** `formal/coverage.json` is the only inventory. It lists 832
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -800,6 +800,15 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   identity scheme. These are Lean models, not Rust conformance or a simulation.
   Invalid-state progress, guard and effect typing, general preservation,
   admission, raw artifact correspondence and full connected execution stay open.
+
+
+- 2026-11-03: The block certificate combines independently generated
+  constraints, a checked principal derivation and statement typing. A constructed
+  mutable-integer program has such a certificate and a connected-machine
+  execution returning its assigned value. Wrong binder and type witnesses are
+  refused, with exhausted derivations distinct. The machine currently admits
+  decimal integer lexemes only. These are Lean inputs and a finite execution,
+  not the required general source-to-IR simulation or Rust correspondence.
 
 ## For the owner afterwards
 
