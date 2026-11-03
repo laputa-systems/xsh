@@ -402,6 +402,8 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             environment["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"],
             runner.RUSTFLAGS,
         )
+        self.assertIn("-C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf", runner.RUSTFLAGS)
+        self.assertIn("-C link-arg=-Wl,--defsym=__isoc23_strtol=strtol", runner.RUSTFLAGS)
         self.assertEqual(environment["TMPDIR"], "/scratch/canonical-bootstrap/tmp")
 
     def test_bootstrap_producer_writes_a_receipt_accepted_by_the_canonical_validator(self):

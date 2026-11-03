@@ -1061,6 +1061,8 @@ class MeasurementProtocolTests(unittest.TestCase):
             environment = resources._cargo_environment()
         self.assertNotIn("CFLAGS_x86_64_unknown_linux_musl=", environment)
         self.assertIn(f"XSH_LAPUTA_CORPUS={corpus}", environment)
+        self.assertIn("-C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf", environment)
+        self.assertIn("-C link-arg=-Wl,--defsym=__isoc23_strtol=strtol", environment)
 
     def test_cargo_environment_roundtrips_a_corpus_path_with_spaces(self):
         with laputa_corpus_scope(prefix="resource laputa spaced-") as corpus:

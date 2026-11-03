@@ -25,7 +25,7 @@ from native_image import IMAGE_ID
 IMAGE = IMAGE_ID
 TARGET = "x86_64-unknown-linux-musl"
 PROFILE = "verification"
-RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol"
+RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol"
 LOCK_PATH = pathlib.Path(".work/consolidation/infra/native-suite.lock")
 CARGO_LOCK_PATH = pathlib.Path(".work/consolidation/infra/cargo.lock")
 CARGO_LOCK_CONTAINER_PATH = "/work/.work/consolidation/infra/cargo.lock"

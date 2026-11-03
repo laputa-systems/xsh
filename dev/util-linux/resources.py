@@ -2130,13 +2130,15 @@ def _cargo_mounts(
 
 
 def _cargo_environment() -> str:
+    from release import RUSTFLAGS
+
     laputa_corpus = _selected_laputa_corpus()
     return (
         "export CARGO_TARGET_DIR=/cargo-target CARGO_NET_OFFLINE=true "
         "RUSTC_WRAPPER=/usr/local/bin/kache TARGET=" + TARGET + " "
         "XSH_LAPUTA_CORPUS=" + shlex.quote(str(laputa_corpus)) + " "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker "
-        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' "
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" + shlex.quote(RUSTFLAGS) + " "
     )
 
 
