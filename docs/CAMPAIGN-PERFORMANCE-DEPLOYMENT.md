@@ -5,12 +5,11 @@ The previous qualification image is unavailable locally; the current image is
 pinned below. No current-source G1 qualification has passed. One cause of the
 scheduler-pair failures is fixed and measured. No push grant exists.
 
-**Resume:** the owner's prompt is "Resume this campaign from its 2026-10-25
-handoff on master. Prioritize feature completeness and focused evidence; leave
-XSH-23 deferred." No owner decision is needed to preserve the paused state.
-From the repository root run `git status --short && git log -5 --oneline`, then
-read `AGENTS.md`, `TODO.md`, and this document. Recheck the limiting stage and
-owner authority. Do not restart the old queue or rebaseline unchanged inputs.
+**Resume:** Linux performance and G1 qualification are active again, including
+the time gates previously waived for Deser S6. Use the whole host through
+coordinated readiness windows. macOS remains outside this run. Freeze the
+integrated source before source-bound qualification; earlier passing receipts
+do not qualify it.
 
 ## State
 
@@ -379,6 +378,8 @@ universal formal obligations.
 
 ## Log
 
+- 2026-11-03: `cf8e2cd40` skips the source-wide list-join scan when a function has no empty list to refine. Against `085a35e79`, five alternating matched O2 pairs in the pinned Linux image passed both readiness checks and retained all 107 lint diagnostics. Median CPU for the inferred-return lint on `core/sort.xsh` fell from 31.548 s to 25.690 s (paired ratio 0.818, range 0.806–0.832); `xsht check core/sort.xsh` fell from 264.0 ms to 206.5 ms (ratio 0.787, range 0.777–0.795). Peak RSS was 199,260 versus 199,156 KiB in one untimed pair, and `xsht` shrank 2,784 bytes. These results qualify this workload and change, not the remaining G1 gates or the broader XSH-14 import-graph work.
+- 2026-11-03: Matched O2 products from pre-Deser production `9d893e007` with qualification-only harness repairs and current `085a35e79` reproduced the same 20,000-record JSON output. Five alternating pairs with readiness checks measured median CPU of 59.949 versus 93.745 ms for the roundtrip and 51.029 versus 77.153 ms for decode alone. JSONL improved from 34.565 to 26.988 ms. These sources differ in more than the codec, so the ancestry comparison does not attribute the entire change to Deser. S6 time gates and current-source qualification remain open.
 - 2026-10-17: Launch source `c6d36683872e4d0dc9173a9c2c8ff09e8e6b9d23`. KVM access through `doas` works, so sandbox visibility is not a platform limit. G2 may extend `check-current --review-evidence` to call the existing review verifier while preserving default checks and strict `final-close`.
 - 2026-10-18: The scheduler bridge derives the shared namespace from the common Git directory, using the unchanged launcher from its reviewed tool checkout. Compiler qualification stays with R13.
 - 2026-10-24: Paused at the owner's request. Completed slices were integrated, three incomplete branches parked, and 312 checkouts reclaimed.
