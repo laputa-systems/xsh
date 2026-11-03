@@ -13,6 +13,7 @@ export const jemalloc_library = p"/usr/lib/libjemalloc.so.2"
 export const override_variable = "XSH_DEV_BUILD_PRELOAD"
 
 const runner_lock_variable = "XSH_CARGO_TEST_LOCK_FILE"
+type MuslFlags = {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: Str}
 
 ## A `rustc -vV` report without the host line.
 export error ToolchainError = MissingHost(report: Str)
@@ -323,8 +324,22 @@ proc execute_linux_test(step: Step, lock_file: Path, runner: Path) [process, env
   }
 }
 
+## Forwards musl aliases through the selected mold C driver.
+export proc mold_driver_spec(spec: contract.CommandSpec) [env, error] -> Result[contract.CommandSpec, Error] {
+  return spec when spec.target != "x86_64-unknown-linux-musl"
+  let linker = if "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER" in spec.environment.keys() {
+    spec.environment.get("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER")?.require(Str)?
+  } else { env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "")? }
+  return spec when linker != "/usr/local/bin/xsh-mold-linker"
+  return spec when "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS" not in spec.environment.keys()
+  let environment = spec.environment.require(MuslFlags)?
+  let flags = environment.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
+  {...spec, environment: {...environment, CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: target_policy.mold_driver_rustflags(flags)}}
+}
+
 ## Runs a Cargo step that only compiles, under this machine's preload.
 export proc run_build(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
+  let spec = mold_driver_spec(spec)?
   let linux_host = uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?)
   let step = build_step(spec, detect_preload()?, env.get_or("LD_PRELOAD", "")?)
   if linux_host {
@@ -339,6 +354,7 @@ export proc run_build(spec: contract.CommandSpec) [fs, process, env, error, io] 
 ## Runs a `cargo test` step: compiles under this machine's preload, then runs
 ## the tests without it.
 export proc run_test(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
+  let spec = mold_driver_spec(spec)?
   let linux_host = uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?)
   let library = detect_preload()?
   let inherited = env.get_or("LD_PRELOAD", "")?

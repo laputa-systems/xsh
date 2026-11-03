@@ -1,4 +1,5 @@
 ##! Native-or-Docker selection for the existing combined coverage programs.
+use cargo_steps
 use context
 use docker
 use stage as stages
@@ -84,7 +85,7 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
     else => { return Err(targets.TargetError.Unsupported(target: ctx.target.triple)) }
   }
   stages.execute(
-    stages.command(
+    cargo_steps.mold_driver_spec(stages.command(
       "coverage-native",
       ctx.target.triple,
       cargo,
@@ -100,7 +101,7 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
       ],
       ctx.root,
       environment,
-    ),
+    ))?,
   )
 }
 

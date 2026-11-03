@@ -732,7 +732,7 @@ test test_gate_docker_mounts_mold_and_kache_with_the_pinned_abi_flags {
   assert "/host/cargo/bin/kache:/usr/local/bin/kache:ro" in argv
   assert "RUSTC_WRAPPER=/usr/local/bin/kache" in argv
   assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker" in argv
-  assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol" in argv
+  assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol" in argv
 }
 
 test test_musl_linker_translates_direct_defsym_arguments_and_preserves_others { |ctx|

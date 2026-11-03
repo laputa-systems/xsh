@@ -296,6 +296,12 @@ export pure cflags_variable(triple: Str) -> Result[Str, Error] {
 ## symbol.
 export const host_driver_rustflags = "-C target-feature=+crt-static -C link-arg=-fuse-ld=mold -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol"
 
+## Uses C-driver forwarding for the two musl symbol aliases.
+export pure mold_driver_rustflags(flags: Str) -> Str {
+  flags.replace("link-arg=--defsym=__isoc23_sscanf=sscanf", with: "link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf")
+    .replace("link-arg=--defsym=__isoc23_strtol=strtol", with: "link-arg=-Wl,--defsym=__isoc23_strtol=strtol")
+}
+
 ## Produces the static-link flags needed by Linux container test builds.
 export pure docker_test_env(triple: Str) -> Result[Record, Error] {
   let flags = [

@@ -132,6 +132,42 @@ proc install_cargo_test_runner(root: Path, repository: Path) [fs, error] {
   )
 }
 
+test test_cargo_steps_forward_aliases_for_the_mold_driver_only { |ctx|
+  let root = test.temp_dir(ctx, name: "cargo-linker-flags")?
+  let tools = fp"{root}/tools"
+  let log = fp"{root}/cargo.log"
+  write_fake_toolchain(tools, log)
+  let repository = fs.cwd()?
+  let inherited_path = env.get_or("PATH", "")?
+  let script = f"""use cargo_steps
+use stage as stages
+
+cargo_steps.run_build(stages.command(
+  "link", "x86_64-unknown-linux-musl", "cargo",
+  ["cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"],
+  p"{root}",
+  {{CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol"}},
+))
+"""
+  for linker in ["/usr/local/bin/xsh-mold-linker", "rust-lld"] {
+    log.write("")
+    test.expect(ctx, script, status: 0, env: {
+      PATH: f"{tools}:{inherited_path}",
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: "",
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: linker,
+    })?
+    let output = log.read_text()?
+    if linker == "rust-lld" {
+      assert "link-arg=--defsym=__isoc23_sscanf=sscanf" in output
+      assert "link-arg=-Wl,--defsym=" not in output
+    } else {
+      assert "link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf" in output
+      assert "link-arg=-Wl,--defsym=__isoc23_strtol=strtol" in output
+    }
+  }
+}
+
 test test_linux_test_requires_one_harness_and_matching_target { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     test.skip("requires Linux cargo target selection")

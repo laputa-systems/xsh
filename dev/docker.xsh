@@ -200,7 +200,8 @@ export pure internal_argv(
   } else {
     "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"
   }
-  let target_rustflags = target_flags.get(target_flags_variable)?.require(Str)?
+  let raw_rustflags = target_flags.get(target_flags_variable)?.require(Str)?
+  let target_rustflags = if host_link_tools == null { raw_rustflags } else { targets.mold_driver_rustflags(raw_rustflags) }
   let linker_environment = if host_link_tools == null {
     []
   } else {
