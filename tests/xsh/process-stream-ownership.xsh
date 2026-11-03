@@ -11,14 +11,18 @@ test test_break_reaps_process_stream_before_continuing {
 
 test test_failed_notify_spawns_release_pipe_descriptors { |ctx|
   if system.uname()?.sysname != "Linux" { return }
+  let worker = fp"{test.temp_dir(ctx, name: "failed-notify-spawn")?}/worker"
+  worker.write("#!/xsh-missing-interpreter\n")?
+  worker.chmod(0o755)?
   test.expect(ctx, r"""proc descriptor_count() [fs, error] -> Int {
   fs.children(p"/proc/self/fd")? |> count()
 }
-let command = process.command_argv("/xsh-missing-notify-worker", ["/xsh-missing-notify-worker"])
+let worker = Path(args[0])
+let command = process.command_argv(worker, [worker])
 let before = descriptor_count()
 for _ in range(32) {
   assert unix.spawn_process_group(command, notify: true) is Err(_)
 }
 assert descriptor_count() == before
-""", status: 0)?
+""", status: 0, args: [worker])?
 }
