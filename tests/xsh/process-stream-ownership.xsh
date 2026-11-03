@@ -1,12 +1,13 @@
-test test_break_reaps_process_stream_before_continuing {
-  var pid = 0
-  let rows = run.stream --text sh -c "printf '%s\\n' $$; exec sleep 30" ?
-  for row in rows {
-    pid = row as Int
-    break
-  }
-  assert pid > 0
-  test.error_kind(process.kill(pid, signal: "0"), "process-missing")
+test test_break_reaps_process_stream_before_continuing { |ctx|
+  test.expect(ctx, r"""var pid = 0
+let rows = run.stream --text sh -c "printf '%s\\n' $$; exec sleep 30 2>/dev/null" ?
+for row in rows {
+  pid = row as Int
+  break
+}
+assert pid > 0
+test.error_kind(process.kill(pid, signal: "0"), "process-missing")
+""", status: 0)?
 }
 
 test test_failed_notify_spawns_release_pipe_descriptors { |ctx|
