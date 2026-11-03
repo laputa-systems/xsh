@@ -56,7 +56,7 @@ out of scope.
 
 - **Area:** Host authority
 - **Where:** `crates/xsh-root/`, `src/modules/`, `src/runtime/eval/`, `tests/`
-- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Unproven: which extraction/publication paths retain the trusted directory anchor throughout mutation.
+- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction stages and publishes through retained roots; other extraction and publication paths still need an anchor audit.
 - **Recommendation:** Trace the operations needed by Laputa LAP-33 and reuse Root at the smallest shared host boundary. Specify trusted-anchor acquisition, relative paths, symlinks, hard links, mount/special-file policy and destination publication. Extend only missing operations required by that consumer; do not advertise Root or effects as a process sandbox.
 - **Acceptance:** Adversarial fixtures cover ancestor/symlink replacement, traversal, archive link ordering, special files, no-clobber conflicts and interrupted publication. Outside sentinels remain unchanged and prior committed outputs survive failures. Unsupported platform enforcement fails explicitly. Distinguish atomic visibility from durable publication and test their contracts separately.
 - **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation.
