@@ -16,7 +16,7 @@ impl Type {
             }
 
             match ty {
-                Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::Stream(_) => {
+                Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::SshSession | Self::Stream(_) => {
                     return true;
                 }
                 Self::List(item) | Self::Set(item) | Self::Optional(item) => pending.push(item),

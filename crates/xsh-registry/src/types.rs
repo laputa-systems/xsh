@@ -57,6 +57,7 @@ builtin_type_names!(
     (NetJob, "NetJob"),
     (FsRoot, "FsRoot"),
     (FsLock, "FsLock"),
+    (SshSession, "SshSession"),
     (RelPath, "RelPath"),
     (Result, "Result"),
 );
@@ -120,6 +121,7 @@ pub enum Type {
     NetJob,
     FsRoot,
     FsLock,
+    SshSession,
     Unit,
     Optional(Box<Type>),
     /// A closed union of member types, in the order a dynamic value is

@@ -1273,6 +1273,8 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 - `FsRoot` is an open directory capability; see the standard modules.
 - `FsLock` is an opaque filesystem lock capability returned by `fs.lock`
   (see 10.4 and 11.8).
+- `SshSession` is an opaque SSH connection handle returned by `ssh.connect` and
+  `ssh.connect_all` (see 11.8).
 - `Regex` and `Digest` are immutable values with methods.
 
 Handles are values that alias one live host resource; see 11.8 for ownership.
@@ -3104,8 +3106,8 @@ or exits with a nonzero status.
 A `tempdir` scope (10.4) removes its directory with a deferred action of this
 kind, registered before the body runs. A `with` resource scope (10.4)
 releases each bound resource after the body's defers and returns a release
-failure as its `Err`. Ordinary blocks also release owned `FsRoot` and `FsLock`
-capabilities after their defers (11.8); use `with` when code must observe a
+failure as its `Err`. Ordinary blocks also release owned `FsRoot`, `FsLock` and
+`SshSession` capabilities after their defers (11.8); use `with` when code must observe a
 release failure. The `with` form groups a resource binding and its body.
 
 `atomically replace dest as name { ... }` publishes a file that something
@@ -4360,16 +4362,20 @@ value however the body ends.
 {{.spec.with_resource.source}}
 ```
 
-`VALUE` is an expression of a built-in resource type, and there are two:
+`VALUE` is an expression of a built-in resource type, and there are three:
 
 | Type | From | Released as |
 |---|---|---|
 | `FsRoot` | `fs.open_root`, `fs.tempdir`, `FsRoot.open_root` | `root.close()` |
 | `FsLock` | `fs.lock` | `fs.unlock(lock)` |
+| `SshSession` | `ssh.connect`, `ssh.connect_all` | `ssh.close(session)` |
 
 `FsLock` is an opaque handle. Its `path` and `shared` fields are readable and
 immutable; it has no public identifier, cannot be constructed from a record,
-and is not JSON-compatible. Resource handles belong to the evaluator that
+and is not JSON-compatible. `SshSession` is opaque in the same way and has no
+fields: it cannot be built from a record, shown in a format string, serialised
+or traced, and `ssh.info` is the way to read facts about a live session. An
+evaluator that receives a session, as a `par-map` worker does, can use it. Resource handles belong to the evaluator that
 created them. Using a foreign evaluator's handle fails before looking up or
 consuming any local resource, even if their internal identifiers coincide.
 
@@ -4384,7 +4390,7 @@ propagated:
 There is no protocol a program can implement; the checker knows the resource
 types and how each is released. A `ProcessHandle`, a `NetJob`, and an open
 stream are released by the block that owns them (11.8). An ordinary block also
-releases its owned `FsRoot` and `FsLock` after the block's defers. Use `with`
+releases its owned `FsRoot`, `FsLock` and `SshSession` after the block's defers. Use `with`
 when a capability release must be reported as the scope's `Err`. The HTTP
 pools of `net.pool` are closed by name, not through a value; the staged socket
 functions of the `linux` and `unix` modules are sequences, not one value with
@@ -4763,7 +4769,7 @@ strings.
 ### 11.8 Ownership of live resources
 
 The lexical scope that creates a live resource owns it. This applies to
-`ProcessHandle`, `NetJob`, open streams, `FsRoot`, and `FsLock`. When a value
+`ProcessHandle`, `NetJob`, open streams, `FsRoot`, `FsLock`, and `SshSession`. When a value
 containing a resource becomes part of a value in an enclosing scope, ownership
 moves to that receiving scope: this happens for a returned or block value, a
 `break` value, an assignment to an outer binding, or a yielded value. A
@@ -4786,7 +4792,7 @@ the directory was moved, or its path now names another entry, the directory is
 left in place and an explicit `root.close()` returns an `fs-root` error. A defer can use these capabilities and can release them early. An
 explicit `root.close()` or `fs.unlock(lock)` returns an error for an already
 released capability, while scope cleanup skips a capability released earlier.
-For an exact local `ProcessHandle`, `NetJob`, `FsRoot`, or `FsLock`, a direct
+For an exact local `ProcessHandle`, `NetJob`, `FsRoot`, `FsLock`, or `SshSession`, a direct
 unconditional consuming operation makes later uses of that binding a
 `check.use-after-release` error:
 

@@ -5,6 +5,18 @@ use super::{
     lowered_record_arg, lowered_result_err_value, lowered_result_ok, lowered_runtime_value,
     lowered_str_arg_owned, ssh_module,
 };
+use crate::runtime::value::SshSessionValue;
+
+fn session_arg(
+    value: Option<LoweredValue>,
+    callee: &str,
+    span: Span,
+) -> Result<SshSessionValue, RuntimeError> {
+    match value {
+        Some(LoweredValue::SshSession(session)) => Ok(session),
+        _ => Err(RuntimeError::new("type-error", format!("{callee} expected SshSession")).with_span(span)),
+    }
+}
 
 impl Evaluator {
     pub(super) fn eval_lowered_ssh_connect_values(
@@ -56,9 +68,9 @@ impl Evaluator {
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let options = lowered_record_arg(values.pop(), "ssh.exec", span)?;
         let command = lowered_str_arg_owned(values.pop(), "", "ssh.exec", span)?;
-        let session = lowered_record_arg(values.pop(), "ssh.exec", span)?;
+        let session = session_arg(values.pop(), "ssh.exec", span)?;
         match ssh_module::exec(
-            &session,
+            session,
             &command,
             &options,
             &self.resource_owner,
@@ -77,8 +89,8 @@ impl Evaluator {
         mut values: NativeArgumentValues,
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let session = lowered_record_arg(values.pop(), "ssh.info", span)?;
-        match ssh_module::info(&session, span) {
+        let session = session_arg(values.pop(), "ssh.info", span)?;
+        match ssh_module::info(session, span) {
             Ok(value) => Ok(ControlFlow::Continue(lowered_runtime_value(
                 Value::ok(value),
                 span,
@@ -93,9 +105,9 @@ impl Evaluator {
         mut values: NativeArgumentValues,
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let session = lowered_record_arg(values.pop(), "ssh.close", span)?;
+        let session = session_arg(values.pop(), "ssh.close", span)?;
         let if_open = op == xsh_registry::RuntimeOp::SshCloseIfOpen;
-        match ssh_module::close(&session, &self.resource_owner, if_open, span) {
+        match ssh_module::close(session, &self.resource_owner, if_open, span) {
             Ok(Some(scope)) => {
                 self.forget_owned_resource(scope, ResourceKind::Capability);
                 Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)))

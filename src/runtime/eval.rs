@@ -18,7 +18,7 @@ use crate::runtime::signal::{
 };
 use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
-    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
+    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue, SshSessionValue,
     CallableValue, EnvPathListSnapshot, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
@@ -1736,6 +1736,7 @@ enum LoweredType {
     NetJob,
     FsRoot,
     FsLock,
+    SshSession,
     Stream,
     Function(CallableKind),
     SchemeCallable,
@@ -2269,6 +2270,7 @@ enum LoweredValue {
     NetJob(Box<NetJobValue>),
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
+    SshSession(SshSessionValue),
     Stream(Box<StreamValue>),
     Callable(CallableValue),
     Error(Box<Value>),
@@ -2913,6 +2915,7 @@ impl LoweredValue {
             Self::NetJob(value) => Value::NetJob(value),
             Self::FsRoot(value) => Value::FsRoot(value),
             Self::FsLock(value) => Value::FsLock(value),
+            Self::SshSession(value) => Value::SshSession(value),
             Self::Stream(value) => Value::Stream(value),
             Self::Callable(value) => Value::Callable(value),
             Self::Error(value) => *value,
@@ -3486,28 +3489,7 @@ struct OwnedFsCapability { owner_scope: u64, value: FsCapability }
 enum FsCapability { Root(Box<FsRootHandle>), Lock(std::fs::File) }
 
 #[derive(Clone)]
-enum OwnedHostResource { Process(u64), Net(u64), Capability(usize), Ssh(String) }
-
-fn lowered_session_token(fields: &BTreeMap<Arc<str>, LoweredValue>) -> Option<String> {
-    if fields.len() != 1 {
-        return None;
-    }
-    match fields.get("token") {
-        Some(LoweredValue::Str(token)) => Some(token.to_string()),
-        Some(LoweredValue::StrView(token)) => Some(token.as_str().to_owned()),
-        _ => None,
-    }
-}
-
-fn runtime_session_token(fields: &RecordMap) -> Option<String> {
-    if fields.len() != 1 {
-        return None;
-    }
-    match fields.get("token") {
-        Some(Value::Str(token)) => Some(token.to_string()),
-        _ => None,
-    }
-}
+enum OwnedHostResource { Process(u64), Net(u64), Capability(usize), Ssh(u64) }
 
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(Root),
@@ -6947,7 +6929,7 @@ impl Evaluator {
             OwnedHostResource::Process(id) => self.process_handles.get(&id).map(|live| live.owner_scope),
             OwnedHostResource::Net(id) => self.net_jobs.get(&id).map(|live| live.owner_scope),
             OwnedHostResource::Capability(index) => self.fs_capabilities.get(index).and_then(Option::as_ref).map(|live| live.owner_scope),
-            OwnedHostResource::Ssh(ref token) => crate::modules::ssh::owner_scope(token, &self.resource_owner),
+            OwnedHostResource::Ssh(id) => crate::modules::ssh::owner_scope(id, &self.resource_owner),
         };
         let Some(owner) = owner else { return; };
         if owner == target || !self.scope_descends_from(owner, target) { return; }
@@ -6955,7 +6937,7 @@ impl Evaluator {
             OwnedHostResource::Process(id) => { self.process_handles.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
             OwnedHostResource::Net(id) => { self.net_jobs.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
             OwnedHostResource::Capability(index) => { self.fs_capabilities[index].as_mut().expect("live owner checked").owner_scope = target; ResourceKind::Capability }
-            OwnedHostResource::Ssh(ref token) => { crate::modules::ssh::transfer(token, &self.resource_owner, target); ResourceKind::Capability }
+            OwnedHostResource::Ssh(id) => { crate::modules::ssh::transfer(id, &self.resource_owner, target); ResourceKind::Capability }
         };
         self.forget_owned_resource(owner, kind);
         self.register_owned_resource(target, kind);
@@ -7054,19 +7036,13 @@ impl Evaluator {
             LoweredValue::Map(values) => {
                 for value in values.values() { self.collect_lowered_resources(value, worklist); }
             }
+            LoweredValue::SshSession(session) => {
+                worklist.resources.push(OwnedHostResource::Ssh(session.id));
+            }
             LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
-                if let Some(token) = lowered_session_token(fields) {
-                    worklist.resources.push(OwnedHostResource::Ssh(token));
-                }
                 for value in fields.values() { self.collect_lowered_resources(value, worklist); }
             }
             LoweredValue::RecordVec(fields) => {
-                if fields.len() == 1
-                    && fields[0].0.as_str() == "token"
-                    && let LoweredValue::Str(token) = &fields[0].1
-                {
-                    worklist.resources.push(OwnedHostResource::Ssh(token.to_string()));
-                }
                 for (_, value) in fields.iter() { self.collect_lowered_resources(value, worklist); }
             }
             LoweredValue::Tag(tag) => {
@@ -7095,15 +7071,8 @@ impl Evaluator {
                 Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                     self.collect_capability(handle.id, worklist);
                 }
-                Value::Record(fields) => {
-                    if let Some(token) = runtime_session_token(fields) {
-                        worklist.resources.push(OwnedHostResource::Ssh(token));
-                    }
-                }
-                Value::Tag { fields, .. } if fields.len() == 1 => {
-                    if let Value::Str(token) = &fields[0] {
-                        worklist.resources.push(OwnedHostResource::Ssh(token.to_string()));
-                    }
+                Value::SshSession(session) => {
+                    worklist.resources.push(OwnedHostResource::Ssh(session.id));
                 }
                 Value::Stream(stream) => self.collect_stream_resources(stream, worklist),
                 _ => {}

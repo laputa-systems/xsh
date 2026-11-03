@@ -985,6 +985,7 @@ pub enum Value {
     NetJob(Box<NetJobValue>),
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
+    SshSession(SshSessionValue),
     Unit,
     Tag {
         type_name: Name,
@@ -1213,6 +1214,22 @@ impl PartialEq for FsLockValue {
     }
 }
 impl Eq for FsLockValue {}
+
+/// An opaque handle to a live SSH connection in the process-wide session table.
+///
+/// The handle has no textual form: it cannot be printed, serialised, traced or built from
+/// any other value, so only the evaluator that received it from `ssh.connect` or a value
+/// derived from it can use the session.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SshSessionValue {
+    pub(crate) id: u64,
+}
+
+impl std::fmt::Debug for SshSessionValue {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SshSession")
+    }
+}
 
 /// Opaque evaluator-owned network job identity.
 ///

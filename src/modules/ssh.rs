@@ -3,12 +3,14 @@
 #[cfg(feature = "ssh")]
 use std::collections::BTreeMap;
 #[cfg(feature = "ssh")]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "ssh")]
 use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(feature = "ssh")]
 use std::sync::{Mutex, OnceLock};
 
-use crate::runtime::value::{RecordMap, RuntimeError, Value};
+use crate::runtime::value::{RecordMap, RuntimeError, SshSessionValue, Value};
 use crate::source::Span;
 
 #[cfg(feature = "ssh")]
@@ -16,10 +18,6 @@ use xsh_ssh::{
     Certainty, ClientConfig, Connection, Error as SshError, ExecOptions, Fingerprint, HostTrust,
     Identity, KnownHosts,
 };
-
-/// The opaque token field of a session record.
-#[cfg(feature = "ssh")]
-pub(crate) const SESSION_TOKEN: &str = "token";
 
 #[cfg(feature = "ssh")]
 struct RegistrySession {
@@ -29,8 +27,8 @@ struct RegistrySession {
 }
 
 #[cfg(feature = "ssh")]
-fn sessions() -> &'static Mutex<BTreeMap<String, RegistrySession>> {
-    static SESSIONS: OnceLock<Mutex<BTreeMap<String, RegistrySession>>> = OnceLock::new();
+fn sessions() -> &'static Mutex<BTreeMap<u64, RegistrySession>> {
+    static SESSIONS: OnceLock<Mutex<BTreeMap<u64, RegistrySession>>> = OnceLock::new();
     SESSIONS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
@@ -91,26 +89,6 @@ fn optional_bytes(record: &RecordMap, name: &str, span: Span) -> Result<Option<V
         Some(Value::Bytes(value)) => Ok(Some(value.clone())),
         Some(_) => Err(failure("Options", format!("{name} must be Bytes")).with_span(span)),
     }
-}
-
-/// Extract a session token from a record, rejecting any other shape.
-#[cfg(feature = "ssh")]
-pub(crate) fn token_from_record(record: &RecordMap) -> Option<String> {
-    if record.len() != 1 {
-        return None;
-    }
-    match record.get(SESSION_TOKEN) {
-        Some(Value::Str(value)) => Some(value.to_string()),
-        _ => None,
-    }
-}
-
-#[cfg(feature = "ssh")]
-fn token() -> Result<String, RuntimeError> {
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes)
-        .map_err(|error| failure("Local", error.to_string()))?;
-    Ok(data_encoding::HEXLOWER.encode(&bytes))
 }
 
 #[cfg(feature = "ssh")]
@@ -289,22 +267,20 @@ fn register(
     scope: u64,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let token = token()?;
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
     sessions()
         .lock()
         .map_err(|_| failure("Session", "session registry is poisoned").with_span(span))?
         .insert(
-            token.clone(),
+            id,
             RegistrySession {
                 owner,
                 scope,
                 connection: Arc::new(Mutex::new(connection)),
             },
         );
-    Ok(Value::Record(RecordMap::from([(
-        Arc::from(SESSION_TOKEN),
-        Value::Str(token.into()),
-    )])))
+    Ok(Value::SshSession(SshSessionValue { id }))
 }
 
 /// Connect, authenticate, and register a session capability.
@@ -415,32 +391,30 @@ pub(crate) fn connect_all(
 }
 
 #[cfg(feature = "ssh")]
-fn session(token: &str, owner: &Arc<()>, span: Span) -> Result<Arc<Mutex<Connection>>, RuntimeError> {
+fn session(handle: SshSessionValue, span: Span) -> Result<Arc<Mutex<Connection>>, RuntimeError> {
     let registry = sessions()
         .lock()
         .map_err(|_| failure("Session", "session registry is poisoned").with_span(span))?;
-    let Some(session) = registry.get(token) else {
+    let Some(session) = registry.get(&handle.id) else {
         return Err(failure("Session", "session is closed or unknown").with_span(span));
     };
-    let _ = owner;
     Ok(Arc::clone(&session.connection))
 }
 
 /// Execute one command through a registered session.
 #[cfg(feature = "ssh")]
 pub(crate) fn exec(
-    session_record: &RecordMap,
+    handle: SshSessionValue,
     command: &str,
     options: &RecordMap,
     owner: &Arc<()>,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let token = token_from_record(session_record)
-        .ok_or_else(|| failure("Session", "invalid session handle").with_span(span))?;
+    let _ = owner;
     if command.contains('\0') {
         return Err(failure("Options", "command must not contain NUL").with_span(span));
     }
-    let connection = session(&token, owner, span)?;
+    let connection = session(handle, span)?;
     let timeout = match optional_int(options, "timeout_ms", span)? {
         Some(millis) if millis > 0 => Some(std::time::Duration::from_millis(millis as u64)),
         Some(_) => {
@@ -497,7 +471,7 @@ pub(crate) fn exec(
 
 #[cfg(not(feature = "ssh"))]
 pub(crate) fn exec(
-    _session: &RecordMap,
+    _session: SshSessionValue,
     _command: &str,
     _options: &RecordMap,
     _owner: &Arc<()>,
@@ -508,14 +482,12 @@ pub(crate) fn exec(
 
 /// Describe the authenticated host identity and negotiated algorithms of a session.
 #[cfg(feature = "ssh")]
-pub(crate) fn info(session_record: &RecordMap, span: Span) -> Result<Value, RuntimeError> {
-    let token = token_from_record(session_record)
-        .ok_or_else(|| failure("Session", "invalid session handle").with_span(span))?;
+pub(crate) fn info(handle: SshSessionValue, span: Span) -> Result<Value, RuntimeError> {
     let registry = sessions()
         .lock()
         .map_err(|_| failure("Session", "session registry is poisoned").with_span(span))?;
     let session = registry
-        .get(&token)
+        .get(&handle.id)
         .ok_or_else(|| failure("Session", "session is closed or unknown").with_span(span))?;
     let connection = session
         .connection
@@ -543,24 +515,22 @@ pub(crate) fn info(session_record: &RecordMap, span: Span) -> Result<Value, Runt
 }
 
 #[cfg(not(feature = "ssh"))]
-pub(crate) fn info(_session: &RecordMap, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn info(_session: SshSessionValue, span: Span) -> Result<Value, RuntimeError> {
     Err(failure("Disabled", "ssh feature is disabled").with_span(span))
 }
 
 /// Close a session and return its owning scope, if it was live.
 #[cfg(feature = "ssh")]
 pub(crate) fn close(
-    session_record: &RecordMap,
+    handle: SshSessionValue,
     owner: &Arc<()>,
     if_open: bool,
     span: Span,
 ) -> Result<Option<u64>, RuntimeError> {
-    let token = token_from_record(session_record)
-        .ok_or_else(|| failure("Session", "invalid session handle").with_span(span))?;
     let mut registry = sessions()
         .lock()
         .map_err(|_| failure("Session", "session registry is poisoned").with_span(span))?;
-    let Some(session) = registry.get(&token) else {
+    let Some(session) = registry.get(&handle.id) else {
         return if if_open {
             Ok(None)
         } else {
@@ -573,14 +543,14 @@ pub(crate) fn close(
             failure("Busy", "session is already in use").with_span(span),
         );
     }
-    let session = registry.remove(&token).expect("live session");
+    let session = registry.remove(&handle.id).expect("live session");
     let scope = session.scope;
     Ok(Some(scope))
 }
 
 #[cfg(not(feature = "ssh"))]
 pub(crate) fn close(
-    _session: &RecordMap,
+    _session: SshSessionValue,
     _owner: &Arc<()>,
     _if_open: bool,
     span: Span,
@@ -590,31 +560,31 @@ pub(crate) fn close(
 
 /// Remove every session owned by `owner` in `scope`.
 #[cfg(feature = "ssh")]
-pub(crate) fn take_scope(owner: &Arc<()>, scope: u64) -> Vec<String> {
+pub(crate) fn take_scope(owner: &Arc<()>, scope: u64) -> Vec<u64> {
     let Ok(mut registry) = sessions().lock() else {
         return Vec::new();
     };
-    let tokens: Vec<String> = registry
+    let ids: Vec<u64> = registry
         .iter()
         .filter(|(_, session)| session.scope == scope && Arc::ptr_eq(&session.owner, owner))
-        .map(|(token, _)| token.clone())
+        .map(|(id, _)| *id)
         .collect();
-    for token in &tokens {
-        registry.remove(token);
+    for id in &ids {
+        registry.remove(id);
     }
-    tokens
+    ids
 }
 
 #[cfg(not(feature = "ssh"))]
-pub(crate) fn take_scope(_owner: &Arc<()>, _scope: u64) -> Vec<String> {
+pub(crate) fn take_scope(_owner: &Arc<()>, _scope: u64) -> Vec<u64> {
     Vec::new()
 }
 
 /// The scope that currently owns a session.
 #[cfg(feature = "ssh")]
-pub(crate) fn owner_scope(token: &str, owner: &Arc<()>) -> Option<u64> {
+pub(crate) fn owner_scope(id: u64, owner: &Arc<()>) -> Option<u64> {
     let registry = sessions().lock().ok()?;
-    let session = registry.get(token)?;
+    let session = registry.get(&id)?;
     if !Arc::ptr_eq(&session.owner, owner) {
         return None;
     }
@@ -622,15 +592,15 @@ pub(crate) fn owner_scope(token: &str, owner: &Arc<()>) -> Option<u64> {
 }
 
 #[cfg(not(feature = "ssh"))]
-pub(crate) fn owner_scope(_token: &str, _owner: &Arc<()>) -> Option<u64> {
+pub(crate) fn owner_scope(_id: u64, _owner: &Arc<()>) -> Option<u64> {
     None
 }
 
 /// Move a session to a descendant scope and return its previous scope.
 #[cfg(feature = "ssh")]
-pub(crate) fn transfer(token: &str, owner: &Arc<()>, target: u64) -> Option<u64> {
+pub(crate) fn transfer(id: u64, owner: &Arc<()>, target: u64) -> Option<u64> {
     let mut registry = sessions().lock().ok()?;
-    let session = registry.get_mut(token)?;
+    let session = registry.get_mut(&id)?;
     if !Arc::ptr_eq(&session.owner, owner) {
         return None;
     }
@@ -640,6 +610,6 @@ pub(crate) fn transfer(token: &str, owner: &Arc<()>, target: u64) -> Option<u64>
 }
 
 #[cfg(not(feature = "ssh"))]
-pub(crate) fn transfer(_token: &str, _owner: &Arc<()>, _target: u64) -> Option<u64> {
+pub(crate) fn transfer(_id: u64, _owner: &Arc<()>, _target: u64) -> Option<u64> {
     None
 }

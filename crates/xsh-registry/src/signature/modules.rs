@@ -1,6 +1,5 @@
 #![allow(clippy::single_call_fn)]
 use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type, linux_namespace_type};
-use crate::managed_resource::ssh_session_type;
 use crate::records::linux_system_v_semaphore_element_type;
 
 use super::methods::{bytes_copy_type, cli_token_type};
@@ -1252,7 +1251,7 @@ fn ssh_module() -> ModuleSig {
             "connect",
             sig(
                 vec![param("options", Type::Record(BTreeMap::new()))],
-                ssh_result(ssh_session_type()),
+                ssh_result(Type::SshSession),
                 false,
                 RuntimeOp::SshConnect,
             ),
@@ -1261,7 +1260,7 @@ fn ssh_module() -> ModuleSig {
             "connect_all",
             sig(
                 vec![param("options", Type::Record(BTreeMap::new()))],
-                ssh_result(Type::List(Box::new(ssh_result(ssh_session_type())))),
+                ssh_result(Type::List(Box::new(ssh_result(Type::SshSession)))),
                 false,
                 RuntimeOp::SshConnectAll,
             ),
@@ -1270,7 +1269,7 @@ fn ssh_module() -> ModuleSig {
             "exec",
             sig(
                 vec![
-                    param("session", ssh_session_type()),
+                    param("session", Type::SshSession),
                     param("command", Type::Str),
                     param("options", Type::Record(BTreeMap::new())),
                 ],
@@ -1282,7 +1281,7 @@ fn ssh_module() -> ModuleSig {
         (
             "info",
             sig(
-                vec![param("session", ssh_session_type())],
+                vec![param("session", Type::SshSession)],
                 ssh_result(ssh_info_type()),
                 false,
                 RuntimeOp::SshInfo,
@@ -1291,7 +1290,7 @@ fn ssh_module() -> ModuleSig {
         (
             "close",
             sig(
-                vec![param("session", ssh_session_type())],
+                vec![param("session", Type::SshSession)],
                 ssh_result(Type::Unit),
                 false,
                 RuntimeOp::SshClose,

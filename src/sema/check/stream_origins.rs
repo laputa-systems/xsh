@@ -1276,7 +1276,7 @@ fn type_may_carry_stream_origin(ty: &Type) -> bool {
         Type::Null | Type::Bool | Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Bytes
         | Type::Digest | Type::Regex | Type::Path | Type::Status | Type::EnvPathList | Type::Error | Type::ErrorFamily(_)
         | Type::ErrorVariant { .. } | Type::ErrorFacet(_) | Type::ProcessError | Type::Command | Type::ProcessHandle
-        | Type::NetJob | Type::FsRoot | Type::FsLock | Type::Unit => false,
+        | Type::NetJob | Type::FsRoot | Type::FsLock | Type::SshSession | Type::Unit => false,
         Type::List(item) | Type::Set(item) | Type::Optional(item) => type_may_carry_stream_origin(item),
         Type::Map(_, item) => type_may_carry_stream_origin(item),
         Type::Result(ok, error) => type_may_carry_stream_origin(ok) || type_may_carry_stream_origin(error),

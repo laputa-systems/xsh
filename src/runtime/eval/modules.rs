@@ -589,6 +589,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::NetJob(_) => return Err("NetJob"),
         Value::FsRoot(_) => return Err("FsRoot"),
         Value::FsLock(_) => return Err("FsLock"),
+        Value::SshSession(_) => return Err("SshSession"),
         Value::Unit => return Err("Unit"),
     })
 }

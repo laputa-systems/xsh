@@ -6265,6 +6265,7 @@ pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Option<
         LoweredType::NetJob => Type::NetJob,
         LoweredType::FsRoot => Type::FsRoot,
         LoweredType::FsLock => Type::FsLock,
+        LoweredType::SshSession => Type::SshSession,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Function(kind) => Type::Function(kind),
         LoweredType::SchemeCallable => return None,
@@ -6374,6 +6375,7 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
         Type::NetJob => LoweredType::NetJob,
         Type::FsRoot => LoweredType::FsRoot,
         Type::FsLock => LoweredType::FsLock,
+        Type::SshSession => LoweredType::SshSession,
         Type::Stream(_) => LoweredType::Stream,
         Type::Set(_) => LoweredType::Set,
         Type::Function(kind) => LoweredType::Function(*kind),
@@ -21726,6 +21728,7 @@ lowered_value_schema! {
         | Self::NetJob(_)
         | Self::FsRoot(_)
         | Self::FsLock(_)
+        | Self::SshSession(_)
         | Self::Stream(_)
         | Self::Callable(_)
         | Self::Error(_)

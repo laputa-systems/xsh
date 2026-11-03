@@ -49,6 +49,7 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
     "NetJob",
     "FsRoot",
     "FsLock",
+    "SshSession",
     "RelPath",
     "Result",
 ];

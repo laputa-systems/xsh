@@ -1,7 +1,5 @@
 ##! Connect, pin, and scope cleanup for the native SSH module.
 
-type Session = {token: Str}
-
 type Fixture = {
   host: Str,
   port: Int,
@@ -45,11 +43,11 @@ test ssh_pinned_connect_succeeds {
     timeout_ms: fixture.timeout_ms,
   }
   with session = ssh.connect(options)? {
-    assert session.token != ""
+    assert ssh.info(session)?.usable
   }
 }
 
-proc open_session(options: Record) -> Result[Session, Error] {
+proc open_session(options: Record) -> Result[SshSession, Error] {
   ssh.connect(options)
 }
 
@@ -112,12 +110,8 @@ test ssh_scope_releases_session {
     host_key: fixture.host_key,
     timeout_ms: fixture.timeout_ms,
   }
-  var token = ""
-  with session = ssh.connect(options)? {
-    token = session.token
-  }
-  let closed = {token: token}
-  assert ssh.close(closed) is Err(SshError.Session {..})
+  let released = leave_early(options)?
+  assert ssh.close(released) is Err(SshError.Session {..})
 }
 
 type Base = {
@@ -247,15 +241,15 @@ test ssh_return_from_a_with_body_releases_the_session {
     host_key: fixture.host_key,
     timeout_ms: fixture.timeout_ms,
   }
-  let token = leave_early(options)?
-  assert ssh.close({token: token}) is Err(SshError.Session {..})
+  let released = leave_early(options)?
+  assert ssh.close(released) is Err(SshError.Session {..})
 }
 
-proc leave_early(options: Record) [fs, net, error] -> Result[Str, Error] {
+proc leave_early(options: Record) [fs, net, error] -> Result[SshSession, Error] {
   with session = ssh.connect(options)? {
-    return session.token
+    return session
   }
-  ""
+  fail "the body returned before the block ended"
 }
 
 proc open_both(a: Base, b: Base, wrong_pin: Str, fingerprint_a: Str, fingerprint_b: Str) [net, error] -> Result[List[Str], Error] {

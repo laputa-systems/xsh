@@ -372,6 +372,7 @@ impl Analyzer<'_> {
             Type::NetJob => ManagedResource::NetJob,
             Type::FsRoot => ManagedResource::FsRoot,
             Type::FsLock => ManagedResource::FsLock,
+            Type::SshSession => ManagedResource::SshSession,
             _ => return None,
         };
         if resource == ManagedResource::Stream {

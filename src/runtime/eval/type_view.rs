@@ -111,6 +111,7 @@ impl<'a> ValueView<'a> {
                 Value::NetJob(_) => Type::NetJob,
                 Value::FsRoot(_) => Type::FsRoot,
                 Value::FsLock(_) => Type::FsLock,
+                Value::SshSession(_) => Type::SshSession,
                 Value::Unit => Type::Unit,
                 Value::Tag { type_name, .. } => Type::Tag(*type_name),
                 Value::List(_) | Value::Map(_) | Value::Set(_) | Value::Stream(_)
@@ -138,6 +139,7 @@ impl<'a> ValueView<'a> {
                 LoweredValue::NetJob(_) => Type::NetJob,
                 LoweredValue::FsRoot(_) => Type::FsRoot,
                 LoweredValue::FsLock(_) => Type::FsLock,
+                LoweredValue::SshSession(_) => Type::SshSession,
                 LoweredValue::Unit => Type::Unit,
                 LoweredValue::Tag(tag) => Type::Tag(tag.type_name),
                 LoweredValue::OmittedArgument | LoweredValue::List(_) | LoweredValue::SharedList(_)
@@ -429,7 +431,7 @@ pub(super) fn value_matches_type_with_contracts(
         Type::Null | Type::Bool | Type::Int | Type::Float | Type::Duration
         | Type::Str | Type::Bytes | Type::Digest | Type::Regex | Type::Path
         | Type::Status | Type::ProcessError | Type::Function(_) | Type::Command | Type::ProcessHandle | Type::NetJob
-        | Type::FsRoot | Type::FsLock | Type::Unit | Type::Tag(_) => value.scalar_type().as_ref() == Some(ty),
+        | Type::FsRoot | Type::FsLock | Type::SshSession | Type::Unit | Type::Tag(_) => value.scalar_type().as_ref() == Some(ty),
         Type::EnvPathList => accepts_contract(value, RetainedValueContract::EnvironmentPathList),
         Type::List(item) => value.all_list(|value| value_matches_type_with_contracts(value, item, accepts_contract)),
         Type::Map(key, item) => {

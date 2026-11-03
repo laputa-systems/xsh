@@ -1,14 +1,7 @@
 //! The ownership and consuming operations of built-in host resources.
 
-use std::collections::BTreeMap;
-
 use crate::RuntimeOp;
 use crate::types::Type;
-
-/// The opaque capability record returned by `ssh.connect`.
-pub fn ssh_session_type() -> Type {
-    Type::Record(BTreeMap::from([("token".to_owned(), Type::Str)]))
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceKind {
@@ -123,7 +116,7 @@ resource_table! {
         scope_release: ResourceScopeRelease::Unlock,
         with_release: Some(RuntimeOp::FsUnlockIfHeld),
     }),
-    SshSession => (ssh_session_type(), ResourceRule {
+    SshSession => (Type::SshSession, ResourceRule {
         kind: ResourceKind::Capability,
         consuming: &[ResourceConsumption::Operation(RuntimeOp::SshClose)],
         repeat: ResourceRepeat::Error,
