@@ -851,7 +851,9 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   sites, selected target, bindings and effect state. Mutating published field
   sites, expression types or call roles changes the document; a forged target
   is refused. It rejects unsupported scheme and invocation details. The emitted
-  bytes have not yet been authenticated by Lean or replayed at a new freeze.
+  bytes are now tied by a focused Rust test to a Lean byte list, whose JSON
+  parse is kernel-checked. Source-linked sparse-fact validation and the final
+  matching-freeze replay are still pending integration and qualification.
   Lean has a closed decoder for that proposed shape; body sites scope type
   parameter mappings, record names map through their source, and unknown
   effects remain distinct from a known empty set. The mapping inputs are not

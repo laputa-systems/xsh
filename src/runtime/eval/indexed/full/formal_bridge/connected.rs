@@ -413,6 +413,9 @@ mod tests {
         let (_, _, parsed, published) = check_fixture(SOURCE).unwrap();
         let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
         let document = encode_connected_facts(&facts).unwrap();
+        let lean_documents = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/formal/Xsh/Conformance/Connected/Documents.lean"));
+        assert_eq!(lean_document_from(lean_documents, "connectedFactsCodes").as_deref(), Some(document.as_str()));
         assert_eq!(parse_wire_document(&document).unwrap(), connected_wire(&facts).unwrap());
         let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
         assert_eq!(body.span.start(), 20);
