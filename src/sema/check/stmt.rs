@@ -3276,8 +3276,6 @@ impl Checker {
         self.statement_positions
             .entry(stmt.span)
             .or_insert(super::StatementPosition::Statement);
-        // Declarations bind module-level names; inside a body or block nothing
-        // could resolve them and preparation has no form for them.
         if matches!(
             stmt.kind,
             ArenaStmtKind::Use(_)
@@ -3294,6 +3292,13 @@ impl Checker {
                 "declarations are allowed only at the top level of a script or module",
                 DiagnosticCode::CheckNestedDeclaration,
             );
+            if let ArenaStmtKind::StreamDef(def_id) = stmt.kind {
+                let def = arena.arena.function_def(def_id);
+                let body_span = arena.arena.span(arena.arena.block(def.body).span);
+                if def.return_ty_defaulted && !self.function_return_types.contains_key(&body_span) {
+                    return;
+                }
+            }
         }
         match stmt.kind {
             ArenaStmtKind::Sugar {

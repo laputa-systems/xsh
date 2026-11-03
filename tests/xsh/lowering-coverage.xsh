@@ -308,14 +308,12 @@ test test_members_without_a_checked_type_are_checker_errors { |ctx|
 }
 
 test test_nested_declarations_are_checker_errors { |ctx|
-  # Declarations inside a body or block bind nothing callers can resolve;
-  # the checker used to accept them and preparation then failed with an
-  # internal indexed-IR encode error.
   for declaration in [
     "use json",
     "export let shared = 3",
     "error Failure = Bad(message: Str)",
     "stream items() -> Stream[Int] { yield 1 }",
+    "stream items(value) { yield value }",
     "type Point = {x: Int}",
     "enum Level { Low, High }",
     "pure helper() -> Int { 1 }",
