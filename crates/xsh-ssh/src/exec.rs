@@ -1,4 +1,5 @@
-use std::io::Write;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::time::Duration;
 
 use crate::client::Connection;
@@ -10,13 +11,18 @@ use crate::wire::Interrupt;
 pub const DEFAULT_MAX_OUTPUT: usize = 16 * 1024 * 1024;
 
 /// Options for one exec request.
-#[derive(Clone)]
 pub struct ExecOptions {
     /// Bytes to send on stdin before EOF.
     pub stdin: Option<Vec<u8>>,
+    /// A file whose contents follow `stdin` before EOF.
+    pub stdin_file: Option<File>,
+    /// A file that receives standard output instead of the bounded capture.
+    pub stdout_file: Option<File>,
+    /// A file that receives standard error instead of the bounded capture.
+    pub stderr_file: Option<File>,
     /// The whole-command deadline.
     pub timeout: Option<Duration>,
-    /// Maximum bytes captured from each output stream.
+    /// Maximum bytes captured from each output stream that does not go to a file.
     pub max_output: usize,
     /// Reports that the caller wants the command abandoned.
     pub interrupt: Option<Interrupt>,
@@ -28,6 +34,9 @@ impl Default for ExecOptions {
     fn default() -> Self {
         Self {
             stdin: None,
+            stdin_file: None,
+            stdout_file: None,
+            stderr_file: None,
             timeout: None,
             max_output: DEFAULT_MAX_OUTPUT,
             interrupt: None,
@@ -106,20 +115,65 @@ impl Write for Capture {
     }
 }
 
+struct Stdin<'a> {
+    head: &'a [u8],
+    tail: Option<&'a File>,
+}
+
+impl Read for Stdin<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if !self.head.is_empty() {
+            return self.head.read(buffer);
+        }
+        match self.tail.as_mut() {
+            Some(tail) => tail.read(buffer),
+            None => Ok(0),
+        }
+    }
+}
+
+enum Output<'a> {
+    Capture(Capture),
+    File(&'a File),
+}
+
+impl<'a> Output<'a> {
+    fn new(file: Option<&'a File>, limit: usize) -> Self {
+        match file {
+            Some(file) => Self::File(file),
+            None => Self::Capture(Capture {
+                bytes: Vec::new(),
+                limit,
+            }),
+        }
+    }
+
+    fn sink(&mut self) -> &mut dyn Write {
+        match self {
+            Self::Capture(capture) => capture,
+            Self::File(file) => file,
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        match self {
+            Self::Capture(capture) => capture.bytes,
+            Self::File(_) => Vec::new(),
+        }
+    }
+}
+
 pub(crate) fn exec(
     connection: &mut Connection,
     command: &str,
     options: &ExecOptions,
 ) -> Result<ExecResult, Error> {
-    let mut stdout = Capture {
-        bytes: Vec::new(),
-        limit: options.max_output,
+    let mut stdout = Output::new(options.stdout_file.as_ref(), options.max_output);
+    let mut stderr = Output::new(options.stderr_file.as_ref(), options.max_output);
+    let mut stdin = Stdin {
+        head: options.stdin.as_deref().unwrap_or_default(),
+        tail: options.stdin_file.as_ref(),
     };
-    let mut stderr = Capture {
-        bytes: Vec::new(),
-        limit: options.max_output,
-    };
-    let mut stdin = options.stdin.as_deref();
     let mut result = stream::exec_stream(
         connection,
         command,
@@ -128,12 +182,12 @@ pub(crate) fn exec(
             interrupt: options.interrupt.clone(),
             env: options.env.clone(),
         },
-        stdin.as_mut().map(|bytes| bytes as &mut dyn std::io::Read),
-        &mut stdout,
-        &mut stderr,
+        Some(&mut stdin),
+        stdout.sink(),
+        stderr.sink(),
     )?;
-    result.stdout = stdout.bytes;
-    result.stderr = stderr.bytes;
+    result.stdout = stdout.into_bytes();
+    result.stderr = stderr.into_bytes();
     Ok(result)
 }
 

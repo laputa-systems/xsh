@@ -8,7 +8,8 @@ use oxish_proto::{Encode, MessageType};
 
 use crate::error::Error;
 use crate::host_key::{HostTrust, verify as verify_host_key};
-use crate::wire::{Packet, SshReader, Transport, put_string};
+use crate::channel::LOCAL_WINDOW;
+use crate::wire::{Packet, SshReader, Transport, plain_text, put_string};
 
 const HYBRID_KEX: &str = "mlkem768x25519-sha256";
 const CLASSICAL_KEX: &str = "curve25519-sha256";
@@ -95,6 +96,8 @@ pub struct Session<'a> {
     pub id: &'a [u8],
     /// Whether strict key exchange is in force.
     pub strict: bool,
+    /// The host key the first exchange established; every later exchange must present it.
+    pub host_key: &'a [u8],
 }
 
 enum ClientEphemeral {
@@ -268,7 +271,7 @@ fn first_common(
         .map(|name| (*name).to_owned())
         .ok_or_else(|| Error::UnsupportedAlgorithm {
             category,
-            name: server.join(","),
+            name: plain_text(&server.join(",")),
         })
 }
 
@@ -367,20 +370,55 @@ fn is_connection_layer(message_type: MessageType) -> bool {
     )
 }
 
+const MAX_QUEUED_PACKETS: usize = 4096;
+const MAX_QUEUED_BYTES: usize = LOCAL_WINDOW as usize + 256 * 1024;
+
+struct Queue {
+    packets: Vec<Packet>,
+    bytes: usize,
+    server_kexinit_seen: bool,
+}
+
+impl Queue {
+    fn new(server_kexinit_seen: bool) -> Self {
+        Self {
+            packets: Vec::new(),
+            bytes: 0,
+            server_kexinit_seen,
+        }
+    }
+
+    fn admit(&mut self, packet: Packet) -> Result<(), Error> {
+        if self.server_kexinit_seen {
+            return Err(protocol(format!(
+                "server sent {:?} after its key-exchange init",
+                packet.message_type
+            )));
+        }
+        self.bytes += packet.payload.len() + 1;
+        if self.packets.len() >= MAX_QUEUED_PACKETS || self.bytes > MAX_QUEUED_BYTES {
+            return Err(protocol(
+                "server sent more than the channel windows allow while the key exchange was starting",
+            ));
+        }
+        self.packets.push(packet);
+        Ok(())
+    }
+}
+
 fn receive(
     transport: &mut Transport,
     expected: MessageType,
-    queued: Option<&mut Vec<Packet>>,
+    mut queue: Option<&mut Queue>,
 ) -> Result<Packet, Error> {
-    let mut queued = queued;
     loop {
         let packet = transport.recv()?;
         if packet.message_type == expected {
             return Ok(packet);
         }
-        match (&mut queued, packet.message_type) {
+        match (&mut queue, packet.message_type) {
             (Some(queue), message_type) if is_connection_layer(message_type) => {
-                queue.push(packet);
+                queue.admit(packet)?;
             }
             (Some(_), MessageType::Ignore | MessageType::Debug | MessageType::Unimplemented) => {}
             (_, MessageType::Disconnect) => {
@@ -406,15 +444,15 @@ pub fn rekey(
     session: &Session<'_>,
     server_kexinit: Option<Packet>,
 ) -> Result<(Algorithms, Vec<Packet>), Error> {
-    let mut queued = Vec::new();
+    let mut queue = Queue::new(server_kexinit.is_some());
     let established = exchange(
         transport,
         context,
         Some(session),
         server_kexinit,
-        Some(&mut queued),
+        Some(&mut queue),
     )?;
-    Ok((established.algorithms, queued))
+    Ok((established.algorithms, queue.packets))
 }
 
 fn exchange(
@@ -422,7 +460,7 @@ fn exchange(
     context: &Context<'_>,
     session: Option<&Session<'_>>,
     server_kexinit: Option<Packet>,
-    mut queued: Option<&mut Vec<Packet>>,
+    mut queued: Option<&mut Queue>,
 ) -> Result<Established, Error> {
     let provider = context.provider;
     let mut exchange: HandshakeBuffer = transport.handshake_buffer();
@@ -435,11 +473,15 @@ fn exchange(
         }
         None => {
             transport.send_raw(&client_kexinit)?;
-            receive(
+            let packet = receive(
                 transport,
                 MessageType::KeyExchangeInit,
                 queued.as_deref_mut(),
-            )?
+            )?;
+            if let Some(queue) = queued.as_deref_mut() {
+                queue.server_kexinit_seen = true;
+            }
+            packet
         }
     };
     exchange.prefixed(&server_kexinit.encoded_payload());
@@ -468,6 +510,14 @@ fn exchange(
     let signature_blob = reader.string()?.to_vec();
     reader.finish()?;
 
+    if let Some(session) = session
+        && session.host_key != host_key_blob
+    {
+        return Err(Error::HostKeyMismatch {
+            expected: crate::host_key::fingerprint(session.host_key, provider)?,
+            actual: crate::host_key::fingerprint(&host_key_blob, provider)?,
+        });
+    }
     exchange_hash.prefixed(&host_key_blob);
     exchange_hash.prefixed(&client_public);
     exchange_hash.prefixed(&server_public);

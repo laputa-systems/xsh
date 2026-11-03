@@ -16,7 +16,7 @@ use xsh_ssh::oxish_proto::key_exchange::{
 };
 use xsh_ssh::oxish_proto::named::PublicKeyAlgorithm;
 use xsh_ssh::oxish_proto::{Completion, Encode, ProtoError, ReadState, WriteState};
-use xsh_ssh::{ClientConfig, Connection, DEFAULT_PROVIDER};
+use xsh_ssh::{ClientConfig, Connection, DEFAULT_PROVIDER, HostTrust, Identity, KnownHosts};
 use zeroize::Zeroizing;
 
 pub const DISCONNECT: u8 = 1;
@@ -26,10 +26,13 @@ pub const SERVICE_ACCEPT: u8 = 6;
 pub const KEXINIT: u8 = 20;
 pub const USERAUTH_REQUEST: u8 = 50;
 pub const USERAUTH_SUCCESS: u8 = 52;
+pub const USERAUTH_FAILURE: u8 = 51;
+pub const USERAUTH_BANNER: u8 = 53;
 pub const GLOBAL_REQUEST: u8 = 80;
 pub const REQUEST_FAILURE: u8 = 82;
 pub const CHANNEL_OPEN: u8 = 90;
 pub const CHANNEL_CONFIRMATION: u8 = 91;
+pub const CHANNEL_OPEN_FAILURE: u8 = 92;
 pub const CHANNEL_WINDOW_ADJUST: u8 = 93;
 pub const CHANNEL_DATA: u8 = 94;
 pub const CHANNEL_EXTENDED_DATA: u8 = 95;
@@ -78,13 +81,16 @@ pub struct Behavior {
     pub fragment_identification: bool,
     pub ignore_before_kexinit: bool,
     pub corrupt_signature: bool,
+    pub rekey_with_another_host_key: bool,
 }
 
 pub struct Peer {
     pub port: u16,
     pub pin: String,
     pub key: PathBuf,
-    _directory: TempDir,
+    pub host_key_blob: Vec<u8>,
+    pub other_host_key_blob: Vec<u8>,
+    directory: TempDir,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -107,6 +113,13 @@ pub fn spawn(behavior: Behavior, script: impl FnOnce(&mut Link) + Send + 'static
     signing.public_key().encode(&mut blob);
     let pin = xsh_ssh::host_key::fingerprint(&blob, provider).expect("fingerprint");
 
+    let (other_signing, other_pkcs8) = provider
+        .generate_signing_key(&PublicKeyAlgorithm::Ed25519)
+        .expect("second host key");
+    let mut other_blob = Vec::new();
+    PublicKeyAlgorithm::Ed25519.encode(&mut other_blob);
+    other_signing.public_key().encode(&mut other_blob);
+
     let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
     let port = listener.local_addr().expect("address").port();
     let thread = thread::spawn(move || {
@@ -116,7 +129,7 @@ pub fn spawn(behavior: Behavior, script: impl FnOnce(&mut Link) + Send + 'static
             .expect("read timeout");
         let host_keys =
             HostKeys::new([Zeroizing::new(pkcs8)].into_iter(), provider).expect("host keys");
-        let mut link = Link::establish(stream, behavior, &host_keys);
+        let mut link = Link::establish(stream, behavior, &host_keys, &other_pkcs8);
         script(&mut link);
         link.linger();
     });
@@ -124,7 +137,9 @@ pub fn spawn(behavior: Behavior, script: impl FnOnce(&mut Link) + Send + 'static
         port,
         pin,
         key,
-        _directory: directory,
+        host_key_blob: blob,
+        other_host_key_blob: other_blob,
+        directory,
         thread: Some(thread),
     }
 }
@@ -133,6 +148,31 @@ impl Peer {
     pub fn config(&self, timeout: Duration) -> ClientConfig {
         ClientConfig::pinned("127.0.0.1", self.port, "tester", &self.key, &self.pin, timeout)
             .expect("pin is valid")
+    }
+
+    pub fn known_hosts_config(&self, timeout: Duration) -> ClientConfig {
+        let path = self.directory.path().join("known_hosts");
+        let line = |blob: &[u8]| {
+            format!(
+                "[127.0.0.1]:{} ssh-ed25519 {}\n",
+                self.port,
+                data_encoding::BASE64.encode(blob)
+            )
+        };
+        std::fs::write(
+            &path,
+            line(&self.host_key_blob) + &line(&self.other_host_key_blob),
+        )
+        .expect("known_hosts");
+        let trust = HostTrust::KnownHosts(KnownHosts::from_file(&path).expect("known_hosts parses"));
+        ClientConfig::new(
+            "127.0.0.1",
+            self.port,
+            "tester",
+            Identity::KeyFile(self.key.clone()),
+            trust,
+            timeout,
+        )
     }
 
     pub fn connect(&self, timeout: Duration) -> Connection {
@@ -180,7 +220,12 @@ pub struct OpenedExec {
 }
 
 impl Link {
-    fn establish(mut stream: TcpStream, behavior: Behavior, host_keys: &HostKeys) -> Self {
+    fn establish(
+        mut stream: TcpStream,
+        behavior: Behavior,
+        host_keys: &HostKeys,
+        other_pkcs8: &[u8],
+    ) -> Self {
         let provider = DEFAULT_PROVIDER;
         let mut client_identification = Vec::new();
         while !client_identification.ends_with(b"\r\n") {
@@ -269,7 +314,16 @@ impl Link {
             session_id,
             ..
         } = output;
-        let host_key = SessionHostKey::from_server(host_key, provider).expect("session host key");
+        let host_key = if behavior.rekey_with_another_host_key {
+            let mut encoded = Vec::new();
+            encoded.extend_from_slice(&(other_pkcs8.len() as u32).to_be_bytes());
+            encoded.extend_from_slice(other_pkcs8);
+            SessionHostKey::decode(&encoded, provider)
+                .expect("second session host key")
+                .value
+        } else {
+            SessionHostKey::from_server(host_key, provider).expect("session host key")
+        };
         update
             .apply(&mut link.write, &mut link.read)
             .expect("install keys");
@@ -281,7 +335,15 @@ impl Link {
     fn flush(&mut self) {
         let buffered = self.write.buffered().to_vec();
         if !buffered.is_empty() {
-            self.stream.write_all(&buffered).expect("peer write");
+            match self.stream.write_all(&buffered) {
+                Ok(()) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                    ) => {}
+                Err(error) => panic!("peer write: {error}"),
+            }
             self.write.clear();
         }
     }
@@ -371,6 +433,15 @@ impl Link {
         self.write.clear();
     }
 
+    pub fn try_send(&mut self, payload: &[u8]) -> bool {
+        if self.write.encode(&Raw(payload)).is_err() {
+            return false;
+        }
+        let buffered = self.write.buffered().to_vec();
+        self.write.clear();
+        self.stream.write_all(&buffered).is_ok()
+    }
+
     pub fn write_raw(&mut self, bytes: &[u8]) {
         self.stream.write_all(bytes).expect("raw write");
     }
@@ -445,4 +516,42 @@ impl Link {
     pub fn disconnect(&mut self) {
         self.send(&message(DISCONNECT, &[&number(11), &text(b"bye"), &text(b"")]));
     }
+}
+
+pub fn kexinit() -> Vec<u8> {
+    let mut payload = vec![KEXINIT];
+    payload.extend_from_slice(&[7; 16]);
+    for names in [
+        "curve25519-sha256",
+        "ssh-ed25519",
+        "aes128-gcm@openssh.com",
+        "aes128-gcm@openssh.com",
+        "hmac-sha2-256-etm@openssh.com",
+        "hmac-sha2-256-etm@openssh.com",
+        "none",
+        "none",
+        "",
+        "",
+    ] {
+        payload.extend_from_slice(&text(names.as_bytes()));
+    }
+    payload.push(0);
+    payload.extend_from_slice(&number(0));
+    payload
+}
+
+pub fn peak_memory_growth<R>(run: impl FnOnce() -> R) -> (R, usize) {
+    fn kibibytes(field: &str) -> usize {
+        let status = std::fs::read_to_string("/proc/self/status").expect("status");
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix(field))
+            .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse().ok())
+            .expect("status field")
+    }
+    std::fs::write("/proc/self/clear_refs", "5").expect("reset the peak resident size");
+    let before = kibibytes("VmRSS:");
+    let result = run();
+    let peak = kibibytes("VmHWM:");
+    (result, peak.saturating_sub(before) * 1024)
 }

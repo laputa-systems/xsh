@@ -152,6 +152,26 @@ impl fmt::Debug for RawPayload<'_> {
 pub type Interrupt = Arc<dyn Fn() -> bool + Send + Sync>;
 
 const INTERRUPT_POLL: Duration = Duration::from_millis(50);
+const READ_BUFFER_LIMIT: usize = 256 * 1024;
+const REPLY_HIGH_WATER: usize = 64 * 1024;
+const MAX_TEXT: usize = 512;
+
+/// Server-supplied text made safe to show: control and bidirectional-override characters are
+/// dropped and the length is bounded.
+pub(crate) fn plain_text(text: &str) -> String {
+    let mut plain: String = text
+        .chars()
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(character, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .take(MAX_TEXT)
+        .collect();
+    if text.chars().nth(MAX_TEXT).is_some() {
+        plain.push_str("...");
+    }
+    plain
+}
 
 /// An SSH transport, nonblocking at the socket and bounded by deadlines.
 pub struct Transport {
@@ -165,6 +185,7 @@ pub struct Transport {
     deadline: Option<Instant>,
     interrupt: Option<Interrupt>,
     last_progress: Instant,
+    write_progress: Instant,
     since_kex: KexUsage,
     awaiting_command: bool,
 }
@@ -187,39 +208,21 @@ impl KexUsage {
 }
 
 impl Transport {
-    /// Connect a TCP stream and prepare SSH packet state.
+    /// Resolve and connect a TCP stream, bounded by `deadline` and `interrupt`, and prepare
+    /// SSH packet state. The operation bounds stay in force for the following exchanges.
     pub fn connect(
         host: &str,
         port: u16,
         idle: Duration,
+        deadline: Duration,
+        interrupt: Option<Interrupt>,
         provider: &dyn CryptoProvider,
     ) -> Result<Self, Error> {
-        let addresses = (host, port).to_socket_addrs()?;
-        let mut last_error = None;
-        let mut stream = None;
-        for address in addresses {
-            match TcpStream::connect_timeout(&address, idle) {
-                Ok(connected) => {
-                    stream = Some(connected);
-                    break;
-                }
-                Err(error) => last_error = Some(error),
-            }
-        }
-
-        let stream = stream.ok_or_else(|| match last_error {
-            Some(error) if error.kind() == std::io::ErrorKind::TimedOut => Error::Timeout {
-                certainty: Certainty::NotSubmitted,
-            },
-            Some(error) => Error::NotSubmitted {
-                detail: error.to_string(),
-            },
-            None => Error::NotSubmitted {
-                detail: format!("no address resolved for {host}:{port}"),
-            },
-        })?;
+        let limit = Instant::now() + deadline;
+        let stream = connect_stream(host, port, idle, limit, interrupt.as_ref())?;
         stream.set_nodelay(true)?;
         stream.set_nonblocking(true)?;
+        let now = Instant::now();
         Ok(Self {
             stream,
             read: ReadState::default(),
@@ -228,9 +231,10 @@ impl Transport {
             server_identification: Vec::new(),
             certainty: Certainty::NotSubmitted,
             idle,
-            deadline: None,
-            interrupt: None,
-            last_progress: Instant::now(),
+            deadline: Some(limit),
+            interrupt,
+            last_progress: now,
+            write_progress: now,
             since_kex: KexUsage::new(),
             awaiting_command: false,
         })
@@ -251,8 +255,22 @@ impl Transport {
         self.deadline = timeout.map(|timeout| Instant::now() + timeout);
         self.interrupt = interrupt;
         self.last_progress = Instant::now();
+        self.write_progress = Instant::now();
         self.certainty = Certainty::NotSubmitted;
         self.awaiting_command = false;
+    }
+
+    /// Tighten the deadline to at most `limit` from now and return the one to restore.
+    pub fn bound_phase(&mut self, limit: Duration) -> Option<Instant> {
+        let previous = self.deadline;
+        let phase = Instant::now() + limit;
+        self.deadline = Some(previous.map_or(phase, |deadline| deadline.min(phase)));
+        previous
+    }
+
+    /// Restore the deadline returned by [`Self::bound_phase`].
+    pub fn restore_deadline(&mut self, previous: Option<Instant>) {
+        self.deadline = previous;
     }
 
     /// End the operation bounds set by [`Self::begin_operation`].
@@ -293,7 +311,10 @@ impl Transport {
         }
         let now = Instant::now();
         let idle_bound = self.idle_bound();
+        let write_stalled =
+            self.has_pending_output() && now.duration_since(self.write_progress) >= self.idle;
         if self.deadline.is_some_and(|deadline| now >= deadline)
+            || write_stalled
             || (idle_bound && now.duration_since(self.last_progress) >= self.idle)
         {
             return Some(Error::Timeout {
@@ -305,6 +326,10 @@ impl Transport {
 
     /// Wait for read readiness, and write readiness when `write` is set.
     pub fn wait(&mut self, write: bool) -> Result<PollFlags, Error> {
+        self.wait_for(true, write)
+    }
+
+    fn wait_for(&mut self, read: bool, write: bool) -> Result<PollFlags, Error> {
         loop {
             if let Some(error) = self.limit_error() {
                 return Err(error);
@@ -321,7 +346,13 @@ impl Transport {
             if self.idle_bound() {
                 remaining = remaining.min((self.last_progress + self.idle).saturating_duration_since(now));
             }
-            let mut events = PollFlags::IN;
+            if self.has_pending_output() {
+                remaining = remaining.min((self.write_progress + self.idle).saturating_duration_since(now));
+            }
+            let mut events = PollFlags::empty();
+            if read {
+                events |= PollFlags::IN;
+            }
             if write {
                 events |= PollFlags::OUT;
             }
@@ -391,8 +422,15 @@ impl Transport {
         }
     }
 
+    fn note_enqueue(&mut self) {
+        if !self.has_pending_output() {
+            self.write_progress = Instant::now();
+        }
+    }
+
     /// Encode a payload without flushing it.
     pub fn encode_raw(&mut self, payload: &[u8]) -> Result<(), Error> {
+        self.note_enqueue();
         self.write.encode(&RawPayload(payload))?;
         self.since_kex.packets += 1;
         Ok(())
@@ -413,6 +451,7 @@ impl Transport {
                 }
                 Ok(written) => {
                     self.last_progress = Instant::now();
+                    self.write_progress = self.last_progress;
                     self.since_kex.bytes += written as u64;
                     self.write
                         .written(Ok(written))
@@ -484,6 +523,7 @@ impl Transport {
     /// Exchange and validate the SSH identification lines.
     pub fn exchange_identifications(&mut self, software: &str) -> Result<(), Error> {
         let client = format!("SSH-2.0-{software}");
+        self.note_enqueue();
         self.write.encoded(&RawPayload(client.as_bytes()));
         self.write.encoded(&RawPayload(b"\r\n"));
         self.flush()?;
@@ -537,6 +577,7 @@ impl Transport {
 
     /// Send one typed message.
     pub fn send(&mut self, payload: &(impl Encode + fmt::Debug)) -> Result<(), Error> {
+        self.note_enqueue();
         self.write.encode(payload)?;
         self.since_kex.packets += 1;
         self.flush()
@@ -597,13 +638,34 @@ impl Transport {
         Ok(())
     }
 
-    /// Flush buffered packets, reading meanwhile so a peer that is also writing cannot stall both.
+    /// Flush buffered packets. Reads continue meanwhile, up to a fixed buffer, so a peer that is
+    /// also writing cannot stall both; beyond it the peer's bytes wait in the socket.
     pub fn flush(&mut self) -> Result<(), Error> {
         while !self.flush_nonblocking()? {
-            let events = self.wait(true)?;
-            if events.contains(PollFlags::IN) {
+            let reading = self.read.buf.len() < READ_BUFFER_LIMIT;
+            let events = self.wait_for(reading, true)?;
+            if reading && events.contains(PollFlags::IN) {
                 self.fill_nonblocking()?;
             }
+        }
+        Ok(())
+    }
+
+    /// Flush buffered packets without reading anything.
+    pub fn drain(&mut self) -> Result<(), Error> {
+        while !self.flush_nonblocking()? {
+            self.wait_for(false, true)?;
+        }
+        Ok(())
+    }
+
+    /// Queue a reply to a peer request. Past a fixed amount of unsent output the transport stops
+    /// reading until the peer has taken it, so a peer that sends requests and never reads the
+    /// answers cannot make the replies pile up.
+    pub fn reply(&mut self, payload: &[u8]) -> Result<(), Error> {
+        self.encode_raw(payload)?;
+        if self.pending_output() >= REPLY_HIGH_WATER {
+            self.drain()?;
         }
         Ok(())
     }
@@ -618,4 +680,61 @@ impl Transport {
             }),
         }
     }
+}
+
+fn connect_stream(
+    host: &str,
+    port: u16,
+    idle: Duration,
+    limit: Instant,
+    interrupt: Option<&Interrupt>,
+) -> Result<TcpStream, Error> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let target = host.to_owned();
+    std::thread::spawn(move || {
+        let _ = sender.send(connect_addresses(&target, port, idle));
+    });
+    loop {
+        if interrupt.is_some_and(|interrupt| interrupt()) {
+            return Err(Error::Cancelled {
+                certainty: Certainty::NotSubmitted,
+            });
+        }
+        let now = Instant::now();
+        if now >= limit {
+            return Err(Error::Timeout {
+                certainty: Certainty::NotSubmitted,
+            });
+        }
+        match receiver.recv_timeout(INTERRUPT_POLL.min(limit - now)) {
+            Ok(outcome) => return outcome,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(Error::NotSubmitted {
+                    detail: format!("resolving {host}:{port} failed"),
+                });
+            }
+        }
+    }
+}
+
+fn connect_addresses(host: &str, port: u16, idle: Duration) -> Result<TcpStream, Error> {
+    let mut last_error = None;
+    for address in (host, port).to_socket_addrs()? {
+        match TcpStream::connect_timeout(&address, idle) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(match last_error {
+        Some(error) if error.kind() == std::io::ErrorKind::TimedOut => Error::Timeout {
+            certainty: Certainty::NotSubmitted,
+        },
+        Some(error) => Error::NotSubmitted {
+            detail: error.to_string(),
+        },
+        None => Error::NotSubmitted {
+            detail: format!("no address resolved for {host}:{port}"),
+        },
+    })
 }

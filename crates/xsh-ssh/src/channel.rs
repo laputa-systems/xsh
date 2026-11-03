@@ -2,7 +2,7 @@ use oxish_proto::{Encode, MessageType};
 
 use crate::client::Connection;
 use crate::error::Error;
-use crate::wire::{SshReader, Transport, put_string};
+use crate::wire::{SshReader, Transport, plain_text, put_string};
 
 /// The local receive window advertised to the server.
 pub const LOCAL_WINDOW: u32 = 2 * 1024 * 1024;
@@ -113,7 +113,7 @@ impl Channel {
                 let mut reader = SshReader::new(&packet.payload);
                 let _recipient = reader.u32()?;
                 let reason = reader.u32()?;
-                let description = reader.text()?.to_owned();
+                let description = plain_text(reader.text()?);
                 Err(channel_error(format!(
                     "channel open failed ({reason}): {description}"
                 )))
@@ -142,8 +142,11 @@ impl Channel {
         loop {
             let packet = connection.next_packet()?;
             match packet.message_type {
-                MessageType::ChannelSuccess => return Ok(()),
-                MessageType::ChannelFailure => return Err(Error::Rejected { request: "env" }),
+                MessageType::ChannelSuccess => return self.expect_reply_for(&packet.payload),
+                MessageType::ChannelFailure => {
+                    self.expect_reply_for(&packet.payload)?;
+                    return Err(Error::Rejected { request: "env" });
+                }
                 MessageType::ChannelWindowAdjust => self.window_adjust(&packet.payload)?,
                 other => {
                     return Err(protocol_error(format!("unexpected env reply {other:?}")));
@@ -166,14 +169,24 @@ impl Channel {
         loop {
             let packet = connection.next_packet()?;
             match packet.message_type {
-                MessageType::ChannelSuccess => return Ok(()),
-                MessageType::ChannelFailure => return Err(Error::Rejected { request: "exec" }),
+                MessageType::ChannelSuccess => return self.expect_reply_for(&packet.payload),
+                MessageType::ChannelFailure => {
+                    self.expect_reply_for(&packet.payload)?;
+                    return Err(Error::Rejected { request: "exec" });
+                }
                 MessageType::ChannelWindowAdjust => self.window_adjust(&packet.payload)?,
                 other => {
                     return Err(protocol_error(format!("unexpected exec reply {other:?}")));
                 }
             }
         }
+    }
+
+    fn expect_reply_for(&self, payload: &[u8]) -> Result<(), Error> {
+        let mut reader = SshReader::new(payload);
+        let recipient = reader.u32()?;
+        reader.finish()?;
+        self.expect_recipient(recipient)
     }
 
     /// Apply a peer window increase.
@@ -222,7 +235,7 @@ impl Channel {
         MessageType::ChannelWindowAdjust.encode(&mut packet);
         packet.extend_from_slice(&self.remote_id.to_be_bytes());
         packet.extend_from_slice(&self.consumed.to_be_bytes());
-        transport.encode_raw(&packet)?;
+        transport.reply(&packet)?;
         self.local_window += self.consumed;
         self.consumed = 0;
         Ok(())

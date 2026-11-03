@@ -13,7 +13,7 @@ use crate::exec::{self, ExecOptions, ExecResult};
 use crate::host_key::{Fingerprint, HostTrust};
 use crate::kex::{self, Algorithms, Established};
 use crate::stream::{self, StreamOptions};
-use crate::wire::{Packet, SshReader, Transport, put_string};
+use crate::wire::{Interrupt, Packet, SshReader, Transport, plain_text, put_string};
 
 /// When to start a new key exchange under the current keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,8 +36,11 @@ impl Default for RekeyLimits {
     }
 }
 
+/// The most time connection setup, authentication or one key exchange may take in all.
+pub const DEFAULT_PHASE_DEADLINE: Duration = Duration::from_secs(30);
+
 /// Explicit connection, authentication, and trust options.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ClientConfig {
     /// The host name or address.
     pub host: String,
@@ -53,6 +56,27 @@ pub struct ClientConfig {
     pub timeout: Duration,
     /// When the client starts its own key exchanges.
     pub rekey: RekeyLimits,
+    /// The most time connecting, authenticating and each key exchange may take in all,
+    /// however steadily the peer sends.
+    pub deadline: Duration,
+    /// Reports that the caller wants connecting or authenticating abandoned.
+    pub interrupt: Option<Interrupt>,
+}
+
+impl fmt::Debug for ClientConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ClientConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("user", &self.user)
+            .field("identity", &self.identity)
+            .field("trust", &self.trust)
+            .field("timeout", &self.timeout)
+            .field("rekey", &self.rekey)
+            .field("deadline", &self.deadline)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ClientConfig {
@@ -73,6 +97,8 @@ impl ClientConfig {
             trust,
             timeout,
             rekey: RekeyLimits::default(),
+            deadline: DEFAULT_PHASE_DEADLINE,
+            interrupt: None,
         }
     }
 
@@ -117,8 +143,14 @@ impl Connection {
         provider: &dyn CryptoProvider,
     ) -> Result<Self, Error> {
         crate::cpu::require()?;
-        let mut transport = Transport::connect(&config.host, config.port, config.timeout, provider)?;
-        transport.begin_operation(None, None);
+        let mut transport = Transport::connect(
+            &config.host,
+            config.port,
+            config.timeout,
+            config.deadline,
+            config.interrupt.clone(),
+            provider,
+        )?;
         transport.exchange_identifications("xsh_0.0.1")?;
         let established = kex::connect(
             &mut transport,
@@ -146,7 +178,8 @@ impl Connection {
 
     /// Authenticate with an explicit cryptographic provider.
     pub fn authenticate_with(&mut self, provider: &dyn CryptoProvider) -> Result<(), Error> {
-        self.transport.begin_operation(None, None);
+        self.transport
+            .begin_operation(Some(self.config.deadline), self.config.interrupt.clone());
         let result = auth::authenticate(
             &mut self.transport,
             &self.config.user,
@@ -299,7 +332,7 @@ impl Connection {
                 let _name = reader.text()?;
                 if reader.u8()? != 0 {
                     self.transport
-                        .encode_raw(&[u8::from(MessageType::RequestFailure)])?;
+                        .reply(&[u8::from(MessageType::RequestFailure)])?;
                 }
                 Ok(None)
             }
@@ -315,7 +348,7 @@ impl Connection {
     fn disconnected(&self, packet: &Packet) -> Error {
         let mut reader = SshReader::new(&packet.payload);
         let reason = reader.u32().unwrap_or(0);
-        let description = reader.text().unwrap_or("").to_owned();
+        let description = plain_text(reader.text().unwrap_or(""));
         let detail = format!("server disconnected (reason {reason}): {description}");
         match self.transport.certainty() {
             crate::error::Certainty::NotSubmitted => Error::NotSubmitted { detail },
@@ -340,7 +373,8 @@ impl Connection {
 
     pub(crate) fn rekey(&mut self, server_kexinit: Option<Packet>) -> Result<(), Error> {
         let session_id = self.established.session_id.clone();
-        let (algorithms, queued) = kex::rekey(
+        let previous = self.transport.bound_phase(self.config.deadline);
+        let outcome = kex::rekey(
             &mut self.transport,
             &kex::Context {
                 host: &self.config.host,
@@ -351,9 +385,12 @@ impl Connection {
             &kex::Session {
                 id: session_id.as_ref(),
                 strict: self.established.strict,
+                host_key: &self.established.host_key_blob,
             },
             server_kexinit,
-        )?;
+        );
+        self.transport.restore_deadline(previous);
+        let (algorithms, queued) = outcome?;
         self.established.algorithms = algorithms;
         self.pending.extend(queued);
         Ok(())

@@ -13,7 +13,7 @@ use oxish_proto::{Encode, MessageType, OpenSshKeyV1};
 use crate::agent::Agent;
 use crate::error::Error;
 use crate::host_key::Fingerprint;
-use crate::wire::{SshReader, Transport, put_string};
+use crate::wire::{SshReader, Transport, plain_text, put_string};
 
 const SERVICE_USERAUTH: &str = "ssh-userauth";
 
@@ -61,8 +61,12 @@ fn is_encrypted(text: &str) -> bool {
     else {
         return false;
     };
-    let compact: String = body.chars().filter(|character| !character.is_whitespace()).collect();
-    let Ok(decoded) = BASE64.decode(compact.as_bytes()) else {
+    let compact: Zeroizing<String> = Zeroizing::new(
+        body.chars()
+            .filter(|character| !character.is_whitespace())
+            .collect(),
+    );
+    let Ok(decoded) = BASE64.decode(compact.as_bytes()).map(Zeroizing::new) else {
         return false;
     };
     let Some(rest) = decoded.strip_prefix(b"openssh-key-v1\0") else {
@@ -207,7 +211,7 @@ pub fn authenticate(
             MessageType::UserAuthBanner => continue,
             MessageType::UserAuthFailure => {
                 let mut reader = SshReader::new(&packet.payload);
-                let methods = reader.name_list()?.join(",");
+                let methods = plain_text(&reader.name_list()?.join(","));
                 let partial = reader.u8()? != 0;
                 return Err(Error::Authentication {
                     detail: format!("server rejected publickey; methods={methods} partial={partial}"),

@@ -8,7 +8,7 @@ use crate::channel::{Channel, validate_environment};
 use crate::client::Connection;
 use crate::error::{Certainty, Error};
 use crate::exec::{ExecResult, ExecStatus};
-use crate::wire::{Interrupt, Packet, SshReader, put_string};
+use crate::wire::{Interrupt, Packet, SshReader, plain_text, put_string};
 
 const OUTPUT_HIGH_WATER: usize = 256 * 1024;
 const STDERR_EXTENDED_DATA: u32 = 1;
@@ -267,7 +267,7 @@ fn on_packet(
                     record_completion(completion, Some(status), None)?;
                 }
                 "exit-signal" => {
-                    let signal = reader.text()?.to_owned();
+                    let signal = plain_text(reader.text()?);
                     let _core_dumped = reader.u8()?;
                     let _message = reader.string()?;
                     let _language = reader.string()?;
@@ -280,7 +280,7 @@ fn on_packet(
                 let mut reply = Vec::new();
                 MessageType::ChannelFailure.encode(&mut reply);
                 reply.extend_from_slice(&channel.remote_id.to_be_bytes());
-                connection.transport().encode_raw(&reply)?;
+                connection.transport().reply(&reply)?;
             }
         }
         MessageType::ChannelEof => {
@@ -301,7 +301,7 @@ fn on_packet(
             refusal.extend_from_slice(&1u32.to_be_bytes());
             put_string(&mut refusal, b"channels are not accepted");
             put_string(&mut refusal, b"");
-            connection.transport().encode_raw(&refusal)?;
+            connection.transport().reply(&refusal)?;
         }
         other => {
             return Err(Error::Protocol {

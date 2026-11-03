@@ -14,7 +14,7 @@ use crate::source::Span;
 #[cfg(feature = "ssh")]
 use xsh_ssh::{
     Certainty, ClientConfig, Connection, Error as SshError, ExecOptions, Fingerprint, HostTrust,
-    Identity, KnownHosts, StreamOptions,
+    Identity, KnownHosts,
 };
 
 /// The opaque token field of a session record.
@@ -210,30 +210,6 @@ fn environment(options: &RecordMap, span: Span) -> Result<Vec<(String, String)>,
     }
 }
 
-/// Standard input made of an inline prefix followed by the contents of a file.
-#[cfg(feature = "ssh")]
-struct ChainedInput {
-    head: Option<std::io::Cursor<Vec<u8>>>,
-    tail: Option<std::fs::File>,
-}
-
-#[cfg(feature = "ssh")]
-impl std::io::Read for ChainedInput {
-    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        if let Some(head) = self.head.as_mut() {
-            let read = head.read(buffer)?;
-            if read > 0 {
-                return Ok(read);
-            }
-            self.head = None;
-        }
-        match self.tail.as_mut() {
-            Some(tail) => tail.read(buffer),
-            None => Ok(0),
-        }
-    }
-}
-
 #[cfg(feature = "ssh")]
 fn config_from_options(options: &RecordMap, span: Span) -> Result<ClientConfig, RuntimeError> {
     let host = text_field(options, "host", span)?;
@@ -287,14 +263,16 @@ fn config_from_options(options: &RecordMap, span: Span) -> Result<ClientConfig, 
                 .with_span(span));
         }
     };
-    Ok(ClientConfig::new(
+    let mut config = ClientConfig::new(
         host,
         port,
         user,
         identity,
         trust,
         std::time::Duration::from_millis(timeout_ms as u64),
-    ))
+    );
+    config.interrupt = Some(interrupt());
+    Ok(config)
 }
 
 #[cfg(feature = "ssh")]
@@ -486,69 +464,27 @@ pub(crate) fn exec(
         failure("Busy", "session is already in use").with_span(span)
     })?;
 
-    if stdout_path.is_some() || stderr_path.is_some() || stdin_path.is_some() {
-        let input_file = match stdin_path {
-            Some(path) => Some(std::fs::File::open(&path).map_err(|error| {
-                failure("Local", format!("cannot open {}: {error}", path.display()))
-                    .with_span(span)
-            })?),
-            None => None,
-        };
-        let mut chained = ChainedInput {
-            head: stdin.map(std::io::Cursor::new),
-            tail: input_file,
-        };
-        let input: Option<&mut dyn std::io::Read> = Some(&mut chained);
-        let mut stdout_buffer = Vec::new();
-        let mut stderr_buffer = Vec::new();
-        let mut stdout_file = match &stdout_path {
-            Some(path) => Some(std::fs::File::create(path).map_err(|error| {
-                failure("Local", format!("cannot create {}: {error}", path.display()))
-                    .with_span(span)
-            })?),
-            None => None,
-        };
-        let mut stderr_file = match &stderr_path {
-            Some(path) => Some(std::fs::File::create(path).map_err(|error| {
-                failure("Local", format!("cannot create {}: {error}", path.display()))
-                    .with_span(span)
-            })?),
-            None => None,
-        };
-        let stdout: &mut dyn std::io::Write = match &mut stdout_file {
-            Some(file) => file,
-            None => &mut stdout_buffer,
-        };
-        let stderr: &mut dyn std::io::Write = match &mut stderr_file {
-            Some(file) => file,
-            None => &mut stderr_buffer,
-        };
-        let result = connection
-            .exec_stream(
-                command,
-                &StreamOptions {
-                    timeout,
-                    interrupt: Some(interrupt()),
-                    env,
-                },
-                input,
-                stdout,
-                stderr,
-            )
-            .map_err(|error| ssh_error(error, span))?;
-        let mut value = result_value(result);
-        if let Value::Record(fields) = &mut value {
-            fields.insert(Arc::from("stdout"), Value::Bytes(stdout_buffer));
-            fields.insert(Arc::from("stderr"), Value::Bytes(stderr_buffer));
-        }
-        return Ok(value);
-    }
-
+    let create = |path: &PathBuf| {
+        std::fs::File::create(path).map_err(|error| {
+            failure("Local", format!("cannot create {}: {error}", path.display())).with_span(span)
+        })
+    };
+    let stdin_file = match &stdin_path {
+        Some(path) => Some(std::fs::File::open(path).map_err(|error| {
+            failure("Local", format!("cannot open {}: {error}", path.display())).with_span(span)
+        })?),
+        None => None,
+    };
+    let stdout_file = stdout_path.as_ref().map(create).transpose()?;
+    let stderr_file = stderr_path.as_ref().map(create).transpose()?;
     let result = connection
         .exec(
             command,
             &ExecOptions {
                 stdin,
+                stdin_file,
+                stdout_file,
+                stderr_file,
                 timeout,
                 max_output: max_output.unwrap_or(xsh_ssh::exec::DEFAULT_MAX_OUTPUT),
                 interrupt: Some(interrupt()),
