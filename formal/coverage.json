@@ -11314,6 +11314,15 @@
       "status": "fragment",
       "scope": "For an accepted concrete call substitution, the independently checked function scheme and body have matching constraints and typing under the composed substitution.",
       "boundary": "The theorem assumes the call substitution is well-sorted and checks each body instance separately; generic-body typing for every qualified substitution and Rust correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.finite_function_instance_sound",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.finite_function_instance_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked finite substitution gives a well-sorted concrete call instance and validates both generated constraints and body typing.",
+      "boundary": "This checks one instance at a time; generic-body typing for every qualified substitution, actual Rust facts and runtime simulation remain open."
     }
   ],
   "artifact_certificates": [

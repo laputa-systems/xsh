@@ -549,4 +549,71 @@ theorem projection_instance_checks_body_and_rejects_missing_field :
     projectionInstanceAccepted true = true ∧ projectionInstanceAccepted false = false := by
   constructor <;> decide +kernel
 
+def checksFiniteSubstitution (arguments : List (Variable × MonoType)) : Bool :=
+  arguments.all fun (id, ty) =>
+    checksWellFormed ty && decide (typeSort ty = id.kind.sort)
+
+theorem finite_substitution_is_well_sorted (arguments : List (Variable × MonoType))
+    (checked : checksFiniteSubstitution arguments = true) : WellSorted (witnessSubstitution arguments) := by
+  intro id
+  induction arguments with
+  | nil => simp [witnessSubstitution, WellFormed, typeSort]
+  | cons head rest ih =>
+    obtain ⟨name, ty⟩ := head
+    have parts : (checksWellFormed ty && decide (typeSort ty = name.kind.sort)) = true ∧
+        checksFiniteSubstitution rest = true := by
+      simpa [checksFiniteSubstitution] using checked
+    have sortedTail := ih parts.2
+    by_cases same : name = id
+    · subst name
+      simpa [witnessSubstitution, List.lookup, checks_well_formed_iff] using parts.1
+    · have different : (id == name) = false := beq_eq_false_iff_ne.mpr (Ne.symm same)
+      simpa [witnessSubstitution, List.lookup, different] using sortedTail
+
+def validateFiniteFunctionInstance (fuel : Nat) (names : TypeNames)
+    (parameters globals : List Binding) (result : MonoType) (body : List Statement)
+    (ordered : List Constraint) (steps : List DerivationStep) (solvedCount : Nat)
+    (scheme : Scheme) (arguments : List (Variable × MonoType)) (candidate : List StatementNode)
+    (binderTypes : BinderTypes) : Except ValidationError Substitution := do
+  requireCheck (checksFiniteSubstitution arguments)
+  validateQualifiedFunctionInstance fuel names parameters globals result body ordered steps solvedCount
+    scheme (witnessSubstitution arguments) candidate binderTypes
+
+theorem finite_function_instance_sound (fuel : Nat) (names : TypeNames)
+    (parameters globals : List Binding) (result : MonoType) (body : List Statement)
+    (ordered : List Constraint) (steps : List DerivationStep) (solvedCount : Nat)
+    (scheme : Scheme) (arguments : List (Variable × MonoType)) (candidate : List StatementNode)
+    (binderTypes : BinderTypes) (principal : Substitution)
+    (accepted : validateFiniteFunctionInstance fuel names parameters globals result body ordered
+      steps solvedCount scheme arguments candidate binderTypes = .ok principal) :
+    ∃ generated state,
+      (block fuel names (parameters ++ globals) result body).run
+        (initialBlockState (parameters ++ globals) result) = .ok (generated, state) ∧
+      QualifiedScheme .generalize (globalEnvironment globals)
+        (.function (parameterTypes parameters) result) state.constraints principal scheme ∧
+      Solves state.constraints (compose (witnessSubstitution arguments) principal) ∧
+      BlockHasType names (compose (witnessSubstitution arguments) principal) (parameters ++ globals)
+        (substitute (compose (witnessSubstitution arguments) principal) result) body := by
+  simp [validateFiniteFunctionInstance, except_bind_ok, exists_require_ok] at accepted
+  obtain ⟨sorted, checked⟩ := accepted
+  obtain ⟨generated, state, found, schemeValid, solves, _, _, typed⟩ :=
+    qualified_function_instance_sound fuel names parameters globals result body ordered steps solvedCount
+      scheme (witnessSubstitution arguments) candidate binderTypes principal
+      (finite_substitution_is_well_sorted arguments sorted) checked
+  exact ⟨generated, state, found, schemeValid, solves, typed⟩
+
+def projectionFiniteAccepted (parameterType : MonoType) : Bool :=
+  match validateFiniteFunctionInstance 24 exampleTypeNames [generatedProjectionParameter] []
+      (.variable generatedReturnVariable) generatedProjectionBody generatedProjectionConstraints [.bindLeft] 1
+      generatedProjectionScheme [(generatedParameterVariable, parameterType),
+        (generatedReturnVariable, .primitive .integer)] generatedProjectionCandidate (fun _ => none) with
+  | .ok _ => true
+  | _ => false
+
+theorem finite_projection_checks_field_and_sorts :
+    projectionFiniteAccepted (.record (.rowField generatedProjectionField (.primitive .integer) .rowEmpty)) = true ∧
+    projectionFiniteAccepted (.record .rowEmpty) = false ∧
+    projectionFiniteAccepted (.rowField generatedProjectionField (.primitive .integer) .rowEmpty) = false := by
+  constructor <;> decide +kernel
+
 end Xsh.Typing.Connected
