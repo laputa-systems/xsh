@@ -209,6 +209,41 @@ test ssh_exec_output_past_the_limit_is_an_outcome_error {
   }
 }
 
+test ssh_exec_file_options_leave_the_capture_limit_on_every_other_stream { |ctx|
+  let root = test.temp_dir(ctx, name: "limit")?
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    let flood = "head -c 3000000 /dev/zero"
+    let input = {max_output: 1024, stdin_path: p"/dev/null"}
+    assert ssh.exec(session, flood, input) is Err(SshError.OutputLimit {..})
+  }
+  with session = ssh.connect(options)? {
+    let to_file = {max_output: 1024, stdout_path: fp"{root}/out"}
+    let result = ssh.exec(session, "head -c 100000 /dev/zero", to_file)?
+    assert result.stdout == b""
+    assert fp"{root}/out".read_bytes()?.len() == 100000
+  }
+  with session = ssh.connect(options)? {
+    let stderr_flood = "head -c 3000000 /dev/zero >&2"
+    let to_file = {max_output: 1024, stdout_path: fp"{root}/sink"}
+    assert ssh.exec(session, stderr_flood, to_file) is Err(SshError.OutputLimit {..})
+  }
+}
+
 test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
   let fixture = match fixture("A") {
     Ok(value) => value,
