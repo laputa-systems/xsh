@@ -8,18 +8,17 @@ milestone: provision, inspect, update, recover, and eventually rebuild a system
 through XSH.
 
 The table preserves current campaign status and evidence. The next-phase plan
-below does not reopen the frozen G0 candidate, resume a paused campaign, or
-claim implementation. Each live doc owns its campaign's status, resume
-instructions, and open items.
+below does not reopen the frozen G0 candidate or claim implementation. Each
+live doc owns its campaign's status, resume instructions, and open items.
 
 | # | Campaign or milestone | Status | Live doc | Next step or reason |
 |---|---|---|---|---|
 | 1 | G0 release candidate | done | [G0](#g0-release-candidate) | Tagged `xsh-g0-rc1` at `b268b5007`. |
 | 2 | Pyramid: scoped verification | done | [Testing](TESTING.md#gates), [Release engineering](RELENG.md#historical-p0-product-sizes) | Closed 2026-10-29. Historical P0 measurements used O3 products. |
-| 3 | Inference: general type, row, and effect inference | done, residuals accepted | [full-inference-campaign.md](../full-inference-campaign.md) | Closed at `73b59f11d`: 4,668 of 4,677 core sites erase alone and 245 of 250 joint views pass. The campaign's Corpus residuals list the open cases and their leads. Performance work is deferred. |
+| 3 | Inference: general type, row, and effect inference | done, residuals accepted | [full-inference-campaign.md](../full-inference-campaign.md) | Closed at `73b59f11d`: 4,668 of 4,677 core sites erase alone and 245 of 250 joint views pass. The campaign's Corpus residuals list the open cases and their leads. |
 | 4 | Lean: connected compiler proof | restarted 2026-11-03 | [xsh-lean.md](../xsh-lean.md) | The vertical covers integer parameters, calls, conditionals and one plain assignment. The Lean lowerer is proved for its admitted shape. CERT-FACTS validates fact documents projected from checker output for two fixtures. Eighteen finite Rust cases passed at the integrated source freeze; see the live doc's Status. |
-| 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |
-| 6 | Deser cutover | done, qualified on Linux | [SPEC](SPEC.md#structured-text-codecs), [DESIGN.md](DESIGN.md) | Qualified 2026-11-03 on `master`: Deser crate suites, codec, JSON, INI, CSV, TOML and YAML modules, and a full native run (15,243 passed, 11 host-environment failures that pass in the pinned `xsh-test` container, 152 skipped). Laputa's network plan input is the strict-consumer proof (former XSH-41): exact validation, with a related `require` repair here. Native macOS qualification is deferred by the owner; no macOS host is available. The S6 runtime, startup and build CPU-time slice is waived with the other performance work. |
+| 5 | Performance and deployment | resumed on Linux | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | G1 qualification and XSH-1, XSH-3, XSH-14 and XSH-19 remain open in [TODO.md](../TODO.md). G0 historically deferred these obligations. |
+| 6 | Deser cutover | functionally qualified on Linux; performance open | [SPEC](SPEC.md#structured-text-codecs), [DESIGN.md](DESIGN.md) | Qualified 2026-11-03 on `master`: Deser crate suites, codec, JSON, INI, CSV, TOML and YAML modules, and a full native run (15,243 passed, 11 host-environment failures that pass in the pinned `xsh-test` container, 152 skipped). Laputa's network plan input is the strict-consumer proof (former XSH-41): exact validation, with a related `require` repair here. Native macOS qualification is deferred by the owner; no macOS host is available. The previously waived S6 runtime, startup and build CPU-time thresholds now require examination. |
 | 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | Reuse system-report for remote inspection and redacted diagnostics; the util-linux resource rerun remains XSH-1. |
 | 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | XSH-55 delivered on Linux x86-64 (experimental); XSH-56 in its own lane | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | XSH-55 delivered the native client, `known_hosts` and ssh-agent trust, hybrid post-quantum key exchange, rekeying in both directions, typed `SshError` outcomes and a loopback OpenSSH fixture, and Laputa's R6 library administers one headless x86-64 VM over it (see the RFC's audit). Open: native macOS qualification (deferred by the owner), a protocol and security review before any claim beyond experimental, remote environment and working-directory requests, and an acknowledged remote cancellation action. xsh-infra's remote execution is complete only over this client. |
@@ -31,8 +30,8 @@ Lean's source-bound correspondence uses the qualified source available after
 the preceding work. Model proofs, finite witnesses, and Rust correspondence
 remain distinct evidence.
 
-The Deser cutover remains in place. Its performance thresholds are waived and
-native macOS qualification is deferred by the owner; neither is a pass.
+The Deser cutover remains in place. Its performance thresholds are open; the
+earlier waiver is not a pass. Native macOS qualification remains deferred.
 
 ## Next capability: SSH-native remote XSH
 
