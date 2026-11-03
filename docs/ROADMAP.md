@@ -17,12 +17,12 @@ instructions, and open items.
 | 1 | G0 release candidate | done | [G0](#g0-release-candidate) | Tagged `xsh-g0-rc1` at `b268b5007`. |
 | 2 | Pyramid: scoped verification | done | [Testing](TESTING.md#gates), [Release engineering](RELENG.md#historical-p0-product-sizes) | Closed 2026-10-29. Historical P0 measurements used O3 products. |
 | 3 | Inference: general type, row, and effect inference | active | [full-inference-campaign.md](../full-inference-campaign.md) | Close the remaining verifier gaps and capability/corpus evidence. Performance work is deferred; resume from the campaign Status. |
-| 4 | Lean: connected compiler proof | holding | [xsh-lean.md](../xsh-lean.md) | G0b, G1's base theorems and G1b's first certified vertical artifact landed 2026-10-29. Holding until the owner restarts lanes; the next steps are listed in the live doc. |
+| 4 | Lean: connected compiler proof | holding, restart scheduled | [xsh-lean.md](../xsh-lean.md) | G0b, G1's base theorems and G1b's first certified vertical artifact landed 2026-10-29. Restarts from the live doc's next steps alongside row 9; see [Sequence](#sequence). |
 | 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |
 | 6 | Deser cutover | done, qualification open | [TODO.md](../TODO.md) | Correctness and platform qualification are open items there. |
 | 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | Reuse system-report for remote inspection and redacted diagnostics; the util-linux resource rerun remains XSH-1. |
-| 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | planned, after rows 2 to 4 | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | Starts when Pyramid and inference close and Lean's G1b slice lands; see [Sequence](#sequence). |
+| 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | planned, after rows 3 and 6 | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | Starts when inference closes, Deser qualification closes and the worktree cleanup finishes; see [Sequence](#sequence). |
 | 10 | Archive and compression consolidation (XSH-57) | done | [XSH-57 RFC](rfc/XSH-57-archive-and-compression.md) | Landed on `master`; Laputa call sites migrated. Follow-ups are listed in the RFC outcome: an `xsht api` enum-variant query, macOS and privileged coverage, and GNU tar and bsdtar interoperability. |
 | 11 | Syntax consolidation without feature removal | done | [CAMPAIGN-SYNTAX-CONSOLIDATION.md](CAMPAIGN-SYNTAX-CONSOLIDATION.md) | Every decided removal and reservation landed; see the audit's [Phase B status](SYNTAX-AUDIT.md#phase-b-status) and [final metrics](SYNTAX-AUDIT.md#final-metrics). |
 
@@ -52,16 +52,22 @@ handles SSH protocol and I/O, XSH handles infrastructure policy.
 
 ### Sequence
 
-Both campaigns start after the inference campaign closes. Pyramid closed and
-Lean's G1b slice landed on 2026-10-29. Lean continues alongside
-them afterwards, since it touches only `formal/` and test-only bridge code.
-XSH-55 comes first. XSH-56's pure planner and resource work may start before
-XSH-55 lands, but its remote execution is not complete until it runs over the
-native client. Laputa's administration library
+1. Close the inference campaign (row 3) and the open Deser qualification
+   (row 6).
+2. Reclaim the accumulated build and worktree state: retire every integrated
+   or superseded lane checkout and keep only protected historical references.
+3. Start three lanes in parallel from the cleaned `master`: XSH-55, XSH-56,
+   and the Lean restart (row 4). Lean touches only `formal/` and test-only
+   bridge code, so it does not contend with the other two.
+
+XSH-56's pure planner and resource work runs alongside XSH-55, but its remote
+execution is not complete until it runs over the native client. XSH-55 has
+first claim on host capacity, since it serves G2. Laputa's serial Asterinas
+successor lane runs in the same window and takes the quiet-host periods its
+qualification needs. Native macOS qualification is deferred: no macOS host is
+available. Laputa's administration library
 ([R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#ssh-native-xsh-administration))
-consumes the same client. Work stops before XSH-55 starts: the owner reclaims
-the accumulated build and worktree state first, and XSH-55 begins from a fresh
-checkout state.
+consumes the same client.
 
 ### Ownership and first consumer
 
