@@ -1,8 +1,12 @@
 #![allow(clippy::single_call_fn)]
 
+#[cfg(feature = "ssh")]
 use std::collections::BTreeMap;
+#[cfg(feature = "ssh")]
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
+#[cfg(feature = "ssh")]
+use std::sync::{Mutex, OnceLock};
 
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
@@ -14,6 +18,7 @@ use xsh_ssh::{
 };
 
 /// The opaque token field of a session record.
+#[cfg(feature = "ssh")]
 pub(crate) const SESSION_TOKEN: &str = "token";
 
 #[cfg(feature = "ssh")]
@@ -29,12 +34,14 @@ fn sessions() -> &'static Mutex<BTreeMap<String, RegistrySession>> {
     SESSIONS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+#[cfg(feature = "ssh")]
 fn record_field<'a>(record: &'a RecordMap, name: &str, span: Span) -> Result<&'a Value, RuntimeError> {
     record.get(name).ok_or_else(|| {
         failure("Options", format!("missing {name} option")).with_span(span)
     })
 }
 
+#[cfg(feature = "ssh")]
 fn text_field(record: &RecordMap, name: &str, span: Span) -> Result<String, RuntimeError> {
     match record_field(record, name, span)? {
         Value::Str(value) => Ok(value.to_string()),
@@ -42,6 +49,7 @@ fn text_field(record: &RecordMap, name: &str, span: Span) -> Result<String, Runt
     }
 }
 
+#[cfg(feature = "ssh")]
 fn optional_int(record: &RecordMap, name: &str, span: Span) -> Result<Option<i64>, RuntimeError> {
     match record.get(name) {
         None | Some(Value::Null) => Ok(None),
@@ -50,12 +58,14 @@ fn optional_int(record: &RecordMap, name: &str, span: Span) -> Result<Option<i64
     }
 }
 
+#[cfg(feature = "ssh")]
 fn int_field(record: &RecordMap, name: &str, span: Span) -> Result<i64, RuntimeError> {
     optional_int(record, name, span)?.ok_or_else(|| {
         failure("Options", format!("missing {name} option")).with_span(span)
     })
 }
 
+#[cfg(feature = "ssh")]
 fn path_field(record: &RecordMap, name: &str, span: Span) -> Result<PathBuf, RuntimeError> {
     match record_field(record, name, span)? {
         Value::Path(path) => String::from_utf8(path.bytes.clone())
@@ -65,6 +75,7 @@ fn path_field(record: &RecordMap, name: &str, span: Span) -> Result<PathBuf, Run
     }
 }
 
+#[cfg(feature = "ssh")]
 fn optional_path(record: &RecordMap, name: &str, span: Span) -> Result<Option<PathBuf>, RuntimeError> {
     match record.get(name) {
         None | Some(Value::Null) => Ok(None),
@@ -73,6 +84,7 @@ fn optional_path(record: &RecordMap, name: &str, span: Span) -> Result<Option<Pa
     }
 }
 
+#[cfg(feature = "ssh")]
 fn optional_bytes(record: &RecordMap, name: &str, span: Span) -> Result<Option<Vec<u8>>, RuntimeError> {
     match record.get(name) {
         None | Some(Value::Null) => Ok(None),
@@ -82,6 +94,7 @@ fn optional_bytes(record: &RecordMap, name: &str, span: Span) -> Result<Option<V
 }
 
 /// Extract a session token from a record, rejecting any other shape.
+#[cfg(feature = "ssh")]
 pub(crate) fn token_from_record(record: &RecordMap) -> Option<String> {
     if record.len() != 1 {
         return None;

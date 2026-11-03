@@ -560,6 +560,32 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_server_proposals_are_parsed_or_refused_never_panicked_on() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..4000 {
+            let length = (next() % 200) as usize;
+            let bytes: Vec<u8> = (0..length).map(|_| next() as u8).collect();
+            let _ = parse_kexinit(&bytes);
+        }
+        let mut valid = vec![0u8; 16];
+        for _ in 0..10 {
+            valid.extend_from_slice(&0u32.to_be_bytes());
+        }
+        valid.push(0);
+        valid.extend_from_slice(&0u32.to_be_bytes());
+        assert!(parse_kexinit(&valid).is_ok());
+        for cut in 0..valid.len() {
+            assert!(parse_kexinit(&valid[..cut]).is_err(), "truncated at {cut}");
+        }
+    }
+
+    #[test]
     fn a_guessed_packet_is_refused() {
         let mut server = offer(&[HYBRID_KEX, STRICT_KEX_SERVER]);
         server.first_kex_packet_follows = true;

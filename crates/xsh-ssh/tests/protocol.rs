@@ -536,3 +536,49 @@ fn environment_names_and_values_are_validated_before_anything_is_sent() {
     drop(connection);
     peer.finish();
 }
+
+fn next_random(state: &mut u64) -> u64 {
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    *state
+}
+
+#[test]
+fn arbitrary_connection_messages_never_hang_or_panic_the_client() {
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    for round in 0..60 {
+        let kind = 80 + (next_random(&mut state) % 21) as u8;
+        let length = (next_random(&mut state) % 96) as usize;
+        let body: Vec<u8> = (0..length).map(|_| next_random(&mut state) as u8).collect();
+        let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+            let mut payload = vec![kind];
+            if round % 2 == 0 {
+                payload.extend_from_slice(&number(channel));
+            }
+            payload.extend_from_slice(&body);
+            link.send(&payload);
+        });
+        let mut connection = peer.connect(Duration::from_millis(800));
+        let started = Instant::now();
+        let outcome = connection.exec(
+            "command",
+            &ExecOptions {
+                timeout: Some(Duration::from_secs(2)),
+                ..ExecOptions::default()
+            },
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "round {round}: message {kind} left the client waiting"
+        );
+        if let Ok(result) = outcome {
+            assert!(
+                matches!(result.status, ExecStatus::Missing | ExecStatus::Exited(_) | ExecStatus::Signaled(_)),
+                "round {round}"
+            );
+        }
+        drop(connection);
+        peer.finish();
+    }
+}

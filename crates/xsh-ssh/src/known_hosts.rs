@@ -267,6 +267,25 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_text_is_parsed_or_refused_never_panicked_on() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let alphabet = b"@|*?!,[]:# \tabcssh-ed25519AAAAC3NzaC1lZDI1NTE5\n=/+";
+        for _ in 0..4000 {
+            let length = (next() % 120) as usize;
+            let text: String = (0..length)
+                .map(|_| alphabet[(next() % alphabet.len() as u64) as usize] as char)
+                .collect();
+            let _ = KnownHosts::parse(&text);
+        }
+    }
+
+    #[test]
     fn an_empty_file_trusts_nothing() {
         let hosts = KnownHosts::parse("").expect("parses");
         assert_eq!(hosts.judge("web.example", 22, &blob("a")), Verdict::Unknown);

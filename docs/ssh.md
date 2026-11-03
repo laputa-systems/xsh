@@ -157,7 +157,8 @@ after 1 GiB, 2^28 packets or one hour under the current keys, or whenever the
 server starts one, and keep the session identifier. Traffic that arrives during
 a re-exchange is delivered afterwards, in order.
 
-Tested servers: OpenSSH 10.0 (Alpine 3.22). Graviola needs AES, PCLMULQDQ, BMI1,
+Tested servers: OpenSSH 10.0 (Alpine 3.22, the loopback fixture) and Dropbear
+2026.94 (Laputa's maintained x86-64 VM, which negotiates the hybrid exchange). Graviola needs AES, PCLMULQDQ, BMI1,
 ADX, AVX and AVX2 on x86-64 and NEON, AES, PMULL and SHA-2 on aarch64; the
 client reports the missing feature as `SshError.Hardware` before any
 instruction runs.
