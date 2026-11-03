@@ -181,7 +181,9 @@ def projectionSchemeValidation (sparseFuel : Nat) (functions : List FunctionTarg
   let qualifiedPrincipal ← validateQualifiedFunction 64 names [rawParameter] [] rawResult source.body
     generated.constraints.reverse [.bindLeft] 1 scheme candidate (fun _ => none) (fun _ => some body.result) arguments
   requireCheck (checksQualifiedExpressionFacts 64 [rawParameter] qualifiedPrincipal scheme.requirements
-    (fun _ => some body.result) source candidate body)
+    (fun _ => some body.result) source candidate body &&
+    checksQualifiedTailFacts 64 [rawParameter] qualifiedPrincipal scheme.requirements
+      (fun _ => some body.result) source candidate body)
   let instantiation := witnessSubstitution arguments
   validateSparseFacts sparseFuel unit.names [rawParameter] (compose instantiation principal)
     instantiation source candidate body
