@@ -191,7 +191,7 @@ theorem reads_binary {F : LoweringState} {callees : List (Option Callee)}
     {row op left right span : Word32} {operation : FragmentOp} {first second : BaseExpr}
     (at_ : F.RowAt row.val .exprBinary [op, left, right, span])
     (leftBefore : left.val < row.val) (rightBefore : right.val < row.val)
-    (pooled : F.ops[op.val]? = some operation)
+    (pooled : F.ops[op.val]? = some operation) (value : operation.isLogical = false)
     (readsLeft : Reads F callees left first) (readsRight : Reads F callees right second) :
     Reads F callees row (operation.expression first second) := by
   intro fuel above
@@ -201,7 +201,7 @@ theorem reads_binary {F : LoweringState} {callees : List (Option Callee)}
     have leftReads := readsLeft fuel (by omega)
     have rightReads := readsRight fuel (by omega)
     simp [expression?, readInstruction_of_rowAt at_, leftBefore,
-      rightBefore, pooled, leftReads, rightReads]
+      rightBefore, pooled, value, leftReads, rightReads]
 
 theorem reads_value_block {F : LoweringState} {callees : List (Option Callee)}
     {row block span count statement value : Word32} {e : BaseExpr}
@@ -267,6 +267,7 @@ theorem int_reads_binary {F : LoweringState} {callees : List (Option Callee)}
     (at_ : F.RowAt row.val .intBinary [op, left, right])
     (leftBefore : left.val < row.val) (rightBefore : right.val < row.val)
     (pooled : F.ops[op.val]? = some operation) (arithmetic : operation.isComparison = false)
+    (value : operation.isLogical = false)
     (readsLeft : IntReads F callees left first) (readsRight : IntReads F callees right second) :
     IntReads F callees row (operation.expression first second) := by
   intro fuel above
@@ -276,7 +277,42 @@ theorem int_reads_binary {F : LoweringState} {callees : List (Option Callee)}
     have leftReads := readsLeft fuel (by omega)
     have rightReads := readsRight fuel (by omega)
     simp [intExpression?, readInstruction_of_rowAt at_, leftBefore,
-      rightBefore, pooled, arithmetic, leftReads, rightReads]
+      rightBefore, pooled, arithmetic, value, leftReads, rightReads]
+
+/-- A conditional whose condition row joins two comparison rows with a logical operation reads as
+the guard of its two comparisons: the condition row itself denotes no expression, so the
+conditional falls to the logical reading. -/
+theorem reads_if_logical {F : LoweringState} {callees : List (Option Callee)}
+    {row table elseRow span count condition thenRow op left right conditionSpan : Word32}
+    {combine : FragmentOp} {first second t e : BaseExpr}
+    (at_ : F.RowAt row.val .exprIf [table, elseRow, span])
+    (tableAt : F.BlockAt table [count, condition, thenRow]) (single : count.val = 1)
+    (conditionBefore : condition.val < row.val) (thenBefore : thenRow.val < row.val)
+    (elseBefore : elseRow.val < row.val)
+    (conditionAt : F.RowAt condition.val .exprBinary [op, left, right, conditionSpan])
+    (leftBefore : left.val < condition.val) (rightBefore : right.val < condition.val)
+    (pooled : F.ops[op.val]? = some combine) (logical : combine.isLogical = true)
+    (readsLeft : Reads F callees left first) (readsRight : Reads F callees right second)
+    (readsThen : Reads F callees thenRow t) (readsElse : Reads F callees elseRow e) :
+    Reads F callees row (combine.guard first second t e) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    have leftReads := readsLeft fuel (by omega)
+    have rightReads := readsRight fuel (by omega)
+    have thenReads := readsThen fuel (by omega)
+    have elseReads := readsElse fuel (by omega)
+    have conditionNone : expression? (F.context callees) fuel condition = none := by
+      cases fuel with
+      | zero => simp [expression?]
+      | succ inner =>
+        simp [expression?, readInstruction_of_rowAt conditionAt, leftBefore, rightBefore, pooled,
+          logical]
+    simp [expression?, readInstruction_of_rowAt at_, blockWords_of_blockAt callees tableAt, single,
+      conditionBefore, thenBefore, elseBefore, thenReads, elseReads, conditionNone,
+      readInstruction_of_rowAt conditionAt, leftBefore, rightBefore, pooled, logical, leftReads,
+      rightReads]
 
 theorem argument_rows_of_flat (user : Word32) :
     ∀ rows : List Word32, (∀ row ∈ rows, row.val < user.val) →
