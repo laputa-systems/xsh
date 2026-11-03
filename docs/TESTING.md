@@ -520,8 +520,8 @@ source.
 
 Rooted extraction was cross-compiled for macOS but not run there. GNU tar and
 bsdtar interoperability, root ownership application and device-node creation
-were not tested; FIFO creation was covered. CPIO hard-link sets and sparse TAR
-members are unsupported. Publication is atomic per entry, not durable; merging
+were not tested; FIFO creation was covered. CPIO hard-link sets and GNU sparse TAR
+entries are unsupported. Publication is atomic per entry, not durable; merging
 into an existing directory can publish some entries before a conflict.
 
 The XZ reader checks the first block dictionary against the workspace limit
