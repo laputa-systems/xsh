@@ -26,9 +26,9 @@ with session = ssh.connect(options)? {
 
 | Call | Result |
 |---|---|
-| `ssh.connect(options)` | an owned session capability |
+| `ssh.connect(options)` | an owned `SshSession` handle |
 | `ssh.exec(session, command, options)` | `{exit_code, signal, missing, stdout, stderr, certainty}` |
-| `ssh.connect_all({targets, jobs})` | one owned session or `SshError` per target, in order |
+| `ssh.connect_all({targets, jobs})` | one owned `SshSession` or `SshError` per target, in order |
 | `ssh.info(session)` | `{host, port, user, usable, host_key, kex, host_key_algorithm, cipher_client_to_server, cipher_server_to_client}` |
 | `ssh.close(session)` | `Unit` |
 
@@ -40,7 +40,12 @@ each of two choices.
   (the agent's socket `Path`) with `agent_identity` (the `SHA256:` fingerprint
   of the Ed25519 identity to sign with).
 
-Giving both or neither of a pair is `SshError.Options`. The client reads no
+Giving both or neither of a pair is `SshError.Options`. `timeout_ms` bounds how
+long the peer may stay silent while the client waits on it. Connecting, authenticating
+and each key exchange also have a whole-operation deadline of 30 seconds, or
+`timeout_ms` when that is longer, however steadily the peer sends; SIGINT and
+SIGTERM end them as `SshError.Canceled`. In `ssh.connect_all` a host that stalls
+fails only its own entry. The client reads no
 environment variable and no `~/.ssh` file; a caller that wants `SSH_AUTH_SOCK`
 passes it with `env.get`.
 
@@ -62,7 +67,11 @@ failure does not hide the others. Every session belongs to the scope that called
 it, which keeps it alive for the `par-map` workers that use it later; a session
 returned from a worker is closed when that worker ends.
 
-The session is an owned capability. Its scope closes it after the body's
+`SshSession` is an opaque handle. A program cannot build one from a record,
+show it in a string, serialise it to JSON or read a field from it, and traces
+record no value for it; `ssh.info` reports what a program may know about the
+session. A handle works in any evaluator it is passed to, including `par-map`
+workers, and nowhere else. The session is an owned capability. Its scope closes it after the body's
 defers; `ssh.close(session)` releases it early. One command runs per session at
 a time: concurrent use of one session is rejected with `SshError.Busy`, never
 serialized silently. Independent sessions run concurrently.
@@ -128,7 +137,7 @@ is `HostKeyRevoked` even when another line trusts it. Hashed host names
 (`|1|...`) and `@cert-authority` lines are refused with `TrustMaterial` rather
 than skipped, because skipping them would silently change what the file means.
 
-Each rekey checks the key again.
+Each rekey checks the key again and requires the key of the first exchange.
 
 ## Authentication
 
@@ -166,9 +175,12 @@ instruction runs.
 ## Deadlines, cancellation and cleanup
 
 `timeout_ms` on `ssh.exec` bounds the whole command. Without it a running
-command may stay silent indefinitely and only a signal ends the wait; a peer
-that stops draining our input is a timeout after the connect `timeout_ms`.
-SIGINT and SIGTERM cancel a running command promptly as `SshError.Canceled`.
+command may stay silent indefinitely and only a signal ends the wait. A peer
+that does not take the output waiting for it is different: when no byte of that
+output is accepted for the connect `timeout_ms`, the command fails with
+`SshError.Timeout`, however much the peer sends meanwhile, and the client stops
+reading while that output is waiting. SIGINT and SIGTERM cancel connecting,
+authenticating and a running command promptly as `SshError.Canceled`.
 
 Closing a channel or connection does not prove that a remote process stopped,
 and the client sends no signal to it. A timed-out or cancelled command may
@@ -192,7 +204,7 @@ crates/xsh-ssh/fixture/ssh-fixture.sh exec target/debug/xsht test tests/xsh/ssh-
 
 The fixture starts two disposable Alpine OpenSSH servers on loopback with fresh
 host keys, `RekeyLimit 1M`, and exports `XINFRA_FIXTURE_*`. Tests that need no
-server (`tests/protocol.rs`, `tests/descriptors.rs`) use a scripted peer built on
+server (`tests/protocol.rs`, `tests/hostile.rs`, `tests/descriptors.rs`) use a scripted peer built on
 the OxiSH server state machine, which can send the malformed and out-of-order
 traffic a real server will not.
 
@@ -208,14 +220,38 @@ already controls.
 
 - It defends against an active network attacker who tries to impersonate the
   server (host-key verification before authentication), alter or inject packets
-  (AEAD, strict key exchange), or exhaust memory (bounded windows, packets,
-  agent messages and captured output).
+  (AEAD, strict key exchange), or exhaust memory. Memory is bounded by the packet
+  size (64 KiB), the 2 MiB receive window, and fixed limits: 256 KiB of unread
+  bytes while a write waits; 64 KiB of unsent replies, after which the client
+  stops reading; traffic held during a key exchange up to the window plus 256 KiB
+  and 4096 packets, with any connection-layer message after the server's
+  key-exchange init refused; agent messages; and `max_output` for every captured
+  stream, which a file option does not lift for the other streams. Time is
+  bounded by the deadlines above and, for stalled writes, by a deadline that
+  reads do not reset.
 - It does not defend against a compromised endpoint, a compromised
   `known_hosts` file or fingerprint source, or a malicious agent that signs for
   an identity the caller selected.
-- Private key file contents are read into zeroized buffers; the parsed key held
-  by Graviola, process memory dumps and swap are outside that guarantee.
+- Private key file contents, and every copy this client makes while checking
+  and parsing them, are held in zeroized buffers. The private-key copy inside
+  Graviola, the key-exchange shared secret, process memory dumps and swap are
+  outside that guarantee.
+- Text the server supplies (a disconnect description, a channel-open failure
+  reason, an exit-signal name, offered authentication methods and algorithm
+  names) loses its control and bidirectional-override characters and is cut to
+  512 characters before it reaches an error message or a value.
+- A rekey must present the host key of the first exchange, as OpenSSH requires,
+  even when the trust material lists other keys for the host.
 - Debug output, errors and traces carry no key, stdin or output bytes.
+- A server that grants a window of 0 and keeps the connection alive can hold a
+  command that has input to send for as long as it likes; set `timeout_ms` on
+  `ssh.exec` to bound it.
+- Lines a server sends before its identification line are refused rather than
+  skipped, and a `first_kex_packet_follows` guess is refused, so a server that
+  does either cannot be used. The MAC algorithms in the proposal are advertised
+  for compatibility but never negotiated: both ciphers are AEAD.
+- Resolving a name runs on a helper thread that the deadline abandons rather
+  than stops; it ends when the resolver or the TCP connect attempt does.
 - A command string runs under the remote account's login shell with that
   shell's semantics. Do not build it from untrusted values; use a fixed remote
   entrypoint and send data on stdin.
