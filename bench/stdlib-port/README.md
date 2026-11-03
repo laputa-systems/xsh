@@ -94,7 +94,7 @@ python3 -B bench/stdlib-port/run.py \
 workloads read committed fixtures mounted at fixed `/proc` paths in the
 container's private mount namespace. `linux-runner.xsh` measures each child,
 excluding container startup and Python aggregation. This ARM64 route is fixed; the general Linux test runner selects its target
-from the host architecture.
+from the selected architecture.
 
 ## Fixed-path `system.os_release` test
 
