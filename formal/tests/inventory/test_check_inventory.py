@@ -141,6 +141,8 @@ class InventoryCheckerTests(unittest.TestCase):
                     for name in (
                         "exported_documents_are_the_lean_certified_bytes",
                         "exported_artifact_has_an_integer_arithmetic_row_over_an_identifier_operand",
+                        "exported_artifact_has_a_conditional_over_parameters_and_a_call_to_it",
+                        "structurally_malformed_calls_and_conditionals_are_rejected",
                         "source_and_artifact_association_is_explicit",
                         "wire_corruptions_are_rejected_by_the_decoder",
                         "tampered_observations_are_rejected_against_the_scheduled_run",

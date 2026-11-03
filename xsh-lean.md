@@ -1,25 +1,40 @@
 # XSH semantic soundness campaign
 
-**Status:** resumed by the owner on 2026-10-30; the Lean lane stopped after the
-first connected stage and awaits the next restart. G0b froze the source and G1
-proved the base theorems as fragment roots. G1b's vertical now starts at source
-bytes for one fixture: independent Lean definitions parse the admitted source
-productions and lower them to the rows Rust emitted, and the certificate checks
-the IR meaning and four recorded outcomes, two of them the specified
-`division-by-zero` and `integer-overflow` failures. `artifact_certificates`
-(coverage schema 3) holds that ARTIFACT_CERTIFIED record apart from the
-SPEC_PROVED fragment roots. The new freeze `a08a0a133` carries ten
-`RUST_CONFORMANCE` cases: the four Float tests and six bridge tests. Not
-reached: the connected milestone. The IR subset has no parameters, calls or
-control flow, the lowerer is validated per artifact rather than proved, and no
-independent fact validator exists. Next, in order: parameters in the schedule
-and IR rows, then a call row and a conditional with a base-machine meaning;
-prove the lowerer for the admitted shape instead of validating each artifact;
-then the CERT-FACTS validator. The integrator accepted `decide +kernel` for the
+**Status:** the owner restarted the Lean lane on 2026-11-03 and it took the
+three next steps of the connected stage. The vertical now has integer
+parameters, a direct call of an earlier let-free function and an integer
+conditional in the schedule, the raw-IR rows and their base-machine meaning
+(`Xsh.Semantics.BaseMachine` gained compare, conditional and call forms). The
+Lean lowerer is proved rather than validated per artifact:
+`lowering_means_the_source` shows, for every list of parsed functions it
+succeeds on, that the program each emitted function row denotes equals the
+program its source function denotes, so the certificate keeps only the
+reproduction check tying the exchanged bytes to the lowerer. The CERT-FACTS
+validator exists for the admitted productions: `validate_facts_iff` proves it
+accepts exactly the valid derivations of the declarative rules and takes
+nothing from the candidate, with a non-vacuity witness and rejected forgeries,
+but its candidate fact set is Lean data, not Rust output. `artifact_certificates`
+now holds two ARTIFACT_CERTIFIED records, each over its own pair of exchange
+documents: the six-function document, once decoded in one declaration,
+exhausted the independent kernels, so the certificate covers `divided` and
+`overflowed` in one document and `excess` with `surplus` in another. The
+source freeze moved from `a08a0a133` to `7d73310d9`; see the log entry for the
+decision. Not reached: the connected milestone. The proofs cover the Lean
+lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
+Rust's execution of the IR rest on the two artifacts and the recorded runs.
+Next, in order: an exporter of the Rust checker's published facts into a closed
+fact document, so CERT-FACTS validates emitted facts and the facts and IR can be
+related; widen the lowered shape toward the milestone (mutable and record
+locals, Bool and Result control) with the same proof pattern; a parse and
+projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
+consistency theorem. The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom and all six fresh kernels
-accept it. The independent kernels hold the whole export in memory, so a
-certificate that evaluates a string literal or repeats a document decode can
-pass the bundled kernel and still exceed the paranoid check's address-space cap.
+accept it. The independent kernels hold the whole export in memory, and
+con-leche stops at the 8 GiB address-space cap: a single declaration that
+decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
+and 3.9 KB still failed con-leche, so the certified documents are 2.4 KB and
+3.9 KB. A certificate that evaluates a string literal or repeats a document
+decode can pass the bundled kernel and still exceed the cap.
 
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
@@ -28,38 +43,46 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 793
-fragment theorem roots across 92 owners, all `SPEC_PROVED` finite models of
+**State:** `formal/coverage.json` is the only inventory. It lists 826
+fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
 theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
 roots: they hold for the base expression machine, which is not the frozen
 core.
-`source_identity` records the frozen commit `a08a0a133` and its tree, and
-`finite_conformance.cases` holds the four Float equality tests and six
+`source_identity` records the frozen commit `7d73310d9` and its tree, and
+`finite_conformance.cases` holds the four Float equality tests and eight
 `formal_bridge/arithmetic.rs` tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. Each
+the pinned container. `artifact_certificates` holds two ARTIFACT_CERTIFIED
+records, apart from the fragment roots. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
 
 **Open items:**
 
-- BASE-VERTICAL stays planned. For one fixture
-  (`tests/fixtures/runtime/formal-bridge-integer-locals.xsh`, four functions
-  with one integer `let` and one binary return, two of them failing) a
-  test-only exporter and decoder (`formal_bridge/arithmetic.rs`) emit the real
-  compiler's lowering and `Xsh.Conformance.Vertical.Certificate` kernel-checks
-  that the source bytes parse in an independent Lean grammar, lower to exactly
-  the exchanged rows, mean the same as their IR, and match the recorded
-  outcomes. Left open: that grammar and lowerer are Lean's own and agree with
-  Rust only on this artifact (a universal lowering theorem and a source
-  admission proof do not exist); span words are read from the document; the IR
-  subset has no parameters, calls or control flow; no CERT-FACTS or
-  CERT-SOUND validator exists; and execution of the IR by Rust is evidence only
-  through the recorded run.
+- BASE-VERTICAL stays planned. Two fixtures
+  (`formal-bridge-integer-failures.xsh`: `divided` and `overflowed`, each with
+  one integer `let` and one binary return and each a specified failure; and
+  `formal-bridge-integer-calls.xsh`: `excess`, two integer parameters and a
+  conditional on a comparison, and `surplus`, a `let` and a call of `excess`) go
+  through a test-only exporter and decoder (`formal_bridge/arithmetic.rs`) that
+  emit the real compiler's lowering. `Xsh.Conformance.Vertical.Certificate` and
+  `...CallsCertificate` kernel-check that each source's bytes parse in an
+  independent Lean grammar, lower to exactly the exchanged rows, and match the
+  recorded outcomes; that the IR means what the source means follows from
+  `lowering_means_the_source`. Left open: that grammar and lowerer are Lean's
+  own and agree with Rust only on these artifacts (a source admission proof
+  does not exist, and the lowerer theorem is about the Lean lowerer); span
+  words are read from the document; the lowered shape has no loops, strings,
+  records, mutable locals or Bool and Result control, and a call to a function
+  with a let is outside it; the CERT-FACTS validator checks Lean-authored
+  candidate facts, because no exporter of the Rust checker's published facts
+  exists, and no CERT-SOUND validator exists; and execution of the IR by Rust is
+  evidence only through the recorded runs.
 - G1's base theorems cover the base machine only: integer expressions,
-  scalar literals, identifiers and one host request family (`time.now`). The
+  comparisons, conditionals and calls of let-free integer functions, scalar
+  literals, identifiers and one host request family (`time.now`). The
   machine has no assignment or declaration form, so typed store writes are
   proved on the environment API, not through machine steps. Float arithmetic
   and Float conversions are not modeled; the Float clauses state only exact
@@ -669,6 +692,58 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   arguments, and base-machine forms for call and conditional. Next probe:
   add one `ExprIf` function to the fixture and extend `BaseExpr` with a
   conditional in `Xsh.Semantics.BaseMachine`.
+
+- 2026-11-03: Freeze decision. G0b says to build a fresh matching pair before
+  any observation and not to let an old verification binary certify changed
+  source, and a correspondence claim is evidence only for the bytes it ran. The
+  slice could not keep `a08a0a133`: the two new bridge tests, the new
+  fixture files and the Lean document bytes do not exist there, so the old
+  `exported_documents_are_the_lean_certified_bytes` case compared Rust's export
+  with documents Lean no longer certifies, and keeping it would have asserted a
+  correspondence its binary never witnessed. Master had also moved 300 commits,
+  including the syntax removals and verifier work that the exporter runs
+  through. The freeze is `7d73310d9` (tree `04205824d`), the commit that landed the
+  bridge, the fixtures and the Lean documents together. In the pinned
+  container (`xsh-test`, `sha256:8ddba911cc1b`, two cargo jobs, fresh target
+  directory) a verification `xsh`/`xsht` pair built from it ran the four Float
+  tests, and the `xsh` library test binary ran each of the eight
+  `formal_bridge/arithmetic.rs` tests once, all passing. All ten earlier cases
+  were re-run, not carried over, and the ledger holds twelve. The Cargo runs
+  were not wrapped in `flock` on `gate-host.lock`, as before. The earlier
+  freeze is not a claim any more.
+- 2026-11-03: The vertical gained parameters, a call and a conditional.
+  `BaseExpr` has `compare`, `conditional` and `call`; a call substitutes the
+  evaluated integer arguments into a callee body checked to mention only its
+  parameters, and frames record the type they consume and produce. The reader
+  of the exchanged rows (`Xsh.Conformance.Vertical.Reading`) proves what each
+  expression row reads as. `lowering_means_the_source` proves the Lean lowerer
+  correct for the admitted shape by an invariant over the lowering state
+  (monotone tables, numbered blocks, aligned callee table) and a read lemma per
+  row form; it uses only `propext`, `Classical.choice` and `Quot.sound`. A call
+  lowers only to a function without a let, because the IR meaning reads a
+  callee as a body over its parameters. The parked checkpoint left
+  `mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run` failing:
+  it expected 0 for the reversed comparison on `excess(3, 9)`, and the
+  correct value is -6, so the test was wrong and was corrected.
+- 2026-11-03: CERT-FACTS. `Xsh.Conformance.Vertical.Facts` states the declarative
+  rules for the admitted productions (scheme, effects, resolved declarations,
+  selected operations, evaluation order), a checker for each construct, and
+  `validate_facts_iff`. It computes the facts from the parsed source and takes
+  nothing from the candidate. Function facts are a set keyed by name and node
+  order is evaluation order, which is how alternative listings are accepted.
+  Guards, nominal identity and module identity have no content in the admitted
+  productions. The witnesses are Lean data; the Rust exporter of published
+  facts is the next step. The obligation stays planned.
+- 2026-11-03: Independent kernels. The six-function document (8.3 KB) decoded
+  in one declaration failed lean4lean (deterministic timeout), con-ron (fuel,
+  then allocation) and con-leche (the 8 GiB address-space cap). Splitting it
+  into 4.6 KB and 3.9 KB documents satisfied the first two and not con-leche,
+  because the cap covers the whole export. Documents of 2.4 KB and 3.9 KB
+  passed all six kernels (`check-fresh.py`, about 8 minutes), the axiom audit
+  and its self-test pass, and so do the inventory checker and its 70 tests.
+  The combined six-function program remains the Rust-only fixture for the
+  corruption and mutation tests. The two success functions (`shifted`, `scaled`)
+  are no longer in a certified artifact.
 
 ## For the owner afterwards
 
