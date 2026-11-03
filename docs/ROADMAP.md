@@ -19,7 +19,7 @@ instructions, and open items.
 | 3 | Inference: general type, row, and effect inference | active | [full-inference-campaign.md](../full-inference-campaign.md) | Close the remaining verifier gaps and capability/corpus evidence. Performance work is deferred; resume from the campaign Status. |
 | 4 | Lean: connected compiler proof | holding, restart scheduled | [xsh-lean.md](../xsh-lean.md) | G0b, G1's base theorems and G1b's first certified vertical artifact landed 2026-10-29. Restarts from the live doc's next steps alongside row 9; see [Sequence](#sequence). |
 | 5 | Performance and deployment | paused | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | Paused on 2026-10-25. G0 defers its performance obligations. XSH-1, XSH-3, XSH-14 and XSH-19 stay open in [TODO.md](../TODO.md). |
-| 6 | Deser cutover | done, qualification open | [TODO.md](../TODO.md) | Correctness and platform qualification are open items there. |
+| 6 | Deser cutover | done, qualified on Linux | [SPEC](SPEC.md#structured-text-codecs), [DESIGN.md](DESIGN.md) | Qualified 2026-11-03 on `master`: Deser crate suites, codec, JSON, INI, CSV, TOML and YAML modules, and a full native run (15,243 passed, 11 host-environment failures that pass in the pinned `xsh-test` container, 152 skipped). Laputa's network plan input is the strict-consumer proof (former XSH-41): exact validation, with a related `require` repair here. Native macOS qualification is deferred by the owner; no macOS host is available. The S6 runtime, startup and build CPU-time slice is waived with the other performance work. |
 | 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | Reuse system-report for remote inspection and redacted diagnostics; the util-linux resource rerun remains XSH-1. |
 | 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | planned, after rows 3 and 6 | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | Starts when inference closes, Deser qualification closes and the worktree cleanup finishes; see [Sequence](#sequence). |
@@ -31,8 +31,8 @@ Lean's source-bound correspondence uses the qualified source available after
 the preceding work. Model proofs, finite witnesses, and Rust correspondence
 remain distinct evidence.
 
-The Deser cutover remains in place. Its performance thresholds are waived;
-outstanding correctness and platform qualification are not passes.
+The Deser cutover remains in place. Its performance thresholds are waived and
+native macOS qualification is deferred by the owner; neither is a pass.
 
 ## Next capability: SSH-native remote XSH
 

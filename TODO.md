@@ -14,8 +14,8 @@ The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
 items remain open. The performance/deployment and Lean campaigns retain their
 own pause/launch rules; this queue update resumes neither. The Deser
-codec cutover is accepted; its correctness and platform qualification remain
-open. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
+codec cutover is accepted and qualified on Linux; native macOS qualification
+is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
 which items block a release; performance and resource items such as XSH-1 and
 XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
 for a bounded fix; use the narrow applicable gate. Real-hardware enablement is
@@ -163,17 +163,6 @@ out of scope.
 - **Recommendation:** Select one counterexample from Laputa LAP-34. Use existing XSHT facilities to record necessary ordered boundary inputs/results and expected effects, then shrink the sequence to an ordinary native regression. Define input completeness, ordering and redaction. Add a minimal reusable test helper only if existing fixtures cannot express the case; no generic replay platform or campaign controller.
 - **Acceptance:** The reduced case reproduces offline, fails when the repaired invariant is deliberately broken, and rejects missing/mismatched observations rather than consulting the host. Test fixtures contain no secrets. Corroborate with the real guest; mock agreement does not establish OS conformance or power-loss durability.
 - **Fix with:** root-cause
-- **Effort:** M
-
-### XSH-41 · P3 · Qualify a strict configuration consumer after the Deser cutover
-
-- **Area:** Data boundaries
-- **Where:** `src/modules/json.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `tests/`
-- **Problem:** The accepted Deser cutover already owns direct values, the shared validator, explicit lexical typing and structured codec failures. A separate implementation here would duplicate that work; application-level configuration admission still needs a real consumer proof.
-- **Recommendation:** After the relevant campaign APIs land, qualify one Laputa service/network data schema using existing prepared schemas and exact validation. Keep trusted executable modules distinct from decoded data. Self-describing formats use decode plus validation; lexical CSV/INI conversions remain explicit as prescribed by the campaign. Reuse the canonical failure representation and preserve field paths; no second schema system or implicit coercion.
-- **Acceptance:** Unknown/duplicate fields, missing versus null values, invalid variants/ranges and unsupported representations fail before application. Valid common-domain inputs yield equivalent normalized values without claiming all formats are interchangeable. Report any necessary boundary repair to the campaign owner while it is active; do not widen its seven-codec inventory.
-- **Coordination:** Laputa LAP-5 owns the service schema and operational checks; its immediate unknown-field fix need not wait for Deser.
-- **Fix with:** single-source-of-truth
 - **Effort:** M
 
 ### XSH-44 · P3 · Connect one Lean semantic scenario to actual XSH execution
