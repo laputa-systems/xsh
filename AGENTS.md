@@ -22,6 +22,7 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | Topic | Owner |
 |---|---|
 | language, OS, streams, JSON, interactive behavior | [SPEC](docs/SPEC.md), [interactive SPEC](docs/SPEC-INTERACTIVE.md) |
+| native SSH and remote execution | [SSH](docs/ssh.md) |
 | API signatures and generated references | `xsht api`, [stdlib](docs/reference/stdlib.md), [CLI](docs/reference/cli.md), [grammar](docs/reference/grammar.md), [lints](docs/reference/lints.md) |
 | architecture, invariants, contribution and content tiers | [Architecture](docs/ARCHITECTURE.md) |
 | design principles and syntax rationale | [Design](docs/DESIGN.md) |
