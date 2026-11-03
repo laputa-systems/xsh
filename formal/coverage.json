@@ -11350,6 +11350,15 @@
       "status": "fragment",
       "scope": "Equal Rust type parameter ordinals in different body sites use the corresponding body-scoped mappings.",
       "boundary": "Mappings and body sites are supplied inputs. The emitted Rust document, source admission and complete candidate certificate remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_field_instance_has_typed_body",
+      "module": "Xsh.Conformance.Connected.FieldLink",
+      "declaration": "Xsh.Conformance.Connected.decoded_field_instance_has_typed_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked decoded field scheme and call instance yield source-generated qualified constraints and a typed concrete body.",
+      "boundary": "Expected source operations, selected target and name/type mappings are supplied inputs. Sparse expression/read facts, effect obligations, actual emitted bytes and generic-body typing remain unverified."
     }
   ],
   "artifact_certificates": [
