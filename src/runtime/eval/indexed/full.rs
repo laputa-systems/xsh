@@ -11056,7 +11056,7 @@ impl<'a> FullDecoder<'a> {
             stored = payload;
         }
         let record_read = matches!(expected, Type::Record(_)) && matches!(stored, Type::Record(_));
-        let payload_read = matches!(actual, Type::Optional(payload) if payload.as_ref() == expected) && !expected.may_hold_resource();
+        let payload_read = matches!(actual, Type::Optional(payload) if payload.as_ref() == expected) && (!expected.may_hold_resource() || matches!(expected, Type::Tag(_)));
         if !(record_read || payload_read) || actual.contains_inference() || actual.contains_recovery()
         { return Ok(false); }
         if let Some(prefix) = prefix {

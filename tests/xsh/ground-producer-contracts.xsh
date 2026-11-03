@@ -313,3 +313,51 @@ print f"{named} {positional} {absent} {nested}"
   assert output.success, output.stderr
   assert output.stdout == "true true false true\n"
 }
+
+test test_narrowed_optional_enum_field_of_a_pattern_binding_is_readable { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""enum Ordering: Str { Older = "lt", Same = "eq" }
+type Installed = {version: Str, ordering: Ordering?}
+enum State { Gone, There(Installed) }
+
+pure holds(o: Ordering) -> Bool {
+  o == .Same
+}
+
+pure classify(state: State) -> Str {
+  match state {
+    Gone => "gone"
+    There(installed) => {
+      if installed.ordering == null {
+        "none"
+      } else if holds(installed.ordering) {
+        "holds"
+      } else {
+        "no"
+      }
+    }
+  }
+}
+
+pure guarded(state: State) -> Bool {
+  match state {
+    Gone => false
+    There(installed) => {
+      guard installed.ordering != null else { return false }
+      holds(installed.ordering)
+    }
+  }
+}
+
+print classify(.Gone)
+print classify(.There(Installed(version: "1", ordering: null)))
+print classify(.There(Installed(version: "1", ordering: .Same)))
+print classify(.There(Installed(version: "1", ordering: .Older)))
+print guarded(.There(Installed(version: "1", ordering: .Same)))
+print guarded(.There(Installed(version: "1", ordering: null)))
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "gone\nnone\nholds\nno\ntrue\nfalse\n"
+}

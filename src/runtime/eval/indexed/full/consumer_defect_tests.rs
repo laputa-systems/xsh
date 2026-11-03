@@ -57,3 +57,40 @@ fn empty_list_reaches_an_optional_record_field_only_through_a_record_contract() 
         "contextual aggregate argument has an incompatible consumer contract",
     );
 }
+
+fn instruction_with_tag(program: &FullProgram, owner: usize, tag: FullTag, nth: usize) -> usize {
+    function_view_decoder(&program.store, owner)
+        .instruction_range
+        .clone()
+        .filter(|&instruction| program.store.tags[instruction] == tag)
+        .nth(nth)
+        .expect("fixture has the instruction")
+}
+
+const NARROWED_ENUM_FIELD: &str = "enum Ordering: Str { Older = \"lt\", Same = \"eq\" }\n\
+type Installed = {version: Str, ordering: Ordering?}\n\
+enum State { Gone, There(Installed) }\n\
+pure holds(o: Ordering) -> Bool { o == .Same }\n\
+pure classify(state: State) -> Bool {\n\
+  match state {\n\
+    Gone => false\n\
+    There(installed) => {\n\
+      if installed.ordering == null { false } else { holds(installed.ordering) }\n\
+    }\n\
+  }\n\
+}\n\
+assert classify(.Gone) == false\n";
+
+#[test]
+fn narrowed_enum_field_read_needs_its_dominating_null_test() {
+    let program = checked_program("narrowed-enum-field.xsh", NARROWED_ENUM_FIELD);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function_index(&program, "classify");
+    let null = instruction_with_tag(&program, owner, FullTag::ExprNull, 0);
+    let mut forged = program.clone();
+    forged.store.tags[null] = FullTag::ExprUnit;
+    assert_eq!(
+        FullVerifier::verify(&forged).unwrap_err().message,
+        "ground producer value disagrees with its checked contract",
+    );
+}
