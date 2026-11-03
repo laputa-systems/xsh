@@ -43,4 +43,4 @@ Tool configuration lives in `xsht-config.ini`; see
 
 ## License
 
-This repository does not currently include a license file.
+The repository has no project-wide license file. Bundled code may have its own licenses.
