@@ -10547,8 +10547,8 @@
       "declaration": "Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
-      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.validated_observation_is_a_machine_run",
@@ -10565,8 +10565,8 @@
       "declaration": "Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets and one return denotes a base-machine configuration, and the validator accepts an artifact only when every recorded observation agrees with that machine's completed outcome, a returned integer or one of the two specified arithmetic failures.",
-      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no calls, parameters, captures, floats, host requests, or control flow. It proves nothing about Rust's lowering or execution of the same rows."
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.the_admitted_productions_parse",
@@ -10574,7 +10574,7 @@
       "declaration": "Xsh.Conformance.Vertical.the_admitted_productions_parse",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The admitted source productions of the vertical fixture: integer functions with integer parameters or one integer let, whose one return is a value of at most one binary operation, a call of an earlier function on atoms, or an integer conditional on a comparison of atoms, read from exact source characters by an independent Lean tokenizer and parser.",
+      "scope": "The admitted source productions of the vertical fixture: integer functions with integer parameters or one integer let or var, an optional plain assignment to the var, whose one return is a value of at most one binary operation, a call of an earlier function on atoms, or an integer conditional on a comparison of atoms, read from exact source characters by an independent Lean tokenizer and parser.",
       "boundary": "The grammar is the Lean model's own for this subset. It is not shown equal to the XSH parser or grammar outside artifacts that name it; text outside the subset is refused, which says nothing about whether XSH accepts it."
     },
     {
@@ -10701,7 +10701,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For every list of parsed source functions in the admitted shape and every span words list, when the Lean lowerer succeeds the base-machine program each emitted function row denotes equals the program the source function denotes, function by function.",
-      "boundary": "A theorem about the Lean lowerer and the Lean source meaning. It does not show that Rust's lowerer emits the same rows on other programs, that Rust's parser reads the source as this tree, or that Rust executes the rows. A call to a function with a let is outside the lowered shape."
+      "boundary": "A theorem about the Lean lowerer and the Lean source meaning. It does not show that Rust's lowerer emits the same rows on other programs, that Rust's parser reads the source as this tree, or that Rust executes the rows. A call to a function with a let or a var is outside the lowered shape, as are compound assignments, which Rust lowers through another row family."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.lowers_to_means_the_source",
@@ -10727,7 +10727,7 @@
       "declaration": "Xsh.Conformance.Vertical.function_lowers",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Lowering one function appends one function row, keeps block numbering and callee alignment, and every extension of the resulting state reads that row as the function's source program.",
+      "scope": "Lowering one function, with or without a var and its assignment, appends one function row, keeps block numbering and callee alignment, and every extension of the resulting state reads that row as the function's source program.",
       "boundary": "Lean lowerer only."
     },
     {
@@ -10736,7 +10736,7 @@
       "declaration": "Xsh.Conformance.Vertical.expression_lowers",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Lowering a returned integer value, call or conditional yields a row that reads as the source expression in every extension of the resulting state.",
+      "scope": "Lowering a returned integer value, call, conditional or assigned-then-returned value yields a row that reads as the source expression in every extension of the resulting state.",
       "boundary": "Lean lowerer only."
     },
     {
@@ -10936,6 +10936,39 @@
       ],
       "proposition": "The source document parses in the admitted productions (`excess`, a function of two integer parameters that returns a conditional on a comparison of its parameters, and `surplus`, a function with one integer let that returns a call of `excess` on atoms); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `excess` on 12, 9 and on 3, 9 and of `surplus` end with 3, 0 and 3, recorded in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong branch, a wrong argument binding, a wrong recorded argument list, parameter count or callee, malformed blocks and call tables, a changed source, and a wrong lowering fail the same checks.",
       "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The artifact covers integer parameters, a direct call of an earlier let-free function and an integer conditional; it has no loops, strings, records, effects or recursion, and a call to a function with a let is outside the lowered shape."
+    },
+    {
+      "id": "artifact.integer-assignments",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.assignmentsSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.assignmentsRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.AssignmentsCertificate",
+      "certificate": "Xsh.Conformance.Vertical.assignments_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.assignments_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.assignments_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_assignments_source_parses_to_the_assignments_functions",
+        "Xsh.Conformance.Vertical.the_assignments_functions_lower_to_the_assignments_artifact",
+        "Xsh.Conformance.Vertical.the_assignments_artifact_validates",
+        "Xsh.Conformance.Vertical.the_assignments_functions_mean_the_same_as_the_assignments_artifact",
+        "Xsh.Conformance.Vertical.the_assignments_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.assignments_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_assignments_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_assigned_operation_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_assignment_is_rejected",
+        "Xsh.Conformance.Vertical.the_rejected_assignment_mutations_mean_something_else",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_assignment_result_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_assignments_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_assignments_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (`scaled`, a function with one integer var, a plain assignment of an arithmetic value to it, and a returned arithmetic value over it; and `wrapped`, whose assignment overflows); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the two recorded calls end with 31 (the var holds 5, the assignment makes it 30, the return adds 1) and an integer-overflow failure raised by the assignment, in that order. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong assigned operation, value, target, assignment word, slot read, operand row or dropped assignment statement, a wrong recorded result, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The assignment is run by the base machine against the store as it stands and its result replaces the var's value (`Assignment.settle?`), a definitional model of the store write; typed store writes are proved on the environment API, not through machine steps. The artifact covers one var without parameters, one plain assignment (compound assignments lower through another row family and are outside the shape) and no loops, strings, records, effects or recursion. CERT-FACTS does not cover assignments: the fact rules give a function with an assignment no facts."
     },
     {
       "id": "artifact.checked-facts",

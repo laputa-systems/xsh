@@ -53,6 +53,18 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
       some (.conditional (comparison.expression (← left.expression? scope)
           (← right.expression? scope))
         (← thenValue.expression? scope) (← elseValue.expression? scope))
+  | .assigned _ _ result => result.expression? scope
+
+/-- The assignment a function's returned form carries, as the base machine would run it: it must
+assign the function's one let, and its value is read in the function's scope. -/
+def SourceFunction.assignment? (function : SourceFunction) (scope : List (String × Nat)) :
+    Option (Option Assignment) :=
+  match function.lets, function.result with
+  | [(name, _)], .assigned target value _ => do
+      if target == name then pure () else none
+      some (some (⟨⟨letSlot, by decide⟩, ← value.expression? scope⟩ : Assignment))
+  | _, .assigned _ _ _ => none
+  | _, _ => some none
 
 /-- The base-machine program a source function denotes, straight from the parsed tree. -/
 def SourceFunction.program? (callees : List (String × Option Callee)) (function : SourceFunction) :
@@ -64,8 +76,9 @@ def SourceFunction.program? (callees : List (String × Option Callee)) (function
         let bound ← validateInt? value
         some [(⟨⟨letSlot, by decide⟩, bound⟩ : LetBinding)]
     | _ => none
+  let assignment ← function.assignment? scope
   let expression ← function.result.expression? callees scope
-  some ⟨function.parameters.length, bindings, expression⟩
+  some ⟨function.parameters.length, bindings, assignment, expression⟩
 
 def sourceStep (state : List (String × Option Callee) × List (Option FunctionProgram))
     (function : SourceFunction) : List (String × Option Callee) × List (Option FunctionProgram) :=
@@ -162,6 +175,44 @@ def Lower.valueBlock (owner : BridgeId) (scope : List (String × Nat)) (value : 
   let span ← Lower.takeSpan
   Lower.pushRow .exprValueBlock [block.raw, span]
 
+/-- An atom of the typed integer family that assignments use. -/
+def Lower.intAtom (scope : List (String × Nat)) : SourceAtom → Lower Word32
+  | .int value => do Lower.pushRow .intInt (← Lower.literalWords value)
+  | .var name => do
+      let slot ← Lower.lift (scope.lookup name)
+      Lower.pushRow .intSlot [← Lower.word slot]
+
+def Lower.intValue (scope : List (String × Nat)) : SourceValue → Lower Word32
+  | .atom single => Lower.intAtom scope single
+  | .binary op left right => do
+      Lower.require (!op.isComparison)
+      let leftRow ← Lower.intAtom scope left
+      let rightRow ← Lower.intAtom scope right
+      let operation ← Lower.operationIndex op
+      Lower.pushRow .intBinary [operation, leftRow, rightRow]
+
+/-- The assignment statement of a function's var: its value in the integer family, then the
+statement with the slot, the plain-assignment word and the span. -/
+def Lower.assignment (scope : List (String × Nat)) (target : String) (value : SourceValue) :
+    Lower Word32 := do
+  let slot ← Lower.lift (scope.lookup target)
+  let valueRow ← Lower.intValue scope value
+  let span ← Lower.takeSpan
+  Lower.pushRow .stmtAssignInt [← Lower.word slot, 0, valueRow, span]
+
+/-- The assignment statement a function's returned form carries, if it carries one: it must
+assign the function's one var. -/
+def Lower.assignments (name : String) (scope : List (String × Nat)) :
+    SourceExpression → Lower (List Word32)
+  | .assigned target value _ => do
+      Lower.require (target == name)
+      pure [← Lower.assignment scope target value]
+  | _ => pure []
+
+def SourceExpression.isAssigned : SourceExpression → Bool
+  | .assigned _ _ _ => true
+  | _ => false
+
 def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
     SourceExpression → Lower Word32
   | .value value => Lower.value scope value
@@ -184,6 +235,7 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
       let elseRow ← Lower.valueBlock owner scope elseValue
       let span ← Lower.takeSpan
       Lower.pushRow .exprIf [table.raw, elseRow, span]
+  | .assigned _ _ result => Lower.value scope result
 
 /-- The rows after a function's let statements: the rows of its returned expression, the
 return, its body block, and its function row. -/
@@ -210,11 +262,15 @@ def Lower.function (function : SourceFunction) : Lower Unit := do
   let owner ← Lower.lift (BridgeId.fromIndex? before.functions.length)
   let parametersStart := (before.functions.map (·.paramsLen.val)).sum
   match function.lets with
-  | [] => Lower.functionTail function scope owner before.functions.length parametersStart []
-  | [(_, value)] => do
+  | [] => do
+      Lower.require (!function.result.isAssigned)
+      Lower.functionTail function scope owner before.functions.length parametersStart []
+  | [(name, value)] => do
       let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
       let binding ← Lower.pushRow .stmtLetInt [← Lower.word letSlot, literal]
-      Lower.functionTail function scope owner before.functions.length parametersStart [binding]
+      let assigned ← Lower.assignments name scope function.result
+      Lower.functionTail function scope owner before.functions.length parametersStart
+        (binding :: assigned)
   | _ => Lower.fail
 
 def lowerFunctions (spans : List Word32) (functions : List SourceFunction) :
@@ -238,7 +294,9 @@ def spanWords (artifact : RawArtifact) : List Word32 :=
     | .exprValueBlock => word 1
     | .exprIf => word 2
     | .exprDirectPureCall => word 2
-    | .intInt | .stmtLetInt | .exprInt | .exprParam | .stmtReturn | .stmtValue => none
+    | .stmtAssignInt => word 3
+    | .intInt | .stmtLetInt | .exprInt | .exprParam | .stmtReturn | .stmtValue | .intSlot
+    | .intBinary => none
 
 /-- A source function agrees with the artifact on the given arguments when it and the function
 of that name have the same defined outcome there, under the source tree and under the IR. -/

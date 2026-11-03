@@ -15,10 +15,13 @@ enum ProjectedTag {
     ExprValueBlock,
     ExprIf,
     ExprDirectPureCall,
+    IntSlot,
+    IntBinary,
+    StmtAssignInt,
 }
 
 impl ProjectedTag {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 13] = [
         Self::IntInt,
         Self::StmtLetInt,
         Self::ExprInt,
@@ -29,6 +32,9 @@ impl ProjectedTag {
         Self::ExprValueBlock,
         Self::ExprIf,
         Self::ExprDirectPureCall,
+        Self::IntSlot,
+        Self::IntBinary,
+        Self::StmtAssignInt,
     ];
 
     fn from_full_tag(tag: FullTag) -> Option<Self> {
@@ -47,6 +53,9 @@ impl ProjectedTag {
             Self::ExprValueBlock => FullTag::ExprValueBlock,
             Self::ExprIf => FullTag::ExprIf,
             Self::ExprDirectPureCall => FullTag::ExprDirectPureCall,
+            Self::IntSlot => FullTag::IntSlot,
+            Self::IntBinary => FullTag::IntBinary,
+            Self::StmtAssignInt => FullTag::StmtAssignInt,
         }
     }
 
@@ -68,9 +77,9 @@ impl ProjectedTag {
     fn payload_words(self) -> usize {
         match self {
             Self::IntInt | Self::StmtLetInt | Self::ExprInt | Self::ExprValueBlock => 2,
-            Self::ExprParam | Self::StmtReturn | Self::StmtValue => 1,
-            Self::ExprIf | Self::ExprDirectPureCall => 3,
-            Self::ExprBinary => 4,
+            Self::ExprParam | Self::StmtReturn | Self::StmtValue | Self::IntSlot => 1,
+            Self::ExprIf | Self::ExprDirectPureCall | Self::IntBinary => 3,
+            Self::ExprBinary | Self::StmtAssignInt => 4,
         }
     }
 
@@ -86,8 +95,15 @@ impl ProjectedTag {
         )
     }
 
+    fn is_int_row(self) -> bool {
+        matches!(self, Self::IntInt | Self::IntSlot | Self::IntBinary)
+    }
+
     fn is_statement(self) -> bool {
-        matches!(self, Self::StmtLetInt | Self::StmtReturn | Self::StmtValue)
+        matches!(
+            self,
+            Self::StmtLetInt | Self::StmtReturn | Self::StmtValue | Self::StmtAssignInt
+        )
     }
 }
 
@@ -316,6 +332,25 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
                     if !document.row_before(operand, index)?.tag.is_expression() {
                         return Err("binary operand is not an expression row".to_string());
                     }
+                }
+            }
+            ProjectedTag::IntSlot => {}
+            ProjectedTag::IntBinary => {
+                if words[0] as usize >= document.binary_ops.len() {
+                    return Err("integer operation index is outside the operation pool".to_string());
+                }
+                for operand in [words[1], words[2]] {
+                    if !document.row_before(operand, index)?.tag.is_int_row() {
+                        return Err("integer operand is not an integer row".to_string());
+                    }
+                }
+            }
+            ProjectedTag::StmtAssignInt => {
+                if words[1] != 0 {
+                    return Err("an integer assignment is not a plain assignment".to_string());
+                }
+                if !document.row_before(words[2], index)?.tag.is_int_row() {
+                    return Err("assigned value is not an integer row".to_string());
                 }
             }
             ProjectedTag::StmtReturn | ProjectedTag::StmtValue => {
@@ -886,6 +921,16 @@ mod tests {
         "/tests/fixtures/runtime/formal-bridge-integer-calls.xsh"
     ));
 
+    const ASSIGNMENTS_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-integer-assignments.xsh"
+    ));
+
+    const ASSIGNMENTS_SCHEDULE: [ScheduledCall; 2] = [
+        ScheduledCall { function: "scaled", arguments: &[] },
+        ScheduledCall { function: "wrapped", arguments: &[] },
+    ];
+
     const CALLS_SCHEDULE: [ScheduledCall; 3] = [
         ScheduledCall { function: "excess", arguments: &[12, 9] },
         ScheduledCall { function: "excess", arguments: &[3, 9] },
@@ -944,10 +989,17 @@ mod tests {
     fn exported_documents_are_the_lean_certified_bytes() {
         let failures = fixture_of(FAILURES_SOURCE.to_string(), &FAILURES_SCHEDULE);
         let calls = fixture_of(CALLS_SOURCE.to_string(), &CALLS_SCHEDULE);
+        let assignments = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
             (&calls, &CALLS_SCHEDULE[..], "callsSourceDocumentCodes", "callsRawIrDocumentCodes"),
+            (
+                &assignments,
+                &ASSIGNMENTS_SCHEDULE[..],
+                "assignmentsSourceDocumentCodes",
+                "assignmentsRawIrDocumentCodes",
+            ),
         ] {
             let source_text = encode_source_document(&fixture.source);
             let raw_text = encode_arithmetic_document(&fixture.document).unwrap();
@@ -1045,6 +1097,152 @@ mod tests {
         assert_eq!(table[0], 2);
         assert_eq!(document.rows[table[2] as usize].tag, ProjectedTag::ExprParam);
         assert_eq!(document.rows[table[4] as usize].tag, ProjectedTag::ExprInt);
+    }
+
+    #[test]
+    fn exported_assignment_rows_are_the_typed_integer_family() {
+        let fixture = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
+        let document = &fixture.document;
+        let scaled = function_body_statements(&fixture, "scaled");
+        assert_eq!(scaled.len(), 3);
+        assert_eq!(document.rows[scaled[0]].tag, ProjectedTag::StmtLetInt);
+        assert_eq!(document.rows[scaled[1]].tag, ProjectedTag::StmtAssignInt);
+        assert_eq!(document.rows[scaled[2]].tag, ProjectedTag::StmtReturn);
+        let let_slot = document.payload(&document.rows[scaled[0]]).unwrap()[0];
+        let assignment = document.payload(&document.rows[scaled[1]]).unwrap();
+        assert_eq!((assignment[0], assignment[1]), (let_slot, 0));
+        let value = document.rows[assignment[2] as usize];
+        assert_eq!(value.tag, ProjectedTag::IntBinary);
+        let binary = document.payload(&value).unwrap();
+        assert_eq!(document.binary_ops[binary[0] as usize], ProjectedOp::Mul);
+        assert_eq!(document.rows[binary[1] as usize].tag, ProjectedTag::IntSlot);
+        assert_eq!(document.payload(&document.rows[binary[1] as usize]).unwrap(), [let_slot]);
+        assert_eq!(document.rows[binary[2] as usize].tag, ProjectedTag::IntInt);
+        let returned = document.payload(&document.rows[scaled[2]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprBinary);
+        assert_eq!(
+            document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(31), Outcome::Failure(ProjectedFailure::IntegerOverflow)]
+        );
+    }
+
+    #[test]
+    fn structurally_malformed_assignments_are_rejected() {
+        let fixture = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
+        let assignment_row = fixture
+            .document
+            .rows
+            .iter()
+            .position(|row| row.tag == ProjectedTag::StmtAssignInt)
+            .unwrap();
+        let reject = |name: &str, mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err(), "{name} must be rejected");
+        };
+        let word = |document: &ArithmeticDocument, offset: usize| {
+            document.rows[assignment_row].lhs as usize + offset
+        };
+        reject("a compound assignment word", &|document| {
+            let at = word(document, 1);
+            document.extra[at] = 1;
+        });
+        reject("an assigned value that is an expression row", &|document| {
+            let at = word(document, 2);
+            document.extra[at] = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::ExprInt)
+                .unwrap() as u32;
+        });
+        reject("an assigned value that does not precede the assignment", &|document| {
+            let at = word(document, 2);
+            document.extra[at] = assignment_row as u32;
+        });
+        reject("an integer operand that is an expression row", &|document| {
+            let binary = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::IntBinary)
+                .unwrap();
+            let at = document.rows[binary].lhs as usize + 1;
+            document.extra[at] = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::ExprInt)
+                .unwrap() as u32;
+        });
+        reject("an integer operation outside the pool", &|document| {
+            let binary = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::IntBinary)
+                .unwrap();
+            let at = document.rows[binary].lhs as usize;
+            document.extra[at] = 99;
+        });
+        reject("an assignment that is not a function statement", &|document| {
+            let block = document.blocks[0];
+            let at = block.start as usize + 2;
+            document.extra[at] = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::IntSlot)
+                .unwrap() as u32;
+        });
+    }
+
+    #[test]
+    fn mutated_assignments_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
+        let check = |program: &FullProgram| {
+            check_artifact_against_program(
+                &fixture.document,
+                program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                &ASSIGNMENTS_SCHEDULE,
+            )
+        };
+        assert!(check(&fixture.program).is_ok());
+
+        let mut wrong_operation = fixture.program.clone();
+        let multiply = wrong_operation
+            .store
+            .binary_ops
+            .iter()
+            .position(|op| *op == BinaryOp::Mul)
+            .unwrap();
+        wrong_operation.store.binary_ops[multiply] = BinaryOp::Sub;
+        FullVerifier::verify(&wrong_operation).expect("the subtraction is still well typed");
+        assert_eq!(
+            execute_schedule(&wrong_operation, &fixture.sources, &ASSIGNMENTS_SCHEDULE).unwrap()[0]
+                .outcome,
+            Outcome::Value(0)
+        );
+        assert!(check(&wrong_operation).is_err());
+
+        let mut swapped_operands = fixture.program.clone();
+        let binary = payload_start(&swapped_operands, FullTag::IntBinary, 0);
+        swapped_operands.store.extra.swap(binary + 1, binary + 2);
+        assert!(check(&swapped_operands).is_err());
+
+        let mut assigned_literal = fixture.program.clone();
+        let assignment = payload_start(&assigned_literal, FullTag::StmtAssignInt, 0);
+        let literal_row = assigned_literal
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::IntInt)
+            .unwrap() as u32;
+        assigned_literal.store.extra[assignment + 2] = literal_row;
+        assert!(FullVerifier::verify(&assigned_literal).is_err());
+        assert!(check(&assigned_literal).is_err());
+
+        let mut wrong_slot = fixture.program.clone();
+        let assignment = payload_start(&wrong_slot, FullTag::StmtAssignInt, 0);
+        wrong_slot.store.extra[assignment] = 0;
+        assert!(check(&wrong_slot).is_err());
     }
 
     #[test]

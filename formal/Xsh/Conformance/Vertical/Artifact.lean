@@ -35,13 +35,16 @@ inductive FragmentTag where
   | exprValueBlock
   | exprIf
   | exprDirectPureCall
+  | intSlot
+  | intBinary
+  | stmtAssignInt
   deriving DecidableEq, Repr
 
 namespace FragmentTag
 
 def all : List FragmentTag :=
   [intInt, stmtLetInt, exprInt, exprParam, exprBinary, stmtReturn, stmtValue, exprValueBlock,
-    exprIf, exprDirectPureCall]
+    exprIf, exprDirectPureCall, intSlot, intBinary, stmtAssignInt]
 
 def name : FragmentTag → String
   | intInt => "IntInt"
@@ -54,6 +57,9 @@ def name : FragmentTag → String
   | exprValueBlock => "ExprValueBlock"
   | exprIf => "ExprIf"
   | exprDirectPureCall => "ExprDirectPureCall"
+  | intSlot => "IntSlot"
+  | intBinary => "IntBinary"
+  | stmtAssignInt => "StmtAssignInt"
 
 def word : FragmentTag → Word32
   | intInt => ⟨0, by decide⟩
@@ -66,12 +72,15 @@ def word : FragmentTag → Word32
   | exprValueBlock => ⟨73, by decide⟩
   | exprIf => ⟨34, by decide⟩
   | exprDirectPureCall => ⟨109, by decide⟩
+  | intSlot => ⟨1, by decide⟩
+  | intBinary => ⟨2, by decide⟩
+  | stmtAssignInt => ⟨124, by decide⟩
 
 def payloadWords : FragmentTag → Nat
   | intInt | stmtLetInt | exprInt | exprValueBlock => 2
-  | exprParam | stmtReturn | stmtValue => 1
-  | exprIf | exprDirectPureCall => 3
-  | exprBinary => 4
+  | exprParam | stmtReturn | stmtValue | intSlot => 1
+  | exprIf | exprDirectPureCall | intBinary => 3
+  | exprBinary | stmtAssignInt => 4
 
 def ofName? (text : String) : Option FragmentTag := all.find? fun tag => tag.name == text
 

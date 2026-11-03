@@ -143,6 +143,24 @@ def expression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
           | [] => none
       | _, _ => none
 
+/-- An integer row of the typed family that assignments use: a literal, a slot, or an arithmetic
+operation on two earlier integer rows. The operation must be arithmetic. -/
+def intExpression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
+  | 0, _ => none
+  | fuel + 1, index => do
+      let (tag, payload) ← readInstruction? context.tables index
+      match tag, payload with
+      | .intInt, [low, high] => some (.integerLiteral (signedOfWords low high))
+      | .intSlot, [slot] => some (.identifier (NameId.mk slot))
+      | .intBinary, [op, left, right] => do
+          check (decide (left.val < index.val) && decide (right.val < index.val))
+          let operation ← context.ops[op.val]?
+          check (!operation.isComparison)
+          let leftExpression ← intExpression? context fuel left
+          let rightExpression ← intExpression? context fuel right
+          some (operation.expression leftExpression rightExpression)
+      | _, _ => none
+
 structure LetBinding where
   slot : Word32
   value : IntValue
@@ -156,24 +174,42 @@ def literalOf : FragmentTag → List Word32 → Option IntValue
 def literalValue? (context : MeaningContext) (row : Word32) : Option IntValue :=
   (readInstruction? context.tables row).bind fun instruction => literalOf instruction.1 instruction.2
 
-/-- A function body is zero or more `StmtLetInt` of an `IntInt` literal on distinct slots,
-then one `StmtReturn` of an expression. Every statement refers only to earlier rows. -/
+/-- An assignment of an integer expression to a let slot. -/
+structure Assignment where
+  slot : Word32
+  expression : BaseExpr
+
+/-- The expression a `StmtReturn` row returns, which must come from an earlier row. -/
+def returnExpression? (context : MeaningContext) (statement : Word32) : Option BaseExpr := do
+  match ← readInstruction? context.tables statement with
+  | (.stmtReturn, [operand]) => do
+      check (decide (operand.val < statement.val))
+      expression? context (context.tables.tags.size + 1) operand
+  | _ => none
+
+/-- A function body is zero or more `StmtLetInt` of an `IntInt` literal on distinct slots, at most
+one `StmtAssignInt` of a plain integer value, then one `StmtReturn` of an expression. Every
+statement refers only to earlier rows. -/
 def body? (context : MeaningContext) :
-    List Word32 → Option (List LetBinding × BaseExpr)
+    List Word32 → Option (List LetBinding × Option Assignment × BaseExpr)
   | [] => none
   | statement :: rest => do
       let (tag, payload) ← readInstruction? context.tables statement
       match tag, payload, rest with
-      | .stmtReturn, [operand], [] => do
-          check (decide (operand.val < statement.val))
-          let result ← expression? context (context.tables.tags.size + 1) operand
-          some ([], result)
+      | .stmtReturn, [_], [] => do
+          let result ← returnExpression? context statement
+          some ([], none, result)
+      | .stmtAssignInt, [slot, kind, valueRow, _], [returned] => do
+          check (kind.val == 0 && decide (valueRow.val < statement.val))
+          let value ← intExpression? context (context.tables.tags.size + 1) valueRow
+          let result ← returnExpression? context returned
+          some ([], some ⟨slot, value⟩, result)
       | .stmtLetInt, [slot, valueRow], _ :: _ => do
           check (decide (valueRow.val < statement.val))
           let value ← literalValue? context valueRow
-          let (bindings, result) ← body? context rest
+          let (bindings, assignment, result) ← body? context rest
           check (!bindings.any (fun binding => binding.slot.val == slot.val))
-          some (⟨slot, value⟩ :: bindings, result)
+          some (⟨slot, value⟩ :: bindings, assignment, result)
       | _, _, _ => none
 
 /-- The statements of a function's body block: the block must be owned by the function and
@@ -195,6 +231,7 @@ parameters is not among the observed rows. -/
 structure FunctionProgram where
   parameters : Nat
   bindings : List LetBinding
+  assignment : Option Assignment
   expression : BaseExpr
 
 def RawArtifact.context (artifact : RawArtifact) (callees : List (Option Callee)) :
@@ -204,12 +241,14 @@ def RawArtifact.context (artifact : RawArtifact) (callees : List (Option Callee)
 def functionProgram? (artifact : RawArtifact) (callees : List (Option Callee))
     (function : FunctionRow) : Option FunctionProgram := do
   let statements ← statementRows? artifact artifact.tables function
-  let (bindings, expression) ← body? (artifact.context callees) statements
+  let (bindings, assignment, expression) ← body? (artifact.context callees) statements
   check (function.paramsLen.val == 0 || bindings.isEmpty)
-  pure ⟨function.paramsLen.val, bindings, expression⟩
+  pure ⟨function.paramsLen.val, bindings, assignment, expression⟩
 
 def FunctionProgram.callee? (program : FunctionProgram) : Option Callee :=
-  if program.bindings.isEmpty then some ⟨program.parameters, program.expression⟩ else none
+  if program.bindings.isEmpty && program.assignment.isNone then
+    some ⟨program.parameters, program.expression⟩
+  else none
 
 /-- The programs of the functions in table order; a call may name only a function before the
 caller, so a function reads against the callees of the functions already read. -/
@@ -251,22 +290,53 @@ def FunctionProgram.expressionAt (program : FunctionProgram) (arguments : List I
   else .call (parameterNames program.parameters) program.expression
     (arguments.map BaseExpr.integerLiteral)
 
-def FunctionProgram.machine (program : FunctionProgram) (arguments : List Int) : MachineConfig :=
-  machineOf program.bindings (program.expressionAt arguments)
+def FunctionProgram.machineWith (program : FunctionProgram) (bindings : List LetBinding)
+    (arguments : List Int) : MachineConfig :=
+  machineOf bindings (program.expressionAt arguments)
 
 def runBudget : Nat := 128
 
+/-- The bindings after an assignment: its right-hand side runs on the base machine in the store as
+it stands, and the target slot takes the integer the run completes with. An arithmetic fault ends
+the function with that failure. A right-hand side that completes with anything else, and a target
+no binding holds, have no settled bindings. -/
+def Assignment.settle? (assignment : Assignment) (bindings : List LetBinding) :
+    Option (Except FragmentFailure (List LetBinding)) :=
+  if bindings.any (fun binding => binding.slot == assignment.slot) then
+    match runFuel runBudget (machineOf bindings assignment.expression) with
+    | .completed (.value value) =>
+        (integerPayload? value).map fun result =>
+          .ok (bindings.map fun binding =>
+            if binding.slot == assignment.slot then ⟨binding.slot, result⟩ else binding)
+    | .completed (.fault (.arithmetic .divisionByZero)) => some (.error .divisionByZero)
+    | .completed (.fault (.arithmetic .overflow)) => some (.error .integerOverflow)
+    | _ => none
+  else none
+
+/-- The bindings the returned expression runs against: the declared ones, or those the function's
+one assignment leaves. -/
+def FunctionProgram.settled? (program : FunctionProgram) :
+    Option (Except FragmentFailure (List LetBinding)) :=
+  match program.assignment with
+  | none => some (.ok program.bindings)
+  | some assignment => assignment.settle? program.bindings
+
 /-- The outcome the base machine completes with: an integer, or one of the two specified
-arithmetic failures. Other faults, host requests and fuel exhaustion are not outcomes of this
-subset, and neither is a call with the wrong number of arguments. -/
+arithmetic failures, raised by the assignment or by the returned expression. Other faults, host
+requests and fuel exhaustion are not outcomes of this subset, and neither is a call with the
+wrong number of arguments. -/
 def FunctionProgram.outcome? (program : FunctionProgram) (arguments : List Int) :
     Option FunctionOutcome :=
   if arguments.length == program.parameters then
-    match runFuel runBudget (program.machine arguments) with
-    | .completed (.value value) => (integerPayload? value).map fun result => .value result.val
-    | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
-    | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
-    | _ => none
+    match program.settled? with
+    | some (.ok bindings) =>
+        match runFuel runBudget (program.machineWith bindings arguments) with
+        | .completed (.value value) => (integerPayload? value).map fun result => .value result.val
+        | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
+        | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
+        | _ => none
+    | some (.error kind) => some (.failure kind)
+    | none => none
   else
     none
 
@@ -304,6 +374,11 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
           | .exprValueBlock, _ => expressionAt word
           | .exprIf, _ => expressionAt word
           | .exprDirectPureCall, _ => expressionAt word
+          | .intSlot, _ => true
+          | .intBinary, _ => (intExpression? context (tables.tags.size + 1) word).isSome
+          | .stmtAssignInt, [_, kind, valueRow, _] =>
+              kind.val == 0 && decide (valueRow.val < index) &&
+                (intExpression? context (tables.tags.size + 1) valueRow).isSome
           | .stmtReturn, [operand] => decide (operand.val < index) && expressionAt operand
           | .stmtValue, [operand] => decide (operand.val < index) && expressionAt operand
           | .stmtLetInt, [_, valueRow] =>
@@ -400,40 +475,88 @@ theorem certify_sound {sourceText rawText : ExchangeCodes}
             · simp [sourceDecoded, rawDecoded, associated, valid] at certified
           · simp [sourceDecoded, rawDecoded, associated] at certified
 
-/-- A program outcome is exactly a completed base machine run: an integer value, or one of
-the two specified arithmetic faults. -/
-theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
-    {arguments : List Int} {outcome : FunctionOutcome}
-    (result : program.outcome? arguments = some outcome) :
-    (∃ final value, runFuel runBudget (program.machine arguments) = .completed (.value final) ∧
-      integerPayload? final = some value ∧ outcome = .value value.val) ∨
-    (∃ kind, runFuel runBudget (program.machine arguments) =
-        .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) := by
-  unfold FunctionProgram.outcome? at result
-  split at result
-  · cases run : runFuel runBudget (program.machine arguments) with
+theorem settle_error_is_a_machine_fault {assignment : Assignment} {bindings : List LetBinding}
+    {kind : FragmentFailure}
+    (settled : assignment.settle? bindings = some (.error kind)) :
+    runFuel runBudget (machineOf bindings assignment.expression) =
+      .completed (.fault (.arithmetic kind.fault)) := by
+  unfold Assignment.settle? at settled
+  split at settled
+  · cases run : runFuel runBudget (machineOf bindings assignment.expression) with
     | completed completed =>
-        rw [run] at result
+        rw [run] at settled
         cases completed with
-        | value final =>
-            cases payload : integerPayload? final with
-            | none => simp [payload] at result
-            | some value =>
-                simp only [payload, Option.map_some, Option.some.injEq] at result
-                exact .inl ⟨final, value, rfl, payload, result.symm⟩
+        | value final => cases payload : integerPayload? final <;> simp [payload] at settled
         | fault fault =>
-            cases fault <;> try (simp at result; done)
+            cases fault <;> try (simp at settled; done)
             rename_i arithmetic
             cases arithmetic with
             | overflow =>
-                simp only [Option.some.injEq] at result
-                exact .inr ⟨.integerOverflow, rfl, result.symm⟩
+                simp only [Option.some.injEq, Except.error.injEq] at settled
+                subst settled; rfl
             | divisionByZero =>
-                simp only [Option.some.injEq] at result
-                exact .inr ⟨.divisionByZero, rfl, result.symm⟩
-    | hostRequest waiting => rw [run] at result; simp at result
-    | outOfFuel => rw [run] at result; simp at result
-    | internalStuck => rw [run] at result; simp at result
+                simp only [Option.some.injEq, Except.error.injEq] at settled
+                subst settled; rfl
+    | hostRequest waiting => rw [run] at settled; simp at settled
+    | outOfFuel => rw [run] at settled; simp at settled
+    | internalStuck => rw [run] at settled; simp at settled
+  · simp at settled
+
+/-- A program outcome is exactly a completed base machine run: an integer value or one of the
+two specified arithmetic faults of the returned expression, run against the settled bindings, or
+the same fault raised by the assignment's right-hand side. -/
+theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
+    {arguments : List Int} {outcome : FunctionOutcome}
+    (result : program.outcome? arguments = some outcome) :
+    (∃ bindings final value, program.settled? = some (.ok bindings) ∧
+      runFuel runBudget (program.machineWith bindings arguments) = .completed (.value final) ∧
+      integerPayload? final = some value ∧ outcome = .value value.val) ∨
+    (∃ bindings kind, program.settled? = some (.ok bindings) ∧
+      runFuel runBudget (program.machineWith bindings arguments) =
+        .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) ∨
+    (∃ assignment kind, program.assignment = some assignment ∧
+      runFuel runBudget (machineOf program.bindings assignment.expression) =
+        .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) := by
+  unfold FunctionProgram.outcome? at result
+  split at result
+  · cases settled : program.settled? with
+    | none => simp [settled] at result
+    | some settledBindings =>
+      rw [settled] at result
+      cases settledBindings with
+      | error kind =>
+          simp only [Option.some.injEq] at result
+          cases assignmentCase : program.assignment with
+          | none => simp [FunctionProgram.settled?, assignmentCase] at settled
+          | some assignment =>
+              simp only [FunctionProgram.settled?, assignmentCase] at settled
+              exact .inr (.inr ⟨assignment, kind, rfl, settle_error_is_a_machine_fault settled,
+                result.symm⟩)
+      | ok bindings =>
+          dsimp only at result
+          cases run : runFuel runBudget (program.machineWith bindings arguments) with
+          | completed completed =>
+              rw [run] at result
+              cases completed with
+              | value final =>
+                  cases payload : integerPayload? final with
+                  | none => simp [payload] at result
+                  | some value =>
+                      simp only [payload, Option.map_some, Option.some.injEq] at result
+                      exact .inl ⟨bindings, final, value, rfl, run, payload, result.symm⟩
+              | fault fault =>
+                  cases fault <;> try (simp at result; done)
+                  rename_i arithmetic
+                  cases arithmetic with
+                  | overflow =>
+                      simp only [Option.some.injEq] at result
+                      exact .inr (.inl ⟨bindings, .integerOverflow, rfl, run, result.symm⟩)
+                  | divisionByZero =>
+                      simp only [Option.some.injEq] at result
+                      exact .inr (.inl ⟨bindings, .divisionByZero, rfl, run, result.symm⟩)
+          | hostRequest waiting => rw [run] at result; simp at result
+          | outOfFuel => rw [run] at result; simp at result
+          | internalStuck => rw [run] at result; simp at result
   · simp at result
 
 /-- Every recorded observation of a validated artifact agrees with the outcome of a completed
@@ -460,21 +583,25 @@ theorem validated_observation_is_a_machine_run {artifact : RawArtifact}
       obtain ⟨outcome, result, agrees⟩ := sameOutcome
       exact ⟨found, outcome, rfl, result, agrees⟩
 
-/-- A recorded outcome does not depend on the fuel budget: a run that settles within the
-budget gives the same answer under any larger budget, failures included. -/
+/-- A recorded outcome does not depend on the fuel budget: a run of the returned expression that
+settles within the budget gives the same answer under any larger budget, failures included. -/
 theorem machine_run_outcome_is_independent_of_extra_fuel
     {program : FunctionProgram} {arguments : List Int} {outcome : FunctionOutcome}
+    {bindings : List LetBinding}
+    (settledBindings : program.settled? = some (.ok bindings))
     (settled : program.outcome? arguments = some outcome) (extra : Nat) :
-    runFuel (runBudget + extra) (program.machine arguments) =
-      runFuel runBudget (program.machine arguments) := by
-  have notExhausted : runFuel runBudget (program.machine arguments) ≠ .outOfFuel := by
+    runFuel (runBudget + extra) (program.machineWith bindings arguments) =
+      runFuel runBudget (program.machineWith bindings arguments) := by
+  have notExhausted : runFuel runBudget (program.machineWith bindings arguments) ≠ .outOfFuel := by
     intro exhausted
     unfold FunctionProgram.outcome? at settled
     split at settled
-    · rw [exhausted] at settled
+    · rw [settledBindings] at settled
+      dsimp only at settled
+      simp only [exhausted] at settled
       simp at settled
     · simp at settled
   exact Xsh.Proofs.Base.Runner.base_runner.2.2.2.2.2.2.1 runBudget
-    (program.machine arguments) notExhausted extra
+    (program.machineWith bindings arguments) notExhausted extra
 
 end Xsh.Conformance.Vertical

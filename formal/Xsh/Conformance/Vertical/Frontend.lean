@@ -3,8 +3,9 @@ import Xsh.Conformance.Vertical.Artifact
 namespace Xsh.Conformance.Vertical
 
 /-- The tokens of the admitted source productions: integer functions with integer parameters or
-one integer let, whose one return is an integer value, a call of an earlier function on atoms, or
-a conditional on a comparison of atoms. Any other character is outside the domain. -/
+one integer let or var, an optional assignment to that var, and one return of an integer value, a
+call of an earlier function on atoms, or a conditional on a comparison of atoms. Any other
+character is outside the domain. -/
 inductive Token where
   | word (text : String)
   | number (value : Nat)
@@ -88,6 +89,7 @@ inductive SourceExpression where
   | call (callee : String) (arguments : List SourceAtom)
   | conditional (comparison : FragmentOp) (left right : SourceAtom)
       (thenValue elseValue : SourceValue)
+  | assigned (target : String) (assignedValue : SourceValue) (result : SourceValue)
   deriving DecidableEq, Repr
 
 structure SourceFunction where
@@ -98,7 +100,8 @@ structure SourceFunction where
   deriving DecidableEq, Repr
 
 def isKeyword (name : String) : Bool :=
-  name == "pure" || name == "let" || name == "return" || name == "if" || name == "else"
+  name == "pure" || name == "let" || name == "var" || name == "return" || name == "if" ||
+    name == "else"
 
 def parseAtom : List Token → Option (SourceAtom × List Token)
   | .number value :: rest => some (.int value, rest)
@@ -162,12 +165,36 @@ def parseExpression (tokens : List Token) : Option (SourceExpression × List Tok
       let (value, rest) ← parseValue tokens
       some (.value value, rest)
 
-def parseLets : Nat → List Token → Option (List (String × Nat) × List Token)
+/-- The `let` and `var` lines, with the names the `var` lines declare. -/
+def parseLets : Nat → List Token → Option (List (String × Nat) × List String × List Token)
   | 0, _ => none
-  | fuel + 1, .word "let" :: .word name :: .equals :: .number value :: .newline :: rest => do
-      let (more, remaining) ← parseLets fuel rest
-      some ((name, value) :: more, remaining)
-  | _ + 1, tokens => some ([], tokens)
+  | fuel + 1, tokens =>
+      match tokens with
+      | .word keyword :: .word name :: .equals :: .number value :: .newline :: rest =>
+          if keyword == "let" || keyword == "var" then do
+            let (more, vars, remaining) ← parseLets fuel rest
+            some ((name, value) :: more, (if keyword == "var" then [name] else []) ++ vars,
+              remaining)
+          else some ([], [], tokens)
+      | _ => some ([], [], tokens)
+
+/-- An optional assignment line to a declared var, an integer value. -/
+def parseAssignment (vars : List String) :
+    List Token → Option (Option (String × SourceValue) × List Token)
+  | .word target :: .equals :: tokens =>
+      if vars.contains target then do
+        let (value, afterValue) ← parseValue tokens
+        match afterValue with
+        | .newline :: rest => some (some (target, value), rest)
+        | _ => none
+      else none
+  | tokens => some (none, tokens)
+
+/-- The assignment, when there is one, goes with an integer value returned after it. -/
+def attachAssignment : Option (String × SourceValue) → SourceExpression → Option SourceExpression
+  | none, result => some result
+  | some (target, value), .value result => some (.assigned target value result)
+  | some _, _ => none
 
 def parseParameterList : Nat → List Token → Option (List String × List Token)
   | 0, _ => none
@@ -192,10 +219,12 @@ def parseFunction (tokens : List Token) : Option (SourceFunction × List Token) 
       let (parameters, afterParameters) ← parseParameters (afterParen.length + 1) afterParen
       match afterParameters with
       | .arrow :: .word "Int" :: .leftBrace :: .newline :: rest => do
-          let (lets, afterLets) ← parseLets (rest.length + 1) rest
-          match afterLets with
+          let (lets, vars, afterLets) ← parseLets (rest.length + 1) rest
+          let (assignment, afterAssignment) ← parseAssignment vars afterLets
+          match afterAssignment with
           | .word "return" :: more => do
-              let (result, afterResult) ← parseExpression more
+              let (returned, afterResult) ← parseExpression more
+              let result ← attachAssignment assignment returned
               match afterResult with
               | .newline :: .rightBrace :: [] =>
                   some (⟨name, parameters, lets, result⟩, [])

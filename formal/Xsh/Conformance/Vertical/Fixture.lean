@@ -78,4 +78,46 @@ def callsArtifact : RawArtifact where
     ⟨bridgeId! 2, "surplus", 2, 0, 1, 1, bridgeId! 6, 2⟩]
   observations := [⟨bridgeId! 1, [12, 9], .value 3⟩, ⟨bridgeId! 1, [3, 9], .value 0⟩, ⟨bridgeId! 2, [], .value 3⟩]
 
+def assignmentsSourceTextCodes : List Nat :=
+  [112, 117, 114, 101, 32, 115, 99, 97, 108, 101, 100, 40, 41, 32, 45, 62, 32, 73, 110, 116, 32,
+   123, 10, 32, 32, 118, 97, 114, 32, 116, 111, 116, 97, 108, 32, 61, 32, 53, 10, 32, 32, 116, 111,
+   116, 97, 108, 32, 61, 32, 116, 111, 116, 97, 108, 32, 42, 32, 54, 10, 32, 32, 114, 101, 116,
+   117, 114, 110, 32, 116, 111, 116, 97, 108, 32, 43, 32, 49, 10, 125, 10, 10, 112, 117, 114, 101,
+   32, 119, 114, 97, 112, 112, 101, 100, 40, 41, 32, 45, 62, 32, 73, 110, 116, 32, 123, 10, 32, 32,
+   118, 97, 114, 32, 116, 111, 112, 32, 61, 32, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52,
+   55, 55, 53, 56, 48, 55, 10, 32, 32, 116, 111, 112, 32, 61, 32, 116, 111, 112, 32, 43, 32, 49,
+   10, 32, 32, 114, 101, 116, 117, 114, 110, 32, 116, 111, 112, 10, 125, 10]
+
+def assignmentsSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1, String.ofList (assignmentsSourceTextCodes.map Char.ofNat)⟩
+
+def assignmentsArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .intInt, 0, 2⟩,
+    ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩,
+    ⟨bridgeId! 3, .intSlot, 4, 1⟩,
+    ⟨bridgeId! 4, .intInt, 5, 2⟩,
+    ⟨bridgeId! 5, .intBinary, 7, 3⟩,
+    ⟨bridgeId! 6, .stmtAssignInt, 10, 4⟩,
+    ⟨bridgeId! 7, .exprParam, 14, 1⟩,
+    ⟨bridgeId! 8, .exprInt, 15, 2⟩,
+    ⟨bridgeId! 9, .exprBinary, 17, 4⟩,
+    ⟨bridgeId! 10, .stmtReturn, 21, 1⟩,
+    ⟨bridgeId! 11, .intInt, 26, 2⟩,
+    ⟨bridgeId! 12, .stmtLetInt, 28, 2⟩,
+    ⟨bridgeId! 13, .intSlot, 30, 1⟩,
+    ⟨bridgeId! 14, .intInt, 31, 2⟩,
+    ⟨bridgeId! 15, .intBinary, 33, 3⟩,
+    ⟨bridgeId! 16, .stmtAssignInt, 36, 4⟩,
+    ⟨bridgeId! 17, .exprParam, 40, 1⟩,
+    ⟨bridgeId! 18, .stmtReturn, 41, 1⟩]
+  extra := [5, 0, 1, 0, 1, 6, 0, 0, 2, 3, 1, 0, 4, 2, 1, 1, 0, 1, 6, 7, 3, 8, 3, 1, 5, 9, 4294967295,
+    2147483647, 1, 10, 1, 1, 0, 1, 12, 13, 1, 0, 14, 4, 1, 16, 3, 11, 15, 17]
+  ops := [.mul, .add]
+  blocks := [⟨bridgeId! 1, 22, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 42, 4, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "scaled", 0, 0, 0, 1, bridgeId! 1, 2⟩,
+    ⟨bridgeId! 2, "wrapped", 0, 0, 1, 1, bridgeId! 2, 2⟩]
+  observations := [⟨bridgeId! 1, [], .value 31⟩, ⟨bridgeId! 2, [], .failure .integerOverflow⟩]
+
 end Xsh.Conformance.Vertical
