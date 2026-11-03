@@ -88,7 +88,6 @@ fn exact_stdout_stderr_and_status() {
     assert_eq!(result.status, ExecStatus::Exited(7));
     assert_eq!(result.stdout, b"out");
     assert_eq!(result.stderr, b"err");
-    assert_eq!(result.certainty, Certainty::Submitted);
 }
 
 #[test]
@@ -188,7 +187,6 @@ fn debug_does_not_expose_payloads() {
         status: ExecStatus::Exited(0),
         stdout: b"canary-payload".to_vec(),
         stderr: Vec::new(),
-        certainty: Certainty::Submitted,
     };
     assert!(!format!("{result:?}").contains("canary-payload"));
 }

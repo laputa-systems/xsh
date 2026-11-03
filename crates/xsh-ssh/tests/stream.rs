@@ -130,7 +130,6 @@ fn large_echo_has_equal_digests_and_survives_rekey() {
         )
         .expect("128 MiB echo succeeds");
     assert_eq!(result.status, ExecStatus::Exited(0));
-    assert_eq!(result.certainty, Certainty::Submitted);
     assert_eq!(output.hex(), expected);
 }
 

@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use crate::client::Connection;
-use crate::error::{Certainty, Error};
+use crate::error::Error;
 use crate::stream::{self, StreamOptions};
 use crate::wire::Interrupt;
 
@@ -77,8 +77,6 @@ pub struct ExecResult {
     pub stdout: Vec<u8>,
     /// Captured standard error.
     pub stderr: Vec<u8>,
-    /// The result is always submitted once a channel exists.
-    pub certainty: Certainty,
 }
 
 impl std::fmt::Debug for ExecResult {
@@ -88,7 +86,6 @@ impl std::fmt::Debug for ExecResult {
             .field("status", &self.status)
             .field("stdout_len", &self.stdout.len())
             .field("stderr_len", &self.stderr.len())
-            .field("certainty", &self.certainty)
             .finish()
     }
 }

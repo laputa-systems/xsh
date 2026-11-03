@@ -173,7 +173,6 @@ fn run(
         status: completion.status(),
         stdout: Vec::new(),
         stderr: Vec::new(),
-        certainty: Certainty::Submitted,
     })
 }
 

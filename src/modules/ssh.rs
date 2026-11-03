@@ -183,17 +183,12 @@ fn result_value(result: xsh_ssh::ExecResult) -> Value {
         xsh_ssh::ExecStatus::Signaled(signal) => (-1, signal.clone(), false),
         xsh_ssh::ExecStatus::Missing => (-1, String::new(), true),
     };
-    let certainty = match result.certainty {
-        Certainty::NotSubmitted => "not-submitted",
-        Certainty::Submitted => "submitted",
-    };
     Value::Record(RecordMap::from([
         (Arc::from("exit_code"), Value::Int(exit_code)),
         (Arc::from("signal"), Value::Str(signal.into())),
         (Arc::from("missing"), Value::Bool(missing)),
         (Arc::from("stdout"), Value::Bytes(result.stdout)),
         (Arc::from("stderr"), Value::Bytes(result.stderr)),
-        (Arc::from("certainty"), Value::Str(certainty.into())),
     ]))
 }
 

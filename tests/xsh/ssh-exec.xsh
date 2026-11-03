@@ -48,7 +48,6 @@ test ssh_exec_reports_status_and_output {
     assert result.stdout == b"out"
     assert result.stderr == b"err"
     assert result.missing == false
-    assert result.certainty == "submitted"
   }
 }
 

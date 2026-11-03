@@ -27,7 +27,7 @@ with session = ssh.connect(options)? {
 | Call | Result |
 |---|---|
 | `ssh.connect(options)` | an owned `SshSession` handle |
-| `ssh.exec(session, command, options)` | `{exit_code, signal, missing, stdout, stderr, certainty}` |
+| `ssh.exec(session, command, options)` | `{exit_code, signal, missing, stdout, stderr}` |
 | `ssh.connect_all({targets, jobs})` | one owned `SshSession` or `SshError` per target, in order |
 | `ssh.info(session)` | `{host, port, user, usable, host_key, kex, host_key_algorithm, cipher_client_to_server, cipher_server_to_client}` |
 | `ssh.certainty(error)` | an `ssh.Certainty`, read from any `SshError` |
@@ -101,8 +101,8 @@ Every failure is an `SshError` variant. Each carries `message` and
 server and a retry is safe; `Submitted` means the command may have run, so observe
 its effect before retrying. The wire strings are `"not-submitted"` and
 `"submitted"`; they display as such in f-strings and `print`, and a comparison
-uses the variant (`ssh.certainty(error) == .Submitted`). The `certainty` of an
-`ssh.exec` result is still a `Str`. The client never replays a command after a failure and
+uses the variant (`ssh.certainty(error) == .Submitted`). An `ssh.exec` result
+carries no certainty: a returned result means the command was submitted. The client never replays a command after a failure and
 never reconnects on its own.
 
 Read the certainty of an error of any variant with `ssh.certainty(error)`; a

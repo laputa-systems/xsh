@@ -1241,7 +1241,6 @@ fn ssh_result_type() -> Type {
         ("missing".to_owned(), Type::Bool),
         ("stdout".to_owned(), Type::Bytes),
         ("stderr".to_owned(), Type::Bytes),
-        ("certainty".to_owned(), Type::Str),
     ]))
 }
 
