@@ -1,12 +1,9 @@
 # Make XSH fast to run and dependable in Laputa
 
-**Status:** resumed 2026-10-30 on branch `perf/g1-next` under the owner's separate
-execution grant. G1 qualification has not started: the pinned qualification
-image is gone from the local Docker store and the inherited tools write
-outside the lane's worktree (see State). One cause of the scheduler-pair
-failures is fixed and measured. The [G0 release
-candidate](ROADMAP.md#g0-release-candidate) still defers this campaign's
-performance obligations. No push grant exists.
+**Status:** resumed 2026-11-03 for Linux performance and G1 qualification.
+The previous qualification image is unavailable locally; the current image is
+pinned below. No current-source G1 qualification has passed. One cause of the
+scheduler-pair failures is fixed and measured. No push grant exists.
 
 **Resume:** the owner's prompt is "Resume this campaign from its 2026-10-25
 handoff on master. Prioritize feature completeness and focused evidence; leave
@@ -61,11 +58,12 @@ last source that passed most gates, and old passes do not qualify later source.
   image, not the pinned image; the pairs are not requalified.
 - **Unrun:** private and resource close (`dev/util-linux/check.py
   resources|close`), and every pinned-image stage below.
-- **Environment:** on 2026-10-30 the owner approved re-pinning
-  `versions.lock.json` to the current `xsh-test` image,
-  `sha256:8ddba911cc1b7fd514bfaedd55d8e540e98b5e9b4b5564653cdd449ff5ae8558`,
-  which replaces the missing ef7 image; pairs measured on ef7 are not
-  comparable with new runs. The launch, observer and comparison tools keep
+- **Environment:** the previous `8ddba911` image is no longer available.
+  `versions.lock.json` now pins the local amd64 `Dockerfile.test` image
+  `sha256:b123366ba3e822a34a3391c800a9a5c1a9cda26306e53b13738e6813c9fb30be`.
+  Its build history matches the current Dockerfile and its Rust toolchain is
+  `nightly-2026-09-15`. Earlier image measurements do not qualify new runs.
+  The launch, observer and comparison tools keep
   their controller root, locks and evidence under the main checkout's `.work/`,
   derived from the git common directory, so every lane worktree shares one set
   of locks; that is approved, not relocated.
