@@ -14,10 +14,15 @@ pub struct BuiltinEnum {
 pub struct BuiltinVariant {
     pub name: &'static str,
     pub summary: &'static str,
+    pub wire: Option<&'static str>,
 }
 
 const fn variant(name: &'static str, summary: &'static str) -> BuiltinVariant {
-    BuiltinVariant { name, summary }
+    BuiltinVariant { name, summary, wire: None }
+}
+
+const fn wired_variant(name: &'static str, wire: &'static str, summary: &'static str) -> BuiltinVariant {
+    BuiltinVariant { name, summary, wire: Some(wire) }
 }
 
 pub const ARCHIVE_FORMAT: &str = "archive.Format";
@@ -28,6 +33,7 @@ pub const ARCHIVE_SPECIAL: &str = "archive.Special";
 pub const ARCHIVE_MODES: &str = "archive.Modes";
 pub const ARCHIVE_OWNERSHIP: &str = "archive.Ownership";
 pub const ARCHIVE_ENTRY_KIND: &str = "archive.EntryKind";
+pub const SSH_CERTAINTY: &str = "ssh.Certainty";
 
 static BUILTIN_ENUMS: &[BuiltinEnum] = &[
     BuiltinEnum {
@@ -105,6 +111,14 @@ static BUILTIN_ENUMS: &[BuiltinEnum] = &[
             variant("CharDevice", "A character device node."),
             variant("BlockDevice", "A block device node."),
             variant("Other", "An entry the format could not classify or this build does not support."),
+        ],
+    },
+    BuiltinEnum {
+        name: SSH_CERTAINTY,
+        summary: "Whether a failed ssh request may have reached the server.",
+        variants: &[
+            wired_variant("NotSubmitted", "not-submitted", "The request never reached the server, so retrying is safe."),
+            wired_variant("Submitted", "submitted", "The request may have reached the server, so the outcome must be observed before any retry."),
         ],
     },
 ];

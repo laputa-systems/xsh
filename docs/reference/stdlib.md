@@ -522,7 +522,7 @@ POSIX-like shell word rendering helpers.
 
 Native SSH connections and remote command execution.
 
-- `ssh.certainty(error: SshError) -> Str` — Reads the execution certainty of an SshError.
+- `ssh.certainty(error: SshError) -> ssh.Certainty` — Reads the execution certainty of an SshError.
 - `ssh.close(session: SshSession) -> Result[Unit, SshError]` — Closes an SSH session.
 - `ssh.connect(options: Record) -> Result[SshSession, SshError]` — Connects, verifies the host key, and authenticates one SSH user.
 - `ssh.connect_all(options: Record) -> Result[List[Result[SshSession, SshError]], SshError]` — Connects several hosts in parallel and returns one result per target.

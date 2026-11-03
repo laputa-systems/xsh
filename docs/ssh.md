@@ -30,7 +30,7 @@ with session = ssh.connect(options)? {
 | `ssh.exec(session, command, options)` | `{exit_code, signal, missing, stdout, stderr, certainty}` |
 | `ssh.connect_all({targets, jobs})` | one owned `SshSession` or `SshError` per target, in order |
 | `ssh.info(session)` | `{host, port, user, usable, host_key, kex, host_key_algorithm, cipher_client_to_server, cipher_server_to_client}` |
-| `ssh.certainty(error)` | `"not-submitted"` or `"submitted"`, read from any `SshError` |
+| `ssh.certainty(error)` | an `ssh.Certainty`, read from any `SshError` |
 | `ssh.close(session)` | `Unit` |
 
 `ssh.connect` options: `host`, `port`, `user`, `timeout_ms`, and one value for
@@ -55,7 +55,7 @@ it. Options: `timeout_ms`, `max_output`, `env`, `stdin` (`Bytes`), `stdin_path`,
 `stdout_path` and `stderr_path`. `env` is a record of `Str` values sent as SSH `env` requests before the
 command; a server runs only the names it allows (OpenSSH's default is `LANG`
 and `LC_*`, Dropbear sends none), and a refused name is `SshError.Rejected`
-with `certainty = "not-submitted"`: the command did not run. The client has no
+with `certainty = .NotSubmitted`: the command did not run. The client has no
 working-directory option; put `cd` in the command. With both `stdin` and `stdin_path` the bytes go
 first and the file follows, so a framing header can precede a streamed payload.
 Path options stream file contents without loading them into the controller, so
@@ -97,9 +97,12 @@ remote status, `signal` the remote signal name (and `exit_code` is `-1`), and
 zero.
 
 Every failure is an `SshError` variant. Each carries `message` and
-`certainty`: `"not-submitted"` means the request never reached the server and a
-retry is safe; `"submitted"` means the command may have run, so observe its
-effect before retrying. The client never replays a command after a failure and
+`certainty`, an `ssh.Certainty`: `NotSubmitted` means the request never reached the
+server and a retry is safe; `Submitted` means the command may have run, so observe
+its effect before retrying. The wire strings are `"not-submitted"` and
+`"submitted"`; they display as such in f-strings and `print`, and a comparison
+uses the variant (`ssh.certainty(error) == .Submitted`). The `certainty` of an
+`ssh.exec` result is still a `Str`. The client never replays a command after a failure and
 never reconnects on its own.
 
 Read the certainty of an error of any variant with `ssh.certainty(error)`; a
@@ -119,9 +122,9 @@ value typed `SshError` exposes only `message` as a field.
 | `Unusable`, `Busy`, `Session`, `Local` | an earlier failure poisoned the session; it is in use; the handle is closed or unknown; a local stdin or output file failed |
 
 After any failure the session is dead: `ssh.info(session).usable` is false and
-every later call fails with `SshError.Unusable` and `certainty = "not-submitted"`,
+every later call fails with `SshError.Unusable` and `certainty = .NotSubmitted`,
 because a half-read channel cannot be reused. Close it and connect again.
-A failure that left the command possibly running (`certainty = "submitted"`) is
+A failure that left the command possibly running (`certainty = .Submitted`) is
 reconciled through the new session; the old command may still be running.
 
 ## Trust

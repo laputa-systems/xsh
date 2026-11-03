@@ -1291,7 +1291,7 @@ fn ssh_module() -> ModuleSig {
             "certainty",
             sig(
                 vec![param("error", Type::ErrorFamily("SshError"))],
-                Type::Str,
+                Type::Enum(crate::enums::SSH_CERTAINTY),
                 true,
                 RuntimeOp::SshCertainty,
             ),

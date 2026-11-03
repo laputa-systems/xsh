@@ -115,7 +115,7 @@ impl Evaluator {
             },
             _ => return Err(not_ssh_error(span)),
         };
-        Ok(ControlFlow::Continue(LoweredValue::Str(certainty.into())))
+        Ok(ControlFlow::Continue(lowered_runtime_value(certainty, span)?))
     }
 
     pub(super) fn eval_lowered_ssh_close_values(

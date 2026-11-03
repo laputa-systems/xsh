@@ -472,16 +472,16 @@ pub const ARCHIVE_ERROR_VARIANTS: &[ErrorVariant] = &[
     ErrorVariant { name: "Options", facets: &[] },
 ];
 
-/// The failures of the `ssh` module. `certainty` is `"not-submitted"` when the
-/// failed request never reached the server, so retrying is safe, and
-/// `"submitted"` when it may have, so the outcome must be observed before any
-/// retry. A remote nonzero exit status or signal is a result, never an error.
+/// The failures of the `ssh` module. `certainty` is `ssh.Certainty.NotSubmitted`
+/// when the failed request never reached the server, so retrying is safe, and
+/// `ssh.Certainty.Submitted` when it may have, so the outcome must be observed
+/// before any retry. A remote nonzero exit status or signal is a result, never an error.
 pub fn ssh_error_family() -> ErrorFamily {
     ErrorFamily {
         name: "SshError",
         fields: vec![
             ErrorField { name: "message", ty: Type::Str },
-            ErrorField { name: "certainty", ty: Type::Str },
+            ErrorField { name: "certainty", ty: Type::Enum(crate::enums::SSH_CERTAINTY) },
         ],
         variants: SSH_ERROR_VARIANTS,
     }

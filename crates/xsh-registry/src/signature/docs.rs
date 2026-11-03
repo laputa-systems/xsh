@@ -468,7 +468,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("ssh", "exec") => Some((
             "Runs one remote command string over an SSH session.",
-            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. A nonzero exit or signal is a result; a channel closed without either has missing = true and exit_code -1, never zero. Options: timeout_ms (whole command; none means only cancellation ends a silent command), max_output (applied to each captured stream; a stream sent to a file is not captured and not limited), env (a Record of Str values sent as SSH env requests before the command; servers accept only the names they allow, commonly LANG and LC_*, and a refused one is SshError.Rejected with the command not run), stdin (Bytes), stdin_path, stdout_path, stderr_path; when both stdin and stdin_path are given the bytes are sent first and then the file, so a framing header can precede a streamed payload. After any failure the session is unusable. An SshError carries certainty: not-submitted means retrying is safe, submitted means the command may have run.",
+            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. A nonzero exit or signal is a result; a channel closed without either has missing = true and exit_code -1, never zero. Options: timeout_ms (whole command; none means only cancellation ends a silent command), max_output (applied to each captured stream; a stream sent to a file is not captured and not limited), env (a Record of Str values sent as SSH env requests before the command; servers accept only the names they allow, commonly LANG and LC_*, and a refused one is SshError.Rejected with the command not run), stdin (Bytes), stdin_path, stdout_path, stderr_path; when both stdin and stdin_path are given the bytes are sent first and then the file, so a framing header can precede a streamed payload. After any failure the session is unusable. An SshError carries certainty: ssh.Certainty.NotSubmitted means retrying is safe, ssh.Certainty.Submitted means the command may have run.",
             &["ssh", "exec", "remote", "stream"],
         )),
         ("ssh", "info") => Some((
@@ -478,7 +478,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("ssh", "certainty") => Some((
             "Reads the execution certainty of an SshError.",
-            "Returns not-submitted when the failed request never reached the server, so retrying is safe, and submitted when it may have, so the outcome must be observed before any retry. Every SshError variant carries a certainty, but only message is readable as a field on a value typed SshError; this reads it without matching each variant.",
+            "Returns ssh.Certainty.NotSubmitted when the failed request never reached the server, so retrying is safe, and ssh.Certainty.Submitted when it may have, so the outcome must be observed before any retry. Every SshError variant carries a certainty, but only message is readable as a field on a value typed SshError; this reads it without matching each variant.",
             &["ssh", "error", "retry"],
         )),
         ("ssh", "close") => Some((

@@ -97,7 +97,7 @@ test ssh_exec_timeout_carries_certainty {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "sleep 5", {timeout_ms: 200}) {
       Ok(_) => assert false, "slow command did not time out"
-      Err(SshError.Timeout {certainty, ..}) => assert certainty == "submitted"
+      Err(SshError.Timeout {certainty, ..}) => assert certainty == .Submitted
       Err(other) => assert false, other.message
     }
     assert ssh.exec(session, "true", {}) is Err(SshError.Unusable {..})
@@ -203,7 +203,7 @@ test ssh_exec_output_past_the_limit_is_an_outcome_error {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "head -c 4096 /dev/zero", {max_output: 1024}) {
       Ok(_) => assert false, "output limit was not enforced"
-      Err(SshError.OutputLimit {certainty, ..}) => assert certainty == "submitted"
+      Err(SshError.OutputLimit {certainty, ..}) => assert certainty == .Submitted
       Err(other) => assert false, other.message
     }
   }
@@ -356,7 +356,7 @@ test ssh_exec_environment_is_sent_when_the_server_accepts_it { |ctx|
     assert ssh.exec(session, "true", {})?.exit_code == 0
     match ssh.exec(session, "touch /tmp/ran-despite-refused-env", {env: {NOT_ACCEPTED: "x"}}) {
       Ok(_) => assert false, "a refused variable still ran the command"
-      Err(SshError.Rejected {certainty, ..}) => assert certainty == "not-submitted"
+      Err(SshError.Rejected {certainty, ..}) => assert certainty == .NotSubmitted
       Err(other) => assert false, other.message
     }
   }
@@ -388,7 +388,7 @@ test ssh_session_reports_itself_dead_after_a_stdin_timeout { |ctx|
     assert ssh.info(session)?.usable
     match ssh.exec(session, "sleep 30", {stdin_path: payload, timeout_ms: 300}) {
       Ok(_) => assert false, "the command finished"
-      Err(SshError.Timeout {certainty, ..}) => assert certainty == "submitted"
+      Err(SshError.Timeout {certainty, ..}) => assert certainty == .Submitted
       Err(other) => assert false, other.message
     }
     assert ! ssh.info(session)?.usable
@@ -420,7 +420,7 @@ test ssh_lost_connection_after_submission_is_a_submitted_transport_error {
       Ok(result) => assert result.missing or result.signal != "", "the connection survived"
       Err(error) => {
         assert error is SshError.Transport {..}
-        assert ssh.certainty(error) == "submitted"
+        assert ssh.certainty(error) == .Submitted
       }
     }
   }

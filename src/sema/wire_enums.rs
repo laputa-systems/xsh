@@ -19,6 +19,36 @@ pub struct PreparedWireEnums {
     pub mappings: FxHashMap<Name, Arc<WireEnumMapping>>,
 }
 
+/// The wire mappings of the standard modules' enums that declare wire strings.
+pub fn builtin_wire_mappings() -> &'static [Arc<WireEnumMapping>] {
+    static MAPPINGS: std::sync::OnceLock<Vec<Arc<WireEnumMapping>>> = std::sync::OnceLock::new();
+    MAPPINGS.get_or_init(|| {
+        xsh_registry::enums::builtin_enums()
+            .iter()
+            .filter(|entry| entry.variants.iter().all(|variant| variant.wire.is_some()))
+            .map(|entry| {
+                Arc::new(WireEnumMapping {
+                    type_name: Name::intern(entry.name),
+                    variants: entry
+                        .variants
+                        .iter()
+                        .filter_map(|variant| Some((Name::intern(variant.name), Arc::from(variant.wire?))))
+                        .collect(),
+                })
+            })
+            .collect()
+    })
+}
+
+pub fn builtin_wire_mapping(name: &str) -> Arc<WireEnumMapping> {
+    let name = Name::intern(name);
+    builtin_wire_mappings()
+        .iter()
+        .find(|mapping| mapping.type_name == name)
+        .unwrap_or_else(|| panic!("`{name}` is not a standard enum with wire strings"))
+        .clone()
+}
+
 pub fn nominal_enum_name(namespace: Option<Name>, name: Name) -> Name {
     namespace.map_or(name, |namespace| {
         Name::intern(format!("{namespace}.{name}"))
@@ -59,6 +89,9 @@ impl PreparedWireEnums {
     ) -> (Self, Vec<Diagnostic>) {
         let program = view.program;
         let mut prepared = Self::default();
+        for mapping in builtin_wire_mappings() {
+            prepared.mappings.insert(mapping.type_name, Arc::clone(mapping));
+        }
         let mut diagnostics = Vec::new();
         let scopes = std::iter::once((program.root_nominal_namespace, view.statement_ids().collect::<Vec<_>>()))
         .chain(view.modules.iter().copied().map(|module| {

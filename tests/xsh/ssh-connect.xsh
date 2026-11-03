@@ -280,27 +280,54 @@ test ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller {
   assert names[0] != names[1]
 }
 
-pure certainty_of(error: SshError) -> Str {
+pure certainty_of(error: SshError) -> ssh.Certainty {
   ssh.certainty(error)
+}
+
+pure retry_is_safe(certainty: ssh.Certainty) -> Bool {
+  match certainty {
+    ssh.Certainty.NotSubmitted => true
+    ssh.Certainty.Submitted => false
+  }
 }
 
 test ssh_certainty_is_callable_from_a_pure_function {
   match ssh.connect({}) {
     Ok(_) => assert false, "connect without options succeeded"
-    Err(error) => assert certainty_of(error) == "not-submitted"
+    Err(error) => assert certainty_of(error) == .NotSubmitted
   }
 }
 
 test ssh_certainty_reads_the_certainty_of_any_ssh_error {
   match ssh.connect({}) {
     Ok(_) => assert false, "connect without options succeeded"
-    Err(error) => assert ssh.certainty(error) == "not-submitted"
+    Err(error) => assert ssh.certainty(error) == .NotSubmitted
   }
   match ssh.connect({host: "example.invalid"}) {
     Ok(_) => assert false, "connect without trust succeeded"
     Err(error) => {
-      let certainty: Str = ssh.certainty(error)
-      assert certainty == "not-submitted"
+      let certainty: ssh.Certainty = ssh.certainty(error)
+      assert certainty == .NotSubmitted
+      assert retry_is_safe(certainty)
+    }
+  }
+}
+
+test ssh_certainty_field_and_accessor_agree {
+  match ssh.connect({}) {
+    Ok(_) => assert false, "connect without options succeeded"
+    Err(SshError.Options {certainty, ..} as error) => assert certainty == ssh.certainty(error)
+    Err(other) => assert false, other.message
+  }
+}
+
+test ssh_certainty_displays_as_its_wire_string {
+  match ssh.connect({}) {
+    Ok(_) => assert false, "connect without options succeeded"
+    Err(error) => {
+      let certainty = ssh.certainty(error)
+      assert f"{certainty}" == "not-submitted"
+      assert f"certainty {certainty}" == "certainty not-submitted"
     }
   }
 }

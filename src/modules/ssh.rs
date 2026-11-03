@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::runtime::value::{RecordMap, RuntimeError, SshSessionValue, Value};
 use crate::source::Span;
+use crate::symbol::Name;
 
 #[cfg(feature = "ssh")]
 use xsh_ssh::{
@@ -117,22 +118,31 @@ fn structured(
         .collect();
     let payload = RecordMap::from([
         (Arc::from("message"), Value::Str(message.as_str().into())),
-        (Arc::from("certainty"), Value::Str(certainty.into())),
+        (Arc::from("certainty"), certainty_value(certainty)),
     ]);
     RuntimeError::structured("SshError", variant, payload, facets, message)
 }
 
+fn certainty_value(variant: &'static str) -> Value {
+    Value::Tag {
+        type_name: Name::intern(xsh_registry::enums::SSH_CERTAINTY),
+        name: Arc::from(variant),
+        fields: Vec::new(),
+        wire: Some(crate::sema::wire_enums::builtin_wire_mapping(xsh_registry::enums::SSH_CERTAINTY)),
+    }
+}
+
 /// The execution certainty carried by every `SshError` variant.
-pub(crate) fn certainty(error: &RuntimeError, span: Span) -> Result<String, RuntimeError> {
+pub(crate) fn certainty(error: &RuntimeError, span: Span) -> Result<Value, RuntimeError> {
     match error.payload.get("certainty") {
-        Some(Value::Str(certainty)) if error.family == "SshError" => Ok(certainty.to_string()),
+        Some(tag @ Value::Tag { .. }) if error.family == "SshError" => Ok(tag.clone()),
         _ => Err(RuntimeError::new("type-error", "ssh.certainty expected SshError").with_span(span)),
     }
 }
 
 /// A failure that never reached the server.
 fn failure(variant: &'static str, message: impl Into<String>) -> RuntimeError {
-    structured(variant, message.into(), "not-submitted")
+    structured(variant, message.into(), "NotSubmitted")
 }
 
 #[cfg(feature = "ssh")]
@@ -160,8 +170,8 @@ fn ssh_error(error: SshError, span: Span) -> RuntimeError {
         SshError::Unusable => "Unusable",
     };
     let certainty = match error.certainty() {
-        Certainty::NotSubmitted => "not-submitted",
-        Certainty::Submitted => "submitted",
+        Certainty::NotSubmitted => "NotSubmitted",
+        Certainty::Submitted => "Submitted",
     };
     structured(variant, error.to_string(), certainty).with_span(span)
 }

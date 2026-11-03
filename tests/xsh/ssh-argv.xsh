@@ -104,7 +104,7 @@ test ssh_command_strings_with_nul_are_refused_before_submission {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "printf a\0b", {}) {
       Ok(_) => assert false, "NUL reached the server"
-      Err(SshError.Options {certainty, ..}) => assert certainty == "not-submitted"
+      Err(SshError.Options {certainty, ..}) => assert certainty == .NotSubmitted
       Err(other) => assert false, other.message
     }
     assert ssh.exec(session, "true", {})?.exit_code == 0
