@@ -474,4 +474,79 @@ theorem qualified_call_preserves_required_field
   qualified_call_discharges_original_constraints policy environment ty constraints principal scheme
     arguments solution instanceType requirements qualified instantiated checked sorted _ required
 
+def validateQualifiedFunctionInstance (fuel : Nat) (names : TypeNames)
+    (parameters globals : List Binding) (result : MonoType) (body : List Statement)
+    (ordered : List Constraint) (steps : List DerivationStep) (solvedCount : Nat)
+    (scheme : Scheme) (instantiation : Substitution) (candidate : List StatementNode)
+    (binderTypes : BinderTypes) : Except ValidationError Substitution := do
+  let principal ← validateGeneratedFunctionScheme fuel names parameters globals result body
+    ordered steps solvedCount scheme
+  requireCheck (checksConstraints instantiation scheme.requirements)
+  let solution := compose instantiation principal
+  requireCheck (decide (declaredBinders candidate).Nodup)
+  if supportedStatementTails true candidate then pure () else throw .unsupported
+  requireCheck (checksPropagationErrors (propagationContext (substitute solution result)) solution
+    (blockPropagationErrors candidate))
+  validateBlock fuel names (parameters ++ globals) solution binderTypes
+    (substitute solution result) body candidate
+  pure principal
+
+theorem qualified_function_instance_sound (fuel : Nat) (names : TypeNames)
+    (parameters globals : List Binding) (result : MonoType) (body : List Statement)
+    (ordered : List Constraint) (steps : List DerivationStep) (solvedCount : Nat)
+    (scheme : Scheme) (instantiation : Substitution) (candidate : List StatementNode)
+    (binderTypes : BinderTypes) (principal : Substitution)
+    (sorted : WellSorted instantiation)
+    (accepted : validateQualifiedFunctionInstance fuel names parameters globals result body ordered
+      steps solvedCount scheme instantiation candidate binderTypes = .ok principal) :
+    ∃ generated state,
+      (block fuel names (parameters ++ globals) result body).run
+        (initialBlockState (parameters ++ globals) result) = .ok (generated, state) ∧
+      QualifiedScheme .generalize (globalEnvironment globals)
+        (.function (parameterTypes parameters) result) state.constraints principal scheme ∧
+      Solves state.constraints (compose instantiation principal) ∧
+      (declaredBinders candidate).Nodup ∧
+      PropagationMatches (propagationContext (substitute (compose instantiation principal) result))
+        (compose instantiation principal) (blockPropagationErrors candidate) ∧
+      BlockHasType names (compose instantiation principal) (parameters ++ globals)
+        (substitute (compose instantiation principal) result) body := by
+  cases supported : supportedStatementTails true candidate with
+  | false =>
+    simp [validateQualifiedFunctionInstance, except_bind_ok, except_map_ok,
+      exists_require_ok, supported] at accepted
+  | true =>
+    simp [validateQualifiedFunctionInstance, except_bind_ok, except_map_ok,
+      exists_require_ok, supported, checks_constraints_iff,
+      checks_propagation_errors_iff] at accepted
+    obtain ⟨chosen, found, requirements, unique, propagation, checked, same⟩ := accepted
+    subst chosen
+    obtain ⟨unit, checked⟩ := checked
+    cases unit
+    obtain ⟨generated, state, generatedBody, qualified⟩ :=
+      generated_function_scheme_is_principal fuel names parameters globals result body ordered
+        steps solvedCount scheme principal found
+    exact ⟨generated, state, generatedBody, qualified,
+      (qualified.1.2.1 instantiation sorted).mpr requirements, unique, propagation,
+      accepted_block_has_type fuel names (parameters ++ globals) (compose instantiation principal)
+        binderTypes (substitute (compose instantiation principal) result) body candidate checked⟩
+
+def projectionInstance (hasField : Bool) : Substitution := fun id =>
+  if id = generatedParameterVariable then
+    .record (if hasField then .rowField generatedProjectionField (.primitive .integer) .rowEmpty else .rowEmpty)
+  else if id = generatedReturnVariable then .primitive .integer else .variable id
+
+def generatedProjectionCandidate : List StatementNode :=
+  [.returned (.field (.read generatedProjectionParameter.binder []) generatedProjectionField)]
+
+def projectionInstanceAccepted (hasField : Bool) : Bool :=
+  match validateQualifiedFunctionInstance 24 exampleTypeNames [generatedProjectionParameter] []
+      (.variable generatedReturnVariable) generatedProjectionBody generatedProjectionConstraints [.bindLeft] 1
+      generatedProjectionScheme (projectionInstance hasField) generatedProjectionCandidate (fun _ => none) with
+  | .ok _ => true
+  | _ => false
+
+theorem projection_instance_checks_body_and_rejects_missing_field :
+    projectionInstanceAccepted true = true ∧ projectionInstanceAccepted false = false := by
+  constructor <;> decide +kernel
+
 end Xsh.Typing.Connected

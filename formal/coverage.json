@@ -11305,6 +11305,15 @@
       "status": "fragment",
       "scope": "A checked instantiation of a qualified-principal scheme discharges its original field obligations.",
       "boundary": "Kind-correct substitution and qualified source scheme are assumptions; actual Rust call instances and general runtime preservation remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.qualified_function_instance_sound",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.qualified_function_instance_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For an accepted concrete call substitution, the independently checked function scheme and body have matching constraints and typing under the composed substitution.",
+      "boundary": "The theorem assumes the call substitution is well-sorted and checks each body instance separately; generic-body typing for every qualified substitution and Rust correspondence remain open."
     }
   ],
   "artifact_certificates": [

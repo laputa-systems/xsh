@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 841
+**State:** `formal/coverage.json` is the only inventory. It lists 842
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -833,7 +833,9 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   call instances discharge original field requirements. For closed unique rows,
   field projection is equivalent to field-plus-lacks decomposition modulo
   permutation. These are Lean results; actual Rust row/lacks scheme and call
-  facts, source admission and target simulation remain to be connected.
+  facts, source admission and target simulation remain to be connected. An
+  independently checked concrete call instance also validates its body against
+  the composed solution; generic-body typing for all qualified instances is open.
 
 ## For the owner afterwards
 
