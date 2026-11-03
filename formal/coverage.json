@@ -11098,6 +11098,24 @@
       "status": "fragment",
       "scope": "An operation node decodes only with its own ordinal and a known operand type.",
       "boundary": "Finite decoder cases."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.kinded_principal_cons",
+      "module": "Xsh.Typing.Connected.Types",
+      "declaration": "Xsh.Typing.Connected.kinded_principal_cons",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A kind-preserving principal solution for one constraint composes with a kind-preserving principal solution for the substituted remainder to give a principal solution for the original constraint list.",
+      "boundary": "The constraints are the Lean equality and record-field relations. The premises require principal solutions; this theorem does not implement a solver, prove constraint generation, or establish Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.composed_generated_constraints_are_solved",
+      "module": "Xsh.Typing.Connected.Generation",
+      "declaration": "Xsh.Typing.Connected.composed_generated_constraints_are_solved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for an explicitly constructed core block combining polymorphic calls, a record, a mutable local, and a Bool-controlled Result have a supplied solution.",
+      "boundary": "The core tree and substitution are Lean data. This witness does not establish that the generator is sound or complete, that the solution is principal, that source bytes parse to the tree, or that Rust emits corresponding facts or IR."
     }
   ],
   "artifact_certificates": [

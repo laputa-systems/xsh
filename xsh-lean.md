@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 818
+**State:** `formal/coverage.json` is the only inventory. It lists 820
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -763,6 +763,14 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   retaining verified mode and the full export. The axiom audit passed for
   16,033 declarations and rejected all six self-test controls. The inventory
   and its tests passed; all 77 universal obligations remain planned.
+- 2026-11-03: Work toward the connected milestone added a structured
+  `Syntax.Core` constraint generator for selected expressions and statements,
+  kinded type and row substitutions, executable constraint checking, and a
+  principal-solution composition theorem. A hand-built core block combining
+  generic calls, a record, mutable assignment and Result control has a
+  satisfying substitution. This is Lean-only evidence. Generator soundness,
+  principal solving, source admission, actual Rust facts and IR, effects,
+  candidate validation, and source-to-IR simulation remain open.
 
 ## For the owner afterwards
 
