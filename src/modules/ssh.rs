@@ -301,6 +301,9 @@ pub(crate) fn exec(
 ) -> Result<Value, RuntimeError> {
     let token = token_from_record(session_record)
         .ok_or_else(|| failure("Session", "invalid session handle").with_span(span))?;
+    if command.contains('\0') {
+        return Err(failure("Options", "command must not contain NUL").with_span(span));
+    }
     let connection = session(&token, owner, span)?;
     let timeout = match optional_int(options, "timeout_ms", span)? {
         Some(millis) if millis > 0 => Some(std::time::Duration::from_millis(millis as u64)),

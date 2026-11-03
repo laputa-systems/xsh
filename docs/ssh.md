@@ -55,6 +55,18 @@ defers; `ssh.close(session)` releases it early. One command runs per session at
 a time: concurrent use of one session is rejected with `SshError.Busy`, never
 serialized silently. Independent sessions run concurrently.
 
+## Building a command
+
+SSH exec carries one command string. For a remote account whose login shell is
+POSIX (`sh`, `ash`, `dash`, `bash`), build it from an argv vector with
+`shlex.join`, which quotes empty arguments, quotes, whitespace, newlines,
+`$`, backticks, `$(...)` and leading hyphens so the shell sees each value
+unchanged; `tests/xsh/ssh-argv.xsh` runs these cases through a real shell. No
+other login shell is assumed to have POSIX semantics, and a command string with
+a NUL byte is refused before submission. Where the remote runs XSH, send a
+fixed, reviewed program as the command and the request as bounded stdin data
+instead of interpolating values into source.
+
 ## Outcomes and errors
 
 A remote exit status or signal is a result, not an error. `exit_code` is the
@@ -145,6 +157,13 @@ SIGINT and SIGTERM cancel a running command promptly as `SshError.Canceled`.
 Closing a channel or connection does not prove that a remote process stopped,
 and the client sends no signal to it. A timed-out or cancelled command may
 still be running; reconcile through a separate session.
+
+## Examples
+
+`examples/ssh/` has runnable programs for [a single command](../examples/ssh/exec.xsh),
+[connection reuse](../examples/ssh/reuse.xsh), [binary transfer](../examples/ssh/transfer.xsh),
+[errors](../examples/ssh/errors.xsh) and [parallel hosts](../examples/ssh/parallel.xsh).
+Run them through the fixture with `XSH_MODULE_PATH=examples/ssh`.
 
 ## Qualification
 
