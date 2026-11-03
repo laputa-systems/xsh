@@ -158,3 +158,36 @@ fn named_empty_map_argument_takes_a_dynamic_map_contract_but_a_populated_literal
     );
     assert!(message.contains("generic call substitution contains dynamic type Map[List[Any]]"), "{message}");
 }
+
+const FINISHING_ARMS: &str = "proc ready(x: Int) -> Result[Int, Error] { Ok(x) }\n\
+proc finish(x: Int) -> Result[Unit, Error] {\n\
+  match ready(x) {\n\
+    Err(error) => Err(error)\n\
+    Ok(value) => {\n\
+      guard value > 0 else { return error.fail(\"not positive\") }\n\
+    }\n\
+  }\n\
+}\n\
+assert finish(2) is Ok(_)\n";
+
+#[test]
+fn match_arm_blocks_finish_a_unit_result_function() {
+    let program = checked_program("finishing-arms.xsh", FINISHING_ARMS);
+    FullVerifier::verify(&program).unwrap();
+    let owner = function_index(&program, "finish");
+    let mut forged = reissued(&program, owner, |callable| {
+        *callable.return_ty = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
+    });
+    let mut pool = SemanticPoolBuilder::default();
+    let unit_result = pool.intern_type(&mut forged.store.semantic, &Type::Result(Box::new(Type::Unit), Box::new(Type::Error))).unwrap();
+    let int_result = pool.intern_type(&mut forged.store.semantic, &Type::Result(Box::new(Type::Int), Box::new(Type::Error))).unwrap();
+    for fact in &mut forged.store.checked_expr_types {
+        if fact.type_id == unit_result {
+            fact.type_id = int_result;
+        }
+    }
+    assert_eq!(
+        FullVerifier::verify(&forged).unwrap_err().message,
+        "ground producer value disagrees with its checked contract",
+    );
+}

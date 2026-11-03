@@ -396,3 +396,52 @@ print conditional(true, table)
   assert output.success, output.stderr
   assert output.stdout == "0\n0\n0\n1\n0\n1\n0\n1\n"
 }
+
+test test_match_arm_block_without_a_tail_finishes_a_unit_result_function { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc ready(x: Int) -> Result[Int, Error] {
+  Ok(x)
+}
+
+proc guarded(x: Int) -> Result[Unit, Error] {
+  match ready(x) {
+    Err(error) => Err(error)
+    Ok(value) => {
+      guard value > 0 else {
+        return error.fail("not positive")
+      }
+    }
+  }
+}
+
+proc bound(x: Int) -> Result[Unit, Error] {
+  match x {
+    0 => Ok()
+    else => {
+      let doubled = x * 2
+      print f"doubled {doubled}"
+    }
+  }
+}
+
+proc outer(x: Int) -> Result[Str, Error] {
+  match guarded(x) {
+    Ok(_) => Ok("fine")
+    Err(error) => Err(error)
+  }
+}
+
+let fine = outer(1)?
+let rejected = outer(0) is Err(_)
+let skipped = bound(0) is Ok(_)
+let finished = bound(2) is Ok(_)
+print $fine
+print $rejected
+print $skipped
+print $finished
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "doubled 4\nfine\ntrue\ntrue\ntrue\n"
+}

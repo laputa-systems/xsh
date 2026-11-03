@@ -6876,7 +6876,11 @@ impl<'a> ProducerProof<'a> {
             }
             return Ok(());
         }
-        if Type::Unit.matches_expected(&expected) { return Ok(()); }
+        let completion = match expected.unvalidated() {
+            Type::Result(ok, _) if returned => ok.as_ref(),
+            _ => expected.as_ref(),
+        };
+        if Type::Unit.matches_expected(completion) { return Ok(()); }
         if let Some((value, status)) = last.map(|last| decoder.checked_run_status_statement(last)).transpose()?.flatten() && status.matches_expected(&expected) {
             self.expression(decoder.owner, value, Arc::new(status), false);
             return Ok(());
