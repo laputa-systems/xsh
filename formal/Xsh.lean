@@ -6,6 +6,7 @@ import Xsh.Typing.Connected.Generation
 import Xsh.Typing.Connected.Certificate
 import Xsh.Typing.Connected.Derivation
 import Xsh.Typing.Connected.Qualified
+import Xsh.Typing.Connected.QualifiedControls
 import Xsh.Conformance.Connected.FieldFacts
 import Xsh.Conformance.Connected.FactsDocument
 import Xsh.Conformance.Connected.FieldLink

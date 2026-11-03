@@ -37,6 +37,9 @@ mutual
         ExpressionHasType scope solution value result →
         BlockHasType names solution scope result rest →
         BlockHasType names solution scope result (.returnValue (some value) :: rest)
+    | tailName {scope result name} :
+        ExpressionHasType scope solution (.ident name) result →
+        BlockHasType names solution scope result [.tailName name]
     | expression {scope result value rest ty} :
         ExpressionHasType scope solution value ty →
         (rest = [] → ty = result) →

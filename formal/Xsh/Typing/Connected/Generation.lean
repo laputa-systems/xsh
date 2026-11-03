@@ -382,6 +382,12 @@ mutual
           emit (.equal generated.ty result)
           let following ← block fuel names scope result rest
           pure (.returned generated.node :: following)
+      | .tailName name => do
+          if rest.isEmpty then pure () else throw .unsupportedStatement
+          let generated ← expression fuel scope (.ident name)
+          emit (.equal generated.ty result)
+          let following ← block fuel names scope result rest
+          pure (.evaluated generated.node :: following)
       | .expression value => do
           let generated ← expression fuel scope value
           constrainPropagation result generated.node

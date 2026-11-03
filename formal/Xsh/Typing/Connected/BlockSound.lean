@@ -50,6 +50,19 @@ theorem validate_evaluated_sound (fuel : Nat) (ih : BlockSound fuel)
     simpa using tail
   · exact ih names scope solution binderTypes result rest nodes remainingAccepted
 
+theorem validate_tail_name_sound (fuel : Nat)
+    (names : TypeNames) (scope : Scope) (solution : Substitution) (binderTypes : BinderTypes)
+    (result : MonoType) (name : NameId) (rest : List Statement) (node : Node)
+    (nodes : List StatementNode)
+    (accepted : validateBlock (fuel + 1) names scope solution binderTypes result
+      (.tailName name :: rest) (.evaluated node :: nodes) = .ok ()) :
+    BlockHasType names solution scope result (.tailName name :: rest) := by
+  simp [validateBlock, except_bind_ok, exists_require_ok] at accepted
+  obtain ⟨empty, _, expressionAccepted, equal, _⟩ := accepted
+  subst rest
+  subst result
+  exact .tailName (accepted_expression_has_type fuel scope solution (.ident name) node _ expressionAccepted)
+
 theorem validate_binding_sound (fuel : Nat) (ih : BlockSound fuel)
     (names : TypeNames) (scope : Scope) (solution : Substitution) (binderTypes : BinderTypes)
     (result : MonoType) (kind : Xsh.Syntax.BindingKind) (name : NameId) (declared : Option TypeExpr)
@@ -151,6 +164,11 @@ theorem validate_blocks_sound : ∀ fuel, BlockSound fuel ∧ StatementBranchesS
             cases value <;> cases node <;> first
               | exact validate_return_sound fuel blockIH names scope solution binderTypes result
                   _ rest _ nodes accepted
+              | cases accepted
+          | tailName name =>
+            cases node <;> first
+              | exact validate_tail_name_sound fuel names scope solution binderTypes result
+                  name rest _ nodes accepted
               | cases accepted
           | expression value =>
             cases node <;> first

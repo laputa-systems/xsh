@@ -56,6 +56,11 @@ mutual
           let valueType ← validateExpression fuel scope solution value candidate
           requireCheck (decide (valueType = result))
           validateBlock fuel names scope solution binderTypes result rest nodes
+      | .tailName name, .evaluated candidate => do
+          requireCheck rest.isEmpty
+          let valueType ← validateExpression fuel scope solution (.ident name) candidate
+          requireCheck (decide (valueType = result))
+          validateBlock fuel names scope solution binderTypes result rest nodes
       | .expression value, .evaluated candidate => do
           let valueType ← validateExpression fuel scope solution value candidate
           requireCheck (!rest.isEmpty || decide (valueType = result))
