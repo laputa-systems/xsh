@@ -1,7 +1,121 @@
 # XSH-55: Native SSH client
 
-Status: planned. Starts after the inference campaign closes
-and Lean's current G1b slice lands; see the [roadmap](../ROADMAP.md#sequence).
+Status: delivered on Linux x86-64 as an experimental client, with the open items
+listed under [Open](#open). Native macOS qualification is deferred by the owner
+because no macOS host is available. The Rust crate is `crates/xsh-ssh`; the
+interface is [Native SSH](../ssh.md).
+
+## Audit
+
+Every row of the RFC and of the roadmap's
+[Stage 1 contract](../ROADMAP.md#stage-1-the-remote-execution-contract-over-the-native-client)
+is classified against evidence on `master` with a test that fails without the
+behavior (D delivered, P partial, M missing). "2026-10-31" is the state the
+seven earlier commits left; "Now" is after this campaign. Interop means a real
+OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM drill.
+
+| Requirement | 2026-10-31 | Now | Evidence |
+|---|---|---|---|
+| Pinned vendored substrate, origin manifest, update steps, builds without a sibling checkout, one Graviola | D | D | `vendor/ORIGIN.md`, `scripts/check-ssh-crypto.sh` |
+| Crate independent of XSH values; thin adapter; no async runtime or per-command thread | D | D | `Cargo.toml`, `src/modules/ssh.rs` |
+| `connect` with explicit connection, trust and identity options returning an owned session | P pin and key file only | D | `tests/xsh/ssh-connect.xsh` |
+| Bounded captured exec, streaming and file-backed stdin, independent sinks | P stdin past the window failed; no limit test | D | `stdin_larger_than_the_window_is_echoed_exactly`, `output_past_the_capture_limit_is_reported_and_poisons_the_session`, 128 MiB `tests/stream.rs` |
+| Negotiated algorithms and authenticated host identity | M | D | `ssh.info`, `hybrid_post_quantum_exchange_is_negotiated` |
+| Explicit close and reliable scope cleanup | D | D | `ssh_scope_releases_session`, `ssh_return_from_a_with_body_releases_the_session`, `tests/descriptors.rs` |
+| Typed records and errors with execution certainty as a field; handles cannot be forged | P string kinds; handle is a 256-bit random token | P typed `SshError`; token unchanged | `tests/xsh/ssh-exec.xsh`; forging needs the token |
+| Outcomes: status, signal, rejection, failure classes, timeout, cancellation, missing completion | P no rejection or cancellation | D | `tests/protocol.rs`, `signal_is_an_outcome` |
+| Execution certainty; no replay after reconnect; no automatic reconnect | P timeouts only | D | `a_disconnect_after_submission_is_potentially_executed`, `a_rejected_exec_request_did_not_run` |
+| Argv helper for a named shell, hostile values, NUL refused | M | D POSIX `sh` via `shlex.join` | `tests/xsh/ssh-argv.xsh` |
+| Successive commands on one connection; concurrent use of one session rejected; independent parallel sessions | P | D | `one_connection_serves_successive_commands`, `independent_sessions_run_in_parallel`, `ssh_exec_rejects_concurrent_use` |
+| Partial and fragmented I/O, simultaneous stdin/stdout/stderr and control traffic, window and packet limits, backpressure, per-direction EOF and close, unsupported requests answered | P blocking exec and no receive limits | D | `tests/protocol.rs`, `saturated_stderr_does_not_deadlock` |
+| Sessions in scope cleanup, deadlines and cancellation; nested scope, early return, worker cancellation | P | P signal cancellation is covered in Rust (`the_caller_can_cancel_a_running_command`), not by a native signal test | above |
+| Guarantee about remote descendants documented | M | D | `docs/ssh.md` |
+| Graviola the only provider; no accept-all verifier | D | D | `scripts/check-ssh-crypto.sh` |
+| Hybrid KEX preferred, one classical alternative, Ed25519 | P classical only | D | `kex::tests`, `hybrid_post_quantum_exchange_is_negotiated` |
+| Client KEX, exchange hash, server signature check, key derivation, session-bound auth, strict KEX | P signature check untested | D | `a_tampered_host_signature_is_refused_before_authentication`, `a_message_before_kexinit_breaks_strict_key_exchange` |
+| Server- and client-initiated rekey with queued traffic; byte, packet and time thresholds; identity kept | P server side only, streaming path only | D | `client_initiated_rekeys_carry_queued_traffic_without_loss`, `the_session_identity_survives_a_client_rekey`, `server_initiated_rekeys_do_not_disturb_captured_output` |
+| Invalid lengths, ids, windows, state transitions, authenticated packets | M | D | `tests/protocol.rs` |
+| Unsupported CPU fails clearly before any instruction | M | D | `cpu::tests` |
+| Pinned fingerprint and `known_hosts`; unknown, changed, revoked fail before authentication; hashed and CA entries rejected; no TOFU, no automatic write | P pin only | D | `tests/connect.rs`, `known_hosts::tests`, `ssh_known_hosts_refuses_unknown_changed_and_revoked_keys` |
+| Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `encrypted_key_is_rejected_explicitly` |
+| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | P key file buffer zeroized; Graviola's key memory and process dumps are not | `debug_does_not_expose_payloads`, `docs/ssh.md` |
+| Required tests (pinned and `known_hosts`, auth, binary I/O, status and signal, absent status, premature disconnect, windows, stalled peers, reuse, both rekey directions, fragmented identification, malformed input, deadlines and cancellation, failure after submission) | P | D | `tests/connect.rs`, `exec.rs`, `stream.rs`, `protocol.rs`, `agent.rs`, `descriptors.rs` |
+| Feature-disabled and minimal builds | P they warned, which the distribution build denies | D | `cargo check -p xsh --no-default-features` and `--features net,tools`, warning-free |
+| Runnable examples: exec, transfer, reuse, errors, parallel hosts | P 1 of 5 | D | `examples/ssh/` |
+| Parser and state-machine tests plus targeted fuzz or property tests | M | D | `arbitrary_connection_messages_never_hang_or_panic_the_client`, `kex::tests`, `known_hosts::tests` |
+| Public API docs, compatibility matrix, threat model, residual limits | P | D | `docs/ssh.md` |
+| Provenance and dependency-graph checks; reproducible interop commands | P no Linux fixture | D | `scripts/check-ssh-crypto.sh`, `crates/xsh-ssh/fixture/ssh-fixture.sh` |
+| Before and after size, startup, memory and throughput | P macOS only | D build time deferred: host busy | [Measurements](#measurements) |
+| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P glibc host and musl gate cases executed; musl fixture suites, macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements) |
+| Stage 1: host identity, pinned verification, changed key fails closed, no agent forwarding or secrets in logs | D | D | as above |
+| Stage 1: structured argv, environment, working directory, byte-preserving paths | M | P Laputa `run` takes a UTF-8 argv and a timeout; no environment, working directory or non-UTF-8 path | `tests/system/remote_guest.xsh` in Laputa |
+| Stage 1: fixed remote entrypoint with bounded versioned data; one audited quoting helper | M | D | Laputa `system/remote_guest.xsh`, `ssh-argv.xsh` |
+| Stage 1: streaming, exit status versus transport failure, backpressure, deadlines, owned cleanup | P | D | above |
+| Stage 1: safe staging, digest verification, no-replace publication, cleanup | M | D | Laputa drill; durability and authenticity are not claimed |
+| Stage 1: not submitted, completed and unknown outcomes; no replay; remote cancellation needs an acknowledged action | P | P outcomes and reconciliation are delivered; no remote cancellation action exists | `certainty`, `remote_staged` |
+| Stage 1 acceptance: real client and server, host-key refusal, slow reader, cancellation, interrupted transfer, uncertain mutation, malformed and oversized requests, changed protocol version | M | D | Laputa `tests/integration/remote_admin.py` and `tests/system/remote_guest.xsh` |
+| First consumer: one headless Laputa VM | M | D Linux x86-64 under KVM | Laputa `docs/REMOTE-ADMIN.md` |
+| xsh-infra: typed errors carrying certainty | P message text | D `SshError` variants with a `certainty` field | `ssh_exec_timeout_carries_certainty`, `ssh_lost_connection_after_submission_is_a_submitted_transport_error` |
+| xsh-infra: parallel connect with sessions the caller owns | M | D `ssh.connect_all` | `ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller` |
+| xsh-infra: session state after a streaming timeout | M broken pipe | D `ssh.info.usable` and `SshError.Unusable` | `ssh_session_reports_itself_dead_after_a_stdin_timeout` |
+| xsh-infra: exec environment | M | D `env` option as SSH `env` requests | `environment_requests_precede_the_command_in_order`, `ssh_exec_environment_is_sent_when_the_server_accepts_it` |
+
+## Measurements
+
+Linux x86-64 musl, `dist` profile built natively (the pinned-image `cargo dev dist`
+did not link on this host, so absolute bytes differ from the [size
+record](../RELENG.md#size-record) and only the deltas are comparable).
+`dist` builds use `-p xsh -p xsht`, so Cargo's feature unification keeps `ssh`
+enabled in them: the shipped products are SSH-enabled.
+
+| Product, stripped | `master` before | After | Change |
+|---|---|---|---|
+| `xsh` | 31,507,216 | 31,657,872 | +0.48% |
+| `xsht` | 42,899,856 | 43,080,080 | +0.42% |
+| `xsh` built without `ssh` | | 30,920,016 | `ssh` is 737,856 bytes, 2.4% |
+
+The 5% size gate passes. Beyond the vendored substrate, `ssh` adds `xsh-ssh`,
+`oxish-proto`, `oxish-graviola`, `thiserror`, `tracing` and their proc-macro
+crates to `xsh`; Graviola is already in the graph. The `xsh-ssh` closure is 29
+crates, none of them another cryptographic provider
+(`scripts/check-ssh-crypto.sh`).
+
+Startup (`xsh --startup`, CPU time, 40 interleaved runs, `perf-gate-ready` clear
+before and after): 0.6 ms median before and after. A 256 MiB `cat` echo through
+the loopback fixture (5 interleaved pairs, same gate): median 1.37 s before and
+1.47 s after (196 and 183 MB/s, about 7% slower), peak memory 28.3 MiB before and
+31.0 MiB after. Build time was not measured: the host was never quiet for the
+length of a fat-LTO build, so that gate is deferred: host busy.
+
+Executed lanes: the Linux x86-64 glibc host ran every suite against Alpine
+OpenSSH 10.0, Dropbear 2026.94 served the Laputa KVM drill, and the pinned
+`xsh-test` musl container ran the `cargo dev gate` cases `test-ssh-unit`,
+`test-registry`, `test-signatures`, `test-api`, `test-registry-reference`,
+`test-modules-unit`, `check-api-snippets` and `check-docs` (all pass). The
+fixture suites did not run on a musl target. Cross-checked only, not executed:
+`aarch64-apple-darwin` and `aarch64-unknown-linux-musl` (`cargo check -p xsh-ssh`).
+
+## Open
+
+- Native macOS arm64 qualification, deferred by the owner; no macOS host exists.
+  The code that already compiled there compiles by cross-check only.
+- A protocol and security review before any claim beyond experimental. The
+  tests, fuzz loops and fixtures here are not formal verification.
+- One command per session, with no channel multiplexing. A session is dead after
+  any failure; a timeout does not keep the transport reusable.
+- Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries
+  are refused. Only Ed25519 host and user keys, no password or
+  keyboard-interactive authentication, no PTY or forwarding.
+- An acknowledged remote cancellation action; closing a channel does not prove
+  that a remote process stopped. Laputa's `run` takes no environment or working
+  directory and carries only UTF-8 paths. `ssh.exec` takes no working directory
+  and no stream timeout separate from the whole-command timeout.
+- Laputa: `first_boot.apply` leaves state-disk files owned by the builder, so the
+  drill seeds the operator at the builder's uid; reboot-stable identity, network
+  loss, privilege delegation, activation of a staged candidate, and aarch64
+  guests are not covered.
+- `cargo dev dist` does not link on this host (the container's linker
+  environment), so the size record in `RELENG.md` is not refreshed.
 
 ## Summary
 
