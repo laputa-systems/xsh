@@ -369,6 +369,17 @@ class CoverageTests(unittest.TestCase):
 
 
 class PreflightTests(unittest.TestCase):
+    def test_rendered_plan_binds_the_active_image_and_rejects_a_stale_image(self):
+        plan = MANIFEST_GENERATOR.render_manifest()
+        self.assertEqual(plan["environment"]["image"], LAUNCHER.IMAGE)
+        plan["environment"]["image"] = "sha256:" + "0" * 64
+        with tempfile.TemporaryDirectory(dir=SCRATCH_ROOT) as directory:
+            path = pathlib.Path(directory) / "manifest.json"
+            path.write_text(json.dumps(plan))
+            with mock.patch.object(LAUNCHER, "PLAN_PATH", path):
+                with self.assertRaisesRegex(LAUNCHER.GateFailure, "approved manifest body changed"):
+                    LAUNCHER.load_plan()
+
     def test_rendered_approved_plan_passes_full_launcher_preflight(self):
         plan = MANIFEST_GENERATOR.render_manifest()
         self.assertIs(type(plan["environment"]["container_cpus"]), int)

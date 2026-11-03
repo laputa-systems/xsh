@@ -308,6 +308,7 @@ xsht trace --syscalls --trace-top-syscalls 10 SCRIPT
 The inherited profile adapter invokes these existing interfaces:
 
 ```sh
+python3 -B dev/consolidation/winddown/gate-tools/final-correctness-gates/generate_manifest.py --output "$PWD/.work/tmp/supplemental-plan.json"
 python3 -B dev/consolidation/winddown/gate-tools/final-correctness-gates/launch.py --plan
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/final-observers.py --plan
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --laputa-corpus LAPUTA --output OUTPUT
