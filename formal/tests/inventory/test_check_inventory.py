@@ -149,6 +149,22 @@ class InventoryCheckerTests(unittest.TestCase):
                         "mutated_programs_are_rejected_by_the_verifier_or_the_recorded_run",
                     )
                 ),
+                *(
+                    "runtime::eval::indexed::full::formal_bridge::facts::tests::" + name
+                    for name in (
+                        "exported_facts_are_the_lean_certified_bytes",
+                        "a_wrong_checker_fact_changes_the_export",
+                        "a_wrong_exported_document_is_not_the_recorded_one",
+                    )
+                ),
+                *(
+                    "runtime::eval::indexed::full::formal_bridge::arithmetic::tests::" + name
+                    for name in (
+                        "exported_assignment_rows_are_the_typed_integer_family",
+                        "mutated_assignments_are_rejected_by_the_verifier_or_the_recorded_run",
+                        "structurally_malformed_assignments_are_rejected",
+                    )
+                ),
             ],
             [case["test_id"] for case in coverage["finite_conformance"]["cases"]],
         )

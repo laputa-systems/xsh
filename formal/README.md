@@ -21,7 +21,7 @@ rejection theorems, the proposition, and what it does not show. A certificate
 proves a closed proposition about those bytes; it is not a fragment root and
 closes no universal obligation. The fixed source/IR corpus, semantic scenario
 suite, and replay runner have not been introduced. The ledger's bridge cases are
-the eight named `formal_bridge/arithmetic.rs` tests; other private bridge fixtures
+the fourteen named arithmetic and facts tests; other private bridge fixtures
 are not conformance cases.
 
 Every claim here starts after parsing unless planned source-admission evidence

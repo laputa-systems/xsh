@@ -15,28 +15,27 @@ nothing from the candidate, with a non-vacuity witness and rejected forgeries.
 The test-only Rust bridge exports checker facts for the failures and calls
 fixtures, and Lean certifies the corresponding fact documents. A third
 source/IR certificate covers one integer variable and one plain assignment.
-These new Rust comparisons need replay at a matching source freeze.
+The Rust bridge comparisons passed at the matching source freeze.
 `artifact_certificates` holds four ARTIFACT_CERTIFIED records. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
 exhausted the independent kernels, so the certificate covers `divided` and
 `overflowed` in one document and `excess` with `surplus` in another. The
-source freeze moved from `a08a0a133` to `7d73310d9`; see the log entry for the
-decision. Not reached: the connected milestone. The proofs cover the Lean
+source freeze is `1d27050bf`; see the log entry for the decision.
+Not reached: the connected milestone. The proofs cover the Lean
 lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
-Rust's execution of the IR rest on the two artifacts and the recorded runs.
-Next, replay the recorded conformance cases and new bridge comparisons at an
-integrated source freeze. Then widen the lowered shape toward the milestone
+Rust's execution of the IR rest on the artifacts and the recorded runs.
+Next, widen the lowered shape toward the milestone
 (record locals, Bool and Result control); add a parse and
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
-accepted the earlier certificates; rechecking the new certificates is pending.
-The independent kernels hold the whole export in memory, and
-con-leche stops at the 8 GiB address-space cap: a single declaration that
+accepted the current certificates under the 8 GiB cap.
+The independent kernels hold the whole export in memory. Earlier checks at the
+8 GiB address-space cap found that a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
-and 3.9 KB still failed con-leche, so the certified documents are 2.4 KB and
-3.9 KB. A certificate that evaluates a string literal or repeats a document
+and 3.9 KB still failed con-leche, so the original certified documents are
+2.4 KB and 3.9 KB. A certificate that evaluates a string literal or repeats a document
 decode can pass the bundled kernel and still exceed the cap.
 
 **Resume:** complete one connected
@@ -53,9 +52,9 @@ correspondence. All 77 universal obligations stay planned. G1's five base
 theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
 roots: they hold for the base expression machine, which is not the frozen
 core.
-`source_identity` records the frozen commit `7d73310d9` and its tree, and
-`finite_conformance.cases` holds the four Float equality tests and eight
-`formal_bridge/arithmetic.rs` tests, run once each against a verification
+`source_identity` records the frozen commit `1d27050bf` and its tree, and
+`finite_conformance.cases` holds four Float equality tests and fourteen
+arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
 the pinned container. `artifact_certificates` holds four ARTIFACT_CERTIFIED
 records, apart from the fragment roots. Each
@@ -747,6 +746,23 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   The combined six-function program remains the Rust-only fixture for the
   corruption and mutation tests. The two success functions (`shifted`, `scaled`)
   are no longer in a certified artifact.
+- 2026-11-03: The source freeze moved to `1d27050bf739d72f9abefeba161b8768dad71c5c`
+  (tree `3b1253e27132f377ffab35e0232bd5835ed07e4a`). The test-only bridge
+  now exports the checker's facts for the failures and calls fixtures. Lean
+  certifies those documents, and rejects mutations to facts and source bytes.
+  The assignment artifact covers one integer variable and plain assignment.
+  The checker-fact projection rejects inconsistent published expression types.
+  In the pinned `xsh-test` image (`sha256:b123366ba3e8`), a matching
+  verification `xsh`/`xsht` pair and library test binary ran all eighteen
+  ledger cases individually: four Float cases and fourteen bridge cases. All
+  passed. The three bridge-source gate cases passed: 1,675 lowering tests,
+  one type-agreement test, and twelve native lowering-coverage tests.
+- 2026-11-03: The fresh check passed all six kernels under the 8 GiB cap.
+  con-leche's default worker count previously exhausted that cap. The sandbox
+  adapter now passes the existing Lake thread limit to con-leche's `--jobs`,
+  retaining verified mode and the full export. The axiom audit passed for
+  16,033 declarations and rejected all six self-test controls. The inventory
+  and its tests passed; all 77 universal obligations remain planned.
 
 ## For the owner afterwards
 
