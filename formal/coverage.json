@@ -11323,6 +11323,15 @@
       "status": "fragment",
       "scope": "A checked finite substitution gives a well-sorted concrete call instance and validates both generated constraints and body typing.",
       "boundary": "This checks one instance at a time; generic-body typing for every qualified substitution, actual Rust facts and runtime simulation remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.field_function_instance_sound",
+      "module": "Xsh.Conformance.Connected.FieldFacts",
+      "declaration": "Xsh.Conformance.Connected.field_function_instance_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Matching field operations and selected bindings against generated qualified requirements yields a typed concrete body instance and satisfied field constraints.",
+      "boundary": "The supplied source sites and operation records are Lean inputs; their source admission and Rust document exchange remain open. Generic-body typing for all instances and runtime simulation are not proved."
     }
   ],
   "artifact_certificates": [
