@@ -16,7 +16,7 @@ import Xsh.Conformance.Connected.ActualFacts
 import Xsh.Conformance.Connected.IdentityFacts
 import Xsh.Conformance.Connected.SourceEffects
 import Xsh.Semantics.Connected.Witness
-import Xsh.Semantics.Connected.TypedScope
+import Xsh.Semantics.Connected.TypedBinary
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
