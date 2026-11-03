@@ -65,6 +65,25 @@ def WellFormed : MonoType → Prop
       WellFormed value ∧ typeSort value = .value ∧
         WellFormed tail ∧ typeSort tail = .row
 
+def checksWellFormed : MonoType → Bool
+  | .variable _ | .primitive _ | .rowEmpty | .argumentsEmpty => true
+  | .function arguments result =>
+      checksWellFormed arguments && decide (typeSort arguments = .arguments) &&
+        checksWellFormed result && decide (typeSort result = .value)
+  | .argument value rest =>
+      checksWellFormed value && decide (typeSort value = .value) &&
+        checksWellFormed rest && decide (typeSort rest = .arguments)
+  | .result value error =>
+      checksWellFormed value && decide (typeSort value = .value) &&
+        checksWellFormed error && decide (typeSort error = .value)
+  | .record row => checksWellFormed row && decide (typeSort row = .row)
+  | .rowField _ value tail =>
+      checksWellFormed value && decide (typeSort value = .value) &&
+        checksWellFormed tail && decide (typeSort tail = .row)
+
+theorem checks_well_formed_iff (ty : MonoType) : checksWellFormed ty = true ↔ WellFormed ty := by
+  induction ty <;> simp_all [checksWellFormed, WellFormed, and_assoc]
+
 abbrev Substitution := Variable → MonoType
 
 def substitute (substitution : Substitution) : MonoType → MonoType

@@ -45,7 +45,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 820
+**State:** `formal/coverage.json` is the only inventory. It lists 826
 fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
 selected behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -771,6 +771,16 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   satisfying substitution. This is Lean-only evidence. Generator soundness,
   principal solving, source admission, actual Rust facts and IR, effects,
   candidate validation, and source-to-IR simulation remain open.
+
+
+- 2026-11-03: Independent expression and statement candidate validators now
+  have general typing-soundness proofs for their supported forms. An expression
+  certificate also checks the solution against constraints generated from the
+  same core expression; an identity call is accepted, while a forged binding,
+  wrong solution and exhausted generation are distinguished. These are
+  Lean-only results. Generator completeness and principal solving, function
+  completion, effects, exact source admission, real Rust facts and target IR,
+  execution and source-to-IR simulation remain open.
 
 ## For the owner afterwards
 

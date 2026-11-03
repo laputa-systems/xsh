@@ -1,0 +1,231 @@
+import Xsh.Typing.Connected.Judgment
+
+namespace Xsh.Typing.Connected
+
+open Xsh.Foundation
+open Xsh.Syntax
+
+inductive ValidationError where
+  | exhausted
+  | unsupported
+  | mismatch
+  | unresolvedName
+  deriving DecidableEq, Repr
+
+def requireCheck (condition : Bool) : Except ValidationError Unit :=
+  if condition then .ok () else .error .mismatch
+
+def witnessSubstitution (arguments : List (Variable × MonoType)) : Substitution := fun id =>
+  (arguments.lookup id).getD (.variable id)
+
+def instantiationKeysValid (scheme : Scheme) (arguments : List (Variable × MonoType)) : Bool :=
+  let keys := arguments.map Prod.fst
+  decide keys.Nodup && decide scheme.quantified.Nodup &&
+    decide (keys.length = scheme.quantified.length) &&
+    scheme.quantified.all (fun id => decide (id ∈ keys))
+
+def instantiationSortsValid (solution : Substitution) (arguments : List (Variable × MonoType)) : Bool :=
+  arguments.all fun (id, ty) =>
+    checksWellFormed (substitute solution ty) && decide (typeSort (substitute solution ty) = id.kind.sort)
+
+mutual
+  def validateExpression : Nat → Scope → Substitution → Expr → Node → Except ValidationError MonoType
+    | 0, _, _, _, _ => .error .exhausted
+    | fuel + 1, scope, solution, source, candidate => do
+      match source, candidate with
+      | .literal (.integer text), .integer other => do
+          requireCheck (decide (text = other))
+          pure (.primitive .integer)
+      | .literal (.bool value), .boolean other => do
+          requireCheck (decide (value = other))
+          pure (.primitive .boolean)
+      | .literal (.string value), .string other => do
+          requireCheck (decide (value = other))
+          pure (.primitive .string)
+      | .ident name, .read binder arguments => do
+          let some binding := scope.find? (fun item => decide (item.name = name))
+            | throw .unresolvedName
+          requireCheck (decide (binding.binder = binder))
+          requireCheck (instantiationKeysValid binding.scheme arguments)
+          requireCheck (instantiationSortsValid solution arguments)
+          let instantiation := schemeSubstitution binding.scheme (witnessSubstitution arguments)
+          let requirements := binding.scheme.requirements.map (mapConstraint instantiation)
+          requireCheck (checksConstraints solution requirements)
+          let ty := substitute solution (substitute instantiation binding.scheme.body)
+          requireCheck (checksWellFormed ty && decide (typeSort ty = .value))
+          pure ty
+      | .binary operator left right, .binary recorded first second => do
+          requireCheck (decide (operator = recorded))
+          let some (leftType, rightType, result) := binarySignature operator
+            | throw .unsupported
+          let actualLeft ← validateExpression fuel scope solution left first
+          let actualRight ← validateExpression fuel scope solution right second
+          requireCheck (decide (actualLeft = leftType) && decide (actualRight = rightType))
+          pure result
+      | .call callee arguments, .call target recordedArguments => do
+          let calleeType ← validateExpression fuel scope solution callee target
+          let argumentTypes ← validateArguments fuel scope solution arguments recordedArguments
+          match calleeType with
+          | .function parameters result => do
+              requireCheck (decide (parameters = argumentTypes))
+              pure result
+          | _ => throw .mismatch
+      | .record fields, .record recordedFields => do
+          let types ← validateRecordFields fuel scope solution fields recordedFields
+          requireCheck (decide (types.map Prod.fst).Nodup)
+          pure (.record ((canonicalFields types).foldr (fun (name, ty) row => .rowField name ty row) .rowEmpty))
+      | .field base name, .field recorded recordedName => do
+          requireCheck (decide (name = recordedName))
+          let baseType ← validateExpression fuel scope solution base recorded
+          match baseType with
+          | .record row =>
+              let some ty := fieldAt? name row | throw .mismatch
+              pure ty
+          | _ => throw .mismatch
+      | .ifExpr branches otherwise, .conditional recorded fallback => do
+          let result ← validateExpression fuel scope solution otherwise fallback
+          validateBranches fuel scope solution result branches recorded
+          pure result
+      | .tryExpr value, .propagate recorded => do
+          let result ← validateExpression fuel scope solution value recorded
+          match result with
+          | .result ty _ => pure ty
+          | _ => throw .mismatch
+      | _, _ => throw .mismatch
+
+  def validateArguments : Nat → Scope → Substitution → List CallArgument → List Node → Except ValidationError MonoType
+    | 0, _, _, _, _ => .error .exhausted
+    | _ + 1, _, _, [], [] => .ok .argumentsEmpty
+    | fuel + 1, scope, solution, .positional value :: rest, node :: nodes => do
+        let ty ← validateExpression fuel scope solution value node
+        let others ← validateArguments fuel scope solution rest nodes
+        pure (.argument ty others)
+    | _ + 1, _, _, _, _ => .error .mismatch
+
+  def validateRecordFields : Nat → Scope → Substitution → List RecordField → List (NameId × Node) →
+      Except ValidationError (List (NameId × MonoType))
+    | 0, _, _, _, _ => .error .exhausted
+    | _ + 1, _, _, [], [] => .ok []
+    | fuel + 1, scope, solution, .named name value :: rest, (recordedName, node) :: nodes => do
+        requireCheck (decide (name = recordedName))
+        let ty ← validateExpression fuel scope solution value node
+        let others ← validateRecordFields fuel scope solution rest nodes
+        pure ((name, ty) :: others)
+    | _ + 1, _, _, _, _ => .error .mismatch
+
+  def validateBranches : Nat → Scope → Substitution → MonoType → List (Expr × Expr) →
+      List (Node × Node) → Except ValidationError Unit
+    | 0, _, _, _, _, _ => .error .exhausted
+    | _ + 1, _, _, _, [], [] => .ok ()
+    | fuel + 1, scope, solution, result, (condition, value) :: rest, (guard, node) :: nodes => do
+        let guardType ← validateExpression fuel scope solution condition guard
+        requireCheck (decide (guardType = .primitive .boolean))
+        let branchType ← validateExpression fuel scope solution value node
+        requireCheck (decide (branchType = result))
+        validateBranches fuel scope solution result rest nodes
+    | _ + 1, _, _, _, _, _ => .error .mismatch
+end
+
+theorem except_bind_ok {ε α β : Type} (action : Except ε α) (next : α → Except ε β) (out : β) :
+    (action >>= next) = .ok out ↔ ∃ value, action = .ok value ∧ next value = .ok out := by
+  cases action with
+  | error error =>
+    constructor
+    · intro impossible; cases impossible
+    · rintro ⟨_, impossible, _⟩; cases impossible
+  | ok value =>
+    constructor
+    · intro result; exact ⟨value, rfl, result⟩
+    · rintro ⟨_, equal, result⟩; cases equal; exact result
+
+theorem except_map_ok {ε α β : Type} (f : α → β) (action : Except ε α) (out : β) :
+    (f <$> action) = .ok out ↔ ∃ value, action = .ok value ∧ f value = out := by
+  cases action with
+  | error error =>
+    constructor
+    · intro impossible; cases impossible
+    · rintro ⟨_, impossible, _⟩; cases impossible
+  | ok value =>
+    constructor
+    · intro result; cases result; exact ⟨value, rfl, rfl⟩
+    · rintro ⟨_, equal, result⟩; cases equal; cases result; rfl
+
+theorem exists_require_ok (condition : Bool) :
+    (∃ result, requireCheck condition = .ok result) ↔ condition = true := by
+  cases condition <;> simp [requireCheck]
+
+def ExpressionSound (fuel : Nat) : Prop := ∀ scope solution source node ty,
+  validateExpression fuel scope solution source node = .ok ty → ExpressionHasType scope solution source ty
+
+def ArgumentsSound (fuel : Nat) : Prop := ∀ scope solution arguments nodes types,
+  validateArguments fuel scope solution arguments nodes = .ok types → ArgumentsHaveTypes scope solution arguments types
+
+def FieldsSound (fuel : Nat) : Prop := ∀ scope solution fields nodes types,
+  validateRecordFields fuel scope solution fields nodes = .ok types → RecordFieldsHaveTypes scope solution fields types
+
+def BranchesSound (fuel : Nat) : Prop := ∀ scope solution result branches nodes,
+  validateBranches fuel scope solution result branches nodes = .ok () → BranchesHaveType scope solution branches result
+
+theorem validate_read_sound (fuel : Nat) (scope : Scope) (solution : Substitution) (name : NameId)
+    (binder : BinderId) (arguments : List (Variable × MonoType)) (ty : MonoType)
+    (accepted : validateExpression (fuel + 1) scope solution (.ident name) (.read binder arguments) = .ok ty) :
+    ExpressionHasType scope solution (.ident name) ty := by
+  cases found : scope.find? (fun item => decide (item.name = name)) with
+  | none => simp [validateExpression, found] at accepted
+  | some binding =>
+    simp [validateExpression, found, except_bind_ok, except_map_ok, exists_require_ok,
+      Bool.and_eq_true, checks_well_formed_iff, checks_constraints_iff] at accepted
+    obtain ⟨_, _, _, solved, ⟨wellFormed, sorted⟩, rfl⟩ := accepted
+    exact .read found ⟨rfl, rfl⟩ solved wellFormed sorted
+
+theorem validate_binary_sound (fuel : Nat) (ih : ExpressionSound fuel) (scope : Scope)
+    (solution : Substitution) (operator recorded : BinaryOp) (left right : Expr)
+    (first second : Node) (ty : MonoType)
+    (accepted : validateExpression (fuel + 1) scope solution (.binary operator left right)
+      (.binary recorded first second) = .ok ty) :
+    ExpressionHasType scope solution (.binary operator left right) ty := by
+  simp [validateExpression, except_bind_ok, exists_require_ok] at accepted
+  obtain ⟨_, accepted⟩ := accepted
+  cases found : binarySignature operator with
+  | none => simp [found] at accepted
+  | some signature =>
+    obtain ⟨leftType, rightType, result⟩ := signature
+    simp [found, except_bind_ok, except_map_ok, exists_require_ok, Bool.and_eq_true] at accepted
+    obtain ⟨_, leftAccepted, _, rightAccepted, ⟨rfl, rfl⟩, rfl⟩ := accepted
+    exact .binary (ih scope solution left first _ leftAccepted)
+      (ih scope solution right second _ rightAccepted) (binary_signature_sound found)
+
+def identityCallSource : Expr :=
+  .call (.ident identityBinding.name) [.positional (.literal (.integer "7"))]
+
+def identityCallCandidate : Node :=
+  .call (.read identityBinding.binder [(identityVariable, .variable ⟨10, .value⟩)]) [.integer "7"]
+
+def identityCallSolution (id : Variable) : MonoType :=
+  if id = ⟨10, .value⟩ then .primitive .integer else .variable id
+
+def identityCallAccepted : Bool :=
+  match validateExpression 12 [identityBinding] identityCallSolution identityCallSource identityCallCandidate with
+  | .ok (.primitive .integer) => true
+  | _ => false
+
+theorem independent_validator_accepts_identity_call : identityCallAccepted = true := by
+  decide +kernel
+
+def changedIdentityBinding : Node :=
+  .call (.read ⟨⟨1, by decide⟩⟩ [(identityVariable, .variable ⟨10, .value⟩)]) [.integer "7"]
+
+def changedIdentityLiteral : Node :=
+  .call (.read identityBinding.binder [(identityVariable, .variable ⟨10, .value⟩)]) [.integer "8"]
+
+def rejectsIdentityCandidate (candidate : Node) : Bool :=
+  match validateExpression 12 [identityBinding] identityCallSolution identityCallSource candidate with
+  | .error .mismatch => true
+  | _ => false
+
+theorem independent_validator_rejects_changed_binding_and_literal :
+    rejectsIdentityCandidate changedIdentityBinding = true ∧
+      rejectsIdentityCandidate changedIdentityLiteral = true := by
+  constructor <;> decide +kernel
+
+end Xsh.Typing.Connected

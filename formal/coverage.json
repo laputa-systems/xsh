@@ -11116,6 +11116,60 @@
       "status": "fragment",
       "scope": "The constraints generated for an explicitly constructed core block combining polymorphic calls, a record, a mutable local, and a Bool-controlled Result have a supplied solution.",
       "boundary": "The core tree and substitution are Lean data. This witness does not establish that the generator is sound or complete, that the solution is principal, that source bytes parse to the tree, or that Rust emits corresponding facts or IR."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.accepted_expression_has_type",
+      "module": "Xsh.Typing.Connected.Sound",
+      "declaration": "Xsh.Typing.Connected.accepted_expression_has_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any fuel, scope, solution, source expression and candidate node, successful independent validation entails the declarative expression typing judgment.",
+      "boundary": "The supplied scope and substitution are assumptions. The admitted expression forms exclude effects, source parsing and execution, and no Rust facts or IR are involved."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.accepted_block_has_type",
+      "module": "Xsh.Typing.Connected.BlockSound",
+      "declaration": "Xsh.Typing.Connected.accepted_block_has_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any fuel, successful validation of a supported statement sequence entails its declarative block typing judgment, including scoped binders, mutable assignment and branch bodies.",
+      "boundary": "This is a static typing judgment. It does not prove function completion, execution, principal inference, source admission, effects, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.generated_expression_certificate_sound",
+      "module": "Xsh.Typing.Connected.Certificate",
+      "declaration": "Xsh.Typing.Connected.generated_expression_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successfully checked expression certificate has a declarative typing derivation and its substitution solves the constraints independently generated from that source expression.",
+      "boundary": "This checks a candidate and supplied solution; it does not prove that generation is complete or principal, or connect source bytes, Rust facts, target IR, effects, or execution."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.binary_signature_complete",
+      "module": "Xsh.Typing.Connected.Judgment",
+      "declaration": "Xsh.Typing.Connected.binary_signature_complete",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every declaratively typed supported binary operation has the matching executable signature.",
+      "boundary": "This covers the selected primitive operations only; it does not establish Rust operation selection or evaluation."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.independent_validator_rejects_changed_binding_and_literal",
+      "module": "Xsh.Typing.Connected.Validate",
+      "declaration": "Xsh.Typing.Connected.independent_validator_rejects_changed_binding_and_literal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The expression candidate checker rejects a changed binding and a changed literal for a constructed identity call.",
+      "boundary": "These are Lean examples, not exported Rust facts or source parsing evidence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.check_annotation_sound",
+      "module": "Xsh.Typing.Connected.BlockValidate",
+      "declaration": "Xsh.Typing.Connected.check_annotation_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted annotations agree with the independently interpreted selected type names under the supplied substitution.",
+      "boundary": "The type-name environment and substitution are assumptions; no parser or Rust checker correspondence is established."
     }
   ],
   "artifact_certificates": [
