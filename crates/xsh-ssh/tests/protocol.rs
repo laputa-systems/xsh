@@ -425,7 +425,7 @@ fn an_unreachable_server_is_not_submitted() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
     let port = listener.local_addr().expect("address").port();
     drop(listener);
-    let config = ClientConfig::new(
+    let config = ClientConfig::pinned(
         "127.0.0.1",
         port,
         "tester",

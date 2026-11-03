@@ -1490,18 +1490,18 @@ implement only the facets below (`xsht api language:facet`);
 
 | Facet | Meaning | Contract |
 |---|---|---|
-| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`, `ArchiveError.Canceled`. |
-| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`, `ArchiveError.Limit`. |
-| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of every kind without a more specific facet. |
-| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, `ArchiveError.Open`, `ArchiveError.Io`, `ArchiveError.Corrupt`, `ArchiveError.Truncated`, `ArchiveError.Unsafe`, host OS errors of kind `InvalidData`. |
+| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`, `ArchiveError.Canceled`, `SshError.Canceled`. |
+| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`, `ArchiveError.Limit`, `SshError.OutputLimit`. |
+| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, `ArchiveError.Open`, `ArchiveError.Io`, `SshError.Local`, host OS errors of every kind without a more specific facet. |
+| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, `ArchiveError.Open`, `ArchiveError.Io`, `ArchiveError.Corrupt`, `ArchiveError.Truncated`, `ArchiveError.Unsafe`, `SshError.Options`, `SshError.TrustMaterial`, `SshError.Key`, `SshError.Local`, host OS errors of kind `InvalidData`. |
 | `MismatchedExport` | A module export has another kind or signature than its contract declares. | Implemented by a failed `.require(Contract)` on a module whose export differs from the contract. |
 | `MissingExport` | A module lacks an export its contract requires. | Implemented by a failed `.require(Contract)` on a module without a required export. |
 | `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
-| `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of kind `NotFound`. |
-| `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of kind `PermissionDenied`. |
+| `NotFound` | The target file, path, or command does not exist. | Implemented by `ProcessError.NotFound`, `ArchiveError.Open`, `ArchiveError.Io`, `SshError.Local`, host OS errors of kind `NotFound`. |
+| `PermissionDenied` | The host refused access to the target. | Implemented by `ProcessError.PermissionDenied`, `ArchiveError.Open`, `ArchiveError.Io`, `SshError.Authentication`, `SshError.Local`, host OS errors of kind `PermissionDenied`. |
 | `ProcessFailure` | A process could not be spawned, executed, or completed. | Implemented by `ProcessError.UnexpectedExit`, `ProcessError.PipelineFailure`, `ProcessError.ExecFailure`, `ProcessError.Spawn`. |
 | `Signal` | A process was terminated by a signal. | Implemented by `ProcessError.Signal`. |
-| `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, `NetError.ConnectTimeout`, `NetError.Timeout`, `ArchiveError.Open`, `ArchiveError.Io`, host OS errors of kind `TimedOut`. |
+| `Timeout` | The operation exceeded its time limit. | Implemented by `ProcessError.Timeout`, `NetError.ConnectTimeout`, `NetError.Timeout`, `ArchiveError.Open`, `ArchiveError.Io`, `SshError.Timeout`, `SshError.Local`, host OS errors of kind `TimedOut`. |
 | `UnexpectedExport` | A module has an export its exact contract does not list. | Implemented by a failed `.require(Contract)` on a module with an export outside an `exact module` contract. |
 
 ```xsh

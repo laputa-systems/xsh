@@ -157,6 +157,7 @@ pub fn builtin_error_families() -> Vec<ErrorFamily> {
         assertion_error_family(),
         codec_error_family(),
         archive_error_family(),
+        ssh_error_family(),
     ]
 }
 
@@ -469,6 +470,46 @@ pub const ARCHIVE_ERROR_VARIANTS: &[ErrorVariant] = &[
     ErrorVariant { name: "Limit", facets: &[ErrorFacet::CaptureLimit] },
     ErrorVariant { name: "Canceled", facets: &[ErrorFacet::Canceled] },
     ErrorVariant { name: "Options", facets: &[] },
+];
+
+/// The failures of the `ssh` module. `certainty` is `"not-submitted"` when the
+/// failed request never reached the server, so retrying is safe, and
+/// `"submitted"` when it may have, so the outcome must be observed before any
+/// retry. A remote nonzero exit status or signal is a result, never an error.
+pub fn ssh_error_family() -> ErrorFamily {
+    ErrorFamily {
+        name: "SshError",
+        fields: vec![
+            ErrorField { name: "message", ty: Type::Str },
+            ErrorField { name: "certainty", ty: Type::Str },
+        ],
+        variants: SSH_ERROR_VARIANTS,
+    }
+}
+
+pub const SSH_ERROR_VARIANTS: &[ErrorVariant] = &[
+    ErrorVariant { name: "Options", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "HostKeyMismatch", facets: &[] },
+    ErrorVariant { name: "HostKeyUnknown", facets: &[] },
+    ErrorVariant { name: "HostKeyRevoked", facets: &[] },
+    ErrorVariant { name: "HostKeyInvalid", facets: &[] },
+    ErrorVariant { name: "TrustMaterial", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Algorithm", facets: &[] },
+    ErrorVariant { name: "Hardware", facets: &[] },
+    ErrorVariant { name: "Key", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Authentication", facets: &[ErrorFacet::PermissionDenied] },
+    ErrorVariant { name: "Rejected", facets: &[] },
+    ErrorVariant { name: "Channel", facets: &[] },
+    ErrorVariant { name: "Protocol", facets: &[] },
+    ErrorVariant { name: "Transport", facets: &[] },
+    ErrorVariant { name: "Timeout", facets: &[ErrorFacet::Timeout] },
+    ErrorVariant { name: "Canceled", facets: &[ErrorFacet::Canceled] },
+    ErrorVariant { name: "OutputLimit", facets: &[ErrorFacet::CaptureLimit] },
+    ErrorVariant { name: "Unusable", facets: &[] },
+    ErrorVariant { name: "Busy", facets: &[] },
+    ErrorVariant { name: "Session", facets: &[] },
+    ErrorVariant { name: "Local", facets: HOST_IO_VARIANT_FACETS },
+    ErrorVariant { name: "Disabled", facets: &[] },
 ];
 
 const HOST_IO_VARIANT_FACETS: &[ErrorFacet] = &[

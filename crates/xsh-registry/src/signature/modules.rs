@@ -1217,6 +1217,23 @@ fn net_module() -> ModuleSig {
     ])
 }
 
+fn ssh_result(ok: Type) -> Type {
+    Type::Result(Box::new(ok), Box::new(Type::ErrorFamily("SshError")))
+}
+
+fn ssh_info_type() -> Type {
+    Type::Record(BTreeMap::from([
+        ("host".to_owned(), Type::Str),
+        ("port".to_owned(), Type::Int),
+        ("user".to_owned(), Type::Str),
+        ("host_key".to_owned(), Type::Str),
+        ("kex".to_owned(), Type::Str),
+        ("host_key_algorithm".to_owned(), Type::Str),
+        ("cipher_client_to_server".to_owned(), Type::Str),
+        ("cipher_server_to_client".to_owned(), Type::Str),
+    ]))
+}
+
 fn ssh_result_type() -> Type {
     Type::Record(BTreeMap::from([
         ("exit_code".to_owned(), Type::Int),
@@ -1234,7 +1251,7 @@ fn ssh_module() -> ModuleSig {
             "connect",
             sig(
                 vec![param("options", Type::Record(BTreeMap::new()))],
-                result(ssh_session_type()),
+                ssh_result(ssh_session_type()),
                 false,
                 RuntimeOp::SshConnect,
             ),
@@ -1247,16 +1264,25 @@ fn ssh_module() -> ModuleSig {
                     param("command", Type::Str),
                     param("options", Type::Record(BTreeMap::new())),
                 ],
-                result(ssh_result_type()),
+                ssh_result(ssh_result_type()),
                 false,
                 RuntimeOp::SshExec,
+            ),
+        ),
+        (
+            "info",
+            sig(
+                vec![param("session", ssh_session_type())],
+                ssh_result(ssh_info_type()),
+                false,
+                RuntimeOp::SshInfo,
             ),
         ),
         (
             "close",
             sig(
                 vec![param("session", ssh_session_type())],
-                result(Type::Unit),
+                ssh_result(Type::Unit),
                 false,
                 RuntimeOp::SshClose,
             ),

@@ -33,7 +33,7 @@ fn fixture() -> Fixture {
 }
 
 fn config(fixture: &Fixture, user: &str, key: &Path) -> ClientConfig {
-    ClientConfig::new(
+    ClientConfig::pinned(
         fixture.host.clone(),
         fixture.port,
         user,
@@ -203,7 +203,7 @@ fn timeout_before_submission_is_certain() {
         }
     });
     let fixture = fixture();
-    let config = ClientConfig::new(
+    let config = ClientConfig::pinned(
         "127.0.0.1",
         port,
         &fixture.user,

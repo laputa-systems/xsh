@@ -20,11 +20,14 @@ trap cleanup EXIT INT TERM
 
 docker image inspect "$image" >/dev/null 2>&1 || docker build -q -t "$image" "$here" >/dev/null
 ssh-keygen -q -t ed25519 -N '' -C xsh-ssh-fixture -f "$scratch/key"
+passphrase=fixture-passphrase
+ssh-keygen -q -t ed25519 -N "$passphrase" -C xsh-ssh-fixture-agent -f "$scratch/agent-key"
+cat "$scratch/key.pub" "$scratch/agent-key.pub" > "$scratch/authorized"
 
 start() {
   suffix=$1
   mkdir -p "$scratch/auth-$suffix"
-  cp "$scratch/key.pub" "$scratch/auth-$suffix/$user"
+  cp "$scratch/authorized" "$scratch/auth-$suffix/$user"
   chmod 755 "$scratch/auth-$suffix"
   chmod 644 "$scratch/auth-$suffix/$user"
   id=$(docker run -d -p 127.0.0.1::22 -v "$scratch/auth-$suffix:/etc/ssh/authorized_keys:ro" "$image")
@@ -53,5 +56,7 @@ start A
 start B
 XINFRA_FIXTURE_USER=$user
 XINFRA_FIXTURE_KEY="$scratch/key"
-export XINFRA_FIXTURE_USER XINFRA_FIXTURE_KEY
+XINFRA_FIXTURE_AGENT_KEY="$scratch/agent-key"
+XINFRA_FIXTURE_AGENT_PASSPHRASE=$passphrase
+export XINFRA_FIXTURE_USER XINFRA_FIXTURE_KEY XINFRA_FIXTURE_AGENT_KEY XINFRA_FIXTURE_AGENT_PASSPHRASE
 "$@"

@@ -97,8 +97,10 @@ test ssh_exec_timeout_carries_certainty {
   with session = ssh.connect(options)? {
     match ssh.exec(session, "sleep 5", {timeout_ms: 200}) {
       Ok(_) => assert false, "slow command did not time out"
-      Err(error) => assert "timed out" in error.message
+      Err(SshError.Timeout {certainty, ..}) => assert certainty == "submitted"
+      Err(other) => assert false, other.message
     }
+    assert ssh.exec(session, "true", {}) is Err(SshError.Unusable {..})
   }
 }
 
@@ -124,10 +126,85 @@ test ssh_exec_rejects_concurrent_use {
       let command = if index == 1 { "sleep 1" } else { "true" }
       match ssh.exec(session, command, {timeout_ms: 5000}) {
         Ok(_) => false,
-        Err(_) => true,
+        Err(SshError.Busy {..}) => true,
+        Err(_) => false,
       }
     }
     let rejected = results |> where { |value| value } |> count()
     assert rejected >= 1, "concurrent use was not rejected"
+  }
+}
+
+test ssh_exec_moves_stdin_larger_than_the_window {
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  let payload = bytes.zero(3 * 1024 * 1024)?
+  with session = ssh.connect(options)? {
+    let result = ssh.exec(session, "cat", {stdin: payload, timeout_ms: 60000})?
+    assert result.exit_code == 0
+    assert result.stdout == payload
+  }
+}
+
+test ssh_session_serves_successive_commands {
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    for round in [0, 1, 2, 3] {
+      let result = ssh.exec(session, f"printf round-{round}; exit {round}", {})?
+      assert result.exit_code == round
+      assert result.stdout.utf8()? == f"round-{round}"
+    }
+  }
+}
+
+test ssh_exec_output_past_the_limit_is_an_outcome_error {
+  let fixture = match fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  with session = ssh.connect(options)? {
+    match ssh.exec(session, "head -c 4096 /dev/zero", {max_output: 1024}) {
+      Ok(_) => assert false, "output limit was not enforced"
+      Err(SshError.OutputLimit {certainty, ..}) => assert certainty == "submitted"
+      Err(other) => assert false, other.message
+    }
   }
 }

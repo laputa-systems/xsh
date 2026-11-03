@@ -8,3 +8,5 @@ AllowUsers xinfra
 RekeyLimit 1M
 LogLevel VERBOSE
 StrictModes no
+PerSourcePenalties no
+MaxStartups 500:30:1000

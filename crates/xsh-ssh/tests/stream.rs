@@ -33,7 +33,7 @@ fn fixture() -> Fixture {
 }
 
 fn authenticated(fixture: &Fixture) -> Connection {
-    let config = ClientConfig::new(
+    let config = ClientConfig::pinned(
         fixture.host.clone(),
         fixture.port,
         &fixture.user,

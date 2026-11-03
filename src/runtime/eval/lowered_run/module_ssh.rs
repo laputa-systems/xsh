@@ -52,6 +52,21 @@ impl Evaluator {
         }
     }
 
+    pub(super) fn eval_lowered_ssh_info_values(
+        &mut self,
+        mut values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let session = lowered_record_arg(values.pop(), "ssh.info", span)?;
+        match ssh_module::info(&session, span) {
+            Ok(value) => Ok(ControlFlow::Continue(lowered_runtime_value(
+                Value::ok(value),
+                span,
+            )?)),
+            Err(error) => Ok(ControlFlow::Continue(lowered_result_err_value(error))),
+        }
+    }
+
     pub(super) fn eval_lowered_ssh_close_values(
         &mut self,
         op: xsh_registry::RuntimeOp,

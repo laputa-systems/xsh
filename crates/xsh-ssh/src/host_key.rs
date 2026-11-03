@@ -3,31 +3,32 @@ use oxish_proto::crypto::{CryptoProvider, Digest, Hash};
 use oxish_proto::named::{KeyExchangeAlgorithm, Named, PublicKeyAlgorithm};
 
 use crate::error::Error;
+use crate::known_hosts::{KnownHosts, Verdict};
 use crate::wire::SshReader;
 
-/// A mandatory `SHA256:` host-key fingerprint.
+/// A `SHA256:` fingerprint of an SSH public key.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostKeyPin {
+pub struct Fingerprint {
     value: String,
 }
 
-impl HostKeyPin {
+impl Fingerprint {
     /// Parse and canonicalize a `SHA256:` fingerprint.
     pub fn parse(value: &str) -> Result<Self, Error> {
         let value = value.trim();
         let Some(encoded) = value.strip_prefix("SHA256:") else {
-            return Err(Error::InvalidHostKeyPin {
-                detail: "host key pin must start with SHA256:".to_owned(),
+            return Err(Error::InvalidFingerprint {
+                detail: "fingerprint must start with SHA256:".to_owned(),
             });
         };
         let decoded = BASE64_NOPAD
             .decode(encoded.as_bytes())
-            .map_err(|_| Error::InvalidHostKeyPin {
-                detail: "host key pin is not unpadded base64".to_owned(),
+            .map_err(|_| Error::InvalidFingerprint {
+                detail: "fingerprint is not unpadded base64".to_owned(),
             })?;
         if decoded.len() != 32 {
-            return Err(Error::InvalidHostKeyPin {
-                detail: "host key pin must be a SHA-256 digest".to_owned(),
+            return Err(Error::InvalidFingerprint {
+                detail: "fingerprint must be a SHA-256 digest".to_owned(),
             });
         }
         Ok(Self {
@@ -63,18 +64,40 @@ impl HostKeyPin {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostTrust {
     /// Accept exactly the key with this fingerprint.
-    Pinned(HostKeyPin),
+    Pinned(Fingerprint),
+    /// Accept keys that a `known_hosts` file lists for the endpoint.
+    KnownHosts(KnownHosts),
 }
 
 impl HostTrust {
-    /// Fail unless `host_key_blob`, whose fingerprint is `actual`, is trusted for the endpoint.
-    pub fn verify(&self, actual: &str) -> Result<(), Error> {
+    /// Fail unless the presented key is trusted for the endpoint.
+    pub fn verify(
+        &self,
+        host: &str,
+        port: u16,
+        host_key_blob: &[u8],
+        fingerprint: &str,
+    ) -> Result<(), Error> {
         match self {
-            Self::Pinned(pin) if pin.as_str() == actual => Ok(()),
+            Self::Pinned(pin) if pin.as_str() == fingerprint => Ok(()),
             Self::Pinned(pin) => Err(Error::HostKeyMismatch {
                 expected: pin.as_str().to_owned(),
-                actual: actual.to_owned(),
+                actual: fingerprint.to_owned(),
             }),
+            Self::KnownHosts(known) => match known.judge(host, port, host_key_blob) {
+                Verdict::Trusted => Ok(()),
+                Verdict::Revoked => Err(Error::RevokedHostKey {
+                    fingerprint: fingerprint.to_owned(),
+                }),
+                Verdict::Changed => Err(Error::HostKeyMismatch {
+                    expected: format!("a key listed for {host}"),
+                    actual: fingerprint.to_owned(),
+                }),
+                Verdict::Unknown => Err(Error::UnknownHostKey {
+                    host: host.to_owned(),
+                    fingerprint: fingerprint.to_owned(),
+                }),
+            },
         }
     }
 }

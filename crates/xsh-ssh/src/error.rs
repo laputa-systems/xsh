@@ -14,9 +14,9 @@ pub enum Certainty {
 /// A failure to establish or use an SSH connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// A host-key pin is absent or not a `SHA256:` fingerprint.
-    InvalidHostKeyPin {
-        /// Why the pin was rejected.
+    /// A fingerprint is absent or not a `SHA256:` fingerprint.
+    InvalidFingerprint {
+        /// Why the fingerprint was rejected.
         detail: String,
     },
     /// The server presented a key whose fingerprint differs from the pin.
@@ -25,6 +25,28 @@ pub enum Error {
         expected: String,
         /// The fingerprint the server presented.
         actual: String,
+    },
+    /// No trust entry names the server, so its key was not accepted.
+    UnknownHostKey {
+        /// The host name the client connected to.
+        host: String,
+        /// The fingerprint the server presented.
+        fingerprint: String,
+    },
+    /// The trust material lists the server's key as revoked.
+    RevokedHostKey {
+        /// The fingerprint the server presented.
+        fingerprint: String,
+    },
+    /// The trust material uses a feature the client does not implement.
+    UnsupportedTrust {
+        /// What is unsupported.
+        detail: String,
+    },
+    /// The trust material is malformed or unreadable.
+    InvalidTrust {
+        /// What is wrong with it.
+        detail: String,
     },
     /// The host key or its signature could not be verified.
     HostKey {
@@ -43,6 +65,11 @@ pub enum Error {
     /// The private key file could not be used.
     KeyFile {
         /// Why the key was rejected.
+        detail: String,
+    },
+    /// The ssh-agent could not supply the requested identity or signature.
+    Agent {
+        /// Why the agent exchange failed.
         detail: String,
     },
     /// The private key file is encrypted.
@@ -104,16 +131,25 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidHostKeyPin { detail } => write!(formatter, "invalid host key pin: {detail}"),
+            Self::InvalidFingerprint { detail } => write!(formatter, "invalid fingerprint: {detail}"),
             Self::HostKeyMismatch { expected, actual } => {
                 write!(formatter, "host key mismatch: expected {expected}, got {actual}")
             }
+            Self::UnknownHostKey { host, fingerprint } => {
+                write!(formatter, "no trusted host key for {host}; server presented {fingerprint}")
+            }
+            Self::RevokedHostKey { fingerprint } => {
+                write!(formatter, "host key {fingerprint} is revoked")
+            }
+            Self::UnsupportedTrust { detail } => write!(formatter, "unsupported trust material: {detail}"),
+            Self::InvalidTrust { detail } => write!(formatter, "invalid trust material: {detail}"),
             Self::HostKey { detail } => write!(formatter, "host key verification failed: {detail}"),
             Self::UnsupportedAlgorithm { category, name } => {
                 write!(formatter, "no supported {category} algorithm: {name}")
             }
             Self::StrictKexUnsupported => write!(formatter, "server does not support strict key exchange"),
             Self::KeyFile { detail } => write!(formatter, "SSH key file: {detail}"),
+            Self::Agent { detail } => write!(formatter, "ssh-agent: {detail}"),
             Self::EncryptedKey => write!(formatter, "encrypted SSH keys are unsupported"),
             Self::Authentication { detail } => write!(formatter, "authentication failed: {detail}"),
             Self::Channel { detail } => write!(formatter, "SSH channel failed: {detail}"),

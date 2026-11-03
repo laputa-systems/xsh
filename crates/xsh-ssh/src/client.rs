@@ -7,10 +7,10 @@ use oxish_proto::MessageType;
 use oxish_proto::crypto::CryptoProvider;
 
 use crate::DEFAULT_PROVIDER;
-use crate::auth;
+use crate::auth::{self, Identity};
 use crate::error::Error;
 use crate::exec::{self, ExecOptions, ExecResult};
-use crate::host_key::{HostKeyPin, HostTrust};
+use crate::host_key::{Fingerprint, HostTrust};
 use crate::kex::{self, Algorithms, Established};
 use crate::stream::{self, StreamOptions};
 use crate::wire::{Packet, SshReader, Transport, put_string};
@@ -45,8 +45,8 @@ pub struct ClientConfig {
     pub port: u16,
     /// The remote user name.
     pub user: String,
-    /// The unencrypted Ed25519 private key file.
-    pub key: PathBuf,
+    /// The Ed25519 identity that authenticates the user.
+    pub identity: Identity,
     /// How the server host key is trusted.
     pub trust: HostTrust,
     /// How long the peer may stay silent while the client waits on it.
@@ -56,8 +56,28 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    /// Build a configuration that trusts exactly one host-key fingerprint.
+    /// Build a configuration from explicit identity and trust.
     pub fn new(
+        host: impl Into<String>,
+        port: u16,
+        user: impl Into<String>,
+        identity: Identity,
+        trust: HostTrust,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            host: host.into(),
+            port,
+            user: user.into(),
+            identity,
+            trust,
+            timeout,
+            rekey: RekeyLimits::default(),
+        }
+    }
+
+    /// Build a configuration that authenticates with a key file and trusts one fingerprint.
+    pub fn pinned(
         host: impl Into<String>,
         port: u16,
         user: impl Into<String>,
@@ -65,15 +85,14 @@ impl ClientConfig {
         host_key: &str,
         timeout: Duration,
     ) -> Result<Self, Error> {
-        Ok(Self {
-            host: host.into(),
+        Ok(Self::new(
+            host,
             port,
-            user: user.into(),
-            key: key.into(),
-            trust: HostTrust::Pinned(HostKeyPin::parse(host_key)?),
+            user,
+            Identity::KeyFile(key.into()),
+            HostTrust::Pinned(Fingerprint::parse(host_key)?),
             timeout,
-            rekey: RekeyLimits::default(),
-        })
+        ))
     }
 }
 
@@ -104,6 +123,8 @@ impl Connection {
         let established = kex::connect(
             &mut transport,
             &kex::Context {
+                host: &config.host,
+                port: config.port,
                 trust: &config.trust,
                 provider,
             },
@@ -129,7 +150,7 @@ impl Connection {
         let result = auth::authenticate(
             &mut self.transport,
             &self.config.user,
-            &self.config.key,
+            &self.config.identity,
             self.established.session_id.as_ref(),
             provider,
         );
@@ -152,6 +173,21 @@ impl Connection {
         stderr: &mut dyn std::io::Write,
     ) -> Result<ExecResult, Error> {
         stream::exec_stream(self, command, options, stdin, stdout, stderr)
+    }
+
+    /// The host name the connection was made to.
+    pub fn host(&self) -> &str {
+        &self.config.host
+    }
+
+    /// The port the connection was made to.
+    pub fn port(&self) -> u16 {
+        self.config.port
+    }
+
+    /// The authenticated user name.
+    pub fn user(&self) -> &str {
+        &self.config.user
     }
 
     /// The verified server fingerprint.
@@ -307,6 +343,8 @@ impl Connection {
         let (algorithms, queued) = kex::rekey(
             &mut self.transport,
             &kex::Context {
+                host: &self.config.host,
+                port: self.config.port,
                 trust: &self.config.trust,
                 provider: DEFAULT_PROVIDER,
             },

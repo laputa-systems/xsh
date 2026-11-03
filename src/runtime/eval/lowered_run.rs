@@ -6187,6 +6187,7 @@ impl Evaluator {
             callable; RuntimeOp::NetStart if values.len() == 1 => return self.eval_lowered_net_start_values(values, span),
             callable; RuntimeOp::SshConnect if values.len() == 1 => return self.eval_lowered_ssh_connect_values(values, span),
             callable; RuntimeOp::SshExec if values.len() == 3 => return self.eval_lowered_ssh_exec_values(values, span),
+            callable; RuntimeOp::SshInfo if values.len() == 1 => return self.eval_lowered_ssh_info_values(values, span),
             callable; RuntimeOp::SshClose | RuntimeOp::SshCloseIfOpen if values.len() == 1 => return self.eval_lowered_ssh_close_values(op, values, span),
             callable; RuntimeOp::NetRequest if values.len() == 1 => return self.eval_lowered_net_request_values(values, span),
             callable; RuntimeOp::NetRequestMany if values.len() == 1 => return self.eval_lowered_net_request_many_values(values, span),

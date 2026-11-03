@@ -522,9 +522,10 @@ POSIX-like shell word rendering helpers.
 
 Native SSH connections and remote command execution.
 
-- `ssh.close(session: {token: Str}) -> Result[Unit, Error]` — Closes one SSH session capability.
-- `ssh.connect(options: Record) -> Result[{token: Str}, Error]` — Connects and authenticates one pinned SSH host.
-- `ssh.exec(session: {token: Str}, command: Str, options: Record) -> Result[{certainty: Str, exit_code: Int, missing: Bool, signal: Str, stderr: Bytes, stdout: Bytes}, Error]` — Runs one remote command over an SSH session.
+- `ssh.close(session: {token: Str}) -> Result[Unit, SshError]` — Closes an SSH session.
+- `ssh.connect(options: Record) -> Result[{token: Str}, SshError]` — Connects, verifies the host key, and authenticates one SSH user.
+- `ssh.exec(session: {token: Str}, command: Str, options: Record) -> Result[{certainty: Str, exit_code: Int, missing: Bool, signal: Str, stderr: Bytes, stdout: Bytes}, SshError]` — Runs one remote command string over an SSH session.
+- `ssh.info(session: {token: Str}) -> Result[{cipher_client_to_server: Str, cipher_server_to_client: Str, host: Str, host_key: Str, host_key_algorithm: Str, kex: Str, port: Int, user: Str}, SshError]` — Reports the authenticated host identity and negotiated algorithms of a session.
 
 ### `system`
 

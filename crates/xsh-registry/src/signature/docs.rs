@@ -173,7 +173,7 @@ fn module_docs(module: &str) -> ApiDocs {
         ),
         "ssh" => (
             "Native SSH connections and remote command execution.",
-            "Host trust is mandatory and pinned. Remote failures stay typed data; a session is an owned capability.",
+            "Host trust is mandatory: a pinned fingerprint or a known_hosts file. A remote exit status or signal is a result; every failure is an SshError variant that says whether the request may have reached the server. A session is an owned capability.",
         ),
         "patch" => (
             "Rooted patch application.",
@@ -457,18 +457,23 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["crypto", "ed25519", "verification", "signature"],
         )),
         ("ssh", "connect") => Some((
-            "Connects and authenticates one pinned SSH host.",
-            "The host_key option is a mandatory SHA256 fingerprint. The key is an unencrypted Ed25519 OpenSSH key file. The returned session is an owned capability; close it or let its scope release it.",
+            "Connects, verifies the host key, and authenticates one SSH user.",
+            "Options: host, port, user, timeout_ms; exactly one of host_key (a SHA256 fingerprint) or known_hosts (a Path); exactly one of key (an unencrypted Ed25519 OpenSSH key file) or agent (the agent socket Path) with agent_identity (the SHA256 fingerprint of the Ed25519 identity to sign with). Unknown, changed, revoked and malformed trust fail before authentication. The agent is used only to sign and is never forwarded. The returned session is an owned capability; close it or let its scope release it.",
             &["ssh", "connect", "trust", "session"],
         )),
         ("ssh", "exec") => Some((
-            "Runs one remote command over an SSH session.",
-            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. Optional stdin_path, stdout_path, and stderr_path stream files; stdin carries bytes. Timeouts after submission report certainty submitted.",
+            "Runs one remote command string over an SSH session.",
+            "Returns the exit code, signal, missing-completion flag, captured stdout and stderr, and execution certainty. A nonzero exit or signal is a result; a channel closed without either has missing = true and exit_code -1, never zero. Options: timeout_ms (whole command; none means only cancellation ends a silent command), max_output, stdin (Bytes), stdin_path, stdout_path, stderr_path. After any failure the session is unusable. An SshError carries certainty: not-submitted means retrying is safe, submitted means the command may have run.",
             &["ssh", "exec", "remote", "stream"],
         )),
+        ("ssh", "info") => Some((
+            "Reports the authenticated host identity and negotiated algorithms of a session.",
+            "Returns the host, port, user, verified host-key fingerprint, key exchange, host-key algorithm and both ciphers. Fails with SshError.Busy while a command runs on the session.",
+            &["ssh", "session", "trust"],
+        )),
         ("ssh", "close") => Some((
-            "Closes one SSH session capability.",
-            "Closing is idempotent only through scope release; an explicit second close fails.",
+            "Closes an SSH session.",
+            "Closing is explicit release; the owning scope closes a session that is still open. Closing the connection does not prove that remote descendants ended.",
             &["ssh", "session", "cleanup"],
         )),
         ("net", "validate_root_bundle") => Some((

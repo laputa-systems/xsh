@@ -131,7 +131,7 @@ pub fn spawn(behavior: Behavior, script: impl FnOnce(&mut Link) + Send + 'static
 
 impl Peer {
     pub fn config(&self, timeout: Duration) -> ClientConfig {
-        ClientConfig::new("127.0.0.1", self.port, "tester", &self.key, &self.pin, timeout)
+        ClientConfig::pinned("127.0.0.1", self.port, "tester", &self.key, &self.pin, timeout)
             .expect("pin is valid")
     }
 

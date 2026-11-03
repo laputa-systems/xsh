@@ -79,6 +79,10 @@ pub struct Established {
 
 /// What a key exchange verifies against and runs on.
 pub struct Context<'a> {
+    /// The host name the client connected to.
+    pub host: &'a str,
+    /// The port the client connected to.
+    pub port: u16,
     /// How the host key is trusted.
     pub trust: &'a HostTrust,
     /// The cryptographic provider.
@@ -472,7 +476,9 @@ fn exchange(
     let exchange_digest = exchange_hash.finish();
 
     let fingerprint = crate::host_key::fingerprint(&host_key_blob, provider)?;
-    context.trust.verify(&fingerprint)?;
+    context
+        .trust
+        .verify(context.host, context.port, &host_key_blob, &fingerprint)?;
     verify_host_key(
         &host_key_blob,
         &signature_blob,

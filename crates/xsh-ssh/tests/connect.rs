@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use xsh_ssh::{ClientConfig, Connection, Error, HostKeyPin};
+use xsh_ssh::{ClientConfig, Connection, Error, Fingerprint, HostTrust, KnownHosts};
 
 struct Fixture {
     host: String,
@@ -29,7 +29,7 @@ fn fixture(suffix: &str) -> Fixture {
 }
 
 fn config(fixture: &Fixture, pin: &str) -> ClientConfig {
-    ClientConfig::new(
+    ClientConfig::pinned(
         fixture.host.clone(),
         fixture.port,
         fixture.user.clone(),
@@ -83,20 +83,20 @@ fn changed_pin_is_rejected() {
 #[test]
 fn missing_pin_is_rejected() {
     assert!(matches!(
-        HostKeyPin::parse(""),
-        Err(Error::InvalidHostKeyPin { .. })
+        Fingerprint::parse(""),
+        Err(Error::InvalidFingerprint { .. })
     ));
 }
 
 #[test]
 fn malformed_pin_is_rejected() {
     assert!(matches!(
-        HostKeyPin::parse("SHA256:not-base64"),
-        Err(Error::InvalidHostKeyPin { .. })
+        Fingerprint::parse("SHA256:not-base64"),
+        Err(Error::InvalidFingerprint { .. })
     ));
     assert!(matches!(
-        HostKeyPin::parse("sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
-        Err(Error::InvalidHostKeyPin { .. })
+        Fingerprint::parse("sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        Err(Error::InvalidFingerprint { .. })
     ));
 }
 
@@ -111,4 +111,56 @@ fn hybrid_post_quantum_exchange_is_negotiated() {
         ["aes128-gcm@openssh.com", "chacha20-poly1305@openssh.com"]
             .contains(&algorithms.cipher_client_to_server.as_str())
     );
+}
+
+fn known_hosts_line(fixture_suffix: &str, marker: &str, key_suffix: &str) -> String {
+    let host = variable(&format!("XINFRA_FIXTURE_{fixture_suffix}_HOST"));
+    let port = variable(&format!("XINFRA_FIXTURE_{fixture_suffix}_PORT"));
+    let public = variable(&format!("XINFRA_FIXTURE_{key_suffix}_HOST_KEY_PUB"));
+    let key: Vec<&str> = public.split_whitespace().take(2).collect();
+    format!("{marker}[{host}]:{port} {} {}\n", key[0], key[1])
+}
+
+fn known_hosts_config(fixture: &Fixture, text: &str) -> ClientConfig {
+    let mut config = config(fixture, &fixture.pin);
+    config.trust = HostTrust::KnownHosts(KnownHosts::parse(text).expect("known_hosts parses"));
+    config
+}
+
+#[test]
+fn a_known_hosts_entry_for_the_endpoint_connects() {
+    let fixture = fixture("A");
+    let text = known_hosts_line("A", "", "A") + &known_hosts_line("B", "", "B");
+    let connection = Connection::connect(&known_hosts_config(&fixture, &text)).expect("connects");
+    assert_eq!(connection.fingerprint(), fixture.pin);
+}
+
+#[test]
+fn an_unknown_server_is_refused_before_authentication() {
+    let fixture = fixture("A");
+    let text = known_hosts_line("B", "", "B");
+    match Connection::connect(&known_hosts_config(&fixture, &text)) {
+        Err(Error::UnknownHostKey { fingerprint, .. }) => assert_eq!(fingerprint, fixture.pin),
+        other => panic!("expected an unknown host key, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_changed_server_key_is_refused_before_authentication() {
+    let fixture = fixture("A");
+    let text = known_hosts_line("A", "", "B");
+    match Connection::connect(&known_hosts_config(&fixture, &text)) {
+        Err(Error::HostKeyMismatch { actual, .. }) => assert_eq!(actual, fixture.pin),
+        other => panic!("expected a host key mismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_revoked_server_key_is_refused_even_when_another_line_trusts_it() {
+    let fixture = fixture("A");
+    let text = known_hosts_line("A", "", "A") + &known_hosts_line("A", "@revoked ", "A");
+    match Connection::connect(&known_hosts_config(&fixture, &text)) {
+        Err(Error::RevokedHostKey { fingerprint }) => assert_eq!(fingerprint, fixture.pin),
+        other => panic!("expected a revoked host key, got {other:?}"),
+    }
 }

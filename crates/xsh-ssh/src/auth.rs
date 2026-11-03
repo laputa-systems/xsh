@@ -1,14 +1,18 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::str::FromStr;
 
 use data_encoding::BASE64;
+use zeroize::Zeroizing;
 use oxish_proto::auth::SignatureData;
 use oxish_proto::crypto::{CryptoProvider, SigningKey};
 use oxish_proto::named::{MethodName, PublicKeyAlgorithm, ServiceName};
 use oxish_proto::{Encode, MessageType, OpenSshKeyV1};
 
+use crate::agent::Agent;
 use crate::error::Error;
+use crate::host_key::Fingerprint;
 use crate::wire::{SshReader, Transport, put_string};
 
 const SERVICE_USERAUTH: &str = "ssh-userauth";
@@ -18,9 +22,9 @@ pub fn load_key(
     path: &Path,
     provider: &dyn CryptoProvider,
 ) -> Result<Box<dyn SigningKey>, Error> {
-    let text = fs::read_to_string(path).map_err(|error| Error::KeyFile {
+    let text = Zeroizing::new(fs::read_to_string(path).map_err(|error| Error::KeyFile {
         detail: format!("cannot read {}: {error}", path.display()),
-    })?;
+    })?);
     if is_encrypted(&text) {
         return Err(Error::EncryptedKey);
     }
@@ -74,15 +78,85 @@ fn is_encrypted(text: &str) -> bool {
     cipher != b"none"
 }
 
-/// Authenticate the configured user with the loaded Ed25519 key.
+/// Where the signing key lives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Identity {
+    /// An unencrypted Ed25519 OpenSSH private-key file read by this process.
+    KeyFile(PathBuf),
+    /// One Ed25519 identity, chosen by fingerprint, held by a local ssh-agent.
+    Agent {
+        /// The agent's Unix socket.
+        socket: PathBuf,
+        /// The fingerprint of the identity to sign with.
+        fingerprint: Fingerprint,
+    },
+}
+
+struct Credential {
+    public_key: Vec<u8>,
+    sign: Box<dyn FnMut(&[u8]) -> Result<Vec<u8>, Error>>,
+}
+
+fn credential(
+    identity: &Identity,
+    timeout: Duration,
+    provider: &dyn CryptoProvider,
+) -> Result<Credential, Error> {
+    match identity {
+        Identity::KeyFile(path) => {
+            let key = load_key(path, provider)?;
+            let algorithm = key.algorithm();
+            let mut public_key = Vec::new();
+            algorithm.encode(&mut public_key);
+            key.public_key().encode(&mut public_key);
+            Ok(Credential {
+                public_key,
+                sign: Box::new(move |data| {
+                    let mut signature = Vec::new();
+                    key.algorithm().encode(&mut signature);
+                    key.sign(data).as_slice().encode(&mut signature);
+                    Ok(signature)
+                }),
+            })
+        }
+        Identity::Agent {
+            socket,
+            fingerprint,
+        } => {
+            let mut agent = Agent::connect(socket, timeout)?;
+            let mut chosen = None;
+            for blob in agent.identities()? {
+                if crate::host_key::fingerprint(&blob, provider)? == fingerprint.as_str() {
+                    chosen = Some(blob);
+                    break;
+                }
+            }
+            let public_key = chosen.ok_or_else(|| Error::Agent {
+                detail: format!("agent holds no identity {}", fingerprint.as_str()),
+            })?;
+            if SshReader::new(&public_key).string()? != b"ssh-ed25519" {
+                return Err(Error::Agent {
+                    detail: "only Ed25519 identities are supported".to_owned(),
+                });
+            }
+            let blob = public_key.clone();
+            Ok(Credential {
+                public_key,
+                sign: Box::new(move |data| agent.sign(&blob, data)),
+            })
+        }
+    }
+}
+
+/// Authenticate the user with the chosen identity.
 pub fn authenticate(
     transport: &mut Transport,
     user: &str,
-    key_path: &Path,
+    identity: &Identity,
     session_id: &[u8],
     provider: &dyn CryptoProvider,
 ) -> Result<(), Error> {
-    let key = load_key(key_path, provider)?;
+    let mut credential = credential(identity, transport.idle_timeout(), provider)?;
 
     transport.send_raw(&service_request(SERVICE_USERAUTH))?;
     loop {
@@ -103,11 +177,8 @@ pub fn authenticate(
         }
     }
 
-    let algorithm = key.algorithm();
-    let mut public_key = Vec::new();
-    algorithm.encode(&mut public_key);
-    key.public_key().encode(&mut public_key);
-
+    let algorithm = PublicKeyAlgorithm::Ed25519;
+    let public_key = credential.public_key.clone();
     let signature_input = SignatureData {
         session_id,
         user_name: user,
@@ -116,10 +187,7 @@ pub fn authenticate(
         public_key: &public_key,
     }
     .encode();
-    let raw_signature = key.sign(signature_input.as_bytes());
-    let mut signature = Vec::new();
-    algorithm.encode(&mut signature);
-    raw_signature.as_slice().encode(&mut signature);
+    let signature = (credential.sign)(signature_input.as_bytes())?;
 
     let mut request = Vec::new();
     MessageType::UserAuthRequest.encode(&mut request);
