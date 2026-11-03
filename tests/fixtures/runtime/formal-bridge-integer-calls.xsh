@@ -17,3 +17,12 @@ pure overflowed() -> Int {
   let top = 9223372036854775807
   return top + 1
 }
+
+pure excess(value: Int, limit: Int) -> Int {
+  return if value > limit { value - limit } else { 0 }
+}
+
+pure surplus() -> Int {
+  let x = 12
+  return excess(x, 9)
+}

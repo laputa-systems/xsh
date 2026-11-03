@@ -115,13 +115,13 @@ class InventoryCheckerTests(unittest.TestCase):
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         result = CHECKER.validate_coverage(ROOT, coverage)
         self.assertEqual(set(CHECKER.OWNER_SPECS), set(result["owners"]))
-        self.assertEqual(92, len(result["owners"]))
+        self.assertEqual(91, len(result["owners"]))
         self.assertEqual(
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(793, len(result["fragment_roots"]))
-        self.assertEqual({"artifact.integer-arithmetic-locals"}, result["artifact_certificates"])
+        self.assertEqual(805, len(result["fragment_roots"]))
+        self.assertEqual({"artifact.integer-calls-conditional"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual([], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])

@@ -1,5 +1,5 @@
 import Xsh.Conformance.Vertical.Meaning
-import Xsh.Conformance.Vertical.Lowering
+import Xsh.Conformance.Vertical.LoweringSound
 import Xsh.Conformance.Vertical.Documents
 import Xsh.Conformance.Vertical.Fixture
 
@@ -8,11 +8,12 @@ namespace Xsh.Conformance.Vertical
 open Xsh.Foundation
 open Xsh.Conformance.Transport
 
-/-- The ordered observations the certificate proves: each function the raw-IR document
-records, with the integer its IR meaning completes with or the specified failure it raises. -/
-def expectedObservations : List (String × FunctionOutcome) :=
-  [("shifted", .value 5), ("scaled", .value 42), ("divided", .failure .divisionByZero),
-    ("overflowed", .failure .integerOverflow)]
+/-- The ordered calls the certificate proves: each call the raw-IR document records, with its
+arguments and the integer its IR meaning completes with or the specified failure it raises. -/
+def expectedObservations : List ObservedResult :=
+  [⟨"shifted", [], .value 5⟩, ⟨"scaled", [], .value 42⟩,
+    ⟨"divided", [], .failure .divisionByZero⟩, ⟨"overflowed", [], .failure .integerOverflow⟩,
+    ⟨"excess", [12, 9], .value 3⟩, ⟨"excess", [3, 9], .value 0⟩, ⟨"surplus", [], .value 3⟩]
 
 set_option maxRecDepth 10000 in
 theorem fixture_is_the_decoded_raw_ir_document :
@@ -25,10 +26,15 @@ theorem fixture_is_the_decoded_source_document :
 
 /-- The functions the source document parses to. -/
 def fixtureFunctions : List SourceFunction :=
-  [⟨"shifted", [("x", 2)], .binary .add (.var "x") (.int 3)⟩,
-    ⟨"scaled", [("y", 7)], .binary .mul (.var "y") (.int 6)⟩,
-    ⟨"divided", [("zero", 0)], .binary .div (.int 1) (.var "zero")⟩,
-    ⟨"overflowed", [("top", 9223372036854775807)], .binary .add (.var "top") (.int 1)⟩]
+  [⟨"shifted", [], [("x", 2)], .value (.binary .add (.var "x") (.int 3))⟩,
+    ⟨"scaled", [], [("y", 7)], .value (.binary .mul (.var "y") (.int 6))⟩,
+    ⟨"divided", [], [("zero", 0)], .value (.binary .div (.int 1) (.var "zero"))⟩,
+    ⟨"overflowed", [], [("top", 9223372036854775807)],
+      .value (.binary .add (.var "top") (.int 1))⟩,
+    ⟨"excess", ["value", "limit"], [],
+      .conditional .gt (.var "value") (.var "limit") (.binary .sub (.var "value") (.var "limit"))
+        (.atom (.int 0))⟩,
+    ⟨"surplus", [], [("x", 12)], .call "excess" [.var "x", .int 9]⟩]
 
 set_option maxRecDepth 10000 in
 theorem the_fixture_source_parses_to_the_fixture_functions :
@@ -44,10 +50,9 @@ set_option maxRecDepth 10000 in
 theorem the_fixture_artifact_validates : validateArtifact fixtureArtifact = true := by
   decide +kernel
 
-set_option maxRecDepth 10000 in
-theorem the_fixture_functions_agree_with_the_artifact :
-    fixtureFunctions.all (sourceAgrees fixtureArtifact) = true := by
-  decide +kernel
+theorem the_fixture_functions_mean_the_same_as_the_artifact :
+    functionPrograms fixtureArtifact = sourcePrograms fixtureFunctions :=
+  lowers_to_means_the_source the_fixture_functions_lower_to_the_artifact
 
 set_option maxRecDepth 10000 in
 theorem the_fixture_artifact_names_the_expected_outcomes :
@@ -57,18 +62,22 @@ theorem the_fixture_artifact_names_the_expected_outcomes :
 theorem fixture_pair_is_certified :
     certifyDecoded fixtureSourceDocument fixtureArtifact = some expectedObservations := by
   rw [certify_decoded_of_checks (by decide) the_fixture_source_parses_to_the_fixture_functions
-    the_fixture_functions_lower_to_the_artifact the_fixture_artifact_validates
-    the_fixture_functions_agree_with_the_artifact]
+    the_fixture_functions_lower_to_the_artifact the_fixture_artifact_validates]
   exact the_fixture_artifact_names_the_expected_outcomes
 
 /-- ARTIFACT_CERTIFIED. Artifact kind: source document and raw-IR document pair, both in the
 closed v1 exchange, exactly the bytes of `sourceDocumentCodes` and `rawIrDocumentCodes`.
-Proposition: the source document decodes and its text parses in the admitted productions (one
-integer let and one binary return per function); lowering the parsed functions reproduces the
-raw-IR document's rows, payload words, operation pool, blocks and function table exactly, with
-only the span words taken from the document; each function means the same under the source
-and the IR; the artifact validates; and the base machine runs of its four function bodies end
-with 5, 42, a division-by-zero failure and an integer-overflow failure in the recorded order.
+Proposition: the source document decodes and its text parses in the admitted productions
+(functions with integer parameters or one integer let, returning an integer value, a call of an
+earlier function on atoms, or a conditional on a comparison of atoms); lowering the parsed
+functions reproduces the raw-IR document's rows, payload words, operation pool, blocks and
+function table exactly, with only the span words taken from the document; the artifact
+validates; and the base machine runs of the seven recorded calls end with 5, 42, a
+division-by-zero failure, an integer-overflow failure, 3 and 0 (`excess` on 12, 9 and on 3, 9)
+and 3 (`surplus`, which calls `excess`) in the recorded order.
+That the functions mean the same under the source and the IR follows from the universal
+`lowering_means_the_source`, not from a check of this artifact
+(`the_fixture_functions_mean_the_same_as_the_artifact`).
 The parser and lowerer are independent Lean definitions that agree with Rust on this artifact;
 nothing here shows that Rust's parser reads the source as this tree or that Rust executes this
 IR, and nothing covers other inputs. -/
@@ -78,8 +87,7 @@ theorem base_vertical_artifact_certified :
     fixture_is_the_decoded_raw_ir_document]
   exact fixture_pair_is_certified
 
-def certifiesExactly (expected : List (String × FunctionOutcome)) (artifact : RawArtifact) :
-    Bool :=
+def certifiesExactly (expected : List ObservedResult) (artifact : RawArtifact) : Bool :=
   validateArtifact artifact && namedResults artifact == some expected
 
 /-- The verdict on the decoded fixture after a corruption. The fixture equals the decoding of
@@ -127,11 +135,6 @@ theorem a_missing_or_reordered_observation_is_rejected :
         false := by
   refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
 
-def RawArtifact.recordingEveryOutcomeAs (artifact : RawArtifact) (outcome : ObservedOutcome) :
-    RawArtifact :=
-  { artifact with observations := artifact.observations.map fun observation =>
-    { observation with outcome := outcome } }
-
 def RawArtifact.setObservation (artifact : RawArtifact) (index : Nat)
     (outcome : ObservedOutcome) : RawArtifact :=
   match artifact.observations[index]? with
@@ -139,11 +142,20 @@ def RawArtifact.setObservation (artifact : RawArtifact) (index : Nat)
       { artifact with observations := artifact.observations.set index { observation with outcome } }
   | none => artifact
 
+def RawArtifact.setArguments (artifact : RawArtifact) (index : Nat) (arguments : List Word64) :
+    RawArtifact :=
+  match artifact.observations[index]? with
+  | some observation =>
+      { artifact with
+          observations := artifact.observations.set index { observation with arguments } }
+  | none => artifact
+
 set_option maxRecDepth 10000 in
 theorem a_wrong_recorded_result_is_rejected :
     verdictAfter (·.setObservation 0 (.value ⟨4, by decide⟩)) = false ∧
-      verdictAfter (·.setObservation 1 (.value ⟨43, by decide⟩)) = false := by
-  refine ⟨?_, ?_⟩ <;> decide +kernel
+      verdictAfter (·.setObservation 1 (.value ⟨43, by decide⟩)) = false ∧
+      verdictAfter (·.setObservation 6 (.value ⟨9, by decide⟩)) = false := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
 
 set_option maxRecDepth 10000 in
 theorem a_wrong_failure_outcome_is_rejected :
@@ -155,10 +167,12 @@ theorem a_wrong_failure_outcome_is_rejected :
 set_option maxRecDepth 10000 in
 theorem the_certificate_fails_for_other_claims :
     certifiesExactly (expectedObservations.reverse) fixtureArtifact = false ∧
-      certifiesExactly (("shifted", .value 5) :: ("scaled", .value 41) ::
+      certifiesExactly (⟨"shifted", [], .value 5⟩ :: ⟨"scaled", [], .value 41⟩ ::
         expectedObservations.drop 2) fixtureArtifact = false ∧
-      certifiesExactly (expectedObservations.take 2) fixtureArtifact = false := by
-  refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
+      certifiesExactly (expectedObservations.take 2) fixtureArtifact = false ∧
+      certifiesExactly (expectedObservations.take 4 ++ [⟨"excess", [9, 12], .value 3⟩] ++
+        expectedObservations.drop 5) fixtureArtifact = false := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 def RawArtifact.mapRow (artifact : RawArtifact) (index : Nat) (change : Row → Row) :
     RawArtifact :=
@@ -198,9 +212,73 @@ theorem malformed_ir_is_rejected :
         false := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
+def RawArtifact.swapExtraWords (artifact : RawArtifact) (first second : Nat) : RawArtifact :=
+  match artifact.extra[first]?, artifact.extra[second]? with
+  | some one, some other =>
+      { artifact with extra := (artifact.extra.set first other).set second one }
+  | _, _ => artifact
+
+set_option maxRecDepth 10000 in
+/-- A conditional that takes the other branch is refused: the condition's operands exchanged
+(`limit > value`), the then value replaced by the else value, the else value replaced by the
+then value, and the comparison replaced by arithmetic, which is not a boolean. -/
+theorem a_wrong_branch_is_rejected :
+    verdictAfter (·.setPayloadWord 26 1 ⟨25, by decide⟩) = false ∧
+      verdictAfter (·.setExtraWord 79 ⟨34, by decide⟩) = false ∧
+      verdictAfter (·.setPayloadWord 35 1 ⟨31, by decide⟩) = false ∧
+      verdictAfter (·.setOp 3 .sub) = false := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+/-- A call that binds its arguments to the wrong parameters is refused: the two argument rows
+exchanged in the call's argument table, either row of that table repeated, the two parameter
+reads exchanged in the callee, the recorded arguments exchanged, a callee with another parameter
+count, and a call to the function itself instead of an earlier one. -/
+theorem a_wrong_argument_binding_is_rejected :
+    verdictAfter (·.swapExtraWords 102 104) = false ∧
+      verdictAfter (·.setExtraWord 102 ⟨40, by decide⟩) = false ∧
+      verdictAfter (·.setExtraWord 104 ⟨39, by decide⟩) = false ∧
+      verdictAfter (fun artifact =>
+        (artifact.setPayloadWord 24 0 ⟨1, by decide⟩).setPayloadWord 25 0 ⟨0, by decide⟩) =
+        false ∧
+      verdictAfter (·.setArguments 4 [⟨9, by decide⟩, ⟨12, by decide⟩]) = false ∧
+      verdictAfter (·.mapFunction 4 fun function => { function with paramsLen := 1 }) = false ∧
+      verdictAfter (·.setPayloadWord 41 0 ⟨6, by decide⟩) = false := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+def outcomesOf (artifact : RawArtifact) : Option (List FunctionOutcome) :=
+  (namedResults artifact).map (·.map (·.outcome))
+
+set_option maxRecDepth 10000 in
+/-- The branch and binding mutations above are well formed and change what the IR means, so the
+rejection is by the meaning and not by a structural check: with the then value replaced by the
+else value every recorded `excess` call and `surplus` end in 0 or 3 unchanged, and with the two
+arguments exchanged `surplus` ends in 0. -/
+theorem the_rejected_branch_and_binding_mutations_mean_something_else :
+    (validateArtifact (fixtureArtifact.setExtraWord 79 ⟨34, by decide⟩) = false ∧
+      outcomesOf (fixtureArtifact.setExtraWord 79 ⟨34, by decide⟩) =
+        some [.value 5, .value 42, .failure .divisionByZero, .failure .integerOverflow,
+          .value 0, .value 0, .value 0]) ∧
+    (validateArtifact (fixtureArtifact.swapExtraWords 102 104) = false ∧
+      outcomesOf (fixtureArtifact.swapExtraWords 102 104) =
+        some [.value 5, .value 42, .failure .divisionByZero, .failure .integerOverflow,
+          .value 3, .value 0, .value 0]) := by
+  refine ⟨⟨?_, ?_⟩, ⟨?_, ?_⟩⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+/-- Malformed blocks and tables are refused: a block named by two users, a block named by none,
+a value block with two statements, and a recorded call with a missing argument. -/
+theorem malformed_blocks_and_calls_are_rejected :
+    verdictAfter (·.setPayloadWord 35 0 ⟨5, by decide⟩) = false ∧
+      verdictAfter (·.setPayloadWord 34 0 ⟨5, by decide⟩) = false ∧
+      verdictAfter (·.mapBlock 4 fun block => { block with len := 3 }) = false ∧
+      verdictAfter (·.setArguments 4 [⟨12, by decide⟩]) = false := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
 set_option maxRecDepth 10000 in
 /-- A changed source is not certified against the same IR: another literal, another operator, an
-unbound name, a literal past the signed 64-bit range, and another document identifier. -/
+unbound name, a literal past the signed 64-bit range, another document identifier, the
+comparison in the conditional dropped, and the call's arguments exchanged. -/
 theorem a_substituted_source_is_rejected :
     certifyCodes (bridgeId! 1) (fixtureSourceTextCodes.set 49 52) fixtureArtifact = none ∧
       certifyCodes (bridgeId! 1) (fixtureSourceTextCodes.set 47 45) fixtureArtifact = none ∧
@@ -212,20 +290,31 @@ theorem a_substituted_source_is_rejected :
 set_option maxRecDepth 10000 in
 /-- Source trees that differ from the parsed source fail the lowering check or the meaning
 check against the same artifact: swapped operands, another operator, another function name,
-a dropped binding, and a changed literal. -/
+a dropped binding, a changed literal, a call with exchanged arguments, and a conditional whose
+branches are exchanged. -/
 theorem a_wrong_lowering_is_rejected :
     lowersTo fixtureArtifact (fixtureFunctions.set 2
-        ⟨"divided", [("zero", 0)], .binary .div (.var "zero") (.int 1)⟩) = false ∧
-      sourceAgrees fixtureArtifact
-        ⟨"divided", [("zero", 0)], .binary .div (.var "zero") (.int 1)⟩ = false ∧
+        ⟨"divided", [], [("zero", 0)], .value (.binary .div (.var "zero") (.int 1))⟩) = false ∧
+      sourceAgrees fixtureArtifact (fixtureFunctions.set 2
+        ⟨"divided", [], [("zero", 0)], .value (.binary .div (.var "zero") (.int 1))⟩) = false ∧
       lowersTo fixtureArtifact (fixtureFunctions.set 0
-        ⟨"shifted", [("x", 2)], .binary .sub (.var "x") (.int 3)⟩) = false ∧
-      sourceAgrees fixtureArtifact
-        ⟨"shifted", [("x", 2)], .binary .sub (.var "x") (.int 3)⟩ = false ∧
+        ⟨"shifted", [], [("x", 2)], .value (.binary .sub (.var "x") (.int 3))⟩) = false ∧
+      sourceAgrees fixtureArtifact (fixtureFunctions.set 0
+        ⟨"shifted", [], [("x", 2)], .value (.binary .sub (.var "x") (.int 3))⟩) = false ∧
       lowersTo fixtureArtifact (fixtureFunctions.set 1
-        ⟨"scaled", [], .binary .mul (.int 7) (.int 6)⟩) = false ∧
-      sourceAgrees fixtureArtifact
-        ⟨"scaled", [("y", 8)], .binary .mul (.var "y") (.int 6)⟩ = false := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+        ⟨"scaled", [], [], .value (.binary .mul (.int 7) (.int 6))⟩) = false ∧
+      sourceAgrees fixtureArtifact (fixtureFunctions.set 1
+        ⟨"scaled", [], [("y", 8)], .value (.binary .mul (.var "y") (.int 6))⟩) = false ∧
+      sourceAgrees fixtureArtifact (fixtureFunctions.set 5
+        ⟨"surplus", [], [("x", 12)], .call "excess" [.int 9, .var "x"]⟩) = false ∧
+      lowersTo fixtureArtifact (fixtureFunctions.set 5
+        ⟨"surplus", [], [("x", 12)], .call "excess" [.int 9, .var "x"]⟩) = false ∧
+      sourceAgrees fixtureArtifact (fixtureFunctions.set 4
+        ⟨"excess", ["value", "limit"], [], .conditional .gt (.var "value") (.var "limit")
+          (.atom (.int 0)) (.binary .sub (.var "value") (.var "limit"))⟩) = false ∧
+      lowersTo fixtureArtifact (fixtureFunctions.set 4
+        ⟨"excess", ["limit", "value"], [], .conditional .gt (.var "value") (.var "limit")
+          (.binary .sub (.var "value") (.var "limit")) (.atom (.int 0))⟩) = false := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 end Xsh.Conformance.Vertical

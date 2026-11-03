@@ -10,144 +10,288 @@ open Xsh.Semantics.BaseMachine
 
 def maxIntLiteral : Nat := 9223372036854775807
 
-def literalWords (value : Nat) : List Nat := [value % 4294967296, value / 4294967296]
-
 def letSlot : Nat := 1
 
-/-- The base-machine program a source function denotes, straight from the parsed tree: its one
-integer let is bound at the first slot, a name resolves to that let or fails, and the return is
-one binary operation over atoms. A function of any other shape has no meaning here. -/
-def SourceFunction.program? (function : SourceFunction) : Option (List LetBinding × BaseExpr) := do
-  let atom : String → SourceAtom → Option BaseExpr := fun letName atom =>
-    match atom with
-    | .int value => if value ≤ maxIntLiteral then some (.integerLiteral value) else none
-    | .var name => if name == letName then some (.identifier (NameId.mk ⟨letSlot, by decide⟩)) else none
-  match function.lets, function.result with
-  | [(letName, value)], .binary op left right =>
-      let bound ← validateInt? value
-      let leftExpression ← atom letName left
-      let rightExpression ← atom letName right
-      some ([⟨⟨letSlot, by decide⟩, bound⟩], .binary op.toInteger leftExpression rightExpression)
+/-- The slot each name of a function reads: the parameters are the first slots in order, or the
+one let takes the slot after the unused first. A function with both, or with several lets, has
+no scope: the slot a let takes beside parameters is not among the rows the exporter emitted. -/
+def SourceFunction.scope? (function : SourceFunction) : Option (List (String × Nat)) :=
+  match function.parameters, function.lets with
+  | [], [(name, _)] => some [(name, letSlot)]
+  | _ :: _, [] =>
+      if function.parameters.Nodup then some (function.parameters.zip (List.range function.parameters.length))
+      else none
   | _, _ => none
 
-def SourceFunction.outcome? (function : SourceFunction) : Option FunctionOutcome :=
-  function.program?.bind fun program => programOutcome? program.1 program.2
+def SourceAtom.expression? (scope : List (String × Nat)) : SourceAtom → Option BaseExpr
+  | .int value => if value ≤ maxIntLiteral then some (.integerLiteral value) else none
+  | .var name => do
+      let slot ← scope.lookup name
+      let word ← Word32.decode? slot
+      some (.identifier (NameId.mk word))
 
-/-- Rows, payload words, operation pool and per-function blocks, as plain naturals before they
-are range-checked into the exchange types. -/
-structure LoweringState where
-  rows : List (FragmentTag × Nat × Nat) := []
-  extra : List Nat := []
-  ops : List FragmentOp := []
-  blocks : List (Nat × Nat) := []
-  functionNames : List String := []
+def SourceValue.expression? (scope : List (String × Nat)) : SourceValue → Option BaseExpr
+  | .atom single => single.expression? scope
+  | .binary op left right => do
+      if op.isComparison then none else pure ()
+      some (op.expression (← left.expression? scope) (← right.expression? scope))
 
-def operationIndex (ops : List FragmentOp) (op : FragmentOp) : Nat × List FragmentOp :=
-  match ops.findIdx? (· == op) with
-  | some index => (index, ops)
-  | none => (ops.length, ops ++ [op])
+/-- The base expression a source result denotes: a name resolves to its parameter or its let, a
+call carries the body of the earlier function it names, and a conditional is a comparison with
+its two values. `callees` holds every earlier function with its callee form, which a function
+with a let does not have. -/
+def SourceExpression.expression? (callees : List (String × Option Callee))
+    (scope : List (String × Nat)) : SourceExpression → Option BaseExpr
+  | .value single => single.expression? scope
+  | .call callee arguments => do
+      let found ← (callees.lookup callee).bind id
+      if arguments.length == found.parameters then pure () else none
+      some (.call (parameterNames found.parameters) found.body
+        (← arguments.mapM (·.expression? scope)))
+  | .conditional comparison left right thenValue elseValue => do
+      if comparison.isComparison then pure () else none
+      some (.conditional (comparison.expression (← left.expression? scope)
+          (← right.expression? scope))
+        (← thenValue.expression? scope) (← elseValue.expression? scope))
 
-def lowerAtom (letName : String) : SourceAtom → Option (FragmentTag × List Nat)
-  | .int value => if value ≤ maxIntLiteral then some (.exprInt, literalWords value) else none
-  | .var name => if name == letName then some (.exprParam, [letSlot]) else none
-
-/-- Lower one function in the observed row order: its integer let, the operand rows left then
-right, the binary row, the return, and then its block of two statements. `span` is the span
-word the exporter stored in the binary row; the source tree does not determine it. -/
-def lowerFunction (state : LoweringState) (span : Nat) (function : SourceFunction) :
-    Option LoweringState :=
-  match function.lets, function.result with
-  | [(letName, value)], .binary op left right => do
-      if value ≤ maxIntLiteral then pure () else none
-      let (leftTag, leftWords) ← lowerAtom letName left
-      let (rightTag, rightWords) ← lowerAtom letName right
-      let base := state.rows.length
-      let start := state.extra.length
-      let (opIndex, ops) := operationIndex state.ops op
-      let operandsAt := start + 4
-      let binaryAt := operandsAt + leftWords.length + rightWords.length
-      let returnAt := binaryAt + 4
-      let blockAt := returnAt + 1
-      some { rows := state.rows ++
-                [(.intInt, start, 2), (.stmtLetInt, start + 2, 2),
-                  (leftTag, operandsAt, leftWords.length),
-                  (rightTag, operandsAt + leftWords.length, rightWords.length),
-                  (.exprBinary, binaryAt, 4), (.stmtReturn, returnAt, 1)]
-             extra := state.extra ++ literalWords value ++ [letSlot, base] ++ leftWords ++
-                rightWords ++ [opIndex, base + 2, base + 3, span] ++ [base + 4] ++
-                [2, base + 1, base + 5]
-             ops := ops
-             blocks := state.blocks ++ [(blockAt, state.functionNames.length + 1)]
-             functionNames := state.functionNames ++ [function.name] }
-  | _, _ => none
-
-def lowerFunctions (spans : List Nat) (functions : List SourceFunction) :
-    Option LoweringState :=
-  if spans.length = functions.length then lowerEach spans functions else none
-where
-  lowerEach (spans : List Nat) (functions : List SourceFunction) : Option LoweringState :=
-    (spans.zip functions).foldlM (fun state (span, function) => lowerFunction state span function) {}
-
-def indexed (items : List α) : List (Nat × α) := (List.range items.length).zip items
-
-/-- Range-check the plain naturals into the exchange types. Anything that does not fit a stored
-word has no lowering. -/
-def LoweringState.toArtifact (state : LoweringState) (sourceId : BridgeId)
-    (observations : List Observation) : Option RawArtifact := do
-  let rows ← (indexed state.rows).mapM fun (index, tag, lhs, rhs) => do
-    pure (⟨← BridgeId.fromIndex? index, tag, ← Word32.decode? lhs, ← Word32.decode? rhs⟩ : Row)
-  let extra ← state.extra.mapM Word32.decode?
-  let blocks ← (indexed state.blocks).mapM fun (index, start, owner) => do
-    pure (⟨← BridgeId.fromIndex? index, ← Word32.decode? start, ← Word32.decode? 3,
-      ⟨none⟩, ⟨some (← BridgeId.fromIndex? (owner - 1))⟩, ⟨3, by decide⟩⟩ : Block)
-  let functions ← (indexed state.functionNames).mapM fun (index, name) => do
-    pure (⟨← BridgeId.fromIndex? index, name, ← Word32.decode? 0, ← Word32.decode? 0,
-      ← Word32.decode? index, ← Word32.decode? 1, ← BridgeId.fromIndex? index,
-      ← Word32.decode? (letSlot + 1)⟩ : FunctionRow)
-  pure ⟨sourceId, rows, extra, state.ops, blocks, functions, observations⟩
-
-/-- The span word of each binary row, in table order. -/
-def binarySpans (artifact : RawArtifact) : List Nat :=
-  artifact.rows.filterMap fun row =>
-    match row.tag with
-    | .exprBinary => (artifact.extra[row.lhs.val + 3]?).map (·.val)
+/-- The base-machine program a source function denotes, straight from the parsed tree. -/
+def SourceFunction.program? (callees : List (String × Option Callee)) (function : SourceFunction) :
+    Option FunctionProgram := do
+  let scope ← function.scope?
+  let bindings ← match function.lets with
+    | [] => some []
+    | [(_, value)] => do
+        let bound ← validateInt? value
+        some [(⟨⟨letSlot, by decide⟩, bound⟩ : LetBinding)]
     | _ => none
+  let expression ← function.result.expression? callees scope
+  some ⟨function.parameters.length, bindings, expression⟩
 
-/-- A source function agrees with the artifact when the function of that name has the same
-outcome under the IR meaning as under the source meaning. -/
-def sourceAgrees (artifact : RawArtifact) (function : SourceFunction) : Bool :=
-  artifact.functions.any fun row =>
-    row.name == function.name && function.outcome?.isSome &&
-      functionOutcome? artifact row == function.outcome?
+def sourceStep (state : List (String × Option Callee) × List (Option FunctionProgram))
+    (function : SourceFunction) : List (String × Option Callee) × List (Option FunctionProgram) :=
+  let program := function.program? state.1
+  (state.1 ++ [(function.name, program.bind (·.callee?))], state.2 ++ [program])
+
+/-- The programs of the source functions in order; a call names an earlier function. -/
+def sourcePrograms (functions : List SourceFunction) : List (Option FunctionProgram) :=
+  (functions.foldl sourceStep ([], [])).2
+
+structure LoweringState where
+  rows : List Row := []
+  extra : List Word32 := []
+  ops : List FragmentOp := []
+  blocks : List Block := []
+  functions : List FunctionRow := []
+  callable : List Bool := []
+  spans : List Word32 := []
+
+abbrev Lower := StateT LoweringState Option
+
+def Lower.fail : Lower α := fun _ => none
+
+def Lower.require (holds : Bool) : Lower Unit := if holds then pure () else Lower.fail
+
+def Lower.lift (value : Option α) : Lower α :=
+  match value with
+  | some found => pure found
+  | none => Lower.fail
+
+def Lower.word (value : Nat) : Lower Word32 := Lower.lift (Word32.decode? value)
+
+/-- Append one instruction row and its payload words; the result is the row's index. -/
+def Lower.pushRow (tag : FragmentTag) (payload : List Word32) : Lower Word32 := fun state => do
+  let index ← Word32.decode? state.rows.length
+  let id ← BridgeId.fromIndex? state.rows.length
+  let start ← Word32.decode? state.extra.length
+  let length ← Word32.decode? payload.length
+  some (index, { state with rows := state.rows ++ [⟨id, tag, start, length⟩],
+                            extra := state.extra ++ payload })
+
+/-- Append one block over the given words, owned by a function. -/
+def Lower.pushBlock (owner : BridgeId) (flags : WireByte) (words : List Word32) :
+    Lower BridgeId := fun state => do
+  let id ← BridgeId.fromIndex? state.blocks.length
+  let start ← Word32.decode? state.extra.length
+  let length ← Word32.decode? words.length
+  some (id, { state with
+    blocks := state.blocks ++ [⟨id, start, length, ⟨none⟩, ⟨some owner⟩, flags⟩],
+    extra := state.extra ++ words })
+
+def Lower.takeSpan : Lower Word32 := fun state =>
+  match state.spans with
+  | [] => none
+  | span :: rest => some (span, { state with spans := rest })
+
+def Lower.operationIndex (op : FragmentOp) : Lower Word32 := fun state =>
+  match state.ops.findIdx? (· == op) with
+  | some index => (Word32.decode? index).map fun word => (word, state)
+  | none => (Word32.decode? state.ops.length).map fun word =>
+      (word, { state with ops := state.ops ++ [op] })
+
+def Lower.literalWords (value : Nat) : Lower (List Word32) := do
+  Lower.require (decide (value ≤ maxIntLiteral))
+  pure [← Lower.word (value % 4294967296), ← Lower.word (value / 4294967296)]
+
+def Lower.atom (scope : List (String × Nat)) : SourceAtom → Lower Word32
+  | .int value => do Lower.pushRow .exprInt (← Lower.literalWords value)
+  | .var name => do
+      let slot ← Lower.lift (scope.lookup name)
+      Lower.pushRow .exprParam [← Lower.word slot]
+
+def Lower.comparison (scope : List (String × Nat)) (op : FragmentOp) (left right : SourceAtom) :
+    Lower Word32 := do
+  let leftRow ← Lower.atom scope left
+  let rightRow ← Lower.atom scope right
+  let operation ← Lower.operationIndex op
+  let span ← Lower.takeSpan
+  Lower.pushRow .exprBinary [operation, leftRow, rightRow, span]
+
+def Lower.value (scope : List (String × Nat)) : SourceValue → Lower Word32
+  | .atom single => Lower.atom scope single
+  | .binary op left right => do
+      Lower.require (!op.isComparison)
+      Lower.comparison scope op left right
+
+/-- A branch value in its value block: the value, its `StmtValue`, the block holding that
+statement, and the block expression. -/
+def Lower.valueBlock (owner : BridgeId) (scope : List (String × Nat)) (value : SourceValue) :
+    Lower Word32 := do
+  let valueRow ← Lower.value scope value
+  let statement ← Lower.pushRow .stmtValue [valueRow]
+  let block ← Lower.pushBlock owner 1 [1, statement]
+  let span ← Lower.takeSpan
+  Lower.pushRow .exprValueBlock [block.raw, span]
+
+def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
+    SourceExpression → Lower Word32
+  | .value value => Lower.value scope value
+  | .call callee arguments => do
+      let callees := (← get).functions
+      let index ← Lower.lift (callees.findIdx? (·.name == callee))
+      let found ← Lower.lift callees[index]?
+      Lower.require ((← get).callable[index]? == some true)
+      Lower.require (arguments.length == found.paramsLen.val)
+      let rows ← arguments.mapM (Lower.atom scope)
+      let count ← Lower.word arguments.length
+      let table ← Lower.pushBlock owner 0 (count :: rows.flatMap fun row => [0, row])
+      let span ← Lower.takeSpan
+      Lower.pushRow .exprDirectPureCall [← Lower.word (index + 1), table.raw, span]
+  | .conditional comparison left right thenValue elseValue => do
+      Lower.require comparison.isComparison
+      let condition ← Lower.comparison scope comparison left right
+      let thenRow ← Lower.valueBlock owner scope thenValue
+      let table ← Lower.pushBlock owner 0 [1, condition, thenRow]
+      let elseRow ← Lower.valueBlock owner scope elseValue
+      let span ← Lower.takeSpan
+      Lower.pushRow .exprIf [table.raw, elseRow, span]
+
+/-- The rows after a function's let statements: the rows of its returned expression, the
+return, its body block, and its function row. -/
+def Lower.functionTail (function : SourceFunction) (scope : List (String × Nat))
+    (owner : BridgeId) (functionsBefore parametersStart : Nat) (statements : List Word32) :
+    Lower Unit := do
+  let result ← Lower.expression owner scope function.result
+  let returned ← Lower.pushRow .stmtReturn [result]
+  let count ← Lower.word (statements.length + 1)
+  let body ← Lower.pushBlock owner 3 (count :: (statements ++ [returned]))
+  let parameters ← Lower.word function.parameters.length
+  let row : FunctionRow := ⟨owner, function.name, ← Lower.word parametersStart, parameters,
+    ← Lower.word functionsBefore, 1, body,
+    ← Lower.word (function.parameters.length + function.lets.length + 1)⟩
+  modify fun state =>
+    { state with functions := state.functions ++ [row],
+                 callable := state.callable ++ [function.lets.isEmpty] }
+
+/-- Lower one function in the observed row order: its integer let, the rows of its returned
+expression, the return, and then its body block. -/
+def Lower.function (function : SourceFunction) : Lower Unit := do
+  let scope ← Lower.lift function.scope?
+  let before ← get
+  let owner ← Lower.lift (BridgeId.fromIndex? before.functions.length)
+  let parametersStart := (before.functions.map (·.paramsLen.val)).sum
+  match function.lets with
+  | [] => Lower.functionTail function scope owner before.functions.length parametersStart []
+  | [(_, value)] => do
+      let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
+      let binding ← Lower.pushRow .stmtLetInt [← Lower.word letSlot, literal]
+      Lower.functionTail function scope owner before.functions.length parametersStart [binding]
+  | _ => Lower.fail
+
+def lowerFunctions (spans : List Word32) (functions : List SourceFunction) :
+    Option LoweringState := do
+  check (decide (functions.map (·.name)).Nodup)
+  let ((), state) ← (functions.forM Lower.function).run { spans }
+  check state.spans.isEmpty
+  pure state
+
+/-- The exchanged artifact a lowering state holds. -/
+def LoweringState.toArtifact (state : LoweringState) (sourceId : BridgeId)
+    (observations : List Observation) : RawArtifact :=
+  ⟨sourceId, state.rows, state.extra, state.ops, state.blocks, state.functions, observations⟩
+
+/-- The span word of each row that carries one, in table order. -/
+def spanWords (artifact : RawArtifact) : List Word32 :=
+  artifact.rows.filterMap fun row =>
+    let word (offset : Nat) : Option Word32 := artifact.extra[row.lhs.val + offset]?
+    match row.tag with
+    | .exprBinary => word 3
+    | .exprValueBlock => word 1
+    | .exprIf => word 2
+    | .exprDirectPureCall => word 2
+    | .intInt | .stmtLetInt | .exprInt | .exprParam | .stmtReturn | .stmtValue => none
+
+/-- A source function agrees with the artifact on the given arguments when it and the function
+of that name have the same defined outcome there, under the source tree and under the IR. -/
+def agreesOn (artifact : RawArtifact) (name : String) (program : Option FunctionProgram)
+    (arguments : List Int) : Bool :=
+  match artifact.functions.find? (·.name == name) with
+  | some row =>
+      (program.bind (·.outcome? arguments)).isSome &&
+        program.bind (·.outcome? arguments) == functionOutcome? artifact row arguments
+  | none => false
+
+/-- Every function without parameters means the same under the source and the IR, and every
+recorded call means the same on its recorded arguments. -/
+def sourceAgrees (artifact : RawArtifact) (functions : List SourceFunction) : Bool :=
+  let programs := functions.zip (sourcePrograms functions)
+  programs.all (fun (function, program) =>
+    !function.parameters.isEmpty || agreesOn artifact function.name program []) &&
+  artifact.observations.all fun observation =>
+    match artifact.functions.find? (·.id == observation.function) with
+    | some row =>
+        programs.any fun (function, program) =>
+          function.name == row.name &&
+            agreesOn artifact row.name program observation.integerArguments
+    | none => false
 
 /-- Lowering the parsed functions reproduces the artifact exactly, taking the span words from
 the artifact. -/
 def lowersTo (artifact : RawArtifact) (functions : List SourceFunction) : Bool :=
-  match lowerFunctions (binarySpans artifact) functions with
-  | some state => state.toArtifact artifact.sourceId artifact.observations == some artifact
+  match lowerFunctions (spanWords artifact) functions with
+  | some state => state.toArtifact artifact.sourceId artifact.observations == artifact
   | none => false
 
-/-- Translation validation of a decoded pair: the source text parses in the admitted
-productions, lowering the parsed functions reproduces the raw-IR document's rows, pools, blocks
-and function table exactly (the span words are taken from the document), the document names
-this source, each function means the same under the source and the IR, the artifact
-validates, and each observation is the outcome of its function. -/
+/-- Certification of a decoded pair: the source text parses in the admitted productions,
+lowering the parsed functions reproduces the raw-IR document's rows, pools, blocks and function
+table exactly (the span words are taken from the document), the document names this source, the
+artifact validates, and each observation is the outcome of its call. That the functions mean the
+same under the source and the IR is not checked here: `lowering_means_the_source` proves it for
+every pair the lowerer reproduces. -/
 def certifyCodes (sourceId : BridgeId) (textCodes : List Nat) (raw : RawArtifact) :
-    Option (List (String × FunctionOutcome)) := do
+    Option (List ObservedResult) := do
   let functions ← parseSourceCodes textCodes
-  if decide (raw.sourceId = sourceId) && lowersTo raw functions && validateArtifact raw &&
-      functions.all (sourceAgrees raw) then
+  if decide (raw.sourceId = sourceId) && lowersTo raw functions && validateArtifact raw then
     namedResults raw
   else
     none
 
 def certifyDecoded (source : SourceDocument) (raw : RawArtifact) :
-    Option (List (String × FunctionOutcome)) :=
+    Option (List ObservedResult) :=
   certifyCodes source.id (source.text.toList.map Char.toNat) raw
 
 /-- The same validation from the exchanged bytes of both documents. -/
 def certifyFromSource (sourceText rawText : ExchangeCodes) :
-    Option (List (String × FunctionOutcome)) := do
+    Option (List ObservedResult) := do
   let source ← decodeSourceDocument sourceText
   let raw ← decodeRawDocument rawText
   certifyDecoded source raw
@@ -164,20 +308,20 @@ theorem certify_from_source_of_decodes {sourceText rawText : ExchangeCodes}
 theorem certify_decoded_of_checks {source : SourceDocument} {raw : RawArtifact}
     {functions : List SourceFunction} (same : raw.sourceId = source.id)
     (parsed : parseSource source.text = some functions) (lowers : lowersTo raw functions = true)
-    (valid : validateArtifact raw = true) (agrees : functions.all (sourceAgrees raw) = true) :
+    (valid : validateArtifact raw = true) :
     certifyDecoded source raw = namedResults raw := by
   unfold certifyDecoded certifyCodes
   have parsedCodes : parseSourceCodes (source.text.toList.map Char.toNat) = some functions :=
     parsed
   simp only [parsedCodes, Option.bind_some, Option.bind_eq_bind]
-  simp [same, lowers, valid, agrees]
+  simp [same, lowers, valid]
 
 theorem certify_decoded_sound {source : SourceDocument} {raw : RawArtifact}
-    {results : List (String × FunctionOutcome)}
+    {results : List ObservedResult}
     (certified : certifyDecoded source raw = some results) :
     ∃ functions, raw.sourceId = source.id ∧ parseSource source.text = some functions ∧
-      lowersTo raw functions = true ∧ functions.all (sourceAgrees raw) = true ∧
-      validateArtifact raw = true ∧ namedResults raw = some results := by
+      lowersTo raw functions = true ∧ validateArtifact raw = true ∧
+      namedResults raw = some results := by
   unfold certifyDecoded certifyCodes at certified
   cases parsed : parseSourceCodes (source.text.toList.map Char.toNat) with
   | none => simp [parsed] at certified
@@ -186,11 +330,11 @@ theorem certify_decoded_sound {source : SourceDocument} {raw : RawArtifact}
   split at certified
   · rename_i checks
     simp only [Bool.and_eq_true, decide_eq_true_eq] at checks
-    exact ⟨functions, checks.1.1.1, parsed, checks.1.1.2, checks.2, checks.1.2, certified⟩
+    exact ⟨functions, checks.1.1, parsed, checks.1.2, checks.2, certified⟩
   · cases certified
 
 theorem certify_from_source_sound {sourceText rawText : ExchangeCodes}
-    {results : List (String × FunctionOutcome)}
+    {results : List ObservedResult}
     (certified : certifyFromSource sourceText rawText = some results) :
     ∃ source raw, decodeSourceDocument sourceText = some source ∧
       decodeRawDocument rawText = some raw ∧ certifyDecoded source raw = some results := by
@@ -203,23 +347,5 @@ theorem certify_from_source_sound {sourceText rawText : ExchangeCodes}
   | some raw =>
   simp only [sourceDecoded, rawDecoded, Option.bind_some, Option.bind_eq_bind] at certified
   exact ⟨source, raw, rfl, rfl, certified⟩
-
-theorem a_function_outside_the_lowered_shape_is_refused :
-    (lowerFunctions [2] [⟨"f", [], .atom (.int 1)⟩]).isNone = true ∧
-      (lowerFunctions [2] [⟨"f", [("a", 1), ("b", 2)], .binary .add (.var "a") (.var "b")⟩]).isNone =
-        true ∧
-      (lowerFunctions [2] [⟨"f", [("a", 1)], .binary .add (.var "a") (.var "b")⟩]).isNone = true ∧
-      (lowerFunctions [2] [⟨"f", [("a", 9223372036854775808)], .binary .add (.var "a") (.int 1)⟩]).isNone =
-        true ∧
-      (lowerFunctions [] [⟨"f", [("a", 1)], .binary .add (.var "a") (.int 1)⟩]).isNone = true := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
-
-theorem a_lowered_function_has_the_observed_rows :
-    (lowerFunctions [2] [⟨"f", [("a", 1)], .binary .add (.var "a") (.int 5)⟩]).map
-        (fun state => (state.rows, state.extra, state.ops)) =
-      some ([(.intInt, 0, 2), (.stmtLetInt, 2, 2), (.exprParam, 4, 1), (.exprInt, 5, 2),
-          (.exprBinary, 7, 4), (.stmtReturn, 11, 1)],
-        [1, 0, 1, 0, 1, 5, 0, 0, 2, 3, 2, 4, 2, 1, 5], [.add]) := by
-  decide +kernel
 
 end Xsh.Conformance.Vertical

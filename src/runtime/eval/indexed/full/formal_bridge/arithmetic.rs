@@ -1,7 +1,7 @@
 use super::*;
 use crate::syntax::node::BinaryOp;
 
-const ARITHMETIC_SCOPE: &str = "integer-arithmetic-local-fixture-v2";
+const ARITHMETIC_SCOPE: &str = "integer-calls-conditional-local-fixture-v3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProjectedTag {
@@ -11,16 +11,24 @@ enum ProjectedTag {
     ExprParam,
     ExprBinary,
     StmtReturn,
+    StmtValue,
+    ExprValueBlock,
+    ExprIf,
+    ExprDirectPureCall,
 }
 
 impl ProjectedTag {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 10] = [
         Self::IntInt,
         Self::StmtLetInt,
         Self::ExprInt,
         Self::ExprParam,
         Self::ExprBinary,
         Self::StmtReturn,
+        Self::StmtValue,
+        Self::ExprValueBlock,
+        Self::ExprIf,
+        Self::ExprDirectPureCall,
     ];
 
     fn from_full_tag(tag: FullTag) -> Option<Self> {
@@ -35,6 +43,10 @@ impl ProjectedTag {
             Self::ExprParam => FullTag::ExprParam,
             Self::ExprBinary => FullTag::ExprBinary,
             Self::StmtReturn => FullTag::StmtReturn,
+            Self::StmtValue => FullTag::StmtValue,
+            Self::ExprValueBlock => FullTag::ExprValueBlock,
+            Self::ExprIf => FullTag::ExprIf,
+            Self::ExprDirectPureCall => FullTag::ExprDirectPureCall,
         }
     }
 
@@ -55,18 +67,27 @@ impl ProjectedTag {
 
     fn payload_words(self) -> usize {
         match self {
-            Self::IntInt | Self::StmtLetInt | Self::ExprInt => 2,
-            Self::ExprParam | Self::StmtReturn => 1,
+            Self::IntInt | Self::StmtLetInt | Self::ExprInt | Self::ExprValueBlock => 2,
+            Self::ExprParam | Self::StmtReturn | Self::StmtValue => 1,
+            Self::ExprIf | Self::ExprDirectPureCall => 3,
             Self::ExprBinary => 4,
         }
     }
 
     fn is_expression(self) -> bool {
-        matches!(self, Self::ExprInt | Self::ExprParam | Self::ExprBinary)
+        matches!(
+            self,
+            Self::ExprInt
+                | Self::ExprParam
+                | Self::ExprBinary
+                | Self::ExprValueBlock
+                | Self::ExprIf
+                | Self::ExprDirectPureCall
+        )
     }
 
     fn is_statement(self) -> bool {
-        matches!(self, Self::StmtLetInt | Self::StmtReturn)
+        matches!(self, Self::StmtLetInt | Self::StmtReturn | Self::StmtValue)
     }
 }
 
@@ -77,10 +98,11 @@ enum ProjectedOp {
     Mul,
     Div,
     Rem,
+    Gt,
 }
 
 impl ProjectedOp {
-    const ALL: [Self; 5] = [Self::Add, Self::Sub, Self::Mul, Self::Div, Self::Rem];
+    const ALL: [Self; 6] = [Self::Add, Self::Sub, Self::Mul, Self::Div, Self::Rem, Self::Gt];
 
     fn from_binary_op(op: BinaryOp) -> Result<Self, String> {
         Self::ALL
@@ -96,6 +118,7 @@ impl ProjectedOp {
             Self::Mul => BinaryOp::Mul,
             Self::Div => BinaryOp::Div,
             Self::Rem => BinaryOp::Rem,
+            Self::Gt => BinaryOp::Gt,
         }
     }
 
@@ -113,6 +136,7 @@ impl ProjectedOp {
             Self::Mul => "Mul",
             Self::Div => "Div",
             Self::Rem => "Rem",
+            Self::Gt => "Gt",
         }
     }
 
@@ -181,10 +205,17 @@ enum Outcome {
     Failure(ProjectedFailure),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Observation {
     function: IrId,
+    arguments: Vec<u64>,
     outcome: Outcome,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ScheduledCall {
+    function: &'static str,
+    arguments: &'static [i64],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -217,6 +248,48 @@ impl ArithmeticDocument {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BlockRole {
+    FunctionBody(usize),
+    ValueBlock(usize),
+    Branches(usize),
+    Arguments(usize),
+}
+
+fn block_index(document: &ArithmeticDocument, raw: u32) -> Result<usize, String> {
+    let index = (raw as usize)
+        .checked_sub(1)
+        .filter(|index| *index < document.blocks.len())
+        .ok_or_else(|| "row names a block outside the block table".to_string())?;
+    Ok(index)
+}
+
+fn claim_block(
+    document: &ArithmeticDocument,
+    roles: &mut [Option<BlockRole>],
+    raw: u32,
+    role: BlockRole,
+) -> Result<(), String> {
+    let index = block_index(document, raw)?;
+    if roles[index].replace(role).is_some() {
+        return Err("a block is referenced by more than one user".to_string());
+    }
+    Ok(())
+}
+
+fn block_words<'a>(
+    document: &'a ArithmeticDocument,
+    block: &ProjectedBlock,
+) -> Result<&'a [u32], String> {
+    let end = (block.start as usize)
+        .checked_add(block.len as usize)
+        .ok_or_else(|| "block range overflows".to_string())?;
+    document
+        .extra
+        .get(block.start as usize..end)
+        .ok_or_else(|| "block range is outside the extra table".to_string())
+}
+
 fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), String> {
     for (index, row) in document.rows.iter().enumerate() {
         if row.id != IrId::from_index(index)? {
@@ -245,11 +318,42 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
                     }
                 }
             }
-            ProjectedTag::StmtReturn => {
+            ProjectedTag::StmtReturn | ProjectedTag::StmtValue => {
                 if !document.row_before(words[0], index)?.tag.is_expression() {
-                    return Err("return value is not an expression row".to_string());
+                    return Err("statement value is not an expression row".to_string());
                 }
             }
+            ProjectedTag::ExprValueBlock => {}
+            ProjectedTag::ExprIf => {
+                if !document.row_before(words[1], index)?.tag.is_expression() {
+                    return Err("conditional else value is not an expression row".to_string());
+                }
+            }
+            ProjectedTag::ExprDirectPureCall => {
+                if (words[0] as usize).checked_sub(1).is_none_or(|callee| callee >= document.functions.len()) {
+                    return Err("call names a function outside the function table".to_string());
+                }
+            }
+        }
+    }
+
+    let mut roles = vec![None; document.blocks.len()];
+    for (function_index, function) in document.functions.iter().enumerate() {
+        claim_block(document, &mut roles, function.body.raw(), BlockRole::FunctionBody(function_index))?;
+    }
+    for (index, row) in document.rows.iter().enumerate() {
+        let words = document.payload(row)?;
+        match row.tag {
+            ProjectedTag::ExprValueBlock => {
+                claim_block(document, &mut roles, words[0], BlockRole::ValueBlock(index))?
+            }
+            ProjectedTag::ExprIf => {
+                claim_block(document, &mut roles, words[0], BlockRole::Branches(index))?
+            }
+            ProjectedTag::ExprDirectPureCall => {
+                claim_block(document, &mut roles, words[1], BlockRole::Arguments(index))?
+            }
+            _ => {}
         }
     }
 
@@ -257,38 +361,75 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
         if block.id != IrId::from_index(index)? {
             return Err("block IDs must follow table order".to_string());
         }
-        let end = (block.start as usize)
-            .checked_add(block.len as usize)
-            .ok_or_else(|| "block range overflows".to_string())?;
-        let words = document
-            .extra
-            .get(block.start as usize..end)
-            .ok_or_else(|| "block range is outside the extra table".to_string())?;
-        let Some((count, statements)) = words.split_first() else {
-            return Err("block range has no statement count".to_string());
-        };
-        if *count as usize != statements.len() {
-            return Err("block statement count disagrees with its range".to_string());
-        }
-        for statement in statements {
-            let row = document
-                .rows
-                .get(*statement as usize)
-                .ok_or_else(|| "block statement is outside the instruction table".to_string())?;
-            if !row.tag.is_statement() {
-                return Err("block entry is not a statement row".to_string());
-            }
-        }
         let owner = block
             .owner
             .0
             .ok_or_else(|| "block has no owning function".to_string())?;
-        let function = document
-            .functions
-            .get(owner.raw() as usize - 1)
+        let owner_index = (owner.raw() as usize)
+            .checked_sub(1)
+            .filter(|owner_index| *owner_index < document.functions.len())
             .ok_or_else(|| "block owner is outside the function table".to_string())?;
-        if function.body != block.id {
-            return Err("block owner does not name the block as its body".to_string());
+        let role = roles[index].ok_or_else(|| "block is referenced by no user".to_string())?;
+        let words = block_words(document, block)?;
+        let Some((count, entries)) = words.split_first() else {
+            return Err("block range has no entry count".to_string());
+        };
+        let count = *count as usize;
+        match role {
+            BlockRole::FunctionBody(function_index) => {
+                if function_index != owner_index {
+                    return Err("block owner does not name the block as its body".to_string());
+                }
+                if count != entries.len() {
+                    return Err("block statement count disagrees with its range".to_string());
+                }
+                for statement in entries {
+                    let row = document
+                        .rows
+                        .get(*statement as usize)
+                        .ok_or_else(|| "block statement is outside the instruction table".to_string())?;
+                    if !row.tag.is_statement() {
+                        return Err("block entry is not a statement row".to_string());
+                    }
+                }
+            }
+            BlockRole::ValueBlock(user) => {
+                if count != 1 || entries.len() != 1 {
+                    return Err("a value block holds exactly one statement".to_string());
+                }
+                if document.row_before(entries[0], user)?.tag != ProjectedTag::StmtValue {
+                    return Err("a value block entry is not a StmtValue row".to_string());
+                }
+            }
+            BlockRole::Branches(user) => {
+                if count == 0 || entries.len() != 2 * count {
+                    return Err("branch table count disagrees with its range".to_string());
+                }
+                for pair in entries.chunks(2) {
+                    for operand in pair {
+                        if !document.row_before(*operand, user)?.tag.is_expression() {
+                            return Err("branch table entry is not an expression row".to_string());
+                        }
+                    }
+                }
+            }
+            BlockRole::Arguments(user) => {
+                if entries.len() != 2 * count {
+                    return Err("argument table count disagrees with its range".to_string());
+                }
+                let callee = document.payload(&document.rows[user])?[0] as usize - 1;
+                if count != document.functions[callee].params_len as usize {
+                    return Err("call argument count disagrees with the callee parameters".to_string());
+                }
+                for pair in entries.chunks(2) {
+                    if pair[0] != 0 {
+                        return Err("call argument is not a single value".to_string());
+                    }
+                    if !document.row_before(pair[1], user)?.tag.is_expression() {
+                        return Err("call argument is not an expression row".to_string());
+                    }
+                }
+            }
         }
     }
 
@@ -305,8 +446,12 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
     }
 
     for observation in &document.observations {
-        if observation.function.raw() as usize > document.functions.len() {
-            return Err("observation names a function outside the function table".to_string());
+        let function = (observation.function.raw() as usize)
+            .checked_sub(1)
+            .and_then(|index| document.functions.get(index))
+            .ok_or_else(|| "observation names a function outside the function table".to_string())?;
+        if observation.arguments.len() != function.params_len as usize {
+            return Err("observation arguments disagree with the function parameters".to_string());
         }
     }
     Ok(())
@@ -365,6 +510,7 @@ fn encode_arithmetic_document(document: &ArithmeticDocument) -> Result<String, S
         ])).collect())),
         ("observations", WireValue::Array(document.observations.iter().map(|observation| wire_object([
             ("function", wire_string(hex_u32(observation.function.raw()))),
+            ("arguments", WireValue::Array(observation.arguments.iter().map(|argument| wire_string(hex_u64(*argument))).collect())),
             ("outcome", wire_string(match observation.outcome {
                 Outcome::Value(_) => "value",
                 Outcome::Failure(_) => "failure",
@@ -506,8 +652,16 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
     let observations = take_array(&mut fields, "observations")?
         .into_iter()
         .map(|value| {
-            let mut row = parse_object_fields(value, &["function", "outcome", "detail"])?;
+            let mut row =
+                parse_object_fields(value, &["function", "arguments", "outcome", "detail"])?;
             let function = take_id(&mut row, "function")?;
+            let arguments = take_array(&mut row, "arguments")?
+                .into_iter()
+                .map(|value| match value {
+                    WireValue::String(text) => parse_hex_u64(&text),
+                    _ => Err("observation argument is not a hex string".to_string()),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let outcome = take_string(&mut row, "outcome")?;
             let detail = take_string(&mut row, "detail")?;
             let outcome = match outcome.as_str() {
@@ -515,7 +669,7 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
                 "failure" => Outcome::Failure(ProjectedFailure::from_name(&detail)?),
                 other => return Err(format!("unknown observation outcome {other:?}")),
             };
-            Ok(Observation { function, outcome })
+            Ok(Observation { function, arguments, outcome })
         })
         .collect::<Result<Vec<_>, String>>()?;
     let document = ArithmeticDocument {
@@ -535,6 +689,7 @@ fn call_integer_function(
     program: &FullProgram,
     sources: &SourceMap,
     name: &str,
+    arguments: &[i64],
 ) -> Result<Outcome, String> {
     use crate::runtime::eval::{CallableKind, LoweredFunctionKey};
     use crate::runtime::value::Value;
@@ -542,11 +697,12 @@ fn call_integer_function(
         crate::runtime::eval::Evaluator::new_with_sources(Vec::new(), sources.clone());
     evaluator.indexed_program = Some(Arc::new(program.clone()));
     let key = LoweredFunctionKey::Name(program.symbol_owner().with_current(|| Name::intern(name)));
+    let arguments = arguments.iter().copied().map(Value::Int).collect::<Vec<_>>();
     let call = evaluator
         .call_indexed_direct(
             key,
             CallableKind::Pure,
-            &[],
+            &arguments,
             Span::new(program.store.source_id, 0, 0),
         )
         .ok_or_else(|| format!("function {name:?} is absent"))?;
@@ -562,22 +718,23 @@ fn call_integer_function(
 fn execute_schedule(
     program: &FullProgram,
     sources: &SourceMap,
-    schedule: &[&str],
+    schedule: &[ScheduledCall],
 ) -> Result<Vec<Observation>, String> {
     schedule
         .iter()
-        .map(|name| {
+        .map(|call| {
             let index = program
                 .store
                 .functions
                 .iter()
                 .position(|function| {
-                    program.store.string(function.name).is_ok_and(|text| text == *name)
+                    program.store.string(function.name).is_ok_and(|text| text == call.function)
                 })
-                .ok_or_else(|| format!("scheduled function {name:?} is absent"))?;
+                .ok_or_else(|| format!("scheduled function {:?} is absent", call.function))?;
             Ok(Observation {
                 function: IrId::from_index(index)?,
-                outcome: call_integer_function(program, sources, name)?,
+                arguments: call.arguments.iter().map(|argument| *argument as u64).collect(),
+                outcome: call_integer_function(program, sources, call.function, call.arguments)?,
             })
         })
         .collect()
@@ -588,7 +745,7 @@ fn export_arithmetic_document(
     arena: &ArenaProgram,
     sources: &SourceMap,
     source_id: IrId,
-    schedule: &[&str],
+    schedule: &[ScheduledCall],
 ) -> Result<ArithmeticDocument, String> {
     FullVerifier::verify(program).map_err(|error| error.message.clone())?;
     if source_id.raw().checked_sub(1) != Some(program.store.source_id.raw() as u32) {
@@ -686,7 +843,7 @@ fn check_artifact_against_program(
     program: &FullProgram,
     arena: &ArenaProgram,
     sources: &SourceMap,
-    schedule: &[&str],
+    schedule: &[ScheduledCall],
 ) -> Result<(), String> {
     let reproduced = export_arithmetic_document(program, arena, sources, recorded.source_id, schedule)?;
     if &reproduced != recorded {
@@ -699,11 +856,19 @@ fn check_artifact_against_program(
 mod tests {
     use super::*;
 
-    const SCHEDULE: [&str; 4] = ["shifted", "scaled", "divided", "overflowed"];
+    const SCHEDULE: [ScheduledCall; 7] = [
+        ScheduledCall { function: "shifted", arguments: &[] },
+        ScheduledCall { function: "scaled", arguments: &[] },
+        ScheduledCall { function: "divided", arguments: &[] },
+        ScheduledCall { function: "overflowed", arguments: &[] },
+        ScheduledCall { function: "excess", arguments: &[12, 9] },
+        ScheduledCall { function: "excess", arguments: &[3, 9] },
+        ScheduledCall { function: "surplus", arguments: &[] },
+    ];
 
     const FIXTURE_SOURCE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/runtime/formal-bridge-integer-locals.xsh"
+        "/tests/fixtures/runtime/formal-bridge-integer-calls.xsh"
     ));
 
     const LEAN_DOCUMENTS: &str = include_str!(concat!(
@@ -850,21 +1015,112 @@ mod tests {
         let let_slot = document.payload(&document.rows[shifted[0]]).unwrap()[0];
         assert_eq!(document.payload(&operand).unwrap(), [let_slot]);
         assert_eq!(document.rows[binary[2] as usize].tag, ProjectedTag::ExprInt);
+        let observation = |function: u32, arguments: &[u64], outcome: Outcome| Observation {
+            function: IrId::from_raw(function).unwrap(),
+            arguments: arguments.to_vec(),
+            outcome,
+        };
         assert_eq!(
             document.observations,
             [
-                Observation { function: IrId::from_raw(1).unwrap(), outcome: Outcome::Value(5) },
-                Observation { function: IrId::from_raw(2).unwrap(), outcome: Outcome::Value(42) },
-                Observation {
-                    function: IrId::from_raw(3).unwrap(),
-                    outcome: Outcome::Failure(ProjectedFailure::DivisionByZero),
-                },
-                Observation {
-                    function: IrId::from_raw(4).unwrap(),
-                    outcome: Outcome::Failure(ProjectedFailure::IntegerOverflow),
-                },
+                observation(1, &[], Outcome::Value(5)),
+                observation(2, &[], Outcome::Value(42)),
+                observation(3, &[], Outcome::Failure(ProjectedFailure::DivisionByZero)),
+                observation(4, &[], Outcome::Failure(ProjectedFailure::IntegerOverflow)),
+                observation(5, &[12, 9], Outcome::Value(3)),
+                observation(5, &[3, 9], Outcome::Value(0)),
+                observation(6, &[], Outcome::Value(3)),
             ]
         );
+    }
+
+    #[test]
+    fn exported_artifact_has_a_conditional_over_parameters_and_a_call_to_it() {
+        let fixture = fixture();
+        let document = &fixture.document;
+        let function_named = |name: &str| {
+            document.functions.iter().position(|function| function.name == name).unwrap()
+        };
+        let excess = &document.functions[function_named("excess")];
+        assert_eq!((excess.params_len, excess.slot_count), (2, 3));
+        let body = document.blocks[excess.body.raw() as usize - 1];
+        let statements = &document.extra[body.start as usize + 1..(body.start + body.len) as usize];
+        assert_eq!(statements.len(), 1);
+        let returned = document.payload(&document.rows[statements[0] as usize]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprIf);
+        let conditional = document.payload(&document.rows[returned]).unwrap();
+        let branches = document.blocks[conditional[0] as usize - 1];
+        let table = &document.extra[branches.start as usize..(branches.start + branches.len) as usize];
+        assert_eq!(table[0], 1);
+        let condition = document.rows[table[1] as usize];
+        assert_eq!(condition.tag, ProjectedTag::ExprBinary);
+        let operation = document.payload(&condition).unwrap()[0] as usize;
+        assert_eq!(document.binary_ops[operation], ProjectedOp::Gt);
+        assert_eq!(document.rows[table[2] as usize].tag, ProjectedTag::ExprValueBlock);
+        assert_eq!(document.rows[conditional[1] as usize].tag, ProjectedTag::ExprValueBlock);
+
+        let surplus = &document.functions[function_named("surplus")];
+        let body = document.blocks[surplus.body.raw() as usize - 1];
+        let statements = &document.extra[body.start as usize + 1..(body.start + body.len) as usize];
+        let returned = document.payload(&document.rows[statements[1] as usize]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprDirectPureCall);
+        let call = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(call[0] as usize, function_named("excess") + 1);
+        let arguments = document.blocks[call[1] as usize - 1];
+        let table = &document.extra[arguments.start as usize..(arguments.start + arguments.len) as usize];
+        assert_eq!(table[0], 2);
+        assert_eq!(document.rows[table[2] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.rows[table[4] as usize].tag, ProjectedTag::ExprInt);
+    }
+
+    #[test]
+    fn structurally_malformed_calls_and_conditionals_are_rejected() {
+        let fixture = fixture();
+        let row_of = |tag: ProjectedTag| {
+            fixture.document.rows.iter().position(|row| row.tag == tag).unwrap()
+        };
+        let payload_at = |document: &ArithmeticDocument, tag: ProjectedTag, word: usize| {
+            let row = &document.rows[document.rows.iter().position(|row| row.tag == tag).unwrap()];
+            row.lhs as usize + word
+        };
+        let reject = |name: &str, mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err(), "{name} must be rejected");
+        };
+        reject("call to a function outside the table", &|document| {
+            let word = payload_at(document, ProjectedTag::ExprDirectPureCall, 0);
+            document.extra[word] = 99;
+        });
+        reject("call argument count disagrees with the callee", &|document| {
+            document.functions[4].params_len = 3;
+        });
+        reject("conditional else value that does not precede it", &|document| {
+            let word = payload_at(document, ProjectedTag::ExprIf, 1);
+            document.extra[word] = row_of(ProjectedTag::ExprIf) as u32;
+        });
+        reject("value block referenced twice", &|document| {
+            let first = document.rows.iter().position(|row| row.tag == ProjectedTag::ExprValueBlock).unwrap();
+            let first_block = document.extra[document.rows[first].lhs as usize];
+            let word = payload_at(document, ProjectedTag::ExprIf, 0);
+            document.extra[word] = first_block;
+        });
+        reject("branch table entry that is not an expression", &|document| {
+            let word = payload_at(document, ProjectedTag::ExprIf, 0);
+            let table = document.blocks[document.extra[word] as usize - 1];
+            document.extra[table.start as usize + 1] = row_of(ProjectedTag::StmtValue) as u32;
+        });
+        reject("call argument that is not a single value", &|document| {
+            let word = payload_at(document, ProjectedTag::ExprDirectPureCall, 1);
+            let table = document.blocks[document.extra[word] as usize - 1];
+            document.extra[table.start as usize + 1] = 1;
+        });
+        reject("observation with a missing argument", &|document| {
+            document.observations[4].arguments.pop();
+        });
+        reject("block owned by no function", &|document| {
+            document.blocks[0].owner = OptionalIrId::from_raw(IR_NONE).unwrap();
+        });
     }
 
     #[test]
@@ -959,6 +1215,9 @@ mod tests {
         reject("observation names an absent function", &|value| {
             set_nested_wire(value, "observations", 0, "function", &hex_u32(9))
         });
+        reject("observation arguments that are not a list", &|value| {
+            set_nested_wire(value, "observations", 4, "arguments", &hex_u64(12))
+        });
         reject("unknown field", &|value| {
             insert_field(value, "unrecognized", WireValue::String("rejected".to_string()))
         });
@@ -1031,8 +1290,18 @@ mod tests {
         wrong_failure.observations[2].outcome = Outcome::Failure(ProjectedFailure::IntegerOverflow);
         assert!(check(&wrong_failure).is_err());
 
+        let mut wrong_branch = fixture.document.clone();
+        wrong_branch.observations[4].outcome = Outcome::Value(0);
+        assert!(validate_arithmetic_document(&wrong_branch).is_ok());
+        assert!(check(&wrong_branch).is_err());
+
+        let mut wrong_arguments = fixture.document.clone();
+        wrong_arguments.observations[4].arguments = vec![9, 12];
+        assert!(validate_arithmetic_document(&wrong_arguments).is_ok());
+        assert!(check(&wrong_arguments).is_err());
+
         let mut duplicated = fixture.document.clone();
-        duplicated.observations.push(duplicated.observations[0]);
+        duplicated.observations.push(duplicated.observations[0].clone());
         assert!(check(&duplicated).is_err());
     }
 
@@ -1080,6 +1349,31 @@ mod tests {
         operand_outside_table.store.extra[binary + 1] = operand_outside_table.store.tags.len() as u32;
         assert!(FullVerifier::verify(&operand_outside_table).is_err());
         assert!(check(&operand_outside_table).is_err());
+
+        let mut wrong_comparison = fixture.program.clone();
+        let greater = wrong_comparison
+            .store
+            .binary_ops
+            .iter()
+            .position(|op| *op == BinaryOp::Gt)
+            .unwrap();
+        wrong_comparison.store.binary_ops[greater] = BinaryOp::Lt;
+        FullVerifier::verify(&wrong_comparison).expect("the reversed comparison is still well typed");
+        let observations = execute_schedule(&wrong_comparison, &fixture.sources, &SCHEDULE).unwrap();
+        assert_eq!(observations[4].outcome, Outcome::Value(0));
+        assert_eq!(observations[5].outcome, Outcome::Value(-6_i64 as u64));
+        assert!(check(&wrong_comparison).is_err());
+
+        let mut swapped_arguments = fixture.program.clone();
+        let call = payload_start(&swapped_arguments, FullTag::ExprDirectPureCall, 0);
+        let table = swapped_arguments.store.blocks[swapped_arguments.store.extra[call + 1] as usize - 1]
+            .instructions
+            .start as usize;
+        swapped_arguments.store.extra.swap(table + 2, table + 4);
+        FullVerifier::verify(&swapped_arguments).expect("the swapped arguments are still well typed");
+        let observations = execute_schedule(&swapped_arguments, &fixture.sources, &SCHEDULE).unwrap();
+        assert_eq!(observations[6].outcome, Outcome::Value(0));
+        assert!(check(&swapped_arguments).is_err());
 
         let mut operand_to_literal = fixture.program.clone();
         let binary = payload_start(&operand_to_literal, FullTag::ExprBinary, 0);

@@ -81,7 +81,9 @@ import Xsh.Conformance.Transport.Json
 import Xsh.Conformance.Vertical.Artifact
 import Xsh.Conformance.Vertical.Meaning
 import Xsh.Conformance.Vertical.Frontend
+import Xsh.Conformance.Vertical.Reading
 import Xsh.Conformance.Vertical.Lowering
+import Xsh.Conformance.Vertical.LoweringSound
 import Xsh.Conformance.Vertical.Documents
 import Xsh.Conformance.Vertical.Fixture
 import Xsh.Conformance.Vertical.Certificate

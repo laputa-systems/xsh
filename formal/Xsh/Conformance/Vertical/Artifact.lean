@@ -10,10 +10,10 @@ def sourceSchema : String := "xsh-source-v1"
 
 def rawIrSchema : String := "xsh-raw-ir-v1"
 
-def arithmeticScope : String := "integer-arithmetic-local-fixture-v2"
+def arithmeticScope : String := "integer-calls-conditional-local-fixture-v3"
 
-/-- The raw instruction tags of the integer-arithmetic local fixture. Any other tag name is
-an unknown transport tag and fails the decoder. -/
+/-- The raw instruction tags of the integer fixture with parameters, conditionals and direct
+calls. Any other tag name is an unknown transport tag and fails the decoder. -/
 inductive FragmentTag where
   | intInt
   | stmtLetInt
@@ -21,12 +21,17 @@ inductive FragmentTag where
   | exprParam
   | exprBinary
   | stmtReturn
+  | stmtValue
+  | exprValueBlock
+  | exprIf
+  | exprDirectPureCall
   deriving DecidableEq, Repr
 
 namespace FragmentTag
 
 def all : List FragmentTag :=
-  [intInt, stmtLetInt, exprInt, exprParam, exprBinary, stmtReturn]
+  [intInt, stmtLetInt, exprInt, exprParam, exprBinary, stmtReturn, stmtValue, exprValueBlock,
+    exprIf, exprDirectPureCall]
 
 def name : FragmentTag → String
   | intInt => "IntInt"
@@ -35,6 +40,10 @@ def name : FragmentTag → String
   | exprParam => "ExprParam"
   | exprBinary => "ExprBinary"
   | stmtReturn => "StmtReturn"
+  | stmtValue => "StmtValue"
+  | exprValueBlock => "ExprValueBlock"
+  | exprIf => "ExprIf"
+  | exprDirectPureCall => "ExprDirectPureCall"
 
 def word : FragmentTag → Word32
   | intInt => ⟨0, by decide⟩
@@ -43,10 +52,15 @@ def word : FragmentTag → Word32
   | exprParam => ⟨31, by decide⟩
   | exprBinary => ⟨33, by decide⟩
   | stmtReturn => ⟨150, by decide⟩
+  | stmtValue => ⟨126, by decide⟩
+  | exprValueBlock => ⟨73, by decide⟩
+  | exprIf => ⟨34, by decide⟩
+  | exprDirectPureCall => ⟨109, by decide⟩
 
 def payloadWords : FragmentTag → Nat
-  | intInt | stmtLetInt | exprInt => 2
-  | exprParam | stmtReturn => 1
+  | intInt | stmtLetInt | exprInt | exprValueBlock => 2
+  | exprParam | stmtReturn | stmtValue => 1
+  | exprIf | exprDirectPureCall => 3
   | exprBinary => 4
 
 def ofName? (text : String) : Option FragmentTag := all.find? fun tag => tag.name == text
@@ -55,19 +69,20 @@ def ofWord? (value : Word32) : Option FragmentTag := all.find? fun tag => tag.wo
 
 end FragmentTag
 
-/-- The arithmetic operations of the integer fragment, named and numbered as the Rust
-`BinaryOp` enumeration. -/
+/-- The binary operations of the integer fragment, named and numbered as the Rust `BinaryOp`
+enumeration: the five arithmetic operations and the one comparison the fixture exercises. -/
 inductive FragmentOp where
   | add
   | sub
   | mul
   | div
   | rem
+  | gt
   deriving DecidableEq, Repr
 
 namespace FragmentOp
 
-def all : List FragmentOp := [add, sub, mul, div, rem]
+def all : List FragmentOp := [add, sub, mul, div, rem, gt]
 
 def name : FragmentOp → String
   | add => "Add"
@@ -75,6 +90,7 @@ def name : FragmentOp → String
   | mul => "Mul"
   | div => "Div"
   | rem => "Rem"
+  | gt => "Gt"
 
 def word : FragmentOp → Word32
   | add => ⟨11, by decide⟩
@@ -82,6 +98,11 @@ def word : FragmentOp → Word32
   | mul => ⟨13, by decide⟩
   | div => ⟨14, by decide⟩
   | rem => ⟨15, by decide⟩
+  | gt => ⟨7, by decide⟩
+
+def isComparison : FragmentOp → Bool
+  | gt => true
+  | add | sub | mul | div | rem => false
 
 def ofName? (text : String) : Option FragmentOp := all.find? fun op => op.name == text
 
@@ -146,6 +167,7 @@ inductive ObservedOutcome where
 
 structure Observation where
   function : BridgeId
+  arguments : List Word64
   outcome : ObservedOutcome
   deriving DecidableEq
 
@@ -222,21 +244,26 @@ def decodeFunction (value : WireValue) : Option FunctionRow := do
     ← wordField fields "paramsLen", ← wordField fields "capturesStart",
     ← wordField fields "capturesLen", ← idField fields "body", ← wordField fields "slotCount"⟩
 
-/-- An observation is a value with its sixteen-digit bits or a failure with its specified
-name; any other outcome word, and any detail of the other shape, is rejected. -/
+private def listField (fields : List (String × WireValue)) (name : String)
+    (decode : WireValue → Option α) : Option (List α) :=
+  ((WireValue.field? fields name).bind WireValue.items?).bind fun items => items.mapM decode
+
+def decodeWideWord (value : WireValue) : Option Word64 :=
+  value.text?.bind decodeHex64?
+
+/-- An observation is the called function, the sixteen-digit bits of each argument, and either a
+value with its sixteen-digit bits or a failure with its specified name; any other outcome word,
+and any detail of the other shape, is rejected. -/
 def decodeObservation (value : WireValue) : Option Observation := do
-  let fields ← value.closedObject? ["function", "outcome", "detail"]
+  let fields ← value.closedObject? ["function", "arguments", "outcome", "detail"]
   let function ← idField fields "function"
+  let arguments ← listField fields "arguments" decodeWideWord
   let outcome ← match textField fields "outcome" with
     | some "value" => (wideField fields "detail").map ObservedOutcome.value
     | some "failure" =>
         ((textField fields "detail").bind FragmentFailure.ofName?).map ObservedOutcome.failure
     | _ => none
-  pure ⟨function, outcome⟩
-
-private def listField (fields : List (String × WireValue)) (name : String)
-    (decode : WireValue → Option α) : Option (List α) :=
-  ((WireValue.field? fields name).bind WireValue.items?).bind fun items => items.mapM decode
+  pure ⟨function, arguments, outcome⟩
 
 def decodeWordList (value : WireValue) : Option Word32 :=
   value.text?.bind decodeHex32?
@@ -302,8 +329,26 @@ theorem operation_carrying_another_operations_ordinal_is_rejected :
   refine ⟨?_, ?_, ?_⟩ <;> decide
 
 def sampleObservation (outcome detail : String) : WireValue :=
-  .object [("function", .string "00000001"), ("outcome", .string outcome),
-    ("detail", .string detail)]
+  .object [("function", .string "00000001"), ("arguments", .array []),
+    ("outcome", .string outcome), ("detail", .string detail)]
+
+theorem observations_decode_their_arguments_in_order :
+    (decodeObservation (.object [("function", .string "00000005"),
+      ("arguments", .array [.string "000000000000000c", .string "0000000000000009"]),
+      ("outcome", .string "value"), ("detail", .string "0000000000000003")])).map
+        (fun observation => observation.arguments.map (·.val)) = some [12, 9] := by
+  decide
+
+theorem observations_reject_malformed_arguments :
+    (decodeObservation (.object [("function", .string "00000005"),
+      ("arguments", .array [.string "c"]), ("outcome", .string "value"),
+      ("detail", .string "0000000000000003")])).isNone = true ∧
+      (decodeObservation (.object [("function", .string "00000005"),
+        ("arguments", .string "000000000000000c"), ("outcome", .string "value"),
+        ("detail", .string "0000000000000003")])).isNone = true ∧
+      (decodeObservation (.object [("function", .string "00000005"), ("outcome", .string "value"),
+        ("detail", .string "0000000000000003")])).isNone = true := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide
 
 theorem observations_decode_a_value_or_a_specified_failure :
     (decodeObservation (sampleObservation "value" "0000000000000005")).isSome = true ∧
