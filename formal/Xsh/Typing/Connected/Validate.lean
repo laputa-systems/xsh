@@ -195,20 +195,21 @@ mutual
     | fuel + 1, names, scope, solution, binderTypes, result, completion, statement :: rest, node :: nodes => do
       let context := some (names, result, binderTypes)
       match statement, node with
-      | .binding kind (.name name) declared initializer, .binding binder recordedKind candidate => do
+      | .binding kind (.name name) declared initializer, .binding binder recordedKind storage candidate => do
           requireCheck (decide (bindingKind kind = recordedKind))
           requireCheck (!(scope.any fun item => decide (item.binder = binder)))
           let some rawType := binderTypes binder | throw .mismatch
+          requireCheck (decide (storage = rawType))
           let valueType ← validateExpressionIn fuel context scope solution initializer candidate
-          requireCheck (decide (valueType = substitute solution rawType))
-          requireCheck (checkAnnotation names solution declared valueType)
+          requireCheck (checksStoreCompatible (substitute solution rawType) valueType)
+          requireCheck (checkAnnotation names solution declared (substitute solution rawType))
           let binding : Binding := ⟨name, binder, recordedKind, ⟨[], rawType, []⟩⟩
           validateBlockCompletion fuel names (binding :: scope) solution binderTypes result completion rest nodes
       | .assign (.name name) .set value, .assignment binder candidate => do
           let some binding := scope.find? (fun item => decide (item.name = name)) | throw .unresolvedName
           requireCheck (decide (binding.binder = binder) && decide (binding.kind = .mutable))
           let valueType ← validateExpressionIn fuel context scope solution value candidate
-          requireCheck (decide (valueType = substitute solution binding.scheme.body))
+          requireCheck (checksStoreCompatible (substitute solution binding.scheme.body) valueType)
           validateBlockCompletion fuel names scope solution binderTypes result completion rest nodes
       | .returnValue (some value), .returned candidate => do
           let valueType ← validateExpressionIn fuel context scope solution value candidate

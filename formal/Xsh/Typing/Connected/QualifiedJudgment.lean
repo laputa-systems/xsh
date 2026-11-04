@@ -89,17 +89,21 @@ mutual
       (requirements : List Constraint) : TypeNames → Scope → MonoType → Option MonoType → List Statement → Prop where
     | nil {names scope result completion} : CompletionAccepts completion (.primitive .unit) →
         QualifiedBlockHasCompletionIn principal requirements names scope result completion []
-    | binding {names scope result completion kind name declared initializer rest binder rawType} :
-        QualifiedExpressionIn principal requirements (some (names, result)) scope initializer (substitute principal rawType) →
+    | binding {names scope result completion kind name declared initializer rest binder rawType valueType} :
+        QualifiedExpressionIn principal requirements (some (names, result)) scope initializer valueType →
+        (StoreCompatible (substitute principal rawType) valueType ∨
+          Constraint.store (substitute principal rawType) valueType ∈ requirements) →
         AnnotationAgrees names principal declared (substitute principal rawType) →
         (∀ binding ∈ scope, binding.binder ≠ binder) →
         QualifiedBlockHasCompletionIn principal requirements names
           (⟨name, binder, bindingKind kind, ⟨[], rawType, []⟩⟩ :: scope) result completion rest →
         QualifiedBlockHasCompletionIn principal requirements names scope result completion
           (.binding kind (.name name) declared initializer :: rest)
-    | assignment {names scope result completion name value rest binding} :
+    | assignment {names scope result completion name value rest binding valueType} :
         scope.find? (fun item => decide (item.name = name)) = some binding → binding.kind = .mutable →
-        QualifiedExpressionIn principal requirements (some (names, result)) scope value (substitute principal binding.scheme.body) →
+        QualifiedExpressionIn principal requirements (some (names, result)) scope value valueType →
+        (StoreCompatible (substitute principal binding.scheme.body) valueType ∨
+          Constraint.store (substitute principal binding.scheme.body) valueType ∈ requirements) →
         QualifiedBlockHasCompletionIn principal requirements names scope result completion rest →
         QualifiedBlockHasCompletionIn principal requirements names scope result completion (.assign (.name name) .set value :: rest)
     | returned {names scope result completion value rest} :
@@ -295,15 +299,24 @@ theorem qualified_context_instantiates (principal later : Substitution) (require
     exact .cons conditionIH branchIH restIH
   · intro names scope result completion accepted
     exact .nil (completion_instantiates later completion (.primitive .unit) accepted)
-  · intro names scope result completion kind name declared initializer rest binder rawType value annotation fresh restTyped valueIH restIH
-    have valueTyped := valueIH
+  · intro names scope result completion kind name declared initializer rest binder rawType valueType value compatible annotation fresh restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) rawType) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
     have annotationTyped := qualified_annotation_instantiates names principal later _ _ annotation
-    rw [← substitute_compose] at valueTyped annotationTyped
-    exact .binding valueTyped annotationTyped fresh restIH
-  · intro names scope result completion name value rest binding found mutable valueTyped restTyped valueIH restIH
-    have valueType := valueIH
-    rw [← substitute_compose] at valueType
-    exact .assignment found mutable valueType restIH
+    rw [← substitute_compose] at annotationTyped
+    exact .binding valueIH stored annotationTyped fresh restIH
+  · intro names scope result completion name value rest binding valueType found mutable valueTyped compatible restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) binding.scheme.body) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
+    exact .assignment found mutable valueIH stored restIH
   · intro names scope result completion value rest valueTyped restTyped valueIH restIH
     exact .returned valueIH restIH
   · intro names scope result completion name ty valueTyped accepted valueIH
@@ -402,15 +415,24 @@ theorem qualified_completion_instantiates (names : TypeNames) (principal later :
     exact .cons conditionIH branchIH restIH
   · intro names scope result completion accepted
     exact .nil (completion_instantiates later completion (.primitive .unit) accepted)
-  · intro names scope result completion kind name declared initializer rest binder rawType value annotation fresh restTyped valueIH restIH
-    have valueTyped := valueIH
+  · intro names scope result completion kind name declared initializer rest binder rawType valueType value compatible annotation fresh restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) rawType) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
     have annotationTyped := qualified_annotation_instantiates names principal later _ _ annotation
-    rw [← substitute_compose] at valueTyped annotationTyped
-    exact .binding valueTyped annotationTyped fresh restIH
-  · intro names scope result completion name value rest binding found mutable valueTyped restTyped valueIH restIH
-    have valueType := valueIH
-    rw [← substitute_compose] at valueType
-    exact .assignment found mutable valueType restIH
+    rw [← substitute_compose] at annotationTyped
+    exact .binding valueIH stored annotationTyped fresh restIH
+  · intro names scope result completion name value rest binding valueType found mutable valueTyped compatible restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) binding.scheme.body) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
+    exact .assignment found mutable valueIH stored restIH
   · intro names scope result completion value rest valueTyped restTyped valueIH restIH
     exact .returned valueIH restIH
   · intro names scope result completion name ty valueTyped accepted valueIH

@@ -128,20 +128,21 @@ mutual
         requireCheck (checkCompletion completion (.primitive .unit))
     | fuel + 1, names, scope, solution, requirements, fields, binderTypes, result, completion, statement :: rest, node :: nodes => do
       match statement, node with
-      | .binding kind (.name name) declared initializer, .binding binder recordedKind candidate => do
+      | .binding kind (.name name) declared initializer, .binding binder recordedKind storage candidate => do
           requireCheck (decide (bindingKind kind = recordedKind))
           requireCheck (!(scope.any fun item => decide (item.binder = binder)))
           let some rawType := binderTypes binder | throw .mismatch
+          requireCheck (decide (storage = rawType))
           let valueType ← validateQualifiedExpressionIn fuel (some (names, result, binderTypes)) scope solution requirements fields initializer candidate
-          requireCheck (decide (valueType = substitute solution rawType))
-          requireCheck (checkAnnotation names solution declared valueType)
+          requireCheck (checksStoreCompatible (substitute solution rawType) valueType || decide (Constraint.store (substitute solution rawType) valueType ∈ requirements))
+          requireCheck (checkAnnotation names solution declared (substitute solution rawType))
           let binding : Binding := ⟨name, binder, recordedKind, ⟨[], rawType, []⟩⟩
           validateQualifiedBlockCompletion fuel names (binding :: scope) solution requirements fields binderTypes result completion rest nodes
       | .assign (.name name) .set value, .assignment binder candidate => do
           let some binding := scope.find? (fun item => decide (item.name = name)) | throw .unresolvedName
           requireCheck (decide (binding.binder = binder) && decide (binding.kind = .mutable))
           let valueType ← validateQualifiedExpressionIn fuel (some (names, result, binderTypes)) scope solution requirements fields value candidate
-          requireCheck (decide (valueType = substitute solution binding.scheme.body))
+          requireCheck (checksStoreCompatible (substitute solution binding.scheme.body) valueType || decide (Constraint.store (substitute solution binding.scheme.body) valueType ∈ requirements))
           validateQualifiedBlockCompletion fuel names scope solution requirements fields binderTypes result completion rest nodes
       | .returnValue (some value), .returned candidate => do
           let valueType ← validateQualifiedExpressionIn fuel (some (names, result, binderTypes)) scope solution requirements fields value candidate

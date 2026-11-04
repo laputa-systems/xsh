@@ -65,6 +65,9 @@ def checkDerivation : List DerivationStep → List Constraint → Except Validat
     | .reflexive, .equal left right => do
         requireCheck (decide (left = right))
         checkDerivation steps rest
+    | .reflexive, .store storage replacement => do
+        requireCheck (decide (storage = replacement))
+        checkDerivation steps rest
     | .bindLeft, .equal (.variable id) ty => do
         requireCheck (bindingAllowed id ty)
         let later ← checkDerivation steps (rest.map (mapConstraint (bindVariable id ty)))
@@ -128,6 +131,21 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro current member
             exact solved current (by simp [member])
         | field _ _ _ => cases accepted
+        | store storage replacement =>
+          simp [checkDerivation, except_bind_ok, exists_require_ok] at accepted
+          obtain ⟨rfl, restAccepted⟩ := accepted
+          have principal := ih rest solution restAccepted
+          refine ⟨principal.1, ?_, ?_⟩
+          · intro current member
+            simp only [List.mem_cons] at member
+            rcases member with same | remaining
+            · subst current
+              exact StoreCompatible.same _
+            · exact principal.2.1 current remaining
+          · intro other sorted solved
+            apply principal.2.2 other sorted
+            intro current member
+            exact solved current (by simp [member])
       | bindLeft =>
         cases constraint with
         | equal left right =>
@@ -138,6 +156,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             exact kinded_principal_cons (binding_allowed_principal allowed) (ih _ later restAccepted)
           | _ => cases accepted
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
 
       | bindRight =>
         cases constraint with
@@ -153,6 +172,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             exact kinded_principal_cons flipped (ih _ later restAccepted)
           | _ => cases accepted
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
       | function =>
         cases constraint with
         | equal left right =>
@@ -162,6 +182,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro other
             simp [solves_cons_iff, satisfies, substitute, and_assoc]
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
       | argument =>
         cases constraint with
         | equal left right =>
@@ -171,6 +192,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro other
             simp [solves_cons_iff, satisfies, substitute, and_assoc]
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
       | result =>
         cases constraint with
         | equal left right =>
@@ -180,6 +202,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro other
             simp [solves_cons_iff, satisfies, substitute, and_assoc]
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
       | record =>
         cases constraint with
         | equal left right =>
@@ -189,6 +212,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro other
             simp [solves_cons_iff, satisfies, substitute]
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
 
       | row =>
         cases constraint with
@@ -201,6 +225,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro other
             simp [solves_cons_iff, satisfies, substitute, and_assoc]
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
 
       | nominal =>
         cases constraint with
@@ -213,6 +238,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
             intro other
             simp [solves_cons_iff, satisfies, substitute]
         | field _ _ _ => cases accepted
+        | store _ _ => cases accepted
       | field =>
         cases constraint with
         | equal _ _ => cases accepted
@@ -228,6 +254,7 @@ theorem check_derivation_principal (steps : List DerivationStep) :
               simp only [solves_cons_iff]
               rw [known_field_equivalent row value field name found other]
           | _ => cases accepted
+        | store _ _ => cases accepted
 
 
 def validateDerivedExpression (fuel : Nat) (scope : Scope) (source : Xsh.Syntax.Expr)

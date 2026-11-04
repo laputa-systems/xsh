@@ -31,7 +31,7 @@ mutual
 
   def statementOccurrences : List StatementNode → List Node
     | [] => []
-    | .binding _ _ value :: rest | .assignment _ value :: rest |
+    | .binding _ _ _ value :: rest | .assignment _ value :: rest |
       .evaluated value :: rest | .returned value :: rest => nodeOccurrences value ++ statementOccurrences rest
     | .conditional branches fallback :: rest =>
       statementBranchOccurrences branches ++ statementOccurrences fallback ++ statementOccurrences rest

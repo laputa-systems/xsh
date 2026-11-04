@@ -243,28 +243,31 @@ theorem qualified_assignment_completion_sound (fuel : Nat) (exprIH : CQualifiedE
   | none => simp [validateQualifiedBlockCompletion, found] at accepted
   | some binding =>
     simp [validateQualifiedBlockCompletion, found, except_bind_ok, exists_require_ok, Bool.and_eq_true] at accepted
-    obtain ⟨⟨_, mutable⟩, _, expressionAccepted, rfl, remainingAccepted⟩ := accepted
+    obtain ⟨⟨_, mutable⟩, _, expressionAccepted, compatible, remainingAccepted⟩ := accepted
     exact .assignment found mutable
       (exprIH (some (names, result, binderTypes)) scope solution requirements fields value node _ expressionAccepted)
+      (by simpa [Bool.or_eq_true, checks_store_compatible_iff] using compatible)
       (ih names scope solution requirements fields binderTypes result completion rest nodes remainingAccepted)
 
 theorem qualified_binding_completion_sound (fuel : Nat) (exprIH : CQualifiedExpressionSound fuel) (ih : QualifiedCompletionSound fuel)
     (names : TypeNames) (scope : Scope) (solution : Substitution) (requirements : List Constraint) (fields : FieldResults) (binderTypes : BinderTypes)
     (result : MonoType) (completion : Option MonoType) (kind : Xsh.Syntax.BindingKind)
     (name : NameId) (declared : Option TypeExpr) (initializer : Expr) (rest : List Statement)
-    (binder : BinderId) (recordedKind : BindingKind) (node : Node) (nodes : List StatementNode)
+    (binder : BinderId) (recordedKind : BindingKind) (storage : MonoType) (node : Node) (nodes : List StatementNode)
     (accepted : validateQualifiedBlockCompletion (fuel + 1) names scope solution requirements fields binderTypes result completion
-      (.binding kind (.name name) declared initializer :: rest) (.binding binder recordedKind node :: nodes) = .ok ()) :
+      (.binding kind (.name name) declared initializer :: rest) (.binding binder recordedKind storage node :: nodes) = .ok ()) :
     QualifiedBlockHasCompletionIn solution requirements names scope result completion (.binding kind (.name name) declared initializer :: rest) := by
   cases found : binderTypes binder with
   | none => simp [validateQualifiedBlockCompletion, found, except_bind_ok] at accepted
   | some rawType =>
     simp [validateQualifiedBlockCompletion, found, except_bind_ok, exists_require_ok] at accepted
-    obtain ⟨kindEqual, fresh, _, expressionAccepted, valueEqual, annotationAccepted, remainingAccepted⟩ := accepted
+    obtain ⟨kindEqual, fresh, storageEqual, _, expressionAccepted, valueEqual, annotationAccepted, remainingAccepted⟩ := accepted
     subst recordedKind
+    subst storage
     apply QualifiedBlockHasCompletionIn.binding (rawType := rawType)
-    · exact valueEqual ▸ exprIH (some (names, result, binderTypes)) scope solution requirements fields initializer node _ expressionAccepted
-    · exact valueEqual ▸ check_annotation_sound names solution declared _ annotationAccepted
+    · exact exprIH (some (names, result, binderTypes)) scope solution requirements fields initializer node _ expressionAccepted
+    · simpa [Bool.or_eq_true, checks_store_compatible_iff] using valueEqual
+    · exact check_annotation_sound names solution declared _ annotationAccepted
     · intro binding member same
       exact fresh binding member same
     · exact ih names _ solution requirements fields binderTypes result completion rest nodes remainingAccepted
@@ -481,7 +484,7 @@ theorem c_validate_qualified_all_sound : ∀ fuel,
           | binding kind target declared initializer =>
             cases target <;> cases node <;> first
               | exact qualified_binding_completion_sound fuel exprIH blockIH names scope solution requirements fields binderTypes result completion
-                  kind _ declared initializer rest _ _ _ nodes accepted
+                  kind _ declared initializer rest _ _ _ _ nodes accepted
               | cases accepted
           | assign target op value =>
             cases target <;> cases op <;> cases node <;> first
@@ -773,28 +776,31 @@ theorem qualified_node_assignment_completion_sound (fuel : Nat) (exprIH : CQuali
   | none => simp [validateQualifiedBlockCompletion, found] at accepted
   | some binding =>
     simp [validateQualifiedBlockCompletion, found, except_bind_ok, exists_require_ok, Bool.and_eq_true] at accepted
-    obtain ⟨⟨same, mutable⟩, _, expressionAccepted, rfl, remainingAccepted⟩ := accepted
+    obtain ⟨⟨same, mutable⟩, _, expressionAccepted, compatible, remainingAccepted⟩ := accepted
     subst binder
     exact .assignment found mutable
       (exprIH (some (names, result, binderTypes)) scope solution requirements fields value node _ expressionAccepted)
+      (by simpa [Bool.or_eq_true, checks_store_compatible_iff] using compatible)
       (ih names scope solution requirements fields binderTypes result completion rest nodes remainingAccepted)
 
 theorem qualified_node_binding_completion_sound (fuel : Nat) (exprIH : CQualifiedNodeExpressionSound fuel) (ih : QualifiedNodeCompletionSound fuel)
     (names : TypeNames) (scope : Scope) (solution : Substitution) (requirements : List Constraint) (fields : FieldResults) (binderTypes : BinderTypes)
     (result : MonoType) (completion : Option MonoType) (kind : Xsh.Syntax.BindingKind)
     (name : NameId) (declared : Option TypeExpr) (initializer : Expr) (rest : List Statement)
-    (binder : BinderId) (recordedKind : BindingKind) (node : Node) (nodes : List StatementNode)
+    (binder : BinderId) (recordedKind : BindingKind) (storage : MonoType) (node : Node) (nodes : List StatementNode)
     (accepted : validateQualifiedBlockCompletion (fuel + 1) names scope solution requirements fields binderTypes result completion
-      (.binding kind (.name name) declared initializer :: rest) (.binding binder recordedKind node :: nodes) = .ok ()) :
-    QualifiedNodeBlockHasCompletionIn solution requirements scope result completion (.binding binder recordedKind node :: nodes) := by
+      (.binding kind (.name name) declared initializer :: rest) (.binding binder recordedKind storage node :: nodes) = .ok ()) :
+    QualifiedNodeBlockHasCompletionIn solution requirements scope result completion (.binding binder recordedKind storage node :: nodes) := by
   cases found : binderTypes binder with
   | none => simp [validateQualifiedBlockCompletion, found, except_bind_ok] at accepted
   | some rawType =>
     simp [validateQualifiedBlockCompletion, found, except_bind_ok, exists_require_ok] at accepted
-    obtain ⟨kindEqual, fresh, _, expressionAccepted, valueEqual, _, remainingAccepted⟩ := accepted
+    obtain ⟨kindEqual, fresh, storageEqual, _, expressionAccepted, valueEqual, _, remainingAccepted⟩ := accepted
     subst recordedKind
+    subst storage
     apply QualifiedNodeBlockHasCompletionIn.binding (rawType := rawType) (name := name)
-    · exact valueEqual ▸ exprIH (some (names, result, binderTypes)) scope solution requirements fields initializer node _ expressionAccepted
+    · exact exprIH (some (names, result, binderTypes)) scope solution requirements fields initializer node _ expressionAccepted
+    · simpa [Bool.or_eq_true, checks_store_compatible_iff] using valueEqual
     · intro binding member same
       exact fresh binding member same
     · exact ih names _ solution requirements fields binderTypes result completion rest nodes remainingAccepted
@@ -1025,7 +1031,7 @@ theorem c_validate_qualified_node_all_sound : ∀ fuel,
           | binding kind target declared initializer =>
             cases target <;> cases node <;> first
               | exact qualified_node_binding_completion_sound fuel exprIH blockIH names scope solution requirements fields binderTypes result completion
-                  kind _ declared initializer rest _ _ _ nodes accepted
+                  kind _ declared initializer rest _ _ _ _ nodes accepted
               | cases accepted
           | assign target op value =>
             cases target <;> cases op <;> cases node <;> first

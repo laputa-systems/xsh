@@ -86,7 +86,7 @@ def OrdinaryBindingValueAgrees (solution : Substitution) (binding : Binding) (va
     ∀ arguments raw requirements runtimeType,
       Instantiates binding.scheme (witnessSubstitution arguments) raw requirements →
       Solves requirements solution → monoRuntime (substitute solution raw) = some runtimeType →
-      valueType value = some runtimeType
+      HasType runtimeType value
 
 def ScopeValuesAgree (scope : Scope) (solution : Substitution) (cells : ActiveCells) (store : Store) : Prop :=
   ∀ name binding, scope.find? (fun item => decide (item.name = name)) = some binding →
@@ -107,7 +107,7 @@ theorem typed_function_read_progress (state : Machine) (scope : Scope)
     (resultClosed : monoRuntime result = some runtimeResult) :
     ∃ value, Step { state with control := .expression (.read binder arguments) } .internal
         { state with control := .value value } ∧
-      valueType value = some (.function runtimeParameters runtimeResult) := by
+      HasType (.function runtimeParameters runtimeResult) value := by
   cases typed with
   | read found notSchema keys sorts instantiated solved wellFormed sort =>
     rename_i name binding raw requirements
@@ -115,10 +115,11 @@ theorem typed_function_read_progress (state : Machine) (scope : Scope)
     rcases agrees with ⟨declaration, _, _, rfl, _⟩ | ⟨ordinary, typedValue⟩
     · have present := List.mem_of_find?_eq_some found
       have sameScheme := scope_schemes_agree_of_unique scope binding unique present
-      exact typed_scheme_function_read_steps state scope binding.binder arguments binding.scheme declaration
+      obtain ⟨value, step, typedValue⟩ := typed_scheme_function_read_steps state scope binding.binder arguments binding.scheme declaration
         parameters result (substitute state.solution raw) runtimeParameters runtimeResult
         (.read found notSchema keys sorts instantiated solved wellFormed sort) functionType sameScheme
         readValue parametersClosed resultClosed
+      exact ⟨value, step, has_type_of_exact _ _ typedValue⟩
     · have closed : monoRuntime (substitute state.solution raw) = some (.function runtimeParameters runtimeResult) := by
         rw [functionType]
         simp [monoRuntime, parametersClosed, resultClosed]
@@ -129,7 +130,7 @@ theorem monomorphic_value_agrees (solution : Substitution) (name : NameId) (bind
     (kind : BindingKind) (raw : MonoType) (value : Value) (runtimeType : RuntimeType)
     (ordinary : ordinaryValue value = true)
     (closed : monoRuntime (substitute solution raw) = some runtimeType)
-    (typed : valueType value = some runtimeType) :
+    (typed : HasType runtimeType value) :
     OrdinaryBindingValueAgrees solution ⟨name, binder, kind, ⟨[], raw, []⟩⟩ value := by
   refine ⟨ordinary, ?_⟩
   intro arguments actual requirements actualRuntime instantiated solved converted
@@ -151,17 +152,17 @@ theorem binding_commit_preserves_scope_values (state : Machine) (scope : Scope)
     (cellFresh : state.store ⟨state.activation, binder⟩ = none)
     (ordinary : ordinaryValue value = true)
     (closed : monoRuntime (substitute state.solution raw) = some runtimeType)
-    (typed : valueType value = some runtimeType) :
+    (typed : HasType runtimeType value) :
     ∃ next, allocate state.store ⟨state.activation, binder⟩
-        (if kind = .mutable then .mutable else .immutable) value = some next ∧
-      Step { state with control := .value value, stack := .bind binder kind rest :: state.stack } .internal
+        (if kind = .mutable then .mutable else .immutable) runtimeType value = some next ∧
+      Step { state with control := .value value, stack := .bind binder kind runtimeType rest :: state.stack } .internal
         { state with control := .statements rest, store := next, cells := bindActive state.cells binder ⟨state.activation, binder⟩ } ∧
       ScopeValuesAgree (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: scope) state.solution
         (bindActive state.cells binder ⟨state.activation, binder⟩) next := by
   obtain ⟨next, current, allocated, present, mutable, cellType, cellValue⟩ :=
     allocate_fresh_typed_cell state.store ⟨state.activation, binder⟩
       (if kind = .mutable then .mutable else .immutable) value runtimeType cellFresh typed
-  refine ⟨next, allocated, Step.bindingCommit state binder kind value rest next allocated, ?_⟩
+  refine ⟨next, allocated, Step.bindingCommit state binder kind runtimeType value rest next allocated, ?_⟩
   intro sought found foundAt notSchema
   by_cases same : name = sought
   · subst sought
@@ -183,7 +184,7 @@ theorem binding_commit_preserves_scope_values (state : Machine) (scope : Scope)
         | none => simp [active, entry] at oldRead
         | some old =>
           have unchanged := allocate_preserves_existing state.store next ⟨state.activation, binder⟩
-            (if kind = .mutable then .mutable else .immutable) value allocated cell old entry
+            (if kind = .mutable then .mutable else .immutable) runtimeType value allocated cell old entry
           simpa [active, unchanged, entry] using oldRead
     exact ⟨oldValue, retained, oldAgrees⟩
 
@@ -201,7 +202,7 @@ theorem assignment_commit_preserves_scope_values (state : Machine) (scope : Scop
     (written : write state.store cell value = .accepted next)
     (ordinary : ordinaryValue value = true)
     (closed : monoRuntime (substitute state.solution raw) = some runtimeType)
-    (typed : valueType value = some runtimeType) :
+    (typed : HasType runtimeType value) :
     Step { state with control := .value value, stack := .assign focus.binder rest :: state.stack } .internal
         { state with control := .statements rest, store := next } ∧
       ScopeValuesAgree scope state.solution state.cells next := by
@@ -257,7 +258,7 @@ theorem typed_assignment_commit (state : Machine) (scope : Scope) (name : NameId
     (mutable : binding.kind = .mutable)
     (cells : MutableCellsAgree scope state.solution state.cells state.store)
     (closed : monoRuntime (substitute state.solution binding.scheme.body) = some runtimeType)
-    (typed : valueType value = some runtimeType) :
+    (typed : HasType runtimeType value) :
     ∃ next, Step { state with control := .value value, stack := .assign binding.binder rest :: state.stack } .internal
       { state with control := .statements rest, store := next } ∧ StoreEvolves state.store next := by
   obtain ⟨_, _, cell, current, actualType, active, present, writable, sameType, sameClosed⟩ :=
@@ -265,7 +266,6 @@ theorem typed_assignment_commit (state : Machine) (scope : Scope) (name : NameId
   rw [closed] at sameClosed
   cases sameClosed
   have member : HasType current.contents.typeTag value := by
-    unfold HasType
     rw [sameType]
     exact typed
   obtain ⟨next, written⟩ := (write_accepted_iff (fun _ _ => inferInstance) state.store cell value).mpr
@@ -281,7 +281,7 @@ theorem typed_assignment_preserves_scope (state : Machine) (scope : Scope) (name
     (cells : MutableCellsAgree scope state.solution state.cells state.store)
     (unique : (scope.map Binding.binder).Nodup) (distinct : DistinctActiveCells state.cells)
     (closed : monoRuntime (substitute state.solution binding.scheme.body) = some runtimeType)
-    (ordinary : ordinaryValue value = true) (typed : valueType value = some runtimeType) :
+    (ordinary : ordinaryValue value = true) (typed : HasType runtimeType value) :
     ∃ next, Step { state with control := .value value, stack := .assign binding.binder rest :: state.stack } .internal
         { state with control := .statements rest, store := next } ∧
       ScopeValuesAgree scope state.solution state.cells next ∧
@@ -300,7 +300,6 @@ theorem typed_assignment_preserves_scope (state : Machine) (scope : Scope) (name
   rw [closed] at sameClosed
   cases sameClosed
   have member : HasType current.contents.typeTag value := by
-    unfold HasType
     rw [sameType]
     exact typed
   obtain ⟨next, written⟩ := (write_accepted_iff (fun _ _ => inferInstance) state.store cell value).mpr
@@ -318,9 +317,9 @@ theorem binding_commit_preserves_mutable_cells (state : Machine) (scope : Scope)
     (binderFresh : ∀ binding ∈ scope, binding.binder ≠ binder)
     (cellFresh : state.store ⟨state.activation, binder⟩ = none)
     (closed : monoRuntime (substitute state.solution raw) = some runtimeType)
-    (typed : valueType value = some runtimeType)
+    (typed : HasType runtimeType value)
     (allocated : allocate state.store ⟨state.activation, binder⟩
-      (if kind = .mutable then .mutable else .immutable) value = some next) :
+      (if kind = .mutable then .mutable else .immutable) runtimeType value = some next) :
     MutableCellsAgree (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: scope) state.solution
       (bindActive state.cells binder ⟨state.activation, binder⟩) next := by
   obtain ⟨constructed, current, built, present, mutable, cellType, cellValue⟩ :=
@@ -343,7 +342,7 @@ theorem binding_commit_preserves_mutable_cells (state : Machine) (scope : Scope)
       cells sought found original isMutable
     have different : found.binder ≠ binder := binderFresh found (List.mem_of_find?_eq_some original)
     have retained := allocate_preserves_existing state.store next ⟨state.activation, binder⟩
-      (if kind = .mutable then .mutable else .immutable) value allocated oldCell old oldPresent
+      (if kind = .mutable then .mutable else .immutable) runtimeType value allocated oldCell old oldPresent
     exact ⟨quantified, requirements, oldCell, old, oldType,
       by simpa [bindActive, different] using active, retained, oldMutable, oldTag, oldClosed⟩
 
@@ -411,8 +410,8 @@ theorem typed_binding_preserves_scope_state (state : Machine) (scope : Scope)
     (cellFresh : state.store ⟨state.activation, binder⟩ = none)
     (ordinary : ordinaryValue value = true)
     (closed : monoRuntime (substitute state.solution raw) = some runtimeType)
-    (typed : valueType value = some runtimeType) :
-    ∃ next, Step { state with control := .value value, stack := .bind binder kind rest :: state.stack } .internal
+    (typed : HasType runtimeType value) :
+    ∃ next, Step { state with control := .value value, stack := .bind binder kind runtimeType rest :: state.stack } .internal
         { state with control := .statements rest, store := next, cells := bindActive state.cells binder ⟨state.activation, binder⟩ } ∧
       ScopeStateAgrees (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: scope)
         { state with control := .statements rest, store := next, cells := bindActive state.cells binder ⟨state.activation, binder⟩ } := by
@@ -420,7 +419,7 @@ theorem typed_binding_preserves_scope_state (state : Machine) (scope : Scope)
   obtain ⟨next, allocated, step, valuesAfter⟩ := binding_commit_preserves_scope_values state scope name binder kind raw
     value runtimeType rest values binderFresh cellFresh ordinary closed typed
   have evolution := allocate_preserves_layout state.store next ⟨state.activation, binder⟩
-    (if kind = .mutable then .mutable else .immutable) value allocated
+    (if kind = .mutable then .mutable else .immutable) runtimeType value allocated
   obtain ⟨constructed, current, built, present, _, _, _⟩ :=
     allocate_fresh_typed_cell state.store ⟨state.activation, binder⟩
       (if kind = .mutable then .mutable else .immutable) value runtimeType cellFresh typed
@@ -445,7 +444,7 @@ theorem typed_assignment_preserves_scope_state (state : Machine) (scope : Scope)
     (found : scope.find? (fun item => decide (item.name = name)) = some binding)
     (mutable : binding.kind = .mutable)
     (closed : monoRuntime (substitute state.solution binding.scheme.body) = some runtimeType)
-    (ordinary : ordinaryValue value = true) (typed : valueType value = some runtimeType) :
+    (ordinary : ordinaryValue value = true) (typed : HasType runtimeType value) :
     ∃ next, Step { state with control := .value value, stack := .assign binding.binder rest :: state.stack } .internal
         { state with control := .statements rest, store := next } ∧
       ScopeStateAgrees scope { state with control := .statements rest, store := next } := by
@@ -462,7 +461,7 @@ theorem typed_scope_read_progress (state : Machine) (scope : Scope) (binder : Bi
     (typed : NodeHasType scope state.solution (.read binder arguments) ty)
     (closed : monoRuntime ty = some runtimeType) :
     ∃ value, Step { state with control := .expression (.read binder arguments) } .internal
-        { state with control := .value value } ∧ valueType value = some runtimeType := by
+        { state with control := .value value } ∧ HasType runtimeType value := by
   obtain ⟨unique, values, _, _, _⟩ := agrees
   cases typed with
   | read found notSchema keys sorts instantiated solved wellFormed sort =>
@@ -486,10 +485,11 @@ theorem typed_scope_read_progress (state : Machine) (scope : Scope) (binder : Bi
         | some runtimeResult =>
           simp [monoRuntime, paramClosed, resultClosed] at closed
           subst runtimeType
-          exact typed_scheme_function_read_steps state scope binding.binder arguments binding.scheme declaration
+          obtain ⟨value, step, typedValue⟩ := typed_scheme_function_read_steps state scope binding.binder arguments binding.scheme declaration
             _ _ (substitute state.solution raw) runtimeParameters runtimeResult
             (.read found notSchema keys sorts instantiated solved wellFormed sort) shape sameScheme
             readValue paramClosed resultClosed
+          exact ⟨value, step, has_type_of_exact _ _ typedValue⟩
     · exact ⟨value, Step.read state binding.binder arguments value readValue ordinary,
         typedValue arguments raw requirements runtimeType instantiated solved closed⟩
 

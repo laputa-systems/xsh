@@ -6,8 +6,18 @@ open Xsh.Foundation
 open Xsh.Syntax
 
 def checksGroundScheme (scheme : Scheme) (arguments : List (Variable × MonoType)) : Bool :=
-  (freeVariables scheme.body ++ scheme.requirements.flatMap constraintVariables).all fun id =>
-    (freeVariables (witnessSubstitution arguments id)).isEmpty
+  ((freeVariables scheme.body ++ scheme.requirements.flatMap constraintVariables).all fun id =>
+    (freeVariables (witnessSubstitution arguments id)).isEmpty) &&
+    checksUniqueRows (substitute (witnessSubstitution arguments) scheme.body) &&
+    scheme.requirements.all (checksConstraintUniqueRows (witnessSubstitution arguments))
+
+theorem checked_ground_scheme_has_unique_rows (scheme : Scheme) (arguments : List (Variable × MonoType))
+    (checked : checksGroundScheme scheme arguments = true) :
+    checksUniqueRows (substitute (witnessSubstitution arguments) scheme.body) = true ∧
+      ∀ requirement ∈ scheme.requirements,
+        checksConstraintUniqueRows (witnessSubstitution arguments) requirement = true := by
+  simp [checksGroundScheme, Bool.and_eq_true, List.all_eq_true] at checked
+  exact ⟨checked.1.2, checked.2⟩
 
 def validateQualifiedFunction (fuel : Nat) (names : TypeNames) (parameters globals : List Binding)
     (result : MonoType) (body : List Statement) (ordered : List Constraint) (steps : List DerivationStep)

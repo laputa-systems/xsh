@@ -90,15 +90,19 @@ mutual
     | nil {scope result completion} :
         CompletionAccepts completion (.primitive .unit) →
         QualifiedNodeBlockHasCompletionIn principal requirements scope result completion []
-    | binding {scope result completion name binder kind rawType initializer rest} :
-        QualifiedNodeIn principal requirements (some result) scope initializer (substitute principal rawType) →
+    | binding {scope result completion name binder kind rawType initializer rest valueType} :
+        QualifiedNodeIn principal requirements (some result) scope initializer valueType →
+        (StoreCompatible (substitute principal rawType) valueType ∨
+          Constraint.store (substitute principal rawType) valueType ∈ requirements) →
         (∀ binding ∈ scope, binding.binder ≠ binder) →
         QualifiedNodeBlockHasCompletionIn principal requirements (⟨name, binder, kind, ⟨[], rawType, []⟩⟩ :: scope) result completion rest →
-        QualifiedNodeBlockHasCompletionIn principal requirements scope result completion (.binding binder kind initializer :: rest)
-    | assignment {scope result completion name binding value rest} :
+        QualifiedNodeBlockHasCompletionIn principal requirements scope result completion (.binding binder kind rawType initializer :: rest)
+    | assignment {scope result completion name binding value rest valueType} :
         scope.find? (fun item => decide (item.name = name)) = some binding →
         binding.kind = .mutable →
-        QualifiedNodeIn principal requirements (some result) scope value (substitute principal binding.scheme.body) →
+        QualifiedNodeIn principal requirements (some result) scope value valueType →
+        (StoreCompatible (substitute principal binding.scheme.body) valueType ∨
+          Constraint.store (substitute principal binding.scheme.body) valueType ∈ requirements) →
         QualifiedNodeBlockHasCompletionIn principal requirements scope result completion rest →
         QualifiedNodeBlockHasCompletionIn principal requirements scope result completion (.assignment binding.binder value :: rest)
     | returned {scope result completion value rest} :
@@ -221,14 +225,22 @@ theorem qualified_context_node_instantiates (principal later : Substitution) (re
 
   · intro scope result completion accepted
     exact .nil (completion_instantiates later completion (.primitive .unit) accepted)
-  · intro scope result completion name binder kind rawType initializer rest value fresh restTyped valueIH restIH
-    have valueTyped := valueIH
-    rw [← substitute_compose] at valueTyped
-    exact .binding valueTyped fresh restIH
-  · intro scope result completion name binding value rest found mutable valueTyped restTyped valueIH restIH
-    have valueType := valueIH
-    rw [← substitute_compose] at valueType
-    exact .assignment found mutable valueType restIH
+  · intro scope result completion name binder kind rawType initializer rest valueType value compatible fresh restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) rawType) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
+    exact .binding valueIH stored fresh restIH
+  · intro scope result completion name binding value rest valueType found mutable valueTyped compatible restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) binding.scheme.body) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
+    exact .assignment found mutable valueIH stored restIH
   · intro scope result completion value rest valueTyped restTyped valueIH restIH
     exact .returned valueIH restIH
   · intro scope result completion value ty valueTyped accepted valueIH
@@ -324,14 +336,22 @@ theorem qualified_node_completion_instantiates (principal later : Substitution)
 
   · intro scope result completion accepted
     exact .nil (completion_instantiates later completion (.primitive .unit) accepted)
-  · intro scope result completion name binder kind rawType initializer rest value fresh restTyped valueIH restIH
-    have valueTyped := valueIH
-    rw [← substitute_compose] at valueTyped
-    exact .binding valueTyped fresh restIH
-  · intro scope result completion name binding value rest found mutable valueTyped restTyped valueIH restIH
-    have valueType := valueIH
-    rw [← substitute_compose] at valueType
-    exact .assignment found mutable valueType restIH
+  · intro scope result completion name binder kind rawType initializer rest valueType value compatible fresh restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) rawType) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
+    exact .binding valueIH stored fresh restIH
+  · intro scope result completion name binding value rest valueType found mutable valueTyped compatible restTyped valueIH restIH
+    have stored : StoreCompatible (substitute (compose later principal) binding.scheme.body) (substitute later valueType) := by
+      rcases compatible with compatible | member
+      · have instantiated := store_compatible_substitutes later compatible
+        simpa [substitute_compose] using instantiated
+      · have instantiated := solves _ member
+        simpa [satisfies, substitute_compose] using instantiated
+    exact .assignment found mutable valueIH stored restIH
   · intro scope result completion value rest valueTyped restTyped valueIH restIH
     exact .returned valueIH restIH
   · intro scope result completion value ty valueTyped accepted valueIH

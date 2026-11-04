@@ -12,7 +12,7 @@ def scopedExampleSource : List Statement :=
    .expression (.valueBlock [.assign (.name scopedExampleName) .set (.literal (.integer "1"))]),
    .returnValue (some (.ident scopedExampleName))]
 def scopedExampleNodes : List StatementNode :=
-  [.binding scopedExampleBinder .mutable (.integer "0"),
+  [.binding scopedExampleBinder .mutable (.primitive .integer) (.integer "0"),
    .evaluated (.valueBlock (.primitive .unit) [.assignment scopedExampleBinder (.integer "1")]),
    .returned (.read scopedExampleBinder [])]
 
@@ -28,7 +28,7 @@ theorem scoped_example_is_typed : scopedExampleAccepted = true := by
 def scopedGenerationAgrees : Bool :=
   match (block 32 exampleTypeNames [] (.primitive .integer) scopedExampleSource).run
       (initialBlockState [] (.primitive .integer)) with
-  | .ok ([.binding binder .mutable (.integer "0"), .evaluated (.valueBlock _ [.assignment target (.integer "1")]),
+  | .ok ([.binding binder .mutable _ (.integer "0"), .evaluated (.valueBlock _ [.assignment target (.integer "1")]),
       .returned (.read read [])], _) => decide (binder = scopedExampleBinder ∧ target = binder ∧ read = binder)
   | _ => false
 
@@ -37,7 +37,7 @@ theorem scoped_body_is_checked_at_discarded_completion : scopedGenerationAgrees 
 
 def scopedQualifiedAccepted : Bool :=
   match validateQualifiedFunction 32 exampleTypeNames [] [] (.primitive .integer) scopedExampleSource
-      [.equal (.primitive .integer) (.primitive .integer), .equal (.variable ⟨0, .value⟩) (.primitive .unit),
+      [.store (.primitive .integer) (.primitive .integer), .equal (.variable ⟨0, .value⟩) (.primitive .unit),
        .equal (.primitive .integer) (.primitive .integer)]
       [.reflexive, .bindLeft, .reflexive] 3 ⟨[], .function .argumentsEmpty (.primitive .integer), []⟩ scopedExampleNodes
       (fun _ => some (.primitive .integer)) (fun _ => none) [] with
@@ -57,8 +57,8 @@ theorem unit_fallthrough_cannot_satisfy_integer_result : integerFallthroughRejec
 
 def duplicateNestedBinder : List StatementNode :=
   [.evaluated (.record [
-    (exampleName 58 (by decide), .valueBlock (.primitive .unit) [.binding scopedExampleBinder .mutable (.integer "1")]),
-    (exampleName 59 (by decide), .valueBlock (.primitive .unit) [.binding scopedExampleBinder .mutable (.integer "2")])])]
+    (exampleName 58 (by decide), .valueBlock (.primitive .unit) [.binding scopedExampleBinder .mutable (.primitive .integer) (.integer "1")]),
+    (exampleName 59 (by decide), .valueBlock (.primitive .unit) [.binding scopedExampleBinder .mutable (.primitive .integer) (.integer "2")])])]
 
 theorem sibling_value_blocks_cannot_reuse_a_binder :
     decide (declaredBinders duplicateNestedBinder).Nodup = false := by
