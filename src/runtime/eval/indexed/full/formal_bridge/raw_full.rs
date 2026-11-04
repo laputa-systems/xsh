@@ -195,13 +195,13 @@ impl From<String> for CandidateDecodeError {
 const CONNECTED_TAGS: &[FullTag] = &[
     FullTag::IntInt, FullTag::IntSlot, FullTag::IntBinary,
     FullTag::BoolBool, FullTag::BoolSlot, FullTag::BoolNot, FullTag::BoolAnd,
-    FullTag::BoolOr, FullTag::BoolIntCompare, FullTag::ExprInt, FullTag::ExprBool,
+    FullTag::BoolOr, FullTag::BoolIntCompare, FullTag::ExprUnit, FullTag::ExprInt, FullTag::ExprBool,
     FullTag::ExprStr, FullTag::ExprFunctionRef, FullTag::ExprParam, FullTag::ExprBinary, FullTag::ExprRecord,
     FullTag::ExprField, FullTag::ExprRequire, FullTag::ExprCheckedValue, FullTag::ExprValueBlock,
     FullTag::ExprModuleCall, FullTag::ExprIf, FullTag::ExprOk,
     FullTag::ExprErr, FullTag::ExprTry, FullTag::ExprCall, FullTag::ExprDirectPureCall,
     FullTag::StmtLet, FullTag::StmtLetInt, FullTag::StmtLetBool, FullTag::StmtAssign,
-    FullTag::StmtAssignInt, FullTag::StmtAssignBool, FullTag::StmtValue,
+    FullTag::StmtAssignInt, FullTag::StmtAssignBool, FullTag::StmtAssignPath, FullTag::StmtValue,
     FullTag::StmtReturn, FullTag::StmtAssert, FullTag::StmtExpr, FullTag::StmtIf,
     FullTag::StmtIfBool,
 ];
@@ -213,11 +213,30 @@ struct RawInstructions {
     checked_call_target_required: Vec<bool>,
     data: Vec<IrData>,
     extra: Vec<u32>,
+    assign_ops: Vec<AssignOp>,
     binary_ops: Vec<BinaryOp>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     strings: Vec<IrRange>,
     string_bytes: Vec<u8>,
+}
+
+fn assign_op_name(op: AssignOp) -> &'static str {
+    match op {
+        AssignOp::Set => "set", AssignOp::Add => "add", AssignOp::Sub => "sub",
+        AssignOp::Mul => "mul", AssignOp::Div => "div", AssignOp::Rem => "rem",
+    }
+}
+
+fn decode_assign_op(value: WireValue) -> Result<AssignOp, CandidateDecodeError> {
+    let WireValue::String(name) = value else {
+        return Err(CandidateDecodeError::Malformed("assignment operation is not a string".to_string()));
+    };
+    match name.as_str() {
+        "set" => Ok(AssignOp::Set), "add" => Ok(AssignOp::Add), "sub" => Ok(AssignOp::Sub),
+        "mul" => Ok(AssignOp::Mul), "div" => Ok(AssignOp::Div), "rem" => Ok(AssignOp::Rem),
+        _ => Err(CandidateDecodeError::UnsupportedFeature(format!("assignment operation {name}"))),
+    }
 }
 
 fn binary_op_name(op: BinaryOp) -> &'static str {
@@ -268,6 +287,7 @@ fn encode_instructions(rows: &RawFullRows) -> Result<String, CandidateDecodeErro
         ("checkedCallTargetRequired", WireValue::Array(rows.checked_call_target_required.iter().copied().map(wire_flag).collect())),
         ("data", WireValue::Array(data)),
         ("extra", WireValue::Array(rows.extra.iter().map(|word| wire_string(format!("{word:08x}"))).collect())),
+        ("assignOps", WireValue::Array(rows.assign_ops.iter().copied().map(|op| wire_string(assign_op_name(op))).collect())),
         ("binaryOps", WireValue::Array(rows.binary_ops.iter().copied().map(|op| wire_string(binary_op_name(op))).collect())),
         ("locations", WireValue::Array(rows.locations.iter().map(|location| wire_object([
             ("start", wire_string(format!("{:08x}", location.start))),
@@ -290,7 +310,7 @@ fn decode_flag(value: WireValue) -> Result<bool, CandidateDecodeError> {
 
 fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeError> {
     let mut object = parse_object_fields(parse_wire_document(input)?,
-        &["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "binaryOps", "locations", "locationSources", "strings", "stringBytes"])?;
+        &["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "assignOps", "binaryOps", "locations", "locationSources", "strings", "stringBytes"])?;
     let tags = take_array(&mut object, "tags")?.into_iter().map(|value| {
         let mut row = parse_object_fields(value, &["name", "ordinal"])?;
         let name = take_string(&mut row, "name")?;
@@ -318,6 +338,7 @@ fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeEr
         WireValue::String(text) => parse_hex_u32(&text).map_err(CandidateDecodeError::from),
         _ => Err(CandidateDecodeError::Malformed("instruction extra word is not a string".to_string())),
     }).collect::<Result<Vec<_>, _>>()?;
+    let assign_ops = take_array(&mut object, "assignOps")?.into_iter().map(decode_assign_op).collect::<Result<Vec<_>, _>>()?;
     let binary_ops = take_array(&mut object, "binaryOps")?.into_iter().map(decode_binary_op).collect::<Result<Vec<_>, _>>()?;
     let locations = take_array(&mut object, "locations")?.into_iter().map(|value| {
         let mut row = parse_object_fields(value, &["start", "length"])?;
@@ -334,7 +355,7 @@ fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeEr
             .map_err(|_| CandidateDecodeError::Malformed("string byte is out of range".to_string())),
         _ => Err(CandidateDecodeError::Malformed("string byte is not a string".to_string())),
     }).collect::<Result<Vec<_>, CandidateDecodeError>>()?;
-    Ok(RawInstructions { tags, resource_transfers, checked_call_target_required, data, extra, binary_ops, locations, location_sources, strings, string_bytes })
+    Ok(RawInstructions { tags, resource_transfers, checked_call_target_required, data, extra, assign_ops, binary_ops, locations, location_sources, strings, string_bytes })
 }
 
 
@@ -541,6 +562,33 @@ fn decode_owner(input: &str, expected: &SourceMap) -> Result<RawFullOwner, Strin
 }
 
 #[test]
+fn scoped_instruction_exchange_retains_assignment_operations() {
+    let source = "pure scoped(value) { var current = value; without time { current = value }; current }\nassert scoped(7) == 7\n";
+    let (_, _, program) = build_fixture(source).unwrap();
+    let raw = RawFullProgram::capture(&program);
+    assert!(raw.rows.tags.contains(&FullTag::StmtAssignPath));
+    assert!(raw.rows.tags.contains(&FullTag::ExprUnit));
+    assert!(raw.rows.resource_transfers.iter().any(|marked| *marked));
+    let actual = encode_instructions(&raw.rows).unwrap();
+    assert!(matches!(decode_instructions(&actual), Err(CandidateDecodeError::UnsupportedFeature(_))));
+    let mut unmarked = raw.rows.clone();
+    unmarked.resource_transfers.fill(false);
+    let encoded = encode_instructions(&unmarked).unwrap();
+    let decoded = decode_instructions(&encoded).unwrap();
+    assert_eq!(decoded.tags, unmarked.tags);
+    assert_eq!(decoded.data, unmarked.data);
+    assert_eq!(decoded.extra, unmarked.extra);
+    assert_eq!(decoded.assign_ops, unmarked.assign_ops);
+    let mut changed = parse_wire_document(&encoded).unwrap();
+    let WireValue::Object(fields) = &mut changed else { unreachable!() };
+    let (_, WireValue::Array(operations)) = fields.iter_mut().find(|(name, _)| name == "assignOps").unwrap() else { unreachable!() };
+    let index = unmarked.assign_ops.iter().position(|op| *op == AssignOp::Set).unwrap();
+    operations[index] = wire_string("add");
+    let changed = deser_json::to_string(&changed).unwrap();
+    assert_ne!(decode_instructions(&changed).unwrap().assign_ops, decoded.assign_ops);
+}
+
+#[test]
 fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     let generic_source = "pure project(value) { value.amount }\npure use_project() -> Int { project({amount: 7, enabled: true}) }\nassert use_project() == 7\n";
     let (_, _, parsed, mut published) = check_fixture(generic_source).unwrap();
@@ -593,6 +641,7 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     let owner = decode_owner(&owner_bytes, &program.sources).unwrap();
     let instruction_bytes = encode_instructions(&raw.rows).unwrap();
     let instructions = decode_instructions(&instruction_bytes).unwrap();
+    assert_eq!(instructions.assign_ops, raw.rows.assign_ops);
     assert_eq!(instructions.binary_ops, raw.rows.binary_ops);
     assert_eq!(instructions.locations, raw.rows.locations);
     assert_eq!(instructions.location_sources, raw.rows.location_sources);
@@ -641,6 +690,7 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     foreign_owner.rows.checked_call_target_required = instructions.checked_call_target_required;
     foreign_owner.rows.data = instructions.data;
     foreign_owner.rows.extra = instructions.extra;
+    foreign_owner.rows.assign_ops = instructions.assign_ops;
     foreign_owner.rows.binary_ops = instructions.binary_ops;
     foreign_owner.rows.locations = instructions.locations;
     foreign_owner.rows.location_sources = instructions.location_sources;
@@ -661,6 +711,7 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     bad_candidate.rows.checked_call_target_required = bad_instructions.checked_call_target_required;
     bad_candidate.rows.data = bad_instructions.data;
     bad_candidate.rows.extra = bad_instructions.extra;
+    bad_candidate.rows.assign_ops = bad_instructions.assign_ops;
     bad_candidate.rows.binary_ops = bad_instructions.binary_ops;
     bad_candidate.rows.locations = bad_instructions.locations;
     bad_candidate.rows.location_sources = bad_instructions.location_sources;

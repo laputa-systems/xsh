@@ -122,3 +122,4 @@ import Xsh.Semantics.Connected.SafetySourceGrounding
 import Xsh.Semantics.Connected.SafetyScopedFixture
 import Xsh.Conformance.Connected.ScopedCertificate
 import Xsh.Conformance.Connected.RawRows
+import Xsh.Conformance.Connected.RawStoreFixture

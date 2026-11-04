@@ -15,7 +15,7 @@ structure ScopedOccurrence where
   candidate : Node
   scope : Scope
   declarations : List (BinderId × NameId × SourceSite × Option String × Bool × Bool)
-  storeTarget : Option BinderId
+  storeTarget : Option (BinderId × SourceSite)
 
 structure OccurrenceCursor where
   expressions : List (SourceSite × Expr)
@@ -163,7 +163,7 @@ mutual
           let first ← scopeExpression fuel types scope declarations value recorded
           let head :: nested := first | throw .mismatch
           let others ← scopeBlock fuel types scope declarations rest nodes
-          pure ({ head with storeTarget := some binder } :: nested ++ others)
+          pure ({ head with storeTarget := some (binder, site) } :: nested ++ others)
       | .expression value, .evaluated recorded | .returnValue (some value), .returned recorded => do
           let first ← scopeExpression fuel types scope declarations value recorded
           let others ← scopeBlock fuel types scope declarations rest nodes
@@ -503,7 +503,7 @@ def scopedOperationSiteCheck (fuel : Nat) (names : TypeNames) (result : MonoType
       | none => false
       | some occurrence => match occurrence.storeTarget with
         | none => false
-        | some binder => match occurrence.scope.find? (fun binding => decide (binding.binder = binder)) with
+        | some (binder, _) => match occurrence.scope.find? (fun binding => decide (binding.binder = binder)) with
           | none => false
           | some binding =>
             decide (binding.kind = .mutable) &&
@@ -521,10 +521,10 @@ theorem checked_store_site_has_scoped_assignment (fuel : Nat) (names : TypeNames
     (store : StoreOperation)
     (operation : document.operations[entry.2]? = some (.store store))
     (checked : scopedOperationSiteCheck fuel names result types principal requirements fields occurrences document entry = true) :
-    ∃ fact occurrence binder binding,
+    ∃ fact occurrence binder statementSite binding,
       lookupExpressionFact document.body entry.1 = some fact ∧ fact.2.1 = store.site ∧
       occurrences.find? (fun item => decide (item.site = store.site)) = some occurrence ∧
-      occurrence.storeTarget = some binder ∧
+      occurrence.storeTarget = some (binder, statementSite) ∧
       occurrence.scope.find? (fun item => decide (item.binder = binder)) = some binding ∧
       binding.kind = .mutable ∧ store.storage = substitute principal binding.scheme.body ∧
       Constraint.store store.storage store.replacement ∈ requirements ∧
@@ -543,7 +543,8 @@ theorem checked_store_site_has_scoped_assignment (fuel : Nat) (names : TypeNames
     | some occurrence =>
       cases target : occurrence.storeTarget with
       | none => simp [found, target] at checked
-      | some binder =>
+      | some targetPair =>
+        obtain ⟨binder, statementSite⟩ := targetPair
         cases binding : occurrence.scope.find? (fun item => decide (item.binder = binder)) with
         | none => simp [found, target, binding] at checked
         | some declared =>
@@ -554,7 +555,7 @@ theorem checked_store_site_has_scoped_assignment (fuel : Nat) (names : TypeNames
             simp [found, target, binding, rhs, Bool.and_eq_true] at checked
             obtain ⟨⟨⟨mutable, storage⟩, equal⟩, replacement⟩ := checked
             subst ty
-            exact ⟨foundFact, occurrence, binder, declared, rfl, sameSite, rfl, target, binding,
+            exact ⟨foundFact, occurrence, binder, statementSite, declared, rfl, sameSite, rfl, target, binding,
               mutable, storage, equal, rhs⟩
 
 theorem checked_store_site_types_every_solution (fuel : Nat) (names : TypeNames) (result : MonoType)
@@ -564,21 +565,21 @@ theorem checked_store_site_types_every_solution (fuel : Nat) (names : TypeNames)
     (operation : document.operations[entry.2]? = some (.store store))
     (checked : scopedOperationSiteCheck fuel names result types principal requirements fields occurrences document entry = true)
     (sorted : WellSorted later) (solves : Solves requirements later) :
-    ∃ occurrence binder binding,
+    ∃ occurrence binder statementSite binding,
       occurrences.find? (fun item => decide (item.site = store.site)) = some occurrence ∧
-      occurrence.storeTarget = some binder ∧
+      occurrence.storeTarget = some (binder, statementSite) ∧
       occurrence.scope.find? (fun item => decide (item.binder = binder)) = some binding ∧
       binding.kind = .mutable ∧
       StoreCompatible (substitute (compose later principal) binding.scheme.body) (substitute later store.replacement) ∧
       ExpressionHasTypeIn (compose later principal) (some (names, substitute later result)) occurrence.scope
         occurrence.source (substitute later store.replacement) := by
-  obtain ⟨_, occurrence, binder, binding, _, _, found, target, selected, mutable, storage, member, typed⟩ :=
+  obtain ⟨_, occurrence, binder, statementSite, binding, _, _, found, target, selected, mutable, storage, member, typed⟩ :=
     checked_store_site_has_scoped_assignment fuel names result types principal requirements fields occurrences document
       entry store operation checked
   have compatible := solves _ member
   have expression := (c_validate_qualified_all_sound fuel).1 (some (names, result, types)) occurrence.scope
     principal requirements fields occurrence.source occurrence.candidate store.replacement typed
-  refine ⟨occurrence, binder, binding, found, target, selected, mutable, ?_, ?_⟩
+  refine ⟨occurrence, binder, statementSite, binding, found, target, selected, mutable, ?_, ?_⟩
   · simpa [satisfies, storage, substitute_compose] using compatible
   · exact qualified_context_instantiates principal later requirements (some (names, result)) occurrence.scope
       occurrence.source store.replacement expression sorted solves
@@ -586,7 +587,7 @@ theorem checked_store_site_types_every_solution (fuel : Nat) (names : TypeNames)
 def symbolicStoreOccurrence (principal : Substitution) (occurrence : ScopedOccurrence) : Bool :=
   match occurrence.storeTarget with
   | none => false
-  | some binder => match occurrence.scope.find? (fun binding => decide (binding.binder = binder)) with
+  | some (binder, _) => match occurrence.scope.find? (fun binding => decide (binding.binder = binder)) with
     | none => false
     | some binding => match binding.scheme.body with
       | .variable _ => !(freeVariables (substitute principal binding.scheme.body)).isEmpty

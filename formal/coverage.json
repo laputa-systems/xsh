@@ -12268,6 +12268,33 @@
       "status": "fragment",
       "scope": "Lean theorem actual_scoped_call_grounded about grounding checked connected source, under its stated premises.",
       "boundary": "The certified body is one admitted source fixture; general source initialization and raw-IR simulation remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_raw_store_correspondence_types_every_solution",
+      "module": "Xsh.Conformance.Connected.RawStore",
+      "declaration": "Xsh.Conformance.Connected.checked_raw_store_correspondence_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked raw StoreValue ordinal, statement site, and supplied binder-to-slot mapping agree with a scoped assignment fact for every sorted solution.",
+      "boundary": "The binder-to-slot mapping, raw right-hand expression, transfer mark, and execution correspondence remain unchecked."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
+      "module": "Xsh.Conformance.Connected.RawStoreFixture",
+      "declaration": "Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The projected scoped assignment checks and rejects changed ordinal, slot, statement location, tag name, and assignment operator.",
+      "boundary": "The rows are a projection of diagnostic output, not an exact decoded foreign artifact or a runtime simulation."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
+      "module": "Xsh.Conformance.Connected.ScopedCertificate",
+      "declaration": "Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted scoped fixture retains both the assignment statement and RHS expression sites.",
+      "boundary": "This fixture theorem does not establish general source-parser parity or raw execution."
     }
   ],
   "artifact_certificates": [

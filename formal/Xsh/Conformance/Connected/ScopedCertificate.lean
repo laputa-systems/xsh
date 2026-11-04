@@ -145,4 +145,21 @@ theorem shadowed_scoped_calls_are_not_accepted :
     shadowFromSource = true ∧ fieldCallFromSource = true := by
   decide +kernel
 
+private def scopedAssignmentStatementSite : Option (Option SourceSite) := do
+  let input : BinderId := ⟨⟨0, by decide⟩⟩
+  let localBinder : BinderId := ⟨⟨1, by decide⟩⟩
+  let parameter : Binding := ⟨scopedInput, input, .immutable, ⟨[], .variable scopedVariable, []⟩⟩
+  let candidate : List StatementNode := [
+    .binding localBinder .mutable (.variable scopedVariable) (.read input []),
+    .evaluated (.valueBlock (.primitive .unit) [.assignment localBinder (.read input [])]),
+    .evaluated (.read localBinder [])]
+  let occurrences ← (sourceScopedOccurrences 128 scopedFunction [parameter] [] []
+    (fun binder => if binder = localBinder then some (.variable scopedVariable) else none) candidate).toOption
+  let occurrence ← occurrences.find? (fun item => decide (item.site = ⟨0, 67, 5⟩))
+  pure (occurrence.storeTarget.map Prod.snd)
+
+theorem scoped_assignment_retains_statement_and_expression_sites :
+    scopedAssignmentStatementSite = some (some ⟨0, 57, 15⟩) := by
+  decide +kernel
+
 end Xsh.Conformance.Connected

@@ -29,8 +29,12 @@ binary-operation tables, locations, and string pools before passing a
 reconstructed program to `FullVerifier`. Other semantic tables still come from
 an in-process program. Source-to-IR validation and portable symbol ownership
 remain open, so this bridge is not a certificate for foreign programs. The
-Lean raw-row reader checks tag names against their ordinals; it does not yet
-relate the decoded rows to source programs or executions.
+instruction exchange also retains assignment operations and decodes assignment
+path steps. Lean relates an assignment's decoded StoreValue ordinal and source
+statement site to scoped checker facts under a supplied binder-to-slot map.
+The map, raw right-hand expression and transfer mark are not yet authenticated.
+Resource-marked candidates remain unsupported by the Rust decoder; complete
+source-to-IR and execution correspondence remain open.
 
 The connected model represents nested value blocks with a Unit value and a
 separate function-return context. Its contextual validators prove source and
