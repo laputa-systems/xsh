@@ -43,9 +43,11 @@ runtime-relevant call-instance closure remain open. Source admission, lexical
 effect bounds, translation validation, and whole-machine correspondence remain open.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
-and ten altered decoded facts. Other effect regions and full source-to-IR
-correspondence remain open; the older fact validator still reports regions as
-unsupported.
+and ten altered decoded facts. Its call check currently supports direct,
+unshadowed top-level calls in equality assertions with literal arguments;
+other call sites are reported as unsupported. Other effect regions and full
+source-to-IR correspondence remain open; the older fact validator still reports
+regions as unsupported.
 
 Every claim here starts after parsing unless planned source-admission evidence
 covers the source bytes. Rust is the only implementation compared so far. The

@@ -85,4 +85,51 @@ theorem actual_scoped_fact_mutations_are_rejected :
     scopedMutatedCalls.all (fun call => rejectsScopedDocument { scopedDocument with calls := [call] }) = true := by
   decide +kernel
 
+private def shadowOtherName : NameId := scopedName 12 (by decide)
+private def shadowCallSite : SourceSite := ⟨0, 130, 9⟩
+private def shadowOtherBody : SourceSite := ⟨0, 120, 25⟩
+private def shadowOther : SourceFunction :=
+  ⟨.pure, none, shadowOtherName, ⟨0, 110, 5⟩, shadowOtherBody,
+    [⟨scopedFunctionName, ⟨0, 116, 6⟩, none⟩], none,
+    [.expression scopedCall], [(shadowCallSite, scopedCall)], [], []⟩
+private def shadowUnit : SourceUnit :=
+  { scopedUnit with
+    names := scopedUnit.names ++ ["other"],
+    declarations := scopedUnit.declarations ++ [.function shadowOther] }
+private def shadowTarget : FunctionTarget := ⟨1, "other", none, shadowOtherBody⟩
+private def shadowCall : ScopedCallDocument :=
+  ⟨6, shadowCallSite, .call, scopedTarget, [(0, .primitive .integer)], [.store]⟩
+private def shadowFacts : ScopedFactsDocument :=
+  { scopedDocument with
+    functions := scopedDocument.functions ++ [shadowTarget],
+    calls := scopedDocument.calls ++ [shadowCall] }
+private def shadowGlobalUnit : SourceUnit :=
+  { scopedUnit with declarations := scopedUnit.declarations.take 1 ++ [
+    .statement (.binding .letBinding (.name scopedFunctionName) none (.literal (.integer "7"))) [] []] ++
+    scopedUnit.declarations.drop 1 }
+
+private def shadowFromSource : Bool :=
+  match admitSource 0 (actualScopedSource ++ "pure other(scoped) { scoped(7) }\n") with
+  | .error _ => false
+  | .ok unit =>
+    match unit.declarations[2]?, (scopedCallSites unit).getLast? with
+    | some (SourceDeclaration.function other), some site =>
+      let target : FunctionTarget := ⟨1, "other", none, other.bodySite⟩
+      let call : ScopedCallDocument := ⟨6, site, .call, scopedTarget, [(0, .primitive .integer)], [.store]⟩
+      let facts : ScopedFactsDocument := { scopedDocument with
+        functions := scopedDocument.functions ++ [target], calls := scopedDocument.calls ++ [call] }
+      match actualScopedCheckDecoded unit facts scopedScopes with
+      | .error .unsupported => true
+      | _ => false
+    | _, _ => false
+
+set_option maxRecDepth 100000 in
+theorem shadowed_scoped_calls_are_not_accepted :
+    (match actualScopedCheckDecoded shadowUnit shadowFacts scopedScopes with
+      | .error .unsupported => true | _ => false) = true ∧
+    (match actualScopedCheckDecoded shadowGlobalUnit scopedDocument scopedScopes with
+      | .error .unsupported => true | _ => false) = true ∧
+    shadowFromSource = true := by
+  decide +kernel
+
 end Xsh.Conformance.Connected

@@ -618,6 +618,24 @@ def scopedCallSites (unit : SourceUnit) : List SourceSite :=
     | .call (.ident _) _ => some site
     | _ => none
 
+def supportedScopedTopLevelCall (unit : SourceUnit) (site : SourceSite) (name : NameId) : Bool :=
+  decide (((sourceFunctionIdentities unit).map Prod.fst).Nodup) &&
+    unit.declarations.all (fun declaration => match declaration with
+      | .function _ | .statement (.assert _ _) _ _ => true
+      | _ => false) &&
+    unit.declarations.any (fun declaration => match declaration with
+      | .statement (.assert (.binary .eq (.call (.ident called) arguments) (.literal _)) none) expressions _ =>
+        decide (called = name) && (literalCallArguments arguments).isSome &&
+          expressions.any (fun (location, expression) => decide (location = site) && match expression with
+            | .call (.ident selected) _ => decide (selected = name)
+            | _ => false)
+      | _ => false)
+
+def supportedScopedCallSites (unit : SourceUnit) : Bool :=
+  (unitExpressions unit).all fun (site, expression) => match expression with
+    | .call (.ident name) _ => supportedScopedTopLevelCall unit site name
+    | _ => true
+
 def scopedCallCheck (fuel : Nat) (unit : SourceUnit) (variables : VariableResolver)
     (body : ScopedBodyDocument) (scheme : Scheme) (functions : List FunctionTarget)
     (call : ScopedCallDocument) : Bool :=
@@ -632,7 +650,8 @@ def scopedCallCheck (fuel : Nat) (unit : SourceUnit) (variables : VariableResolv
     | some arguments =>
       let binder : BinderId := ⟨⟨0, by decide⟩⟩
       let binding : Binding := ⟨name, binder, .immutable, scheme⟩
-      decide (called = name) && decide (targetSite = body.body.site) && decide (call.target ∈ functions) &&
+      supportedScopedTopLevelCall unit call.site name &&
+        decide (called = name) && decide (targetSite = body.body.site) && decide (call.target ∈ functions) &&
         decide (call.role = .call) && decide (call.operationBindings = body.operations.map ScopedOperation.binding) &&
         match validatePublishedCall fuel [binding] identity name binder scheme source arguments instantiation with
         | .ok _ => true
@@ -747,6 +766,7 @@ def validateSourceScopedDecoded (fuel : Nat) (unit : SourceUnit) (facts : Scoped
   let principal ← validateScopedBodyFacts fuel unit source variables names parameters globals result ordered
     steps solvedCount candidate binderTypes fields inhabitant body
   let some scheme := schemeFromScopedBody variables body | throw .mismatch
+  if supportedScopedCallSites unit then pure () else throw .unsupported
   requireCheck (checksScopedCalls fuel unit variables body scheme facts)
   pure principal
 
