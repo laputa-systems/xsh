@@ -1693,8 +1693,7 @@ test result: ok. 3 passed; 0 failed; 0 skipped
 
 The pieces:
 
-- `assert a == b` reports both sides when it fails. Comparisons, `and`/`or`
-  chains, and ordering chains all report the operands that made them false.
+- `assert a == b` reports both sides when it fails. Comparisons and `and`/`or` chains report the operands that made them false.
   A bare `Bool` statement is an error, never a silent no-op, so a forgotten
   `assert` cannot pass vacuously.
 - `{ |ctx| ... }` binds the test context. `test.temp_dir(ctx)` and

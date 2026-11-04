@@ -419,11 +419,7 @@ their result facts. Equality retains checked parameter relationships; ordering
 uses the same scalar-domain rule as ordinary checking. Membership reuses the
 canonical key or comparison contract, and set results require both operands to
 preserve their element guarantees. Boolean right operands keep all elaboration
-inside a lazy value block. Comparison chains store the first operand and an
-ordered list of operator, right operand, and span tuples. Both lowering paths retain each actual operand
-once. Execution carries each reached right value into the next comparison;
-cold verification proves every operand, including unreached links. Nested chains
-therefore do not duplicate their middle operand subtrees.
+inside a lazy value block.
 
 Indexing and slicing share the journaled sealed-operation lifecycle with
 arithmetic. Their requirements retain the receiver, key where present, result,
@@ -584,9 +580,7 @@ Success. Mutable reads without an authenticated origin do not establish a
 return schema.
 
 The checker publishes successful binary selections at their executable source
-identities. Comparison-chain pairs have canonical ordinal paths and use the
-preceding actual right operand as the next left domain. Constant preparation
-publishes its own successful fold domains, including the raw result before a
+identities. Constant preparation publishes its own successful fold domains, including the raw result before a
 storage annotation applies. Body comparison consumes these facts without
 folding or resolving operations. It compares operation identity and all operand
 and result domains, specializing with the same retained callable-instance
