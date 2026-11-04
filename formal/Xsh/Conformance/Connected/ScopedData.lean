@@ -1,5 +1,5 @@
 import Xsh.Conformance.Connected.ScopedParse
-import Xsh.Conformance.Connected.ScopedDocuments
+import Xsh.Conformance.Connected.ScopedDocumentProof
 
 namespace Xsh.Conformance.Connected
 open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected Xsh.Conformance.Transport

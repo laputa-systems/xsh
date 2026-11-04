@@ -11497,7 +11497,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
-      "module": "Xsh.Conformance.Connected.ScopedDocuments",
+      "module": "Xsh.Conformance.Connected.ScopedDocumentProof",
       "declaration": "Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12295,6 +12295,60 @@
       "status": "fragment",
       "scope": "The admitted scoped fixture retains both the assignment statement and RHS expression sites.",
       "boundary": "This fixture theorem does not establish general source-parser parity or raw execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.lex_append_prefix",
+      "module": "Xsh.Conformance.Transport.JsonLexPrefix",
+      "declaration": "Xsh.Conformance.Transport.lex_append_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexing a concatenation composes through its prefix state.",
+      "boundary": "This parser lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_append_prefix",
+      "module": "Xsh.Conformance.Transport.JsonParsePrefix",
+      "declaration": "Xsh.Conformance.Transport.parse_append_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Token parsing composes through its prefix state.",
+      "boundary": "This parser lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scopedLexResult",
+      "module": "Xsh.Conformance.Connected.ScopedLexProof",
+      "declaration": "Xsh.Conformance.Connected.scopedLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact scoped fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.parserStep26",
+      "module": "Xsh.Conformance.Connected.ScopedParseStates",
+      "declaration": "Xsh.Conformance.Connected.parserStep26",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The final scoped token segment advances the stated parser state.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.identityLexResult",
+      "module": "Xsh.Conformance.Connected.IdentityLexProof",
+      "declaration": "Xsh.Conformance.Connected.identityLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact identity fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.identity_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.IdentityDocumentProof",
+      "declaration": "Xsh.Conformance.Connected.identity_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact identity fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
     }
   ],
   "artifact_certificates": [
