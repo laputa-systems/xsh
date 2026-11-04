@@ -1,11 +1,12 @@
 # Make XSH fast to run and dependable in Laputa
 
-**Status:** resumed 2026-11-03 for Linux performance and G1 qualification.
+**Status:** wound down at the owner's request on 2026-11-04. See the
+[handoff](CAMPAIGN-HANDOFF.md) for retained candidates and incomplete checks.
 The previous qualification image is unavailable locally; the current image is
 pinned below. No current-source G1 qualification has passed. One cause of the
 scheduler-pair failures is fixed and measured. No push grant exists.
 
-**Resume:** Linux performance and G1 qualification are active again, including
+**Resume scope:** Linux performance and G1 qualification include
 the time gates previously waived for Deser S6. Use the whole host through
 coordinated readiness windows. macOS remains outside this run. Freeze the
 integrated source before source-bound qualification; earlier passing receipts
