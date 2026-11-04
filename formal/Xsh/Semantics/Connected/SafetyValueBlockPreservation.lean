@@ -12,6 +12,7 @@ theorem typed_machine_expression_push (globals : Scope) (storage : BindingStorag
       { base with control := .expression inner, stack := frame :: base.stack })
     (decompose : ∀ context ty,
       GroundNode context.solution context.runtimeSolution context.storage context.scope context.result outer ty →
+      SchemaMatches context.scope context.solution base.schemas →
       ∃ innerType, GroundNode context.solution context.runtimeSolution context.storage context.scope context.result inner innerType ∧
         FrameTyped { base with control := .expression inner, stack := frame :: base.stack }
           (.expression context innerType) (.expression context ty) frame)
@@ -29,7 +30,9 @@ theorem typed_machine_expression_push (globals : Scope) (storage : BindingStorag
   cases control with
   | expression ground closed fresh =>
     rename_i context ty runtimeType
-    obtain ⟨innerType, innerGround, frameTyped⟩ := decompose context ty ground
+    have schemas : SchemaMatches context.scope context.solution base.schemas := by
+      simpa [ActiveScopeTyped, TypedDemand.context] using active.2.2.1
+    obtain ⟨innerType, innerGround, frameTyped⟩ := decompose context ty ground schemas
     have newPending : PendingBindingsSafe { base with control := .expression inner, stack := frame :: base.stack } := by
       constructor
       · rw [reservations]
@@ -63,7 +66,7 @@ theorem typed_machine_propagation_start (globals : Scope) (storage : BindingStor
       { base with control := .expression value, stack := .propagate :: base.stack } := by
   apply typed_machine_expression_push globals storage types base (.propagate value error) value
     .propagate .internal (Step.propagateStart base value error) ?_ rfl ?_ ?_ typed
-  · intro context ty ground
+  · intro context ty ground _schemas
     obtain ⟨failure, inner, frame⟩ := ground_propagation_opens_frame ground
     exact ⟨_, inner, frame⟩
   · intro binder member
@@ -78,7 +81,7 @@ theorem typed_machine_binary_start (globals : Scope) (storage : BindingStorageMa
       { base with control := .expression left, stack := .binaryLeft operator right :: base.stack } := by
   apply typed_machine_expression_push globals storage types base (.binary operator left right) left
     (.binaryLeft operator right) .internal (Step.binary base operator left right) ?_ rfl ?_ ?_ typed
-  · intro context ty ground
+  · intro context ty ground _schemas
     cases ground with
     | binary leftTyped rightTyped operation closed => exact ⟨_, leftTyped, .binaryLeft rightTyped operation⟩
   · intro binder member
@@ -93,7 +96,7 @@ theorem typed_machine_field_start (globals : Scope) (storage : BindingStorageMap
       { base with control := .expression value, stack := .field name :: base.stack } := by
   apply typed_machine_expression_push globals storage types base (.field value name) value
     (.field name) .internal (Step.fieldStart base value name) ?_ rfl ?_ ?_ typed
-  · intro context ty ground
+  · intro context ty ground _schemas
     cases ground with
     | field inner occurs closed => exact ⟨_, inner, .field occurs⟩
   · intro binder member
@@ -108,7 +111,7 @@ theorem typed_machine_call_start (globals : Scope) (storage : BindingStorageMap)
       { base with control := .expression callee, stack := .callTarget arguments :: base.stack } := by
   apply typed_machine_expression_push globals storage types base (.call callee arguments) callee
     (.callTarget arguments) .internal (Step.callStart base callee arguments) ?_ rfl ?_ ?_ typed
-  · intro context ty ground
+  · intro context ty ground _schemas
     cases ground with
     | call target arguments closed => exact ⟨_, target, .callTarget arguments⟩
   · intro binder member
@@ -125,7 +128,7 @@ theorem typed_machine_conditional_start (globals : Scope) (storage : BindingStor
   apply typed_machine_expression_push globals storage types base (.conditional ((condition, branch) :: rest) otherwise)
     condition (.conditional ((condition, branch) :: rest) otherwise) .internal
     (Step.conditionalStart base condition branch rest otherwise) ?_ rfl ?_ ?_ typed
-  · intro context ty ground
+  · intro context ty ground _schemas
     cases ground with
     | conditional branches fallback closed =>
       cases branches with
@@ -143,7 +146,7 @@ theorem typed_machine_record_start (globals : Scope) (storage : BindingStorageMa
       { base with control := .expression value, stack := .recordFields [] name rest :: base.stack } := by
   apply typed_machine_expression_push globals storage types base (.record ((name, value) :: rest)) value
     (.recordFields [] name rest) .internal (Step.recordStart base name value rest) ?_ rfl ?_ ?_ typed
-  · intro context ty ground
+  · intro context ty ground _schemas
     cases ground with
     | record fields unique closed =>
       cases fields with

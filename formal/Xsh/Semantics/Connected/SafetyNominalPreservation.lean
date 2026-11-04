@@ -1,8 +1,31 @@
 import Xsh.Semantics.Connected.SafetyResultPreservation
 import Xsh.Semantics.Connected.SafetyValueBlockFrames
+import Xsh.Semantics.Connected.SafetyValueBlockPreservation
 
 namespace Xsh.Semantics.Connected
 open Xsh.Typing.Connected
+
+theorem typed_machine_require_start (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
+    (base : Machine) (binder : Xsh.Foundation.BinderId) (identity : Xsh.Validation.Nominal.NominalId)
+    (value : Node) (guard : Guard) (found : base.schemas binder = some (identity, guard))
+    (typed : TypedMachine globals storage types { base with control := .expression (.requireValue binder identity value) }) :
+    TypedMachine globals storage types
+      { base with control := .expression value, stack := .requireGuard identity guard :: base.stack } := by
+  apply typed_machine_expression_push globals storage types base (.requireValue binder identity value) value
+    (.requireGuard identity guard) .internal (Step.requireStart base binder identity value guard found) ?_ rfl ?_ ?_ typed
+  · intro context ty ground schemas
+    cases ground with
+    | requireValue nodeTyped valueTyped closed =>
+      cases nodeTyped with
+      | requireValue lookup kind quantified requirements body wellFormed inner =>
+        obtain ⟨actualGuard, actualFound, baseType⟩ := schemas _ _ _ _ lookup kind body
+        rw [found] at actualFound
+        cases actualFound
+        exact ⟨_, valueTyped, .requireGuard baseType⟩
+  · intro binder member
+    simpa [nodeDeclaredBinders] using member
+  · simp [pendingMachineBinders, pendingControlBinders, pendingStackBinders, pendingFrameBinders,
+      nodeDeclaredBinders, frameCallerActivation]
 
 theorem runtime_monotype_roundtrip (runtime : RuntimeType) (ty : MonoType)
     (converted : runtimeMonotype runtime = some ty) : monoRuntime ty = some runtime := by
