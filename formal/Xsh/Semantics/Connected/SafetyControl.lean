@@ -23,13 +23,15 @@ theorem typed_expression_conditional_frame (state : Machine) (scope : Scope)
 theorem typed_statement_conditional_frame (state : Machine) (scope : Scope)
     (condition : Node) (body : List StatementNode) (branches : List (Node × List StatementNode))
     (otherwise rest : List StatementNode) (result : MonoType) (value : Value)
-    (branchTypes : NodeStatementBranchesHaveType state.solution scope result ((condition, body) :: branches))
-    (fallback : NodeBlockHasType state.solution scope result otherwise)
-    (following : NodeBlockHasType state.solution scope result rest)
+    (branchTypes : NodeBranchesHaveCompletion state.solution scope result
+      (if rest.isEmpty then some result else none) ((condition, body) :: branches))
+    (fallback : NodeBlockHasCompletion state.solution scope result
+      (if rest.isEmpty then some result else none) otherwise)
+    (following : rest ≠ [] → NodeBlockHasType state.solution scope result rest)
     (typed : valueType value = some .boolean) :
     (Step { state with control := .value value, stack := .branch ((condition, body) :: branches) otherwise rest :: state.stack }
         .internal { state with control := .statements body, stack := .continueBlock state.cells rest :: state.stack } ∧
-      NodeBlockHasType state.solution scope result body) ∨
+      NodeBlockHasCompletion state.solution scope result (if rest.isEmpty then some result else none) body) ∨
     (Step { state with control := .value value, stack := .branch ((condition, body) :: branches) otherwise rest :: state.stack }
         .internal { state with control := .statements (.conditional branches otherwise :: rest) } ∧
       NodeBlockHasType state.solution scope result (.conditional branches otherwise :: rest)) := by
@@ -37,8 +39,11 @@ theorem typed_statement_conditional_frame (state : Machine) (scope : Scope)
   cases branchTypes with
   | cons conditionTyped bodyTyped branchesTyped =>
     cases boolean with
-    | false => exact Or.inr ⟨.statementConditionalFalse state condition body branches otherwise rest,
-        .conditional branchesTyped fallback following⟩
+    | false =>
+      refine Or.inr ⟨.statementConditionalFalse state condition body branches otherwise rest, ?_⟩
+      cases rest with
+      | nil => exact .conditionalTail branchesTyped fallback
+      | cons next tail => exact .conditionalNext branchesTyped fallback (following (by simp))
     | true => exact Or.inl ⟨.statementConditionalTrue state condition body branches otherwise rest, bodyTyped⟩
 
 end Xsh.Semantics.Connected

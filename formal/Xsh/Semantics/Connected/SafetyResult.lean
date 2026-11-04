@@ -7,7 +7,7 @@ theorem result_value_shape (value : Value) (success failure : RuntimeType)
     (∃ inner, value = .ok inner failure ∧ valueType inner = some success) ∨
       (∃ inner, value = .error inner success ∧ valueType inner = some failure) := by
   cases value with
-  | ok inner error =>
+  | ok inner failureType =>
     cases innerType : valueType inner with
     | none => simp [valueType, innerType] at typed
     | some actual =>
