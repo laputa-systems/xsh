@@ -200,7 +200,7 @@ mod tests {
             (Format::Ini, "Host = worker\nhost = api\n[Server]\nport = \"8080\" ; comment\n"),
         ] {
             let value = decode(format, input, span()).unwrap();
-            let borrowed = crate::runtime::eval::borrowed_codec_value(format, &value, span());
+            let borrowed = crate::runtime::eval::borrowed_codec_value(format, &value);
             let encoded = encode(format, &borrowed, span()).unwrap();
             assert_eq!(decode(format, &encoded, span()).unwrap(), value);
         }
@@ -268,13 +268,13 @@ mod tests {
         for format in [Format::Ini, Format::Toml] {
             assert_eq!(encode(format, &std::collections::BTreeMap::from([("a", Option::<i64>::None)]), span()).unwrap_err().variant, "UnsupportedValue");
             let bytes = Value::Bytes(b"raw".to_vec());
-            let borrowed = crate::runtime::eval::borrowed_codec_value(format, &bytes, span());
+            let borrowed = crate::runtime::eval::borrowed_codec_value(format, &bytes);
             assert_eq!(encode(format, &borrowed, span()).unwrap_err().variant, "UnsupportedValue");
         }
         let nested = std::collections::BTreeMap::from([("section", std::collections::BTreeMap::from([("nested", std::collections::BTreeMap::from([("key", "value")]))]))]);
         assert_eq!(encode(Format::Ini, &nested, span()).unwrap_err().variant, "UnsupportedValue");
         let bytes = Value::Bytes(b"\0\xff".to_vec());
-        let borrowed = crate::runtime::eval::borrowed_codec_value(Format::Yaml, &bytes, span());
+        let borrowed = crate::runtime::eval::borrowed_codec_value(Format::Yaml, &bytes);
         let encoded = encode(Format::Yaml, &borrowed, span()).unwrap();
         assert!(matches!(decode(Format::Yaml, &encoded, span()).unwrap(), Value::Bytes(value) if value.as_slice() == b"\0\xff"));
     }
