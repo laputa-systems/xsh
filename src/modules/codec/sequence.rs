@@ -640,7 +640,7 @@ where I: IntoIterator<Item = T>, T: Serialize {
                 if index >= ITEM_LIMIT { return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
                 writer.write_with(&value, |driver| {
                     if format == Format::Yaml { super::config::setup_encode(format, driver); }
-                    else { driver.push_layer(EncodeLimits::default()); }
+                    else { driver.push_guard(EncodeLimits::default()); }
                 })?;
             }
             Ok(())

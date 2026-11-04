@@ -133,7 +133,7 @@ pub use self::serializer::Serializer;
 pub use self::stream::StreamSerializer;
 pub(crate) use crate::adapted::Adapted;
 
-pub use driver::{EventSink, SerializeDriver};
+pub use driver::{EventGuard, EventSink, SerializeDriver};
 
 pub(crate) use self::begin::{
     Begin, BeginKind, FIELDS_END, IndexedSeq, IndexedSeqEmitter, IndexedStruct, PLAIN_BUDGET,

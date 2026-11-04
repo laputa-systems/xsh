@@ -88,7 +88,7 @@ impl Evaluator {
                 Some(value) => match csv_columns(value, span) { Ok(columns) => Some(columns), Err(error) => return Ok(ControlFlow::Continue(lowered_result_err_value(error))) },
             };
             let escape_formulas = lowered_bool_arg_or(values.get(option + 3).cloned(), false, "csv", span)?;
-            let value = super::super::json::borrowed_lowered(Format::Csv, &values[usize::from(write)], span);
+            let value = super::super::json::borrowed_lowered(Format::Csv, &values[usize::from(write)]);
             table::encode(Format::Csv, &value, table::EncodeOptions { headers, delimiter, columns, escape_formulas }, span)
         } else {
             let input_path = context_path;
@@ -151,7 +151,7 @@ impl Evaluator {
                         _ => return Err(RuntimeError::new("type-error", "codec sequence encoding expected List[Any]").with_span(span)),
                     };
                     if items.len() > 1_000_000 { return Err(codec::failure("Limit", format.identifier(), "codec sequence exceeds 1000000 items", span)); }
-                    let bytes = codec::sequence::encode_all(format, items.iter().map(|value| super::super::json::borrowed_lowered(format, value, span)), span)?;
+                    let bytes = codec::sequence::encode_all(format, items.iter().map(|value| super::super::json::borrowed_lowered(format, value)), span)?;
                     Ok(if op == RuntimeOp::CodecEncodeAll {
                         LoweredValue::Str(String::from_utf8(bytes).expect("text sequence serializer UTF-8").into())
                     } else { LoweredValue::Bytes(bytes.into()) })
@@ -207,14 +207,14 @@ impl Evaluator {
                 decoded_result(codec::decode_bytes_into(format, bytes, span))
             }
             Operation::Encode => {
-                let value = super::super::json::borrowed_lowered(format, &values[0], span);
+                let value = super::super::json::borrowed_lowered(format, &values[0]);
                 match codec::encode_text(format, &value, span) {
                     Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
             Operation::EncodeBytes => {
-                let value = super::super::json::borrowed_lowered(format, &values[0], span);
+                let value = super::super::json::borrowed_lowered(format, &values[0]);
                 match codec::encode_bytes(format, &value, span) {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
                     Err(error) => lowered_result_err_value(error),
@@ -227,7 +227,7 @@ impl Evaluator {
             Operation::Write => {
                 let overwrite = lowered_bool_arg_or(values.get(2).cloned(), op == RuntimeOp::IniWrite, "codec.write", span)?;
                 let path = lowered_path_arg(values.remove(0), "codec.write", span)?;
-                let value = super::super::json::borrowed_lowered(format, &values[0], span);
+                let value = super::super::json::borrowed_lowered(format, &values[0]);
                 match codec::encode_bytes(format, &value, span) {
                     Ok(bytes) => lowered_unit_result(if overwrite { fs::write_path(self.host_path(&path), &bytes, span) } else { fs::create_path(self.host_path(&path), &bytes, span).map_err(|error| {
                         if op == RuntimeOp::IniWrite && error.errno() == Some(i64::from(libc::EEXIST)) {

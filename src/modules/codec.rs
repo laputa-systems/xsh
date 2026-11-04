@@ -343,8 +343,8 @@ pub(crate) struct EncodeLimits {
     containers: Vec<(bool, usize)>,
 }
 
-impl deser::ser::Layer for EncodeLimits {
-    fn event(&mut self, event: deser::Event<'_>, next: &mut deser::ser::Next<'_>) -> Result<(), Error> {
+impl deser::ser::EventGuard for EncodeLimits {
+    fn check(&mut self, event: &deser::Event<'_>, state: &State) -> Result<(), Error> {
         use deser::Event;
         self.events += 1;
         if self.events > 4_000_000 { return Err(Error::new(ErrorKind::LimitExceeded, "codec events exceed 4000000")); }
@@ -357,7 +357,7 @@ impl deser::ser::Layer for EncodeLimits {
         self.payload_bytes += payload_bytes;
         let end = matches!(event, Event::MapEnd | Event::SeqEnd);
         if !end && let Some((map, count)) = self.containers.last_mut() {
-            if !*map || next.state().is_map_key() { *count += 1; }
+            if !*map || state.is_map_key() { *count += 1; }
             if *count > 1_000_000 { return Err(Error::new(ErrorKind::LimitExceeded, "codec container exceeds 1000000 entries")); }
         }
         match &event {
@@ -374,7 +374,7 @@ impl deser::ser::Layer for EncodeLimits {
             }
             _ => {}
         }
-        next.emit(event)
+        Ok(())
     }
 }
 
@@ -538,7 +538,7 @@ pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &
     match format {
         Format::Json => {
             let mut output = Output::new();
-            let result = deser_json::SerializerConfig::new().writer(&mut output).write_with(value, |driver| driver.push_layer(EncodeLimits::default()));
+            let result = deser_json::SerializerConfig::new().writer(&mut output).write_with(value, |driver| driver.push_guard(EncodeLimits::default()));
             output.finish(result).map_err(|error| runtime_error(error, "json", span))
         }
         Format::Yaml | Format::Toml | Format::Ini => config::encode(format, value, span),

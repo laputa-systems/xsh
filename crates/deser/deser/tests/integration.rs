@@ -31,6 +31,7 @@ mod test_open_enums;
 mod test_other;
 mod test_ser;
 mod test_ser_derive;
+mod test_ser_guards;
 mod test_skip;
 mod test_soundness;
 mod test_std;

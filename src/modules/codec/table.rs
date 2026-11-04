@@ -137,7 +137,7 @@ pub(crate) fn encode<T: Serialize + ?Sized>(
     let result = {
         let mut writer = deser::io::Writer::new(&mut output, serializer);
         writer.write_with(value, |driver| {
-            driver.push_layer(EncodeLimits::default());
+            driver.push_guard(EncodeLimits::default());
             driver.push_layer(EncodeGuard::new(column_indices, explicit_columns));
         })
     };
@@ -298,7 +298,7 @@ where I: IntoIterator<Item = T>, T: Serialize {
         for (index, value) in values.into_iter().enumerate() {
             if index >= 1_000_000 { return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 records")); }
             writer.write_with(&value, |driver| {
-                driver.push_layer(EncodeLimits::default());
+                driver.push_guard(EncodeLimits::default());
                 driver.push_layer(RowGuard(guard.clone()));
             })?;
         }
