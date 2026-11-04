@@ -24,6 +24,22 @@ milestone or final matching Rust/source freeze. Private branch `c6ff5be9f`
 records the result. The complete kernel gate is still running and has no
 final acceptance credit.
 
+The generic imported-callable storage failure is repaired on `master` in
+`bbc421a2d`. The verifier authenticates the imported scheme at the erased
+callable producer boundary and retains concrete materialization checks. Six
+Rust import-contract tests, all 33 native callable tests, and all nine native
+opaque-Any tests pass in pinned Linux. The new negative control rejects a
+substituted export. The repaired frozen reference is `94c13418a`, tree
+`c9029f3f8e22f8c37e4942f8fefde95a80854ca1`; its bootstrap passed and its full
+canonical replay is running. The older failures below remain historical
+evidence, not unresolved focused regressions or a passing full replay.
+
+Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
+206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
+cases, other platform backends, and unavailable font-specific fixtures. Laputa's
+consumer contract records the exact accounting; this is not a full Ghostty
+suite result.
+
 ## Source and publication state
 
 | Checkout | Source | State |
