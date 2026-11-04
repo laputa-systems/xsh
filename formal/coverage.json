@@ -11425,7 +11425,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.connected_facts_parse_to_wire",
-      "module": "Xsh.Conformance.Connected.Documents",
+      "module": "Xsh.Conformance.Connected.ConnectedDocumentProof",
       "declaration": "Xsh.Conformance.Connected.connected_facts_parse_to_wire",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12348,6 +12348,24 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The exact identity fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.connectedLexResult",
+      "module": "Xsh.Conformance.Connected.ConnectedLexProof",
+      "declaration": "Xsh.Conformance.Connected.connectedLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact connected fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.effect_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.Documents",
+      "declaration": "Xsh.Conformance.Connected.effect_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected effect fact bytes parse to the stated wire value.",
       "boundary": "This fixture lemma does not establish source or Rust correspondence."
     }
   ],
