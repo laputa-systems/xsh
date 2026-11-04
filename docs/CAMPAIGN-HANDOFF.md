@@ -57,8 +57,12 @@ reference bootstrap had already passed. Its first full replay passed all 2,774
 library tests, including the repaired callable case, then failed one xsht
 integration case: `test_gnu_cp_sparse_extents_2_log` timed out inside the
 desugared-corpus comparison while concurrent builds loaded the host and the disk
-briefly reached 99 percent. The receipt has no credit; an unchanged rerun
-(`reference-replay-28e-r2`) is in progress.
+briefly reached 99 percent. The unchanged rerun (`reference-replay-28e-r2`,
+fresh bootstrap) failed the same comparison at a load average near 13: in the
+desugared corpus, `test_uu_tail_follow_single` saw no output 200 ms after
+spawning `tail -f`. Neither receipt has credit. `master` now polls in that test
+(`ddf203804`); the frozen reference keeps its fixed sleeps, so its next replay
+must run on a quiet host.
 
 Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
 206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
