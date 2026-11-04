@@ -16,11 +16,12 @@ theorem mono_runtime_is_not_scheme_function (ty : MonoType) : monoRuntime ty ≠
     cases first : monoRuntime arguments <;> cases second : monoRuntime result <;> simp [monoRuntime, first, second]
 
 theorem mono_typed_value_is_ordinary (value : Value) (ty : MonoType) (runtimeType : RuntimeType)
-    (closed : monoRuntime ty = some runtimeType) (typed : valueType value = some runtimeType) :
+    (closed : monoRuntime ty = some runtimeType) (typed : HasType runtimeType value) :
     ordinaryValue value = true := by
   cases value with
   | schemeFunction declaration scheme =>
-    simp [valueType] at typed
+    have tag : runtimeType = .schemeFunction := by
+      cases runtimeType <;> simp_all [HasType, valueType, typeFits]
     subst runtimeType
     exact False.elim (mono_runtime_is_not_scheme_function ty closed)
   | _ => rfl
@@ -81,7 +82,7 @@ theorem callable_arguments_ready (state : Machine) (globals : Scope) (storage : 
     obtain ⟨rfl, rfl⟩ := targetType
     rename_i declaration parameters result captured typeArguments normalized function
     obtain ⟨extension, parameterScope, bodyResult, extensionSorted, solutionSorted, proofSorted, globalValues,
-      globalMutable, globalSchemas, parametersOrdinary, localsOrdinary, binders, unique, parameterTypesTyped,
+      globalWritable, globalMutable, globalSchemas, parametersOrdinary, localsOrdinary, binders, unique, parameterTypesTyped,
       bodyTyped, resultClosed, bodyUnique, disjoint, propagation⟩ :=
       certified declaration function found captured typeArguments parameters result normalized capturedSorted signature
     have parameterBindings := runtime_arguments_match_parameter_bindings state.functions _ parameterScope arguments parameters

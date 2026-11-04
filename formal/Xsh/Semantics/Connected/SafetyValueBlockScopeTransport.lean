@@ -6,12 +6,12 @@ theorem frame_block_scope_reindex {state : Machine} {inner : TypingContext} {out
     (typed : FrameTyped state (.block inner) output frame) (scope : Xsh.Typing.Connected.Scope) :
     FrameTyped state (.block { inner with scope := scope }) output frame := by
   cases typed with
-  | continueBlock solution runtime storage result activation completion scopeAgrees schemes storageAgrees schemas rest fresh =>
-    exact .continueBlock solution runtime storage result activation completion scopeAgrees schemes storageAgrees schemas rest fresh
-  | valueBlock solution runtime storage result activation completion scopeAgrees schemes storageAgrees schemas =>
-    exact .valueBlock solution runtime storage result activation completion scopeAgrees schemes storageAgrees schemas
-  | caller storage proofSorted runtimeSorted activation completion innerClosed outerClosed scopeAgrees schemes storageAgrees schemas =>
-    exact .caller storage proofSorted runtimeSorted activation completion innerClosed outerClosed scopeAgrees schemes storageAgrees schemas
+  | continueBlock solution runtime storage result activation completion scopeAgrees writable schemes storageAgrees schemas rest fresh =>
+    exact .continueBlock solution runtime storage result activation completion scopeAgrees writable schemes storageAgrees schemas rest fresh
+  | valueBlock solution runtime storage result activation completion scopeAgrees writable schemes storageAgrees schemas =>
+    exact .valueBlock solution runtime storage result activation completion scopeAgrees writable schemes storageAgrees schemas
+  | caller storage proofSorted runtimeSorted activation completion innerClosed outerClosed scopeAgrees writable schemes storageAgrees schemas =>
+    exact .caller storage proofSorted runtimeSorted activation completion innerClosed outerClosed scopeAgrees writable schemes storageAgrees schemas
 
 theorem stack_block_scope_reindex {state : Machine} {context : TypingContext} {output : TypedDemand} {frames : List Frame}
     (typed : StackTyped state (.block context) output frames) (closed : DemandClosed output)
