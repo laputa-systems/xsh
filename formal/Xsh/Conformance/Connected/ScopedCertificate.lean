@@ -123,13 +123,26 @@ private def shadowFromSource : Bool :=
       | _ => false
     | _, _ => false
 
+private def fieldCallFromSource : Bool :=
+  match admitSource 0 (actualScopedSource ++ "pure other(value) { value.run(7) }\n") with
+  | .error _ => false
+  | .ok unit =>
+    match unit.declarations[2]? with
+    | some (SourceDeclaration.function other) =>
+      let target : FunctionTarget := ⟨1, "other", none, other.bodySite⟩
+      let facts : ScopedFactsDocument := { scopedDocument with functions := scopedDocument.functions ++ [target] }
+      match actualScopedCheckDecoded unit facts scopedScopes with
+      | .error .unsupported => true
+      | _ => false
+    | _ => false
+
 set_option maxRecDepth 100000 in
 theorem shadowed_scoped_calls_are_not_accepted :
     (match actualScopedCheckDecoded shadowUnit shadowFacts scopedScopes with
       | .error .unsupported => true | _ => false) = true ∧
     (match actualScopedCheckDecoded shadowGlobalUnit scopedDocument scopedScopes with
       | .error .unsupported => true | _ => false) = true ∧
-    shadowFromSource = true := by
+    shadowFromSource = true ∧ fieldCallFromSource = true := by
   decide +kernel
 
 end Xsh.Conformance.Connected

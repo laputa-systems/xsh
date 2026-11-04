@@ -634,6 +634,7 @@ def supportedScopedTopLevelCall (unit : SourceUnit) (site : SourceSite) (name : 
 def supportedScopedCallSites (unit : SourceUnit) : Bool :=
   (unitExpressions unit).all fun (site, expression) => match expression with
     | .call (.ident name) _ => supportedScopedTopLevelCall unit site name
+    | .call _ _ => false
     | _ => true
 
 def scopedCallCheck (fuel : Nat) (unit : SourceUnit) (variables : VariableResolver)
