@@ -387,6 +387,19 @@ impl TypeConstraints {
         Ok(())
     }
 
+    pub(crate) fn wrapper_watermark(&self) -> WrapperOperationId {
+        WrapperOperationId(NonZeroU64::new(NEXT_WRAPPER.load(Ordering::Relaxed)).expect("wrapper identities are nonzero"))
+    }
+
+    pub(crate) fn discard_guard_instances_from(&mut self, watermark: WrapperOperationId) {
+        let discarded = self.wrappers.guard_instances.range(watermark..).map(|(&id, instance)| (id, instance.owner)).collect::<Vec<_>>();
+        for (id, owner) in discarded {
+            let Some(owned) = self.wrappers.guard_owners.get_mut(&owner) else { continue; };
+            owned.retain(|&owned| owned != id);
+            if owned.is_empty() { self.wrappers.guard_owners.remove(&owner); }
+        }
+    }
+
     pub(super) fn instantiate_guards(
         &mut self,
         templates: &[std::sync::Arc<crate::sema::guarded_requirements::GuardRequirements>],

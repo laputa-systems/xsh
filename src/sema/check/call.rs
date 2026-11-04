@@ -1481,7 +1481,9 @@ impl Checker {
     ) -> T {
         let pending = std::mem::take(&mut self.pending_call_instantiations);
         let scheme_calls = std::mem::take(&mut self.scheme_callable_calls);
+        let watermark = self.type_constraints.wrapper_watermark();
         let result = check(self);
+        self.type_constraints.discard_guard_instances_from(watermark);
         self.pending_call_instantiations = pending;
         self.scheme_callable_calls = scheme_calls;
         result

@@ -740,3 +740,40 @@ let rejected = follow(linked)
     stderr: ["[check.callable-mismatch]", "Length has no canonical result for Str?"],
   )?
 }
+
+test test_full_inference_guard_call_of_a_discarded_return_pass_does_not_block_generalization { |ctx|
+  let types = "type Options = {files: List[Str], reject_format: Str?}\n"
+  let inferred = r"""proc write_rejects(opts) {
+  let as_context = if let format = opts.reject_format { format == "context" } else { true }
+}
+proc apply_file(opts) -> Int {
+  write_rejects(opts)
+  0
+}
+proc run_patches(opts) {
+  let first = opts.files.get(1) ?? "-"
+  let outcome = apply_file(opts)
+}
+"""
+  let annotated = r"""proc write_rejects(opts: Options) {
+  let as_context = if let format = opts.reject_format { format == "context" } else { true }
+}
+proc apply_file(opts: Options) -> Int {
+  write_rejects(opts)
+  0
+}
+proc run_patches(opts: Options) {
+  let first = opts.files.get(1) ?? "-"
+  let outcome = apply_file(opts)
+}
+"""
+  let calls = "let plain: Options = {files: [\"a\"], reject_format: null}\nlet named: Options = {files: [\"b\"], reject_format: \"context\"}\nrun_patches(plain)\nrun_patches(named)\n"
+  test.expect(ctx, types + annotated + calls, status: 0)?
+  test.expect(ctx, types + inferred + calls, status: 0)?
+  test.expect(
+    ctx,
+    types + inferred + "let wrong = {files: [\"c\"], reject_format: 5}\nrun_patches(wrong)\n",
+    status: 2,
+    stderr: ["[check."],
+  )?
+}
