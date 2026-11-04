@@ -5,6 +5,34 @@ namespace Xsh.Semantics.Connected
 open Xsh.Foundation
 open Xsh.Typing.Connected
 
+theorem ground_monomorphic_read (scope : Scope) (solution runtime : Substitution)
+    (storage : BindingStorageMap) (functionResult : MonoType) (name : NameId) (binder : BinderId)
+    (kind : BindingKind) (raw ty : MonoType) (tag : RuntimeType)
+    (typed : NodeHasTypeIn solution (some functionResult) scope (.read binder []) ty)
+    (unique : (scope.map Binding.binder).Nodup)
+    (member : (⟨name, binder, kind, ⟨[], raw, []⟩⟩ : Binding) ∈ scope)
+    (closed : monoRuntime (substitute solution raw) = some tag)
+    (ordinary : storage binder = .ordinary) :
+    GroundNode solution runtime storage scope functionResult (.read binder []) ty := by
+  have closedType : monoRuntime ty = some tag := by
+    cases typed with
+    | read found notSchema keys sorts instantiated solved wellFormed sort =>
+      rename_i foundName binding actual requirements
+      have same := scope_binding_unique scope binding _ unique (List.mem_of_find?_eq_some found) member rfl
+      have schemeSame : binding.scheme = ⟨[], raw, []⟩ := congrArg Binding.scheme same
+      rw [schemeSame] at instantiated
+      obtain ⟨actualEq, requirementsEq⟩ := instantiated
+      have emptySubstitution : schemeSubstitution ⟨[], raw, []⟩ (witnessSubstitution []) = identity := by
+        funext id
+        simp [schemeSubstitution, identity]
+      rw [emptySubstitution, substitute_identity] at actualEq
+      rw [actualEq]
+      exact closed
+  refine .read typed closedType ?_
+  intro foundName binding found same isScheme
+  rw [ordinary] at isScheme
+  cases isScheme
+
 theorem contextual_runtime_read_contract (scope : Scope) (runtimeSolution : Substitution)
     (storage : BindingStorageMap) (context : Option MonoType) (binder : BinderId)
     (arguments : List (Variable × MonoType)) (runtimeTy proofTy parameters result : MonoType)
