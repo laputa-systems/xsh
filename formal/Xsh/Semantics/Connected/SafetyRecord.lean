@@ -114,6 +114,61 @@ theorem field_occurrence_runtime {name : NameId} {value row : MonoType}
         subst runtimeRow
         simp [rowFieldType, different, ih valueClosed tailClosed]
 
+theorem row_fits_field (expected actual : RuntimeType) (name : NameId) (ty : RuntimeType)
+    (fits : rowFits expected actual = true) (found : rowFieldType name expected = some ty) :
+    ∃ actualTy, rowFieldType name actual = some actualTy ∧ typeFits ty actualTy = true := by
+  induction expected with
+  | rowField head value tail valueIH tailIH =>
+    by_cases same : name = head
+    · subst name
+      simp [rowFieldType] at found
+      subst ty
+      cases actualField : rowFieldType head actual with
+      | none => simp [rowFits, actualField] at fits
+      | some actualTy =>
+        have parts : typeFits value actualTy = true ∧ rowFits tail actual = true := by
+          simpa [rowFits, actualField] using fits
+        exact ⟨actualTy, rfl, parts.1⟩
+    · have tailFound : rowFieldType name tail = some ty := by simpa [rowFieldType, same] using found
+      cases actualField : rowFieldType head actual with
+      | none => simp [rowFits, actualField] at fits
+      | some actualTy =>
+        have parts : typeFits value actualTy = true ∧ rowFits tail actual = true := by
+          simpa [rowFits, actualField] using fits
+        exact tailIH parts.2 tailFound
+  | _ => simp [rowFieldType] at found
+
+theorem compatible_field_frame_progress (state : Machine) (fields : List (NameId × Value)) (name : NameId)
+    (row valueType' : MonoType) (runtimeRow runtimeValue : RuntimeType)
+    (typed : HasType (.record runtimeRow) (.record fields))
+    (field : FieldOccurs name valueType' row) (rowClosed : monoRuntime row = some runtimeRow)
+    (valueClosed : monoRuntime valueType' = some runtimeValue) :
+    ∃ value, Step { state with control := .value (.record fields), stack := .field name :: state.stack }
+        .internal { state with control := .value value } ∧ HasType runtimeValue value := by
+  have expectedField := field_occurrence_runtime field valueClosed rowClosed
+  by_cases unique : (fields.map Prod.fst).Nodup
+  · cases recordType : recordTypes fields with
+    | none => simp [HasType, valueType, unique, recordType] at typed
+    | some types =>
+      let actualRow := (canonicalFields types).foldr
+        (fun (name, ty) row => RuntimeType.rowField name ty row) RuntimeType.rowEmpty
+      have fits : typeFits (.record runtimeRow) (.record actualRow) = true := by
+        simpa [HasType, valueType, unique, recordType, actualRow] using typed
+      have actualField : ∃ actualTy, rowFieldType name actualRow = some actualTy ∧
+          typeFits runtimeValue actualTy = true := by
+        by_cases same : runtimeRow = actualRow
+        · subst runtimeRow
+          exact ⟨runtimeValue, expectedField, by cases runtimeValue <;> simp [typeFits]⟩
+        · have rows : rowFits runtimeRow actualRow = true := by
+            simpa [typeFits, same] using fits
+          exact row_fits_field runtimeRow actualRow name runtimeValue rows expectedField
+      obtain ⟨actualTy, found, compatible⟩ := actualField
+      have member := runtime_row_field_member (canonicalFields types) name actualTy found
+      have actualMember : (name, actualTy) ∈ types := (runtime_canonical_fields_perm types).mem_iff.mp member
+      obtain ⟨value, lookup, valueTyped⟩ := record_typed_field_lookup fields types name actualTy recordType unique actualMember
+      exact ⟨value, .fieldValue state name fields value lookup, by simpa [HasType, valueTyped] using compatible⟩
+  · simp [HasType, valueType, unique] at typed
+
 theorem typed_field_frame_progress (state : Machine) (fields : List (NameId × Value)) (name : NameId)
     (row valueType' : MonoType) (runtimeRow runtimeValue : RuntimeType)
     (typed : valueType (.record fields) = some (.record runtimeRow))
