@@ -69,4 +69,41 @@ theorem typed_execution_fault_is_integer (globals : Scope) (storage : BindingSto
   rw [failed] at control
   exact typed_fault_control_shape final input fault control
 
+theorem value_block_initial_machine_is_typed (base : Machine) :
+    TypedMachine [] (fun _ => .ordinary) (fun _ => none)
+      (checkedInitialMachine (booleanInitialMachine base)
+        (.valueBlock (.primitive .boolean) [.evaluated (.boolean true)])) := by
+  have existing := boolean_initial_machine_is_typed base
+  apply checked_initial_machine_typed (booleanInitialMachine base) [] (fun _ => .ordinary) (fun _ => none)
+    identity (.valueBlock (.primitive .boolean) [.evaluated (.boolean true)]) (.primitive .boolean)
+    (.primitive .boolean) .boolean
+  · exact Nat.zero_lt_succ 0
+  · simpa [booleanInitialMachine] using existing.memory.activation.store
+  · simpa [booleanInitialMachine] using existing.memory.globals.typed
+  · simpa [booleanInitialMachine] using existing.memory.globals.live
+  · refine ⟨by simp, ?_, ?_, ?_, ?_⟩
+    · intro name binding found
+      simp at found
+    · intro name binding found
+      simp at found
+    · intro first second cell found
+      simp [booleanInitialMachine, emptyCells] at found
+    · intro binder cell found
+      simp [booleanInitialMachine, emptyCells] at found
+  · intro name binding cell entry found
+    simp at found
+  · intro name binding identity row found
+    simp at found
+  · exact existing.globalSchemes
+  · exact existing.globalStorageAgrees
+  · exact existing.storedValues
+  · exact existing.functions
+  · exact identity_well_sorted
+  · exact identity_well_sorted
+  · rfl
+  · exact .valueBlock (.evaluatedTail .boolean (Or.inr rfl)) rfl
+  · simp [nodeDeclaredBinders, declaredBinders]
+  · intro binder member
+    simp [nodeDeclaredBinders, declaredBinders] at member
+
 end Xsh.Semantics.Connected
