@@ -11,7 +11,7 @@ import Xsh.Typing.Connected.NodeCertificate
 import Xsh.Conformance.Connected.FieldFacts
 import Xsh.Conformance.Connected.FactsDocument
 import Xsh.Conformance.Connected.FieldLink
-import Xsh.Conformance.Connected.QualifiedNodeFacts
+import Xsh.Conformance.Connected.ResourceControls
 import Xsh.Conformance.Connected.ActualFacts
 import Xsh.Conformance.Connected.IdentityFacts
 import Xsh.Conformance.Connected.SourceEffects

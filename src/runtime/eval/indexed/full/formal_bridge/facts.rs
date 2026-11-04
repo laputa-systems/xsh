@@ -289,6 +289,7 @@ fn decode_facts_document(input: &str) -> Result<FactsDocument, String> {
 #[derive(Clone, Debug)]
 pub(super) struct PublishedFacts {
     pub(super) declarations: CompactDeclOutput,
+    pub(super) checker_expr_types: BTreeMap<Span, Type>,
     binary_operators: BTreeMap<ExprId, BinaryOp>,
 }
 
@@ -299,12 +300,13 @@ pub(super) fn publish_facts(arena: &ArenaProgram, sources: &SourceMap, source_id
         source_id,
         CheckOptions::for_execution(),
     );
+    let checker_expr_types = checked.expr_types.clone();
     let binary_operators = checked
         .binary_operators
         .iter()
         .map(|(expression, operator)| (*expression, operator.operator))
         .collect();
-    PublishedFacts { declarations: Checker::compact_declarations(arena, checked), binary_operators }
+    PublishedFacts { declarations: Checker::compact_declarations(arena, checked), checker_expr_types, binary_operators }
 }
 
 struct FunctionWalk<'a> {

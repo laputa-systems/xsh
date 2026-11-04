@@ -13,6 +13,7 @@ mod arithmetic;
 mod connected;
 mod facts;
 mod raw_semantic;
+mod raw_full;
 
 const SOURCE_SCHEMA: &str = "xsh-source-v1";
 const RAW_IR_SCHEMA: &str = "xsh-raw-ir-v1";
