@@ -522,14 +522,6 @@ test test_tail_follow_name_banners_for_names_created_after_failed_opens { |ctx|
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let writer = spawn run sh -c r"""
-until [ -f "$3" ] && [ "$(wc -l < "$3")" -ge 2 ]; do sleep 0.01; done
-printf 'ping\n' > "$1"
-until [ "$(wc -l < "$3")" -ge 3 ]; do sleep 0.01; done
-printf 'pong\n' > "$2"
-""" sh $first $second $stderr ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)
-
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log1", "log2"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
   let follower = spawn plan?
