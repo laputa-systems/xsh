@@ -1,8 +1,9 @@
-import Xsh.Semantics.Connected.Values
+import Xsh.Semantics.Connected.Machine
 
 namespace Xsh.Semantics.Connected
 
 open Xsh.Foundation
+open Xsh.Typing.Connected
 
 theorem record_types_preserve_names (fields : List (NameId × Value))
     (types : List (NameId × RuntimeType)) (typed : recordTypes fields = some types) :
@@ -57,5 +58,80 @@ theorem record_typed_field_lookup (fields : List (NameId × Value))
             simp [different]
           rw [unequal]
           exact lookup
+
+theorem runtime_insert_field_perm (field : NameId × RuntimeType) (fields : List (NameId × RuntimeType)) :
+    (insertField field fields).Perm (field :: fields) := by
+  induction fields with
+  | nil => rfl
+  | cons head rest ih =>
+    simp only [insertField]
+    split
+    · rfl
+    · exact (List.Perm.cons head ih).trans (List.Perm.swap field head rest)
+
+theorem runtime_canonical_fields_perm (fields : List (NameId × RuntimeType)) :
+    (canonicalFields fields).Perm fields := by
+  induction fields with
+  | nil => rfl
+  | cons field rest ih =>
+    exact (runtime_insert_field_perm field (canonicalFields rest)).trans (List.Perm.cons field ih)
+
+theorem runtime_row_field_member (fields : List (NameId × RuntimeType)) (name : NameId) (ty : RuntimeType)
+    (found : rowFieldType name (fields.foldr (fun (name, ty) row => .rowField name ty row) .rowEmpty) = some ty) :
+    (name, ty) ∈ fields := by
+  induction fields with
+  | nil => simp [rowFieldType] at found
+  | cons field rest ih =>
+    obtain ⟨other, value⟩ := field
+    simp only [List.foldr_cons, rowFieldType] at found
+    split at found
+    · rename_i same
+      subst other
+      cases found
+      simp
+    · exact List.mem_cons_of_mem _ (ih found)
+
+theorem field_occurrence_runtime {name : NameId} {value row : MonoType}
+    {runtimeValue runtimeRow : RuntimeType} (field : FieldOccurs name value row)
+    (valueClosed : monoRuntime value = some runtimeValue) (rowClosed : monoRuntime row = some runtimeRow) :
+    rowFieldType name runtimeRow = some runtimeValue := by
+  induction field generalizing runtimeRow with
+  | @here value tail =>
+    cases tailClosed : monoRuntime tail with
+    | none => simp [monoRuntime, valueClosed, tailClosed] at rowClosed
+    | some runtimeTail =>
+      simp [monoRuntime, valueClosed, tailClosed] at rowClosed
+      subst runtimeRow
+      simp [rowFieldType]
+  | @later other value head tail different tailField ih =>
+    cases headClosed : monoRuntime head with
+    | none => simp [monoRuntime, headClosed] at rowClosed
+    | some runtimeHead =>
+      cases tailClosed : monoRuntime tail with
+      | none => simp [monoRuntime, headClosed, tailClosed] at rowClosed
+      | some runtimeTail =>
+        simp [monoRuntime, headClosed, tailClosed] at rowClosed
+        subst runtimeRow
+        simp [rowFieldType, different, ih valueClosed tailClosed]
+
+theorem typed_field_frame_progress (state : Machine) (fields : List (NameId × Value)) (name : NameId)
+    (row valueType' : MonoType) (runtimeRow runtimeValue : RuntimeType)
+    (typed : valueType (.record fields) = some (.record runtimeRow))
+    (field : FieldOccurs name valueType' row) (rowClosed : monoRuntime row = some runtimeRow)
+    (valueClosed : monoRuntime valueType' = some runtimeValue) :
+    ∃ value, Step { state with control := .value (.record fields), stack := .field name :: state.stack }
+        .internal { state with control := .value value } ∧ valueType value = some runtimeValue := by
+  have runtimeField := field_occurrence_runtime field valueClosed rowClosed
+  by_cases unique : (fields.map Prod.fst).Nodup
+  · cases recordType : recordTypes fields with
+    | none => simp [valueType, unique, recordType] at typed
+    | some types =>
+      simp [valueType, unique, recordType] at typed
+      subst runtimeRow
+      have member := runtime_row_field_member (canonicalFields types) name runtimeValue runtimeField
+      have actualMember : (name, runtimeValue) ∈ types := (runtime_canonical_fields_perm types).mem_iff.mp member
+      obtain ⟨value, found, valueTyped⟩ := record_typed_field_lookup fields types name runtimeValue recordType unique actualMember
+      exact ⟨value, .fieldValue state name fields value found, valueTyped⟩
+  · simp [valueType, unique] at typed
 
 end Xsh.Semantics.Connected
