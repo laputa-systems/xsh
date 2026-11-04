@@ -118,5 +118,7 @@ import Xsh.Semantics.Connected.SafetyExpression
 import Xsh.Semantics.Connected.SafetyPreservation
 import Xsh.Semantics.Connected.SafetyNoFault
 import Xsh.Semantics.Connected.SafetyInitialization
+import Xsh.Semantics.Connected.SafetySourceGrounding
+import Xsh.Semantics.Connected.SafetyScopedFixture
 import Xsh.Conformance.Connected.ScopedCertificate
 import Xsh.Conformance.Connected.RawRows

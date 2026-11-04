@@ -44,7 +44,9 @@ effect bounds, translation validation, and whole-machine correspondence remain o
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
-source and published Rust facts remains open.
+source and published Rust facts remains open in general. For the scoped
+mutable-local fixture, its actual published Int call grounds the checked body
+and closes its storage tag; full machine initialization remains open.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
 and ten altered decoded facts. Its call check currently supports direct,

@@ -12241,6 +12241,33 @@
       "status": "fragment",
       "scope": "Lean theorem typed_execution_fault_is_integer about the connected semantic model, under its stated premises.",
       "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.runtime_closed_storage_survives_extension",
+      "module": "Xsh.Semantics.Connected.SafetyReadGrounding",
+      "declaration": "Xsh.Semantics.Connected.runtime_closed_storage_survives_extension",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem runtime_closed_storage_survives_extension about grounding checked connected source, under its stated premises.",
+      "boundary": "These premises do not by themselves establish source-to-machine initialization or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.validated_scoped_document_candidate_types",
+      "module": "Xsh.Semantics.Connected.SafetySourceGrounding",
+      "declaration": "Xsh.Semantics.Connected.validated_scoped_document_candidate_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem validated_scoped_document_candidate_types about grounding checked connected source, under its stated premises.",
+      "boundary": "These premises do not by themselves establish source-to-machine initialization or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_call_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyScopedFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_call_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_call_grounded about grounding checked connected source, under its stated premises.",
+      "boundary": "The certified body is one admitted source fixture; general source initialization and raw-IR simulation remain open."
     }
   ],
   "artifact_certificates": [
