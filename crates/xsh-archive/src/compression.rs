@@ -297,7 +297,7 @@ pub fn decoder_with_mtime<R: BufRead + Send + 'static>(
         }
         Codec::Bzip2 => Box::new(MultiBzDecoder::new(reader)),
         Codec::Xz => {
-            let stream = Stream::new_stream_decoder(workspace_bytes, stream::CONCATENATED)
+            let stream = Stream::new_stream_decoder(workspace_bytes, stream::CONCATENATED | stream::TELL_UNSUPPORTED_CHECK)
                 .map_err(|error| Error::from_read(&error.into()))?;
             Box::new(XzWorkspaceDecoder(XzDecoder::new_stream(SourceReader(reader), stream)))
         },

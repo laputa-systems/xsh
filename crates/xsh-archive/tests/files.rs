@@ -142,3 +142,24 @@ fn xz_filter_chains_and_trailing_data_are_checked() {
     let error = decompress_to_memory(&path, Compression::Auto, &limited).unwrap_err();
     assert!(matches!(error.kind(), ErrorKind::Corrupt | ErrorKind::Truncated));
 }
+
+#[test]
+fn xz_unknown_integrity_check_is_rejected() {
+    let mut writer = XzWriter::new(Vec::new(), XzOptions::with_preset(0)).unwrap();
+    writer.write_all(b"integrity").unwrap();
+    let mut packed = writer.finish().unwrap();
+    packed[7] = 5;
+    let mut crc = flate2::Crc::new();
+    crc.update(&packed[6..8]);
+    packed[8..12].copy_from_slice(&crc.sum().to_le_bytes());
+    let footer = packed.len() - 12;
+    packed[footer + 9] = 5;
+    crc.reset();
+    crc.update(&packed[footer + 4..footer + 10]);
+    packed[footer..footer + 4].copy_from_slice(&crc.sum().to_le_bytes());
+    let base = tempfile::tempdir().unwrap();
+    let path = base.path().join("unknown-check.xz");
+    fs::write(&path, packed).unwrap();
+    let error = decompress_to_memory(&path, Compression::Auto, &budget()).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Io);
+}
