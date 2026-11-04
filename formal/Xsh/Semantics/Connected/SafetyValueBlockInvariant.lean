@@ -147,15 +147,19 @@ mutual
   inductive GroundBlock (solution runtimeSolution : Substitution) (storage : BindingStorageMap) : Scope → MonoType → Option MonoType → List StatementNode → Prop where
     | nil {scope result completion} : CompletionAccepts completion (.primitive .unit) →
         GroundBlock solution runtimeSolution storage scope result completion []
-    | binding {scope result completion name binder kind raw initializer rest} :
-        GroundNode solution runtimeSolution storage scope result initializer (substitute solution raw) →
+    | binding {scope result completion name binder kind raw initializer rest initializerType runtimeType} :
+        GroundNode solution runtimeSolution storage scope result initializer initializerType →
+        StoreCompatible (substitute solution raw) initializerType →
+        monoRuntime (substitute solution raw) = some runtimeType →
+        monoRuntime (substitute runtimeSolution raw) = some runtimeType →
         (kind = .immutable ∨ kind = .mutable) → storage binder = .ordinary →
         (∀ binding ∈ scope, binding.binder ≠ binder) →
         GroundBlock solution runtimeSolution storage (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: scope) result completion rest →
-        GroundBlock solution runtimeSolution storage scope result completion (.binding binder kind initializer :: rest)
-    | assignment {scope result completion name binding value rest} :
+        GroundBlock solution runtimeSolution storage scope result completion (.binding binder kind raw initializer :: rest)
+    | assignment {scope result completion name binding value rest valueType} :
         scope.find? (fun item => decide (item.name = name)) = some binding → binding.kind = .mutable →
-        GroundNode solution runtimeSolution storage scope result value (substitute solution binding.scheme.body) →
+        GroundNode solution runtimeSolution storage scope result value valueType →
+        StoreCompatible (substitute solution binding.scheme.body) valueType →
         GroundBlock solution runtimeSolution storage scope result completion rest →
         GroundBlock solution runtimeSolution storage scope result completion (.assignment binding.binder value :: rest)
     | returned {scope result completion value rest} : GroundNode solution runtimeSolution storage scope result value result →
@@ -199,6 +203,7 @@ def FunctionBodyCertified (globals : Scope) (globalStorage : BindingStorageMap) 
       let solution := compose extension runtimeSolution
       WellSorted extension ∧ WellSorted runtimeSolution ∧ WellSorted solution ∧
       ScopeValuesAgree globals solution state.globals state.store ∧
+      ScopeWritableContract globals solution state.globals state.store ∧
       MutableCellsAgree globals solution state.globals state.store ∧
       SchemaMatches globals solution state.schemas ∧
       (∀ binder ∈ function.parameters, storage binder = .ordinary) ∧
@@ -240,14 +245,14 @@ inductive TypedDemand where
 inductive TypedValues (functions : FunctionTable) : List Value → List MonoType → Prop where
   | nil : TypedValues functions [] []
   | cons {value values ty types runtimeType} :
-      valueType value = some runtimeType → monoRuntime ty = some runtimeType →
+      HasType runtimeType value → monoRuntime ty = some runtimeType →
       ValueCallables functions value → TypedValues functions values types →
       TypedValues functions (value :: values) (ty :: types)
 
 inductive TypedFields (functions : FunctionTable) : List (NameId × Value) → List (NameId × MonoType) → Prop where
   | nil : TypedFields functions [] []
   | cons {name value values ty types runtimeType} :
-      valueType value = some runtimeType → monoRuntime ty = some runtimeType →
+      HasType runtimeType value → monoRuntime ty = some runtimeType →
       ValueCallables functions value → TypedFields functions values types →
       TypedFields functions ((name, value) :: values) ((name, ty) :: types)
 
@@ -268,7 +273,7 @@ inductive FrameTyped (state : Machine) : TypedDemand → TypedDemand → Frame �
       GroundNode context.solution context.runtimeSolution context.storage context.scope context.result right rightType → BinaryTyping operator leftType rightType result →
       FrameTyped state (.expression context leftType) (.expression context result) (.binaryLeft operator right)
   | binaryRight {context operator leftType rightType result left runtimeType} :
-      valueType left = some runtimeType → monoRuntime leftType = some runtimeType →
+      HasType runtimeType left → monoRuntime leftType = some runtimeType →
       ValueCallables state.functions left → BinaryTyping operator leftType rightType result →
       FrameTyped state (.expression context rightType) (.expression context result) (.binaryRight operator left)
   | callTarget {context arguments argumentTypes result} :
@@ -296,18 +301,21 @@ inductive FrameTyped (state : Machine) : TypedDemand → TypedDemand → Frame �
   | requireGuard {context input identity guard base} : runtimeMonotype (guardBase guard) = some base →
       FrameTyped state (.expression context input)
         (.expression context (.result (.nominal identity base) (.primitive .error))) (.requireGuard identity guard)
-  | bind {context name binder kind raw rest} :
+  | bind {context name binder kind raw rest input runtimeType} :
+      StoreCompatible (substitute context.solution raw) input →
+      monoRuntime (substitute context.solution raw) = some runtimeType →
       (kind = .immutable ∨ kind = .mutable) → context.storage binder = .ordinary →
       (∀ binding ∈ context.scope, binding.binder ≠ binder) → state.store ⟨context.activation, binder⟩ = none →
       GroundBlock context.solution context.runtimeSolution context.storage (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: context.scope) context.result context.completion rest →
       FutureBindingsFresh state.store context.activation rest →
-      FrameTyped state (.expression context (substitute context.solution raw))
-        (.block { context with scope := ⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: context.scope }) (.bind binder kind rest)
-  | assign {context name binding rest} :
+      FrameTyped state (.expression context input)
+        (.block { context with scope := ⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: context.scope }) (.bind binder kind runtimeType rest)
+  | assign {context name binding rest input} :
+      StoreCompatible (substitute context.solution binding.scheme.body) input →
       context.scope.find? (fun item => decide (item.name = name)) = some binding → binding.kind = .mutable →
       GroundBlock context.solution context.runtimeSolution context.storage context.scope context.result context.completion rest →
       FutureBindingsFresh state.store context.activation rest →
-      FrameTyped state (.expression context (substitute context.solution binding.scheme.body)) (.block context) (.assign binding.binder rest)
+      FrameTyped state (.expression context input) (.block context) (.assign binding.binder rest)
   | discard {context input rest} : GroundBlock context.solution context.runtimeSolution context.storage context.scope context.result context.completion rest →
       FutureBindingsFresh state.store context.activation rest →
       FrameTyped state (.expression context input) (.block context) (.discard rest)
@@ -328,6 +336,7 @@ inductive FrameTyped (state : Machine) : TypedDemand → TypedDemand → Frame �
       inner.result = outer.result → inner.activation = outer.activation →
       inner.completion = (if rest.isEmpty then outer.completion else none) →
       ScopeStateAgrees outer.scope { state with cells := cells, solution := outer.solution } →
+      ScopeWritableContract outer.scope outer.solution cells state.store →
       SchemeCellsImmutable cells state.store → StorageAgreement cells state.store outer.storage →
       SchemaMatches outer.scope outer.solution state.schemas →
       (rest ≠ [] → GroundBlock outer.solution outer.runtimeSolution outer.storage outer.scope outer.result outer.completion rest) →
@@ -337,6 +346,7 @@ inductive FrameTyped (state : Machine) : TypedDemand → TypedDemand → Frame �
       inner.solution = outer.solution → inner.runtimeSolution = outer.runtimeSolution → inner.storage = outer.storage →
       inner.result = outer.result → inner.activation = outer.activation → inner.completion = some blockType →
       ScopeStateAgrees outer.scope { state with cells := cells, solution := outer.solution } →
+      ScopeWritableContract outer.scope outer.solution cells state.store →
       SchemeCellsImmutable cells state.store → StorageAgreement cells state.store outer.storage →
       SchemaMatches outer.scope outer.solution state.schemas →
       FrameTyped state (.block inner) (.expression outer blockType) (.valueBlock cells)
@@ -344,6 +354,7 @@ inductive FrameTyped (state : Machine) : TypedDemand → TypedDemand → Frame �
       inner.storage = outer.storage → WellSorted outer.solution → WellSorted outer.runtimeSolution →
       outer.activation = activation → inner.completion = some inner.result → monoRuntime inner.result = some result → monoRuntime callType = some result →
       ScopeStateAgrees outer.scope { state with cells := cells, solution := outer.solution } →
+      ScopeWritableContract outer.scope outer.solution cells state.store →
       SchemeCellsImmutable cells state.store → StorageAgreement cells state.store outer.storage →
       SchemaMatches outer.scope outer.solution state.schemas →
       FrameTyped state (.block inner) (.expression outer callType) (.caller cells activation outer.runtimeSolution result)
@@ -365,7 +376,7 @@ inductive StackTyped (state : Machine) : TypedDemand → TypedDemand → List Fr
 
 inductive RuntimeArguments (functions : FunctionTable) : List Value → RuntimeType → Prop where
   | nil : RuntimeArguments functions [] .argumentsEmpty
-  | cons {value values ty types} : valueType value = some ty → ValueCallables functions value →
+  | cons {value values ty types} : HasType ty value → ValueCallables functions value →
       RuntimeArguments functions values types → RuntimeArguments functions (value :: values) (.argument ty types)
 
 def ReadOperationallyCompatible (state : Machine) (node : Node) (ty : MonoType) : Prop :=
@@ -408,7 +419,7 @@ inductive ControlTyped (state : Machine) : TypedDemand → Control → Prop wher
       GroundNode context.solution context.runtimeSolution context.storage context.scope context.result node ty → monoRuntime ty = some runtimeType →
       FutureNodeBindingsFresh state.store context.activation node → ControlTyped state (.expression context ty) (.expression node)
   | value {context value ty runtimeType} :
-      valueType value = some runtimeType → monoRuntime ty = some runtimeType → ValueCallables state.functions value →
+      HasType runtimeType value → monoRuntime ty = some runtimeType → ValueCallables state.functions value →
       ControlTyped state (.expression context ty) (.value value)
   | invoke {context target arguments argumentTypes resultType result} :
       valueType target = some (.function argumentTypes resultType) → ValueCallables state.functions target →
@@ -417,14 +428,14 @@ inductive ControlTyped (state : Machine) : TypedDemand → Control → Prop wher
   | statements {context body} : GroundBlock context.solution context.runtimeSolution context.storage context.scope context.result context.completion body →
       FutureBindingsFresh state.store context.activation body → ControlTyped state (.block context) (.statements body)
   | returned {demand value runtimeType} :
-      valueType value = some runtimeType → monoRuntime demand.context.result = some runtimeType →
+      HasType runtimeType value → monoRuntime demand.context.result = some runtimeType →
       ValueCallables state.functions value → ControlTyped state demand (.returned value)
   | completed {context value ty runtimeType} :
-      valueType value = some runtimeType → monoRuntime ty = some runtimeType →
+      HasType runtimeType value → monoRuntime ty = some runtimeType →
       CompletionAccepts context.completion ty → ValueCallables state.functions value →
       ControlTyped state (.block context) (.completed value)
   | propagated {demand error oldType result failure runtimeFailure} :
-      demand.context.result = .result result failure → valueType error = some runtimeFailure →
+      demand.context.result = .result result failure → HasType runtimeFailure error →
       monoRuntime failure = some runtimeFailure → ValueCallables state.functions error →
       ControlTyped state demand (.propagated (.error error oldType))
   | integerFault {demand fault} : ControlTyped state demand (.fault (.integer fault))
@@ -433,6 +444,7 @@ def ActiveScopeTyped (state : Machine) (context : TypingContext) : Prop :=
   match state.control with
   | .returned _ | .propagated _ | .fault _ => True
   | _ => ScopeStateAgrees context.scope { state with solution := context.solution } ∧
+      ScopeWritableContract context.scope context.solution state.cells state.store ∧
       SchemaMatches context.scope context.solution state.schemas ∧
       SchemeCellsImmutable state.cells state.store ∧ StorageAgreement state.cells state.store context.storage
 
@@ -450,7 +462,7 @@ def pendingFrameBinders : Frame → List BinderId
       match branches with
       | [] => nodeDeclaredBinders otherwise
       | (_, selected) :: rest => nodeDeclaredBinders selected ++ expressionBranchBinders rest ++ nodeDeclaredBinders otherwise
-  | .bind binder _ rest => binder :: declaredBinders rest
+  | .bind binder _ _ rest => binder :: declaredBinders rest
   | .assign _ rest | .discard rest => declaredBinders rest
   | .branch branches otherwise rest =>
       match branches with
