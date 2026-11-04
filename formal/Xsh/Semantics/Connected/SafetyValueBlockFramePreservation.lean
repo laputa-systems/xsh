@@ -7,19 +7,23 @@ open Xsh.Typing.Connected
 theorem saved_frame_scope_survives_step {before after : Machine} {event : Label}
     (step : Step before event after) (context : TypingContext) (cells : ActiveCells)
     (scope : ScopeStateAgrees context.scope { before with cells := cells, solution := context.solution })
+    (writable : ScopeWritableContract context.scope context.solution cells before.store)
     (schemes : SchemeCellsImmutable cells before.store)
     (storage : StorageAgreement cells before.store context.storage)
     (schemas : SchemaMatches context.scope context.solution before.schemas) :
     ScopeStateAgrees context.scope { after with cells := cells, solution := context.solution } ∧
+      ScopeWritableContract context.scope context.solution cells after.store ∧
       SchemeCellsImmutable cells after.store ∧ StorageAgreement cells after.store context.storage ∧
       SchemaMatches context.scope context.solution after.schemas := by
   have execution : Execution before [event] after := .next step (.done after)
   obtain ⟨savedScope, savedSchemes⟩ := saved_scope_survives_execution before after [event]
-    context.scope context.solution cells execution scope schemes
+    context.scope context.solution cells execution scope schemes writable
   have layout := step_preserves_store_layout step
   have stable := step_preserves_immutable_cells step
   obtain ⟨sameFunctions, sameSchemas, sameGlobals⟩ := step_preserves_global_context step
-  refine ⟨savedScope, savedSchemes, ?_, ?_⟩
+  refine ⟨savedScope, ?_, savedSchemes, ?_, ?_⟩
+  · exact scope_writable_contract_survives context.scope context.solution cells before.store after.store
+      scope.2.2.2.2 writable layout
   · exact storage_agreement_survives_stable_store cells context.storage before.store after.store
       scope.2.2.2.2 schemes storage layout stable
   · rw [sameSchemas]
@@ -27,7 +31,7 @@ theorem saved_frame_scope_survives_step {before after : Machine} {event : Label}
 
 def FutureFrameBindingsFresh (state : Machine) (input : TypedDemand) (frame : Frame) : Prop :=
   match frame with
-  | .bind binder _ rest => state.store ⟨input.context.activation, binder⟩ = none ∧
+  | .bind binder _ _ rest => state.store ⟨input.context.activation, binder⟩ = none ∧
       FutureBindingsFresh state.store input.context.activation rest
   | .assign _ rest | .discard rest => FutureBindingsFresh state.store input.context.activation rest
   | .branch branches otherwise rest => RemainingBranchBindingsFresh state.store input.context.activation branches ∧
@@ -52,34 +56,34 @@ theorem frame_typing_survives_step {before after : Machine} {event : Label}
   | conditional nonempty branches otherwise => exact .conditional nonempty branches otherwise
   | propagate result => exact .propagate result
   | requireGuard base => exact .requireGuard base
-  | bind kind storage scopeFresh oldCell body oldRest =>
+  | bind compatible closed kind storage scopeFresh oldCell body oldRest =>
     simp only [FutureFrameBindingsFresh, TypedDemand.context] at fresh
-    exact .bind kind storage scopeFresh fresh.1 body fresh.2
-  | assign found mutable body oldRest =>
-    exact .assign found mutable body (by simpa [FutureFrameBindingsFresh, TypedDemand.context] using fresh)
+    exact .bind compatible closed kind storage scopeFresh fresh.1 body fresh.2
+  | assign compatible found mutable body oldRest =>
+    exact .assign compatible found mutable body (by simpa [FutureFrameBindingsFresh, TypedDemand.context] using fresh)
   | discard body oldRest => exact .discard body (by simpa [FutureFrameBindingsFresh, TypedDemand.context] using fresh)
   | returnValue => exact .returnValue
   | tailValue accepts => exact .tailValue accepts
   | branch nonempty branches fallback rest oldBranches oldFallback oldRest =>
     simp only [FutureFrameBindingsFresh, TypedDemand.context] at fresh
     exact .branch nonempty branches fallback rest fresh.1 fresh.2.1 fresh.2.2
-  | continueBlock solution runtime storage result activation completion scope schemes storageAgrees schemas rest oldFresh =>
+  | continueBlock solution runtime storage result activation completion scope writable schemes storageAgrees schemas rest oldFresh =>
     rename_i inner outer cells following
-    obtain ⟨scopeAfter, schemesAfter, storageAfter, schemasAfter⟩ :=
-      saved_frame_scope_survives_step step outer cells scope schemes storageAgrees schemas
+    obtain ⟨scopeAfter, writableAfter, schemesAfter, storageAfter, schemasAfter⟩ :=
+      saved_frame_scope_survives_step step outer cells scope writable schemes storageAgrees schemas
     have freshAfter : FutureBindingsFresh after.store outer.activation following := by
       simpa [FutureFrameBindingsFresh, TypedDemand.context, activation] using fresh
-    exact .continueBlock solution runtime storage result activation completion scopeAfter schemesAfter storageAfter schemasAfter rest freshAfter
-  | valueBlock solution runtime storage result activation completion scope schemes storageAgrees schemas =>
+    exact .continueBlock solution runtime storage result activation completion scopeAfter writableAfter schemesAfter storageAfter schemasAfter rest freshAfter
+  | valueBlock solution runtime storage result activation completion scope writable schemes storageAgrees schemas =>
     rename_i inner outer cells blockType
-    obtain ⟨scopeAfter, schemesAfter, storageAfter, schemasAfter⟩ :=
-      saved_frame_scope_survives_step step outer cells scope schemes storageAgrees schemas
-    exact .valueBlock solution runtime storage result activation completion scopeAfter schemesAfter storageAfter schemasAfter
-  | caller storage proofSorted runtimeSorted activation completion result callType scope schemes storageAgrees schemas =>
+    obtain ⟨scopeAfter, writableAfter, schemesAfter, storageAfter, schemasAfter⟩ :=
+      saved_frame_scope_survives_step step outer cells scope writable schemes storageAgrees schemas
+    exact .valueBlock solution runtime storage result activation completion scopeAfter writableAfter schemesAfter storageAfter schemasAfter
+  | caller storage proofSorted runtimeSorted activation completion result callType scope writable schemes storageAgrees schemas =>
     rename_i inner outer cells callerActivation resultType expected
-    obtain ⟨scopeAfter, schemesAfter, storageAfter, schemasAfter⟩ :=
-      saved_frame_scope_survives_step step outer cells scope schemes storageAgrees schemas
-    exact .caller storage proofSorted runtimeSorted activation completion result callType scopeAfter schemesAfter storageAfter schemasAfter
+    obtain ⟨scopeAfter, writableAfter, schemesAfter, storageAfter, schemasAfter⟩ :=
+      saved_frame_scope_survives_step step outer cells scope writable schemes storageAgrees schemas
+    exact .caller storage proofSorted runtimeSorted activation completion result callType scopeAfter writableAfter schemesAfter storageAfter schemasAfter
 
 theorem stack_typing_survives_step {before after : Machine} {event : Label}
     (step : Step before event after) (input output : TypedDemand) (frames : List Frame)
