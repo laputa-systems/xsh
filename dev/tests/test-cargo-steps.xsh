@@ -519,6 +519,7 @@ test test_build_steps_run_cargo_under_the_preload_and_test_runs_do_not { |ctx|
   let log = fp"{root}/cargo.log"
   let library = fp"{root}/libjemalloc.so.2"
   let inherited_linker = env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "<unset>")?
+  let linker_prefix = if inherited_linker == "/usr/local/bin/xsh-mold-linker" { "-Wl," } else { "" }
   let inherited_path = env.get_or("PATH", "")?
   library.write("")
   write_fake_toolchain(tools, log)
@@ -576,7 +577,7 @@ docs.build_release(ctx)?
   )?
   let preloaded = f"preload={library}"
   var expected_log = [
-    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={inherited_linker} {preloaded}",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg={linker_prefix}--defsym=__isoc23_sscanf=sscanf -C link-arg={linker_prefix}--defsym=__isoc23_strtol=strtol linker={inherited_linker} {preloaded}",
     f"build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi {preloaded}",
   ]
   for target in ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra"] {
@@ -591,7 +592,7 @@ docs.build_release(ctx)?
     f"test --locked --target x86_64-unknown-linux-musl -p xsh --lib --no-run {preloaded}",
     "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
     f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration --no-run {preloaded}",
-    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip examples::example_corpus_lints_without_warnings --skip lint_performance::repository_lint_is_clean_within_wall_budget preload=",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip lint_performance::repository_lint_is_clean_within_wall_budget preload=",
   ]
   assert log.read_lines()? == expected_log
 
@@ -642,7 +643,7 @@ docs.build_release(ctx)?
     },
   )?
   assert log.read_lines()? == [
-    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={inherited_linker} preload=",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg={linker_prefix}--defsym=__isoc23_sscanf=sscanf -C link-arg={linker_prefix}--defsym=__isoc23_strtol=strtol linker={inherited_linker} preload=",
   ]
 
   log.remove(missing_ok: false)
@@ -659,7 +660,7 @@ docs.build_release(ctx)?
     },
   )?
   assert log.read_lines()? == [
-    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={inherited_linker} preload=",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg={linker_prefix}--defsym=__isoc23_sscanf=sscanf -C link-arg={linker_prefix}--defsym=__isoc23_strtol=strtol linker={inherited_linker} preload=",
     "build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration -- --skip split:: --skip runtime::coverage:: preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test ambient_fs_policy -- --skip split:: --skip runtime::coverage:: preload=",
@@ -668,7 +669,7 @@ docs.build_release(ctx)?
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test core_compat_extra -- --skip split:: --skip runtime::coverage:: preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness preload=",
     "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
-    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip examples::example_corpus_lints_without_warnings --skip lint_performance::repository_lint_is_clean_within_wall_budget preload=",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip lint_performance::repository_lint_is_clean_within_wall_budget preload=",
   ]
 }
 
