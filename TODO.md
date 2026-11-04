@@ -143,7 +143,7 @@ out of scope.
 
 - **Area:** Host I/O
 - **Where:** `src/modules/`, `crates/xsh-registry/`, `core/lib/`, `tests/`
-- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Its local peer tests cover fragmented and coalesced frames and timeouts. The portable owned stream-I/O contract and remaining failure cases are not fully qualified.
+- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Its local peer tests cover fragmented and coalesced frames and timeouts. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, and shutdown during a bounded poll. Consumer composition and the portable stream-I/O contract remain unqualified.
 - **Recommendation:** Qualify the existing operations and QMP consumer, then fill only demonstrated gaps in the connect, read, write, deadline and cancellation boundary using XSH-35 and XSH-36. Keep framing and QMP policy in the XSH consumer.
 - **Acceptance:** Fragmented/coalesced reads, partial writes, EOF, oversized input, timeout and cancellation are bounded and release resources on both supported host paths. A local socket fixture and Laputa LAP-35 demonstrate the same primitives; no futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
