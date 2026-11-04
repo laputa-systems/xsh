@@ -53,11 +53,134 @@ mutual
       | _ => throw .unsupported
 end
 
+abbrev EffectOccurrences := List (SourceSite × Expr)
+
+def excludesEffect (excluded : List Effect) (required : Effect) : Bool :=
+  excluded.contains required ||
+    (excluded.contains .io && [.fs, .net, .process, .env].contains required)
+
+def sameEffectExpressionHead (left right : Expr) : Bool :=
+  match left, right with
+  | .literal (.integer x), .literal (.integer y) => x == y
+  | .literal (.bool x), .literal (.bool y) => x == y
+  | .literal (.string x), .literal (.string y) => x == y
+  | .ident x, .ident y => decide (x = y)
+  | .binary x _ _, .binary y _ _ => decide (x = y)
+  | .field _ x, .field _ y => decide (x = y)
+  | .record _, .record _ | .call _ _, .call _ _ | .tryExpr _, .tryExpr _ |
+    .require _ _, .require _ _ | .valueBlock _, .valueBlock _ => true
+  | _, _ => false
+
+mutual
+  def classifyRegionExpression : Nat → SourceUnit → List SourceEffectRegion → List NameId → List Effect →
+      Expr → EffectOccurrences → Except AdmissionFailure (List Effect × EffectOccurrences)
+    | 0, _, _, _, _, _, _ => .error .exhausted
+    | fuel + 1, unit, regions, scope, excluded, source, occurrences => do
+      let (site, recorded) :: rest := occurrences | throw .malformed
+      if sameEffectExpressionHead source recorded then pure () else throw .malformed
+      match source with
+      | .literal (.integer _) | .literal (.bool _) | .literal (.string _) | .ident _ => pure ([], rest)
+      | .binary _ left right => do
+          let (first, remaining) ← classifyRegionExpression fuel unit regions scope excluded left rest
+          let (second, suffix) ← classifyRegionExpression fuel unit regions scope excluded right remaining
+          pure (joinEffects first second, suffix)
+      | .record fields => classifyRegionFields fuel unit regions scope excluded fields rest
+      | .field base _ => classifyRegionExpression fuel unit regions scope excluded base rest
+      | .call (.field (.ident moduleName) operation) [] => do
+          if sourceName unit.names "time" = some moduleName && sourceName unit.names "now" = some operation &&
+              !(scope.contains moduleName) then pure () else throw .unsupported
+          if excludesEffect excluded .time then throw .malformed else pure ()
+          let (_, remaining) ← classifyRegionExpression fuel unit regions scope excluded (.field (.ident moduleName) operation) rest
+          pure ([.time], remaining)
+      | .valueBlock body => do
+          let selected := regions.find? fun region => decide (region.body = site)
+          let nested := match selected with | some region => region.excluded | none => []
+          if nested.contains .error then throw .malformed else pure ()
+          classifyRegionBlock fuel unit regions scope (nested ++ excluded) body rest
+      | _ => throw .unsupported
+
+  def classifyRegionFields : Nat → SourceUnit → List SourceEffectRegion → List NameId → List Effect →
+      List RecordField → EffectOccurrences → Except AdmissionFailure (List Effect × EffectOccurrences)
+    | 0, _, _, _, _, _, _ => .error .exhausted
+    | _ + 1, _, _, _, _, [], occurrences => .ok ([], occurrences)
+    | fuel + 1, unit, regions, scope, excluded, .named _ value :: rest, occurrences => do
+      let (first, remaining) ← classifyRegionExpression fuel unit regions scope excluded value occurrences
+      let (second, suffix) ← classifyRegionFields fuel unit regions scope excluded rest remaining
+      pure (joinEffects first second, suffix)
+    | _ + 1, _, _, _, _, _, _ => .error .unsupported
+
+  def classifyRegionBlock : Nat → SourceUnit → List SourceEffectRegion → List NameId → List Effect →
+      List Statement → EffectOccurrences → Except AdmissionFailure (List Effect × EffectOccurrences)
+    | 0, _, _, _, _, _, _ => .error .exhausted
+    | _ + 1, _, _, _, _, [], occurrences => .ok ([], occurrences)
+    | fuel + 1, unit, regions, scope, excluded, statement :: rest, occurrences => do
+      match statement with
+      | .binding _ (.name name) _ initializer => do
+          let (first, remaining) ← classifyRegionExpression fuel unit regions scope excluded initializer occurrences
+          let (second, suffix) ← classifyRegionBlock fuel unit regions (name :: scope) excluded rest remaining
+          pure (joinEffects first second, suffix)
+      | .assign (.name _) .set value | .expression value | .returnValue (some value) => do
+          let (first, remaining) ← classifyRegionExpression fuel unit regions scope excluded value occurrences
+          let (second, suffix) ← classifyRegionBlock fuel unit regions scope excluded rest remaining
+          pure (joinEffects first second, suffix)
+      | .tailName _ => classifyRegionBlock fuel unit regions scope excluded rest occurrences
+      | _ => throw .unsupported
+end
+
+def classifyRegionFunctionEffects (fuel : Nat) (unit : SourceUnit) (source : SourceFunction) :
+    Except AdmissionFailure (List Effect) := do
+  if source.regions.all (fun region =>
+      source.expressions.any fun (site, expression) =>
+        decide (region.body = site) && match expression with | .valueBlock _ => true | _ => false) &&
+      decide (source.regions.map SourceEffectRegion.body).Nodup then pure () else throw .malformed
+  let (effects, remaining) ← classifyRegionBlock fuel unit source.regions
+    (source.parameters.map SourceParameter.name ++ sourceGlobalNames unit) [] source.body source.expressions
+  if remaining.isEmpty then pure effects else throw .malformed
+
 def classifyFunctionEffects (fuel : Nat) (unit : SourceUnit) (source : SourceFunction) :
     Except AdmissionFailure (List Effect) :=
   if source.kind = .proc then
-    classifyEffectBlock fuel unit (source.parameters.map SourceParameter.name ++ sourceGlobalNames unit) source.body
+    if source.regions.isEmpty then
+      classifyEffectBlock fuel unit (source.parameters.map SourceParameter.name ++ sourceGlobalNames unit) source.body
+    else classifyRegionFunctionEffects fuel unit source
   else .error .unsupported
+
+def regionEffectsControl : Bool :=
+  let allowed := "proc f() [time] { without fs { time.now() } }\n"
+  let denied := "proc f() [time] { without time { time.now() } }\n"
+  let errorBound := "proc f() [time] { without error { 1 } }\n"
+  let afterRegion := "proc f() [time] { without time { 1 }; time.now() }\n"
+  let nested := "proc f() [time] { without fs { without time { time.now() } } }\n"
+  let checks (text : String) (expected : Bool) :=
+    match admitSource 0 text with
+    | .ok unit => match unit.declarations with
+      | [.function source] => match classifyFunctionEffects 64 unit source with
+        | .ok effects => expected && decide (effects = [.time])
+        | .error .malformed => !expected
+        | _ => false
+      | _ => false
+    | _ => false
+  checks allowed true && checks denied false && checks errorBound false &&
+    checks afterRegion true && checks nested false
+
+def regionOccurrenceMutationRejected : Bool :=
+  match admitSource 0 "proc f() [time] { without fs { time.now() } }\n" with
+  | .ok unit => match unit.declarations with
+    | [.function source] => match source.expressions with
+      | (site, _) :: rest =>
+        let changed := { source with expressions := (site, .literal (.bool true)) :: rest }
+        match classifyRegionFunctionEffects 64 unit changed with
+        | .error .malformed => true
+        | _ => false
+      | _ => false
+    | _ => false
+  | _ => false
+
+theorem changed_region_occurrence_is_rejected : regionOccurrenceMutationRejected = true := by
+  decide +kernel
+
+theorem lexical_effect_bounds_control_classification : regionEffectsControl = true := by
+  decide +kernel
 
 def sameEffects (first second : List Effect) : Bool := decide (first.Perm second)
 
