@@ -11425,7 +11425,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.connected_facts_parse_to_wire",
-      "module": "Xsh.Conformance.Connected.Documents",
+      "module": "Xsh.Conformance.Connected.ConnectedDocumentProof",
       "declaration": "Xsh.Conformance.Connected.connected_facts_parse_to_wire",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -11497,7 +11497,7 @@
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
-      "module": "Xsh.Conformance.Connected.ScopedDocuments",
+      "module": "Xsh.Conformance.Connected.ScopedDocumentProof",
       "declaration": "Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -12241,6 +12241,132 @@
       "status": "fragment",
       "scope": "Lean theorem typed_execution_fault_is_integer about the connected semantic model, under its stated premises.",
       "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.runtime_closed_storage_survives_extension",
+      "module": "Xsh.Semantics.Connected.SafetyReadGrounding",
+      "declaration": "Xsh.Semantics.Connected.runtime_closed_storage_survives_extension",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem runtime_closed_storage_survives_extension about grounding checked connected source, under its stated premises.",
+      "boundary": "These premises do not by themselves establish source-to-machine initialization or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.validated_scoped_document_candidate_types",
+      "module": "Xsh.Semantics.Connected.SafetySourceGrounding",
+      "declaration": "Xsh.Semantics.Connected.validated_scoped_document_candidate_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem validated_scoped_document_candidate_types about grounding checked connected source, under its stated premises.",
+      "boundary": "These premises do not by themselves establish source-to-machine initialization or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_call_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyScopedFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_call_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_call_grounded about grounding checked connected source, under its stated premises.",
+      "boundary": "The certified body is one admitted source fixture; general source initialization and raw-IR simulation remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_raw_store_correspondence_types_every_solution",
+      "module": "Xsh.Conformance.Connected.RawStore",
+      "declaration": "Xsh.Conformance.Connected.checked_raw_store_correspondence_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked raw StoreValue ordinal, statement site, and supplied binder-to-slot mapping agree with a scoped assignment fact for every sorted solution.",
+      "boundary": "The binder-to-slot mapping, raw right-hand expression, transfer mark, and execution correspondence remain unchecked."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
+      "module": "Xsh.Conformance.Connected.RawStoreFixture",
+      "declaration": "Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The projected scoped assignment checks and rejects changed ordinal, slot, statement location, tag name, and assignment operator.",
+      "boundary": "The rows are a projection of diagnostic output, not an exact decoded foreign artifact or a runtime simulation."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
+      "module": "Xsh.Conformance.Connected.ScopedCertificate",
+      "declaration": "Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted scoped fixture retains both the assignment statement and RHS expression sites.",
+      "boundary": "This fixture theorem does not establish general source-parser parity or raw execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.lex_append_prefix",
+      "module": "Xsh.Conformance.Transport.JsonLexPrefix",
+      "declaration": "Xsh.Conformance.Transport.lex_append_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexing a concatenation composes through its prefix state.",
+      "boundary": "This parser lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_append_prefix",
+      "module": "Xsh.Conformance.Transport.JsonParsePrefix",
+      "declaration": "Xsh.Conformance.Transport.parse_append_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Token parsing composes through its prefix state.",
+      "boundary": "This parser lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scopedLexResult",
+      "module": "Xsh.Conformance.Connected.ScopedLexProof",
+      "declaration": "Xsh.Conformance.Connected.scopedLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact scoped fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.parserStep26",
+      "module": "Xsh.Conformance.Connected.ScopedParseStates",
+      "declaration": "Xsh.Conformance.Connected.parserStep26",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The final scoped token segment advances the stated parser state.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.identityLexResult",
+      "module": "Xsh.Conformance.Connected.IdentityLexProof",
+      "declaration": "Xsh.Conformance.Connected.identityLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact identity fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.identity_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.IdentityDocumentProof",
+      "declaration": "Xsh.Conformance.Connected.identity_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact identity fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.connectedLexResult",
+      "module": "Xsh.Conformance.Connected.ConnectedLexProof",
+      "declaration": "Xsh.Conformance.Connected.connectedLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact connected fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.effect_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.Documents",
+      "declaration": "Xsh.Conformance.Connected.effect_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected effect fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
     }
   ],
   "artifact_certificates": [

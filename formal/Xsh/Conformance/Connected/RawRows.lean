@@ -21,6 +21,7 @@ structure RawInstructionRows where
   checkedCallTargetRequired : List Bool
   data : List RawPair
   extra : List Nat
+  assignOps : List AssignOp
   binaryOps : List BinaryOp
   locations : List RawPair
   locationSources : List Nat
@@ -121,7 +122,78 @@ def readRawStatementBlock (instructions : RawInstructionRows) (functions : RawFu
   | count :: statements => if statements.length = count then some statements else none
   | [] => none
 
+inductive RawAssignStep where
+  | field (symbol : Nat)
+  | index (expression : Nat)
+  | indexStore (expression operation : Nat)
+  | compound (operation : Nat)
+  | storeValue (operation : Nat)
+  deriving DecidableEq
+
+def decodeRawAssignSteps : Nat → List Nat → Option (List RawAssignStep × List Nat)
+  | 0, words => some ([], words)
+  | count + 1, 0 :: symbol :: words => do
+      let (steps, rest) ← decodeRawAssignSteps count words
+      pure (.field symbol :: steps, rest)
+  | count + 1, 1 :: expression :: words => do
+      let (steps, rest) ← decodeRawAssignSteps count words
+      pure (.index expression :: steps, rest)
+  | count + 1, 2 :: expression :: operation :: words => do
+      let (steps, rest) ← decodeRawAssignSteps count words
+      pure (.indexStore expression operation :: steps, rest)
+  | count + 1, 3 :: operation :: words => do
+      let (steps, rest) ← decodeRawAssignSteps count words
+      pure (.compound operation :: steps, rest)
+  | count + 1, 4 :: operation :: words => do
+      let (steps, rest) ← decodeRawAssignSteps count words
+      pure (.storeValue operation :: steps, rest)
+  | _, _ => none
+
+def readRawAssignPath (instructions : RawInstructionRows) (functions : RawFunctionRows)
+    (owner id : Nat) : Option (List RawAssignStep) := do
+  let words ← readOwnedRawBlock instructions functions owner id 0
+  let count :: payload := words | none
+  if count = 0 then none else
+    let (steps, rest) ← decodeRawAssignSteps count payload
+    if rest.isEmpty then some steps else none
+
+inductive RawStatementShape where
+  | assignPath (slot : Nat) (path : List RawAssignStep) (op : AssignOp)
+      (value : Nat) (site : SourceSite)
+  deriving DecidableEq
+
+def rawStatementShape (instructions : RawInstructionRows) (functions : RawFunctionRows)
+    (owner : Nat) (instruction : RawInstruction) : Option RawStatementShape := do
+  match instruction.tag.ordinal, instruction.payload with
+  | 123, [slot, path, operation, value, 0, location] =>
+    some (.assignPath slot (← readRawAssignPath instructions functions owner path)
+      (← instructions.assignOps[operation]?) value (← readRawLocation instructions location))
+  | _, _ => none
+
+theorem raw_store_value_step_checks_arity_and_tag :
+    decodeRawAssignSteps 1 [4, 0] = some ([.storeValue 0], []) ∧
+    decodeRawAssignSteps 1 [4] = none ∧
+    decodeRawAssignSteps 1 [5, 0] = none := by
+  decide +kernel
+
+private def scopedAssignRows (ordinal : Nat) : RawInstructionRows :=
+  ⟨[], [], [], [], [1, 4, ordinal], [.set], [], [⟨67, 5⟩, ⟨57, 15⟩], [0, 0], [], []⟩
+
+private def scopedAssignBlocks : RawFunctionRows :=
+  ⟨[⟨⟨0, 3⟩, 4294967295, 1, 0, (0, 0, 0)⟩], []⟩
+
+private def scopedAssignInstruction : RawInstruction :=
+  ⟨⟨"StmtAssignPath", 123⟩, true, false, [2, 1, 0, 8, 0, 2]⟩
+
+theorem projected_scoped_assignment_preserves_operation :
+    rawStatementShape (scopedAssignRows 0) scopedAssignBlocks 1 scopedAssignInstruction =
+      some (.assignPath 2 [.storeValue 0] .set 8 ⟨0, 57, 15⟩) ∧
+    rawStatementShape (scopedAssignRows 1) scopedAssignBlocks 1 scopedAssignInstruction =
+      some (.assignPath 2 [.storeValue 1] .set 8 ⟨0, 57, 15⟩) := by
+  decide +kernel
+
 inductive RawExpressionShape where
+  | unit
   | integer (low high : Nat)
   | boolean (value : Bool)
   | string (bytes : List Nat)
@@ -139,6 +211,7 @@ inductive RawExpressionShape where
 
 def rawExpressionShape (rows : RawInstructionRows) (instruction : RawInstruction) : Option RawExpressionShape := do
   match instruction.tag.ordinal, instruction.payload with
+  | 19, [] => some .unit
   | 0, [low, high] | 20, [low, high] => some (.integer low high)
   | 6, [0] | 23, [0] => some (.boolean false)
   | 6, [1] | 23, [1] => some (.boolean true)
@@ -176,6 +249,7 @@ def connectedTagOrdinal : String → Option Nat
   | "BoolAnd" => some 9
   | "BoolOr" => some 10
   | "BoolIntCompare" => some 11
+  | "ExprUnit" => some 19
   | "ExprInt" => some 20
   | "ExprBool" => some 23
   | "ExprStr" => some 24
@@ -198,6 +272,7 @@ def connectedTagOrdinal : String → Option Nat
   | "StmtLetInt" => some 118
   | "StmtLetBool" => some 119
   | "StmtAssign" => some 120
+  | "StmtAssignPath" => some 123
   | "StmtAssignInt" => some 124
   | "StmtAssignBool" => some 125
   | "StmtValue" => some 126
@@ -274,11 +349,21 @@ def decodeRawBinaryOp : WireValue → Option BinaryOp
   | .string "intersect" => some .intersect
   | _ => none
 
+def decodeRawAssignOp : WireValue → Option AssignOp
+  | .string "set" => some .set
+  | .string "add" => some .add
+  | .string "sub" => some .sub
+  | .string "mul" => some .mul
+  | .string "div" => some .div
+  | .string "rem" => some .rem
+  | _ => none
+
 def decodeRawInstructionRows (value : WireValue) : Option RawInstructionRows := do
-  let fields ← value.closedObject? ["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "binaryOps", "locations", "locationSources", "strings", "stringBytes"]
+  let fields ← value.closedObject? ["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "assignOps", "binaryOps", "locations", "locationSources", "strings", "stringBytes"]
   pure ⟨← listField fields "tags" decodeRawTag, ← listField fields "resourceTransfers" rawFlag,
     ← listField fields "checkedCallTargetRequired" rawFlag, ← listField fields "data" decodeRawPair,
-    ← listField fields "extra" decodeWord, ← listField fields "binaryOps" decodeRawBinaryOp,
+    ← listField fields "extra" decodeWord, ← listField fields "assignOps" decodeRawAssignOp,
+    ← listField fields "binaryOps" decodeRawBinaryOp,
     ← listField fields "locations" decodeRawLocation, ← listField fields "locationSources" decodeWord,
     ← listField fields "strings" decodeRawLocation, ← listField fields "stringBytes" decodeRawByte⟩
 

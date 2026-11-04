@@ -1,4 +1,5 @@
 import Xsh.Conformance.Connected.ActualFacts
+import Xsh.Conformance.Connected.IdentityDocumentProof
 
 namespace Xsh.Conformance.Connected
 

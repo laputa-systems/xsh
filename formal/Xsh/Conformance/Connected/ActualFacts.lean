@@ -1,5 +1,5 @@
 import Xsh.Conformance.Connected.SparseFacts
-import Xsh.Conformance.Connected.Documents
+import Xsh.Conformance.Connected.ConnectedDocumentProof
 import Xsh.Conformance.Connected.CallFacts
 
 namespace Xsh.Conformance.Connected
