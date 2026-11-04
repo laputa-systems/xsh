@@ -36,7 +36,7 @@ mutual
     | valueBlock (completion : MonoType) (body : List StatementNode)
 
   inductive StatementNode where
-    | binding (binder : BinderId) (kind : BindingKind) (initializer : Node)
+    | binding (binder : BinderId) (kind : BindingKind) (storage : MonoType) (initializer : Node)
     | assignment (binder : BinderId) (value : Node)
     | evaluated (value : Node)
     | returned (value : Node)
@@ -70,7 +70,7 @@ mutual
 
   def statementPropagationErrors : List StatementNode → List MonoType
     | [] => []
-    | .binding _ _ value :: rest | .assignment _ value :: rest |
+    | .binding _ _ _ value :: rest | .assignment _ value :: rest |
       .evaluated value :: rest | .returned value :: rest =>
         propagationErrors value ++ statementPropagationErrors rest
     | .conditional branches fallback :: rest =>
@@ -385,22 +385,23 @@ mutual
       | .binding kind (.name name) typeAnnotation initializer => do
           let generated ← expressionIn fuel (some (names, result)) scope initializer
           constrainPropagation result generated.node
-          match typeAnnotation with
-          | some declared =>
-              let some ty := annotation names declared | throw .unsupportedAnnotation
-              emit (.equal generated.ty ty)
-          | none => pure ()
+          let storage ← match typeAnnotation with
+            | some declared => do
+                let some ty := annotation names declared | throw .unsupportedAnnotation
+                emit (.store ty generated.ty)
+                pure ty
+            | none => pure generated.ty
           let binder ← freshBinder
           let bindingKind := if kind = .var then BindingKind.mutable else .immutable
-          let binding : Binding := ⟨name, binder, bindingKind, ⟨[], generated.ty, []⟩⟩
+          let binding : Binding := ⟨name, binder, bindingKind, ⟨[], storage, []⟩⟩
           let following ← blockWithCompletion fuel names (binding :: scope) result completion rest
-          pure (.binding binder bindingKind generated.node :: following)
+          pure (.binding binder bindingKind storage generated.node :: following)
       | .assign (.name name) .set value => do
           let binding ← resolve scope name
           if binding.kind = .mutable then pure () else throw .immutableAssignment
           let generated ← expressionIn fuel (some (names, result)) scope value
           constrainPropagation result generated.node
-          emit (.equal generated.ty binding.scheme.body)
+          emit (.store binding.scheme.body generated.ty)
           let following ← blockWithCompletion fuel names scope result completion rest
           pure (.assignment binding.binder generated.node :: following)
       | .returnValue (some value) => do
@@ -539,8 +540,8 @@ def composedBody : List Statement :=
 def composedBodyShape : Bool :=
   match (block 48 exampleTypeNames composedScope (.result (.primitive .integer) (.primitive .string))
       composedBody).run ⟨20, 20, []⟩ with
-  | .ok ([.binding _ .immutable (.record [(_, .call _ _), (_, .call _ _)]),
-      .binding _ .mutable (.field _ _), .assignment _ (.binary .add _ _),
+  | .ok ([.binding _ .immutable _ (.record [(_, .call _ _), (_, .call _ _)]),
+      .binding _ .mutable _ (.field _ _), .assignment _ (.binary .add _ _),
       .returned (.conditional [(_, .call _ _)] (.call _ _))], _) => true
   | _ => false
 

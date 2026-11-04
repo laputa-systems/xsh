@@ -99,6 +99,22 @@ def checksWellFormed : MonoType → Bool
 theorem checks_well_formed_iff (ty : MonoType) : checksWellFormed ty = true ↔ WellFormed ty := by
   induction ty <;> simp_all [checksWellFormed, WellFormed, and_assoc]
 
+def rowNames : MonoType → List NameId
+  | .rowField name _ tail => name :: rowNames tail
+  | _ => []
+
+def checksUniqueRows : MonoType → Bool
+  | .variable _ | .primitive _ | .rowEmpty | .argumentsEmpty => true
+  | .function arguments result | .argument arguments result | .result arguments result =>
+      checksUniqueRows arguments && checksUniqueRows result
+  | .record row | .nominal _ row => checksUniqueRows row
+  | .rowField name value tail =>
+      decide (name ∉ rowNames tail) && checksUniqueRows value && checksUniqueRows tail
+
+theorem duplicate_row_is_not_unique (name : NameId) (first second tail : MonoType) :
+    checksUniqueRows (.record (.rowField name first (.rowField name second tail))) = false := by
+  simp [checksUniqueRows, rowNames]
+
 abbrev Substitution := Variable → MonoType
 
 def substitute (substitution : Substitution) : MonoType → MonoType
@@ -175,6 +191,7 @@ theorem substitute_absent (id : Variable) (replacement ty : MonoType)
 inductive Constraint where
   | equal (left right : MonoType)
   | field (record : MonoType) (name : NameId) (value : MonoType)
+  | store (storage replacement : MonoType)
   deriving DecidableEq
 
 inductive FieldOccurs : NameId → MonoType → MonoType → Prop where
@@ -231,8 +248,125 @@ theorem field_occurs_iff {name : NameId} {value row : MonoType} :
     · intro found; cases found
     · intro impossible; cases impossible
 
+mutual
+  inductive StoreCompatible : MonoType → MonoType → Prop where
+    | same (ty : MonoType) : StoreCompatible ty ty
+    | result {expectedValue expectedError actualValue actualError} :
+        StoreCompatible expectedValue actualValue → StoreCompatible expectedError actualError →
+        StoreCompatible (.result expectedValue expectedError) (.result actualValue actualError)
+    | record {expected actual} : StoreRowCompatible expected actual →
+        StoreCompatible (.record expected) (.record actual)
+    | nominal {identity expected actual} : StoreCompatible expected actual →
+        StoreCompatible (.nominal identity expected) (.nominal identity actual)
+
+  inductive StoreRowCompatible : MonoType → MonoType → Prop where
+    | empty {actual} : StoreRowCompatible .rowEmpty actual
+    | field {name expected tail actual selected} :
+        FieldOccurs name selected actual → StoreCompatible expected selected → StoreRowCompatible tail actual →
+        StoreRowCompatible (.rowField name expected tail) actual
+end
+
+theorem store_compatible_substitutes (substitution : Substitution) {expected actual : MonoType}
+    (compatible : StoreCompatible expected actual) :
+    StoreCompatible (substitute substitution expected) (substitute substitution actual) := by
+  induction compatible using StoreCompatible.rec
+    (motive_2 := fun expected actual _ => StoreRowCompatible (substitute substitution expected) (substitute substitution actual)) with
+  | same ty => exact .same _
+  | result _ _ left right => exact .result left right
+  | record _ row => exact .record row
+  | nominal _ base => exact .nominal base
+  | empty => exact .empty
+  | field found _ _ value rest => exact .field (field_occurs_substitute found substitution) value rest
+
+mutual
+  def checksStoreCompatible : MonoType → MonoType → Bool
+    | expected, actual =>
+      if expected = actual then true else
+      match expected, actual with
+      | .result expectedValue expectedError, .result actualValue actualError =>
+        checksStoreCompatible expectedValue actualValue && checksStoreCompatible expectedError actualError
+      | .record expectedRow, .record actualRow => checksStoreRow expectedRow actualRow
+      | .nominal expectedId expectedBase, .nominal actualId actualBase =>
+        decide (expectedId = actualId) && checksStoreCompatible expectedBase actualBase
+      | _, _ => false
+
+  def checksStoreRow : MonoType → MonoType → Bool
+    | .rowEmpty, _ => true
+    | .rowField name expected tail, actual =>
+      match fieldAt? name actual with
+      | none => false
+      | some selected => checksStoreCompatible expected selected && checksStoreRow tail actual
+    | _, _ => false
+end
+
+theorem store_compatible_check_complete {expected actual : MonoType}
+    (compatible : StoreCompatible expected actual) : checksStoreCompatible expected actual = true := by
+  induction compatible using StoreCompatible.rec
+    (motive_2 := fun expected actual _ => checksStoreRow expected actual = true) with
+  | same ty => cases ty <;> simp [checksStoreCompatible]
+  | result _ _ left right => simp [checksStoreCompatible, left, right]
+  | record _ row => simp [checksStoreCompatible, row]
+  | nominal _ base => simp [checksStoreCompatible, base]
+  | empty => rfl
+  | field found _ _ value rest => simp [checksStoreRow, field_occurs_iff.mp found, value, rest]
+
+
+mutual
+  theorem store_compatible_check_sound (expected actual : MonoType)
+      (checked : checksStoreCompatible expected actual = true) : StoreCompatible expected actual := by
+    by_cases same : expected = actual
+    · subst actual
+      exact .same expected
+    · cases expected with
+      | result expectedValue expectedError =>
+        cases actual with
+        | result actualValue actualError =>
+          simp [checksStoreCompatible, same, Bool.and_eq_true] at checked
+          exact .result (store_compatible_check_sound expectedValue actualValue checked.1)
+            (store_compatible_check_sound expectedError actualError checked.2)
+        | _ => simp [checksStoreCompatible, same] at checked
+      | record expectedRow =>
+        cases actual with
+        | record actualRow =>
+          simp [checksStoreCompatible, same] at checked
+          exact .record (store_row_check_sound expectedRow actualRow checked)
+        | _ => simp [checksStoreCompatible, same] at checked
+      | nominal expectedId expectedBase =>
+        cases actual with
+        | nominal actualId actualBase =>
+          simp [checksStoreCompatible, same, Bool.and_eq_true] at checked
+          obtain ⟨rfl, base⟩ := checked
+          exact .nominal (store_compatible_check_sound expectedBase actualBase base)
+        | _ => simp [checksStoreCompatible, same] at checked
+      | _ => cases actual <;> first
+        | exact (same rfl).elim
+        | simp [checksStoreCompatible, same] at checked
+    termination_by sizeOf expected
+
+  theorem store_row_check_sound (expected actual : MonoType)
+      (checked : checksStoreRow expected actual = true) : StoreRowCompatible expected actual := by
+    cases expected with
+    | rowEmpty => exact .empty
+    | rowField name value tail =>
+      cases found : fieldAt? name actual with
+      | none => simp [checksStoreRow, found] at checked
+      | some selected =>
+        simp [checksStoreRow, found, Bool.and_eq_true] at checked
+        exact .field (field_occurs_iff.mpr found)
+          (store_compatible_check_sound value selected checked.1) (store_row_check_sound tail actual checked.2)
+    | _ => simp [checksStoreRow] at checked
+    termination_by sizeOf expected
+end
+
+theorem checks_store_compatible_iff (expected actual : MonoType) :
+    checksStoreCompatible expected actual = true ↔ StoreCompatible expected actual :=
+  ⟨store_compatible_check_sound expected actual, store_compatible_check_complete⟩
+
+
+
 def satisfies (substitution : Substitution) : Constraint → Prop
   | .equal left right => substitute substitution left = substitute substitution right
+  | .store storage replacement => StoreCompatible (substitute substitution storage) (substitute substitution replacement)
   | .field record name value =>
       ∃ row, substitute substitution record = .record row ∧
         FieldOccurs name (substitute substitution value) row
@@ -240,8 +374,15 @@ def satisfies (substitution : Substitution) : Constraint → Prop
 def Solves (constraints : List Constraint) (substitution : Substitution) : Prop :=
   ∀ constraint ∈ constraints, satisfies substitution constraint
 
+def checksConstraintUniqueRows (substitution : Substitution) : Constraint → Bool
+  | .equal left right | .store left right =>
+      checksUniqueRows (substitute substitution left) && checksUniqueRows (substitute substitution right)
+  | .field record _ value =>
+      checksUniqueRows (substitute substitution record) && checksUniqueRows (substitute substitution value)
+
 def checksConstraint (substitution : Substitution) : Constraint → Bool
   | .equal left right => decide (substitute substitution left = substitute substitution right)
+  | .store storage replacement => checksStoreCompatible (substitute substitution storage) (substitute substitution replacement)
   | .field record name value =>
       match substitute substitution record with
       | .record row => decide (fieldAt? name row = some (substitute substitution value))
@@ -251,6 +392,7 @@ theorem checks_constraint_iff (substitution : Substitution) (constraint : Constr
     checksConstraint substitution constraint = true ↔ satisfies substitution constraint := by
   cases constraint with
   | equal left right => simp [checksConstraint, satisfies]
+  | store storage replacement => exact checks_store_compatible_iff _ _
   | field record name value =>
     cases found : substitute substitution record <;>
       simp [checksConstraint, satisfies, found, field_occurs_iff]
@@ -273,6 +415,7 @@ theorem absent_field_constraint_is_unsatisfiable {name other : NameId} {field va
 
 def mapConstraint (substitution : Substitution) : Constraint → Constraint
   | .equal left right => .equal (substitute substitution left) (substitute substitution right)
+  | .store storage replacement => .store (substitute substitution storage) (substitute substitution replacement)
   | .field record name value => .field (substitute substitution record) name (substitute substitution value)
 
 theorem satisfies_mapped (first second : Substitution) (constraint : Constraint) :
@@ -325,6 +468,10 @@ theorem solutions_are_preserved_by_instantiation {constraints : List Constraint}
     have solved := solves (.equal left right) member
     simp only [satisfies, substitute_compose] at solved ⊢
     exact congrArg (substitute later) solved
+  | store storage replacement =>
+    have solved := solves (.store storage replacement) member
+    simp only [satisfies, substitute_compose] at solved ⊢
+    exact store_compatible_substitutes later solved
   | field record name value =>
     obtain ⟨row, same, found⟩ := solves (.field record name value) member
     refine ⟨substitute later row, ?_, ?_⟩
@@ -520,7 +667,7 @@ structure Scheme where
 abbrev TypeEnvironment := List (NameId × Scheme)
 
 def constraintVariables : Constraint → List Variable
-  | .equal left right => freeVariables left ++ freeVariables right
+  | .equal left right | .store left right => freeVariables left ++ freeVariables right
   | .field record _ value => freeVariables record ++ freeVariables value
 
 def schemeVariables (scheme : Scheme) : List Variable :=

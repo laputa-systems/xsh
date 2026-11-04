@@ -129,10 +129,10 @@ theorem certified_integer_local_executes (state : Machine)
     refine ⟨next, ?_⟩
     let rest : List StatementNode := [.assignment integerLocalBinder (.integer "2"),
       .returned (.read integerLocalBinder [])]
-    refine .next (Step.bindingStart state integerLocalBinder .mutable (.integer "1") rest) ?_
-    refine .next (Step.integer { state with stack := .bind integerLocalBinder .mutable rest :: state.stack }
+    refine .next (Step.bindingStart state integerLocalBinder .mutable (.primitive .integer) .integer (.integer "1") rest rfl) ?_
+    refine .next (Step.integer { state with stack := .bind integerLocalBinder .mutable .integer rest :: state.stack }
       "1" intOne (by decide +kernel)) ?_
-    refine .next (Step.bindingCommit state integerLocalBinder .mutable (.scalar (.integer intOne))
+    refine .next (Step.bindingCommit state integerLocalBinder .mutable .integer (.scalar (.integer intOne))
       rest allocated allocatedProof) ?_
     exact run
 
@@ -260,7 +260,7 @@ def invalidPropagationSource : List Xsh.Syntax.Statement :=
   [.binding .letBinding (.name invalidPropagationLocal) none (.tryExpr invalidRecordSource),
    .returnValue (some (.literal (.integer "7")))]
 def invalidPropagationCandidate : List StatementNode :=
-  [.binding invalidPropagationBinder .immutable (.propagate invalidRecordCandidate (.primitive .error)),
+  [.binding invalidPropagationBinder .immutable (.nominal recordNominal (.record schemaRow)) (.propagate invalidRecordCandidate (.primitive .error)),
    .returned (.integer "7")]
 
 theorem propagation_outside_result_boundary_is_never_certified (types : BinderTypes)

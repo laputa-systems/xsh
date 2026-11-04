@@ -98,13 +98,12 @@ def bindActive (cells : ActiveCells) (binder : BinderId) (cell : CellId) : Activ
 def withGlobals (locals globals : ActiveCells) : ActiveCells := fun binder =>
   (locals binder).orElse fun _ => globals binder
 
-def allocate (store : Store) (cell : CellId) (mutability : Mutability) (value : Value) : Option Store :=
+def allocate (store : Store) (cell : CellId) (mutability : Mutability) (ty : RuntimeType) (value : Value) : Option Store :=
   if (store cell).isSome then none else
-    match found : valueType value with
-    | none => none
-    | some ty =>
-      let entry : StoreCell RuntimeType Value HasType := ⟨⟨ty, value, found⟩, mutability⟩
+    if typed : HasType ty value then
+      let entry : StoreCell RuntimeType Value HasType := ⟨⟨ty, value, typed⟩, mutability⟩
       some (fun other => if other = cell then some entry else store other)
+    else none
 
 def read (store : Store) (cells : ActiveCells) (binder : BinderId) : Option Value := do
   let cell ← cells binder
@@ -159,9 +158,9 @@ def bindParameters (activation : Nat) : List BinderId → List Value → Runtime
     Except Fault (ActiveCells × Store)
   | [], [], .argumentsEmpty, store => .ok (emptyCells, store)
   | binder :: binders, value :: values, .argument ty rest, store => do
-    if valueType value = some ty then pure () else throw .wrongArguments
+    if HasType ty value then pure () else throw .wrongArguments
     let cell : CellId := ⟨activation, binder⟩
-    let some next := allocate store cell .immutable value | throw .invalidValue
+    let some next := allocate store cell .immutable ty value | throw .invalidValue
     let (cells, final) ← bindParameters activation binders values rest next
     if (cells binder).isSome then throw .wrongArguments
     pure (bindActive cells binder cell, final)
@@ -217,7 +216,7 @@ inductive Frame where
   | conditional (branches : List (Node × Node)) (otherwise : Node)
   | propagate
   | requireGuard (identity : Xsh.Validation.Nominal.NominalId) (guard : Guard)
-  | bind (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind) (rest : List StatementNode)
+  | bind (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind) (storage : RuntimeType) (rest : List StatementNode)
   | assign (binder : BinderId) (rest : List StatementNode)
   | discard (rest : List StatementNode)
   | returnValue
@@ -380,20 +379,26 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .value value, stack := .recordFields done name [] :: state.stack } .internal
         { state with control := .value (.record (done ++ [(name, value)])) }
   | bindingStart (state : Machine) (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind)
-      (initializer : Node) (rest : List StatementNode) :
-      Step { state with control := .statements (.binding binder kind initializer :: rest) } .internal
-        { state with control := .expression initializer, stack := .bind binder kind rest :: state.stack }
+      (rawStorage : MonoType) (storage : RuntimeType) (initializer : Node) (rest : List StatementNode)
+      (closed : monoRuntime (substitute state.solution rawStorage) = some storage) :
+      Step { state with control := .statements (.binding binder kind rawStorage initializer :: rest) } .internal
+        { state with control := .expression initializer, stack := .bind binder kind storage rest :: state.stack }
+  | bindingStorageInvalid (state : Machine) (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind)
+      (rawStorage : MonoType) (initializer : Node) (rest : List StatementNode)
+      (unresolved : monoRuntime (substitute state.solution rawStorage) = none) :
+      Step { state with control := .statements (.binding binder kind rawStorage initializer :: rest) } .internal
+        { state with control := .fault .invalidValue }
   | bindingCommit (state : Machine) (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind)
-      (value : Value) (rest : List StatementNode) (next : Store)
+      (storage : RuntimeType) (value : Value) (rest : List StatementNode) (next : Store)
       (allocated : allocate state.store ⟨state.activation, binder⟩
-        (if kind = .mutable then .mutable else .immutable) value = some next) :
-      Step { state with control := .value value, stack := .bind binder kind rest :: state.stack } .internal
+        (if kind = .mutable then .mutable else .immutable) storage value = some next) :
+      Step { state with control := .value value, stack := .bind binder kind storage rest :: state.stack } .internal
         { state with control := .statements rest, store := next, cells := bindActive state.cells binder ⟨state.activation, binder⟩ }
   | bindingRejected (state : Machine) (binder : BinderId) (kind : Xsh.Typing.Connected.BindingKind)
-      (value : Value) (rest : List StatementNode)
+      (storage : RuntimeType) (value : Value) (rest : List StatementNode)
       (rejected : allocate state.store ⟨state.activation, binder⟩
-        (if kind = .mutable then .mutable else .immutable) value = none) :
-      Step { state with control := .value value, stack := .bind binder kind rest :: state.stack } .internal
+        (if kind = .mutable then .mutable else .immutable) storage value = none) :
+      Step { state with control := .value value, stack := .bind binder kind storage rest :: state.stack } .internal
         { state with control := .fault .invalidValue }
   | assignmentStart (state : Machine) (binder : BinderId) (value : Node) (rest : List StatementNode) :
       Step { state with control := .statements (.assignment binder value :: rest) } .internal
@@ -462,24 +467,24 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .invoke (.instantiatedFunction declaration parameterTypes resultType captured typeArguments) arguments } .internal
         { state with control := .statements function.body, cells := withGlobals cells state.globals, store := store, activation := state.nextActivation, nextActivation := state.nextActivation + 1, solution := compose captured (compose (schemeSubstitution function.scheme (witnessSubstitution typeArguments)) function.elaboration), stack := .caller state.cells state.activation state.solution resultType :: state.stack }
   | callOk (state : Machine) (declaration : DeclarationId) (value : Value) (valueType' errorType : RuntimeType)
-      (found : state.functions declaration = some .resultOk) (typed : valueType value = some valueType') :
+      (found : state.functions declaration = some .resultOk) (typed : HasType valueType' value) :
       Step { state with control := .invoke (.function declaration (.argument valueType' .argumentsEmpty)
         (.result valueType' errorType)) [value] } .internal
         { state with control := .value (.ok value errorType) }
   | callError (state : Machine) (declaration : DeclarationId) (value : Value) (valueType' errorType : RuntimeType)
-      (found : state.functions declaration = some .resultError) (typed : valueType value = some errorType) :
+      (found : state.functions declaration = some .resultError) (typed : HasType errorType value) :
       Step { state with control := .invoke (.function declaration (.argument errorType .argumentsEmpty)
         (.result valueType' errorType)) [value] } .internal
         { state with control := .value (.error value valueType') }
   | callOkInstantiated (state : Machine) (declaration : DeclarationId) (value : Value)
       (valueType' errorType : RuntimeType) (captured : Substitution) (typeArguments : List (Variable × MonoType))
-      (found : state.functions declaration = some .resultOk) (typed : valueType value = some valueType') :
+      (found : state.functions declaration = some .resultOk) (typed : HasType valueType' value) :
       Step { state with control := .invoke (.instantiatedFunction declaration (.argument valueType' .argumentsEmpty)
         (.result valueType' errorType) captured typeArguments) [value] } .internal
         { state with control := .value (.ok value errorType) }
   | callErrorInstantiated (state : Machine) (declaration : DeclarationId) (value : Value)
       (valueType' errorType : RuntimeType) (captured : Substitution) (typeArguments : List (Variable × MonoType))
-      (found : state.functions declaration = some .resultError) (typed : valueType value = some errorType) :
+      (found : state.functions declaration = some .resultError) (typed : HasType errorType value) :
       Step { state with control := .invoke (.instantiatedFunction declaration (.argument errorType .argumentsEmpty)
         (.result valueType' errorType) captured typeArguments) [value] } .internal
         { state with control := .value (.error value valueType') }
@@ -493,15 +498,15 @@ inductive Step : Machine → Label → Machine → Prop where
       Step { state with control := .invoke (.function declaration .argumentsEmpty .integer) [] } (.request .timeNow response)
         { state with control := .value (.scalar (.integer response)) }
   | returnedToCaller (state : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (saved : Substitution) (ty : RuntimeType)
-      (typed : valueType value = some ty) :
+      (typed : HasType ty value) :
       Step { state with control := .returned value, stack := .caller cells activation saved ty :: state.stack } .internal
         { state with control := .value value, cells := cells, activation := activation, solution := saved }
   | completedToCaller (state : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (saved : Substitution) (ty : RuntimeType)
-      (typed : valueType value = some ty) :
+      (typed : HasType ty value) :
       Step { state with control := .completed value, stack := .caller cells activation saved ty :: state.stack } .internal
         { state with control := .value value, cells := cells, activation := activation, solution := saved }
   | propagatedToCaller (state : Machine) (error : Value) (oldType valueType' errorType : RuntimeType)
-      (cells : ActiveCells) (activation : Nat) (saved : Substitution) (typed : valueType error = some errorType) :
+      (cells : ActiveCells) (activation : Nat) (saved : Substitution) (typed : HasType errorType error) :
       Step { state with control := .propagated (.error error oldType), stack := .caller cells activation saved (.result valueType' errorType) :: state.stack } .internal
         { state with control := .value (.error error valueType'), cells := cells, activation := activation, solution := saved }
   | returnUnwind (state : Machine) (value : Value) (frame : Frame) (notCaller : isCaller frame = false) :
@@ -574,24 +579,14 @@ theorem read_after_assignment (store next : Store) (cells : ActiveCells)
 
 theorem allocate_fresh_typed_cell (store : Store) (cell : CellId) (mutability : Mutability)
     (value : Value) (ty : RuntimeType) (fresh : store cell = none)
-    (typed : valueType value = some ty) :
-    ∃ next current, allocate store cell mutability value = some next ∧
+    (typed : HasType ty value) :
+    ∃ next current, allocate store cell mutability ty value = some next ∧
       next cell = some current ∧ current.mutability = mutability ∧
       current.contents.typeTag = ty ∧ current.contents.value = value := by
   let current : StoreCell RuntimeType Value HasType := ⟨⟨ty, value, typed⟩, mutability⟩
   let next : Store := fun other => if other = cell then some current else store other
   refine ⟨next, current, ?_, ?_, rfl, rfl, rfl⟩
-  · unfold allocate
-    rw [fresh]
-    simp only [Option.isSome_none, Bool.false_eq_true, ↓reduceIte]
-    split
-    · rename_i found
-      rw [typed] at found
-      cases found
-    · rename_i found same
-      rw [typed] at same
-      cases same
-      rfl
+  · simp [allocate, fresh, typed, next, current]
   · simp [next]
 
 end Xsh.Semantics.Connected

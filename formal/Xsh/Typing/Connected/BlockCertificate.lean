@@ -8,7 +8,7 @@ open Xsh.Syntax
 mutual
   def declaredBinders : List StatementNode → List Xsh.Foundation.BinderId
     | [] => []
-    | .binding binder _ value :: rest => binder :: nodeDeclaredBinders value ++ declaredBinders rest
+    | .binding binder _ _ value :: rest => binder :: nodeDeclaredBinders value ++ declaredBinders rest
     | .assignment _ value :: rest | .evaluated value :: rest | .returned value :: rest =>
         nodeDeclaredBinders value ++ declaredBinders rest
     | .conditional branches fallback :: rest =>
@@ -126,7 +126,7 @@ def integerLocalSource : List Statement :=
    .returnValue (some (.ident integerLocalName))]
 
 def integerLocalCandidate : List StatementNode :=
-  [.binding integerLocalBinder .mutable (.integer "1"),
+  [.binding integerLocalBinder .mutable (.primitive .integer) (.integer "1"),
    .assignment integerLocalBinder (.integer "2"),
    .returned (.read integerLocalBinder [])]
 
@@ -144,7 +144,7 @@ theorem integer_local_derived_certificate_is_inhabited : integerLocalCertificate
 
 
 def changedIntegerLocalCandidate : List StatementNode :=
-  [.binding integerLocalBinder .mutable (.integer "1"),
+  [.binding integerLocalBinder .mutable (.primitive .integer) (.integer "1"),
    .assignment ⟨⟨1, by decide⟩⟩ (.integer "2"),
    .returned (.read integerLocalBinder [])]
 
@@ -175,8 +175,8 @@ def siblingLocalSource : List Statement :=
    .returnValue (some (.literal (.integer "3")))]
 
 def reusedSiblingCandidate : List StatementNode :=
-  [.conditional [(.boolean true, [.binding integerLocalBinder .mutable (.integer "1")])] [],
-   .conditional [(.boolean true, [.binding integerLocalBinder .mutable (.integer "2")])] [],
+  [.conditional [(.boolean true, [.binding integerLocalBinder .mutable (.primitive .integer) (.integer "1")])] [],
+   .conditional [(.boolean true, [.binding integerLocalBinder .mutable (.primitive .integer) (.integer "2")])] [],
    .returned (.integer "3")]
 
 def siblingReuseRejected : Bool :=

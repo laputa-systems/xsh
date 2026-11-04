@@ -112,16 +112,18 @@ mutual
       TypeNames → Scope → MonoType → Option MonoType → List Statement → Prop where
     | nil {names scope result completion} : CompletionAccepts completion (.primitive .unit) →
         SourceBlockHasCompletion solution names scope result completion []
-    | binding {names scope result completion kind name declared initializer rest binder rawType} :
-        ExpressionHasTypeIn solution (some (names, result)) scope initializer (substitute solution rawType) →
+    | binding {names scope result completion kind name declared initializer rest binder rawType valueType} :
+        ExpressionHasTypeIn solution (some (names, result)) scope initializer valueType →
+        StoreCompatible (substitute solution rawType) valueType →
         AnnotationAgrees names solution declared (substitute solution rawType) →
         (∀ binding ∈ scope, binding.binder ≠ binder) →
         SourceBlockHasCompletion solution names
           (⟨name, binder, bindingKind kind, ⟨[], rawType, []⟩⟩ :: scope) result completion rest →
         SourceBlockHasCompletion solution names scope result completion (.binding kind (.name name) declared initializer :: rest)
-    | assignment {names scope result completion name value rest binding} :
+    | assignment {names scope result completion name value rest binding valueType} :
         scope.find? (fun item => decide (item.name = name)) = some binding → binding.kind = .mutable →
-        ExpressionHasTypeIn solution (some (names, result)) scope value (substitute solution binding.scheme.body) →
+        ExpressionHasTypeIn solution (some (names, result)) scope value valueType →
+        StoreCompatible (substitute solution binding.scheme.body) valueType →
         SourceBlockHasCompletion solution names scope result completion rest →
         SourceBlockHasCompletion solution names scope result completion (.assign (.name name) .set value :: rest)
     | returned {names scope result completion value rest} :

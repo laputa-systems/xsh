@@ -5,6 +5,13 @@ namespace Xsh.Typing.Connected
 open Xsh.Foundation
 open Xsh.Syntax
 
+theorem duplicate_phantom_result_row_is_refused :
+    checksGroundScheme ⟨[], .function .argumentsEmpty
+      (.result (.primitive .integer)
+        (.record (.rowField generatedProjectionField (.primitive .integer)
+          (.rowField generatedProjectionField (.primitive .boolean) .rowEmpty)))), []⟩ [] = false := by
+  decide +kernel
+
 def cycleLocal : NameId := exampleName 42 (by decide)
 def cycleBinder : BinderId := ⟨⟨41, by decide⟩⟩
 def cycleVariable : Variable := ⟨1, .value⟩
@@ -13,30 +20,48 @@ def cycleBody : List Statement :=
    .assign (.name cycleLocal) .set (.field (.ident generatedProjectionName) generatedProjectionField),
    .tailName cycleLocal]
 def cycleCandidate : List StatementNode :=
-  [.binding cycleBinder .mutable (.read generatedProjectionParameter.binder []),
+  [.binding cycleBinder .mutable (.variable generatedParameterVariable) (.read generatedProjectionParameter.binder []),
    .assignment cycleBinder (.field (.read generatedProjectionParameter.binder []) generatedProjectionField),
    .evaluated (.read cycleBinder [])]
 def cycleConstraints : List Constraint :=
-  [.equal (.variable cycleVariable) (.variable generatedParameterVariable),
-   .equal (.variable generatedParameterVariable) (.variable generatedParameterVariable),
-   .field (.variable generatedParameterVariable) generatedProjectionField (.variable cycleVariable)]
+  [.equal (.variable generatedParameterVariable) (.variable generatedParameterVariable),
+   .field (.variable generatedParameterVariable) generatedProjectionField (.variable cycleVariable),
+   .store (.variable generatedParameterVariable) (.variable cycleVariable)]
 def cycleScheme : Scheme :=
-  ⟨[generatedParameterVariable],
+  ⟨[generatedParameterVariable, cycleVariable],
     .function (.argument (.variable generatedParameterVariable) .argumentsEmpty) (.variable generatedParameterVariable),
-    [.field (.variable generatedParameterVariable) generatedProjectionField (.variable generatedParameterVariable)]⟩
-def intCycleWitness : List (Variable × MonoType) := [(generatedParameterVariable, .primitive .integer)]
+    [.field (.variable generatedParameterVariable) generatedProjectionField (.variable cycleVariable),
+     .store (.variable generatedParameterVariable) (.variable cycleVariable)]⟩
+def intCycleWitness : List (Variable × MonoType) := [(generatedParameterVariable, .primitive .integer), (cycleVariable, .primitive .integer)]
+def recordCycleWitness : List (Variable × MonoType) :=
+  [(generatedParameterVariable, .record (.rowField generatedProjectionField (.primitive .integer) .rowEmpty)),
+   (cycleVariable, .primitive .integer)]
 
 def cycleSchemeWasPrincipallyChecked : Bool :=
   match validateGeneratedFunctionScheme 24 exampleTypeNames [generatedProjectionParameter] []
-      (.variable generatedParameterVariable) cycleBody cycleConstraints [.bindLeft, .reflexive] 2 cycleScheme with
+      (.variable generatedParameterVariable) cycleBody cycleConstraints [.reflexive] 1 cycleScheme with
   | .ok _ => true | .error _ => false
 
 def cycleFunctionRejected : Bool :=
   match validateQualifiedFunction 24 exampleTypeNames [generatedProjectionParameter] []
-      (.variable generatedParameterVariable) cycleBody cycleConstraints [.bindLeft, .reflexive] 2 cycleScheme
+      (.variable generatedParameterVariable) cycleBody cycleConstraints [.reflexive] 1 cycleScheme
       cycleCandidate (fun _ => some (.variable generatedParameterVariable))
-      (fun _ => some (.variable generatedParameterVariable)) intCycleWitness with
+      (fun _ => some (.variable cycleVariable)) intCycleWitness with
   | .error .mismatch => true | _ => false
+
+def cycleRecordFunctionRejected : Bool :=
+  match validateQualifiedFunction 24 exampleTypeNames [generatedProjectionParameter] []
+      (.variable generatedParameterVariable) cycleBody cycleConstraints [.reflexive] 1 cycleScheme
+      cycleCandidate (fun _ => some (.variable generatedParameterVariable))
+      (fun _ => some (.variable cycleVariable)) recordCycleWitness with
+  | .error .mismatch => true | _ => false
+
+theorem record_cycle_witness_fails_storage_after_field_projection :
+    checksConstraint (witnessSubstitution recordCycleWitness)
+      (.field (.variable generatedParameterVariable) generatedProjectionField (.variable cycleVariable)) = true ∧
+    checksConstraint (witnessSubstitution recordCycleWitness)
+      (.store (.variable generatedParameterVariable) (.variable cycleVariable)) = false := by
+  decide +kernel
 
 def intFieldRequirement : Scheme :=
   ⟨[], .function (.argument (.primitive .integer) .argumentsEmpty) (.primitive .integer),
@@ -133,8 +158,8 @@ theorem concrete_integer_field_has_no_solution (substitution : Substitution) :
     ¬ satisfies substitution (.field (.primitive .integer) generatedProjectionField (.primitive .integer)) := by
   simp [satisfies, substitute]
 
-theorem uncalled_unsatisfiable_functions_are_refused :
-    cycleSchemeWasPrincipallyChecked = true ∧ cycleFunctionRejected = true ∧
+theorem uncalled_functions_refuse_inconsistent_inhabitants :
+    cycleSchemeWasPrincipallyChecked = true ∧ cycleFunctionRejected = true ∧ cycleRecordFunctionRejected = true ∧
     intFieldSchemeWasPrincipallyChecked = true ∧ intFieldRejected = true := by
   decide +kernel
 

@@ -23,7 +23,7 @@ theorem store_evolves_trans {first middle last : Store}
   exact ⟨current, atLast, typeRight.trans typeLeft, mutableRight.trans mutableLeft⟩
 
 theorem allocate_preserves_layout (store next : Store) (cell : CellId)
-    (mutability : Mutability) (value : Value) (allocated : allocate store cell mutability value = some next) :
+    (mutability : Mutability) (ty : RuntimeType) (value : Value) (allocated : allocate store cell mutability ty value = some next) :
     StoreEvolves store next := by
   intro other old present
   by_cases same : other = cell
@@ -36,16 +36,15 @@ theorem allocate_preserves_layout (store next : Store) (cell : CellId)
       simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
       split at allocated
       · cases allocated
-      · rename_i ty found
-        cases allocated
         exact ⟨old, by simp [same, present], rfl, rfl⟩
+      · cases allocated
 
 
 def StoreExtends (before after : Store) : Prop :=
   ∀ cell old, before cell = some old → after cell = some old
 
 theorem allocate_preserves_existing (store next : Store) (cell : CellId)
-    (mutability : Mutability) (value : Value) (allocated : allocate store cell mutability value = some next) :
+    (mutability : Mutability) (ty : RuntimeType) (value : Value) (allocated : allocate store cell mutability ty value = some next) :
     StoreExtends store next := by
   intro other old present
   by_cases same : other = cell
@@ -58,8 +57,8 @@ theorem allocate_preserves_existing (store next : Store) (cell : CellId)
       simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
       split at allocated
       · cases allocated
-      · cases allocated
         simp [same, present]
+      · cases allocated
 
 theorem store_extends_trans {first middle last : Store}
     (left : StoreExtends first middle) (right : StoreExtends middle last) : StoreExtends first last := by
@@ -98,8 +97,8 @@ theorem parameters_preserve_layout (activation : Nat) (binders : List Xsh.Founda
     | cons value values =>
       cases types with
       | argument ty types =>
-        by_cases typed : valueType value = some ty
-        · cases allocated : allocate store ⟨activation, binder⟩ .immutable value with
+        by_cases typed : HasType ty value
+        · cases allocated : allocate store ⟨activation, binder⟩ .immutable ty value with
           | none => simp [bindParameters, typed, allocated] at bound
           | some intermediate =>
             simp [bindParameters, typed, allocated, Xsh.Typing.Connected.except_bind_ok] at bound
@@ -107,7 +106,7 @@ theorem parameters_preserve_layout (activation : Nat) (binders : List Xsh.Founda
             split at finished
             · cases finished
             · cases finished
-              exact store_evolves_trans (allocate_preserves_layout store intermediate _ _ _ allocated)
+              exact store_evolves_trans (allocate_preserves_layout store intermediate _ _ _ _ allocated)
                 (ih values types intermediate _ priorCells recursive)
         · simp only [bindParameters, typed, ↓reduceIte] at bound
           cases bound
@@ -133,8 +132,8 @@ theorem parameters_preserve_existing (activation : Nat) (binders : List Xsh.Foun
     | cons value values =>
       cases types with
       | argument ty types =>
-        by_cases typed : valueType value = some ty
-        · cases allocated : allocate store ⟨activation, binder⟩ .immutable value with
+        by_cases typed : HasType ty value
+        · cases allocated : allocate store ⟨activation, binder⟩ .immutable ty value with
           | none => simp [bindParameters, typed, allocated] at bound
           | some intermediate =>
             simp [bindParameters, typed, allocated, Xsh.Typing.Connected.except_bind_ok] at bound
@@ -142,7 +141,7 @@ theorem parameters_preserve_existing (activation : Nat) (binders : List Xsh.Foun
             split at finished
             · cases finished
             · cases finished
-              exact store_extends_trans (allocate_preserves_existing store intermediate _ _ _ allocated)
+              exact store_extends_trans (allocate_preserves_existing store intermediate _ _ _ _ allocated)
                 (ih values types intermediate _ priorCells recursive)
         · simp only [bindParameters, typed, ↓reduceIte] at bound
           cases bound
@@ -176,8 +175,8 @@ theorem write_preserves_immutable (store next : Store) (cell : CellId) (value : 
 theorem step_preserves_store_layout {before after : Machine} {event : Label}
     (step : Step before event after) : StoreEvolves before.store after.store := by
   cases step <;> try exact store_evolves_refl _
-  case bindingCommit state binder kind value rest next allocated =>
-    exact allocate_preserves_layout state.store next _ _ value allocated
+  case bindingCommit state binder kind storage value rest next allocated =>
+    exact allocate_preserves_layout state.store next _ _ storage value allocated
   case assignmentCommit state binder value rest cell next active written =>
     exact write_preserves_layout state.store next cell value written
   case assignmentRejected state binder value rest cell next active rejected =>
@@ -192,8 +191,8 @@ theorem step_preserves_store_layout {before after : Machine} {event : Label}
 theorem step_preserves_immutable_cells {before after : Machine} {event : Label}
     (step : Step before event after) : ImmutableStable before.store after.store := by
   cases step <;> try (intro _ _ present _; exact present)
-  case bindingCommit state binder kind value rest next allocated =>
-    exact store_extension_preserves_immutable (allocate_preserves_existing state.store next _ _ value allocated)
+  case bindingCommit state binder kind storage value rest next allocated =>
+    exact store_extension_preserves_immutable (allocate_preserves_existing state.store next _ _ storage value allocated)
   case assignmentCommit state binder value rest cell next active written =>
     exact write_preserves_immutable state.store next cell value written
   case assignmentRejected state binder value rest cell next active rejected =>

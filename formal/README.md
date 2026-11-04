@@ -33,8 +33,12 @@ remain open, so this bridge is not a certificate for foreign programs.
 The connected model represents nested value blocks with a Unit value and a
 separate function-return context. Its contextual validators prove source and
 node typing for checked blocks, including qualified instances. Block scope
-restoration preserves writes to outer cells. Source admission, lexical effect
-bounds, translation validation, and whole-machine correspondence remain open.
+restoration preserves writes to outer cells. Mutable bindings retain their
+selected storage type, and assignments use structural compatibility while
+preserving the stored value. The model checks qualified storage requirements
+and relates them to runtime compatibility; source-derived unique rows and
+runtime-relevant call-instance closure remain open. Source admission, lexical
+effect bounds, translation validation, and whole-machine correspondence remain open.
 Source admission records `without` region bounds and spans, but fact validation
 reports regions as unsupported until local occurrences are checked in scope.
 

@@ -97,14 +97,16 @@ mutual
     | nil {scope result completion} :
         CompletionAccepts completion (.primitive .unit) →
         NodeBlockHasCompletion solution scope result completion []
-    | binding {scope result completion name binder kind rawType initializer rest} :
-        NodeHasTypeIn solution (some result) scope initializer (substitute solution rawType) →
+    | binding {scope result completion name binder kind rawType initializer rest valueType} :
+        NodeHasTypeIn solution (some result) scope initializer valueType →
+        StoreCompatible (substitute solution rawType) valueType →
         (∀ binding ∈ scope, binding.binder ≠ binder) →
         NodeBlockHasCompletion solution (⟨name, binder, kind, ⟨[], rawType, []⟩⟩ :: scope) result completion rest →
-        NodeBlockHasCompletion solution scope result completion (.binding binder kind initializer :: rest)
-    | assignment {scope result completion name binding value rest} :
+        NodeBlockHasCompletion solution scope result completion (.binding binder kind rawType initializer :: rest)
+    | assignment {scope result completion name binding value rest valueType} :
         scope.find? (fun item => decide (item.name = name)) = some binding → binding.kind = .mutable →
-        NodeHasTypeIn solution (some result) scope value (substitute solution binding.scheme.body) →
+        NodeHasTypeIn solution (some result) scope value valueType →
+        StoreCompatible (substitute solution binding.scheme.body) valueType →
         NodeBlockHasCompletion solution scope result completion rest →
         NodeBlockHasCompletion solution scope result completion (.assignment binding.binder value :: rest)
     | returned {scope result completion value rest} :

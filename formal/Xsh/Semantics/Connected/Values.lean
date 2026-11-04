@@ -60,12 +60,15 @@ def rowFieldType (name : NameId) : RuntimeType → Option RuntimeType
 
 mutual
   def typeFits : RuntimeType → RuntimeType → Bool
-    | .record expected, .record actual => rowFits expected actual
-    | .result expectedValue expectedError, .result actualValue actualError =>
-        typeFits expectedValue actualValue && typeFits expectedError actualError
-    | .nominal expected base, .nominal actual actualBase =>
-        decide (expected = actual) && typeFits base actualBase
-    | expected, actual => decide (expected = actual)
+    | expected, actual =>
+      if expected = actual then true else
+      match expected, actual with
+      | .record expectedRow, .record actualRow => rowFits expectedRow actualRow
+      | .result expectedValue expectedError, .result actualValue actualError =>
+          typeFits expectedValue actualValue && typeFits expectedError actualError
+      | .nominal expectedId expectedBase, .nominal actualId actualBase =>
+          decide (expectedId = actualId) && typeFits expectedBase actualBase
+      | _, _ => false
 
   def rowFits : RuntimeType → RuntimeType → Bool
     | .rowEmpty, _ => true
@@ -110,10 +113,24 @@ def eraseNominal : Value → Value
   | .nominal _ _ value => eraseNominal value
   | value => value
 
-def HasType (ty : RuntimeType) (value : Value) : Prop := valueType value = some ty
+def HasType (ty : RuntimeType) (value : Value) : Prop :=
+  match valueType value with
+  | none => False
+  | some actual => typeFits ty actual = true
 
-instance (ty : RuntimeType) (value : Value) : Decidable (HasType ty value) :=
-  inferInstanceAs (Decidable (valueType value = some ty))
+instance (ty : RuntimeType) (value : Value) : Decidable (HasType ty value) := by
+  unfold HasType
+  split <;> infer_instance
+
+theorem has_type_of_exact (ty : RuntimeType) (value : Value)
+    (typed : valueType value = some ty) : HasType ty value := by
+  simp only [HasType, typed]
+  cases ty <;> simp [typeFits]
+
+theorem has_type_iff_compatible (ty : RuntimeType) (value : Value) :
+    HasType ty value ↔ ∃ actual, valueType value = some actual ∧ typeFits ty actual = true := by
+  unfold HasType
+  cases found : valueType value <;> simp [found]
 
 abbrev Store := TypedStore RuntimeType Value HasType
 
