@@ -6082,6 +6082,7 @@ impl<'a> ProducerProof<'a> {
                             (FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprListComp, Type::List(_))
                             | (FullTag::ExprMapLiteral | FullTag::ExprEmptyMap | FullTag::ExprMapComp, Type::Map(_, _))
                             | (FullTag::ExprRecord, Type::ErasedRecord)
+                            | (FullTag::ExprRecordUpdate, Type::Record(_))
                             | (FullTag::ExprCapture, Type::Result(_, _)))
                         {
                             self.expression(owner, input, Arc::clone(&checked), false);

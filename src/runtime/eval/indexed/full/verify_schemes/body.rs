@@ -5950,6 +5950,32 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn contextual_record_update_rejects_a_forged_replacement() {
+        let mut program = prepare(r#"
+type Build = {jobs: Int, tags: List[Str]}
+type Config = {build: Build, name: Str = "default"}
+proc witness() [error] {
+    let config = Config(build: {jobs: 2, tags: ["old"]}, name: "kept")
+    let updated: Config = {...config, build.jobs: 8, build.tags: [], name: "renamed"}
+    assert updated.build.tags.len() == 0
+}
+witness()
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "witness").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let number = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Int(8)))).unwrap();
+        let text = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Str("renamed")))).unwrap();
+        program.store.tags[number] = program.store.tags[text];
+        program.store.data[number] = program.store.data[text];
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(error.message.contains("contract") || error.message.contains("type"), "{error:?}");
+    }
+
+    #[test]
     fn required_any_result_preserves_explicit_list_annotation_when_cold() {
         let mut program = prepare(r#"
 proc main(...argv: List[Str]) [error] -> Result[Unit] {
