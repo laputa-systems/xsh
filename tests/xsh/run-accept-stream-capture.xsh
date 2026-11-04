@@ -194,7 +194,7 @@ test test_timed_process_stream_requires_retained_child_status { |ctx|
   let started = test.temp_path(ctx, name: "stream-no-child-status-started")
   let source = r"""process.set_signal_action("CLD", "ignore")?
 let started = Path(args[0])
-let outcome: Result[Unit, ProcessError] = try {
+let outcome: Result[Unit, Error] = try {
   let rows = run.stream --text --timeout=5s sh -c "touch \"$1\"" sh $started ?
   for chunk in rows { var byte_count = chunk.byte_len() }
   Ok()
@@ -224,7 +224,7 @@ while ! ready.exists()? and ready_attempts < 5000 { time.sleep(1ms)?; ready_atte
 assert ready.exists()?
 process.set_signal_action("CLD", "ignore")?
 process.set_signal_action("CLD", "default")?
-let outcome: Result[Unit, ProcessError] = try {
+let outcome: Result[Unit, Error] = try {
   for chunk in rows { var byte_count = chunk.len() }
   Ok()
 }
@@ -275,7 +275,7 @@ test test_accept_stream_decode_failure_is_a_checked_process_error { |ctx|
   let output = test.run_script(
     ctx,
     r"""
-let rejected: Result[Unit, ProcessError] = try {
+let rejected: Result[Unit, Error] = try {
   let rows = run.stream --text --accept=[0] sh -c "printf '\\377'" ?
   for row in rows { print $row }
 }
