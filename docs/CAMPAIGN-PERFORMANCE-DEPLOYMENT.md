@@ -77,7 +77,7 @@ last source that passed most gates, and old passes do not qualify later source.
   `systime() > 1000000000`. RTC device failures and the pinned kernel's epoch
   fallback suggest a clock cause, which is unproven.
 - **Inference:** the accepted capabilities are merged on `master`. Its
-  residuals are XSH-61, XSH-63, XSH-65 and XSH-66 in [TODO](../TODO.md).
+  residuals are XSH-61, XSH-65 and XSH-66 in [TODO](../TODO.md).
 - **Lean:** H3 maintenance passed on the unchanged Lean 4.35 project. See
   [the Lean campaign](../xsh-lean.md).
 

@@ -223,16 +223,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-63 · P3 · Anchor a local whose only seed is a deferred assignment
-
-- **Area:** Inference
-- **Where:** `src/sema/`, `core/arp.xsh:216`, `core/patch.xsh:356`
-- **Problem:** `proc show(name) { var wanted = null; wanted = name; if wanted != null { ... } }` publishes the free `seed` (`material type needs an annotation`): the deferred assignment `seed? <- name` anchors nothing.
-- **Recommendation:** Bind the seed to the assigned variable when it is still unresolved at finalization. When `name` instantiates to `Str?`, `wanted` stays `Str?`: an optional is not a runtime wrapper (SPEC 4.6), so `Str??` holds exactly the values of `Str?`. State that idempotence in SPEC 4.6 with the fix.
-- **Acceptance:** `arp:216` erases; native tests cover a plain and an optional argument and match the annotated twin's behavior. `patch` erases `one_patch.named` jointly with the nine `opts` parameters: `var named = null` in `run_patches` is assigned from the erased `opts.files[0]`, and the 89-site joint view fails with `material type needs an annotation` until it anchors.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-67 · P3 · Close an empty list literal field passed to a generic proc
 
 - **Area:** Inference
