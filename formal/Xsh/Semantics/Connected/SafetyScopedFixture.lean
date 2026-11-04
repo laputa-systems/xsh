@@ -445,14 +445,15 @@ theorem scoped_instantiation_parameters (captured : Substitution)
   simp [monoRuntime, resultClosed] at parametersClosed
   exact parametersClosed.symm
 
-theorem actual_scoped_function_certified (state : Machine) : ∃ principal,
-    validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+theorem scoped_fixture_function_certified (state : Machine) (principal : Substitution)
+    (accepted : validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
       scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
-      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal ∧
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal) :
     FunctionBodyCertified [] (fun _ => .ordinary) state (scopedFixtureFunction principal) := by
-  obtain ⟨principal, accepted, fixed, typed⟩ := scoped_fixture_all_instances_typed
+  obtain ⟨chosen, chosenAccepted, fixed, typed⟩ := scoped_fixture_all_instances_typed
+  rw [accepted] at chosenAccepted
+  cases chosenAccepted
   have principalSorted := scoped_fixture_principal_sorted principal accepted
-  refine ⟨principal, accepted, ?_⟩
   intro captured arguments parameters result normalized capturedSorted instantiated
   change instantiateFunction captured scopedFixtureScheme arguments = some (parameters, result, normalized) at instantiated
   let runtime := compose captured (compose (schemeSubstitution scopedFixtureScheme (witnessSubstitution arguments)) principal)
@@ -476,5 +477,13 @@ theorem actual_scoped_function_certified (state : Machine) : ∃ principal,
   · rw [parameterShape]
     exact .cons closed .nil
   · exact ground
+
+theorem actual_scoped_function_certified (state : Machine) : ∃ principal,
+    validateSourceScopedDecoded 128 scopedUnit scopedDocument scopedScopes 0 0 scopedFixtureNames
+      scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
+      scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal ∧
+    FunctionBodyCertified [] (fun _ => .ordinary) state (scopedFixtureFunction principal) := by
+  obtain ⟨principal, accepted⟩ := scoped_fixture_accepted
+  exact ⟨principal, accepted, scoped_fixture_function_certified state principal accepted⟩
 
 end Xsh.Semantics.Connected
