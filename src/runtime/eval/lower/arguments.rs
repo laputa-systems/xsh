@@ -580,7 +580,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if !namespace {
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let slot = slots.reserve("call receiver");
-                if let Some(ty) = self.concrete_checked_type(base)
+                let alias_receiver = self.declarations.static_callable_aliases
+                    .get(&self.program.arena.expr(callee).span)
+                    .filter(|alias| alias.method_call)
+                    .cloned()
+                    .map(|alias| self.canonical_alias_signature(alias.signature, alias.kind));
+                if let Some(ty) = alias_receiver.or_else(|| self.concrete_checked_type(base))
                     && !slots.record_checked_slot_type(slot, ty)
                 {
                     return None;

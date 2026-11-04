@@ -17679,6 +17679,20 @@ struct IndexedConfiguredRangeBounds {
     end_slot: usize,
 }
 
+fn indexed_configured_range_bound_slot(
+    decoder: &FullDecoder<'_>,
+    bound: usize,
+) -> Result<Option<usize>, IrVerifyError> {
+    Ok(match decoder.expression_view(bound)? {
+        schema::ExprView::Param(slot) => Some(slot),
+        schema::ExprView::Field { base, .. } => match decoder.expression_view(base.raw() as usize)? {
+            schema::ExprView::Param(slot) => Some(slot),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
 fn indexed_configured_range_bounds_with(
     decoder: &FullDecoder<'_>,
     start: u32,
@@ -17736,9 +17750,12 @@ fn indexed_configured_range_bounds_with(
         if !decoder.instruction_range.contains(&result) {
             return Ok(None);
         }
-        match decoder.expression_view(result)? {
-            schema::ExprView::MatchExpr { .. } => current = result,
-            schema::ExprView::Param(slot) if bindings.contains_key(&slot) => {
+        if matches!(decoder.expression_view(result)?, schema::ExprView::MatchExpr { .. }) {
+            current = result;
+            continue;
+        }
+        match indexed_configured_range_bound_slot(decoder, result)? {
+            Some(slot) if bindings.contains_key(&slot) => {
                 terminal_slot = Some(slot);
                 break;
             }
@@ -17759,7 +17776,7 @@ fn indexed_configured_range_bounds_with(
     {
         return Ok(None);
     }
-    let schema::ExprView::Param(end_slot) = decoder.expression_view(end)? else {
+    let Some(end_slot) = indexed_configured_range_bound_slot(decoder, end)? else {
         return Ok(None);
     };
     charge(1)?;
@@ -27350,8 +27367,33 @@ assert apply(40) == 42
 
     #[test]
     fn physical_effects_preserve_optional_erased_pure_callees() {
-        let program = fixture("optional-erased-pure.xsh", "pure optional(handles: List[Pure]) -> Result[Any] { Ok(handles.get(0)?.call()) }\n");
-        FullVerifier::verify(&program).unwrap();
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("optional-erased-pure.xsh", r#"
+pure first() -> Int { 7 }
+proc effectful() [] -> Int { 9 }
+pure optional(handles: List[Pure]) -> Result[Any] { Ok(handles.get(0)?.call()) }
+proc optional_proc(handles: List[Proc]) -> Result[Any] { Ok(handles.get(0)?.call()?) }
+pure optional_value(handle: Pure?) -> Any? { handle?.call() }
+var calls = 0
+proc produce() [] -> Result[Pure] { calls += 1; return first }
+assert optional([first])? == 7
+assert optional([]) is Err(_)
+assert optional_proc([effectful])? == 9
+assert optional_value(null) == null
+assert optional_value(first) == 7
+assert produce()?.call() == 7
+assert calls == 1
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
     }
 
     #[test]
