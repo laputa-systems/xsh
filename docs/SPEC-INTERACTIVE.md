@@ -122,8 +122,8 @@ Variables:
 - `$NAME`, `${NAME}`, `$?`, and `$$` expand; an invalid assignment prefix such
   as `BAD-NAME=value` reports `invalid environment assignment`.
 
-Two statuses exist. The prompt status (its color, and Ctrl-D's exit) reflects
-the last line, including commands the shell answers itself. `$?` is the status
+Two statuses exist. The prompt status controls its color and reflects the last
+line, including commands the shell answers itself. `$?` is the status
 of the last command that ran a program or ordinary builtin; `cd`, `fg`, `w`,
 `history`, and the other session commands leave it alone.
 
@@ -380,10 +380,11 @@ in the job and runs when `fg` sees the command finish, using its status.
 dropped); `cmd &` starts one simple external command in the slot.
 
 Before each prompt the slot is polled without blocking and completions are
-reported. `exit` and Ctrl-D with a live job warn once
-(`xshi: there is a suspended job. Exit again to force quit.`); repeating the
-same gesture exits and sends the job's process group `SIGTERM` then `SIGCONT`,
-so a stopped job actually terminates. Any other line re-arms the warning.
+reported. `exit` and Ctrl-D with a live job warn once. The `exit` warning says
+`xshi: there is a suspended job. Exit again to force quit.` The Ctrl-D warning
+says `xshi: there is a suspended job. Press Ctrl+D again to force quit.`
+Repeating the same gesture exits and sends the job's process group `SIGTERM`
+then `SIGCONT`, so a stopped job can terminate. Any other line re-arms the warning.
 
 ## 13. Denv And z
 
