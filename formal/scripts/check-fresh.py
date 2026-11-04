@@ -211,8 +211,12 @@ def run_guarded(
                     result = process.returncode
                     completed = True
                     cleaning_up = True
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as error:
                 cleaning_up = True
+                if error.output:
+                    output = error.output.decode(process.encoding or "utf-8", errors="replace") if isinstance(error.output, bytes) else error.output
+                    sys.stdout.write(output)
+                    sys.stdout.flush()
                 print(f"{label} exceeded {wall_limit_seconds}s and was terminated", file=sys.stderr)
                 result = 124
             except BaseException:

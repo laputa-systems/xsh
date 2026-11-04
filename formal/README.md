@@ -78,3 +78,5 @@ paranoid kernel check is separate. It requires `bubblewrap` on `PATH` and
 enabled user namespaces or a working setuid installation, and checks a
 temporary workspace under `.work/tmp/`. Its sandbox passes the Lake thread
 limit to con-leche's `--jobs` option as well as to Lean.
+If a build or checker exceeds its deadline, the command prints its captured
+progress and terminates the owned process group. A timeout does not qualify a check.
