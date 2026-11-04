@@ -20,7 +20,7 @@ theorem typed_machine_empty_record (globals : Scope) (storage : BindingStorageMa
 
 theorem typed_fields_append (functions : FunctionTable) (values : List (NameId × Value)) (types : List (NameId × MonoType))
     (typed : TypedFields functions values types) (name : NameId) (value : Value) (ty : MonoType) (runtimeType : RuntimeType)
-    (valueTyped : valueType value = some runtimeType) (closed : monoRuntime ty = some runtimeType)
+    (valueTyped : HasType runtimeType value) (closed : monoRuntime ty = some runtimeType)
     (callable : ValueCallables functions value) :
     TypedFields functions (values ++ [(name, value)]) (types ++ [(name, ty)]) := by
   induction typed with

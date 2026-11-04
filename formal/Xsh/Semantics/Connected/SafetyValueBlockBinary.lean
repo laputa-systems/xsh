@@ -1,9 +1,20 @@
 import Xsh.Semantics.Connected.SafetyValueBlockConditional
+import Xsh.Semantics.Connected.SafetyValueBlockCompatibility
 import Xsh.Semantics.Connected.TypedBinary
 
 namespace Xsh.Semantics.Connected
 
 open Xsh.Typing.Connected
+
+theorem integer_has_exact_type (value : Value) (typed : HasType .integer value) :
+    valueType value = some .integer := by
+  obtain ⟨actual, found, fits⟩ := (has_type_iff_compatible _ _).mp typed
+  simpa [integer_fit_is_integer actual fits] using found
+
+theorem boolean_has_exact_type (value : Value) (typed : HasType .boolean value) :
+    valueType value = some .boolean := by
+  obtain ⟨actual, found, fits⟩ := (has_type_iff_compatible _ _).mp typed
+  simpa [boolean_fit_is_boolean actual fits] using found
 
 theorem typed_machine_binary_right (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (operator : Xsh.Syntax.BinaryOp) (left : Value) (right : Node)
@@ -74,7 +85,7 @@ theorem typed_machine_short_circuit (globals : Scope) (storage : BindingStorageM
       | binaryLeft rightTyped operation =>
         rename_i context leftType runtimeType rightType result
         have resultClosed : monoRuntime result = some .boolean := by
-          cases operation <;> simp_all [monoRuntime, valueType]
+          cases operation <;> simp_all [monoRuntime, HasType, valueType, typeFits]
         have subset : List.Sublist
             (pendingMachineBinders { base with control := .value (.scalar (.boolean choice)) })
             (pendingMachineBinders { base with control := .value (.scalar (.boolean choice)), stack := .binaryLeft operator right :: base.stack }) := by
@@ -90,7 +101,7 @@ theorem typed_machine_short_circuit (globals : Scope) (storage : BindingStorageM
           · simpa [TypedDemand.context] using activation.symm
           · rfl
         refine ⟨.expression context result, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
-          ?_, middleClosed, outputClosed, .value rfl resultClosed .scalar, oldStack, newPending⟩
+          ?_, middleClosed, outputClosed, .value (has_type_of_exact _ _ rfl) resultClosed .scalar, oldStack, newPending⟩
         simpa [ActiveScopeTyped, ScopeStateAgrees, TypedDemand.context] using active
 
 theorem binary_result_runtime_shape (operator : Xsh.Syntax.BinaryOp) (left right result : MonoType) (runtimeType : RuntimeType)
@@ -123,8 +134,14 @@ theorem typed_machine_binary_finish (globals : Scope) (storage : BindingStorageM
       cases frameTyped with
       | binaryRight leftTyped leftClosed leftCallable operation =>
         rename_i context rightType rightRuntime leftType result leftRuntime
+        have leftExact : valueType left = monoRuntime leftType := by
+          cases operation <;> simp only [monoRuntime, Option.some.injEq] at leftClosed ⊢ <;> subst leftRuntime <;>
+            first | exact integer_has_exact_type left leftTyped | exact boolean_has_exact_type left leftTyped
+        have rightExact : valueType right = monoRuntime rightType := by
+          cases operation <;> simp only [monoRuntime, Option.some.injEq] at rightClosed ⊢ <;> subst rightRuntime <;>
+            first | exact integer_has_exact_type right rightTyped | exact boolean_has_exact_type right rightTyped
         obtain ⟨resultRuntime, resultClosed, resultSafe⟩ := typed_binary_result_or_integer_fault operator leftType rightType result
-          left right operation (leftTyped.trans leftClosed.symm) (rightTyped.trans rightClosed.symm)
+          left right operation leftExact rightExact
         rw [evaluated] at resultSafe
         have newPending : PendingBindingsSafe
             { base with control := binaryOutcomeControl outcome } := by
@@ -152,7 +169,7 @@ theorem typed_machine_binary_finish (globals : Scope) (storage : BindingStorageM
               obtain ⟨flag, rfl⟩ := boolean_value_shape value valueTyped
               exact .scalar
           refine ⟨.expression context result, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
-            ?_, middleClosed, outputClosed, .value valueTyped resultClosed valueCallable, oldStack, newPending⟩
+            ?_, middleClosed, outputClosed, .value (has_type_of_exact _ _ valueTyped) resultClosed valueCallable, oldStack, newPending⟩
           simpa [ActiveScopeTyped, binaryOutcomeControl, ScopeStateAgrees, TypedDemand.context] using active
         | error fault =>
           cases fault with

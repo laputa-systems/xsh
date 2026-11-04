@@ -4,6 +4,26 @@ namespace Xsh.Semantics.Connected
 
 open Xsh.Typing.Connected
 
+theorem function_has_exact_type (value : Value) (parameters result : RuntimeType)
+    (typed : HasType (.function parameters result) value) :
+    valueType value = some (.function parameters result) := by
+  obtain ⟨actual, found, fits⟩ := (has_type_iff_compatible _ _).mp typed
+  have same : actual = .function parameters result := by cases actual <;> simp_all [typeFits]
+  simpa [same] using found
+
+theorem closed_function_has_exact_type (value : Value) (parameters result : MonoType) (runtimeType : RuntimeType)
+    (closed : monoRuntime (.function parameters result) = some runtimeType) (typed : HasType runtimeType value) :
+    valueType value = some runtimeType := by
+  cases parameterType : monoRuntime parameters with
+  | none => simp [monoRuntime, parameterType] at closed
+  | some parameterRuntime =>
+    cases resultType : monoRuntime result with
+    | none => simp [monoRuntime, parameterType, resultType] at closed
+    | some resultRuntime =>
+      simp [monoRuntime, parameterType, resultType] at closed
+      subst runtimeType
+      exact function_has_exact_type value parameterRuntime resultRuntime typed
+
 theorem typed_machine_call_without_arguments (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (target : Value)
     (typed : TypedMachine globals storage types { base with control := .value target, stack := .callTarget [] :: base.stack }) :
@@ -39,7 +59,7 @@ theorem typed_machine_call_without_arguments (globals : Scope) (storage : Bindin
               · simpa [TypedDemand.context] using activation.symm
               · rfl
             refine ⟨.expression context result, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
-              ?_, middleClosed, outputClosed, .invoke targetTyped targetCallable .nil resultClosed, oldStack, newPending⟩
+              ?_, middleClosed, outputClosed, .invoke (function_has_exact_type target _ _ targetTyped) targetCallable .nil resultClosed, oldStack, newPending⟩
             simpa [ActiveScopeTyped, ScopeStateAgrees, TypedDemand.context] using active
 
 theorem typed_machine_call_first_argument (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
@@ -92,7 +112,8 @@ theorem typed_machine_call_first_argument (globals : Scope) (storage : BindingSt
               (.expression context firstType) (.expression context result) (.callArguments target [] rest) := by
             refine FrameTyped.callArguments (state := { base with control := .expression first, stack := .callArguments target [] rest :: base.stack })
               TypedValues.nil restTyped ?_ (by simpa using targetCallable)
-            exact ⟨runtimeType, by simpa using targetClosed, targetTyped⟩
+            exact ⟨runtimeType, by simpa using targetClosed,
+              closed_function_has_exact_type target _ _ runtimeType targetClosed targetTyped⟩
           obtain ⟨firstRuntime, firstClosed⟩ := ground_node_is_closed firstTyped
           refine ⟨.expression context firstType, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
             ?_, ⟨firstRuntime, firstClosed⟩, outputClosed, .expression firstTyped firstClosed firstFresh,
@@ -101,7 +122,7 @@ theorem typed_machine_call_first_argument (globals : Scope) (storage : BindingSt
 
 theorem typed_values_append (functions : FunctionTable) (values : List Value) (types : List MonoType)
     (typed : TypedValues functions values types) (value : Value) (ty : MonoType) (runtimeType : RuntimeType)
-    (valueTyped : valueType value = some runtimeType) (closed : monoRuntime ty = some runtimeType)
+    (valueTyped : HasType runtimeType value) (closed : monoRuntime ty = some runtimeType)
     (callable : ValueCallables functions value) : TypedValues functions (values ++ [value]) (types ++ [ty]) := by
   induction typed with
   | nil => exact .cons valueTyped closed callable .nil

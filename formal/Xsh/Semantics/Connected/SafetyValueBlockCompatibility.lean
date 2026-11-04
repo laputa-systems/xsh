@@ -16,11 +16,16 @@ theorem result_fit_has_components (expectedValue expectedError actual : RuntimeT
     ∃ actualValue actualError, actual = .result actualValue actualError ∧
       typeFits expectedValue actualValue = true ∧ typeFits expectedError actualError = true := by
   cases actual <;> simp_all [typeFits]
-  case result value failure => exact ⟨value, failure, ⟨rfl, rfl⟩, fits.1, fits.2⟩
+  case result value failure =>
+    rcases fits with equal | components
+    · obtain ⟨rfl, rfl⟩ := equal
+      exact ⟨expectedValue, expectedError, ⟨rfl, rfl⟩,
+        by cases expectedValue <;> simp [typeFits], by cases expectedError <;> simp [typeFits]⟩
+    · exact ⟨value, failure, ⟨rfl, rfl⟩, components.1, components.2⟩
 
 theorem record_fit_has_row (expected actual : RuntimeType)
     (fits : typeFits (.record expected) actual = true) :
-    ∃ row, actual = .record row ∧ rowFits expected row = true := by
+    ∃ row, actual = .record row ∧ (expected = row ∨ rowFits expected row = true) := by
   cases actual <;> simp_all [typeFits]
 
 theorem row_fit_preserves_field (expected actual : RuntimeType) (name : Xsh.Foundation.NameId) (expectedType : RuntimeType)
