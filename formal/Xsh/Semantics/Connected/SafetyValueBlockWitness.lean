@@ -42,7 +42,7 @@ theorem boolean_initial_machine_is_typed (base : Machine) :
   · refine ⟨.expression booleanInitialContext (.primitive .boolean),
       .expression booleanInitialContext (.primitive .boolean), rfl, rfl, rfl, identity_well_sorted, identity_well_sorted, ?_, ⟨.boolean, rfl⟩,
       ⟨.boolean, rfl⟩, ?_, .nil, ?_⟩
-    · refine ⟨?_, ?_, ?_, ?_⟩
+    · refine ⟨?_, ?_, ?_, ?_, ?_⟩
       · refine ⟨by simp [booleanInitialContext, TypedDemand.context], ?_, ?_, ?_, ?_⟩
         · intro name binding found
           simp [booleanInitialContext, TypedDemand.context] at found
@@ -52,6 +52,8 @@ theorem boolean_initial_machine_is_typed (base : Machine) :
           simp [booleanInitialMachine, emptyCells] at found
         · intro binder cell found
           simp [booleanInitialMachine, emptyCells] at found
+      · intro name binding cell entry found
+        simp [booleanInitialContext, TypedDemand.context] at found
       · intro name binding identity row found
         simp [booleanInitialContext, TypedDemand.context] at found
       · intro binder declaration scheme found
