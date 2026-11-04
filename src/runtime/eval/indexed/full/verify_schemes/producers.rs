@@ -5880,13 +5880,25 @@ impl<'a> ProducerProof<'a> {
                 let (ty, fact) = self.operand_context(&decoder, base.raw() as usize)?.into_parts();
                 let ty = ty.ok_or_else(|| IrVerifyError::new("ground field producer has no receiver contract"))?;
                 if actual.is_none() {
-                    let imported = matches!(expected.as_ref(), Type::Callable(_))
-                        && matches!(ty.unvalidated(), Type::Module(module)
-                            if module.exact && matches!(module.get(&Name::intern(name)), Some(ModuleExportType::GenericCallable { optional: false, .. })));
-                    if imported {
-                        decoder.function_reference_matches_callable(instruction, &expected)?;
-                    } else {
-                        return Err(IrVerifyError::new("ground field producer has no matching receiver field"));
+                    let imported = match ty.unvalidated() {
+                        Type::Module(module) if module.exact => match module.get(&Name::intern(name)) {
+                            Some(ModuleExportType::GenericCallable { kind, optional: false }) => Some(*kind),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    match (imported, expected.as_ref()) {
+                        (Some(_), Type::Callable(_)) => decoder.function_reference_matches_callable(instruction, &expected)?,
+                        (Some(kind), Type::Function(expected_kind)) if kind == *expected_kind => {
+                            let super::super::ImmutableCallableSource::ImportedFunction(function) = decoder.checked_callable_reference_source(instruction)? else {
+                                return Err(IrVerifyError::new("erased generic export has no imported function source"));
+                            };
+                            let (_, contract, target_kind) = decoder.function_reference_contract(function)?;
+                            if target_kind != kind || !matches!(contract, FullCallableContract::Scheme(_)) {
+                                return Err(IrVerifyError::new("erased generic export disagrees with its executable contract"));
+                            }
+                        }
+                        _ => return Err(IrVerifyError::new("ground field producer has no matching receiver field")),
                     }
                 }
                 self.expression_with_fact(owner, base.raw() as usize, ty, false, fact);
