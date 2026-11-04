@@ -29,10 +29,13 @@ The generic imported-callable storage failure is repaired on `master` in
 callable producer boundary and retains concrete materialization checks. Six
 Rust import-contract tests, all 33 native callable tests, and all nine native
 opaque-Any tests pass in pinned Linux. The new negative control rejects a
-substituted export. The repaired frozen reference is `94c13418a`, tree
-`c9029f3f8e22f8c37e4942f8fefde95a80854ca1`; its bootstrap passed and its full
-canonical replay is running. The older failures below remain historical
-evidence, not unresolved focused regressions or a passing full replay.
+substituted export. The full `94c13418a` reference replay failed in the debug
+library tests: its older callable materializer lacked the guarded imported-field
+path already present on `master`. The current production repair also passes its
+focused debug test. Reference-only `28eb488d7` backports that five-line path and
+passes all six debug import-contract tests. Its tree is
+`e04676f5212f9bfc6d2df93552c1db4d989ba6ac`; a new bootstrap is running. Preserve
+the failed receipt. No full reference replay has passed.
 
 Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
 206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
