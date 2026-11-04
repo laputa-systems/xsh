@@ -34,6 +34,7 @@ theorem contextual_runtime_read_contract (scope : Scope) (runtimeSolution : Subs
 end Xsh.Semantics.Connected
 
 namespace Xsh.Semantics.Connected
+open Xsh.Foundation
 open Xsh.Typing.Connected
 
 theorem closed_runtime_type_substitution_invariant (ty : MonoType) (runtime : RuntimeType)
@@ -76,5 +77,42 @@ theorem contextual_selected_read_contract (scope : Scope) (runtime extension : S
   have proofClosed := runtime_closed_storage_survives_extension extension runtime raw _ runtimeClosed
   exact contextual_runtime_read_contract scope runtime storage context binder arguments _ _ parameters result
     runtimeParameters runtimeResult typed unique functionType parametersClosed resultClosed proofClosed
+
+theorem ground_selected_function_read (scope : Scope) (runtime extension : Substitution)
+    (storage : BindingStorageMap) (functionResult : MonoType) (binder : Xsh.Foundation.BinderId)
+    (arguments : List (Variable × MonoType)) (raw parameters result : MonoType)
+    (runtimeParameters runtimeResult : RuntimeType)
+    (proofTyped : NodeHasTypeIn (compose extension runtime) (some functionResult) scope
+      (.read binder arguments) (substitute (compose extension runtime) raw))
+    (runtimeTyped : NodeHasTypeIn runtime (some functionResult) scope
+      (.read binder arguments) (substitute runtime raw))
+    (unique : (scope.map Binding.binder).Nodup)
+    (functionType : substitute runtime raw = .function parameters result)
+    (parametersClosed : monoRuntime parameters = some runtimeParameters)
+    (resultClosed : monoRuntime result = some runtimeResult) :
+    GroundNode (compose extension runtime) runtime storage scope functionResult (.read binder arguments)
+      (substitute (compose extension runtime) raw) := by
+  have runtimeClosed : monoRuntime (substitute runtime raw) = some (.function runtimeParameters runtimeResult) := by
+    rw [functionType]
+    simp [monoRuntime, parametersClosed, resultClosed]
+  exact .read proofTyped (runtime_closed_storage_survives_extension extension runtime raw _ runtimeClosed)
+    (contextual_selected_read_contract scope runtime extension storage (some functionResult) binder arguments raw
+      parameters result runtimeParameters runtimeResult runtimeTyped unique functionType parametersClosed resultClosed)
+
+theorem ground_binding_from_runtime_storage (scope : Scope) (runtime extension : Substitution)
+    (storage : BindingStorageMap) (functionResult : MonoType) (completion : Option MonoType)
+    (name : NameId) (binder : BinderId) (kind : BindingKind) (raw initializerType : MonoType)
+    (initializer : Node) (rest : List StatementNode) (tag : RuntimeType)
+    (initializerTyped : GroundNode (compose extension runtime) runtime storage scope functionResult initializer initializerType)
+    (compatible : StoreCompatible (substitute (compose extension runtime) raw) initializerType)
+    (runtimeClosed : monoRuntime (substitute runtime raw) = some tag)
+    (valid : kind = .immutable ∨ kind = .mutable) (ordinary : storage binder = .ordinary)
+    (fresh : ∀ binding ∈ scope, binding.binder ≠ binder)
+    (tail : GroundBlock (compose extension runtime) runtime storage
+      (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: scope) functionResult completion rest) :
+    GroundBlock (compose extension runtime) runtime storage scope functionResult completion
+      (.binding binder kind raw initializer :: rest) :=
+  .binding initializerTyped compatible (runtime_closed_storage_survives_extension extension runtime raw tag runtimeClosed)
+    runtimeClosed valid ordinary fresh tail
 
 end Xsh.Semantics.Connected
