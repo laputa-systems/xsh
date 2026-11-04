@@ -81,9 +81,8 @@ use type_view::{ValueView, value_matches_static_type};
 pub(crate) fn borrowed_codec_value<'a>(
     format: crate::modules::codec::Format,
     value: &'a Value,
-    span: Span,
 ) -> impl deser::Serialize + 'a {
-    json::borrowed_runtime(format, value, span)
+    json::borrowed_runtime(format, value)
 }
 
 pub(crate) fn encode_runtime_json(

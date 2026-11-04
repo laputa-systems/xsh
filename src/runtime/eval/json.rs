@@ -193,7 +193,7 @@ pub(super) fn encode_runtime(value: &Value, pretty: bool, span: Span) -> Result<
     if pretty {
         encode_tree(CodecInput::Runtime(value), true, span)
     } else {
-        crate::modules::codec::encode_text(Format::Json, &super::borrowed_codec_value(Format::Json, value, span), span)
+        crate::modules::codec::encode_text(Format::Json, &super::borrowed_codec_value(Format::Json, value), span)
     }
 }
 
@@ -212,7 +212,7 @@ pub(super) fn encode_lowered_lines_for_write(values: &LoweredValue, span: Span) 
         other => return Err(RuntimeError::new("type-error", format!("expected List, found {}", ValueView::Lowered(other).type_name())).with_span(span)),
     };
     let output = crate::modules::codec::sequence::encode_all(
-        Format::Json, items.iter().map(|value| borrowed_lowered(Format::Json, value, span)), span,
+        Format::Json, items.iter().map(|value| borrowed_lowered(Format::Json, value)), span,
     )?;
     Ok(String::from_utf8(output).expect("JSON sequence serializer UTF-8"))
 }
@@ -221,7 +221,7 @@ fn encode_tree(value: CodecInput<'_>, pretty: bool, span: Span) -> Result<String
     let mut config = deser_json::SerializerConfig::new();
     if pretty { config.set_pretty(deser_json::Indent::Spaces(2)); }
     let mut output = crate::modules::codec::Output::new();
-    let result = config.writer(&mut output).write_with(&BorrowedValue { value, pretty, span, format: Format::Json }, |driver| {
+    let result = config.writer(&mut output).write_with(&BorrowedValue { value, pretty, format: Format::Json }, |driver| {
         driver.push_guard(crate::modules::codec::EncodeLimits::default());
     });
     let output = output.finish(result)
@@ -233,7 +233,6 @@ struct BorrowedValue<'a> {
     value: CodecInput<'a>,
     format: Format,
     pretty: bool,
-    span: Span,
 }
 
 fn rejected(message: impl Into<Cow<'static, str>>) -> Error {
@@ -256,13 +255,13 @@ impl Serialize for BorrowedValue<'_> {
                 Emit::Atom(Atom::Str(v.into()))
             }
             CodecNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
-            CodecNode::Sequence(items) => Emit::seq(Items { items, current: None, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Sequence(items) => Emit::seq(Items { items, current: None, pretty: value.pretty, format: value.format }, state),
             CodecNode::Map(fields) => {
                 if !value.pretty && !fields.all_string_keys() { return Err(rejected(NON_STRING_KEY_MESSAGE)); }
-                Emit::structure(Fields { fields: fields.fields(), current: None, key: None, pretty: value.pretty, span: value.span, format: value.format }, state)
+                Emit::structure(Fields { fields: fields.fields(), current: None, key: None, pretty: value.pretty, format: value.format }, state)
             }
-            CodecNode::Object(fields) => Emit::structure(Fields { fields, current: None, key: None, pretty: value.pretty, span: value.span, format: value.format }, state),
-            CodecNode::Stats(stats) => Emit::structure(StatsFields { stats, current: None, index: 0, pretty: value.pretty, span: value.span, format: value.format }, state),
+            CodecNode::Object(fields) => Emit::structure(Fields { fields, current: None, key: None, pretty: value.pretty, format: value.format }, state),
+            CodecNode::Stats(stats) => Emit::structure(StatsFields { stats, current: None, index: 0, pretty: value.pretty, format: value.format }, state),
             CodecNode::Key(MapKeyRef::Str(v)) => Emit::Atom(Atom::Str(v.into())),
             CodecNode::Key(MapKeyRef::Int(v)) => Emit::Atom(Atom::I64(v)),
             CodecNode::Key(MapKeyRef::Bool(v)) => Emit::Atom(Atom::Bool(v)),
@@ -273,7 +272,7 @@ impl Serialize for BorrowedValue<'_> {
     }
 }
 
-struct Items<'a> { items: CodecSequence<'a>, current: Option<BorrowedValue<'a>>, pretty: bool, span: Span, format: Format }
+struct Items<'a> { items: CodecSequence<'a>, current: Option<BorrowedValue<'a>>, pretty: bool, format: Format }
 impl SeqEmitter for Items<'_> {
     fn next(&mut self, _state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
         let value = match &mut self.items {
@@ -282,12 +281,12 @@ impl SeqEmitter for Items<'_> {
             CodecSequence::Lowered(items) => items.next().map(CodecInput::Lowered),
             CodecSequence::Set(items) => items.next().map(|v| CodecInput::Key(v.as_ref())),
         };
-        self.current = value.map(|value| BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format });
+        self.current = value.map(|value| BorrowedValue { value, pretty: self.pretty, format: self.format });
         Ok(self.current.as_ref().map(SerializeHandle::to))
     }
 }
 
-struct Fields<'a> { fields: CodecFields<'a>, current: Option<BorrowedValue<'a>>, key: Option<NameText>, pretty: bool, span: Span, format: Format }
+struct Fields<'a> { fields: CodecFields<'a>, current: Option<BorrowedValue<'a>>, key: Option<NameText>, pretty: bool, format: Format }
 impl StructEmitter for Fields<'_> {
     fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let Some((key, value)) = self.fields.next() else { return Ok(None); };
@@ -298,12 +297,12 @@ impl StructEmitter for Fields<'_> {
             }
             CodecFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
         };
-        let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format });
+        let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, format: self.format });
         Ok(Some((key, SerializeHandle::to(current))))
     }
 }
 
-struct StatsFields<'a> { stats: CodecStats<'a>, current: Option<BorrowedValue<'a>>, index: usize, pretty: bool, span: Span, format: Format }
+struct StatsFields<'a> { stats: CodecStats<'a>, current: Option<BorrowedValue<'a>>, index: usize, pretty: bool, format: Format }
 impl StructEmitter for StatsFields<'_> {
     fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let (key, value) = match self.index {
@@ -314,7 +313,7 @@ impl StructEmitter for StatsFields<'_> {
             _ => return Ok(None),
         };
         self.index += 1;
-        let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, span: self.span, format: self.format });
+        let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, format: self.format });
         Ok(Some((Cow::Borrowed(key), SerializeHandle::to(current))))
     }
 }
@@ -336,12 +335,12 @@ fn incompatible(value: CodecInput<'_>, format: Format) -> String {
     unsupported_type(view.type_name(), format)
 }
 
-pub(super) fn borrowed_runtime<'a>(format: Format, value: &'a Value, span: Span) -> impl Serialize + 'a {
-    BorrowedValue { value: CodecInput::Runtime(value), format, pretty: false, span }
+pub(super) fn borrowed_runtime<'a>(format: Format, value: &'a Value) -> impl Serialize + 'a {
+    BorrowedValue { value: CodecInput::Runtime(value), format, pretty: false }
 }
 
-pub(super) fn borrowed_lowered<'a>(format: Format, value: &'a LoweredValue, span: Span) -> impl Serialize + 'a {
-    BorrowedValue { value: CodecInput::Lowered(value), format, pretty: false, span }
+pub(super) fn borrowed_lowered<'a>(format: Format, value: &'a LoweredValue) -> impl Serialize + 'a {
+    BorrowedValue { value: CodecInput::Lowered(value), format, pretty: false }
 }
 
 #[cfg(test)]
@@ -478,12 +477,28 @@ mod tests {
     }
 
     #[test]
+    fn nested_encoding_errors_retain_the_call_site_span() {
+        let call_site = Span::new(SourceId::new(7), 13, 29);
+        let runtime = Value::List(vec![Value::List(vec![Value::Unit])]);
+        let lowered = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Unit])]);
+        for pretty in [false, true] {
+            for error in [
+                encode_runtime(&runtime, pretty, call_site).unwrap_err(),
+                encode_lowered(&lowered, pretty, call_site).unwrap_err(),
+            ] {
+                assert_eq!(error.span, Some(call_site));
+                assert_eq!(error.variant, "UnsupportedValue");
+            }
+        }
+    }
+
+    #[test]
     fn paused_encoder_keeps_nested_values_and_dynamic_keys() {
         let symbols = SymbolOwner::new();
         let _scope = symbols.enter();
         let runtime = crate::modules::codec::decode_json_into::<Value>(r#"{"dynamic_outer":[{"dynamic_inner":"value"},7]}"#, span()).unwrap();
         let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&runtime).unwrap();
-        let value = borrowed_lowered(Format::Json, &lowered, span());
+        let value = borrowed_lowered(Format::Json, &lowered);
         let mut driver = deser::ser::SerializeDriver::new(&value);
         let mut events = Vec::new();
         while let Some((event, _, _)) = driver.next().unwrap() {
