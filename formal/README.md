@@ -31,7 +31,7 @@ an in-process program. Source-to-IR validation and portable symbol ownership
 remain open, so this bridge is not a certificate for foreign programs. The
 instruction exchange also retains assignment operations and decodes assignment
 path steps. Lean relates an assignment's decoded StoreValue ordinal and source
-statement site to scoped checker facts under a supplied binder-to-slot map.
+statement site to scoped checker facts.
 An extended comparison reconstructs the replacement expression from raw rows
 and from the checked node. It supports scalar literals, reads, binary operations,
 records, projection, and conditional expressions, and value blocks that bind
@@ -39,9 +39,21 @@ temporaries outside the mapped slots before one value, as scheme lowering emits
 for assignment right-hand sides. It rejects different same-type reads and
 integer payloads. Its general theorem composes this comparison with
 the scoped store typing theorem for every sorted solution. Name spellings come
-from the admitted source's name table. The binder-to-slot map remains supplied;
-calls, Result forms, other value blocks, and operational correspondence remain
-open.
+from the admitted source's name table. The binder-to-slot map is derived rather
+than supplied: parameters take their positional slots, and each source local
+takes the slot of the StmtLet row that a test-only Rust export claims for its
+declaration site. Lean accepts a claim only when the row lies in the function's
+own statement blocks, its exported fact has the local's mutability (a user `var`
+is thus told from a compiler temporary), the initializer resolved through the
+function's single-assignment temporaries equals the source initializer, and
+binders and slots are injective. Corrupting a claim, a fact, a row slot, or a
+store target is rejected for the exported scoped body, and swapped claims for the
+exported two-local body. The claim table, parameter order, fact kinds, and the
+invariant that slots are never reused remain assumptions of the Rust lowerer;
+locals with equal initializers are told apart only by the uses a check covers.
+Calls, Result forms, annotated or destructuring declarations, other value blocks,
+the older projected-row fixtures that still pass a map, and operational
+correspondence remain open.
 Assignment transfer exports retain the checker’s optional value-type override.
 For the scoped fixture, Lean relates the emitted assignment fact to the outer
 binding and checked projected row; altered transfer facts are rejected.

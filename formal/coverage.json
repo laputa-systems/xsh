@@ -12287,7 +12287,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "A checked raw StoreValue ordinal, statement site, and supplied binder-to-slot mapping agree with a scoped assignment fact for every sorted solution.",
-      "boundary": "The binder-to-slot mapping, raw right-hand expression, transfer mark, and execution correspondence remain unchecked."
+      "boundary": "This layer takes its binder-to-slot mapping as given; RawStoreDerived authenticates one from captured declarations. The raw right-hand expression is checked in RawStoreValue; transfer mark and execution correspondence remain unchecked."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
@@ -12530,7 +12530,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "Every accepted raw value comparison independently reconstructs the same scalar, read, binary, record, projection, or conditional tree from raw rows and the checked node.",
-      "boundary": "The supplied name and binder-to-slot maps require authentication. Value blocks are supported only as let-bound temporaries outside the mapped slots followed by one value. Calls, Result forms, transfer marks, and raw execution simulation remain unsupported or open."
+      "boundary": "The binder-to-slot map is an input here and is authenticated by RawDeclarations when composed in RawStoreDerived. Value blocks are supported only as let-bound temporaries outside the mapped slots followed by one value. Calls, Result forms, transfer marks, and raw execution simulation remain unsupported or open."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.checked_raw_store_value_types_every_solution",
@@ -12539,7 +12539,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For every sorted solution, an accepted store retains its scoped mutable target and compatible source type and reconstructs the same replacement tree from the raw RHS and candidate node.",
-      "boundary": "Composition requires source-authenticated occurrences and binder-to-slot maps. Name spellings come from the SourceUnit. The reconstructed expression tree is not a raw execution simulation or complete source-to-IR certificate."
+      "boundary": "Composition requires source-authenticated occurrences and a binder-to-slot map; RawStoreDerived derives that map. Name spellings come from the SourceUnit. The reconstructed expression tree is not a raw execution simulation or complete source-to-IR certificate."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.scoped_store_rejects_a_different_well_typed_replacement",
@@ -12576,6 +12576,87 @@
       "status": "fragment",
       "scope": "Every name resolved by the admitted source name table reconstructs its exact UTF-8 spelling for raw value comparison.",
       "boundary": "The SourceUnit must come from source admission; this theorem does not establish equivalence with the Rust parser."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.derive_raw_slots_sound",
+      "module": "Xsh.Conformance.Connected.RawDeclarations",
+      "declaration": "Xsh.Conformance.Connected.derive_raw_slots_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted derived binder-to-slot map positions parameters by function parameter order, takes each source local's slot from the StmtLet row its captured declaration site claims, and is injective in binders and slots.",
+      "boundary": "The declaration site-to-row claims, the parameter slot convention, and the per-row local-declaration facts come from the test-only Rust export; Lean checks them against raw rows but does not prove the Rust lowerer assigned them. Two locals with structurally equal initializers are told apart only by the uses a later check covers."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.local_evidence_sound",
+      "module": "Xsh.Conformance.Connected.RawDeclarations",
+      "declaration": "Xsh.Conformance.Connected.local_evidence_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A local passes slot authentication only if its claimed StmtLet row lies in the function's statement blocks, carries a fact with the source mutability, and its initializer resolved through the function's temporaries equals the source initializer tree.",
+      "boundary": "Temporaries are resolved by substituting each unique single-assignment StmtLet definition; that slots are never reused or reassigned is a lowering invariant this theorem assumes. Unsupported initializer forms, annotated declarations, and destructuring reject the whole function."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.claimed_local_slot_sound",
+      "module": "Xsh.Conformance.Connected.RawDeclarations",
+      "declaration": "Xsh.Conformance.Connected.claimed_local_slot_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A claimed local slot is read from a StmtLet row in the function's own statement blocks whose captured fact has the local's declared mutability.",
+      "boundary": "A temporary and a user let share one immutable fact kind; only mutable locals are distinguished from temporaries by the fact."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.claimed_local_row_sound",
+      "module": "Xsh.Conformance.Connected.RawDeclarations",
+      "declaration": "Xsh.Conformance.Connected.claimed_local_row_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A claimed declaration row comes from a captured claim whose source site equals the local's declaration site.",
+      "boundary": "The claim table is exported evidence, not derived from raw rows alone."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_derived_raw_store_value_uses_derived_slots",
+      "module": "Xsh.Conformance.Connected.RawStoreDerived",
+      "declaration": "Xsh.Conformance.Connected.checked_derived_raw_store_value_uses_derived_slots",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted derived store check runs the supplied-map store and replacement checks on exactly the map that derivation produced from the raw rows and captured declarations.",
+      "boundary": "The derivation inputs are exported evidence; global captures are unsupported and make reads fail closed."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_derived_raw_store_value_types_every_solution",
+      "module": "Xsh.Conformance.Connected.RawStoreDerived",
+      "declaration": "Xsh.Conformance.Connected.checked_derived_raw_store_value_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For every sorted solution, an accepted derived store check yields an authenticated binder-to-slot map with its per-local evidence and keeps the store target, replacement tree, and typing conclusions of the supplied-map theorem.",
+      "boundary": "Source parsing, the declaration export, the lowering invariants named by the derivation theorems, transfer marks, and execution simulation remain assumed or open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.exported_raw_documents_decode",
+      "module": "Xsh.Conformance.Connected.RawStoreDerivedFixture",
+      "declaration": "Xsh.Conformance.Connected.exported_raw_documents_decode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported raw instruction, function, and local-declaration documents for the scoped and pair fixtures decode.",
+      "boundary": "The documents are Rust test-only exports of two small generic bodies; they are not foreign-artifact certificates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.derived_scoped_store_authenticates_slots_and_rejects_forgeries",
+      "module": "Xsh.Conformance.Connected.RawStoreDerivedFixture",
+      "declaration": "Xsh.Conformance.Connected.derived_scoped_store_authenticates_slots_and_rejects_forgeries",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported scoped store derives parameter slot 0 and local slot 2, passes, and is rejected when the local's claim names a let-bound temporary, its fact is flipped, claims are missing, duplicated, or at another site, the row slot is retargeted, or the parameter count changes.",
+      "boundary": "One finite exported body; rejection shows these corruptions are caught, not that every corruption is."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.derived_pair_slots_reject_swapped_and_temporary_claims",
+      "module": "Xsh.Conformance.Connected.RawStoreDerivedFixture",
+      "declaration": "Xsh.Conformance.Connected.derived_pair_slots_reject_swapped_and_temporary_claims",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported two-parameter, two-local body derives slots 0, 1, 3, 5 and rejects swapped local claims, a local claimed at a temporary row, and an unmatched site.",
+      "boundary": "Swapped locals are caught here only because their initializers differ; identical initializers rely on checked uses."
     }
   ],
   "artifact_certificates": [

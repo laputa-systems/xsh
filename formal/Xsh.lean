@@ -133,3 +133,4 @@ import Xsh.Conformance.Connected.RawRows
 import Xsh.Conformance.Connected.RawStoreFixture
 import Xsh.Conformance.Connected.ScopedTransferEvidence
 import Xsh.Conformance.Connected.RawStoreValue
+import Xsh.Conformance.Connected.RawStoreDerivedFixture

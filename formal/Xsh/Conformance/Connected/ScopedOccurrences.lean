@@ -17,6 +17,7 @@ structure ScopedOccurrence where
   declarations : List (BinderId × NameId × SourceSite × Option String × Bool × Bool)
   storeTarget : Option (BinderId × SourceSite)
   storeDeclaredHere : Bool
+  declared : Option (BinderId × Xsh.Typing.Connected.BindingKind × SourceSite)
 
 structure OccurrenceCursor where
   expressions : List (SourceSite × Expr)
@@ -65,7 +66,7 @@ mutual
     | 0, _, _, _, _, _ => throw .exhausted
     | fuel + 1, types, scope, declarations, source, candidate => do
       let site ← nextExpressionSite source
-      let current : ScopedOccurrence := ⟨site, source, candidate, scope, declarations, none, false⟩
+      let current : ScopedOccurrence := ⟨site, source, candidate, scope, declarations, none, false, none⟩
       let children ← match source, candidate with
         | .literal (.integer left), .integer right =>
           if left == right then pure [] else throw .mismatch
@@ -154,7 +155,9 @@ mutual
           if bindingKind kind = recorded then pure () else throw .mismatch
           let some rawType := types binder | throw .mismatch
           if storage = rawType then pure () else throw .mismatch
-          let first ← scopeExpression fuel types scope declarations initializer value
+          let initial ← scopeExpression fuel types scope declarations initializer value
+          let head :: nested := initial | throw .mismatch
+          let first := { head with declared := some (binder, recorded, site) } :: nested
           let binding : Binding := ⟨name, binder, recorded, ⟨[], rawType, []⟩⟩
           let others ← scopeBlock fuel types (binding :: scope) ((binder, name, site, none, false, false) :: declarations) (binder :: localBinders) rest nodes
           pure (first ++ others)
