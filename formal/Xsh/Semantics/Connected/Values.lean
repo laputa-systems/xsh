@@ -13,6 +13,7 @@ open Xsh.Syntax.Foundation
 open Xsh.Semantics.Environments
 
 inductive RuntimeType where
+  | unit
   | integer
   | boolean
   | string
@@ -29,6 +30,7 @@ inductive RuntimeType where
   deriving DecidableEq
 
 inductive Value where
+  | unit
   | scalar (value : CompositeValue)
   | validationError
   | record (fields : List (NameId × Value))
@@ -76,6 +78,7 @@ end
 
 mutual
   def valueType : Value → Option RuntimeType
+    | .unit => some .unit
     | .scalar (.integer _) => some .integer
     | .scalar (.boolean _) => some .boolean
     | .scalar (.string _) => some .string

@@ -49,6 +49,34 @@ theorem assignment_then_return_reads_new_value (state : Machine) (binder : Binde
   exact .next (Step.returnValue stored _) (.done _)
 
 
+theorem scoped_assignment_continues_with_outer_write (state : Machine) (binder : BinderId)
+    (cell : Xsh.Semantics.Environments.CellId) (text : String) (value : IntValue) (next : Store)
+    (parsed : parseInteger text = some value)
+    (active : state.cells binder = some cell)
+    (written : write state.store cell (.scalar (.integer value)) = .accepted next) :
+    Execution
+      { state with control := .statements [.evaluated (.valueBlock (.primitive .unit) [.assignment binder (.integer text)]), .returned (.read binder [])] }
+      [.internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal]
+      { state with control := .returned (.scalar (.integer value)), store := next } := by
+  let returnNode := StatementNode.returned (.read binder [])
+  let outer := { state with stack := .discard [returnNode] :: state.stack }
+  let inner := { outer with stack := .valueBlock state.cells :: outer.stack }
+  let stored := { state with store := next }
+  let storedOuter := { outer with store := next }
+  let storedInner := { inner with store := next }
+  refine .next (Step.evaluateAndContinue state (.valueBlock (.primitive .unit) [.assignment binder (.integer text)]) returnNode []) ?_
+  refine .next (Step.valueBlockStart outer (.primitive .unit) [.assignment binder (.integer text)]) ?_
+  refine .next (Step.assignmentStart inner binder (.integer text) []) ?_
+  refine .next (Step.integer { inner with stack := .assign binder [] :: inner.stack } text value parsed) ?_
+  refine .next (Step.assignmentCommit inner binder (.scalar (.integer value)) [] cell next active written) ?_
+  refine .next (Step.blockComplete storedInner) ?_
+  refine .next (Step.valueBlockComplete storedOuter .unit state.cells) ?_
+  refine .next (Step.discarded stored .unit [returnNode]) ?_
+  refine .next (Step.returnStart stored (.read binder []) []) ?_
+  have visible := read_after_assignment state.store next state.cells binder cell (.scalar (.integer value)) active written
+  refine .next (Step.read { stored with stack := .returnValue :: state.stack } binder [] _ visible rfl) ?_
+  exact .next (Step.returnValue stored _) (.done _)
+
 theorem identity_function_accepts_integer_and_boolean_activations :
     SignatureInstance identityScheme (.argument .integer .argumentsEmpty) .integer ∧
     SignatureInstance identityScheme (.argument .boolean .argumentsEmpty) .boolean := by
@@ -244,8 +272,7 @@ theorem propagation_outside_result_boundary_is_never_certified (types : BinderTy
     derived_block_certificate_sound 32 exampleTypeNames schemaScope (.primitive .integer)
       invalidPropagationSource invalidPropagationCandidate types steps accepted
   have member : MonoType.primitive .error ∈ blockPropagationErrors invalidPropagationCandidate := by
-    simp [invalidPropagationCandidate, invalidRecordCandidate, blockPropagationErrors, propagationErrors,
-      recordErrors]
+    simp [invalidPropagationCandidate, invalidRecordCandidate, blockPropagationErrors, statementPropagationErrors, propagationErrors]
   obtain ⟨expected, impossible, _⟩ := matching (.primitive .error) member
   cases impossible
 
@@ -297,7 +324,7 @@ def branchContinuationCandidate : List StatementNode :=
 
 def branchContinuationUnsupported : Bool :=
   match validateDerivedBlock 32 exampleTypeNames [] (.primitive .integer) branchContinuationSource
-      branchContinuationCandidate (fun _ => none) [.reflexive, .reflexive, .reflexive, .reflexive] with
+      branchContinuationCandidate (fun _ => none) [.reflexive, .reflexive] with
   | .error .unsupported => true
   | _ => false
 

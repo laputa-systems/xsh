@@ -53,15 +53,14 @@ theorem qualified_function_types_every_solution (fuel : Nat) (names : TypeNames)
   | true =>
    cases supported : supportedStatementTails true candidate with
    | false =>
-    simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported, complete,
-      Bool.and_eq_true, checks_constraints_iff] at accepted
+    simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported, complete] at accepted
    | true =>
     simp [validateQualifiedFunction, except_bind_ok, except_map_ok, exists_require_ok, supported, complete,
       Bool.and_eq_true, checks_constraints_iff] at accepted
     obtain ⟨⟨⟨finite, ground⟩, inhabited⟩, chosen, found, unique, propagation, checked, same⟩ := accepted
     subst chosen
-    obtain ⟨unit, checked⟩ := checked
-    cases unit
+    obtain ⟨checkedUnit, checked⟩ := checked
+    cases checkedUnit
     obtain ⟨generated, state, generatedBody, qualified⟩ :=
       generated_function_scheme_is_principal fuel names parameters globals result body ordered
         steps solvedCount scheme principal found

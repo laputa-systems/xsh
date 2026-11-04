@@ -58,38 +58,40 @@ def intFieldRejected : Bool :=
   | .error .mismatch => true | _ => false
 
 def emptyIntScheme : Scheme := ⟨[], .function .argumentsEmpty (.primitive .integer), []⟩
+def emptyIntConstraints : List Constraint := [.equal (.primitive .integer) (.primitive .unit)]
 def emptyFunctionRejected : Bool :=
-  match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) [] [] [] 0
+  match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) [] emptyIntConstraints [.reflexive] 1
       emptyIntScheme [] (fun _ => none) (fun _ => none) [] with
-  | .error .unsupported => true | _ => false
+  | .error .mismatch => true | _ => false
 
 def emptyInstanceRejected : Bool :=
-  match validateQualifiedFunctionInstance 24 exampleTypeNames [] [] (.primitive .integer) [] [] [] 0
+  match validateQualifiedFunctionInstance 24 exampleTypeNames [] [] (.primitive .integer) [] emptyIntConstraints [.reflexive] 1
       emptyIntScheme identity [] (fun _ => none) with
-  | .error .unsupported => true | _ => false
+  | .error .mismatch => true | _ => false
 
 def partialBranchBody : List Statement :=
   [.ifStmt [(.literal (.bool true), [.returnValue (some (.literal (.integer "1")))])] none]
 def partialBranchCandidate : List StatementNode :=
   [.conditional [(.boolean true, [.returned (.integer "1")])] []]
 def partialBranchConstraints : List Constraint :=
-  [.equal (.primitive .boolean) (.primitive .boolean), .equal (.primitive .integer) (.primitive .integer)]
-def partialBranchPrincipalAccepted : Bool :=
+  [.equal (.primitive .boolean) (.primitive .boolean), .equal (.primitive .integer) (.primitive .integer),
+   .equal (.primitive .integer) (.primitive .unit)]
+def partialBranchPrincipalRejected : Bool :=
   match validateGeneratedFunctionScheme 24 exampleTypeNames [] [] (.primitive .integer) partialBranchBody
-      partialBranchConstraints [.reflexive, .reflexive] 2 emptyIntScheme with
-  | .ok _ => true | _ => false
+      partialBranchConstraints [.reflexive, .reflexive, .reflexive] 3 emptyIntScheme with
+  | .error .mismatch => true | _ => false
 
 def partialBranchRejected : Bool :=
   match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) partialBranchBody
-      partialBranchConstraints [.reflexive, .reflexive] 2 emptyIntScheme partialBranchCandidate
+      partialBranchConstraints [.reflexive, .reflexive, .reflexive] 3 emptyIntScheme partialBranchCandidate
       (fun _ => none) (fun _ => none) [] with
-  | .error .unsupported => true | _ => false
+  | .error .mismatch => true | _ => false
 
 def partialBranchInstanceRejected : Bool :=
   match validateQualifiedFunctionInstance 24 exampleTypeNames [] [] (.primitive .integer) partialBranchBody
-      partialBranchConstraints [.reflexive, .reflexive] 2 emptyIntScheme identity partialBranchCandidate
+      partialBranchConstraints [.reflexive, .reflexive, .reflexive] 3 emptyIntScheme identity partialBranchCandidate
       (fun _ => none) with
-  | .error .unsupported => true | _ => false
+  | .error .mismatch => true | _ => false
 
 def completeBranchBody : List Statement :=
   [.ifStmt [(.literal (.bool true), [.returnValue (some (.literal (.integer "1")))])]
@@ -97,7 +99,8 @@ def completeBranchBody : List Statement :=
 def completeBranchCandidate : List StatementNode :=
   [.conditional [(.boolean true, [.returned (.integer "1")])] [.returned (.integer "2")]]
 def completeBranchConstraints : List Constraint :=
-  partialBranchConstraints ++ [.equal (.primitive .integer) (.primitive .integer)]
+  [.equal (.primitive .boolean) (.primitive .boolean), .equal (.primitive .integer) (.primitive .integer),
+   .equal (.primitive .integer) (.primitive .integer)]
 def completeBranchAccepted : Bool :=
   match validateQualifiedFunction 24 exampleTypeNames [] [] (.primitive .integer) completeBranchBody
       completeBranchConstraints [.reflexive, .reflexive, .reflexive] 3 emptyIntScheme completeBranchCandidate
@@ -106,7 +109,7 @@ def completeBranchAccepted : Bool :=
 
 theorem function_fallthrough_is_not_accepted :
     emptyFunctionRejected = true ∧ emptyInstanceRejected = true ∧
-    partialBranchPrincipalAccepted = true ∧ partialBranchRejected = true ∧
+    partialBranchPrincipalRejected = true ∧ partialBranchRejected = true ∧
     partialBranchInstanceRejected = true ∧ completeBranchAccepted = true := by
   decide +kernel
 
