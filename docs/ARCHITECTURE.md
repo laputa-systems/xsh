@@ -60,8 +60,7 @@ effects for lowering and tools. Later stages consume these facts instead of
 repeating semantic decisions.
 
 `FullBuilder` encodes the checked program as indexed rows and pools. A
-construction gap is a diagnostic. The builder runs `FullVerifier::verify`
-before it returns a program. Verification checks schemas, ranges, ownership,
+construction gap is a diagnostic. The builder runs `FullVerifier` before it returns a program. Verification checks schemas, ranges, ownership,
 IDs, and references, then derives the marks used by the in-place evaluator.
 Other instructions use the explicit frame scheduler. Runtime decoders rely on
 the verified representation.
