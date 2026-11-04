@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
+import os
 import shutil
 import subprocess
 import sys
@@ -28,6 +31,18 @@ SANDBOX = load_script("check-sandbox")
 
 
 class ParanoidCheckTests(unittest.TestCase):
+    def test_checker_progress_survives_a_deadline(self):
+        output = io.StringIO()
+        errors = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            status = CHECK.run_guarded(
+                [sys.executable, "-c", "import signal; print('checker progress', flush=True); signal.pause()"],
+                ROOT, os.environ.copy(), "checker", wall_limit_seconds=1,
+            )
+        self.assertEqual(status, 124)
+        self.assertIn("checker progress", output.getvalue())
+        self.assertIn("exceeded 1s", errors.getvalue())
+
     def test_sandbox_forwards_the_project_worker_limit_to_con_leche(self):
         args = ["--ro-bind", "/", "/", "--", "/lean/bin/con-leche", "/work/export"]
         result = SANDBOX.sandbox_args(args, threads="3", stack_size_kb="32768")
