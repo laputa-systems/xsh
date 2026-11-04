@@ -2394,6 +2394,18 @@ driver()?
     }
 
     #[test]
+    fn retry_diverting_binding_requires_a_definite_return() {
+        let mut program = prepare("proc attempted() [] -> Int { let ignored = retry [] { let selected = if true { return 9 } else { 0 }; selected }; 0 }\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let condition = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| (matches!(tag, super::super::super::FullTag::BoolBool | super::super::super::FullTag::ExprBool) && program.store.payload(program.store.data[instruction].range()).unwrap() == [1]).then_some(instruction)).unwrap();
+        let words = program.store.data[condition].range().bounds(program.store.extra.len()).unwrap();
+        program.store.extra[words.start] = 0;
+        assert_eq!(FullVerifier::verify(&program).unwrap_err().message, "capture or retry has no checked Result contract");
+    }
+
+    #[test]
     fn retry_no_completion_requires_cold_termination_and_delay_contracts() {
         use super::super::super::{ExecutableOwner, FullCallableContract, FullCheckedExprPurpose, IrFunctionId};
         let mut program = prepare("proc spin() { let spare: Any = true; loop { let attempt = retry [0ms] { assert false }; break } }\nproc empty() [] {}\npure broad_error() -> Error { error.failure(\"spare\") }\n");
