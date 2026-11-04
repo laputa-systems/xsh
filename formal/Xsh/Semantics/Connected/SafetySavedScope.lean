@@ -108,4 +108,61 @@ theorem saved_scope_survives_execution (before after : Machine) (events : List L
     mutable_cells_survive_store_evolution scope solution cells before.store after.store layout mutableCells,
     distinct, active_cells_survive_store_evolution cells before.store after.store present layout⟩
 
+theorem parameter_binder_reads_ordinary (solution : Substitution) (activation : Nat)
+    (scope : Scope) (values : List Value) (types : RuntimeType) (cells : ActiveCells) (store : Store)
+    (typed : ParameterBindingsTyped solution scope values types)
+    (agrees : ParameterCellsAgree activation cells store (scope.map Binding.binder) values types)
+    (binder : BinderId) (member : binder ∈ scope.map Binding.binder) :
+    ∃ value, Connected.read store cells binder = some value ∧ ordinaryValue value = true := by
+  induction typed with
+  | nil => simp at member
+  | @cons name first raw value values ty types scope ordinary closed valueTyped tail ih =>
+    cases agrees with
+    | cons active present remaining =>
+      simp only [List.map_cons, List.mem_cons] at member
+      rcases member with same | later
+      · subst binder
+        obtain ⟨entry, entryAt, _, _, entryValue⟩ := present
+        exact ⟨value, by simp [Connected.read, active, entryAt, entryValue], ordinary⟩
+      · exact ih remaining later
+
+theorem function_entry_scheme_cells_immutable (state : Machine) (solution : Substitution)
+    (parameters : Scope) (values : List Value) (types : RuntimeType) (locals : ActiveCells) (store : Store)
+    (typed : ParameterBindingsTyped solution parameters values types)
+    (unique : (parameters.map Binding.binder).Nodup)
+    (bound : bindParameters state.nextActivation (parameters.map Binding.binder) values types state.store = .ok (locals, store))
+    (globalLive : ActiveCellsPresent state.globals state.store)
+    (globalSchemes : SchemeCellsImmutable state.globals state.store) :
+    SchemeCellsImmutable (withGlobals locals state.globals) store := by
+  have parameterCells := bound_parameters_agree state.nextActivation (parameters.map Binding.binder) values types
+    state.store store locals (parameter_bindings_have_values solution parameters values types typed) unique bound
+  have extension := parameters_preserve_existing state.nextActivation (parameters.map Binding.binder)
+    values types state.store store locals bound
+  intro binder declaration scheme readMerged
+  cases localFound : locals binder with
+  | some cell =>
+    have member := bound_parameter_cell_is_listed state.nextActivation (parameters.map Binding.binder)
+      values types state.store store locals bound binder cell localFound
+    obtain ⟨value, localRead, ordinary⟩ := parameter_binder_reads_ordinary solution state.nextActivation
+      parameters values types locals store typed parameterCells binder member
+    have mergedRead : Connected.read store (withGlobals locals state.globals) binder = some value := by
+      simpa [Connected.read, withGlobals, localFound] using localRead
+    rw [readMerged] at mergedRead
+    cases mergedRead
+    simp [ordinaryValue] at ordinary
+  | none =>
+    cases globalFound : state.globals binder with
+    | none => simp [Connected.read, withGlobals, localFound, globalFound] at readMerged
+    | some cell =>
+      obtain ⟨entry, oldAt⟩ := globalLive binder cell globalFound
+      have newAt := extension cell entry oldAt
+      have oldRead : Connected.read state.store state.globals binder = some (.schemeFunction declaration scheme) := by
+        simpa [Connected.read, withGlobals, localFound, globalFound, oldAt, newAt] using readMerged
+      obtain ⟨oldCell, oldEntry, oldActive, oldPresent, immutable⟩ := globalSchemes binder declaration scheme oldRead
+      rw [globalFound] at oldActive
+      cases oldActive
+      rw [oldAt] at oldPresent
+      cases oldPresent
+      exact ⟨cell, entry, by simp [withGlobals, localFound, globalFound], newAt, immutable⟩
+
 end Xsh.Semantics.Connected
