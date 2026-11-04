@@ -1,4 +1,4 @@
-import Xsh.Semantics.Connected.SafetyCompatibleBindingStart
+import Xsh.Semantics.Connected.SafetyBindingPreservation
 
 namespace Xsh.Semantics.Connected
 
