@@ -46,7 +46,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 887
+**State:** `formal/coverage.json` is the only inventory. It lists 888
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -882,6 +882,12 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   bounded artifacts and physical-cap Lean checks, not a fresh six-kernel
   qualification or a source-to-IR simulation. Selected-call grounding, unique
   nested rows, effects and the complete connected execution remain open.
+
+- 2026-11-04: The partial Lean raw-row reader decodes instruction and
+  function tables and proves that accepted tag names and ordinals agree with
+  its admitted table. The table is not yet connected to the source-to-IR
+  relation, and the foreign FullProgram decoder and execution simulation
+  remain open.
 
 ## For the owner afterwards
 

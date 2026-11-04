@@ -113,3 +113,4 @@ import Xsh.Conformance.Vertical.FactsCertificate
 
 import Xsh.Semantics.Connected.StoreRuntime
 import Xsh.Conformance.Connected.ScopedCertificate
+import Xsh.Conformance.Connected.RawRows

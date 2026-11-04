@@ -11719,6 +11719,15 @@
       "status": "fragment",
       "scope": "The selected scoped mutable-local example passes the block validator.",
       "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_raw_tag_has_canonical_ordinal",
+      "module": "Xsh.Conformance.Connected.RawRows",
+      "declaration": "Xsh.Conformance.Connected.decoded_raw_tag_has_canonical_ordinal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each accepted raw tag has the ordinal assigned to its name by the partial Lean tag table.",
+      "boundary": "The tag table is a partial model; correspondence to all Rust tags, source instructions, and execution is not established by this theorem."
     }
   ],
   "artifact_certificates": [
