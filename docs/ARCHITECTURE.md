@@ -1055,14 +1055,8 @@ cover every binder, including binders absent from that argument's type. Every
 argument retains its independent physical producer and binder evidence checks.
 The shared materialization budget also bounds each instantiated argument type.
 
-Frontend inference-work metrics count generalization and instantiation type
-function entries, schema argument slots visited by mapping, scoped constructor
-generalizations, and constructor template binder normalization iterations.
-`generalization_binding_clones` counts entries copied from scope maps and
-parameter vectors, including nested row-lacks sets. These counters are active
-only in measurement and test mode; they measure neither CPU time nor allocations.
-Output type and evidence sizes retain their independent emitted-fact census.
-Artifacts without the new metric fields are unavailable for this measurement.
+`src/frontend_stats.rs` defines frontend inference-work metrics. The counters are
+active in measurement and test mode and do not measure CPU time or allocations.
 
 Pending recursive invocation permissions constrain the actual shared effect
 cells in their declaration's inference scope before generalization. An invocation
