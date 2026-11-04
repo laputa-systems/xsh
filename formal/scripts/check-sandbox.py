@@ -18,6 +18,8 @@ def sandbox_args(args: list[str], *, threads: str, stack_size_kb: str) -> list[s
     command = args[boundary + 1:]
     if Path(command[0]).name == "con-leche":
         command = [command[0], f"--jobs={threads}", *command[1:]]
+    elif Path(command[0]).name == "con-ron":
+        command = [command[0], "--jobs=1", *command[1:]]
     return mounts + [
         "--setenv", "LEAN_NUM_THREADS", threads,
         "--setenv", "LEAN_STACK_SIZE_KB", stack_size_kb,
