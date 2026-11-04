@@ -68,13 +68,14 @@ theorem typed_machine_expression_progress (state : Machine) (globalScope : Scope
   | expression ground closed fresh =>
     rename_i context ty runtimeType
     have activeScope : ScopeStateAgrees context.scope { state with solution := context.solution } ∧
+        ScopeWritableContract context.scope context.solution state.cells state.store ∧
         SchemaMatches context.scope context.solution state.schemas ∧
         SchemeCellsImmutable state.cells state.store ∧ StorageAgreement state.cells state.store context.storage := by
       simpa [ActiveScopeTyped, current, TypedDemand.context] using active
     have groundActual : GroundNode context.solution state.solution context.storage context.scope context.result node ty := by
       simpa using runtimeSolution ▸ ground
     obtain ⟨next, step, safe⟩ := ground_expression_progress state context.scope context.solution context.storage context.result
-      node ty groundActual activeScope.1.2.1 activeScope.2.1 activeScope.2.2.2
+      node ty groundActual activeScope.1.2.1 activeScope.2.2.1 activeScope.2.2.2.2
     have sameState : { state with control := .expression node } = state := by
       cases state
       simp_all
@@ -87,11 +88,13 @@ def StatementTarget : Control → Prop
 
 theorem ground_statements_progress (state : Machine) (solution runtimeSolution : Substitution)
     (storage : BindingStorageMap) (scope : Scope) (result : MonoType) (completion : Option MonoType)
-    (body : List StatementNode) (ground : GroundBlock solution runtimeSolution storage scope result completion body) :
+    (body : List StatementNode) (ground : GroundBlock solution runtimeSolution storage scope result completion body)
+    (runtimeMatch : runtimeSolution = state.solution) :
     ∃ next, Step { state with control := .statements body } .internal next ∧ StatementTarget next.control := by
   cases ground with
   | nil accepts => exact ⟨_, .blockComplete state, trivial⟩
-  | binding => exact ⟨_, .bindingStart state _ _ _ _, trivial⟩
+  | binding initializer compatible closed runtimeClosed kind storage fresh rest =>
+    exact ⟨_, .bindingStart state _ _ _ _ _ _ (by simpa [runtimeMatch] using runtimeClosed), trivial⟩
   | assignment => exact ⟨_, .assignmentStart state _ _ _, trivial⟩
   | returned => exact ⟨_, .returnStart state _ _, trivial⟩
   | evaluatedTail => exact ⟨_, .evaluateTail state _, trivial⟩
@@ -122,7 +125,7 @@ theorem typed_machine_statements_progress (state : Machine) (globalScope : Scope
   | statements ground fresh =>
     rename_i context
     obtain ⟨next, step, safe⟩ := ground_statements_progress state context.solution context.runtimeSolution
-      context.storage context.scope context.result context.completion body ground
+      context.storage context.scope context.result context.completion body ground runtimeSolution
     have sameState : { state with control := .statements body } = state := by
       cases state
       simp_all
