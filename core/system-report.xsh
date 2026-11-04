@@ -94,7 +94,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   }
 
   defer input_root.close()
-  let input_name = input_path.name().require(RelPath)?
+  let input_name = fp"{input_path.name()}".require(RelPath)?
   guard let input = input_root.read_result(
     input_name,
     max_bytes: 16777216,
