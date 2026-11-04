@@ -43,4 +43,28 @@ theorem row_fit_preserves_field (expected actual : RuntimeType) (name : Xsh.Foun
         exact tailIh both.2 tailPresent
   | _ => simp [rowFieldType] at present
 
+theorem compatible_record_field_progress (state : Machine) (fields : List (Xsh.Foundation.NameId × Value))
+    (name : Xsh.Foundation.NameId) (row fieldType : Xsh.Typing.Connected.MonoType)
+    (expectedRow expectedField actualRow : RuntimeType)
+    (typed : valueType (.record fields) = some (.record actualRow))
+    (field : Xsh.Typing.Connected.FieldOccurs name fieldType row)
+    (rowClosed : monoRuntime row = some expectedRow) (fieldClosed : monoRuntime fieldType = some expectedField)
+    (compatible : rowFits expectedRow actualRow = true) :
+    ∃ value actualField, Step { state with control := .value (.record fields), stack := .field name :: state.stack }
+        .internal { state with control := .value value } ∧ valueType value = some actualField ∧
+      typeFits expectedField actualField = true := by
+  have expectedAt := field_occurrence_runtime field fieldClosed rowClosed
+  obtain ⟨actualField, actualAt, fieldFits⟩ := row_fit_preserves_field expectedRow actualRow name expectedField compatible expectedAt
+  by_cases unique : (fields.map Prod.fst).Nodup
+  · cases recordType : recordTypes fields with
+    | none => simp [valueType, unique, recordType] at typed
+    | some fieldTypes =>
+      simp [valueType, unique, recordType] at typed
+      subst actualRow
+      have member := runtime_row_field_member (canonicalFields fieldTypes) name actualField actualAt
+      have actualMember : (name, actualField) ∈ fieldTypes := (runtime_canonical_fields_perm fieldTypes).mem_iff.mp member
+      obtain ⟨value, found, valueTyped⟩ := record_typed_field_lookup fields fieldTypes name actualField recordType unique actualMember
+      exact ⟨value, actualField, .fieldValue state name fields value found, valueTyped, fieldFits⟩
+  · simp [valueType, unique] at typed
+
 end Xsh.Semantics.Connected
