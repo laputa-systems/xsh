@@ -449,7 +449,9 @@ export proc drive(host: ClientIo, ctx: Context, beginning: Beginning, mode: Mode
   if beginning.admin_down {
     session = settle(host, ctx, feed(session, .OnAdminDown, now), now)?
   }
-  let deadline = if let .OneShot(limit) = mode { now + limit } else { null }
+  let deadline = if let .OneShot(limit) = mode {
+    if limit <= 0 { now } else if limit >= 9223372036854775807 - now { 9223372036854775807 } else { now + limit }
+  } else { null }
   while ! session.stopped {
     session = observed_change(host, session.context, session, now)? when session.resync
     if let limit = deadline {

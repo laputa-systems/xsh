@@ -80,6 +80,27 @@ proc play(h: Harness, rules: List[types.Rule], happenings: List[fake.Happening])
   {session: session, world: fake.load(h.settings)?}
 }
 
+test test_one_shot_large_budget_can_be_cancelled_without_overflow { |ctx|
+  let h = harness(ctx, "large-budget")?
+  let world = fake.world_of(h.link, 1000, [], [after(2000, "ask", "stop")])
+  fake.save(h.settings, world)
+  let record = store.load(fs.open_root(h.settings.lease_dir)?, "eth0")?
+  let beginning = client.Beginning(record:, observed: fake.observed_in(world), admin_down: false)
+  let session = client.drive(fake.scripted_io(), h.context, beginning, .OneShot(9223372036854775807))?
+  assert session.stopped
+  assert fake.load(h.settings)?.now == 2000
+}
+
+test test_one_shot_zero_budget_expires_without_waiting { |ctx|
+  let h = harness(ctx, "zero-budget")?
+  let world = fake.world_of(h.link, 1000, [], [])
+  fake.save(h.settings, world)
+  let record = store.load(fs.open_root(h.settings.lease_dir)?, "eth0")?
+  let beginning = client.Beginning(record:, observed: fake.observed_in(world), admin_down: false)
+  assert client.drive(fake.scripted_io(), h.context, beginning, .OneShot(0)) is Err(_)
+  assert fake.load(h.settings)?.waits == 0
+}
+
 pure sent_kinds(world: fake.World) -> List[Int] {
   [item.message for item in world.sent if item.kind == "dhcp"]
 }
