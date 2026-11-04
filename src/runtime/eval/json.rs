@@ -98,7 +98,7 @@ impl<'a> CodecMap<'a> {
 
 enum CodecFieldKey<'a> {
     Map(MapKeyRef<'a>),
-    Name(Name),
+    Text(NameText),
     Str(&'a str),
 }
 
@@ -108,7 +108,7 @@ enum CodecFields<'a> {
     LoweredMap(std::collections::btree_map::Iter<'a, MapKey, LoweredValue>),
     RuntimeRecord(RecordIter<'a>),
     LoweredRecord(std::collections::btree_map::Iter<'a, Arc<str>, LoweredValue>),
-    RecordVec(std::vec::IntoIter<(&'a Name, &'a LoweredValue)>),
+    RecordVec(std::vec::IntoIter<(NameText, &'a LoweredValue)>),
 }
 
 impl<'a> Iterator for CodecFields<'a> {
@@ -121,7 +121,7 @@ impl<'a> Iterator for CodecFields<'a> {
             Self::LoweredMap(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Map(key.as_ref()), CodecInput::Lowered(value))),
             Self::RuntimeRecord(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Str(key), CodecInput::Runtime(value))),
             Self::LoweredRecord(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Str(key), CodecInput::Lowered(value))),
-            Self::RecordVec(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Name(*key), CodecInput::Lowered(value))),
+            Self::RecordVec(fields) => fields.next().map(|(key, value)| (CodecFieldKey::Text(key), CodecInput::Lowered(value))),
         }
     }
 }
@@ -178,8 +178,8 @@ fn project<'a>(value: CodecInput<'a>) -> CodecNode<'a> {
             LoweredValue::Map(fields) => CodecNode::Map(CodecMap::Lowered(fields)),
             LoweredValue::Record(fields) => CodecNode::Object(CodecFields::LoweredRecord(fields.iter())),
             LoweredValue::RecordVec(fields) => {
-                let mut ordered: Vec<_> = fields.iter().map(|(key, value)| (key, value)).collect();
-                ordered.sort_unstable_by_key(|(name, _)| *name);
+                let mut ordered: Vec<_> = fields.iter().map(|(key, value)| (key.as_str(), value)).collect();
+                ordered.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
                 CodecNode::Object(CodecFields::RecordVec(ordered.into_iter()))
             }
             LoweredValue::Stats { blanks, code, comments } => CodecNode::Stats(CodecStats { blanks: *blanks, blobs: None, code: *code, comments: *comments }),
@@ -306,8 +306,8 @@ impl StructEmitter for Fields<'_> {
         let Some((key, value)) = self.fields.next() else { return Ok(None); };
         let key = match key {
             CodecFieldKey::Str(key) | CodecFieldKey::Map(MapKeyRef::Str(key)) => Cow::Borrowed(key),
-            CodecFieldKey::Name(name) => {
-                Cow::Borrowed(self.key.insert(name.as_str()).as_str())
+            CodecFieldKey::Text(text) => {
+                Cow::Borrowed(self.key.insert(text).as_str())
             }
             CodecFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
         };
