@@ -456,7 +456,7 @@ fn export_resource_transfers(
     published: &super::facts::PublishedFacts,
 ) -> Result<String, String> {
     use crate::sema::check::ResourceTransferSite;
-    use crate::syntax::arena::ArenaStmtKind;
+    use crate::syntax::arena::{ArenaExprOrRun, ArenaStmtKind};
     let mut facts = published.declarations.bodies.resource_transfers.iter().map(|(site, transfers)| {
         let (role, span) = match *site {
             ResourceTransferSite::BlockValue(block) => ("block", arena.arena.span(arena.arena.block(block).span)),
@@ -476,6 +476,13 @@ fn export_resource_transfers(
                     }?;
                     published.checker_expr_types.get(&tail).map(|ty| ty.may_hold_resource())
                 }),
+            ResourceTransferSite::Assignment(statement) => match arena.arena.stmt(statement).kind {
+                ArenaStmtKind::Assign { value: ArenaExprOrRun::Expr(expression), .. } => {
+                    let span = arena.arena.expr(expression).span;
+                    published.checker_expr_types.get(&span).map(|ty| ty.may_hold_resource())
+                }
+                _ => None,
+            },
             _ => None,
         };
         (span.source_id.raw(), span.start(), span.end() - span.start(), role, *transfers, checked_override)
@@ -586,6 +593,25 @@ fn scoped_instruction_exchange_retains_assignment_operations() {
     operations[index] = wire_string("add");
     let changed = deser_json::to_string(&changed).unwrap();
     assert_ne!(decode_instructions(&changed).unwrap().assign_ops, decoded.assign_ops);
+}
+
+#[test]
+fn scoped_assignment_transfer_exports_checked_type_override() {
+    use crate::sema::check::ResourceTransferSite;
+    use crate::syntax::arena::{ArenaExprOrRun, ArenaStmtKind, StmtId};
+    let source = "pure scoped(value) { var current = value; without time { current = value }; current }\nassert scoped(7) == 7\n";
+    let (_, _, parsed, mut published) = check_fixture(source).unwrap();
+    let assignment = (0..parsed.arena.arena.stmt_tags.len()).map(StmtId::from_index).find(|&id|
+        matches!(parsed.arena.arena.stmt(id).kind, ArenaStmtKind::Assign { .. })).unwrap();
+    assert_eq!(published.declarations.bodies.resource_transfer(ResourceTransferSite::Assignment(assignment)), Some(true));
+    let ArenaStmtKind::Assign { value: ArenaExprOrRun::Expr(value), .. } = parsed.arena.arena.stmt(assignment).kind else {
+        panic!("scoped assignment must have an expression value");
+    };
+    let span = parsed.arena.arena.expr(value).span;
+    let before = export_resource_transfers(&parsed.arena, &published).unwrap();
+    published.checker_expr_types.insert(span, crate::sema::types::Type::Int);
+    let changed = export_resource_transfers(&parsed.arena, &published).unwrap();
+    assert_ne!(before, changed);
 }
 
 #[test]
