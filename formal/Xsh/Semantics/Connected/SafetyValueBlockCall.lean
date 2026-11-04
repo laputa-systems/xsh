@@ -144,7 +144,73 @@ theorem schema_matches_after_parameters (solution : Substitution) (parameters gl
   induction typed with
   | nil => exact globalSchemas
   | @cons name binder raw rest ty types closed typed ih =>
-    simpa using schema_matches_after_binding (rest ++ globals) solution schemas name binder .immutable raw (Or.inl rfl) ih
+    simpa using compatible_schema_matches_after_binding (rest ++ globals) solution schemas name binder .immutable raw (Or.inl rfl) ih
+
+theorem parameter_cells_are_immutable (activation : Nat) (cells : ActiveCells) (store : Store)
+    (binders : List Xsh.Foundation.BinderId) (values : List Value) (types : RuntimeType)
+    (agrees : ParameterCellsAgree activation cells store binders values types)
+    (binder : Xsh.Foundation.BinderId) (member : binder ∈ binders) :
+    ∃ entry, store ⟨activation, binder⟩ = some entry ∧ entry.mutability = .immutable := by
+  induction agrees with
+  | nil => simp at member
+  | @cons first rest value values ty types active present remaining ih =>
+    simp only [List.mem_cons] at member
+    rcases member with same | later
+    · subst binder
+      obtain ⟨entry, atCell, immutable, _, _⟩ := present
+      exact ⟨entry, atCell, immutable⟩
+    · exact ih later
+
+theorem function_entry_writable_contract (state : Machine) (solution : Substitution)
+    (parameters globals : Scope) (values : List Value) (types : RuntimeType) (locals : ActiveCells) (store : Store)
+    (typed : ParameterBindingsTyped solution parameters values types)
+    (unique : (parameters.map Binding.binder).Nodup)
+    (disjoint : ∀ binding ∈ globals, binding.binder ∉ parameters.map Binding.binder)
+    (bound : bindParameters state.nextActivation (parameters.map Binding.binder) values types state.store = .ok (locals, store))
+    (globalLive : ActiveCellsPresent state.globals state.store)
+    (globalContract : ScopeWritableContract globals solution state.globals state.store) :
+    ScopeWritableContract (parameters ++ globals) solution (withGlobals locals state.globals) store := by
+  have parameterCells := bound_parameters_agree state.nextActivation (parameters.map Binding.binder) values types
+    state.store store locals (parameter_bindings_have_values solution parameters values types typed) unique bound
+  have extension := parameters_preserve_existing state.nextActivation (parameters.map Binding.binder)
+    values types state.store store locals bound
+  intro name binding cell entry found notSchema active present mutable value valueTyped
+  cases localFound : parameters.find? (fun item => decide (item.name = name)) with
+  | some localBinding =>
+    have same : localBinding = binding := by simpa [List.find?_append, localFound] using found
+    subst localBinding
+    have member : binding.binder ∈ parameters.map Binding.binder :=
+      List.mem_map.mpr ⟨binding, List.mem_of_find?_eq_some localFound, rfl⟩
+    obtain ⟨expected, immutableEntry, immutableAt⟩ :=
+      parameter_cell_for_binder state.nextActivation locals store (parameters.map Binding.binder) values types
+        parameterCells binding.binder member
+    have actual : cell = ⟨state.nextActivation, binding.binder⟩ := by
+      have localActive : withGlobals locals state.globals binding.binder = some ⟨state.nextActivation, binding.binder⟩ := by
+        simp [withGlobals, expected]
+      exact Option.some.inj (active.symm.trans localActive)
+    subst cell
+    obtain ⟨old, oldAt, immutable⟩ := parameter_cells_are_immutable state.nextActivation locals store
+      (parameters.map Binding.binder) values types parameterCells binding.binder member
+    rw [present] at oldAt
+    cases oldAt
+    rw [mutable] at immutable
+    cases immutable
+  | none =>
+    have globalFound : globals.find? (fun item => decide (item.name = name)) = some binding := by
+      simpa [List.find?_append, localFound] using found
+    have notParameter := disjoint binding (List.mem_of_find?_eq_some globalFound)
+    have localMissing : locals binding.binder = none := by
+      cases localActive : locals binding.binder with
+      | none => rfl
+      | some localCell =>
+        exact False.elim (notParameter (bound_parameter_cell_is_listed state.nextActivation
+          (parameters.map Binding.binder) values types state.store store locals bound binding.binder localCell localActive))
+    have oldActive : state.globals binding.binder = some cell := by simpa [withGlobals, localMissing] using active
+    obtain ⟨old, oldAt⟩ := globalLive binding.binder cell oldActive
+    have oldRetained := extension cell old oldAt
+    rw [present] at oldRetained
+    cases oldRetained
+    exact globalContract name binding cell entry globalFound notSchema oldActive oldAt mutable value valueTyped
 
 theorem typed_machine_function_call (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (declaration : Xsh.Syntax.Foundation.DeclarationId) (arguments : List Value)
@@ -177,7 +243,7 @@ theorem typed_machine_function_call (globals : Scope) (storage : BindingStorageM
       | instantiatedError found' => rw [found] at found'; cases found'
       | instantiatedTime found' => rw [found] at found'; cases found'
     obtain ⟨extension, parameters, bodyResult, extensionSorted, runtimeSorted', solutionSorted, globalValues,
-      globalMutable, globalSchemas, parametersOrdinary, localsOrdinary, binders, unique, parameterTypesTyped,
+      globalWritable, globalMutable, globalSchemas, parametersOrdinary, localsOrdinary, binders, unique, parameterTypesTyped,
       bodyTyped, resultClosed, bodyUnique, disjoint, propagation⟩ :=
       typed.functions declaration function found captured typeArguments parameterTypes resultType normalized capturedSorted signature
     let solution := compose extension runtimeSolution
@@ -193,6 +259,14 @@ theorem typed_machine_function_call (globals : Scope) (storage : BindingStorageM
         ⟨typed.memory.globals.typed, typed.memory.globals.live⟩⟩
     have scopeAfter := parameter_global_scope_agrees base types solution parameters globals arguments parameterTypes cells store
       baseMemory parameterBindings boundParameters unique globalValues globalMutable typed.globalDistinct
+    have globalDisjoint : ∀ binding ∈ globals, binding.binder ∉ parameters.map Binding.binder := by
+      intro binding member
+      have both : (parameters.map Binding.binder ++ globals.map Binding.binder).Nodup := by simpa using unique
+      have separation := (List.nodup_append.mp both).2.2
+      intro inParameters
+      exact separation _ inParameters _ (List.mem_map.mpr ⟨binding, member, rfl⟩) rfl
+    have writableAfter := function_entry_writable_contract base solution parameters globals arguments parameterTypes cells store
+      parameterBindings parameterUnique globalDisjoint boundParameters typed.memory.globals.live globalWritable
     have schemesAfter := function_entry_scheme_cells_immutable base solution parameters arguments parameterTypes cells store
       parameterBindings parameterUnique boundParameters typed.memory.globals.live typed.globalSchemes
     have storageAfter := function_entry_storage_agreement base solution parameters arguments parameterTypes cells store storage
@@ -204,9 +278,9 @@ theorem typed_machine_function_call (globals : Scope) (storage : BindingStorageM
       intro binder member
       apply newPending.fresh (base.nextActivation, binder)
       simp [pendingMachineBinders, pendingControlBinders, member]
-    obtain ⟨callerScope, callerSchemas, callerSchemes, callerStorage⟩ := active
-    obtain ⟨savedScope, savedSchemes, savedStorage, savedSchemas⟩ :=
-      saved_frame_scope_survives_step step callerContext base.cells callerScope callerSchemes callerStorage callerSchemas
+    obtain ⟨callerScope, callerWritable, callerSchemas, callerSchemes, callerStorage⟩ := active
+    obtain ⟨savedScope, savedWritable, savedSchemes, savedStorage, savedSchemas⟩ :=
+      saved_frame_scope_survives_step step callerContext base.cells callerScope callerWritable callerSchemes callerStorage callerSchemas
     let innerContext : TypingContext := ⟨parameters ++ globals, storage, solution, runtimeSolution, bodyResult, some bodyResult, base.nextActivation, ⟨resultType, resultClosed⟩⟩
     have oldStack : StackTyped
         { base with control := .statements function.body, cells := withGlobals cells base.globals, store := store, activation := base.nextActivation, nextActivation := base.nextActivation + 1, solution := runtimeSolution, stack := .caller base.cells base.activation base.solution resultType :: base.stack }
@@ -223,13 +297,13 @@ theorem typed_machine_function_call (globals : Scope) (storage : BindingStorageM
         (.block innerContext) (.expression callerContext callerType) (.caller base.cells base.activation base.solution resultType) := by
       rw [← runtimeSame]
       refine FrameTyped.caller (inner := innerContext) (outer := callerContext) ?_ proofSorted
-        (by simpa [runtimeSame] using runtimeSorted) ?_ rfl resultClosed callerResult savedScope savedSchemes savedStorage savedSchemas
+        (by simpa [runtimeSame] using runtimeSorted) ?_ rfl resultClosed callerResult savedScope savedWritable savedSchemes savedStorage savedSchemas
       · simpa [innerContext, TypedDemand.context] using storageSame.symm
       · simpa [TypedDemand.context] using activationSame
     refine ⟨.block innerContext, output, rfl, rfl, rfl, solutionSorted, runtimeSorted', ?_, ?_, outputClosed,
       .statements bodyTyped bodyFresh, .cons callerFrame inputClosed oldStack, newPending⟩
     · exact ⟨by simpa [innerContext, ScopeStateAgrees, TypedDemand.context] using scopeAfter,
-        schemasAfter, schemesAfter, storageAfter⟩
+        writableAfter, schemasAfter, schemesAfter, storageAfter⟩
     · exact ⟨⟨resultType, resultClosed⟩, by intro ty same; cases same; exact ⟨resultType, resultClosed⟩⟩
 
 end Xsh.Semantics.Connected
