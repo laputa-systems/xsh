@@ -88,6 +88,7 @@ proc zero_width_file(ctx: TestContext, name: Str, data: Bytes, args: List[Str]) 
   assert line_count == (if args.is_empty() { 0 } else { BUFFER * 2 / 80 })
 }
 
+# origin: gnu fold/fold-zero-width.log
 test test_gnu_fold_zero_width_nul_columns_log { |ctx|
   test.timeout(ctx, 600s)
   zero_width_file(ctx, "nul", bytes.zero(BUFFER * 2)?, [])
