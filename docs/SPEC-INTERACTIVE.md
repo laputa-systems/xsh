@@ -122,8 +122,8 @@ Variables:
 - `$NAME`, `${NAME}`, `$?`, and `$$` expand; an invalid assignment prefix such
   as `BAD-NAME=value` reports `invalid environment assignment`.
 
-Two statuses exist. The prompt status controls its color and reflects the last
-line, including commands the shell answers itself. `$?` is the status
+Two statuses exist. The prompt status reflects the last line, including
+commands the shell answers itself, and controls the prompt color. `$?` is the status
 of the last command that ran a program or ordinary builtin; `cd`, `fg`, `w`,
 `history`, and the other session commands leave it alone.
 
