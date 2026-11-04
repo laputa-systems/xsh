@@ -56,4 +56,19 @@ theorem ground_propagation_opens_frame {state : Machine} {context : TypingContex
     obtain ⟨success, result⟩ := result
     exact ⟨_, inner, .propagate result⟩
 
+theorem ground_node_is_closed {solution runtimeSolution : Substitution} {storage : BindingStorageMap}
+    {scope functionResult node ty} (ground : GroundNode solution runtimeSolution storage scope functionResult node ty) :
+    ∃ runtimeType, monoRuntime ty = some runtimeType := by
+  cases ground <;> first | exact ⟨_, rfl⟩ | solve | exact ⟨_, by assumption⟩
+
+theorem ground_propagation_opens_closed_frame {state : Machine} {context : TypingContext} {value expectedError ty}
+    (ground : GroundNode context.solution context.runtimeSolution context.storage context.scope context.result
+      (.propagate value expectedError) ty) :
+    ∃ failure, GroundNode context.solution context.runtimeSolution context.storage context.scope context.result
+      value (.result ty failure) ∧
+      DemandClosed (.expression context (.result ty failure)) ∧
+      FrameTyped state (.expression context (.result ty failure)) (.expression context ty) .propagate := by
+  obtain ⟨failure, inner, frame⟩ := ground_propagation_opens_frame (state := state) ground
+  exact ⟨failure, inner, ground_node_is_closed inner, frame⟩
+
 end Xsh.Semantics.Connected
