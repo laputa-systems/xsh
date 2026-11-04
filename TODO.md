@@ -238,7 +238,7 @@ out of scope.
 - **Area:** Inference
 - **Where:** `src/sema/`, `core/arp.xsh:216`
 - **Problem:** `proc show(name) { var wanted = null; wanted = name; if wanted != null { ... } }` publishes the free `seed` (`material type needs an annotation`): the deferred assignment `seed? <- name` anchors nothing.
-- **Recommendation:** Bind the seed to the assigned variable when it is still unresolved at finalization. Decide first whether `wanted` stays `Str?` or nests to `Str??` when `name` instantiates to `Str?`, and record the rule in the SPEC.
+- **Recommendation:** Bind the seed to the assigned variable when it is still unresolved at finalization. When `name` instantiates to `Str?`, `wanted` stays `Str?`: an optional is not a runtime wrapper (SPEC 4.6), so `Str??` holds exactly the values of `Str?`. State that idempotence in SPEC 4.6 with the fix.
 - **Acceptance:** `arp:216` erases; native tests cover a plain and an optional argument and match the annotated twin's behavior.
 - **Fix with:** root-cause
 - **Effort:** S
