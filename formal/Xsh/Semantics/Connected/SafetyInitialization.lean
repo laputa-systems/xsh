@@ -59,4 +59,14 @@ theorem typed_machine_execution_preservation (globals : Scope) (storage : Bindin
   | done => exact typed
   | next step rest ih => exact ih (typed_machine_step_preservation globals storage types response typed step)
 
+theorem typed_execution_fault_is_integer (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
+    (response : Xsh.Values.IntValue) {initial final : Machine} {events : List Label}
+    (execution : Execution initial events final) (typed : TypedMachine globals storage types initial)
+    (fault : Fault) (failed : final.control = .fault fault) : ∃ issue, fault = .integer issue := by
+  have finalTyped := typed_machine_execution_preservation globals storage types response execution typed
+  obtain ⟨input, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted, active,
+    inputClosed, outputClosed, control, stack, pending⟩ := finalTyped.focus
+  rw [failed] at control
+  exact typed_fault_control_shape final input fault control
+
 end Xsh.Semantics.Connected
