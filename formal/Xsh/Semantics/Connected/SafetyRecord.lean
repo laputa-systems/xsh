@@ -138,13 +138,12 @@ theorem row_fits_field (expected actual : RuntimeType) (name : NameId) (ty : Run
         exact tailIH parts.2 tailFound
   | _ => simp [rowFieldType] at found
 
-theorem compatible_field_frame_progress (state : Machine) (fields : List (NameId × Value)) (name : NameId)
+theorem compatible_field_lookup (fields : List (NameId × Value)) (name : NameId)
     (row valueType' : MonoType) (runtimeRow runtimeValue : RuntimeType)
     (typed : HasType (.record runtimeRow) (.record fields))
     (field : FieldOccurs name valueType' row) (rowClosed : monoRuntime row = some runtimeRow)
     (valueClosed : monoRuntime valueType' = some runtimeValue) :
-    ∃ value, Step { state with control := .value (.record fields), stack := .field name :: state.stack }
-        .internal { state with control := .value value } ∧ HasType runtimeValue value := by
+    ∃ value, fields.lookup name = some value ∧ HasType runtimeValue value := by
   have expectedField := field_occurrence_runtime field valueClosed rowClosed
   by_cases unique : (fields.map Prod.fst).Nodup
   · cases recordType : recordTypes fields with
@@ -166,7 +165,7 @@ theorem compatible_field_frame_progress (state : Machine) (fields : List (NameId
       have member := runtime_row_field_member (canonicalFields types) name actualTy found
       have actualMember : (name, actualTy) ∈ types := (runtime_canonical_fields_perm types).mem_iff.mp member
       obtain ⟨value, lookup, valueTyped⟩ := record_typed_field_lookup fields types name actualTy recordType unique actualMember
-      exact ⟨value, .fieldValue state name fields value lookup, by simpa [HasType, valueTyped] using compatible⟩
+      exact ⟨value, lookup, by simpa [HasType, valueTyped] using compatible⟩
   · simp [HasType, valueType, unique] at typed
 
 theorem typed_field_frame_progress (state : Machine) (fields : List (NameId × Value)) (name : NameId)
