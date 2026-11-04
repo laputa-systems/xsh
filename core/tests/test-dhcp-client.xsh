@@ -342,6 +342,6 @@ test test_a_foreign_resolver_file_is_reported_and_never_replaced { |ctx|
 test test_dhcpc_rejects_seconds_that_cannot_fit_in_milliseconds { |ctx|
   let source = fp"{ctx.core_dir}/dhcpc.xsh".read_text()?
   let result = test.run_script(ctx, source, ["eth0", "--once", "--seconds", "9223372036854776"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "dhcpc")?
-  assert ! result.success
+  assert result.status == 3, result.stderr
   assert "--seconds is too large" in result.stderr, result.stderr
 }
