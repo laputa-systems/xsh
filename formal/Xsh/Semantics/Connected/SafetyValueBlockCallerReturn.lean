@@ -9,7 +9,7 @@ theorem typed_machine_caller_resume (globals : Scope) (storage : BindingStorageM
     (saved : Substitution) (result : RuntimeType) (event : Label)
     (step : Step { base with control := control, stack := .caller cells activation saved result :: base.stack } event
       { base with control := .value value, cells := cells, activation := activation, solution := saved })
-    (valueTyped : valueType value = some result)
+    (valueTyped : HasType result value)
     (callable : ValueCallables base.functions value)
     (typed : TypedMachine globals storage types
       { base with control := control, stack := .caller cells activation saved result :: base.stack }) :
@@ -23,7 +23,7 @@ theorem typed_machine_caller_resume (globals : Scope) (storage : BindingStorageM
   cases stack with
   | cons frameTyped middleClosed remaining =>
     cases frameTyped with
-    | caller storageSame outerSorted savedSorted activationSame completion resultClosed callClosed scope schemes storageAgrees schemas =>
+    | caller storageSame outerSorted savedSorted activationSame completion resultClosed callClosed scope writable schemes storageAgrees schemas =>
       rename_i inner outer callType
       have unique := pending.unique
       have fresh := pending.fresh
@@ -48,11 +48,11 @@ theorem typed_machine_caller_resume (globals : Scope) (storage : BindingStorageM
       · rfl
       · simpa [TypedDemand.context] using activationSame
       · simpa [TypedDemand.context, storageSame] using storageEqual
-      · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+      · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 theorem typed_machine_return_to_caller (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (saved : Substitution) (result : RuntimeType)
-    (valueTyped : valueType value = some result)
+    (valueTyped : HasType result value)
     (typed : TypedMachine globals storage types
       { base with control := .returned value, stack := .caller cells activation saved result :: base.stack }) :
     TypedMachine globals storage types
@@ -65,7 +65,7 @@ theorem typed_machine_return_to_caller (globals : Scope) (storage : BindingStora
 
 theorem typed_machine_completion_to_caller (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (value : Value) (cells : ActiveCells) (activation : Nat) (saved : Substitution) (result : RuntimeType)
-    (valueTyped : valueType value = some result)
+    (valueTyped : HasType result value)
     (typed : TypedMachine globals storage types
       { base with control := .completed value, stack := .caller cells activation saved result :: base.stack }) :
     TypedMachine globals storage types
@@ -78,7 +78,7 @@ theorem typed_machine_completion_to_caller (globals : Scope) (storage : BindingS
 
 theorem typed_machine_propagation_to_caller (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (error : Value) (oldType successType errorType : RuntimeType)
-    (cells : ActiveCells) (activation : Nat) (saved : Substitution) (errorTyped : valueType error = some errorType)
+    (cells : ActiveCells) (activation : Nat) (saved : Substitution) (errorTyped : HasType errorType error)
     (typed : TypedMachine globals storage types
       { base with control := .propagated (.error error oldType), stack := .caller cells activation saved (.result successType errorType) :: base.stack }) :
     TypedMachine globals storage types
@@ -86,8 +86,8 @@ theorem typed_machine_propagation_to_caller (globals : Scope) (storage : Binding
   obtain ⟨_, _, _, _, _, _, _, _, _, _, control, _, _⟩ := typed.focus
   cases control with
   | propagated matching actualType closed callable =>
-    have valueTyped : valueType (.error error successType) = some (.result successType errorType) := by
-      simp [valueType, errorTyped]
+    have valueTyped : HasType (.result successType errorType) (.error error successType) :=
+      compatible_error_value error successType errorType errorTyped
     exact typed_machine_caller_resume globals storage types base (.propagated (.error error oldType))
       (.error error successType) cells activation saved (.result successType errorType) .internal
       (Step.propagatedToCaller base error oldType successType errorType cells activation saved errorTyped)
