@@ -4025,7 +4025,8 @@ These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `link_up`, `link_down`,
 `set_ipv4_address`, `flush_ipv4_addresses`, `add_default_ipv4_route`,
 `del_default_ipv4_route`,
-and `unix.connect_stream`, `read_fd`, `write_fd`, `notify_ready`. The private configuration
+and `unix.connect_stream`, `read_fd`, `write_fd`, `notify_ready`, `poll_fds`.
+The private configuration
 helpers create `AF_INET` sockets. A runtime family or raw descriptor cannot
 prove that communication stays local, so generic socket and descriptor calls
 need both effects even when a particular caller uses a local descriptor. Dedicated
