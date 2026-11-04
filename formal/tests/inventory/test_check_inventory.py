@@ -120,8 +120,8 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(847, len(result["fragment_roots"]))
-        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.checked-facts"}, result["artifact_certificates"])
+        self.assertEqual(887, len(result["fragment_roots"]))
+        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.checked-facts", "artifact.scoped-checked-facts"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual([], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])

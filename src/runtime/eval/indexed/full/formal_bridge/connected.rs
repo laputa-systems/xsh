@@ -553,6 +553,14 @@ mod tests {
         let (_, _, parsed, published) = check_fixture(source).unwrap();
         let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
         let document = encode_connected_facts(&facts).unwrap();
+        let lean_documents = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/formal/Xsh/Conformance/Connected/ScopedDocuments.lean"));
+        assert_eq!(lean_document_from(lean_documents, "scopedFactsCodes"), Some(document.clone()));
+        let lean_source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/formal/Xsh/Conformance/Connected/ScopedTokens.lean"));
+        let source_literal = lean_source.lines().find_map(|line|
+            line.strip_prefix("def actualScopedSource : String := ")).expect("Lean source exists");
+        assert_eq!(parse_wire_document(source_literal).unwrap(), WireValue::String(source.to_string()));
         println!("CONNECTED_SCOPED_FACTS {document}");
         let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
         let binding = body.read_bindings.iter().find(|binding| binding.name == "current").unwrap();

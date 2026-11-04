@@ -11164,7 +11164,7 @@
     },
     {
       "id": "fragment.Xsh.Typing.Connected.check_annotation_sound",
-      "module": "Xsh.Typing.Connected.BlockValidate",
+      "module": "Xsh.Typing.Connected.Validate",
       "declaration": "Xsh.Typing.Connected.check_annotation_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
@@ -11359,6 +11359,366 @@
       "status": "fragment",
       "scope": "A checked decoded field scheme and call instance yield source-generated qualified constraints and a typed concrete body.",
       "boundary": "Expected source operations, selected target and name/type mappings are supplied inputs. Sparse expression/read facts, effect obligations, actual emitted bytes and generic-body typing remain unverified."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_projection_uses_shared_wire",
+      "module": "Xsh.Conformance.Connected.ActualFacts",
+      "declaration": "Xsh.Conformance.Connected.decoded_projection_uses_shared_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Decoded projection facts use the shared wire document.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.validated_published_call_has_source_type",
+      "module": "Xsh.Conformance.Connected.CallFacts",
+      "declaration": "Xsh.Conformance.Connected.validated_published_call_has_source_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted published call has the stated source type under the supplied scope and substitution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_derives_time",
+      "module": "Xsh.Conformance.Connected.ClockAdmission",
+      "declaration": "Xsh.Conformance.Connected.clock_source_derives_time",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source derives the modeled time effect.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_tokens_parse",
+      "module": "Xsh.Conformance.Connected.ClockParse",
+      "declaration": "Xsh.Conformance.Connected.clock_tokens_parse",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock tokens parse to the stated declarations.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_admits_unit",
+      "module": "Xsh.Conformance.Connected.ClockSourceAdmit",
+      "declaration": "Xsh.Conformance.Connected.clock_source_admits_unit",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source admits the stated source unit.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_tokenizes",
+      "module": "Xsh.Conformance.Connected.ClockTokens",
+      "declaration": "Xsh.Conformance.Connected.clock_source_tokenizes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source tokenizes to the stated tokens.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_tokens_derive_time",
+      "module": "Xsh.Conformance.Connected.ClockTokensDerive",
+      "declaration": "Xsh.Conformance.Connected.clock_tokens_derive_time",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected parsed clock tokens derive the modeled time effect.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.connected_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.Documents",
+      "declaration": "Xsh.Conformance.Connected.connected_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fixed projection fact codes parse to the stated wire value.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.emitted_clock_effects_decode",
+      "module": "Xsh.Conformance.Connected.EffectFacts",
+      "declaration": "Xsh.Conformance.Connected.emitted_clock_effects_decode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fixed clock effect wire decodes to the stated effect fact.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_identity_uses_shared_wire",
+      "module": "Xsh.Conformance.Connected.IdentityFacts",
+      "declaration": "Xsh.Conformance.Connected.decoded_identity_uses_shared_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Decoded identity facts use the shared wire document.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_qualified_fact_types_every_solution",
+      "module": "Xsh.Conformance.Connected.QualifiedFacts",
+      "declaration": "Xsh.Conformance.Connected.checked_qualified_fact_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked qualified expression fact has its stated type under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.qualified_function_nodes_every_solution",
+      "module": "Xsh.Conformance.Connected.QualifiedNodeFacts",
+      "declaration": "Xsh.Conformance.Connected.qualified_function_nodes_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted source-linked qualified function gives typed nodes for each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.generic_projection_transfer_controls",
+      "module": "Xsh.Conformance.Connected.ResourceControls",
+      "declaration": "Xsh.Conformance.Connected.generic_projection_transfer_controls",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Selected generic projection cases distinguish the modeled transfer controls.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_function_block_transfer",
+      "module": "Xsh.Conformance.Connected.ResourceFacts",
+      "declaration": "Xsh.Conformance.Connected.checked_function_block_transfer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The checked block transfer fact agrees with the modeled transfer.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_document_decodes",
+      "module": "Xsh.Conformance.Connected.ScopedDecode",
+      "declaration": "Xsh.Conformance.Connected.scoped_document_decodes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped fact codes decode to the stated document and scopes.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.ScopedDocuments",
+      "declaration": "Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped fact codes parse to the stated wire value.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_store_site_types_every_solution",
+      "module": "Xsh.Conformance.Connected.ScopedOccurrences",
+      "declaration": "Xsh.Conformance.Connected.checked_store_site_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked storage site has a typed source expression and compatible storage under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.actual_scoped_source_is_admitted",
+      "module": "Xsh.Conformance.Connected.ScopedParse",
+      "declaration": "Xsh.Conformance.Connected.actual_scoped_source_is_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped source admits the stated source unit.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_source_tokenizes",
+      "module": "Xsh.Conformance.Connected.ScopedTokens",
+      "declaration": "Xsh.Conformance.Connected.scoped_source_tokenizes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped source tokenizes to the stated tokens.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.admits_located_projection_source",
+      "module": "Xsh.Conformance.Connected.SourceAdmission",
+      "declaration": "Xsh.Conformance.Connected.admits_located_projection_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected projection source passes the modeled located admission check.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.changed_region_occurrence_is_rejected",
+      "module": "Xsh.Conformance.Connected.SourceEffectModel",
+      "declaration": "Xsh.Conformance.Connected.changed_region_occurrence_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected changed effect-region occurrence is rejected.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_validates_emitted_effects",
+      "module": "Xsh.Conformance.Connected.SourceEffects",
+      "declaration": "Xsh.Conformance.Connected.clock_source_validates_emitted_effects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source validates its emitted effect record.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_expression_fact_matches",
+      "module": "Xsh.Conformance.Connected.SparseFacts",
+      "declaration": "Xsh.Conformance.Connected.checked_expression_fact_matches",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked sparse expression fact matches the independently validated expression type.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.store_compatible_runtime",
+      "module": "Xsh.Semantics.Connected.StoreRuntime",
+      "declaration": "Xsh.Semantics.Connected.store_compatible_runtime",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Symbolic storage compatibility implies runtime compatibility when both types convert.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.integer_value_shape",
+      "module": "Xsh.Semantics.Connected.TypedBinary",
+      "declaration": "Xsh.Semantics.Connected.integer_value_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A value with the exact integer runtime tag has the modeled integer shape.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scope_binding_unique",
+      "module": "Xsh.Semantics.Connected.TypedScope",
+      "declaration": "Xsh.Semantics.Connected.scope_binding_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Members of a binder-unique scope cannot share the same binder.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.context_validate_node_integer_sound",
+      "module": "Xsh.Typing.Connected.NodeBlockSound",
+      "declaration": "Xsh.Typing.Connected.context_validate_node_integer_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted contextual integer node has the stated node type.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.accepted_function_instance_has_node_type",
+      "module": "Xsh.Typing.Connected.NodeCertificate",
+      "declaration": "Xsh.Typing.Connected.accepted_function_instance_has_node_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted function instance has the modeled node type under its supplied solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.instantiation_sorts_compose",
+      "module": "Xsh.Typing.Connected.NodeJudgment",
+      "declaration": "Xsh.Typing.Connected.instantiation_sorts_compose",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Well-sorted substitutions compose with checked instantiation sorts.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validate_node_integer_sound",
+      "module": "Xsh.Typing.Connected.NodeSound",
+      "declaration": "Xsh.Typing.Connected.validate_node_integer_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted integer node has the stated node type.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validate_qualified_blocks_sound",
+      "module": "Xsh.Typing.Connected.QualifiedBlockSound",
+      "declaration": "Xsh.Typing.Connected.validate_qualified_blocks_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted qualified blocks and branches have corresponding typing judgments.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.c_validate_qualified_read_sound",
+      "module": "Xsh.Typing.Connected.QualifiedContextSound",
+      "declaration": "Xsh.Typing.Connected.c_validate_qualified_read_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted qualified read has its contextual typing judgment.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.cyclic_store_scheme_has_no_solution",
+      "module": "Xsh.Typing.Connected.QualifiedControls",
+      "declaration": "Xsh.Typing.Connected.cyclic_store_scheme_has_no_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "No substitution satisfies the selected cyclic field-and-store scheme.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.checked_ground_scheme_has_unique_rows",
+      "module": "Xsh.Typing.Connected.QualifiedFunction",
+      "declaration": "Xsh.Typing.Connected.checked_ground_scheme_has_unique_rows",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked ground scheme has unique rows in its substituted body and requirements.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.insert_field_substitutes",
+      "module": "Xsh.Typing.Connected.QualifiedJudgment",
+      "declaration": "Xsh.Typing.Connected.insert_field_substitutes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Substitution commutes with modeled sorted field insertion.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.qualified_context_node_instantiates",
+      "module": "Xsh.Typing.Connected.QualifiedNode",
+      "declaration": "Xsh.Typing.Connected.qualified_context_node_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A qualified node judgment instantiates under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validate_qualified_node_blocks_sound",
+      "module": "Xsh.Typing.Connected.QualifiedNodeBlockSound",
+      "declaration": "Xsh.Typing.Connected.validate_qualified_node_blocks_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted qualified node blocks and branches have corresponding typing judgments.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validated_qualified_node_instantiates",
+      "module": "Xsh.Typing.Connected.QualifiedNodeSound",
+      "declaration": "Xsh.Typing.Connected.validated_qualified_node_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted qualified node instantiates under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validated_qualified_expression_instantiates",
+      "module": "Xsh.Typing.Connected.QualifiedSound",
+      "declaration": "Xsh.Typing.Connected.validated_qualified_expression_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted qualified expression instantiates under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.scoped_example_is_typed",
+      "module": "Xsh.Typing.Connected.ScopedControls",
+      "declaration": "Xsh.Typing.Connected.scoped_example_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped mutable-local example passes the block validator.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
     }
   ],
   "artifact_certificates": [
@@ -11499,6 +11859,23 @@
       ],
       "proposition": "For each of two pairs, a source document (`sourceDocumentCodes`, `callsSourceDocumentCodes`) and the checked-facts document the Rust checker published for it, both decode, the facts document names the source document, the source text parses in the admitted productions, and the CERT-FACTS validator accepts the decoded facts, which therefore are a valid derivation of the declarative rules for the parsed functions: every resolution, selected callee, argument count, operand and result type, scheme, let type, effect set and evaluation order the Rust checker published equals what the rules determine. The validator reads nothing from the candidate except the facts it lists. The rejection theorems show that a forged binding, selected operation, effect, scheme or let type, a changed evaluation order, a wrong declaration or argument count, a missing or extra function, a forged literal, changed bytes in either document, and a validator that trusts the candidate are caught.",
       "boundary": "The identity is the bytes of the two facts code lists, which the Rust bridge test `facts::tests::exported_facts_are_the_lean_certified_bytes` requires Rust's exporter to produce from the checker's published tables. The exporter is test-only bridge code that reads `CompactDeclOutput` and the checker's recorded binary operators; operand and result types, resolutions, selected callees, signatures and effect facts come from those tables, and literal values and evaluation order come from the parse. The Lean parser is independent; Rust correspondence for these sources is finite evidence from the named frozen-source bridge case; the facts cover the admitted productions (integer parameters, one let, a value, a call or a conditional) and carry no guard, nominal or module identity. Nothing relates the facts to the raw IR yet, and nothing shows the checker publishes correct facts for other programs."
+    },
+    {
+      "id": "artifact.scoped-checked-facts",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "candidate-fact-set",
+      "artifact_module": "Xsh.Conformance.Connected.ScopedDocuments",
+      "artifact_definitions": [
+        "Xsh.Conformance.Connected.scopedFactsCodes"
+      ],
+      "module": "Xsh.Conformance.Connected.ScopedCertificate",
+      "certificate": "Xsh.Conformance.Connected.actual_scoped_facts_are_checked",
+      "supporting_theorems": [],
+      "rejection_theorems": [
+        "Xsh.Conformance.Connected.actual_scoped_fact_mutations_are_rejected"
+      ],
+      "proposition": "The selected scoped source is admitted, the fixed fact codes decode to the stated checker-fact document, and the scoped validator accepts that source and document. Ten altered decoded body and call fact records are rejected.",
+      "boundary": "The pinned focused Rust bridge test compares the actual checker export and source with the Lean fact codes and source text. This is one bounded source/fact artifact; the rejection theorem changes decoded facts, not the original bytes. The matching final source-freeze replay, raw-IR correspondence, runtime execution, and general connected theorem remain open."
     }
   ],
   "source_identity": {

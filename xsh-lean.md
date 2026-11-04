@@ -16,7 +16,8 @@ The test-only Rust bridge exports checker facts for the failures and calls
 fixtures, and Lean certifies the corresponding fact documents. A third
 source/IR certificate covers one integer variable and one plain assignment.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds four ARTIFACT_CERTIFIED records. The original
+`artifact_certificates` holds five ARTIFACT_CERTIFIED records, including the
+scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
 exhausted the independent kernels, so the certificate covers `divided` and
@@ -45,9 +46,9 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 847
-fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
-selected behavior. None establishes source, raw-IR, Rust, OS, or clock
+**State:** `formal/coverage.json` is the only inventory. It lists 887
+fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
+selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
 theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
 roots: they hold for the base expression machine, which is not the frozen
@@ -56,8 +57,9 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds four ARTIFACT_CERTIFIED
-records, apart from the fragment roots. Each
+the pinned container. `artifact_certificates` holds five ARTIFACT_CERTIFIED
+records, apart from the fragment roots; the scoped fact artifact still needs
+its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
 
@@ -869,6 +871,17 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   target and Field bindings. This does not yet check the document's sparse
   expression/read facts or effect obligations; expected source operations and
   identity mappings are supplied inputs.
+
+- 2026-11-04: The connected model now carries declared storage types through
+  allocation and checks directional storage compatibility in qualified
+  constraints. A depth argument proves the cyclic Field-and-Store requirement
+  has no solution. A scoped artifact certificate checks the exact Rust-emitted
+  source and facts for a generic mutable local inside `without`, and rejects
+  ten altered decoded facts. The pinned focused bridge tests passed with the
+  source and fact bytes compared directly to the Lean inputs. These are
+  bounded artifacts and physical-cap Lean checks, not a fresh six-kernel
+  qualification or a source-to-IR simulation. Selected-call grounding, unique
+  nested rows, effects and the complete connected execution remain open.
 
 ## For the owner afterwards
 

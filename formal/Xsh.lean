@@ -9,6 +9,7 @@ import Xsh.Typing.Connected.Qualified
 import Xsh.Typing.Connected.QualifiedControls
 import Xsh.Typing.Connected.ScopedControls
 import Xsh.Typing.Connected.NodeCertificate
+import Xsh.Typing.Connected.QualifiedNodeSound
 import Xsh.Conformance.Connected.FieldFacts
 import Xsh.Conformance.Connected.FactsDocument
 import Xsh.Conformance.Connected.FieldLink
@@ -111,3 +112,4 @@ import Xsh.Conformance.Vertical.FactsDocument
 import Xsh.Conformance.Vertical.FactsCertificate
 
 import Xsh.Semantics.Connected.StoreRuntime
+import Xsh.Conformance.Connected.ScopedCertificate
