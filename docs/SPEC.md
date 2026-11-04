@@ -6365,7 +6365,13 @@ Contracts worth knowing without consulting the reference:
   to the safe untrusted policy: refuse existing names, links that stay inside the
   destination, no devices or FIFOs, permission bits only, no ownership. A shared
   budget (`max_output`, `max_entry`, `max_entries`, with fixed metadata and
-  decoder-workspace limits) bounds every layer. Publication is atomic per entry,
+  decoder-workspace limits) bounds every layer. XZ checks its estimated decoder
+  workspace for every block and concatenated member, including filter state and
+  the decoder's 32 KiB base allowance. The 64 KiB input buffer is additional;
+  this is not a limit on all allocator use. Exceeding the workspace limit reports
+  `ArchiveError.Limit` while reading; allocation and source I/O failures remain
+  I/O errors. An integrity check the decoder cannot verify is rejected.
+  Publication is atomic per entry,
   not durable. Checksums are integrity checks, not authenticity. `create` writes
   tar or cpio through one compression lifecycle to a temporary file published
   with a no-replace rename, and `compress`, `decompress` and `decompress_bytes`
