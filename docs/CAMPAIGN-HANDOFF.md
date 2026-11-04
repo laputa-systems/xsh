@@ -1,8 +1,23 @@
 # Linux campaign handoff, 2026-11-04
 
-The owner requested a wind-down. The campaign is incomplete. Stop scheduled
-work and retain unfinished source and useful fixtures. macOS remains excluded.
-This handoff records local evidence, not release or production qualification.
+The owner requested a wind-down, then resumed the goal on 2026-11-04. The
+campaign remains incomplete. Retain unfinished source and useful fixtures.
+macOS remains excluded. This handoff records the wind-down snapshot and the
+resume updates below, not release or production qualification.
+
+## Resume updates
+
+The repeated graphical launch and idle-memory pairs now pass with the LTO
+font package. Laputa's `docs/FONT-STACK.md` records five samples per side,
+their spread, and the launch-to-screenshot upper-bound interpretation.
+
+The parked primitive-handle prototype `fb3bc1712` has now completed matched
+timing pairs. No CPU benefit exceeds observed spread. It remains unmerged;
+the owning performance campaign records the neutral comparison. The earlier
+description of unrun measurements below records the wind-down state.
+
+The fresh connected check and complete kernel gate have been restarted.
+Neither is counted as passing before its actual completion.
 
 ## Source and publication state
 
