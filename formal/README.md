@@ -51,7 +51,9 @@ execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
 source and published Rust facts remains open in general. For the scoped
 mutable-local fixture, its actual published Int call grounds the checked body
-and closes its storage tag; full machine initialization remains open.
+and closes its storage tag. Its source-selected literal argument initializes a
+typed invocation whose finite model executions preserve typing, exclude internal
+faults, and retain safe progress. Rust execution correspondence remains open.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
 and ten altered decoded facts. Its call check currently supports direct,
