@@ -46,7 +46,7 @@ theorem typed_machine_empty_statement_branch (globals : Scope) (storage : Bindin
       intro binder member
       apply fresh binder
       simp [declaredBinders, branchBinders, member]
-    obtain ⟨scope, schemas, schemes, storageAgrees⟩ := active
+    obtain ⟨scope, writable, schemas, schemes, storageAgrees⟩ := active
     have oldStack : StackTyped
         { base with control := .statements otherwise, stack := .continueBlock base.cells rest :: base.stack }
         (.block context) output base.stack := by
@@ -61,7 +61,7 @@ theorem typed_machine_empty_statement_branch (globals : Scope) (storage : Bindin
         { base with control := .statements otherwise, stack := .continueBlock base.cells rest :: base.stack }
         (.block inner) (.block context) (.continueBlock base.cells rest) := by
       exact .continueBlock rfl rfl rfl rfl rfl rfl (by simpa [ScopeStateAgrees, TypedDemand.context] using scope)
-        schemes storageAgrees schemas following restFresh
+        writable schemes storageAgrees schemas following restFresh
     have innerClosed : DemandClosed (.block inner) := by
       refine ⟨context.resultClosed, ?_⟩
       intro ty equal
@@ -71,7 +71,7 @@ theorem typed_machine_empty_statement_branch (globals : Scope) (storage : Bindin
       · simp [inner, empty] at equal
     refine ⟨.block inner, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
       ?_, innerClosed, outputClosed, .statements fallback fallbackFresh, .cons frame inputClosed oldStack, newPending⟩
-    exact ⟨by simpa [inner, ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+    exact ⟨by simpa [inner, ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 theorem ground_statement_branch (solution runtimeSolution : Substitution) (storage : BindingStorageMap)
     (scope : Scope) (result : MonoType) (completion : Option MonoType)
@@ -177,7 +177,7 @@ theorem typed_machine_statement_branch_true (globals : Scope) (storage : Binding
             intro binder member
             apply newPending.fresh (context.activation, binder)
             simp [pendingMachineBinders, pendingControlBinders, activation, member]
-          obtain ⟨scope, schemas, schemes, storageAgrees⟩ := active
+          obtain ⟨scope, writable, schemas, schemes, storageAgrees⟩ := active
           have oldStack : StackTyped
               { base with control := .statements body, stack := .continueBlock base.cells rest :: base.stack }
               (.block context) output base.stack := by
@@ -192,7 +192,7 @@ theorem typed_machine_statement_branch_true (globals : Scope) (storage : Binding
               { base with control := .statements body, stack := .continueBlock base.cells rest :: base.stack }
               (.block inner) (.block context) (.continueBlock base.cells rest) := by
             exact .continueBlock rfl rfl rfl rfl rfl rfl (by simpa [ScopeStateAgrees, TypedDemand.context] using scope)
-              schemes storageAgrees schemas following restFresh
+              writable schemes storageAgrees schemas following restFresh
           have innerClosed : DemandClosed (.block inner) := by
             refine ⟨context.resultClosed, ?_⟩
             intro ty equal
@@ -202,7 +202,7 @@ theorem typed_machine_statement_branch_true (globals : Scope) (storage : Binding
             · simp [inner, empty] at equal
           refine ⟨.block inner, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
             ?_, innerClosed, outputClosed, .statements bodyTyped bodyFresh, .cons frame middleClosed oldStack, newPending⟩
-          exact ⟨by simpa [inner, ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+          exact ⟨by simpa [inner, ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 theorem typed_machine_statement_branch_false (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (condition : Node) (body : List StatementNode) (branches : List (Node × List StatementNode))

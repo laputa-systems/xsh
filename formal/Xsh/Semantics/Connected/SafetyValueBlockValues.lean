@@ -10,7 +10,7 @@ theorem typed_machine_expression_value (globals : Scope) (storage : BindingStora
     (step : Step { base with control := .expression node } event { base with control := .value value })
     (result : ∀ (context : TypingContext) (ty : MonoType) (runtimeType : RuntimeType),
       GroundNode context.solution context.runtimeSolution context.storage context.scope context.result node ty →
-      monoRuntime ty = some runtimeType → valueType value = some runtimeType ∧ ValueCallables base.functions value)
+      monoRuntime ty = some runtimeType → HasType runtimeType value ∧ ValueCallables base.functions value)
     (typed : TypedMachine globals storage types { base with control := .expression node }) :
     TypedMachine globals storage types { base with control := .value value } := by
   obtain ⟨memory, functions, globalDistinct, globalSchemes, globalStorage, storedValues⟩ :=
@@ -43,7 +43,7 @@ theorem typed_machine_integer (globals : Scope) (storage : BindingStorageMap) (t
     (Step.integer base text value parsed) ?_ typed
   intro context ty runtimeType ground closed
   cases ground with
-  | integer parsed' => simp [monoRuntime] at closed; subst runtimeType; exact ⟨rfl, .scalar⟩
+  | integer parsed' => simp [monoRuntime] at closed; subst runtimeType; exact ⟨has_type_of_exact _ _ rfl, .scalar⟩
 
 theorem typed_machine_boolean (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (value : Bool)
@@ -53,7 +53,7 @@ theorem typed_machine_boolean (globals : Scope) (storage : BindingStorageMap) (t
     (Step.boolean base value) ?_ typed
   intro context ty runtimeType ground closed
   cases ground with
-  | boolean => simp [monoRuntime] at closed; subst runtimeType; exact ⟨rfl, .scalar⟩
+  | boolean => simp [monoRuntime] at closed; subst runtimeType; exact ⟨has_type_of_exact _ _ rfl, .scalar⟩
 
 theorem typed_machine_string (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (value : String)
@@ -63,6 +63,6 @@ theorem typed_machine_string (globals : Scope) (storage : BindingStorageMap) (ty
     (Step.string base value) ?_ typed
   intro context ty runtimeType ground closed
   cases ground with
-  | string => simp [monoRuntime] at closed; subst runtimeType; exact ⟨rfl, .scalar⟩
+  | string => simp [monoRuntime] at closed; subst runtimeType; exact ⟨has_type_of_exact _ _ rfl, .scalar⟩
 
 end Xsh.Semantics.Connected

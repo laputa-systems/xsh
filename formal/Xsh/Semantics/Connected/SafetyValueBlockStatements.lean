@@ -36,7 +36,7 @@ theorem typed_machine_block_complete (globals : Scope) (storage : BindingStorage
         · simpa [TypedDemand.context] using activation.symm
         · rfl
       refine ⟨.block context, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
-        ?_, inputClosed, outputClosed, .completed rfl rfl accepts .unit, oldStack, newPending⟩
+        ?_, inputClosed, outputClosed, .completed (has_type_of_exact _ _ rfl) rfl accepts .unit, oldStack, newPending⟩
       simpa [ActiveScopeTyped, ScopeStateAgrees, TypedDemand.context] using active
 
 theorem typed_machine_return_start (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)

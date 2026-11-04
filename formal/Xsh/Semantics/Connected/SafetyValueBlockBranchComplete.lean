@@ -22,7 +22,7 @@ theorem typed_machine_tail_branch_complete (globals : Scope) (storage : BindingS
     cases stack with
     | cons frameTyped middleClosed remaining =>
       cases frameTyped with
-      | continueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope schemes storageAgrees schemas restTyped fresh =>
+      | continueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope writable schemes storageAgrees schemas restTyped fresh =>
         rename_i outer
         have newPending : PendingBindingsSafe { base with control := .completed value, cells := cells } := by
           constructor
@@ -43,7 +43,7 @@ theorem typed_machine_tail_branch_complete (globals : Scope) (storage : BindingS
         · simpa [TypedDemand.context, activationSame] using activation
         · simpa [TypedDemand.context, storageSame] using storageEqual
         · simpa [TypedDemand.context, solutionSame] using proofSorted
-        · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+        · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 theorem typed_machine_non_tail_branch_complete (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (value : Value) (cells : ActiveCells) (next : StatementNode) (rest : List StatementNode)
@@ -63,7 +63,7 @@ theorem typed_machine_non_tail_branch_complete (globals : Scope) (storage : Bind
     cases stack with
     | cons frameTyped middleClosed remaining =>
       cases frameTyped with
-      | continueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope schemes storageAgrees schemas restTyped fresh =>
+      | continueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope writable schemes storageAgrees schemas restTyped fresh =>
         rename_i outer
         have newPending : PendingBindingsSafe { base with control := .statements (next :: rest), cells := cells } := by
           constructor
@@ -82,6 +82,6 @@ theorem typed_machine_non_tail_branch_complete (globals : Scope) (storage : Bind
         · simpa [TypedDemand.context, activationSame] using activation
         · simpa [TypedDemand.context, storageSame] using storageEqual
         · simpa [TypedDemand.context, solutionSame] using proofSorted
-        · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+        · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 end Xsh.Semantics.Connected
