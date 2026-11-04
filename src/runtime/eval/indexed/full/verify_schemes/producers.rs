@@ -5383,7 +5383,14 @@ impl<'a> ProducerProof<'a> {
             if actual.opaque || !actual.parameters.is_empty() || actual.functions != expected { return Err(IrVerifyError::new("scheme callable relationship disagrees with its exact physical producers")); }
             return Ok(());
         }
-        let actual = match declared {
+        let actual = if self.store.tags[instruction] == FullTag::ExprField {
+            if let Some(declared) = declared
+                && declared.as_ref() != expected.as_ref()
+            {
+                self.expression(owner, instruction, declared, returned);
+            }
+            self.derive_unannotated_type(&decoder, instruction)?
+        } else { match declared {
             Some(actual) => Some(actual),
             None if returned
                 && matches!(expected.as_ref(), Type::Result(_, _))
@@ -5398,7 +5405,7 @@ impl<'a> ProducerProof<'a> {
             }
             None if self.skips_derived_type(&decoder, instruction, &expected, returned)? => None,
             None => self.declared_type(&decoder, instruction)?,
-        };
+        } };
         let aggregate = optional_aggregate_payload(&expected);
         if (matches!(aggregate, Type::List(_) | Type::Map(_, _)) || matches!(aggregate, Type::Record(_)) && actual.is_none())
             && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
@@ -5415,7 +5422,9 @@ impl<'a> ProducerProof<'a> {
             && actual.as_ref().is_none_or(|actual| !actual.matches_expected(&expected))
         { self.fresh_contextual_list_source(&decoder, instruction)? } else { None };
         if let Some(actual) = &actual {
-            let fits = if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
+            let optional_dynamic_payload = actual.as_ref() == &Type::Any
+                && matches!(expected.as_ref(), Type::Optional(payload) if payload.as_ref() == &Type::Any);
+            let fits = optional_dynamic_payload || if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
             let constructor_payload_contract = owned_declared_fact && matches!(
                 (decoder.expression_view(instruction)?, actual.as_ref(), expected.as_ref()),
                 (schema::ExprView::Ok(_), Type::Result(actual, _), Type::Result(expected, _)) if actual.matches_expected(expected)
@@ -5717,16 +5726,24 @@ impl<'a> ProducerProof<'a> {
                     }
                     return Ok(());
                 }
-                let left_type = self.need_context(&decoder, left.raw() as usize)?;
-                let right_type = self.need_context(&decoder, right.raw() as usize)?;
+                let mut left_type = self.need_context(&decoder, left.raw() as usize)?;
+                let mut right_type = self.need_context(&decoder, right.raw() as usize)?;
                 if left_type.is_none() && right_type.is_none()
                     && self.is_untyped_empty_list(&decoder, left.raw() as usize)?
                     && self.is_untyped_empty_list(&decoder, right.raw() as usize)?
                 { return Ok(()); }
-                let dynamic_fields = left_type.is_none() && right_type.is_none()
-                    && self.is_erased_record_field(&decoder, left.raw() as usize)?
-                    && self.is_erased_record_field(&decoder, right.raw() as usize)?;
-                let left_type = left_type.or_else(|| right_type.clone()).or_else(|| dynamic_fields.then(|| Arc::new(Type::Any))).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
+                let mut dynamic_field = false;
+                for (instruction, ty) in [(left.raw() as usize, &mut left_type), (right.raw() as usize, &mut right_type)] {
+                    if ty.is_none() && self.is_erased_record_field(&decoder, instruction)? {
+                        self.verify_operands(&decoder, instruction)?;
+                        *ty = Some(Arc::new(Type::Any));
+                        dynamic_field = true;
+                    }
+                }
+                if dynamic_field && (left_type.is_none() || right_type.is_none()) {
+                    return Err(IrVerifyError::new("dynamic equality operand has no independent producer contract"));
+                }
+                let left_type = left_type.or_else(|| right_type.clone()).ok_or_else(|| IrVerifyError::new("equality operands have no producer contract"))?;
                 let right_type = right_type.unwrap_or_else(|| Arc::clone(&left_type));
                 self.budget.charge_clone(&left_type)?;
                 self.budget.charge_clone(&right_type)?;
@@ -5852,7 +5869,7 @@ impl<'a> ProducerProof<'a> {
                 if matches!(contract, super::super::FullCallableContract::Ground(_)) { self.ground_function(target.index())?; }
                 Ok(())
             }
-            schema::ExprView::Field { base, .. } => {
+            schema::ExprView::Field { base, name, .. } => {
                 if let Some(ty) = self.scoped_field_type(&decoder, instruction)? {
                     let actual = ty.closed_ground_type().ok_or_else(|| IrVerifyError::new("scoped field has no closed producer contract"))?;
                     if !decoder.checked_type_fits(&actual, &expected) {
@@ -5862,6 +5879,16 @@ impl<'a> ProducerProof<'a> {
                 }
                 let (ty, fact) = self.operand_context(&decoder, base.raw() as usize)?.into_parts();
                 let ty = ty.ok_or_else(|| IrVerifyError::new("ground field producer has no receiver contract"))?;
+                if actual.is_none() {
+                    let imported = matches!(expected.as_ref(), Type::Callable(_))
+                        && matches!(ty.unvalidated(), Type::Module(module)
+                            if module.exact && matches!(module.get(&Name::intern(name)), Some(ModuleExportType::GenericCallable { optional: false, .. })));
+                    if imported {
+                        decoder.function_reference_matches_callable(instruction, &expected)?;
+                    } else {
+                        return Err(IrVerifyError::new("ground field producer has no matching receiver field"));
+                    }
+                }
                 self.expression_with_fact(owner, base.raw() as usize, ty, false, fact);
                 Ok(())
             }
@@ -8399,11 +8426,21 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn comprehension_output(&mut self, decoder: &FullDecoder<'a>, comprehension: usize, container: &Type, output: usize, expected: Arc<Type>) -> Result<(), IrVerifyError> {
-        if matches!(decoder.expression_view(output)?, schema::ExprView::Field { .. })
+        if let schema::ExprView::Field { base, .. } = decoder.expression_view(output)?
             && !expected.contains_any()
             && self.need_context(decoder, output)?.is_none()
-            && !self.runtime_checked_comprehension(decoder, comprehension, container)?
-        { return Err(IrVerifyError::new("ground comprehension field output has no static contract or runtime check")); }
+        {
+            if !self.runtime_checked_comprehension(decoder, comprehension, container)?
+                || !super::runtime_complete_storage_check_type(container, &mut self.budget)?
+            { return Err(IrVerifyError::new("ground comprehension field output has no static contract or runtime check")); }
+            let (receiver, fact) = self.operand_context(decoder, base.raw() as usize)?.into_parts();
+            let receiver = receiver.ok_or_else(|| IrVerifyError::new("checked comprehension field has no receiver contract"))?;
+            if !matches!(receiver.unvalidated(), Type::Any | Type::ErasedRecord | Type::DynamicModule) {
+                return Err(IrVerifyError::new("checked comprehension field has no dynamic receiver"));
+            }
+            self.expression_with_fact(decoder.owner, base.raw() as usize, receiver, false, fact);
+            return Ok(());
+        }
         self.expression(decoder.owner, output, expected, false);
         Ok(())
     }

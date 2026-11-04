@@ -654,6 +654,40 @@ if count == 7 {
 }
 
 #[test]
+fn configured_range_spread_rejects_a_forged_record_source() {
+    let mut program = fixture(r#"
+type Bounds = {start: Int, end: Int}
+type MissingBounds = {other: Int}
+type WrongBounds = {start: Bool, end: Bool}
+proc bounds() [] -> Bounds { {start: 1, end: 3} }
+proc execute(wrong: Bool, missing: MissingBounds, wrong_fields: WrongBounds, loose: Record, unknown: Any) [error] {
+    let rows = [] |> range(...bounds())
+    print rows.len()
+}
+execute(false, {other: 7}, {start: false, end: true}, {start: "bad", end: "bad"}, {start: "bad", end: "bad"})
+"#);
+    program.store.in_place.take();
+    FullVerifier::verify(&program).unwrap();
+    program.store.in_place.take();
+    let owner = function(&program, "execute");
+    let decoder = function_view_decoder(&program.store, owner);
+    let pipeline = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprPipeline).unwrap();
+    let schema::ExprView::ListPipeline { mut stages, .. } = decoder.expression_view(pipeline).unwrap() else { panic!("range pipeline") };
+    let StageView::Range { end, .. } = stages.next().unwrap().unwrap() else { panic!("range stage") };
+    let schema::ExprView::Field { base, .. } = decoder.expression_view(end.raw() as usize).unwrap() else { panic!("spread end field") };
+    let base = base.raw() as usize;
+    let schema::ExprView::Param(slot) = decoder.expression_view(base).unwrap() else { panic!("spread binding") };
+    assert!(slot > 4);
+    let payload = program.store.data[base].range().start as usize;
+    for slot in 0..5 {
+        let mut forged = program.clone();
+        forged.store.extra[payload] = slot;
+        assert!(FullVerifier::verify(&forged).is_err(), "accepted receiver slot {slot}");
+    }
+}
+
+#[test]
 fn parallel_worker_callbacks_preserve_driver_bindings() {
     let actual = fixture(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/runtime/stack-depth/par-map-worker-recursion.xsh")));
     assert!(actual.store.tags.contains(&FullTag::ExprPipeline));
@@ -1400,13 +1434,47 @@ pure environment(target: Str) -> Record {
     match target {
         "a" => {shared: "value", first: "one"}
         "b" => {shared: "value", second: "two"}
+        "number" => {shared: 7}
         else => {shared: "fallback"}
     }
 }
 assert environment("a").shared == "value"
 assert environment("b").shared == "value"
+assert "value" == environment("a").shared
+assert environment("number").shared != "value"
+assert "value" != environment("number").shared
 "#);
     execute_both(&program);
+}
+
+#[test]
+fn dynamic_field_equality_authenticates_both_receivers() {
+    let mut program = fixture(r#"
+pure compare(record: Record, wrong: Bool) -> Bool {
+    let _ = record.shared
+    record.shared == wrong
+}
+assert compare({shared: true}, true)
+"#);
+    program.store.in_place.take();
+    FullVerifier::verify(&program).unwrap();
+    program.store.in_place.take();
+    let owner = function(&program, "compare");
+    let decoder = function_view_decoder(&program.store, owner);
+    let range = program.store.function_instruction_range(owner).unwrap();
+    let (left, right) = range.clone().find_map(|instruction| match decoder.expression_view(instruction).ok()? {
+        schema::ExprView::Binary { op: BinaryOp::Eq, left, right, .. } => Some((left.raw() as usize, right.raw() as usize)),
+        _ => None,
+    }).unwrap();
+    let field = range.clone().find(|&instruction| instruction != left && program.store.tags[instruction] == FullTag::ExprField).unwrap();
+    let schema::ExprView::Field { base, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+    assert!(matches!(decoder.expression_view(base.raw() as usize), Ok(schema::ExprView::Param(0))));
+    assert!(matches!(decoder.expression_view(right), Ok(schema::ExprView::Param(1))));
+    let mut forged = program.clone();
+    forged.store.extra[program.store.data[base.raw() as usize].range().start as usize] = 1;
+    forged.store.tags[right] = FullTag::ExprField;
+    forged.store.data[right] = program.store.data[field];
+    assert!(FullVerifier::verify(&forged).is_err());
 }
 
 #[test]

@@ -27859,8 +27859,33 @@ assert apply(40) == 42
 
     #[test]
     fn physical_effects_preserve_optional_erased_pure_callees() {
-        let program = fixture("optional-erased-pure.xsh", "pure optional(handles: List[Pure]) -> Result[Any] { Ok(handles.get(0)?.call()) }\n");
-        FullVerifier::verify(&program).unwrap();
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("optional-erased-pure.xsh", r#"
+pure first() -> Int { 7 }
+proc effectful() [] -> Int { 9 }
+pure optional(handles: List[Pure]) -> Result[Any] { Ok(handles.get(0)?.call()) }
+proc optional_proc(handles: List[Proc]) -> Result[Any] { Ok(handles.get(0)?.call()?) }
+pure optional_value(handle: Pure?) -> Any? { handle?.call() }
+var calls = 0
+proc produce() [] -> Result[Pure] { calls += 1; return first }
+assert optional([first])? == 7
+assert optional([]) is Err(_)
+assert optional_proc([effectful])? == 9
+assert optional_value(null) == null
+assert optional_value(first) == 7
+assert produce()?.call() == 7
+assert calls == 1
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::at(program.store.source_id, 0)).unwrap().unwrap();
+                }
+            }
+        });
     }
 
     #[test]

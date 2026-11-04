@@ -4048,6 +4048,8 @@ Calls to value-returning procs remain effectful in expressions. First-class
 `.call(...) -> Any`; their arguments are checked at runtime. A dynamic `Proc`
 does not say what its proc returns, so `Proc.call` is the proc's own `Result`
 when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
+The receiver rules in [Optional chaining](#67-optional-chaining) also apply to
+`.call(...)`.
 
 ### 9.2 Parameters
 

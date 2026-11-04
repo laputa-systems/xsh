@@ -82,6 +82,26 @@ list
 """
 }
 
+test test_optional_erased_callable_hops_execute_the_receiver { |ctx|
+  let output = test.expect(ctx, r"""
+pure first() -> Int { 7 }
+proc effectful() [] -> Int { 9 }
+pure selected(handles: List[Pure]) -> Result[Any] { Ok(handles.get(0)?.call()) }
+proc selected_proc(handles: List[Proc]) -> Result[Any] { Ok(handles.get(0)?.call()?) }
+pure nullable(handle: Pure?) -> Any? { handle?.call() }
+var calls = 0
+proc produce() [] -> Result[Pure] { calls += 1; return first }
+print (selected([first])?.require(Int)?)
+print (selected_proc([effectful])?.require(Int)?)
+print ((nullable(first) ?? 0).require(Int)?)
+assert selected([]) is Err(_)
+assert nullable(null) == null
+assert produce()?.call() == 7
+assert calls == 1
+""", status: 0)?
+  assert output.stdout == "7\n9\n7\n"
+}
+
 test test_optional_result_layers_and_outer_propagation {
   let present: Str? = "42"
   let absent: Str? = null
