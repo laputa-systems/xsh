@@ -53,8 +53,12 @@ clock, all network-state and network cases, and ten of ten recovery rounds on
 both backends (`full-qualify-105-rerun.log` in the kernel worktree's
 `.work/tmp`). The A0 preservation and resource checks against build 105 remain
 before integration. The `28eb488d7`
-reference bootstrap had already passed. Its full replay waits for the kernel gate
-so compile load cannot cause guest case timeouts.
+reference bootstrap had already passed. Its first full replay passed all 2,774
+library tests, including the repaired callable case, then failed one xsht
+integration case: `test_gnu_cp_sparse_extents_2_log` timed out inside the
+desugared-corpus comparison while concurrent builds loaded the host and the disk
+briefly reached 99 percent. The receipt has no credit; an unchanged rerun
+(`reference-replay-28e-r2`) is in progress.
 
 Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
 206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
