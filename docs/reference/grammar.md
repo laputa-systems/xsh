@@ -10,7 +10,7 @@ that the parser and productions accept the same language.
 
 ## Token stream
 
-The productions read the lexer's tokens after three adjustments:
+The productions read the lexer's tokens after these adjustments:
 
 - Comments are dropped.
 - A line break followed (after any blank or comment lines) by a
