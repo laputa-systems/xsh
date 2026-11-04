@@ -163,4 +163,52 @@ theorem uncalled_functions_refuse_inconsistent_inhabitants :
     intFieldSchemeWasPrincipallyChecked = true ∧ intFieldRejected = true := by
   decide +kernel
 
+mutual
+  def storageDepth : MonoType → Nat
+    | .record row => storageRowDepth row + 1
+    | .result value error => max (storageDepth value) (storageDepth error) + 1
+    | .nominal _ base => storageDepth base + 1
+    | _ => 0
+
+  def storageRowDepth : MonoType → Nat
+    | .rowField _ value tail => max (storageDepth value) (storageRowDepth tail)
+    | _ => 0
+end
+
+theorem field_occurs_storage_depth {name : Xsh.Foundation.NameId} {value row : MonoType}
+    (found : FieldOccurs name value row) : storageDepth value ≤ storageRowDepth row := by
+  induction found with
+  | here => exact Nat.le_max_left _ _
+  | later _ _ ih => exact Nat.le_trans ih (Nat.le_max_right _ _)
+
+theorem store_compatible_depth {expected actual : MonoType}
+    (compatible : StoreCompatible expected actual) : storageDepth expected ≤ storageDepth actual := by
+  induction compatible using StoreCompatible.rec
+    (motive_2 := fun expected actual _ => storageRowDepth expected ≤ storageRowDepth actual) with
+  | same => exact Nat.le_refl _
+  | result _ _ left right => exact Nat.succ_le_succ (Nat.max_le.mpr ⟨Nat.le_trans left (Nat.le_max_left _ _), Nat.le_trans right (Nat.le_max_right _ _)⟩)
+  | record _ row => exact Nat.succ_le_succ row
+  | nominal _ base => exact Nat.succ_le_succ base
+  | empty => exact Nat.zero_le _
+  | field found _ _ value rest =>
+    exact Nat.max_le.mpr ⟨Nat.le_trans value (field_occurs_storage_depth found), rest⟩
+
+theorem store_field_cycle_has_no_solution (substitution : Substitution) :
+    ¬ (satisfies substitution (.field (.variable generatedParameterVariable) generatedProjectionField (.variable cycleVariable)) ∧
+       satisfies substitution (.store (.variable generatedParameterVariable) (.variable cycleVariable))) := by
+  intro solved
+  obtain ⟨⟨row, same, found⟩, compatible⟩ := solved
+  have bigger := store_compatible_depth compatible
+  rw [same] at bigger
+  have smaller := field_occurs_storage_depth found
+  have impossible := Nat.le_trans bigger smaller
+  exact (Nat.not_succ_le_self _) impossible
+
+theorem cyclic_store_scheme_has_no_solution (substitution : Substitution) :
+    ¬ Solves cycleScheme.requirements substitution := by
+  intro solves
+  apply store_field_cycle_has_no_solution substitution
+  exact ⟨solves _ (by simp [cycleScheme]), solves _ (by simp [cycleScheme])⟩
+
+
 end Xsh.Typing.Connected
