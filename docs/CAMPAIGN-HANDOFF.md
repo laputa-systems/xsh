@@ -46,10 +46,11 @@ executed store literal and observes the assertion failure; its earlier harness
 discarded propagated errors and could not fail. The binder-to-slot map, calls,
 Result forms, and execution correspondence remain open.
 
-The Codex session stopped at 17:38 UTC and ended two runs: the kernel
-`2252e24b6` full gate, in recovery round 8 of 10 with all earlier cases passing
-on both backends, and the reference bootstrap. Neither result counts. The kernel gate was restarted
-unchanged; the reference bootstrap was not.
+The Codex session stopped at 17:38 UTC and ended the kernel `2252e24b6` full
+gate in recovery round 8 of 10, with all earlier cases passing on both backends.
+That run has no credit; the gate was restarted unchanged. The `28eb488d7`
+reference bootstrap had already passed. Its full replay waits for the kernel gate
+so compile load cannot cause guest case timeouts.
 
 Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
 206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
