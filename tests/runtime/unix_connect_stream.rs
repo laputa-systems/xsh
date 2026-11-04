@@ -150,3 +150,53 @@ let _ = unix.connect_stream(Path({}), 20s)?
     std::fs::remove_file(script).unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unix_stream_short_write_preserves_prefix_and_reports_backpressure() {
+    let root = tempfile::Builder::new().prefix("w").tempdir_in(".work/tmp").unwrap();
+    let path = root.path().join("socket");
+    let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (release, wait) = std::sync::mpsc::channel();
+    let peer = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(peer) => break peer,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => return Err(error),
+            }
+        };
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        wait.recv_timeout(Duration::from_secs(10)).unwrap();
+        let mut received = Vec::new();
+        stream.read_to_end(&mut received).unwrap();
+        Ok(received)
+    });
+    let script = write_temp_script("unix-stream-backpressure", r#"proc main(...argv: List[Str]) [process, net, error] {
+  let fd = unix.connect_stream(Path(argv[0]), 2s)?
+  defer unix.close_fd(fd)
+  let payload = bytes.concat([b"prefix", bytes.zero(4194304)?])
+  let written = unix.write_fd(fd, payload)?
+  assert written > 0 and written < payload.len()
+  assert unix.poll_fd(fd, ["writable"], 0)? == []
+  assert unix.write_fd(fd, payload.slice(written)) is Err(is HostIo)
+  print $written
+}
+"#);
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script).arg(&path).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    wait_child_status(&mut child, Duration::from_secs(8));
+    let output = child.wait_with_output().unwrap();
+    std::fs::remove_file(script).unwrap();
+    let _ = release.send(());
+    let received = peer.join().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let received = received.unwrap();
+    let written: usize = String::from_utf8(output.stdout).unwrap().trim().parse().unwrap();
+    assert_eq!(received.len(), written);
+    assert!(received.starts_with(b"prefix"));
+    assert!(received[6..].iter().all(|byte| *byte == 0));
+    root.close().unwrap();
+}
