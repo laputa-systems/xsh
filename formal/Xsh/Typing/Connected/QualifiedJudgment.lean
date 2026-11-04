@@ -186,52 +186,79 @@ theorem qualified_expression_instantiates (scope : Scope) (principal later : Sub
 
 
 mutual
-  inductive QualifiedBlock (names : TypeNames) (principal : Substitution) (requirements : List Constraint) :
-      Scope → MonoType → List Statement → Prop where
-    | nil {scope result} : QualifiedBlock names principal requirements scope result []
-    | binding {scope result kind name declared initializer rest binder rawType} :
+  inductive QualifiedBlockHasCompletion (names : TypeNames) (principal : Substitution)
+      (requirements : List Constraint) : Scope → MonoType → Option MonoType → List Statement → Prop where
+    | nil {scope result completion} : CompletionAccepts completion (.primitive .unit) →
+        QualifiedBlockHasCompletion names principal requirements scope result completion []
+    | binding {scope result completion kind name declared initializer rest binder rawType} :
         QualifiedExpression scope principal requirements initializer (substitute principal rawType) →
         AnnotationAgrees names principal declared (substitute principal rawType) →
         (∀ binding ∈ scope, binding.binder ≠ binder) →
-        QualifiedBlock names principal requirements
-          (⟨name, binder, bindingKind kind, ⟨[], rawType, []⟩⟩ :: scope) result rest →
-        QualifiedBlock names principal requirements scope result
+        QualifiedBlockHasCompletion names principal requirements
+          (⟨name, binder, bindingKind kind, ⟨[], rawType, []⟩⟩ :: scope) result completion rest →
+        QualifiedBlockHasCompletion names principal requirements scope result completion
           (.binding kind (.name name) declared initializer :: rest)
-    | assignment {scope result name value rest binding} :
+    | assignment {scope result completion name value rest binding} :
         scope.find? (fun item => decide (item.name = name)) = some binding → binding.kind = .mutable →
         QualifiedExpression scope principal requirements value (substitute principal binding.scheme.body) →
-        QualifiedBlock names principal requirements scope result rest →
-        QualifiedBlock names principal requirements scope result (.assign (.name name) .set value :: rest)
-    | returned {scope result value rest} :
+        QualifiedBlockHasCompletion names principal requirements scope result completion rest →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (.assign (.name name) .set value :: rest)
+    | returned {scope result completion value rest} :
         QualifiedExpression scope principal requirements value result →
-        QualifiedBlock names principal requirements scope result rest →
-        QualifiedBlock names principal requirements scope result (.returnValue (some value) :: rest)
-    | tailName {scope result name} :
-        QualifiedExpression scope principal requirements (.ident name) result →
-        QualifiedBlock names principal requirements scope result [.tailName name]
-    | expression {scope result value rest ty} :
-        QualifiedExpression scope principal requirements value ty → (rest = [] → ty = result) →
-        QualifiedBlock names principal requirements scope result rest →
-        QualifiedBlock names principal requirements scope result (.expression value :: rest)
-    | conditionalWithoutFallback {scope result branches rest} :
-        QualifiedStatementBranches names principal requirements scope result branches →
-        QualifiedBlock names principal requirements scope result rest →
-        QualifiedBlock names principal requirements scope result (.ifStmt branches none :: rest)
-    | conditionalWithFallback {scope result branches fallback rest} :
-        QualifiedStatementBranches names principal requirements scope result branches →
-        QualifiedBlock names principal requirements scope result fallback →
-        QualifiedBlock names principal requirements scope result rest →
-        QualifiedBlock names principal requirements scope result (.ifStmt branches (some fallback) :: rest)
+        QualifiedBlockHasCompletion names principal requirements scope result none rest →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (.returnValue (some value) :: rest)
+    | tailName {scope result completion name ty} :
+        QualifiedExpression scope principal requirements (.ident name) ty → CompletionAccepts completion ty →
+        QualifiedBlockHasCompletion names principal requirements scope result completion [.tailName name]
+    | expressionTail {scope result completion value ty} :
+        QualifiedExpression scope principal requirements value ty → CompletionAccepts completion ty →
+        QualifiedBlockHasCompletion names principal requirements scope result completion [.expression value]
+    | expressionNext {scope result completion value next rest ty} :
+        QualifiedExpression scope principal requirements value ty →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (next :: rest) →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (.expression value :: next :: rest)
+    | scopedTail {scope result completion body} :
+        QualifiedBlockHasCompletion names principal requirements scope result completion body →
+        QualifiedBlockHasCompletion names principal requirements scope result completion [.expression (.valueBlock body)]
+    | scopedNext {scope result completion body next rest} :
+        QualifiedBlockHasCompletion names principal requirements scope result none body →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (next :: rest) →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (.expression (.valueBlock body) :: next :: rest)
+    | conditionalTail {scope result completion branches fallback} :
+        QualifiedBranchesHaveCompletion names principal requirements scope result completion branches →
+        QualifiedBlockHasCompletion names principal requirements scope result completion fallback →
+        QualifiedBlockHasCompletion names principal requirements scope result completion [.ifStmt branches (some fallback)]
+    | conditionalNoFallbackTail {scope result completion branches} :
+        QualifiedBranchesHaveCompletion names principal requirements scope result completion branches →
+        CompletionAccepts completion (.primitive .unit) →
+        QualifiedBlockHasCompletion names principal requirements scope result completion [.ifStmt branches none]
+    | conditionalNext {scope result completion branches fallback next rest} :
+        QualifiedBranchesHaveCompletion names principal requirements scope result none branches →
+        QualifiedBlockHasCompletion names principal requirements scope result none fallback →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (next :: rest) →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (.ifStmt branches (some fallback) :: next :: rest)
+    | conditionalNoFallbackNext {scope result completion branches next rest} :
+        QualifiedBranchesHaveCompletion names principal requirements scope result none branches →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (next :: rest) →
+        QualifiedBlockHasCompletion names principal requirements scope result completion (.ifStmt branches none :: next :: rest)
 
-  inductive QualifiedStatementBranches (names : TypeNames) (principal : Substitution)
-      (requirements : List Constraint) : Scope → MonoType → List (Expr × List Statement) → Prop where
-    | nil {scope result} : QualifiedStatementBranches names principal requirements scope result []
-    | cons {scope result condition body rest} :
+  inductive QualifiedBranchesHaveCompletion (names : TypeNames) (principal : Substitution)
+      (requirements : List Constraint) : Scope → MonoType → Option MonoType → List (Expr × List Statement) → Prop where
+    | nil {scope result completion} : QualifiedBranchesHaveCompletion names principal requirements scope result completion []
+    | cons {scope result completion condition body rest} :
         QualifiedExpression scope principal requirements condition (.primitive .boolean) →
-        QualifiedBlock names principal requirements scope result body →
-        QualifiedStatementBranches names principal requirements scope result rest →
-        QualifiedStatementBranches names principal requirements scope result ((condition, body) :: rest)
+        QualifiedBlockHasCompletion names principal requirements scope result completion body →
+        QualifiedBranchesHaveCompletion names principal requirements scope result completion rest →
+        QualifiedBranchesHaveCompletion names principal requirements scope result completion ((condition, body) :: rest)
 end
+
+abbrev QualifiedBlock (names : TypeNames) (principal : Substitution) (requirements : List Constraint)
+    (scope : Scope) (result : MonoType) (source : List Statement) : Prop :=
+  QualifiedBlockHasCompletion names principal requirements scope result (some result) source
+
+abbrev QualifiedStatementBranches (names : TypeNames) (principal : Substitution) (requirements : List Constraint)
+    (scope : Scope) (result : MonoType) (source : List (Expr × List Statement)) : Prop :=
+  QualifiedBranchesHaveCompletion names principal requirements scope result (some result) source
 
 theorem qualified_annotation_instantiates (names : TypeNames) (principal later : Substitution)
     (declared : Option TypeExpr) (ty : MonoType) (agrees : AnnotationAgrees names principal declared ty) :
@@ -243,41 +270,70 @@ theorem qualified_annotation_instantiates (names : TypeNames) (principal later :
     refine ⟨raw, found, ?_⟩
     rw [substitute_compose, same]
 
+theorem completion_instantiates (later : Substitution) (completion : Option MonoType) (ty : MonoType)
+    (accepted : CompletionAccepts completion ty) :
+    CompletionAccepts (completion.map (substitute later)) (substitute later ty) := by
+  rcases accepted with absent | present
+  · simp [CompletionAccepts, absent]
+  · simp [CompletionAccepts, present]
+
+theorem qualified_completion_instantiates (names : TypeNames) (principal later : Substitution)
+    (requirements : List Constraint) (scope : Scope) (result : MonoType) (completion : Option MonoType)
+    (source : List Statement)
+    (typed : QualifiedBlockHasCompletion names principal requirements scope result completion source)
+    (sorted : WellSorted later) (solves : Solves requirements later) :
+    SourceBlockHasCompletion names (compose later principal) scope (substitute later result)
+      (completion.map (substitute later)) source := by
+  refine @QualifiedBlockHasCompletion.rec names principal requirements
+    (fun scope result completion source _ => SourceBlockHasCompletion names (compose later principal) scope
+      (substitute later result) (completion.map (substitute later)) source)
+    (fun scope result completion source _ => SourceBranchesHaveCompletion names (compose later principal) scope
+      (substitute later result) (completion.map (substitute later)) source)
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ scope result completion source typed
+  · intro scope result completion accepted
+    exact .nil (completion_instantiates later completion (.primitive .unit) accepted)
+  · intro scope result completion kind name declared initializer rest binder rawType value annotation fresh restTyped restIH
+    have valueTyped := qualified_expression_instantiates scope principal later requirements _ _ value sorted solves
+    have annotationTyped := qualified_annotation_instantiates names principal later _ _ annotation
+    rw [← substitute_compose] at valueTyped annotationTyped
+    exact .binding valueTyped annotationTyped fresh restIH
+  · intro scope result completion name value rest binding found mutable valueTyped restTyped restIH
+    have valueType := qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves
+    rw [← substitute_compose] at valueType
+    exact .assignment found mutable valueType restIH
+  · intro scope result completion value rest valueTyped restTyped restIH
+    exact .returned (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves) restIH
+  · intro scope result completion name ty valueTyped accepted
+    exact .tailName (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves)
+      (completion_instantiates later completion ty accepted)
+  · intro scope result completion value ty valueTyped accepted
+    exact .expressionTail (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves)
+      (completion_instantiates later completion ty accepted)
+  · intro scope result completion value next rest ty valueTyped restTyped restIH
+    exact .expressionNext (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves) restIH
+  · intro scope result completion body typed bodyIH
+    exact .scopedTail bodyIH
+  · intro scope result completion body next rest bodyTyped restTyped bodyIH restIH
+    exact .scopedNext bodyIH restIH
+  · intro scope result completion branches fallback branchesTyped fallbackTyped branchesIH fallbackIH
+    exact .conditionalTail branchesIH fallbackIH
+  · intro scope result completion branches branchesTyped accepted branchesIH
+    exact .conditionalNoFallbackTail branchesIH (completion_instantiates later completion (.primitive .unit) accepted)
+  · intro scope result completion branches fallback next rest branchesTyped fallbackTyped restTyped branchesIH fallbackIH restIH
+    exact .conditionalNext branchesIH fallbackIH restIH
+  · intro scope result completion branches next rest branchesTyped restTyped branchesIH restIH
+    exact .conditionalNoFallbackNext branchesIH restIH
+  · intro scope result completion
+    exact .nil
+  · intro scope result completion condition body rest conditionTyped bodyTyped restTyped bodyIH restIH
+    exact .cons (qualified_expression_instantiates scope principal later requirements _ _ conditionTyped sorted solves) bodyIH restIH
+
 theorem qualified_block_instantiates (names : TypeNames) (principal later : Substitution)
     (requirements : List Constraint) (scope : Scope) (result : MonoType) (source : List Statement)
     (typed : QualifiedBlock names principal requirements scope result source)
     (sorted : WellSorted later) (solves : Solves requirements later) :
     BlockHasType names (compose later principal) scope (substitute later result) source := by
-  refine @QualifiedBlock.rec names principal requirements
-    (fun scope result source _ => BlockHasType names (compose later principal) scope (substitute later result) source)
-    (fun scope result source _ => StatementBranchesHaveType names (compose later principal) scope (substitute later result) source)
-    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ scope result source typed
-  · intro scope result
-    exact .nil
-  · intro scope result kind name declared initializer rest binder rawType value annotation fresh restTyped restIH
-    have valueTyped := qualified_expression_instantiates scope principal later requirements _ _ value sorted solves
-    have annotationTyped := qualified_annotation_instantiates names principal later _ _ annotation
-    rw [← substitute_compose] at valueTyped annotationTyped
-    exact .binding valueTyped annotationTyped fresh restIH
-  · intro scope result name value rest binding found mutable valueTyped restTyped restIH
-    have valueType := qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves
-    rw [← substitute_compose] at valueType
-    exact .assignment found mutable valueType restIH
-  · intro scope result value rest valueTyped restTyped restIH
-    exact .returned (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves) restIH
-  · intro scope result name valueTyped
-    exact .tailName (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves)
-  · intro scope result value rest ty valueTyped tail restTyped restIH
-    exact .expression (qualified_expression_instantiates scope principal later requirements _ _ valueTyped sorted solves)
-      (fun empty => by rw [tail empty]) restIH
-  · intro scope result branches rest branchesTyped restTyped branchesIH restIH
-    exact .conditionalWithoutFallback branchesIH restIH
-  · intro scope result branches fallback rest branchesTyped fallbackTyped restTyped branchesIH fallbackIH restIH
-    exact .conditionalWithFallback branchesIH fallbackIH restIH
-  · intro scope result
-    exact .nil
-  · intro scope result condition body rest conditionTyped bodyTyped restTyped bodyIH restIH
-    exact .cons (qualified_expression_instantiates scope principal later requirements _ _ conditionTyped sorted solves) bodyIH restIH
+  exact qualified_completion_instantiates names principal later requirements scope result (some result) source typed sorted solves
 
 
 end Xsh.Typing.Connected

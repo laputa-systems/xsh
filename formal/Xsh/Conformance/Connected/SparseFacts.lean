@@ -34,6 +34,7 @@ mutual
     | [] => []
     | .binding _ _ value :: rest | .assignment _ value :: rest |
       .evaluated value :: rest | .returned value :: rest => nodeOccurrences value ++ statementOccurrences rest
+    | .scoped body :: rest => statementOccurrences body ++ statementOccurrences rest
     | .conditional branches fallback :: rest =>
       statementBranchOccurrences branches ++ statementOccurrences fallback ++ statementOccurrences rest
 

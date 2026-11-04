@@ -9,6 +9,7 @@ mutual
   def declaredBinders : List StatementNode → List Xsh.Foundation.BinderId
     | [] => []
     | .binding binder _ _ :: rest => binder :: declaredBinders rest
+    | .scoped body :: rest => declaredBinders body ++ declaredBinders rest
     | .conditional branches fallback :: rest =>
         branchBinders branches ++ declaredBinders fallback ++ declaredBinders rest
     | _ :: rest => declaredBinders rest
@@ -27,6 +28,7 @@ mutual
         propagationErrors value ++ blockPropagationErrors rest
     | .conditional branches fallback :: rest =>
         statementBranchErrors branches ++ blockPropagationErrors fallback ++ blockPropagationErrors rest
+    | .scoped body :: rest => blockPropagationErrors body ++ blockPropagationErrors rest
 
   def statementBranchErrors : List (Node × List StatementNode) → List MonoType
     | [] => []
@@ -39,6 +41,8 @@ mutual
   def supportedStatementTails (tail : Bool) : List StatementNode → Bool
     | [] => true
     | .evaluated _ :: rest => tail && rest.isEmpty
+    | .scoped body :: rest =>
+        supportedStatementTails (tail && rest.isEmpty) body && supportedStatementTails tail rest
     | .conditional branches fallback :: rest =>
         supportedBranchTails (tail && rest.isEmpty) branches &&
           supportedStatementTails (tail && rest.isEmpty) fallback && supportedStatementTails tail rest
@@ -54,6 +58,8 @@ mutual
     | [] => false
     | .returned _ :: _ => true
     | .evaluated _ :: rest => rest.isEmpty || guaranteesFunctionResult rest
+    | .scoped body :: rest =>
+        if rest.isEmpty then guaranteesFunctionResult body else guaranteesFunctionResult rest
     | .conditional branches fallback :: rest =>
         if rest.isEmpty then guaranteesBranchResults branches && guaranteesFunctionResult fallback
         else guaranteesFunctionResult rest

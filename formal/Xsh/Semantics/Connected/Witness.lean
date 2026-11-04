@@ -49,6 +49,30 @@ theorem assignment_then_return_reads_new_value (state : Machine) (binder : Binde
   exact .next (Step.returnValue stored _) (.done _)
 
 
+theorem scoped_assignment_continues_with_outer_write (state : Machine) (binder : BinderId)
+    (cell : Xsh.Semantics.Environments.CellId) (text : String) (value : IntValue) (next : Store)
+    (parsed : parseInteger text = some value)
+    (active : state.cells binder = some cell)
+    (written : write state.store cell (.scalar (.integer value)) = .accepted next) :
+    Execution
+      { state with control := .statements [.scoped [.assignment binder (.integer text)], .returned (.read binder [])] }
+      [.internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal, .internal]
+      { state with control := .returned (.scalar (.integer value)), store := next } := by
+  let returnNode := StatementNode.returned (.read binder [])
+  let inner := { state with stack := .continueBlock state.cells [returnNode] :: state.stack }
+  let stored := { state with store := next }
+  let storedInner := { inner with store := next }
+  refine .next (Step.scopedStart state [.assignment binder (.integer text)] [returnNode]) ?_
+  refine .next (Step.assignmentStart inner binder (.integer text) []) ?_
+  refine .next (Step.integer { inner with stack := .assign binder [] :: inner.stack } text value parsed) ?_
+  refine .next (Step.assignmentCommit inner binder (.scalar (.integer value)) [] cell next active written) ?_
+  refine .next (Step.blockComplete storedInner) ?_
+  refine .next (Step.nonTailBranchComplete stored .unit state.cells returnNode []) ?_
+  refine .next (Step.returnStart stored (.read binder []) []) ?_
+  have visible := read_after_assignment state.store next state.cells binder cell (.scalar (.integer value)) active written
+  refine .next (Step.read { stored with stack := .returnValue :: state.stack } binder [] _ visible rfl) ?_
+  exact .next (Step.returnValue stored _) (.done _)
+
 theorem identity_function_accepts_integer_and_boolean_activations :
     SignatureInstance identityScheme (.argument .integer .argumentsEmpty) .integer ∧
     SignatureInstance identityScheme (.argument .boolean .argumentsEmpty) .boolean := by
@@ -297,7 +321,7 @@ def branchContinuationCandidate : List StatementNode :=
 
 def branchContinuationUnsupported : Bool :=
   match validateDerivedBlock 32 exampleTypeNames [] (.primitive .integer) branchContinuationSource
-      branchContinuationCandidate (fun _ => none) [.reflexive, .reflexive, .reflexive, .reflexive] with
+      branchContinuationCandidate (fun _ => none) [.reflexive, .reflexive] with
   | .error .unsupported => true
   | _ => false
 

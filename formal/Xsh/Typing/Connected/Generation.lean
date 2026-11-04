@@ -341,6 +341,7 @@ inductive StatementNode where
   | assignment (binder : BinderId) (value : Node)
   | evaluated (value : Node)
   | returned (value : Node)
+  | scoped (body : List StatementNode)
   | conditional (branches : List (Node × List StatementNode)) (otherwise : List StatementNode)
 
 
@@ -350,10 +351,15 @@ def constrainPropagation (result : MonoType) (node : Node) : Generator Unit := d
     emit (.equal result (.result value error))
 
 mutual
-  def block : Nat → TypeNames → Scope → MonoType → List Statement → Generator (List StatementNode)
-    | 0, _, _, _, _ => throw .exhausted
-    | _ + 1, _, _, _, [] => pure []
-    | fuel + 1, names, scope, result, statement :: rest => do
+  def blockWithCompletion : Nat → TypeNames → Scope → MonoType → Option MonoType →
+      List Statement → Generator (List StatementNode)
+    | 0, _, _, _, _, _ => throw .exhausted
+    | _ + 1, _, _, _, completion, [] => do
+      match completion with
+      | some ty => emit (.equal ty (.primitive .unit))
+      | none => pure ()
+      pure []
+    | fuel + 1, names, scope, result, completion, statement :: rest => do
       match statement with
       | .binding kind (.name name) typeAnnotation initializer => do
           let generated ← expression fuel scope initializer
@@ -366,7 +372,7 @@ mutual
           let binder ← freshBinder
           let bindingKind := if kind = .var then BindingKind.mutable else .immutable
           let binding : Binding := ⟨name, binder, bindingKind, ⟨[], generated.ty, []⟩⟩
-          let following ← block fuel names (binding :: scope) result rest
+          let following ← blockWithCompletion fuel names (binding :: scope) result completion rest
           pure (.binding binder bindingKind generated.node :: following)
       | .assign (.name name) .set value => do
           let binding ← resolve scope name
@@ -374,47 +380,67 @@ mutual
           let generated ← expression fuel scope value
           constrainPropagation result generated.node
           emit (.equal generated.ty binding.scheme.body)
-          let following ← block fuel names scope result rest
+          let following ← blockWithCompletion fuel names scope result completion rest
           pure (.assignment binding.binder generated.node :: following)
       | .returnValue (some value) => do
           let generated ← expression fuel scope value
           constrainPropagation result generated.node
           emit (.equal generated.ty result)
-          let following ← block fuel names scope result rest
+          let following ← if rest.isEmpty then pure [] else blockWithCompletion fuel names scope result none rest
           pure (.returned generated.node :: following)
       | .tailName name => do
           if rest.isEmpty then pure () else throw .unsupportedStatement
           let generated ← expression fuel scope (.ident name)
-          emit (.equal generated.ty result)
-          let following ← block fuel names scope result rest
-          pure (.evaluated generated.node :: following)
+          match completion with
+          | some ty => emit (.equal generated.ty ty)
+          | none => pure ()
+          pure [.evaluated generated.node]
+      | .expression (.valueBlock body) => do
+          let nestedCompletion := if rest.isEmpty then completion else none
+          let nested ← blockWithCompletion fuel names scope result nestedCompletion body
+          let following ← if rest.isEmpty then pure [] else blockWithCompletion fuel names scope result completion rest
+          pure (.scoped nested :: following)
       | .expression value => do
           let generated ← expression fuel scope value
           constrainPropagation result generated.node
-          if rest.isEmpty then emit (.equal generated.ty result) else pure ()
-          let following ← block fuel names scope result rest
-          pure (.evaluated generated.node :: following)
+          if rest.isEmpty then
+            match completion with
+            | some ty => emit (.equal generated.ty ty)
+            | none => pure ()
+            pure [.evaluated generated.node]
+          else do
+            let following ← blockWithCompletion fuel names scope result completion rest
+            pure (.evaluated generated.node :: following)
       | .ifStmt branches otherwise => do
-          let generated ← statementBranches fuel names scope result branches
+          let branchCompletion := if rest.isEmpty then completion else none
+          let generated ← statementBranchesWithCompletion fuel names scope result branchCompletion branches
           let fallback ← match otherwise with
-            | some body => block fuel names scope result body
-            | none => pure []
-          let following ← block fuel names scope result rest
+            | some body => blockWithCompletion fuel names scope result branchCompletion body
+            | none => blockWithCompletion fuel names scope result branchCompletion []
+          let following ← if rest.isEmpty then pure [] else blockWithCompletion fuel names scope result completion rest
           pure (.conditional generated fallback :: following)
       | _ => throw .unsupportedStatement
 
-  def statementBranches : Nat → TypeNames → Scope → MonoType →
+  def statementBranchesWithCompletion : Nat → TypeNames → Scope → MonoType → Option MonoType →
       List (Expr × List Statement) → Generator (List (Node × List StatementNode))
-    | 0, _, _, _, _ => throw .exhausted
-    | _ + 1, _, _, _, [] => pure []
-    | fuel + 1, names, scope, result, (condition, body) :: rest => do
+    | 0, _, _, _, _, _ => throw .exhausted
+    | _ + 1, _, _, _, _, [] => pure []
+    | fuel + 1, names, scope, result, completion, (condition, body) :: rest => do
       let condition ← expression fuel scope condition
       constrainPropagation result condition.node
       emit (.equal condition.ty (.primitive .boolean))
-      let body ← block fuel names scope result body
-      let others ← statementBranches fuel names scope result rest
+      let body ← blockWithCompletion fuel names scope result completion body
+      let others ← statementBranchesWithCompletion fuel names scope result completion rest
       pure ((condition.node, body) :: others)
 end
+
+def block (fuel : Nat) (names : TypeNames) (scope : Scope) (result : MonoType)
+    (source : List Statement) : Generator (List StatementNode) :=
+  blockWithCompletion fuel names scope result (some result) source
+
+def statementBranches (fuel : Nat) (names : TypeNames) (scope : Scope) (result : MonoType)
+    (branches : List (Expr × List Statement)) : Generator (List (Node × List StatementNode)) :=
+  statementBranchesWithCompletion fuel names scope result (some result) branches
 
 def exampleName (id : Nat) (bound : id < 4294967296) : NameId := ⟨⟨id, bound⟩⟩
 
