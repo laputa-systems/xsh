@@ -1,6 +1,8 @@
 mod support;
 
 use std::fs;
+use std::io::Write;
+use lzma_rust2::{XzOptions, XzWriter};
 use support::{budget, budget_with};
 use xsh_archive::{
     Codec, Collision, Compression, ErrorKind, Limits, compress_file, decompress_file,
@@ -91,4 +93,52 @@ fn collisions_and_expansion_budgets_apply_to_single_files() {
     let error = decompress_to_memory(&packed, Compression::Auto, &limited).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Limit);
     assert!(limited.total_output() <= (1 << 20) + (256 << 10));
+}
+
+#[test]
+fn xz_workspace_limit_applies_to_later_members() {
+    fn member(text: &[u8], dictionary: u32) -> Vec<u8> {
+        let mut options = XzOptions::with_preset(0);
+        options.lzma_options.dict_size = dictionary;
+        let mut writer = XzWriter::new(Vec::new(), options).unwrap();
+        writer.write_all(text).unwrap();
+        writer.finish().unwrap()
+    }
+
+    let base = tempfile::tempdir().unwrap();
+    let path = base.path().join("members.xz");
+    let mut packed = member(b"first", 1 << 16);
+    packed.extend(member(b"second", 1 << 20));
+    fs::write(&path, packed).unwrap();
+    let allowed = budget_with(Limits { workspace_bytes: 2 << 20, ..Limits::default() });
+    assert_eq!(decompress_to_memory(&path, Compression::Auto, &allowed).unwrap(), b"firstsecond");
+    let limited = budget_with(Limits { workspace_bytes: 1 << 17, ..Limits::default() });
+    let error = decompress_to_memory(&path, Compression::Auto, &limited).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Limit);
+}
+
+#[test]
+fn xz_workspace_limit_applies_to_later_blocks() {
+    let base = tempfile::tempdir().unwrap();
+    let path = base.path().join("blocks.xz");
+    fs::write(&path, include_bytes!("fixtures/two-blocks.xz")).unwrap();
+    let allowed = budget_with(Limits { workspace_bytes: 2 << 20, ..Limits::default() });
+    assert_eq!(decompress_to_memory(&path, Compression::Auto, &allowed).unwrap(), b"firstsecond");
+    let limited = budget_with(Limits { workspace_bytes: 1 << 17, ..Limits::default() });
+    let error = decompress_to_memory(&path, Compression::Auto, &limited).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Limit);
+}
+
+#[test]
+fn xz_filter_chains_and_trailing_data_are_checked() {
+    let base = tempfile::tempdir().unwrap();
+    let path = base.path().join("filtered.xz");
+    let mut packed = include_bytes!("fixtures/filter-chain.xz").to_vec();
+    fs::write(&path, &packed).unwrap();
+    let limited = budget_with(Limits { workspace_bytes: 1 << 20, ..Limits::default() });
+    assert_eq!(decompress_to_memory(&path, Compression::Auto, &limited).unwrap(), b"abcdefghijklmno");
+    packed.extend_from_slice(b"junk");
+    fs::write(&path, packed).unwrap();
+    let error = decompress_to_memory(&path, Compression::Auto, &limited).unwrap_err();
+    assert!(matches!(error.kind(), ErrorKind::Corrupt | ErrorKind::Truncated));
 }

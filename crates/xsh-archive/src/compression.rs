@@ -5,7 +5,9 @@ use bzip2::write::BzEncoder;
 use flate2::Compression as GzipLevel;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
-use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReader, XzWriter};
+use liblzma::bufread::XzDecoder;
+use liblzma::stream::{self, Stream};
+use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzWriter};
 use std::io::{self, BufRead, Read, Write};
 
 pub const BUFFER_SIZE: usize = 64 * 1024;
@@ -294,7 +296,11 @@ pub fn decoder_with_mtime<R: BufRead + Send + 'static>(
             Box::new(decoder)
         }
         Codec::Bzip2 => Box::new(MultiBzDecoder::new(reader)),
-        Codec::Xz => Box::new(XzReader::new(reader, true)),
+        Codec::Xz => {
+            let stream = Stream::new_stream_decoder(workspace_bytes, stream::CONCATENATED)
+                .map_err(|error| Error::from_read(&error.into()))?;
+            Box::new(XzWorkspaceDecoder(XzDecoder::new_stream(SourceReader(reader), stream)))
+        },
         Codec::Lzma => {
             let limit = u32::try_from(workspace_bytes / 1024).unwrap_or(u32::MAX);
             Box::new(LzmaReader::new_mem_limit(reader, limit, None).map_err(host)?)
@@ -316,55 +322,69 @@ pub fn gzip_header_name<R: BufRead>(reader: R) -> Option<Option<Vec<u8>>> {
         .map(|header| header.filename().map(<[u8]>::to_vec))
 }
 
-pub fn xz_dictionary_bytes(header: &[u8]) -> Option<u64> {
-    const STREAM_HEADER: usize = 12;
-    let block = header.get(STREAM_HEADER..)?;
-    let size = (usize::from(*block.first()?) + 1) * 4;
-    if block.len() < size {
-        return None;
+struct SourceReader<R>(R);
+
+#[derive(Debug)]
+struct SourceError(io::Error);
+
+impl std::fmt::Display for SourceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
     }
-    let flags = block[1];
-    let mut cursor = 2;
-    if flags & 0x40 != 0 {
-        cursor = skip_varint(block, cursor)?;
+}
+
+impl std::error::Error for SourceError {}
+
+impl<R: Read> Read for SourceReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buffer).map_err(|error| io::Error::new(error.kind(), SourceError(error)))
     }
-    if flags & 0x80 != 0 {
-        cursor = skip_varint(block, cursor)?;
+}
+
+impl<R: BufRead> BufRead for SourceReader<R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.0.fill_buf().map_err(|error| io::Error::new(error.kind(), SourceError(error)))
     }
-    let filters = usize::from(flags & 3) + 1;
-    for _ in 0..filters {
-        let (id, next) = read_varint(block, cursor)?;
-        let (properties, next) = read_varint(block, next)?;
-        let end = next + usize::try_from(properties).ok()?;
-        if id == 0x21 && properties == 1 {
-            let byte = *block.get(next)?;
-            if byte > 40 {
-                return None;
+
+    fn consume(&mut self, amount: usize) {
+        self.0.consume(amount);
+    }
+}
+
+struct XzWorkspaceDecoder<R>(XzDecoder<SourceReader<R>>);
+
+impl<R: BufRead> Read for XzWorkspaceDecoder<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buffer).map_err(|error| {
+            if error.get_ref().is_some_and(|inner| inner.is::<SourceError>()) {
+                return error.into_inner().unwrap().downcast::<SourceError>().unwrap().0;
             }
-            return Some(if byte == 40 {
-                u64::from(u32::MAX)
-            } else {
-                (2 | u64::from(byte & 1)) << (byte / 2 + 11)
-            });
-        }
-        cursor = end;
+            if error.get_ref().and_then(|inner| inner.downcast_ref::<stream::Error>())
+                == Some(&stream::Error::MemLimit)
+            {
+                return Error::limit("xz decoder workspace exceeded").into();
+            }
+            error
+        })
     }
-    None
 }
 
-fn read_varint(data: &[u8], mut cursor: usize) -> Option<(u64, usize)> {
-    let mut value = 0_u64;
-    for shift in (0..63).step_by(7) {
-        let byte = *data.get(cursor)?;
-        cursor += 1;
-        value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Some((value, cursor));
-        }
-    }
-    None
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn skip_varint(data: &[u8], cursor: usize) -> Option<usize> {
-    read_varint(data, cursor).map(|(_, next)| next)
+    #[test]
+    fn xz_source_errors_are_not_decoder_limits() {
+        struct FailedSource;
+        impl Read for FailedSource {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::Other, stream::Error::MemLimit))
+            }
+        }
+        let source = std::io::Cursor::new([0xfd, b'7', b'z', b'X', b'Z', 0, 0, 4, 0xe6, 0xd6, 0xb4, 0x46]).chain(FailedSource);
+        let mut decoder = decoder(Codec::Xz, io::BufReader::new(source), 1 << 20).unwrap();
+        let error = decoder.read_to_end(&mut Vec::new()).unwrap_err();
+        assert_eq!(error.get_ref().and_then(|inner| inner.downcast_ref::<stream::Error>()), Some(&stream::Error::MemLimit));
+        assert_eq!(Error::from_read(&error).kind(), crate::ErrorKind::Io);
+    }
 }

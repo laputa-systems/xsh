@@ -561,3 +561,23 @@ fn a_sink_that_fails_before_or_at_finish_fails_the_encoder() {
     plain.write_all(b"buffered").unwrap();
     assert_eq!(plain.finish().err().unwrap().kind(), ErrorKind::Io);
 }
+
+#[test]
+fn xz_workspace_limit_applies_when_an_archive_reaches_a_later_member() {
+    fn member(data: &[u8], dictionary: u32) -> Vec<u8> {
+        let mut options = lzma_rust2::XzOptions::with_preset(0);
+        options.lzma_options.dict_size = dictionary;
+        let mut writer = lzma_rust2::XzWriter::new(Vec::new(), options).unwrap();
+        writer.write_all(data).unwrap();
+        writer.finish().unwrap()
+    }
+    let tar = tar_with(&[(b"a", &[b'x'; 2048])]);
+    let mut packed = member(&tar[..1024], 1 << 16);
+    packed.extend(member(&tar[1024..], 1 << 20));
+    let allowed = budget_with(Limits { workspace_bytes: 2 << 20, ..Limits::default() });
+    let mut archive = Archive::open(Source::from_bytes(packed.clone()), Format::Tar, Compression::Auto, allowed).unwrap();
+    assert!(drain(&mut archive).is_ok());
+    let limited = budget_with(Limits { workspace_bytes: 1 << 17, ..Limits::default() });
+    let mut archive = Archive::open(Source::from_reader(OneByte::new(packed)), Format::Tar, Compression::Auto, limited).unwrap();
+    assert_eq!(kind_of(drain(&mut archive)), ErrorKind::Limit);
+}
