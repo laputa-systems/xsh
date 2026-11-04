@@ -44,6 +44,12 @@ enum EffectFact { Unknown, Known(Vec<String>) }
 struct FieldFact { receiver: CheckedType, name: String, result: CheckedType, span: Span }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum OperationFact {
+    Field(FieldFact),
+    StoreValue { storage: CheckedType, replacement: CheckedType, span: Span },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ReadBinding {
     name: String,
     span: Span,
@@ -62,7 +68,7 @@ struct BodyFacts {
     explicit_return: bool,
     effects: EffectFact,
     inferred_effects: bool,
-    operations: Vec<FieldFact>,
+    operations: Vec<OperationFact>,
     expression_types: BTreeMap<usize, CheckedType>,
     expression_sites: BTreeMap<usize, Span>,
     tail_types: BTreeMap<usize, CheckedType>,
@@ -70,11 +76,11 @@ struct BodyFacts {
     read_bindings: Vec<ReadBinding>,
     resolved_reads: BTreeMap<usize, ReadBinding>,
     resolved_tails: BTreeMap<usize, ReadBinding>,
-    operation_sites: BTreeMap<usize, u32>,
+    operation_sites: Vec<(usize, u32)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum FieldBinding { Selected }
+enum OperationBinding { Field, StoreValue }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FunctionTarget {
@@ -91,7 +97,7 @@ struct CallFacts {
     role: InstantiationRole,
     target: FunctionTarget,
     type_arguments: BTreeMap<u32, CheckedType>,
-    operation_bindings: Vec<FieldBinding>,
+    operation_bindings: Vec<OperationBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,8 +129,11 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
             return Err("unsupported callable requirements".into());
         }
         let operations = operations.into_iter().map(|operation| match operation {
-            SealedOperation::Field { receiver, name, result, span } => Ok(FieldFact {
+            SealedOperation::Field { receiver, name, result, span } => Ok(OperationFact::Field(FieldFact {
                 receiver: checked_type(&receiver)?, name: name_text(name), result: checked_type(&result)?, span,
+            })),
+            SealedOperation::StoreValue { storage, replacement, span } => Ok(OperationFact::StoreValue {
+                storage: checked_type(&storage)?, replacement: checked_type(&replacement)?, span,
             }),
             _ => Err("unsupported sealed operation".to_string()),
         }).collect::<Result<Vec<_>, _>>()?;
@@ -150,11 +159,11 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
             }
             Ok((id.index(), arena.arena.stmt(*id).span))
         }).collect::<Result<BTreeMap<_, _>, String>>()?;
-        let mut operation_sites = BTreeMap::new();
+        let mut operation_sites = Vec::new();
         for index in 0..arena.arena.expr_tags.len() {
             let expression = ExprId::from_index(index);
             if let Some(operation) = facts.operation_site(expression) {
-                let Some(field) = operations.get(operation as usize) else {
+                let Some(OperationFact::Field(field)) = operations.get(operation as usize) else {
                     return Err("body operation site names no scheme requirement".into());
                 };
                 if field.span != arena.arena.expr(expression).span {
@@ -164,10 +173,19 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
                     ArenaExprKind::Field { name, .. } if name_text(name) == field.name => {}
                     _ => return Err("body field requirement disagrees with source expression".into()),
                 }
-                operation_sites.insert(index, operation);
+                operation_sites.push((index, operation));
+            }
+            if let Some(operation) = facts.store_value_site(expression) {
+                let Some(OperationFact::StoreValue { span, .. }) = operations.get(operation as usize) else {
+                    return Err("store site names no store requirement".into());
+                };
+                if *span != arena.arena.expr(expression).span {
+                    return Err("store site disagrees with expression".into());
+                }
+                operation_sites.push((index, operation));
             }
             if facts.compound_site(expression).is_some() || facts.index_store_site(expression).is_some() ||
-                facts.store_value_site(expression).is_some() || facts.method_site(expression).is_some() ||
+                facts.method_site(expression).is_some() ||
                 facts.wrapper_site(expression).is_some() ||
                 facts.map_key_site(arena.arena.expr(expression).span).is_some() {
                 return Err("unsupported body operation site".into());
@@ -246,7 +264,8 @@ fn export_connected_facts(arena: &ArenaProgram, declarations: &CompactDeclOutput
             name: name_text(target.name), body,
         };
         let operation_bindings = instance.operation_bindings().iter().map(|binding| match binding {
-            SealedOperationBinding::Selected(SealedOperationSignature::Field) => Ok(FieldBinding::Selected),
+            SealedOperationBinding::Selected(SealedOperationSignature::Field) => Ok(OperationBinding::Field),
+            SealedOperationBinding::Selected(SealedOperationSignature::StoreValue) => Ok(OperationBinding::StoreValue),
             _ => Err("unsupported operation binding".to_string()),
         }).collect::<Result<_, _>>()?;
         calls.push(CallFacts {
@@ -362,11 +381,17 @@ fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
             EffectFact::Known(effects) => wire_object([("kind", wire_string("known")),
                 ("effects", WireValue::Array(effects.iter().map(wire_string).collect()))]),
         };
-        let operations = body.operations.iter().map(|operation| Ok(wire_object([
-            ("kind", wire_string("field")), ("receiver", wire_checked_type(&operation.receiver)),
-            ("name", wire_string(&operation.name)), ("result", wire_checked_type(&operation.result)),
-            ("span", wire_span(operation.span)?),
-        ]))).collect::<Result<Vec<_>, String>>()?;
+        let operations = body.operations.iter().map(|operation| match operation {
+            OperationFact::Field(field) => Ok(wire_object([
+                ("kind", wire_string("field")), ("receiver", wire_checked_type(&field.receiver)),
+                ("name", wire_string(&field.name)), ("result", wire_checked_type(&field.result)),
+                ("span", wire_span(field.span)?),
+            ])),
+            OperationFact::StoreValue { storage, replacement, span } => Ok(wire_object([
+                ("kind", wire_string("storeValue")), ("storage", wire_checked_type(storage)),
+                ("replacement", wire_checked_type(replacement)), ("span", wire_span(*span)?),
+            ])),
+        }).collect::<Result<Vec<_>, String>>()?;
         let expressions = body.expression_types.iter().map(|(id, ty)| Ok(wire_object([
             ("id", wire_index(*id)?), ("span", wire_span(*body.expression_sites.get(id).ok_or("expression span missing")?)?),
             ("type", wire_checked_type(ty)),
@@ -412,7 +437,8 @@ fn connected_wire(facts: &ConnectedFacts) -> Result<WireValue, String> {
                 ("parameter", wire_string(hex_u32(*id))), ("type", wire_checked_type(ty)),
             ])).collect())),
             ("operationBindings", WireValue::Array(call.operation_bindings.iter().map(|binding| match binding {
-                FieldBinding::Selected => wire_string("field"),
+                OperationBinding::Field => wire_string("field"),
+                OperationBinding::StoreValue => wire_string("storeValue"),
             }).collect())),
         ]))
     }).collect::<Result<Vec<_>, String>>()?;
@@ -522,6 +548,48 @@ mod tests {
     }
 
     #[test]
+    fn scoped_mutable_binding_facts_preserve_source_sites() {
+        let source = "pure scoped(value) { var current = value; without time { current = value }; current }\nassert scoped(7) == 7\n";
+        let (_, _, parsed, published) = check_fixture(source).unwrap();
+        let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
+        let document = encode_connected_facts(&facts).unwrap();
+        println!("CONNECTED_SCOPED_FACTS {document}");
+        let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
+        let binding = body.read_bindings.iter().find(|binding| binding.name == "current").unwrap();
+        assert_eq!(&source[binding.span.start()..binding.span.end()], "var current = value;");
+        assert!(body.resolved_tails.values().any(|read| read == binding));
+        assert!(body.expression_types.keys().any(|id| {
+            matches!(parsed.arena.arena.expr(ExprId::from_index(*id)).kind, ArenaExprKind::ValueBlock(_))
+        }));
+        let [OperationFact::StoreValue { storage, replacement, span }] = body.operations.as_slice() else {
+            panic!("one store requirement");
+        };
+        assert_eq!((storage, replacement), (&CheckedType::Parameter(0), &CheckedType::Parameter(0)));
+        assert_eq!(&source[span.start()..span.end()], "value");
+        assert_eq!(body.operation_sites.len(), 1);
+        assert_eq!(facts.calls[0].operation_bindings, [OperationBinding::StoreValue]);
+        let mut changed = published.declarations.clone();
+        let (&site, body) = changed.scheme_bodies.iter().next().unwrap();
+        changed.scheme_bodies.insert(site, body.clone().with_store_value_sites(BTreeMap::new()).unwrap());
+        let missing = export_connected_facts(&parsed.arena, &changed).unwrap();
+        assert_ne!(document, encode_connected_facts(&missing).unwrap());
+    }
+
+    #[test]
+    fn field_and_store_requirements_share_a_source_expression() {
+        let source = "pure scoped(value, record) { var current = value; current = record.amount; current }\nassert scoped(1, {amount: 2}) == 2\n";
+        let (_, _, parsed, published) = check_fixture(source).unwrap();
+        let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
+        let [body] = facts.bodies.as_slice() else { panic!("one generic body") };
+        let [first, second] = body.operation_sites.as_slice() else { panic!("field and store sites") };
+        assert_eq!(first.0, second.0);
+        assert_ne!(first.1, second.1);
+        assert!(body.operations.iter().any(|operation| matches!(operation, OperationFact::Field(_))));
+        assert!(body.operations.iter().any(|operation| matches!(operation, OperationFact::StoreValue { .. })));
+        println!("CONNECTED_FIELD_STORE_FACTS {}", encode_connected_facts(&facts).unwrap());
+    }
+
+    #[test]
     fn field_scheme_export_retains_body_sites_and_call_evidence() {
         let (_, _, parsed, published) = check_fixture(SOURCE).unwrap();
         let facts = export_connected_facts(&parsed.arena, &published.declarations).unwrap();
@@ -544,7 +612,7 @@ mod tests {
         assert_eq!(body.read_bindings[0].name, "value");
         assert_eq!(body.resolved_reads.len(), 1);
         assert_eq!(body.resolved_reads.values().next().unwrap(), &body.read_bindings[0]);
-        let [operation] = body.operations.as_slice() else { panic!("one field requirement") };
+        let [OperationFact::Field(operation)] = body.operations.as_slice() else { panic!("one field requirement") };
         assert_eq!(operation.receiver, CheckedType::Parameter(0));
         assert_eq!(operation.name, "amount");
         assert_eq!(operation.result, CheckedType::Parameter(1));
@@ -555,14 +623,14 @@ mod tests {
             .find(|id| matches!(parsed.arena.arena.expr(*id).kind, ArenaExprKind::Field { .. }))
             .unwrap();
         assert_eq!(body.expression_types.get(&field.index()), Some(&CheckedType::Parameter(1)));
-        assert_eq!(body.operation_sites.get(&field.index()), Some(&0));
+        assert!(body.operation_sites.contains(&(field.index(), 0)));
         assert_eq!(body.expression_sites.get(&field.index()), Some(&operation.span));
         let [call] = facts.calls.as_slice() else { panic!("one generic call") };
         assert_eq!(call.role, InstantiationRole::Call);
         assert_eq!(call.target.name, "project");
         assert_eq!(call.target, facts.functions[0]);
         assert_eq!(call.target.body, body.span);
-        assert_eq!(call.operation_bindings, [FieldBinding::Selected]);
+        assert_eq!(call.operation_bindings, [OperationBinding::Field]);
         assert_eq!(call.type_arguments.get(&1), Some(&CheckedType::Int));
         let Some(CheckedType::Record(fields)) = call.type_arguments.get(&0) else { panic!("record argument") };
         assert_eq!(fields.get("amount"), Some(&CheckedType::Int));
