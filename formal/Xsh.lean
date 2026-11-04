@@ -124,3 +124,4 @@ import Xsh.Semantics.Connected.SafetyScopedInvocation
 import Xsh.Conformance.Connected.ScopedCertificate
 import Xsh.Conformance.Connected.RawRows
 import Xsh.Conformance.Connected.RawStoreFixture
+import Xsh.Conformance.Connected.ScopedTransferEvidence

@@ -609,6 +609,9 @@ fn scoped_assignment_transfer_exports_checked_type_override() {
     };
     let span = parsed.arena.arena.expr(value).span;
     let before = export_resource_transfers(&parsed.arena, &published).unwrap();
+    let lean_documents = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/formal/Xsh/Conformance/Connected/ScopedTransferDocuments.lean")).unwrap();
+    assert_eq!(lean_document_from(&lean_documents, "scopedTransferFactsCodes").as_deref(), Some(before.as_str()));
     published.checker_expr_types.insert(span, crate::sema::types::Type::Int);
     let changed = export_resource_transfers(&parsed.arena, &published).unwrap();
     assert_ne!(before, changed);
