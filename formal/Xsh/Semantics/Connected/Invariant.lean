@@ -336,13 +336,13 @@ theorem validated_require_guard_matches (fuel : Nat) (scope : Xsh.Typing.Connect
       runtimeMonotype (guardBase guard) = some (.record (Xsh.Typing.Connected.substitute solution row)) ∧
       ty = .result (.nominal identity (.record (Xsh.Typing.Connected.substitute solution row))) (.primitive .error) := by
   cases found : scope.find? (fun item => decide (item.name = name)) with
-  | none => simp [Xsh.Typing.Connected.validateExpression, found] at accepted
+  | none => simp [Xsh.Typing.Connected.validateExpression, Xsh.Typing.Connected.validateExpressionIn, found] at accepted
   | some binding =>
     cases body : binding.scheme.body with
     | nominal expected base =>
       cases base with
       | record row =>
-        simp [Xsh.Typing.Connected.validateExpression, found, body,
+        simp [Xsh.Typing.Connected.validateExpression, Xsh.Typing.Connected.validateExpressionIn, found, body,
           Xsh.Typing.Connected.except_bind_ok, Xsh.Typing.Connected.except_map_ok,
           Xsh.Typing.Connected.exists_require_ok, Bool.and_eq_true,
           Xsh.Typing.Connected.checks_well_formed_iff] at accepted
@@ -351,9 +351,9 @@ theorem validated_require_guard_matches (fuel : Nat) (scope : Xsh.Typing.Connect
         subst binder
         subst identity
         exact ⟨row, guard, guardFound, baseMatches, rfl⟩
-      | _ => simp [Xsh.Typing.Connected.validateExpression, found, body,
+      | _ => simp [Xsh.Typing.Connected.validateExpression, Xsh.Typing.Connected.validateExpressionIn, found, body,
           Xsh.Typing.Connected.except_bind_ok] at accepted
-    | _ => simp [Xsh.Typing.Connected.validateExpression, found, body,
+    | _ => simp [Xsh.Typing.Connected.validateExpression, Xsh.Typing.Connected.validateExpressionIn, found, body,
         Xsh.Typing.Connected.except_bind_ok] at accepted
 
 
@@ -427,7 +427,7 @@ theorem checked_function_read_instantiates (fuel : Nat) (scope : Xsh.Typing.Conn
     (parametersClosed : monoRuntime parameters = some runtimeParameters)
     (resultClosed : monoRuntime result = some runtimeResult) :
     ∃ normalized, instantiateFunction solution binding.scheme arguments = some (runtimeParameters, runtimeResult, normalized) := by
-  simp [Xsh.Typing.Connected.validateExpression, found, Xsh.Typing.Connected.except_bind_ok,
+  simp [Xsh.Typing.Connected.validateExpression, Xsh.Typing.Connected.validateExpressionIn, found, Xsh.Typing.Connected.except_bind_ok,
     Xsh.Typing.Connected.except_map_ok, Xsh.Typing.Connected.exists_require_ok,
     Bool.and_eq_true] at accepted
   obtain ⟨_, _, keys, sorts, constraints, _, same⟩ := accepted

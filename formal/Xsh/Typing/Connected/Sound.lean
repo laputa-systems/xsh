@@ -12,13 +12,13 @@ theorem validate_integer_sound (fuel : Nat) (scope : Scope) (solution : Substitu
     ExpressionHasType scope solution (.literal (.integer lexeme)) ty := by
   cases decimal : decimalLexeme lexeme with
   | false =>
-    simp only [validateExpression, decimal, Bool.false_eq_true, ↓reduceIte] at accepted
+    simp only [validateExpression, validateExpressionIn, decimal, Bool.false_eq_true, ↓reduceIte] at accepted
     cases accepted
   | true =>
     cases parsed : parseInteger lexeme with
-    | none => simp [validateExpression, decimal, parsed] at accepted
+    | none => simp [validateExpression, validateExpressionIn, decimal, parsed] at accepted
     | some value =>
-      simp [validateExpression, decimal, parsed, except_map_ok, exists_require_ok] at accepted
+      simp [validateExpression, validateExpressionIn, decimal, parsed, except_map_ok, exists_require_ok] at accepted
       obtain ⟨_, rfl⟩ := accepted
       exact .integer parsed
 
@@ -27,7 +27,7 @@ theorem validate_boolean_sound (fuel : Nat) (scope : Scope) (solution : Substitu
     (accepted : validateExpression (fuel + 1) scope solution
       (.literal (.bool value)) (.boolean candidate) = .ok ty) :
     ExpressionHasType scope solution (.literal (.bool value)) ty := by
-  simp [validateExpression, except_map_ok, exists_require_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_map_ok, exists_require_ok] at accepted
   obtain ⟨_, rfl⟩ := accepted
   exact .boolean
 
@@ -36,7 +36,7 @@ theorem validate_string_sound (fuel : Nat) (scope : Scope) (solution : Substitut
     (accepted : validateExpression (fuel + 1) scope solution
       (.literal (.string value)) (.string candidate) = .ok ty) :
     ExpressionHasType scope solution (.literal (.string value)) ty := by
-  simp [validateExpression, except_map_ok, exists_require_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_map_ok, exists_require_ok] at accepted
   obtain ⟨_, rfl⟩ := accepted
   exact .string
 
@@ -46,7 +46,7 @@ theorem validate_call_sound (fuel : Nat) (exprIH : ExpressionSound fuel) (argsIH
     (accepted : validateExpression (fuel + 1) scope solution (.call callee arguments)
       (.call target nodes) = .ok ty) :
     ExpressionHasType scope solution (.call callee arguments) ty := by
-  simp [validateExpression, except_bind_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_bind_ok] at accepted
   obtain ⟨calleeType, calleeAccepted, argumentTypes, argumentsAccepted, rest⟩ := accepted
   cases calleeType <;> simp [except_map_ok, exists_require_ok] at rest
   case function parameters result =>
@@ -60,7 +60,7 @@ theorem validate_record_sound (fuel : Nat) (fieldsIH : FieldsSound fuel)
     (nodes : List (NameId × Node)) (ty : MonoType)
     (accepted : validateExpression (fuel + 1) scope solution (.record fields) (.record nodes) = .ok ty) :
     ExpressionHasType scope solution (.record fields) ty := by
-  simp [validateExpression, except_bind_ok, except_map_ok, exists_require_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_bind_ok, except_map_ok, exists_require_ok] at accepted
   obtain ⟨types, fieldsAccepted, nodup, rfl⟩ := accepted
   exact .record (fieldsIH scope solution fields nodes types fieldsAccepted) nodup
 
@@ -71,7 +71,7 @@ theorem validate_conditional_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (accepted : validateExpression (fuel + 1) scope solution (.ifExpr branches otherwise)
       (.conditional nodes fallback) = .ok ty) :
     ExpressionHasType scope solution (.ifExpr branches otherwise) ty := by
-  simp [validateExpression, except_bind_ok, except_map_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_bind_ok, except_map_ok] at accepted
   obtain ⟨fallbackAccepted, _, branchAccepted⟩ := accepted
   exact .conditional (branchesIH scope solution ty branches nodes branchAccepted)
     (exprIH scope solution otherwise fallback ty fallbackAccepted)
@@ -82,7 +82,7 @@ theorem validate_field_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (accepted : validateExpression (fuel + 1) scope solution (.field base name)
       (.field node recordedName) = .ok ty) :
     ExpressionHasType scope solution (.field base name) ty := by
-  simp [validateExpression, except_bind_ok, exists_require_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_bind_ok, exists_require_ok] at accepted
   obtain ⟨_, baseType, baseAccepted, rest⟩ := accepted
   cases baseType <;> simp at rest
   case record row =>
@@ -99,7 +99,7 @@ theorem validate_propagate_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (accepted : validateExpression (fuel + 1) scope solution (.tryExpr value)
       (.propagate node expectedError) = .ok ty) :
     ExpressionHasType scope solution (.tryExpr value) ty := by
-  simp [validateExpression, except_bind_ok] at accepted
+  simp [validateExpression, validateExpressionIn, except_bind_ok] at accepted
   obtain ⟨valueType, valueAccepted, rest⟩ := accepted
   cases valueType <;> simp at rest
   case result inner error =>
@@ -114,19 +114,19 @@ theorem validate_require_sound (fuel : Nat) (ih : ExpressionSound fuel)
       (.requireValue binder identity node) = .ok ty) :
     ExpressionHasType scope solution (.require value (some (.named name))) ty := by
   cases found : scope.find? (fun item => decide (item.name = name)) with
-  | none => simp [validateExpression, found] at accepted
+  | none => simp [validateExpression, validateExpressionIn, found] at accepted
   | some binding =>
     cases body : binding.scheme.body with
     | nominal expected base =>
       cases base with
       | record row =>
-        simp [validateExpression, found, body, except_bind_ok, except_map_ok, exists_require_ok,
+        simp [validateExpression, validateExpressionIn, found, body, except_bind_ok, except_map_ok, exists_require_ok,
           Bool.and_eq_true, checks_well_formed_iff] at accepted
         obtain ⟨⟨_, kind⟩, ⟨quantified, requirements⟩, ⟨_, wellFormed⟩, ⟨inner, innerAccepted⟩, rfl⟩ := accepted
         exact .requireValue found kind quantified requirements body wellFormed
           (ih scope solution value node inner innerAccepted)
-      | _ => simp [validateExpression, found, body, except_bind_ok] at accepted
-    | _ => simp [validateExpression, found, body, except_bind_ok] at accepted
+      | _ => simp [validateExpression, validateExpressionIn, found, body, except_bind_ok] at accepted
+    | _ => simp [validateExpression, validateExpressionIn, found, body, except_bind_ok] at accepted
 
 theorem validate_argument_cons_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (argsIH : ArgumentsSound fuel) (scope : Scope) (solution : Substitution)
@@ -134,7 +134,7 @@ theorem validate_argument_cons_sound (fuel : Nat) (exprIH : ExpressionSound fuel
     (accepted : validateArguments (fuel + 1) scope solution (.positional value :: rest)
       (node :: nodes) = .ok types) :
     ArgumentsHaveTypes scope solution (.positional value :: rest) types := by
-  simp [validateArguments, except_bind_ok, except_map_ok] at accepted
+  simp [validateArguments, validateArgumentsIn, except_bind_ok, except_map_ok] at accepted
   obtain ⟨first, firstAccepted, others, othersAccepted, rfl⟩ := accepted
   exact .cons (exprIH scope solution value node _ firstAccepted)
     (argsIH scope solution rest nodes _ othersAccepted)
@@ -146,7 +146,7 @@ theorem validate_field_cons_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (accepted : validateRecordFields (fuel + 1) scope solution (.named name value :: rest)
       ((recorded, node) :: nodes) = .ok types) :
     RecordFieldsHaveTypes scope solution (.named name value :: rest) types := by
-  simp [validateRecordFields, except_bind_ok, except_map_ok, exists_require_ok] at accepted
+  simp [validateRecordFields, validateRecordFieldsIn, except_bind_ok, except_map_ok, exists_require_ok] at accepted
   obtain ⟨_, first, firstAccepted, others, othersAccepted, rfl⟩ := accepted
   exact .cons (exprIH scope solution value node _ firstAccepted)
     (fieldsIH scope solution rest nodes _ othersAccepted)
@@ -158,7 +158,7 @@ theorem validate_branch_cons_sound (fuel : Nat) (exprIH : ExpressionSound fuel)
     (accepted : validateBranches (fuel + 1) scope solution result ((condition, value) :: rest)
       ((guard, node) :: nodes) = .ok ()) :
     BranchesHaveType scope solution ((condition, value) :: rest) result := by
-  simp [validateBranches, except_bind_ok, exists_require_ok] at accepted
+  simp [validateBranches, validateBranchesIn, except_bind_ok, exists_require_ok] at accepted
   obtain ⟨_, guardAccepted, rfl, _, valueAccepted, rfl, remainingAccepted⟩ := accepted
   exact .cons (exprIH scope solution condition guard _ guardAccepted)
     (exprIH scope solution value node _ valueAccepted)
@@ -170,8 +170,8 @@ theorem validate_expressions_sound : ∀ fuel,
   intro fuel
   induction fuel with
   | zero =>
-    simp [ExpressionSound, ArgumentsSound, FieldsSound, BranchesSound, validateExpression,
-      validateArguments, validateRecordFields, validateBranches]
+    simp [ExpressionSound, ArgumentsSound, FieldsSound, BranchesSound, validateExpression, validateExpressionIn,
+      validateArguments, validateArgumentsIn, validateRecordFields, validateRecordFieldsIn, validateBranches, validateBranchesIn]
   | succ fuel ih =>
     obtain ⟨exprIH, argsIH, fieldsIH, branchesIH⟩ := ih
     refine ⟨?_, ?_, ?_, ?_⟩

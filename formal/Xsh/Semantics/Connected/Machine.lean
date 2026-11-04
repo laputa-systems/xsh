@@ -20,6 +20,7 @@ structure Function where
 
 
 def runtimeMonotype : RuntimeType → Option MonoType
+  | .unit => some (.primitive .unit)
   | .integer => some (.primitive .integer)
   | .boolean => some (.primitive .boolean)
   | .string => some (.primitive .string)
@@ -40,6 +41,7 @@ def runtimeMonotype : RuntimeType → Option MonoType
 
 
 def monoRuntime : MonoType → Option RuntimeType
+  | .primitive .unit => some .unit
   | .primitive .integer => some .integer
   | .primitive .boolean => some .boolean
   | .primitive .string => some .string
@@ -222,6 +224,7 @@ inductive Frame where
   | tailValue
   | branch (branches : List (Node × List StatementNode)) (otherwise rest : List StatementNode)
   | continueBlock (cells : ActiveCells) (rest : List StatementNode)
+  | valueBlock (cells : ActiveCells)
   | caller (cells : ActiveCells) (activation : Nat) (solution : Substitution) (result : RuntimeType)
 
 structure Machine where
@@ -242,6 +245,12 @@ def isCaller : Frame → Bool
   | _ => false
 
 inductive Step : Machine → Label → Machine → Prop where
+  | valueBlockStart (state : Machine) (completion : MonoType) (body : List StatementNode) :
+      Step { state with control := .expression (.valueBlock completion body) } .internal
+        { state with control := .statements body, stack := .valueBlock state.cells :: state.stack }
+  | valueBlockComplete (state : Machine) (value : Value) (cells : ActiveCells) :
+      Step { state with control := .completed value, stack := .valueBlock cells :: state.stack } .internal
+        { state with control := .value value, cells := cells }
   | integer (state : Machine) (text : String) (value : IntValue)
       (parsed : parseInteger text = some value) :
       Step { state with control := .expression (.integer text) } .internal
@@ -517,9 +526,9 @@ inductive Step : Machine → Label → Machine → Prop where
       (branches : List (Node × List StatementNode)) (otherwise rest : List StatementNode) :
       Step { state with control := .value (.scalar (.boolean false)), stack := .branch ((condition, body) :: branches) otherwise rest :: state.stack } .internal
         { state with control := .statements (.conditional branches otherwise :: rest) }
-  | branchComplete (state : Machine) (cells : ActiveCells) (rest : List StatementNode) :
-      Step { state with control := .statements [], stack := .continueBlock cells rest :: state.stack } .internal
-        { state with control := .statements rest, cells := cells }
+  | blockComplete (state : Machine) :
+      Step { state with control := .statements [] } .internal
+        { state with control := .completed .unit }
 
 
 inductive Execution : Machine → List Label → Machine → Prop where

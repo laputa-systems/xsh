@@ -1,5 +1,6 @@
 import Xsh.Conformance.Connected.SparseFacts
 import Xsh.Typing.Connected.QualifiedFunction
+import Xsh.Typing.Connected.QualifiedSound
 
 namespace Xsh.Conformance.Connected
 

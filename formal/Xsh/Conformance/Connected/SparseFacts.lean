@@ -15,6 +15,7 @@ mutual
     | node@(.field base _) => node :: nodeOccurrences base
     | node@(.conditional branches otherwise) => node :: (branchOccurrences branches ++ nodeOccurrences otherwise)
     | node@(.propagate value _) | node@(.requireValue _ _ value) => node :: nodeOccurrences value
+    | node@(.valueBlock _ body) => node :: statementOccurrences body
 
   def argumentOccurrences : List Node → List Node
     | [] => []
@@ -27,9 +28,7 @@ mutual
   def branchOccurrences : List (Node × Node) → List Node
     | [] => []
     | (condition, value) :: rest => nodeOccurrences condition ++ nodeOccurrences value ++ branchOccurrences rest
-end
 
-mutual
   def statementOccurrences : List StatementNode → List Node
     | [] => []
     | .binding _ _ value :: rest | .assignment _ value :: rest |

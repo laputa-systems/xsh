@@ -8,36 +8,49 @@ open Xsh.Syntax
 mutual
   def declaredBinders : List StatementNode → List Xsh.Foundation.BinderId
     | [] => []
-    | .binding binder _ _ :: rest => binder :: declaredBinders rest
+    | .binding binder _ value :: rest => binder :: nodeDeclaredBinders value ++ declaredBinders rest
+    | .assignment _ value :: rest | .evaluated value :: rest | .returned value :: rest =>
+        nodeDeclaredBinders value ++ declaredBinders rest
     | .conditional branches fallback :: rest =>
         branchBinders branches ++ declaredBinders fallback ++ declaredBinders rest
-    | _ :: rest => declaredBinders rest
 
   def branchBinders : List (Node × List StatementNode) → List Xsh.Foundation.BinderId
     | [] => []
-    | (_, body) :: rest => declaredBinders body ++ branchBinders rest
+    | (condition, body) :: rest => nodeDeclaredBinders condition ++ declaredBinders body ++ branchBinders rest
+
+  def nodeDeclaredBinders : Node → List Xsh.Foundation.BinderId
+    | .integer _ | .boolean _ | .string _ | .read _ _ => []
+    | .binary _ left right => nodeDeclaredBinders left ++ nodeDeclaredBinders right
+    | .call target arguments => nodeDeclaredBinders target ++ argumentBinders arguments
+    | .record fields => fieldBinders fields
+    | .field base _ | .propagate base _ | .requireValue _ _ base => nodeDeclaredBinders base
+    | .conditional branches otherwise => expressionBranchBinders branches ++ nodeDeclaredBinders otherwise
+    | .valueBlock _ body => declaredBinders body
+
+  def argumentBinders : List Node → List Xsh.Foundation.BinderId
+    | [] => []
+    | node :: rest => nodeDeclaredBinders node ++ argumentBinders rest
+
+  def fieldBinders : List (Xsh.Foundation.NameId × Node) → List Xsh.Foundation.BinderId
+    | [] => []
+    | (_, node) :: rest => nodeDeclaredBinders node ++ fieldBinders rest
+
+  def expressionBranchBinders : List (Node × Node) → List Xsh.Foundation.BinderId
+    | [] => []
+    | (condition, value) :: rest =>
+        nodeDeclaredBinders condition ++ nodeDeclaredBinders value ++ expressionBranchBinders rest
 end
 
 
-mutual
-  def blockPropagationErrors : List StatementNode → List MonoType
-    | [] => []
-    | .binding _ _ value :: rest | .assignment _ value :: rest |
-      .evaluated value :: rest | .returned value :: rest =>
-        propagationErrors value ++ blockPropagationErrors rest
-    | .conditional branches fallback :: rest =>
-        statementBranchErrors branches ++ blockPropagationErrors fallback ++ blockPropagationErrors rest
-
-  def statementBranchErrors : List (Node × List StatementNode) → List MonoType
-    | [] => []
-    | (condition, body) :: rest =>
-        propagationErrors condition ++ blockPropagationErrors body ++ statementBranchErrors rest
-end
+def blockPropagationErrors := statementPropagationErrors
+def statementBranchErrors := statementBranchPropagationErrors
 
 
 mutual
   def supportedStatementTails (tail : Bool) : List StatementNode → Bool
     | [] => true
+    | .evaluated (.valueBlock _ body) :: rest =>
+        supportedStatementTails true body && supportedStatementTails tail rest
     | .evaluated _ :: rest => tail && rest.isEmpty
     | .conditional branches fallback :: rest =>
         supportedBranchTails (tail && rest.isEmpty) branches &&
@@ -51,7 +64,7 @@ end
 
 mutual
   def guaranteesFunctionResult : List StatementNode → Bool
-    | [] => false
+    | [] => true
     | .returned _ :: _ => true
     | .evaluated _ :: rest => rest.isEmpty || guaranteesFunctionResult rest
     | .conditional branches fallback :: rest =>
@@ -95,7 +108,7 @@ theorem derived_block_certificate_sound (fuel : Nat) (names : TypeNames) (scope 
     cases supported : supportedStatementTails true candidate with
     | false =>
       simp only [found, Except.mapError, except_bind_ok, supported, Bool.false_eq_true, ↓reduceIte] at accepted
-      simp [exists_require_ok, except_bind_ok] at accepted
+      simp [exists_require_ok] at accepted
     | true =>
       simp [found, Except.mapError, except_bind_ok, supported] at accepted
       simp [exists_require_ok, checks_propagation_errors_iff] at accepted
