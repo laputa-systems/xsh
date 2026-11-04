@@ -236,18 +236,20 @@ Entries: commands are trimmed, embedded newlines become spaces, and a command
 that is empty, longer than 65,535 bytes, or contains NUL is not recorded. Each
 command appears once, at the position of its latest use.
 
-Every recorded command is appended to the log in one write before anything else
-happens, so the log plus the cache always hold the whole history. Compaction is
-a disk-to-disk merge that never trusts a shell's memory: under an exclusive
-lock it reads the cache and the whole log, lets a log record replace a cached
+A command is queued in memory and appended to the log in one write. On a
+lock or persistence failure, the shell warns and keeps pending commands in
+memory for a later retry; command execution remains available. Sync and
+compaction retry pending writes, including on exit, but a crash or persistent
+I/O failure can lose them. Compaction is a disk-to-disk merge that never trusts
+a shell's memory: under an exclusive lock it reads the cache and the whole log, lets a log record replace a cached
 entry only when strictly newer (a log left by a crashed compaction therefore
 cannot reorder anything), writes the cache through a temporary file and an
 atomic rename, then truncates the log. It runs when a shell exits and on
-`history compact`, and yields quietly when another shell holds the lock,
-because nothing is lost by skipping it.
+`history compact`, and yields quietly when another shell holds the lock;
+already persisted records remain in the log and cache.
 
-Locking: appenders and readers hold the lock shared, compaction and reset hold
-it exclusive, and every wait is bounded so a stuck peer cannot hang a prompt.
+Locking: readers require a shared lock; append, compaction, and reset require
+an exclusive lock. Every wait is bounded so a stuck peer cannot hang a prompt.
 Loading never writes.
 
 Sync, run before every prompt and every Ctrl-R, costs three `stat` calls when
@@ -261,13 +263,17 @@ shell starts, so a session's own history does not shift under the user.
 
 Reset: `history reset` deletes the log, cache, and quarantined cache and writes
 a new generation. Running shells see the marker change at their next sync or
-add, clear their memory, and cannot resurrect old entries at exit.
+add, clear their memory and pending writes, and cannot resurrect old entries
+at exit.
 
 Recovery: an unreadable cache is announced once at startup; the shell loads the
 log only and refuses to overwrite the cache until `history rebuild`, which sets
 the file aside as `history.bin.corrupt` and writes a new cache from what is
-recoverable. A torn tail on the log is closed with a newline before the next
-record is appended.
+recoverable. Before append or compaction, an unterminated record bearing the
+current record marker, or a partial marker, is discarded as a torn tail.
+Complete records and other unterminated legacy lines are retained. An
+unterminated legacy command that matches a partial marker is ambiguous and is
+discarded. This does not guarantee durability across power loss.
 
 Search ranks by tier (prefix, word-boundary substring, substring,
 subsequence), then recency, with a boost for entries recorded in the current

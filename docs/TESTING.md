@@ -747,6 +747,9 @@ Interactive tests require `-p xshi --features laputa-asterinas`; builds
 without the feature compile the disabled stub. Use `--lib` for units and
 `--test cli --test stdlib_preparation` for CLI and repeated-input preparation.
 Linux runs use the pinned image.
+History storage unit tests in `crates/xshi/src/interactive/history/tests.rs`
+cover lock contention, failed writes and retries, reset, and torn log tails.
+They do not establish crash or power-loss durability.
 
 Files under `tests/fixtures/interactive-parity/<os>/` are historical PTY
 transcripts from `ish`. Their replay driver is absent, so they do not establish
