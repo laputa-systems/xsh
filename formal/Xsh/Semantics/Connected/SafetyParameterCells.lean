@@ -37,7 +37,7 @@ theorem bound_parameters_agree (activation : Nat) (binders : List BinderId)
   | nil => cases bound; exact .nil
   | @cons binder binders value values ty types valueTyped restTyped ih =>
     simp only [List.nodup_cons] at unique
-    cases allocated : allocate store ⟨activation, binder⟩ .immutable value with
+    cases allocated : allocate store ⟨activation, binder⟩ .immutable ty value with
     | none => simp [bindParameters, valueTyped, allocated] at bound
     | some intermediate =>
       simp [bindParameters, valueTyped, allocated, Xsh.Typing.Connected.except_bind_ok] at bound

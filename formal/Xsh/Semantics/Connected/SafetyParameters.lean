@@ -8,11 +8,11 @@ open Xsh.Semantics.Environments
 inductive ParameterValuesTyped : List BinderId → List Value → RuntimeType → Prop where
   | nil : ParameterValuesTyped [] [] .argumentsEmpty
   | cons {binder binders value values ty types} :
-      valueType value = some ty → ParameterValuesTyped binders values types →
+      HasType ty value → ParameterValuesTyped binders values types →
       ParameterValuesTyped (binder :: binders) (value :: values) (.argument ty types)
 
 theorem allocate_other_cell (store next : Store) (cell other : CellId) (kind : Mutability)
-    (value : Value) (different : other ≠ cell) (allocated : allocate store cell kind value = some next) :
+    (ty : RuntimeType) (value : Value) (different : other ≠ cell) (allocated : allocate store cell kind ty value = some next) :
     next other = store other := by
   unfold allocate at allocated
   cases occupied : store cell with
@@ -21,8 +21,8 @@ theorem allocate_other_cell (store next : Store) (cell other : CellId) (kind : M
     simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
     split at allocated
     · cases allocated
-    · cases allocated
       simp [different]
+    · cases allocated
 
 theorem bound_parameter_cell_is_listed (activation : Nat) (binders : List BinderId)
     (values : List Value) (types : RuntimeType) (store next : Store) (cells : ActiveCells)
@@ -42,8 +42,8 @@ theorem bound_parameter_cell_is_listed (activation : Nat) (binders : List Binder
     | cons value values =>
       cases types with
       | argument ty types =>
-        by_cases typed : valueType value = some ty
-        · cases allocated : allocate store ⟨activation, first⟩ .immutable value with
+        by_cases typed : HasType ty value
+        · cases allocated : allocate store ⟨activation, first⟩ .immutable ty value with
           | none => simp [bindParameters, typed, allocated] at bound
           | some intermediate =>
             simp [bindParameters, typed, allocated, Xsh.Typing.Connected.except_bind_ok] at bound
@@ -77,7 +77,7 @@ theorem fresh_typed_parameters_bind (activation : Nat) (binders : List BinderId)
         intro equal
         cases equal
         exact unique.1 member
-      rw [allocate_other_cell store intermediate _ _ .immutable value different allocated]
+      rw [allocate_other_cell store intermediate _ _ .immutable ty value different allocated]
       exact fresh other (List.mem_cons_of_mem _ member)
     obtain ⟨cells, next, bound⟩ := ih intermediate unique.2 restFresh
     have absent : cells binder = none := by
