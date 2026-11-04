@@ -48,6 +48,10 @@ class ParanoidCheckTests(unittest.TestCase):
         result = SANDBOX.sandbox_args(args, threads="3", stack_size_kb="32768")
         self.assertEqual(result[result.index("--") + 1:],
                          ["/lean/bin/con-leche", "--jobs=3", "/work/export"])
+        arena = ["--ro-bind", "/", "/", "--", "/lean/bin/con-ron", "/work/export"]
+        result = SANDBOX.sandbox_args(arena, threads="3", stack_size_kb="32768")
+        self.assertEqual(result[result.index("--") + 1:],
+                         ["/lean/bin/con-ron", "--jobs=1", "/work/export"])
         other = ["--ro-bind", "/", "/", "--", "/lean/bin/leanchecker", "/work/export"]
         result = SANDBOX.sandbox_args(other, threads="3", stack_size_kb="32768")
         self.assertEqual(result[result.index("--") + 1:], ["/lean/bin/leanchecker", "/work/export"])
