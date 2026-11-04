@@ -10,7 +10,7 @@ inductive ParameterBindingsTyped (solution : Substitution) : Scope → List Valu
   | nil : ParameterBindingsTyped solution [] [] .argumentsEmpty
   | cons {name binder raw value values ty types scope} :
       ordinaryValue value = true → monoRuntime (substitute solution raw) = some ty →
-      valueType value = some ty → ParameterBindingsTyped solution scope values types →
+      HasType ty value → ParameterBindingsTyped solution scope values types →
       ParameterBindingsTyped solution (⟨name, binder, .immutable, ⟨[], raw, []⟩⟩ :: scope)
         (value :: values) (.argument ty types)
 
