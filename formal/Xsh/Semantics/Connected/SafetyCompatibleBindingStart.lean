@@ -8,6 +8,49 @@ open Xsh.Foundation
 open Xsh.Typing.Connected
 open Xsh.Semantics.Environments
 
+theorem writable_contract_after_binding (state : Machine) (scope : Scope) (name : NameId)
+    (binder : BinderId) (kind : BindingKind) (raw : MonoType) (value : Value)
+    (runtimeType : RuntimeType) (next : Store)
+    (contract : ScopeWritableContract scope state.solution state.cells state.store)
+    (live : ActiveCellsPresent state.cells state.store)
+    (binderFresh : ∀ binding ∈ scope, binding.binder ≠ binder)
+    (cellFresh : state.store ⟨state.activation, binder⟩ = none)
+    (closed : monoRuntime (substitute state.solution raw) = some runtimeType)
+    (typed : HasType runtimeType value)
+    (allocated : allocate state.store ⟨state.activation, binder⟩
+      (if kind = .mutable then .mutable else .immutable) runtimeType value = some next) :
+    ScopeWritableContract (⟨name, binder, kind, ⟨[], raw, []⟩⟩ :: scope) state.solution
+      (bindActive state.cells binder ⟨state.activation, binder⟩) next := by
+  obtain ⟨built, entry, builtAt, present, _, tag, _⟩ :=
+    allocate_fresh_typed_cell state.store ⟨state.activation, binder⟩
+      (if kind = .mutable then .mutable else .immutable) value runtimeType cellFresh typed
+  rw [allocated] at builtAt
+  cases builtAt
+  intro sought binding cell current found notSchema active currentAt mutable replacement replacementTyped
+  by_cases same : name = sought
+  · subst sought
+    simp at found
+    cases found
+    simp [bindActive] at active
+    subst cell
+    rw [present] at currentAt
+    cases currentAt
+    apply monomorphic_value_agrees state.solution name binder kind raw replacement runtimeType
+    · exact mono_typed_value_is_ordinary replacement (substitute state.solution raw) runtimeType closed
+        (by simpa [tag] using replacementTyped)
+    · exact closed
+    · simpa [tag] using replacementTyped
+  · have tailFound : scope.find? (fun item => decide (item.name = sought)) = some binding := by
+      simpa [same] using found
+    have distinct : binding.binder ≠ binder := binderFresh binding (List.mem_of_find?_eq_some tailFound)
+    have oldActive : state.cells binding.binder = some cell := by simpa [bindActive, distinct] using active
+    obtain ⟨old, oldAt⟩ := live binding.binder cell oldActive
+    have oldRetained := allocate_preserves_existing state.store next ⟨state.activation, binder⟩
+      (if kind = .mutable then .mutable else .immutable) runtimeType value allocated cell old oldAt
+    rw [currentAt] at oldRetained
+    cases oldRetained
+    exact contract sought binding cell current tailFound notSchema oldActive oldAt mutable replacement replacementTyped
+
 theorem compatible_binding_start_reservations_permute (base : Machine) (binder : BinderId) (kind : BindingKind)
     (rawStorage : MonoType) (storageType : RuntimeType) (initializer : Node) (rest : List StatementNode) :
     (pendingMachineBinders { base with control := .statements (.binding binder kind rawStorage initializer :: rest) }).Perm
