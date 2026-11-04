@@ -11,6 +11,7 @@ use crate::map_key::MapKey;
 
 pub(crate) const INPUT_LIMIT: usize = 64 * 1024 * 1024;
 pub(crate) const OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
+pub(crate) const ATOM_LIMIT: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Format { Json, Yaml, Toml, Ini, Csv, Tsv }
@@ -46,7 +47,7 @@ impl Format {
 
 pub(crate) fn decode_context(format: Format) -> deser::Context {
     let mut context = deser::Context::with(deser::de::Limits::builder().max_depth(128)
-        .max_len(16 * 1024 * 1024).max_items(1_000_000).max_events(4_000_000).build());
+        .max_len(ATOM_LIMIT).max_items(1_000_000).max_events(4_000_000).build());
     context.set(format);
     context.set(deser::de::DuplicateKeys::Error);
     context
@@ -366,10 +367,10 @@ impl deser::ser::EventGuard for EncodeLimits {
                 self.containers.push((matches!(event, Event::MapStart(_)), 0));
             }
             Event::MapEnd | Event::SeqEnd => { self.containers.pop().expect("codec container end"); }
-            Event::Atom(Atom::Str(value) | Atom::Lexical(value)) if value.len() > 16 * 1024 * 1024 => {
+            Event::Atom(Atom::Str(value) | Atom::Lexical(value)) if value.len() > ATOM_LIMIT => {
                 return Err(Error::new(ErrorKind::LimitExceeded, "codec string exceeds 16 MiB"));
             }
-            Event::Atom(Atom::Bytes(value)) if value.data().len() > 16 * 1024 * 1024 => {
+            Event::Atom(Atom::Bytes(value)) if value.data().len() > ATOM_LIMIT => {
                 return Err(Error::new(ErrorKind::LimitExceeded, "codec bytes exceed 16 MiB"));
             }
             _ => {}

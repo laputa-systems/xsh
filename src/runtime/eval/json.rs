@@ -1,5 +1,5 @@
 use super::type_view::ValueView;
-use crate::modules::codec::Format;
+use crate::modules::codec::{ATOM_LIMIT, Format};
 use super::{LoweredValue, Value};
 use crate::map_key::{MapKey, MapKeyRef};
 use crate::runtime::value::{RecordIter, RuntimeError};
@@ -235,6 +235,20 @@ struct BorrowedValue<'a> {
     pretty: bool,
 }
 
+impl BorrowedValue<'_> {
+    fn handle(&self, state: &State) -> SerializeHandle<'_> {
+        if state.depth() > 128 { return SerializeHandle::to(self); }
+        match self.value {
+            CodecInput::Runtime(Value::Null) | CodecInput::Lowered(LoweredValue::Null) => SerializeHandle::to(&()),
+            CodecInput::Runtime(Value::Bool(value)) | CodecInput::Lowered(LoweredValue::Bool(value)) => SerializeHandle::to(value),
+            CodecInput::Runtime(Value::Int(value)) | CodecInput::Lowered(LoweredValue::Int(value)) => SerializeHandle::to(value),
+            CodecInput::Runtime(Value::Float(value)) | CodecInput::Lowered(LoweredValue::Float(value)) if value.0.is_finite() => SerializeHandle::to(&value.0),
+            CodecInput::Runtime(Value::Str(value)) | CodecInput::Lowered(LoweredValue::Str(value)) if value.len() <= ATOM_LIMIT => SerializeHandle::to(value),
+            _ => SerializeHandle::to(self),
+        }
+    }
+}
+
 fn rejected(message: impl Into<Cow<'static, str>>) -> Error {
     Error::new(ErrorKind::UnsupportedType, message)
 }
@@ -251,7 +265,7 @@ impl Serialize for BorrowedValue<'_> {
             CodecNode::Bytes(bytes) if value.format.supports_bytes() => Emit::Atom(Atom::Bytes(deser::Bytes::borrowed(bytes))),
             CodecNode::Bytes(_) => return Err(rejected(unsupported_type("Bytes", value.format))),
             CodecNode::Str(v) | CodecNode::Wire(v) => {
-                if v.len() > 16 * 1024 * 1024 { return Err(Error::new(ErrorKind::LimitExceeded, "codec string exceeds 16 MiB")); }
+                if v.len() > ATOM_LIMIT { return Err(Error::new(ErrorKind::LimitExceeded, "codec string exceeds 16 MiB")); }
                 Emit::Atom(Atom::Str(v.into()))
             }
             CodecNode::MissingWireVariant => return Err(rejected("wire enum variant is absent from its declared mapping")),
@@ -274,7 +288,7 @@ impl Serialize for BorrowedValue<'_> {
 
 struct Items<'a> { items: CodecSequence<'a>, current: Option<BorrowedValue<'a>>, pretty: bool, format: Format }
 impl SeqEmitter for Items<'_> {
-    fn next(&mut self, _state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
+    fn next(&mut self, state: &mut State) -> Result<Option<SerializeHandle<'_>>, Error> {
         let value = match &mut self.items {
             CodecSequence::Paths(items) => items.next().map(CodecInput::Path),
             CodecSequence::Runtime(items) => items.next().map(CodecInput::Runtime),
@@ -282,13 +296,13 @@ impl SeqEmitter for Items<'_> {
             CodecSequence::Set(items) => items.next().map(|v| CodecInput::Key(v.as_ref())),
         };
         self.current = value.map(|value| BorrowedValue { value, pretty: self.pretty, format: self.format });
-        Ok(self.current.as_ref().map(SerializeHandle::to))
+        Ok(self.current.as_ref().map(|value| value.handle(state)))
     }
 }
 
 struct Fields<'a> { fields: CodecFields<'a>, current: Option<BorrowedValue<'a>>, key: Option<NameText>, pretty: bool, format: Format }
 impl StructEmitter for Fields<'_> {
-    fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
+    fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let Some((key, value)) = self.fields.next() else { return Ok(None); };
         let key = match key {
             CodecFieldKey::Str(key) | CodecFieldKey::Map(MapKeyRef::Str(key)) => Cow::Borrowed(key),
@@ -298,13 +312,13 @@ impl StructEmitter for Fields<'_> {
             CodecFieldKey::Map(_) => return Err(rejected(NON_STRING_KEY_MESSAGE)),
         };
         let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, format: self.format });
-        Ok(Some((key, SerializeHandle::to(current))))
+        Ok(Some((key, current.handle(state))))
     }
 }
 
 struct StatsFields<'a> { stats: CodecStats<'a>, current: Option<BorrowedValue<'a>>, index: usize, pretty: bool, format: Format }
 impl StructEmitter for StatsFields<'_> {
-    fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
+    fn next(&mut self, state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let (key, value) = match self.index {
             0 => ("blanks", CodecInput::Integer(self.stats.blanks)),
             1 => ("blobs", self.stats.blobs.map_or(CodecInput::EmptyObject, |v| CodecInput::LoweredMap(v))),
@@ -314,7 +328,7 @@ impl StructEmitter for StatsFields<'_> {
         };
         self.index += 1;
         let current = self.current.insert(BorrowedValue { value, pretty: self.pretty, format: self.format });
-        Ok(Some((Cow::Borrowed(key), SerializeHandle::to(current))))
+        Ok(Some((Cow::Borrowed(key), current.handle(state))))
     }
 }
 
