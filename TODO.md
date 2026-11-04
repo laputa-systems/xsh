@@ -222,16 +222,6 @@ out of scope.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
 
-### XSH-60 · P3 · Preserve prompt status on interactive EOF
-
-- **Area:** Errors
-- **Where:** `crates/xshi/src/interactive/app.rs`, `crates/xshi/src/interactive/repl.rs`, `docs/SPEC-INTERACTIVE.md`
-- **Problem:** The interactive specification requires Ctrl-D on an empty line to exit with the prompt status. The `ReadResult::Exit` branch returns `0` regardless of that status. Unproven: a runtime PTY reproducer after a nonzero command.
-- **Recommendation:** Reproduce the mismatch and return the prompt status on Ctrl-D while preserving history compaction and suspended-job handling.
-- **Acceptance:** A PTY test checks Ctrl-D after successful and unsuccessful commands and verifies the shell exits with the corresponding prompt status. Existing suspended-job warning and forced-exit behavior remain covered.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
 - **Deferred:** The owner is not interested in this evaluation at present. Exclude it from the active backlog run until the owner reopens it, even after a baseline becomes available.

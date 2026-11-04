@@ -123,8 +123,7 @@ Variables:
   as `BAD-NAME=value` reports `invalid environment assignment`.
 
 Two statuses exist. The prompt status reflects the last line, including
-commands the shell answers itself. It controls the prompt color and the status
-of Ctrl-D exit. `$?` is the status
+commands the shell answers itself, and controls the prompt color. `$?` is the status
 of the last command that ran a program or ordinary builtin; `cd`, `fg`, `w`,
 `history`, and the other session commands leave it alone.
 
@@ -138,10 +137,7 @@ of the last command that ran a program or ordinary builtin; `cd`, `fg`, `w`,
 | Ctrl-C at the prompt | `130` |
 | foreground command stopped by Ctrl-Z | `148` |
 | `exit [N]` | `N` (garbage or missing: `0`) |
-| Ctrl-D on an empty line | prompt status |
-
-The current interactive implementation returns `0` on Ctrl-D regardless of the
-prompt status. XSH-60 tracks the mismatch.
+| Ctrl-D on an empty line | success |
 
 Exec failures print `NAME: not found`, `NAME: permission denied`, or
 `NAME: INTERPRETER: bad interpreter: …`.
