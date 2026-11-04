@@ -78,6 +78,20 @@ theorem contextual_selected_read_contract (scope : Scope) (runtime extension : S
   exact contextual_runtime_read_contract scope runtime storage context binder arguments _ _ parameters result
     runtimeParameters runtimeResult typed unique functionType parametersClosed resultClosed proofClosed
 
+theorem ground_ordinary_read_from_runtime_type (scope : Scope) (runtime extension : Substitution)
+    (storage : BindingStorageMap) (functionResult : MonoType) (binder : BinderId)
+    (arguments : List (Variable × MonoType)) (raw : MonoType) (tag : RuntimeType)
+    (proofTyped : NodeHasTypeIn (compose extension runtime) (some functionResult) scope
+      (.read binder arguments) (substitute (compose extension runtime) raw))
+    (runtimeClosed : monoRuntime (substitute runtime raw) = some tag)
+    (ordinary : storage binder = .ordinary) :
+    GroundNode (compose extension runtime) runtime storage scope functionResult (.read binder arguments)
+      (substitute (compose extension runtime) raw) := by
+  refine .read proofTyped (runtime_closed_storage_survives_extension extension runtime raw tag runtimeClosed) ?_
+  intro name binding found same isScheme
+  rw [ordinary] at isScheme
+  cases isScheme
+
 theorem ground_selected_function_read (scope : Scope) (runtime extension : Substitution)
     (storage : BindingStorageMap) (functionResult : MonoType) (binder : Xsh.Foundation.BinderId)
     (arguments : List (Variable × MonoType)) (raw parameters result : MonoType)
