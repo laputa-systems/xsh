@@ -34,6 +34,8 @@ path steps. Lean relates an assignment's decoded StoreValue ordinal and source
 statement site to scoped checker facts under a supplied binder-to-slot map.
 The map, raw right-hand expression and transfer mark are not yet authenticated.
 Assignment transfer exports retain the checker’s optional value-type override.
+For the scoped fixture, Lean relates the emitted assignment fact to the outer
+binding and checked projected row; altered transfer facts are rejected.
 Resource-marked candidates remain unsupported by the Rust decoder; complete
 source-to-IR and execution correspondence remain open.
 

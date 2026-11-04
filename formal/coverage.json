@@ -12367,6 +12367,24 @@
       "status": "fragment",
       "scope": "The selected effect fact bytes parse to the stated wire value.",
       "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_transfer_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.ScopedTransferDocuments",
+      "declaration": "Xsh.Conformance.Connected.scoped_transfer_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scoped transfer fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_assignment_transfer_matches_source_and_rejects_mutations",
+      "module": "Xsh.Conformance.Connected.ScopedTransferEvidence",
+      "declaration": "Xsh.Conformance.Connected.scoped_assignment_transfer_matches_source_and_rejects_mutations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scoped assignment transfer fact agrees with its outer-binding source occurrence and typed projected row; altered fact fields fail.",
+      "boundary": "The projection uses a supplied binder-to-slot map; foreign candidate marks and general checker correspondence remain open."
     }
   ],
   "artifact_certificates": [

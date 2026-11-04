@@ -16,6 +16,7 @@ structure ScopedOccurrence where
   scope : Scope
   declarations : List (BinderId × NameId × SourceSite × Option String × Bool × Bool)
   storeTarget : Option (BinderId × SourceSite)
+  storeDeclaredHere : Bool
 
 structure OccurrenceCursor where
   expressions : List (SourceSite × Expr)
@@ -64,7 +65,7 @@ mutual
     | 0, _, _, _, _, _ => throw .exhausted
     | fuel + 1, types, scope, declarations, source, candidate => do
       let site ← nextExpressionSite source
-      let current : ScopedOccurrence := ⟨site, source, candidate, scope, declarations, none⟩
+      let current : ScopedOccurrence := ⟨site, source, candidate, scope, declarations, none, false⟩
       let children ← match source, candidate with
         | .literal (.integer left), .integer right =>
           if left == right then pure [] else throw .mismatch
@@ -95,7 +96,7 @@ mutual
           let first ← scopeExpressionBranches fuel types scope declarations branches recorded
           let second ← scopeExpression fuel types scope declarations otherwise fallback
           pure (first ++ second)
-        | .valueBlock body, .valueBlock _ nodes => scopeBlock fuel types scope declarations body nodes
+        | .valueBlock body, .valueBlock _ nodes => scopeBlock fuel types scope declarations [] body nodes
         | _, _ => throw .unsupported
       pure (current :: children)
 
@@ -137,16 +138,16 @@ mutual
     | _ + 1, _, _, _, [], [] => pure []
     | fuel + 1, types, scope, declarations, (condition, body) :: rest, (guard, nodes) :: candidates => do
       let first ← scopeExpression fuel types scope declarations condition guard
-      let second ← scopeBlock fuel types scope declarations body nodes
+      let second ← scopeBlock fuel types scope declarations [] body nodes
       let others ← scopeStatementBranches fuel types scope declarations rest candidates
       pure (first ++ second ++ others)
     | _ + 1, _, _, _, _, _ => throw .mismatch
 
   def scopeBlock : Nat → BinderTypes → Scope → List (BinderId × NameId × SourceSite × Option String × Bool × Bool) →
-      List Statement → List StatementNode → OccurrenceWalk (List ScopedOccurrence)
-    | 0, _, _, _, _, _ => throw .exhausted
-    | _ + 1, _, _, _, [], [] => pure []
-    | fuel + 1, types, scope, declarations, statement :: rest, node :: nodes => do
+      List BinderId → List Statement → List StatementNode → OccurrenceWalk (List ScopedOccurrence)
+    | 0, _, _, _, _, _, _ => throw .exhausted
+    | _ + 1, _, _, _, _, [], [] => pure []
+    | fuel + 1, types, scope, declarations, localBinders, statement :: rest, node :: nodes => do
       let site ← nextStatementSite statement
       match statement, node with
       | .binding kind (.name name) _ initializer, .binding binder recorded storage value => do
@@ -155,32 +156,32 @@ mutual
           if storage = rawType then pure () else throw .mismatch
           let first ← scopeExpression fuel types scope declarations initializer value
           let binding : Binding := ⟨name, binder, recorded, ⟨[], rawType, []⟩⟩
-          let others ← scopeBlock fuel types (binding :: scope) ((binder, name, site, none, false, false) :: declarations) rest nodes
+          let others ← scopeBlock fuel types (binding :: scope) ((binder, name, site, none, false, false) :: declarations) (binder :: localBinders) rest nodes
           pure (first ++ others)
       | .assign (.name name) .set value, .assignment binder recorded => do
           let some binding := scope.find? (fun binding => decide (binding.name = name)) | throw .mismatch
           if binding.binder = binder then pure () else throw .mismatch
           let first ← scopeExpression fuel types scope declarations value recorded
           let head :: nested := first | throw .mismatch
-          let others ← scopeBlock fuel types scope declarations rest nodes
-          pure ({ head with storeTarget := some (binder, site) } :: nested ++ others)
+          let others ← scopeBlock fuel types scope declarations localBinders rest nodes
+          pure ({ head with storeTarget := some (binder, site), storeDeclaredHere := localBinders.contains binder } :: nested ++ others)
       | .expression value, .evaluated recorded | .returnValue (some value), .returned recorded => do
           let first ← scopeExpression fuel types scope declarations value recorded
-          let others ← scopeBlock fuel types scope declarations rest nodes
+          let others ← scopeBlock fuel types scope declarations localBinders rest nodes
           pure (first ++ others)
       | .tailName name, .evaluated recorded => do
           let first ← scopeExpression fuel types scope declarations (.ident name) recorded
-          let others ← scopeBlock fuel types scope declarations rest nodes
+          let others ← scopeBlock fuel types scope declarations localBinders rest nodes
           pure (first ++ others)
       | .ifStmt branches otherwise, .conditional recorded fallback => do
           let first ← scopeStatementBranches fuel types scope declarations branches recorded
           let second ← match otherwise with
             | none => if fallback.isEmpty then pure [] else throw .mismatch
-            | some body => scopeBlock fuel types scope declarations body fallback
-          let others ← scopeBlock fuel types scope declarations rest nodes
+            | some body => scopeBlock fuel types scope declarations [] body fallback
+          let others ← scopeBlock fuel types scope declarations localBinders rest nodes
           pure (first ++ second ++ others)
       | _, _ => throw .unsupported
-    | _ + 1, _, _, _, _, _ => throw .mismatch
+    | _ + 1, _, _, _, _, _, _ => throw .mismatch
 end
 
 def sourceScopedOccurrences (fuel : Nat) (source : SourceFunction) (parameters globals : List Binding)
@@ -190,7 +191,7 @@ def sourceScopedOccurrences (fuel : Nat) (source : SourceFunction) (parameters g
   let parameterSites ← (source.parameters.zip parameters).mapM fun (parameter, binding) => do
     if parameter.name = binding.name then pure (binding.binder, parameter.name, parameter.site, none, false, false) else throw .mismatch
   let cursor : OccurrenceCursor := ⟨sourceOccurrences source, source.statements⟩
-  let (occurrences, remaining) ← (scopeBlock fuel types (parameters ++ globals) (parameterSites ++ globalSites)
+  let (occurrences, remaining) ← (scopeBlock fuel types (parameters ++ globals) (parameterSites ++ globalSites) []
     source.body candidate).run cursor
   if remaining.expressions.isEmpty && remaining.statements.isEmpty then pure occurrences else throw .mismatch
 
@@ -214,6 +215,34 @@ def scopedOccurrenceControl : Bool :=
   | _ => false
 
 theorem scoped_read_retains_its_local_declaration : scopedOccurrenceControl = true := by
+  decide +kernel
+
+def scopedStoreScopeControl : Bool :=
+  let binder : BinderId := ⟨⟨0, by decide⟩⟩
+  let types : BinderTypes := fun _ => some (.primitive .integer)
+  let readStore (text : String) (candidate : List StatementNode) : Option Bool := do
+    let unit ← (admitSource 0 text).toOption
+    let [.function source] := unit.declarations | none
+    let occurrences ← (sourceScopedOccurrences 64 source [] [] [] types candidate).toOption
+    let occurrence ← occurrences.find? (fun occurrence => occurrence.storeTarget.isSome)
+    pure occurrence.storeDeclaredHere
+  let same := readStore "pure f() -> Int { var x = 0; x = 1; return x }\n"
+    [.binding binder .mutable (.primitive .integer) (.integer "0"),
+      .assignment binder (.integer "1"), .returned (.read binder [])]
+  let outer := readStore "pure f() -> Int { var x = 0; without time { x = 1 }; return x }\n"
+    [.binding binder .mutable (.primitive .integer) (.integer "0"),
+      .evaluated (.valueBlock (.primitive .unit) [.assignment binder (.integer "1")]),
+      .returned (.read binder [])]
+  let inner : BinderId := ⟨⟨1, by decide⟩⟩
+  let shadowed (assigned : BinderId) := readStore
+    "pure f() -> Int { var x = 0; without time { var x = 1; x = 2 }; return x }\n"
+    [.binding binder .mutable (.primitive .integer) (.integer "0"),
+      .evaluated (.valueBlock (.primitive .unit)
+        [.binding inner .mutable (.primitive .integer) (.integer "1"), .assignment assigned (.integer "2")]),
+      .returned (.read binder [])]
+  decide (same = some true ∧ outer = some false ∧ shadowed inner = some true ∧ shadowed binder = none)
+
+theorem scoped_store_distinguishes_local_and_outer_bindings : scopedStoreScopeControl = true := by
   decide +kernel
 
 
