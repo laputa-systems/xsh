@@ -9,25 +9,25 @@ def checkedInitialMachine (base : Machine) (node : Node) : Machine :=
   { base with cells := base.globals, control := .expression node, stack := [] }
 
 theorem checked_initial_machine_typed (base : Machine) (globals : Scope) (storage : BindingStorageMap)
-    (types : CellTypes) (node : Node) (result ty : MonoType) (resultType : RuntimeType)
+    (types : CellTypes) (solution : Substitution) (node : Node) (result ty : MonoType) (resultType : RuntimeType)
     (activeBelow : base.activation < base.nextActivation)
     (storeBelow : StoreBelowActivation base.store base.nextActivation)
     (globalTyped : CellsTyped base.globals types base.store)
     (globalLive : CellsLive base.globals base.store)
-    (globalScope : ScopeStateAgrees globals { base with cells := base.globals })
-    (globalWritable : ScopeWritableContract globals base.solution base.globals base.store)
-    (globalSchemas : SchemaMatches globals base.solution base.schemas)
+    (globalScope : ScopeStateAgrees globals { base with cells := base.globals, solution := solution })
+    (globalWritable : ScopeWritableContract globals solution base.globals base.store)
+    (globalSchemas : SchemaMatches globals solution base.schemas)
     (globalSchemes : SchemeCellsImmutable base.globals base.store)
     (globalStorage : StorageAgreement base.globals base.store storage)
     (storedValues : StoreCallables base.functions base.store)
     (functions : FunctionTableCertified globals storage base)
-    (solutionSorted : WellSorted base.solution)
+    (solutionSorted : WellSorted solution) (runtimeSorted : WellSorted base.solution)
     (resultClosed : monoRuntime result = some resultType)
-    (ground : GroundNode base.solution base.solution storage globals result node ty)
+    (ground : GroundNode solution base.solution storage globals result node ty)
     (bindersUnique : (nodeDeclaredBinders node).Nodup)
     (bindersFresh : FutureNodeBindingsFresh base.store base.activation node) :
     TypedMachine globals storage types (checkedInitialMachine base node) := by
-  let context : TypingContext := ⟨globals, storage, base.solution, base.solution, result, some result,
+  let context : TypingContext := ⟨globals, storage, solution, base.solution, result, some result,
     base.activation, ⟨resultType, resultClosed⟩⟩
   obtain ⟨runtimeType, closed⟩ := ground_node_is_closed ground
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
@@ -38,7 +38,7 @@ theorem checked_initial_machine_typed (base : Machine) (globals : Scope) (storag
   · exact globalSchemes
   · exact globalStorage
   · exact storedValues
-  · refine ⟨.expression context ty, .expression context ty, rfl, rfl, rfl, solutionSorted, solutionSorted,
+  · refine ⟨.expression context ty, .expression context ty, rfl, rfl, rfl, solutionSorted, runtimeSorted,
       ?_, ⟨runtimeType, closed⟩, ⟨runtimeType, closed⟩, .expression ground closed bindersFresh, .nil, ?_⟩
     · exact ⟨globalScope, globalWritable, globalSchemas, globalSchemes, globalStorage⟩
     · constructor
