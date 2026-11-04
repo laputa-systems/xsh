@@ -22369,6 +22369,8 @@ macro_rules! impl_build_id_codec {
                         crate::runtime::eval::SchemeLocalMutability::Mutable => schemes::FullSchemeBodyFactKind::LocalMutable,
                     };
                     builder.record_scheme_body_fact(function, scheme, instruction, &declaration.ty, kind)?;
+                    #[cfg(test)]
+                    crate::runtime::eval::declaration_trace::emitted(self.index(), function.raw(), instruction);
                 }
                 Ok(())
             }

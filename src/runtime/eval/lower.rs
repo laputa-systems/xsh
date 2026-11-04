@@ -2897,6 +2897,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let binding = self.declaration_binding(self.program.arena.span(parameter.span), name)
                 .ok_or(CompactFunctionBlocker::ParamType)?;
             slots.bind_source_at(binding, name, slot, ty);
+            #[cfg(test)]
+            super::declaration_trace::parameter(slot);
             if let Some(parameter) = scheme.as_ref().and_then(|scheme| scheme.params().get(slot)) {
                 slots.types.insert(binding, parameter.ty.clone());
             }
@@ -4052,6 +4054,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let declared = SchemeType::Ground(ty.clone());
                     let slot = slots.declare_scheme_source(binding, name, declared.clone());
                     let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value, annotation: Some(ty) });
+                    #[cfg(test)]
+                    super::declaration_trace::lowered(declaration.index(), node.span, slot);
                     slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: declared, mutability });
                     body.push(declaration);
                     return Some(());
@@ -4106,6 +4110,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         let slot = slots.declare_scheme_source(binding, name, stored_type.clone());
         let declaration = push_build_row!(self, stmt, BuildStmtRow::Let { slot, value: checked, annotation: ty });
+        #[cfg(test)]
+        super::declaration_trace::lowered(declaration.index(), node.span, slot);
         slots.scheme_declarations.insert(declaration, super::SchemeLocalDeclaration { ty: stored_type, mutability });
         body.push(declaration);
         Some(())
