@@ -1219,6 +1219,14 @@ class InventoryCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate custom lowered value procedure verify"):
             CHECKER.parse_lowered_value_schema(duplicate_verify)
 
+    def test_function_lookup_finds_one_method_across_multiple_impl_blocks(self) -> None:
+        source = "impl Pool { fn export(&self) {} } impl Pool { fn verify(&self) { check(); } }"
+        body = CHECKER.function_tokens(source, "verify", "Pool")
+        self.assertEqual(body, ["{", "check", "(", ")", ";", "}"])
+        duplicate = source + " impl Pool { fn verify(&self) {} }"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "expected one verify function in Pool, found 2"):
+            CHECKER.function_tokens(duplicate, "verify", "Pool")
+
     def test_type_tag_payload_buckets_reject_omitted_and_duplicate_routes(self) -> None:
         source = (ROOT / "src/runtime/eval/indexed/semantic.rs").read_text()
         original = CHECKER.parse_indexed_type_pool_schema(source)
