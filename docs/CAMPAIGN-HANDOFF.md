@@ -48,7 +48,11 @@ Result forms, and execution correspondence remain open.
 
 The Codex session stopped at 17:38 UTC and ended the kernel `2252e24b6` full
 gate in recovery round 8 of 10, with all earlier cases passing on both backends.
-That run has no credit; the gate was restarted unchanged. The `28eb488d7`
+That run has no credit. The unchanged rerun then passed: baseline, device,
+clock, all network-state and network cases, and ten of ten recovery rounds on
+both backends (`full-qualify-105-rerun.log` in the kernel worktree's
+`.work/tmp`). The A0 preservation and resource checks against build 105 remain
+before integration. The `28eb488d7`
 reference bootstrap had already passed. Its full replay waits for the kernel gate
 so compile load cannot cause guest case timeouts.
 
