@@ -207,7 +207,7 @@ theorem typed_machine_function_call (globals : Scope) (storage : BindingStorageM
     obtain ⟨callerScope, callerSchemas, callerSchemes, callerStorage⟩ := active
     obtain ⟨savedScope, savedSchemes, savedStorage, savedSchemas⟩ :=
       saved_frame_scope_survives_step step callerContext base.cells callerScope callerSchemes callerStorage callerSchemas
-    let innerContext : TypingContext := ⟨parameters ++ globals, storage, solution, runtimeSolution, bodyResult, some bodyResult, base.nextActivation⟩
+    let innerContext : TypingContext := ⟨parameters ++ globals, storage, solution, runtimeSolution, bodyResult, some bodyResult, base.nextActivation, ⟨resultType, resultClosed⟩⟩
     have oldStack : StackTyped
         { base with control := .statements function.body, cells := withGlobals cells base.globals, store := store, activation := base.nextActivation, nextActivation := base.nextActivation + 1, solution := runtimeSolution, stack := .caller base.cells base.activation base.solution resultType :: base.stack }
         (.expression callerContext callerType) output base.stack := by

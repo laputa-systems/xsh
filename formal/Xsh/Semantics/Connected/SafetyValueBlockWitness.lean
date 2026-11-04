@@ -9,7 +9,7 @@ def booleanInitialMachine (base : Machine) : Machine :=
   { base with functions := fun _ => none, schemas := fun _ => none, globals := emptyCells, cells := emptyCells, store := fun _ => none, activation := 0, nextActivation := 1, solution := identity, control := .expression (.boolean true), stack := [] }
 
 def booleanInitialContext : TypingContext :=
-  ⟨[], fun _ => .ordinary, identity, identity, .primitive .boolean, some (.primitive .boolean), 0⟩
+  ⟨[], fun _ => .ordinary, identity, identity, .primitive .boolean, some (.primitive .boolean), 0, ⟨.boolean, rfl⟩⟩
 
 theorem boolean_initial_machine_is_typed (base : Machine) :
     TypedMachine [] (fun _ => .ordinary) (fun _ => none) (booleanInitialMachine base) := by

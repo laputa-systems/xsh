@@ -231,6 +231,7 @@ structure TypingContext where
   result : MonoType
   completion : Option MonoType
   activation : Nat
+  resultClosed : ∃ runtimeType, monoRuntime result = some runtimeType
 
 inductive TypedDemand where
   | expression (context : TypingContext) (ty : MonoType)
