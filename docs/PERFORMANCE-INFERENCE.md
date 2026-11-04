@@ -1,8 +1,8 @@
 # Inference evidence
 
 Reference for the inference completion contract, capability evidence, corpus
-views, and retained annotations. The [campaign close](../full-inference-campaign.md)
-records accepted residuals. Earlier implementation notes remain in Git history.
+views, and retained annotations. Open residuals are tickets in [TODO](../TODO.md).
+Earlier implementation notes remain in Git history.
 
 ## Completion contract
 
@@ -173,11 +173,65 @@ G3 completion still requires the remaining inference relationships and final
 integrated-source evidence. Passing these equivalence and reference families
 does not close the corpus or mutation obligations.
 
+## Campaign close
+
+The general-inference campaign closed on `73b59f11d`. The open residuals are
+XSH-61 through XSH-66.
+
+**Integrated acceptance.** Native suite 4,729 passed, 0 failed, 34 skipped
+(verification build, 32 jobs). Gates `test-sema-unit` 959, `test-sema` 55,
+`test-lowering` 1,652, `test-type-agreement` 1, `test-soundness` 18 (its fixed
+1,500-seed generated set contains seed 866), `test-syntax` 58 and `check-docs`
+3 passed in the pinned container; direct `runtime::eval` passed 1,652, and
+`xsht check core` was clean over 929 files. Debug-only type agreement was not
+run.
+
+**Core parameter view.** The private core parameter view (250 files, 4,677
+sites, Btop excluded) passes 4,668 sites alone. The per-file joint view of each
+file's passing sites passes in 245 of 250 files (4,307 sites); `iw`, `lsipc`,
+`mdev`, `patch` and `pstree` fail jointly. All but `patch` pass once one
+retained annotation below is kept. Btop's 39 sites remain unmeasured.
+
+**Practical view.** The applied view (405 private parameter sites in `wc`,
+`sort`, `awk` and Laputa `pm/generation.xsh`) passes every site alone and all
+four joint views. Laputa's exported `write_generation_plan.path_value` stays.
+
+**Retained source contracts.** Four sites keep their annotations because the
+source gives the type no other anchor:
+
+- `setfacl:12` passes a target-typed variant to an erased parameter whose body
+  does not fix `kind` to the enum. Target-typed variants are deferred only for
+  equality (`SealedOperation::TargetVariant`); deferring them in argument
+  positions would be a new language rule.
+- `date:8`: a `null` default establishes no parameter type.
+- `smartctl:447` and `smartctl:468`: the `Any` payload leaves its empty list
+  unanchored (`finish.session`).
+
+**Retained joint annotations.** `pstree` keeps one of `print_user_roots.name`
+and `has_same_named_user_parent.name`: erased together, the callee stays generic
+over an equality with `Str`, and a generic body cannot capture the top-level
+`List` of process records. `mdev` keeps `apply_rule`'s `Captures` because the
+`values: []` argument in `handle_event_rules` has no other anchor. `lsipc` keeps
+any one of `make_sysv_entry.record`, `make_sysv_entry.selection`,
+`posix_entry.selection`, `posix_entries.selection`, `row_for.selection` and
+`selected_rows.selection`; erased together, `main` fails callable
+generalization with a recovery type. `iw` keeps its annotation pair, which
+erasure turns into a check diagnostic. A generic `item.mark != null` or
+`item.mark ?? d` over a plain `Int` field is the specified optional injection,
+not a gap (`test_full_inference_null_test_over_a_plain_field_is_the_optional_injection_twin`).
+
+**Known limits.** Inferred `while let` still reaches `guard_source_duplicated`,
+as the annotated baseline does. The ground verifier does not prove every record
+literal against its checked type: a forged field of an unannotated local record
+literal reaches a dynamic value check instead. A call through a receiver whose
+type is unknown at a loop head, or not reachable by a name path, is not counted
+as effectful for loop fact invalidation, matching the call-time invalidation.
+
 ## Annotation erasure
 
 The dated counts below are historical snapshots. Reproduce their diagnostic
-classes before treating them as current failures. The active campaign lists
-currently confirmed blockers.
+classes before treating them as current failures. [Campaign close](#campaign-close)
+and the TODO tickets hold the current blockers.
 
 `dev/performance/corpus/erase_sites.py` measures how many inventory sites a
 compiler lets a source tree drop. It erases each site alone, then every site

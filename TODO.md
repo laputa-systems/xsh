@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 61
+Next: 67
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -212,6 +212,66 @@ out of scope.
 - **Coordination:** Laputa LAP-38 owns the concrete policy and operational parity proof.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
+
+### XSH-61 · P3 · Type a deferred optional assignment inside a record literal
+
+- **Area:** Inference
+- **Where:** `src/sema/`, `src/runtime/eval/indexed/full/verify_schemes/`, `core/wget.xsh:168`, `core/cpio.xsh:1490`
+- **Problem:** `let options: Options = {output: value, tries: 1}` over an unresolved `value` followed by `number(value)` depends on statement order. The assignment to the `Str?` field is deferred, but the literal keeps the field type `value`, and the comparison with `Options` unifies it with `Str?`. Typing the field by the optional it is stored into repairs both sites but regresses `find:205`, `numfmt:1551`, `route:313`, `smartctl:190`, `wc:381` and the `wget` joint view with `generic body expression disagrees with its checked type`: the verifier compares each record field expression with the literal's field type and has no coercion site for a deferred optional assignment.
+- **Recommendation:** Add that coercion site to the verifier with forged-IR tests, or defer per field in the record-to-schema comparison. Pair each repair with an annotated twin.
+- **Acceptance:** Both sites erase alone and in the `wget` and `cpio` joint views; the six regressed sites still pass; forged-IR tests reject an unproved optional coercion.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-62 · P3 · Store a field-narrowed record where its unnarrowed type is expected
+
+- **Area:** Inference
+- **Where:** `src/sema/`, `core/namei.xsh:205`
+- **Problem:** `guard let target = entry.link else { ... }` followed by passing `entry` whole to `path_entries` binds the erased `parent` to the field-narrowed record. `parent` is copied to `var previous`, which later receives a plain `Entry`, and the store fails with `storage requires Record, found Record`. The annotated `Entry?` parameter accepts both.
+- **Recommendation:** Join in the store: the narrowed record refines the stored one. Do not pass the unnarrowed record instead; that would drop the field proof a whole-record read under a guard gives the callee.
+- **Acceptance:** `namei:205` erases alone and jointly; a native test stores a narrowed record into storage typed by its unnarrowed source, and a forged narrowing is still rejected.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-63 · P3 · Anchor a local whose only seed is a deferred assignment
+
+- **Area:** Inference
+- **Where:** `src/sema/`, `core/arp.xsh:216`
+- **Problem:** `proc show(name) { var wanted = null; wanted = name; if wanted != null { ... } }` publishes the free `seed` (`material type needs an annotation`): the deferred assignment `seed? <- name` anchors nothing.
+- **Recommendation:** Bind the seed to the assigned variable when it is still unresolved at finalization. Decide first whether `wanted` stays `Str?` or nests to `Str??` when `name` instantiates to `Str?`, and record the rule in the SPEC.
+- **Acceptance:** `arp:216` erases; native tests cover a plain and an optional argument and match the annotated twin's behavior.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-64 · P3 · Generalize the patch joint view's leftover guard instance
+
+- **Area:** Inference
+- **Where:** `src/sema/constraints/wrappers.rs`, `core/patch.xsh`
+- **Problem:** Erasing all nine `opts` parameters (`note`, `q`, `run_patches`, `one_patch`, `apply_file`, `backup_name`, `make_backup`, `write_rejects`, `run_hunks`) together makes `generalize_guard_calls` return `UnresolvedGuardScope`: a guard call instance is still `Pending` with no recorded `GuardCallSource`. `run_patches` then stays monomorphic, and `main`'s two calls (one inside `if let dir = opts.directory` with the narrowed record, one in the `else` with `Options`) report `inferred types disagree`. Skipping guard instances created inside `without_pending_call_instantiations` makes the view pass, which fits instances left over from discarded return-inference passes.
+- **Recommendation:** Reduce to a reproducer that fails on the leftover instance, then land the watermark fix with it. A line-level reduction keeps unresolved-name cascades, and a hand-written mimic checks on baseline.
+- **Acceptance:** A native reproducer fails before the fix; the `patch` joint view passes; the corpus single-site and joint counts do not regress.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-65 · P4 · Find the missing executable type in expr's erased branch parser
+
+- **Area:** Inference
+- **Where:** `src/runtime/eval/indexed/full/`, `core/expr.xsh:547`
+- **Problem:** Erasing `parse_branch.state` leaves the ground producer proof without an executable type for an `ExprBinary`. A statement-level reduction kept 500 lines.
+- **Recommendation:** Reduce further, then repair the producer at its authority boundary.
+- **Acceptance:** The site erases and a native reproducer covers the producer.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-66 · P3 · Compare practical joint views and close erased sort's CPU gap
+
+- **Area:** Inference performance
+- **Where:** `core/wc.xsh`, `core/sort.xsh`, `core/awk.xsh`, Laputa `pm/generation.xsh`, `docs/PERFORMANCE-INFERENCE.md`
+- **Problem:** The four practical joint views pass, but their joint behavior and interfaces have not been compared with the annotated sources, and the host-consumer guest drill has not been rerun on them. Joint-erased `sort.xsh` produces identical output at about 2.3 times the annotated source's CPU on the faster sort build.
+- **Recommendation:** Diff joint-view interfaces and outputs against the annotated sources, rerun the guest drill, then profile erased `sort` to find which inferred types cost the extra CPU.
+- **Acceptance:** Interfaces and outputs match or each difference is explained; the CPU gap is attributed and either removed or recorded with its cause under the performance campaign's sampling rules.
+- **Fix with:** make-it-fast, benchmark-checklist
+- **Effort:** M
 
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 

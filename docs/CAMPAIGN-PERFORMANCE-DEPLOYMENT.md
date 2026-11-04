@@ -74,8 +74,8 @@ last source that passed most gates, and old passes do not qualify later source.
   passes, one failure and four skips. The failing AWK case requires
   `systime() > 1000000000`. RTC device failures and the pinned kernel's epoch
   fallback suggest a clock cause, which is unproven.
-- **Inference:** the accepted capabilities are merged on `master`. The
-  [inference campaign](../full-inference-campaign.md) owns the remainder.
+- **Inference:** the accepted capabilities are merged on `master`. Its
+  residuals are XSH-61 through XSH-66 in [TODO](../TODO.md).
 - **Lean:** H3 maintenance passed on the unchanged Lean 4.35 project. See
   [the Lean campaign](../xsh-lean.md).
 
