@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 60
+Next: 61
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -220,6 +220,16 @@ out of scope.
 - **Acceptance:** The selected consumer has deterministic policy fixtures, rejects transitive `fs`/`net`/`process`/`time` effects in pure code, preserves precedence and failure behavior, and demonstrably removes duplicated branches or policy state. If an ordinary helper is sufficient, keep it and explicitly reject a new abstraction.
 - **Coordination:** Laputa LAP-38 owns the concrete policy and operational parity proof.
 - **Fix with:** single-source-of-truth
+- **Effort:** S
+
+### XSH-60 · P3 · Preserve prompt status on interactive EOF
+
+- **Area:** Errors
+- **Where:** `crates/xshi/src/interactive/app.rs`, `crates/xshi/src/interactive/repl.rs`, `docs/SPEC-INTERACTIVE.md`
+- **Problem:** The interactive specification requires Ctrl-D on an empty line to exit with the prompt status. The `ReadResult::Exit` branch returns `0` regardless of that status. Unproven: a runtime PTY reproducer after a nonzero command.
+- **Recommendation:** Reproduce the mismatch and return the prompt status on Ctrl-D while preserving history compaction and suspended-job handling.
+- **Acceptance:** A PTY test checks Ctrl-D after successful and unsuccessful commands and verifies the shell exits with the corresponding prompt status. Existing suspended-job warning and forced-exit behavior remain covered.
+- **Fix with:** root-cause
 - **Effort:** S
 
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
