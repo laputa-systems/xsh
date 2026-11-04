@@ -1,5 +1,7 @@
 import Xsh.Semantics.Connected.SafetyValueBlockWorld
 import Xsh.Semantics.Connected.SafetyResult
+import Xsh.Semantics.Connected.SafetyValueBlockBinary
+import Xsh.Semantics.Connected.SafetyStoreComposition
 
 namespace Xsh.Semantics.Connected
 
@@ -52,12 +54,13 @@ def PermittedControl : Control → Prop
 
 theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (input : MonoType)
     (value : Value) (runtimeType : RuntimeType) (frame : Frame) (rest : List Frame) (output : TypedDemand)
-    (typed : valueType value = some runtimeType) (closed : monoRuntime input = some runtimeType)
+    (typed : HasType runtimeType value) (closed : monoRuntime input = some runtimeType)
     (scope : ScopeStateAgrees context.scope { state with solution := context.solution })
     (activation : context.activation = state.activation)
     (frameTyped : FrameTyped state (.expression context input) output frame) (outputClosed : DemandClosed output) :
     ∃ next, Step { state with control := .value value, stack := frame :: rest } .internal next ∧ PermittedControl next.control := by
   let base : Machine := { state with stack := rest }
+  obtain ⟨actualRuntime, actualTyped, actualFits⟩ := (has_type_iff_compatible _ _).mp typed
   cases frame with
   | binaryLeft operator right =>
     cases frameTyped with
@@ -65,7 +68,11 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
       by_cases andOperator : operator = .and
       · subst operator
         cases operation
-        have booleanType : valueType value = some .boolean := by simpa [monoRuntime] using typed.trans closed.symm
+        have booleanType : valueType value = some .boolean := by
+          have booleanTyped : HasType .boolean value := by
+            have same : runtimeType = .boolean := by simpa [monoRuntime] using closed.symm
+            simpa [same] using typed
+          exact boolean_has_exact_type value booleanTyped
         obtain ⟨boolean, rfl⟩ := boolean_value_shape value booleanType
         cases boolean with
         | false => exact ⟨_, by simpa [base] using Step.andFalse base right, by trivial⟩
@@ -73,7 +80,11 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
       · by_cases orOperator : operator = .or
         · subst operator
           cases operation
-          have booleanType : valueType value = some .boolean := by simpa [monoRuntime] using typed.trans closed.symm
+          have booleanType : valueType value = some .boolean := by
+            have booleanTyped : HasType .boolean value := by
+              have same : runtimeType = .boolean := by simpa [monoRuntime] using closed.symm
+              simpa [same] using typed
+            exact boolean_has_exact_type value booleanTyped
           obtain ⟨boolean, rfl⟩ := boolean_value_shape value booleanType
           cases boolean with
           | false => exact ⟨_, by simpa [base] using Step.orFalse base right, by trivial⟩
@@ -82,8 +93,15 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
   | binaryRight operator left =>
     cases frameTyped with
     | binaryRight leftTyped leftClosed callable operation =>
+      rename_i leftType result leftRuntime
+      have leftExact : valueType left = monoRuntime leftType := by
+        cases operation <;> simp only [monoRuntime, Option.some.injEq] at leftClosed ⊢ <;> subst_vars <;>
+          first | exact integer_has_exact_type left leftTyped | exact boolean_has_exact_type left leftTyped
+      have rightExact : valueType value = monoRuntime input := by
+        cases operation <;> simp only [monoRuntime, Option.some.injEq] at closed ⊢ <;> subst_vars <;>
+          first | exact integer_has_exact_type value typed | exact boolean_has_exact_type value typed
       obtain ⟨resultRuntime, control, resultClosed, step, safe⟩ := typed_binary_frame_progress base operator
-        _ _ _ left value operation (leftTyped.trans leftClosed.symm) (typed.trans closed.symm)
+        _ _ _ left value operation leftExact rightExact
       refine ⟨_, by simpa [base] using step, ?_⟩
       rcases safe with ⟨candidate, rfl, candidateTyped⟩ | ⟨fault, rfl⟩ <;> trivial
   | callTarget arguments =>
@@ -116,14 +134,21 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
       | some runtimeRow =>
         simp [monoRuntime, rowClosed] at closed
         subst runtimeType
-        obtain ⟨fields, rfl⟩ := record_value_shape value runtimeRow typed
-        obtain ⟨selected, step, selectedTyped⟩ := typed_field_frame_progress base fields name row result runtimeRow runtimeResult
+        obtain ⟨actualRow, actualShape, fits⟩ := record_fit_has_row runtimeRow actualRuntime actualFits
+        have actualRecord : valueType value = some (.record actualRow) := by simpa [actualShape] using actualTyped
+        obtain ⟨fields, rfl⟩ := record_value_shape value actualRow actualRecord
+        obtain ⟨selected, found, selectedTyped⟩ := compatible_field_lookup fields name row result runtimeRow runtimeResult
           typed occurs rowClosed resultClosed
+        have step := Step.fieldValue base name fields selected found
         exact ⟨_, by simpa [base] using step, by trivial⟩
   | conditional branches otherwise =>
     cases frameTyped with
     | conditional nonempty branchTypes fallback =>
-      have booleanType : valueType value = some .boolean := by simpa [monoRuntime] using typed.trans closed.symm
+      have booleanType : valueType value = some .boolean := by
+        have booleanTyped : HasType .boolean value := by
+          have same : runtimeType = .boolean := by simpa [monoRuntime] using closed.symm
+          simpa [same] using typed
+        exact boolean_has_exact_type value booleanTyped
       obtain ⟨boolean, rfl⟩ := boolean_value_shape value booleanType
       cases branches with
       | nil => exact False.elim (nonempty rfl)
@@ -144,37 +169,40 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
         | some runtimeFailure =>
           simp [monoRuntime, successClosed, failureClosed] at closed
           subst runtimeType
-          rcases result_value_shape value runtimeSuccess runtimeFailure typed with ⟨inner, rfl, innerTyped⟩ | ⟨inner, rfl, innerTyped⟩
-          · exact ⟨_, by simpa [base] using Step.propagateOk base inner runtimeFailure, by trivial⟩
-          · exact ⟨_, by simpa [base] using Step.propagateError base inner runtimeSuccess, by trivial⟩
+          obtain ⟨actualSuccess, actualFailure, actualShape, _, _⟩ :=
+            result_fit_has_components runtimeSuccess runtimeFailure actualRuntime actualFits
+          have actualResult : valueType value = some (.result actualSuccess actualFailure) := by simpa [actualShape] using actualTyped
+          rcases result_value_shape value actualSuccess actualFailure actualResult with ⟨inner, rfl, innerTyped⟩ | ⟨inner, rfl, innerTyped⟩
+          · exact ⟨_, by simpa [base] using Step.propagateOk base inner actualFailure, by trivial⟩
+          · exact ⟨_, by simpa [base] using Step.propagateError base inner actualSuccess, by trivial⟩
   | requireGuard identity guard =>
     cases frameTyped with
     | requireGuard baseMatches =>
-      obtain ⟨decision, decided⟩ := typed_guard_decision_exists guard value runtimeType typed
+      obtain ⟨decision, decided⟩ := typed_guard_decision_exists guard value actualRuntime actualTyped
       cases decision with
       | false => exact ⟨_, by simpa [base] using Step.requireFailure base identity guard value decided, by trivial⟩
       | true => exact ⟨_, by simpa [base] using Step.requireSuccess base identity guard value decided, by trivial⟩
-  | bind binder kind following =>
+  | bind binder kind storageType following =>
     cases frameTyped with
-    | bind kindValid ordinaryBinding freshScope freshCell restTyped freshRest =>
+    | bind compatible storageClosed kindValid ordinaryBinding freshScope freshCell restTyped freshRest =>
       rw [activation] at freshCell
+      have storageTyped : HasType storageType value := (has_type_iff_compatible _ _).mpr
+        ⟨actualRuntime, actualTyped, store_compatible_composes compatible storageType runtimeType actualRuntime storageClosed closed actualFits⟩
       obtain ⟨next, entry, allocated, present, mutability, tag, contents⟩ :=
         allocate_fresh_typed_cell state.store ⟨state.activation, binder⟩
-          (if kind = .mutable then .mutable else .immutable) value runtimeType freshCell typed
-      exact ⟨_, by simpa [base] using Step.bindingCommit base binder kind value following next allocated, by trivial⟩
+          (if kind = .mutable then .mutable else .immutable) value storageType freshCell storageTyped
+      exact ⟨_, by simpa [base] using Step.bindingCommit base binder kind storageType value following next allocated, by trivial⟩
   | assign binder following =>
     cases frameTyped with
-    | assign found mutable restTyped freshRest =>
+    | assign compatible found mutable restTyped freshRest =>
       rename_i name binding
       obtain ⟨unique, values, mutableCells, distinct, live⟩ := scope
-      obtain ⟨quantified, requirements, cell, current, actualType, active, present, writable, tag, actualClosed⟩ :=
+      obtain ⟨quantified, requirements, cell, current, storageType, active, present, writable, tag, storageClosed⟩ :=
         mutableCells name binding found mutable
-      rw [closed] at actualClosed
-      cases actualClosed
       have member : HasType current.contents.typeTag value := by
-        unfold HasType
         rw [tag]
-        exact typed
+        exact (has_type_iff_compatible _ _).mpr
+          ⟨actualRuntime, actualTyped, store_compatible_composes compatible storageType runtimeType actualRuntime storageClosed closed actualFits⟩
       obtain ⟨next, written⟩ := (write_accepted_iff (fun _ _ => inferInstance) state.store cell value).mpr
         ⟨current, present, writable, member⟩
       exact ⟨_, by simpa [base] using Step.assignmentCommit base binding.binder value following cell next active written, by trivial⟩
@@ -190,7 +218,11 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
   | branch branches otherwise following =>
     cases frameTyped with
     | branch nonempty branchTypes fallback restTyped freshBranches freshFallback freshRest =>
-      have booleanType : valueType value = some .boolean := by simpa [monoRuntime] using typed.trans closed.symm
+      have booleanType : valueType value = some .boolean := by
+        have booleanTyped : HasType .boolean value := by
+          have same : runtimeType = .boolean := by simpa [monoRuntime] using closed.symm
+          simpa [same] using typed
+        exact boolean_has_exact_type value booleanTyped
       obtain ⟨boolean, rfl⟩ := boolean_value_shape value booleanType
       cases branches with
       | nil => exact False.elim (nonempty rfl)
@@ -205,7 +237,7 @@ theorem typed_value_frame_progress (state : Machine) (context : TypingContext) (
 
 theorem typed_value_stack_progress (state : Machine) (context : TypingContext) (ty : MonoType)
     (value : Value) (runtimeType : RuntimeType) (stack : List Frame) (output : TypedDemand)
-    (typed : valueType value = some runtimeType) (closed : monoRuntime ty = some runtimeType)
+    (typed : HasType runtimeType value) (closed : monoRuntime ty = some runtimeType)
     (scope : ScopeStateAgrees context.scope { state with solution := context.solution })
     (activation : context.activation = state.activation)
     (typedStack : StackTyped state (.expression context ty) output stack) :
@@ -227,6 +259,7 @@ theorem typed_machine_value_progress (state : Machine) (globals : Scope) (storag
   | value typed closed callables =>
     rename_i context ty runtimeType
     have activeScope : ScopeStateAgrees context.scope { state with solution := context.solution } ∧
+        ScopeWritableContract context.scope context.solution state.cells state.store ∧
         SchemaMatches context.scope context.solution state.schemas ∧
         SchemeCellsImmutable state.cells state.store ∧ StorageAgreement state.cells state.store context.storage := by
       simpa [ActiveScopeTyped, current, TypedDemand.context] using active
