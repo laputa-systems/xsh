@@ -4140,7 +4140,7 @@ impl<'a> ProducerProof<'a> {
     fn declared_read_type(&self, decoder: &FullDecoder<'a>, instruction: usize, declared: Arc<Type>) -> Result<Arc<Type>, IrVerifyError> {
         if declared.as_ref() == &Type::Any
             && let Some(prefix) = &decoder.producer_prefix
-            && let Some(narrowed) = prefix.runtime_list_read_type(decoder, instruction)?
+            && let Some(narrowed) = prefix.runtime_tested_read_type(decoder, instruction)?
         { return Ok(Arc::new(narrowed)); }
         if matches!(declared.as_ref(), Type::Union(_))
             && let Some(prefix) = &decoder.producer_prefix

@@ -1448,6 +1448,32 @@ assert "value" != environment("number").shared
 }
 
 #[test]
+fn type_tested_field_reads_authenticate_the_guarded_binding() {
+    let mut program = fixture(r#"
+type Named = {name: Str}
+pure select(value: Any, other: Any) -> Str {
+    let _ = other
+    if value is Named { value.name } else { "absent" }
+}
+assert select({name: "demo"}, false) == "demo"
+assert select(false, {name: "wrong"}) == "absent"
+"#);
+    program.store.in_place.take();
+    FullVerifier::verify(&program).unwrap();
+    execute_both(&program);
+    let owner = function(&program, "select");
+    let decoder = function_view_decoder(&program.store, owner);
+    let field = program.store.function_instruction_range(owner).unwrap()
+        .find(|&instruction| program.store.tags[instruction] == FullTag::ExprField).unwrap();
+    let schema::ExprView::Field { base, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
+    assert!(matches!(decoder.expression_view(base.raw() as usize), Ok(schema::ExprView::Param(0))));
+    let mut wrong_binding = program.clone();
+    wrong_binding.store.in_place.take();
+    wrong_binding.store.extra[program.store.data[base.raw() as usize].range().start as usize] = 1;
+    assert!(FullVerifier::verify(&wrong_binding).is_err());
+}
+
+#[test]
 fn dynamic_field_equality_authenticates_both_receivers() {
     let mut program = fixture(r#"
 pure compare(record: Record, wrong: Bool) -> Bool {
