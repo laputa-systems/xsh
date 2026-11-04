@@ -35,6 +35,8 @@ separate function-return context. Its contextual validators prove source and
 node typing for checked blocks, including qualified instances. Block scope
 restoration preserves writes to outer cells. Source admission, lexical effect
 bounds, translation validation, and whole-machine correspondence remain open.
+Source admission records `without` region bounds and spans, but fact validation
+reports regions as unsupported until local occurrences are checked in scope.
 
 Every claim here starts after parsing unless planned source-admission evidence
 covers the source bytes. Rust is the only implementation compared so far. The

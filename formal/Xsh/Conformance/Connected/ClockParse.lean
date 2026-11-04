@@ -14,7 +14,7 @@ def clockFunction : SourceFunction :=
     [(⟨0, 29, 10⟩, clockExpression),
      (⟨0, 29, 8⟩, .field (.ident (clockName 6 (by decide))) (clockName 7 (by decide))),
      (⟨0, 29, 4⟩, .ident (clockName 6 (by decide)))],
-    [(⟨0, 29, 10⟩, .expression clockExpression)]⟩
+    [(⟨0, 29, 10⟩, .expression clockExpression)], []⟩
 def clockUnit : SourceUnit :=
   ⟨0, ["Int", "Bool", "Str", "Result", "proc", "clock", "time", "now"], [.function clockFunction]⟩
 

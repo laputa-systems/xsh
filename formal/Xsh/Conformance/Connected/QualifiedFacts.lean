@@ -93,29 +93,31 @@ def validateQualifiedBodyFactsFor (fuel : Nat) (unit : SourceUnit) (source : Sou
     (variables : VariableResolver) (names : TypeNames) (parameters globals : List Binding)
     (result : MonoType) (ordered : List Constraint) (steps : List DerivationStep) (solvedCount : Nat)
     (candidate : List StatementNode) (binderTypes : BinderTypes) (fields : FieldResults)
-    (inhabitant : List (Variable × MonoType)) (body : BodyDocument) : Except ValidationError Substitution := do
-  requireCheck (decide (sourceName unit.names "Int" = some names.integer) &&
-    decide (sourceName unit.names "Bool" = some names.boolean) &&
-    decide (sourceName unit.names "Str" = some names.string) &&
-    decide (sourceName unit.names "Result" = some names.result))
-  requireCheck (decide (body.site = source.bodySite) && decide (body.kind = .pure) && decide (source.kind = .pure) &&
-    decide (body.explicitReturn = source.result.isSome))
-  let some parameterNames := body.parameters.mapM (fun (name, _) => sourceNameResolver unit body.site.source name)
-    | throw .mismatch
-  requireCheck (decide (parameterNames = parameters.map Binding.name) &&
-    decide ((body.operations.map fun operation => (operation.site, operation.name)).Perm
-      (sourceFieldSites source.expressions)))
-  let some scheme := schemeFromBody variables body | throw .mismatch
-  let principal ← validateQualifiedFunction fuel names parameters globals result source.body ordered steps
-    solvedCount scheme candidate binderTypes fields inhabitant
-  validateSourceParameters names principal source.parameters parameters
-  validateSourceAnnotation names principal source.result (substitute principal result)
-  requireCheck (checksQualifiedExpressionFacts fuel (parameters ++ globals) principal scheme.requirements
-    fields source candidate body && checksQualifiedTailFacts fuel (parameters ++ globals) principal
-      scheme.requirements fields source candidate body)
-  validateSparseFacts fuel unit.names (parameters ++ globals) (compose (witnessSubstitution inhabitant) principal)
-    (witnessSubstitution inhabitant) source candidate body
-  pure principal
+    (inhabitant : List (Variable × MonoType)) (body : BodyDocument) : Except ValidationError Substitution :=
+  if source.regions.isEmpty then do
+    requireCheck (decide (sourceName unit.names "Int" = some names.integer) &&
+      decide (sourceName unit.names "Bool" = some names.boolean) &&
+      decide (sourceName unit.names "Str" = some names.string) &&
+      decide (sourceName unit.names "Result" = some names.result))
+    requireCheck (decide (body.site = source.bodySite) && decide (body.kind = .pure) && decide (source.kind = .pure) &&
+      decide (body.explicitReturn = source.result.isSome))
+    let some parameterNames := body.parameters.mapM (fun (name, _) => sourceNameResolver unit body.site.source name)
+      | throw .mismatch
+    requireCheck (decide (parameterNames = parameters.map Binding.name) &&
+      decide ((body.operations.map fun operation => (operation.site, operation.name)).Perm
+        (sourceFieldSites source.expressions)))
+    let some scheme := schemeFromBody variables body | throw .mismatch
+    let principal ← validateQualifiedFunction fuel names parameters globals result source.body ordered steps
+      solvedCount scheme candidate binderTypes fields inhabitant
+    validateSourceParameters names principal source.parameters parameters
+    validateSourceAnnotation names principal source.result (substitute principal result)
+    requireCheck (checksQualifiedExpressionFacts fuel (parameters ++ globals) principal scheme.requirements
+      fields source candidate body && checksQualifiedTailFacts fuel (parameters ++ globals) principal
+        scheme.requirements fields source candidate body)
+    validateSparseFacts fuel unit.names (parameters ++ globals) (compose (witnessSubstitution inhabitant) principal)
+      (witnessSubstitution inhabitant) source candidate body
+    pure principal
+  else .error .unsupported
 
 theorem validated_qualified_body_has_function_certificate (fuel : Nat) (unit : SourceUnit)
     (source : SourceFunction) (variables : VariableResolver) (names : TypeNames)
@@ -129,6 +131,7 @@ theorem validated_qualified_body_has_function_certificate (fuel : Nat) (unit : S
       validateQualifiedFunction fuel names parameters globals result source.body ordered steps solvedCount
         scheme candidate binderTypes fields inhabitant = .ok principal := by
   unfold validateQualifiedBodyFactsFor at accepted
+  split at accepted <;> try cases accepted
   cases parameterNames : body.parameters.mapM (fun (name, _) => sourceNameResolver unit body.site.source name) with
   | none => simp [parameterNames, except_bind_ok, exists_require_ok] at accepted
   | some decodedNames =>

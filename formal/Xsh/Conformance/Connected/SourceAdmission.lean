@@ -348,6 +348,21 @@ def dropSeparators : List SourceToken → List SourceToken
       if token.kind = .newline || token.kind = .symbol ";" then dropSeparators rest else token :: rest
   | [] => []
 
+def effectName : String → Option Xsh.Syntax.Effect
+  | "fs" => some .fs
+  | "net" => some .net
+  | "process" => some .process
+  | "env" => some .env
+  | "time" => some .time
+  | "error" => some .error
+  | "io" => some .io
+  | _ => none
+
+structure SourceEffectRegion where
+  head : SourceSite
+  body : SourceSite
+  excluded : List Xsh.Syntax.Effect
+
 structure SourceParameter where
   name : Xsh.Foundation.NameId
   site : SourceSite
@@ -364,6 +379,7 @@ structure SourceFunction where
   body : List Xsh.Syntax.Statement
   expressions : List (SourceSite × Xsh.Syntax.Expr)
   statements : List (SourceSite × Xsh.Syntax.Statement)
+  regions : List SourceEffectRegion
 
 inductive SourceDeclaration where
   | function (value : SourceFunction)
@@ -444,13 +460,28 @@ structure StatementPart where
   statement : Xsh.Syntax.Statement
   expressions : List (SourceSite × Xsh.Syntax.Expr)
   nested : List (SourceSite × Xsh.Syntax.Statement)
+  regions : List SourceEffectRegion
   remaining : List SourceToken
 
 structure LocatedStatementPart where
   statement : Xsh.Syntax.Statement
   expressions : List (SourceSite × Xsh.Syntax.Expr)
   statements : List (SourceSite × Xsh.Syntax.Statement)
+  regions : List SourceEffectRegion
   remaining : List SourceToken
+
+def parseRegionHead : Nat → List SourceToken → Option (List Xsh.Syntax.Effect × SourceToken × SourceToken × List SourceToken)
+  | 0, _ => none
+  | _ + 1, [] => none
+  | fuel + 1, token :: rest => do
+    let .word name := token.kind | none
+    let effect ← effectName name
+    let next :: remaining := rest | none
+    if next.kind = .symbol "{" then some ([effect], token, next, remaining)
+    else if next.kind = .symbol "," then do
+      let (others, last, openToken, suffix) ← parseRegionHead fuel remaining
+      some (effect :: others, last, openToken, suffix)
+    else none
 
 mutual
   def parseStatement : Nat → List String → List SourceToken → Except AdmissionFailure LocatedStatementPart
@@ -460,14 +491,14 @@ mutual
       let some first := tokens.head? | throw .malformed
       let consumed := tokens.take (tokens.length - parsed.remaining.length)
       let some last := consumed.getLast? | throw .malformed
-      let compound := match parsed.statement with | .ifStmt _ _ => true | _ => false
+      let compound := match parsed.statement with | .ifStmt _ _ | .expression (.valueBlock _) => true | _ => false
       let finalSite := match parsed.remaining with
         | terminator :: _ =>
           if !compound && (terminator.kind = .newline || terminator.kind = .symbol ";") then terminator.site
           else last.site
         | [] => last.site
       let site := coveringSite first.site finalSite
-      pure ⟨parsed.statement, parsed.expressions, (site, parsed.statement) :: parsed.nested, parsed.remaining⟩
+      pure ⟨parsed.statement, parsed.expressions, (site, parsed.statement) :: parsed.nested, parsed.regions, parsed.remaining⟩
 
   def parseStatementPart : Nat → List String → List SourceToken → Except AdmissionFailure StatementPart
     | 0, _, _ => .error .exhausted
@@ -479,91 +510,92 @@ mutual
         let (_, afterEquals) ← expectSymbol "=" afterType
         let (value, remaining) ← parseExpression fuel names 0 afterEquals
         let kind := if token.kind = .word "var" then Xsh.Syntax.BindingKind.var else .letBinding
-        pure ⟨.binding kind (.name name) annotation value.expression, value.nodes, value.statements, remaining⟩
+        pure ⟨.binding kind (.name name) annotation value.expression, value.nodes, value.statements, [], remaining⟩
       | .word "return" => do
         let (value, remaining) ← parseExpression fuel names 0 rest
-        pure ⟨.returnValue (some value.expression), value.nodes, value.statements, remaining⟩
+        pure ⟨.returnValue (some value.expression), value.nodes, value.statements, [], remaining⟩
       | .word "assert" => do
         let (value, remaining) ← parseExpression fuel names 0 rest
-        pure ⟨.assert value.expression none, value.nodes, value.statements, remaining⟩
+        pure ⟨.assert value.expression none, value.nodes, value.statements, [], remaining⟩
       | .word "if" => do
         let (condition, afterCondition) ← parseExpression fuel names 0 rest
         let (_, afterOpen) ← expectSymbol "{" afterCondition
-        let (yes, yesNodes, yesStatements, _, afterYes) ← parseBlock fuel names afterOpen
+        let (yes, yesNodes, yesStatements, yesRegions, _, afterYes) ← parseBlock fuel names afterOpen
         match afterYes with
         | otherwise :: following =>
           if otherwise.kind = .word "else" then do
             let (_, afterElseOpen) ← expectSymbol "{" following
-            let (no, noNodes, noStatements, _, suffix) ← parseBlock fuel names afterElseOpen
+            let (no, noNodes, noStatements, noRegions, _, suffix) ← parseBlock fuel names afterElseOpen
             pure ⟨.ifStmt [(condition.expression, yes)] (some no), condition.nodes ++ yesNodes ++ noNodes,
-              condition.statements ++ yesStatements ++ noStatements, suffix⟩
-          else pure ⟨.ifStmt [(condition.expression, yes)] none, condition.nodes ++ yesNodes, condition.statements ++ yesStatements, afterYes⟩
-        | [] => pure ⟨.ifStmt [(condition.expression, yes)] none, condition.nodes ++ yesNodes, condition.statements ++ yesStatements, []⟩
+              condition.statements ++ yesStatements ++ noStatements, yesRegions ++ noRegions, suffix⟩
+          else pure ⟨.ifStmt [(condition.expression, yes)] none, condition.nodes ++ yesNodes, condition.statements ++ yesStatements, yesRegions, afterYes⟩
+        | [] => pure ⟨.ifStmt [(condition.expression, yes)] none, condition.nodes ++ yesNodes, condition.statements ++ yesStatements, yesRegions, []⟩
       | .word name =>
-        match rest with
-        | terminator :: _ =>
-          if terminator.kind = .newline || terminator.kind = .symbol ";" || terminator.kind = .symbol "}" then do
-            if ["print", "eprint"].contains name then throw .unsupported else pure ()
-            if reservedName name then
-              let (value, remaining) ← parseExpression fuel names 0 (token :: rest)
-              pure ⟨.expression value.expression, value.nodes, value.statements, remaining⟩
-            else
+        let separated := match rest with | first :: _ => first.site.start != token.finish | [] => false
+        let regionHead := if name = "without" && separated then parseRegionHead fuel rest else none
+        match regionHead with
+        | some (effects, last, openToken, afterOpen) => do
+          let (body, bodyNodes, bodyStatements, nestedRegions, close, suffix) ← parseBlock fuel names afterOpen
+          let bodySite := coveringSite openToken.site close.site
+          let expression := Xsh.Syntax.Expr.valueBlock body
+          let region : SourceEffectRegion := ⟨coveringSite token.site last.site, bodySite, effects⟩
+          pure ⟨.expression expression, (bodySite, expression) :: bodyNodes, bodyStatements,
+            region :: nestedRegions, suffix⟩
+        | none =>
+          match rest with
+          | terminator :: _ =>
+            if terminator.kind = .newline || terminator.kind = .symbol ";" || terminator.kind = .symbol "}" then do
+              if ["print", "eprint"].contains name then throw .unsupported else pure ()
+              if reservedName name then
+                let (value, remaining) ← parseExpression fuel names 0 (token :: rest)
+                pure ⟨.expression value.expression, value.nodes, value.statements, [], remaining⟩
+              else
+                let some target := sourceName names name | throw .unsupported
+                pure ⟨.tailName target, [], [], [], rest⟩
+            else if terminator.kind = .symbol "=" then do
+              let _ :: afterEquals := rest | throw .malformed
+              if reservedName name then throw .malformed else pure ()
               let some target := sourceName names name | throw .unsupported
-              pure ⟨.tailName target, [], [], rest⟩
-          else if terminator.kind = .symbol "=" then do
-            let _ :: afterEquals := rest | throw .malformed
-            if reservedName name then throw .malformed else pure ()
-            let some target := sourceName names name | throw .unsupported
-            let (value, remaining) ← parseExpression fuel names 0 afterEquals
-            pure ⟨.assign (.name target) .set value.expression, value.nodes, value.statements, remaining⟩
-          else do
-            let ambiguousMinus := match rest with
-              | minus :: next :: _ => minus.kind = .symbol "-" && minus.site.start != token.finish &&
-                  next.site.start = minus.finish
-              | _ => false
-            if ambiguousMinus || spacedPostfix (token :: rest) then throw .unsupported else pure ()
-            let (value, remaining) ← parseExpression fuel names 0 (token :: rest)
-            pure ⟨.expression value.expression, value.nodes, value.statements, remaining⟩
-        | [] => throw .unsupported
+              let (value, remaining) ← parseExpression fuel names 0 afterEquals
+              pure ⟨.assign (.name target) .set value.expression, value.nodes, value.statements, [], remaining⟩
+            else do
+              let ambiguousMinus := match rest with
+                | minus :: next :: _ => minus.kind = .symbol "-" && minus.site.start != token.finish &&
+                    next.site.start = minus.finish
+                | _ => false
+              if ambiguousMinus || spacedPostfix (token :: rest) then throw .unsupported else pure ()
+              let (value, remaining) ← parseExpression fuel names 0 (token :: rest)
+              pure ⟨.expression value.expression, value.nodes, value.statements, [], remaining⟩
+          | [] => throw .unsupported
       | _ => do
         let (value, remaining) ← parseExpression fuel names 0 (token :: rest)
-        pure ⟨.expression value.expression, value.nodes, value.statements, remaining⟩
+        pure ⟨.expression value.expression, value.nodes, value.statements, [], remaining⟩
     | _ + 1, _, [] => .error .malformed
 
   def parseBlock : Nat → List String → List SourceToken →
     Except AdmissionFailure (List Xsh.Syntax.Statement × List (SourceSite × Xsh.Syntax.Expr) ×
-      List (SourceSite × Xsh.Syntax.Statement) × SourceToken × List SourceToken)
+      List (SourceSite × Xsh.Syntax.Statement) × List SourceEffectRegion × SourceToken × List SourceToken)
   | 0, _, _ => .error .exhausted
   | fuel + 1, names, tokens =>
     match dropSeparators tokens with
     | [] => .error .malformed
     | close :: rest =>
-      if close.kind = .symbol "}" then pure ([], [], [], close, rest)
+      if close.kind = .symbol "}" then pure ([], [], [], [], close, rest)
       else do
         let parsed ← parseStatement fuel names (close :: rest)
         match parsed.remaining with
         | [] => .error .malformed
         | separator :: _ =>
-          let compound := match parsed.statement with | .ifStmt _ _ => true | _ => false
+          let compound := match parsed.statement with | .ifStmt _ _ | .expression (.valueBlock _) => true | _ => false
           if compound || separator.kind = .newline || separator.kind = .symbol ";" || separator.kind = .symbol "}" then do
-            let (following, followingNodes, followingStatements, final, suffix) ← parseBlock fuel names parsed.remaining
+            let (following, followingNodes, followingStatements, followingRegions, final, suffix) ← parseBlock fuel names parsed.remaining
             match parsed.statement with
             | .tailName _ => if following.isEmpty then pure () else throw .unsupported
             | _ => pure ()
             pure (parsed.statement :: following, parsed.expressions ++ followingNodes,
-              parsed.statements ++ followingStatements, final, suffix)
+              parsed.statements ++ followingStatements, parsed.regions ++ followingRegions, final, suffix)
           else .error .unsupported
 end
-
-def effectName : String → Option Xsh.Syntax.Effect
-  | "fs" => some .fs
-  | "net" => some .net
-  | "process" => some .process
-  | "env" => some .env
-  | "time" => some .time
-  | "error" => some .error
-  | "io" => some .io
-  | _ => none
 
 def parseEffectClause : Nat → List SourceToken → Except AdmissionFailure (List Xsh.Syntax.Effect × List SourceToken)
   | 0, _ => .error .exhausted
@@ -610,8 +642,8 @@ def parseFunction (fuel : Nat) (names : List String) (tokens : List SourceToken)
       else pure (none, afterEffects)
     | [] => pure (none, [])
   let (openToken, afterBodyOpen) ← expectSymbol "{" afterResult
-  let (body, expressions, statements, close, suffix) ← parseBlock fuel names afterBodyOpen
-  pure (⟨kind, declaredEffects, name, label.site, coveringSite openToken.site close.site, parameters, result, body, expressions, statements⟩, suffix)
+  let (body, expressions, statements, regions, close, suffix) ← parseBlock fuel names afterBodyOpen
+  pure (⟨kind, declaredEffects, name, label.site, coveringSite openToken.site close.site, parameters, result, body, expressions, statements, regions⟩, suffix)
 
 def parseDeclarations : Nat → List String → List SourceToken → Except AdmissionFailure (List SourceDeclaration)
   | 0, _, _ => .error .exhausted
@@ -625,6 +657,7 @@ def parseDeclarations : Nat → List String → List SourceToken → Except Admi
         pure (.function declaration :: following)
       else do
         let parsed ← parseStatement fuel names (token :: rest)
+        if parsed.regions.isEmpty then pure () else throw .unsupported
         match parsed.statement with
         | .tailName _ => throw .unsupported
         | _ => pure ()
@@ -660,6 +693,34 @@ def projectionAdmissionCheck : Bool :=
   | .error _ => false
 
 theorem admits_located_projection_source : projectionAdmissionCheck = true := by
+  decide +kernel
+
+def withoutAdmissionCheck : Bool :=
+  match admitSource 0 "pure f() -> Int { var x = 0; without time { x = 1 }; return x }\n" with
+  | .ok unit =>
+    match unit.declarations, sourceName unit.names "x" with
+    | [.function source], some name =>
+      match source.regions, source.body with
+      | [region], [.binding .var (.name binder) _ _,
+          .expression (.valueBlock [.assign (.name target) .set (.literal (.integer "1"))]),
+          .returnValue (some (.ident returned))] =>
+        decide (region.head = ⟨0, 29, 12⟩) && decide (region.body = ⟨0, 42, 9⟩) &&
+          decide (region.excluded = [.time]) && decide (binder = name ∧ target = name ∧ returned = name)
+      | _, _ => false
+    | _, _ => false
+  | .error _ => false
+
+theorem admits_without_as_a_located_lexical_block : withoutAdmissionCheck = true := by
+  decide +kernel
+
+def ordinaryWithoutNameCheck : Bool :=
+  match admitSource 0 "pure f(without: Int) -> Int { return without }\n" with
+  | .ok unit => match unit.declarations with
+    | [.function source] => source.regions.isEmpty
+    | _ => false
+  | .error _ => false
+
+theorem without_remains_an_ordinary_expression_name : ordinaryWithoutNameCheck = true := by
   decide +kernel
 
 theorem admitted_source_has_tokenization (source : Nat) (text : String) (unit : SourceUnit)
