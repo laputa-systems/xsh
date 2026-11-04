@@ -2061,6 +2061,112 @@ mod tests {
     }
 
     #[test]
+    fn cold_contextual_empty_map_discard_preserves_finite_effects() {
+        let mut program = prepare("proc discard() [] -> Unit { let _ = map.empty(); map.empty() }\ndiscard()\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let operation = program.store.runtime_ops.iter().position(|op| *op == super::super::super::RuntimeOp::MapEmpty).unwrap();
+        let mut wrong_factory = program.clone();
+        wrong_factory.store.runtime_ops[operation] = super::super::super::RuntimeOp::JsonEncode;
+        let error = FullVerifier::verify(&wrong_factory).unwrap_err();
+        assert!(error.message.contains("effect") || error.message.contains("argument") || error.message.contains("contract"), "{error:?}");
+    }
+
+    #[test]
+    fn cold_contextual_empty_maps_preserve_independent_native_contexts() {
+        let mut program = prepare(r#"
+proc discard() [] -> Unit { let _ = map.empty(); map.empty() }
+proc main() [error] {
+    discard()
+    let names: Map[Int, Str] = map.empty()
+    let values = map.empty().set(key: 1, value: [7])
+    let labels = map.empty().set(value: "two", key: "second")
+    let dynamic: Map[Str, Any] = map.empty()
+    print names.len()
+    print values.get(key: 1)?[0]
+    print labels.get("second")?
+    print dynamic.len()
+    let _ = map.empty()
+}
+proc dynamic(value: Any) [] {
+    let table: Map[Str, Any] = map.empty()
+    let _ = table.set("entry", value)
+}
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn cold_fresh_map_argument_domains_authenticate_aliases_and_operands() {
+        use super::super::super::{ExecutableOwner, FullCheckedExprPurpose, FullCheckedExprType, IrFunctionId, TypeId};
+        let mut program = prepare(r#"
+proc fresh(invalid_key: List[Int], foreign: Int) [] {
+    let _ = invalid_key
+    let _ = foreign
+    let values = map.empty().set(value: [7], key: "entry")
+    let _ = values
+}
+proc constrained(wrong: Bool) [] -> Map[Str, List[Int]] {
+    let _ = wrong
+    map.empty().set(value: [7], key: "entry")
+}
+proc incompatible() [] -> Map[Str, Int] { map.empty().set("entry", 1) }
+"#);
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "fresh").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "set", .. }))).unwrap();
+        let schema::ExprView::Method { receiver, args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        let arguments = program.store.blocks[args.block_identity_for_test().index()].instructions.bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[arguments.start], 2);
+        let mut swapped = program.clone();
+        swapped.store.extra.swap(arguments.start + 1, arguments.start + 2);
+        assert!(FullVerifier::verify(&swapped).unwrap_err().message.contains("contract"));
+        let args = args.collect::<Result<Vec<_>, _>>().unwrap();
+        let schema::ExprView::Param(_) = decoder.expression_view(args[0].raw() as usize).unwrap() else { unreachable!() };
+        let mut wrong_key = program.clone();
+        let key_payload = program.store.data[args[0].raw() as usize].range().start as usize;
+        wrong_key.store.extra[key_payload] = 0;
+        assert!(FullVerifier::verify(&wrong_key).unwrap_err().message.contains("contract"));
+        let schema::ExprView::Param(_) = decoder.expression_view(receiver.raw() as usize).unwrap() else { unreachable!() };
+        let mut foreign_alias = program.clone();
+        let receiver_payload = program.store.data[receiver.raw() as usize].range().start as usize;
+        foreign_alias.store.extra[receiver_payload] = 1;
+        assert!(FullVerifier::verify(&foreign_alias).unwrap_err().message.contains("contract"));
+        let operation = program.store.runtime_ops.iter().position(|op| *op == super::super::super::RuntimeOp::MapEmpty).unwrap();
+        for replacement in [super::super::super::RuntimeOp::SetEmpty, super::super::super::RuntimeOp::FsTempDir] {
+            let mut wrong_factory = program.clone();
+            wrong_factory.store.runtime_ops[operation] = replacement;
+            let error = FullVerifier::verify(&wrong_factory).unwrap_err();
+            assert!(error.message.contains("contract") || error.message.contains("effect"), "{error:?}");
+        }
+        let conflicting = (0..program.store.semantic.type_count()).map(|index| TypeId::new(index).unwrap())
+            .find(|id| program.store.semantic.to_type(*id).unwrap() == Type::Map(Box::new(Type::Str), Box::new(Type::Int))).unwrap();
+        let mut conflicting_result = program.clone();
+        let fact = FullCheckedExprType { instruction: instruction as u32, type_id: conflicting, purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::new(owner).unwrap())) };
+        match conflicting_result.store.checked_expr_types.binary_search_by_key(&(instruction as u32), |fact| fact.instruction) {
+            Ok(index) => conflicting_result.store.checked_expr_types[index] = fact,
+            Err(index) => conflicting_result.store.checked_expr_types.insert(index, fact),
+        }
+        let error = FullVerifier::verify(&conflicting_result).unwrap_err();
+        assert_eq!(error.message, "published producer context is unused or has a wrong owner");
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "constrained").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let instruction = program.store.function_instruction_range(owner).unwrap().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Method { name: "set", .. }))).unwrap();
+        let schema::ExprView::Method { mut args, .. } = decoder.expression_view(instruction).unwrap() else { unreachable!() };
+        args.next().unwrap().unwrap();
+        let value = args.next().unwrap().unwrap();
+        let schema::ExprView::Param(_) = decoder.expression_view(value.raw() as usize).unwrap() else { unreachable!() };
+        let mut wrong_value = program.clone();
+        wrong_value.store.extra[program.store.data[value.raw() as usize].range().start as usize] = 0;
+        assert!(FullVerifier::verify(&wrong_value).unwrap_err().message.contains("contract"));
+    }
+
+    #[test]
     fn resource_scope_return_retains_the_ground_owner_effect_contract() {
         prepare("proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
     }

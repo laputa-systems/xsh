@@ -3512,7 +3512,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap =>
                     if self.declared_type(decoder, instruction)?.is_none() { return Ok(true); },
-                schema::ExprView::ModuleCall { .. } => if self.is_empty_map_module_call(decoder, instruction)? { return Ok(true); },
+                schema::ExprView::ModuleCall { .. } => if decoder.is_empty_map_module_call(instruction)? { return Ok(true); },
                 _ => {}
             }
         }
@@ -6076,7 +6076,7 @@ impl<'a> ProducerProof<'a> {
                         && !self.checked_list_accumulator(&decoder, input, &checked, runtime_complete)?
                     {
                         let fresh_set = matches!(checked.as_ref(), Type::Set(_))
-                            && self.checked_fresh_list_method_receiver(&decoder, input, &checked)?.is_some();
+                            && self.checked_fresh_collection_method_receiver(&decoder, input, &checked)?.is_some();
                         let empty_collection = self.checked_empty_collection_module_call(&decoder, input, &checked)?;
                         if fresh_set || empty_collection || matches!((self.store.tags[input], checked.as_ref()),
                             (FullTag::ExprList | FullTag::ExprListBuild | FullTag::ExprListComp, Type::List(_))
@@ -6835,7 +6835,7 @@ impl<'a> ProducerProof<'a> {
             None => true,
         };
         let empty_map = !reads_binding
-            && self.is_empty_map_module_call(decoder, value.raw() as usize)?
+            && decoder.is_empty_map_module_call(value.raw() as usize)?
             && self.contextual_producer_type(decoder, value.raw() as usize)?.is_none();
         if !empty_map && !matches!(decoder.expression_view(value.raw() as usize)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap | schema::ExprView::Record(_) | schema::ExprView::ValueBlock { .. }) { return Ok(None); }
         self.checked_match_binding(decoder, instruction)
@@ -7377,24 +7377,52 @@ impl<'a> ProducerProof<'a> {
         Ok(())
     }
 
-    fn checked_fresh_list_method_receiver(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        let (Type::Set(item) | Type::List(item)) = expected else { return Ok(None) };
+    fn checked_fresh_collection_method_receiver(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<Option<Arc<Type>>, IrVerifyError> {
         let schema::ExprView::Method { receiver, name, args, .. } = decoder.expression_view(instruction)? else { return Ok(None) };
         let receiver = receiver.raw() as usize;
-        if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)
-            || self.declared_type(decoder, receiver)?.is_some()
-        { return Ok(None); }
-        self.budget.charge(1)?;
-        let empty = matches!(decoder.expression_view(receiver)?, schema::ExprView::List(items) if items.len() == 0);
-        if !empty {
-            let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
-            let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
-            if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
-        }
+        let receiver_type = match expected {
+            Type::Any => {
+                let Some([method]) = crate::modules::api_spec().method_overloads(crate::modules::MethodReceiver::Map, name) else { return Ok(None) };
+                if method.sig.op != super::super::RuntimeOp::MapSet || method.sig.params.len() != 2 || args.len() != 2 { return Ok(None); }
+                let source = if decoder.is_empty_map_module_call(receiver)? { Some(receiver) } else { self.contextual_empty_map_source(decoder, receiver)? };
+                if source.is_none() { return Ok(None); }
+                self.budget.charge(args.len())?;
+                let arguments = args.map(|argument| argument.map(|argument| Some(argument.raw() as usize))).collect::<Result<Vec<_>, _>>()?;
+                for argument in &arguments {
+                    if self.need_context(decoder, argument.unwrap())?.is_none() { return Ok(None); }
+                }
+                let Some(signature) = self.native_signature(decoder, &method.sig, &arguments, None)? else { return Ok(None) };
+                if !matches!(signature.return_ty, Type::Map(_, _)) { return Ok(None); }
+                return self.checked_fresh_collection_method_receiver(decoder, instruction, &signature.return_ty);
+            }
+            Type::Map(_, _) => {
+                if !self.checked_empty_collection_module_call(decoder, receiver, expected)? {
+                    let Some(source) = self.contextual_empty_map_source(decoder, receiver)? else { return Ok(None) };
+                    if !self.checked_empty_collection_module_call(decoder, source, expected)?
+                        || !self.contextual_argument(decoder, receiver, expected)?
+                    { return Ok(None); }
+                }
+                self.budget.charge_clone(expected)?;
+                Arc::new(expected.clone())
+            }
+            Type::Set(item) | Type::List(item) => {
+                if !matches!(self.store.tags[receiver], FullTag::ExprList | FullTag::ExprListBuild)
+                    || self.declared_type(decoder, receiver)?.is_some()
+                { return Ok(None); }
+                self.budget.charge(1)?;
+                let empty = matches!(decoder.expression_view(receiver)?, schema::ExprView::List(items) if items.len() == 0);
+                if !empty {
+                    let Some(parent) = decoder.instruction_parent_of(instruction)? else { return Ok(None) };
+                    let schema::ExprView::CheckedValue { check: ValueCheckView::Ground(check), value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
+                    if value.raw() as usize != instruction || check.schema.is_some() || self.contract_type(check.ty.id)?.as_ref() != expected { return Ok(None); }
+                }
+                self.budget.charge_clone(item)?;
+                Arc::new(Type::List(item.clone()))
+            }
+            _ => return Ok(None),
+        };
         self.budget.charge(args.len())?;
         let arguments = args.map(|argument| argument.map(|argument| argument.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-        self.budget.charge_clone(item)?;
-        let receiver_type = Arc::new(Type::List(item.clone()));
         let result = decoder.checked_method_return_type(&receiver_type, name, &arguments)?;
         if result.as_ref() != Some(expected) { return Ok(None); }
         Ok(Some(receiver_type))
@@ -7438,7 +7466,7 @@ impl<'a> ProducerProof<'a> {
         let Some(parent) = owner.parents[result - owner.range.start] else { return Ok(None) };
         if self.store.tags[parent] != FullTag::ExprMatch { return Ok(None); }
         let schema::ExprView::MatchExpr { value, .. } = decoder.expression_view(parent)? else { return Ok(None) };
-        if !self.is_empty_map_module_call(decoder, value.raw() as usize)? { return Ok(None); }
+        if !decoder.is_empty_map_module_call(value.raw() as usize)? { return Ok(None); }
         Ok(self.checked_match_binding(decoder, parent)?.filter(|(actual, _)| *actual == binding).map(|(_, source)| source))
     }
 
@@ -7449,11 +7477,6 @@ impl<'a> ProducerProof<'a> {
         let binding = self.binding(decoder.owner, argument, slot)?;
         if !self.contextual_sources.contains_key(&(decoder.owner, binding)) { return Ok(None); }
         self.contextual_empty_map_source(decoder, argument)
-    }
-
-    fn is_empty_map_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<bool, IrVerifyError> {
-        let schema::ExprView::ModuleCall { op, call_plan: None, args, .. } = decoder.expression_view(instruction)? else { return Ok(false) };
-        Ok(op == super::super::RuntimeOp::MapEmpty && args.len() == 0)
     }
 
     fn checked_empty_collection_module_call(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type) -> Result<bool, IrVerifyError> {
@@ -7479,6 +7502,7 @@ impl<'a> ProducerProof<'a> {
     fn receiver_pipeline_cannot_complete(&mut self, decoder: &FullDecoder<'a>, receiver: usize) -> Result<bool, IrVerifyError> {
         let schema::ExprView::Param(slot) = decoder.expression_view(receiver)? else { return Ok(false) };
         let ProducerBinding::ScopedDeclaration(declaration, _) = self.binding(decoder.owner, receiver, slot)? else { return Ok(false) };
+        if self.store.tags[declaration] != FullTag::StmtLet { return Ok(false); }
         let value = match decoder.statement_view(declaration)? {
             schema::StmtView::Let { slot: declared, value, .. } if declared == slot => value.raw() as usize,
             _ => return Ok(false),
@@ -7531,7 +7555,7 @@ impl<'a> ProducerProof<'a> {
         let receiver_type = match actual_receiver {
             Some(actual) => actual,
             None if self.receiver_pipeline_cannot_complete(decoder, receiver)? => return Ok(()),
-            None => self.checked_fresh_list_method_receiver(decoder, instruction, expected)?.ok_or_else(|| IrVerifyError::new(format!("ground method has no receiver contract at owner {}, instruction {instruction}, receiver {receiver}, method {name}", decoder.owner)))?,
+            None => self.checked_fresh_collection_method_receiver(decoder, instruction, expected)?.ok_or_else(|| IrVerifyError::new(format!("ground method has no receiver contract at owner {}, instruction {instruction}, receiver {receiver}, method {name}", decoder.owner)))?,
         };
         self.expression_with_fact(decoder.owner, receiver, Arc::clone(&receiver_type), false, receiver_fact);
         let receiver_type = if receiver_type.as_ref() == &Type::Any
