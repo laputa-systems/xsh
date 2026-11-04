@@ -19,6 +19,15 @@ type ReportFixtureCase = {scenario: Str, tests: List[Str]}
 
 type BlockDeviceFixtureSource = {device: RelPath, dev: Str, size: Str}
 
+type BlockBundleWireEntry = {storage_path: Str}
+type BlockBundleWireSource = {path: Str}
+type BlockBundleWireLayout = {entries: List[BlockBundleWireEntry], source_paths: List[Str]}
+type BlockBundleWirePaths = {
+  layout: BlockBundleWireLayout,
+  changing_stats: List[Str],
+  sources: List[BlockBundleWireSource],
+}
+
 type KernelParameterReferenceFixture = {name: Str, source: Str, state: Str, value: Str?, raw_bytes_base64: Str?}
 
 type HugePageReferenceFixture = {
@@ -1706,6 +1715,31 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
 """,
   )
   report_checks.capture_block_bundle(source, bundle, "synthetic_fixture")
+  let metadata = bundle.read_text(p"capture.json")?
+  let wire = json.decode(metadata)?.require(BlockBundleWirePaths)?
+  let storage_paths = [entry.storage_path for entry in wire.layout.entries]
+  assert storage_paths.len() == 3
+  for relative in [disk, partition, stacked] { assert relative.display() in storage_paths }
+  assert [item.path for item in wire.sources] == wire.layout.source_paths
+  assert wire.changing_stats == []
+  let rejected_bundle = fs.tempdir()?
+  defer rejected_bundle.close()
+  for invalid in [
+    json.set(wire, ["layout", "entries", 0, "storage_path"], "../escape")?,
+    json.set(wire, ["layout", "source_paths", 0], "/escape")?,
+    json.set(wire, ["sources", 0, "path"], "../escape")?,
+    json.set(wire, ["changing_stats"], ["../escape"])?,
+    json.set(wire, ["sources", 0, "path"], 42)?,
+    json.remove(wire, ["schema_version"])?,
+  ] {
+    rejected_bundle.write(p"capture.json", json.encode(invalid)?)
+    test.error_kind(report_checks.validate_block_bundle(rejected_bundle), "schema")
+  }
+  let extended = json.set(wire, ["future_wire_field"], "retained")?
+  bundle.write(p"capture.json", json.encode(extended)?)
+  let accepted = report_checks.validate_block_bundle(bundle)?
+  assert "future_wire_field" in accepted.keys()
+  bundle.write(p"capture.json", metadata)
   let replay = report_checks.replay_block_bundle(bundle)?
   assert replay.identity.exact
   assert replay.queue.exact
