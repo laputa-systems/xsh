@@ -83,7 +83,7 @@ print pick(B)
   let all = run.capture --text "xsht" lint $file
   assert "warn[check.unreachable-match-arm]" in all.stderr, all.stderr
   assert "warn[lint.prefer-match-else]" in all.stderr, all.stderr
-  assert all.status.exited_with(2), all.stderr
+  assert all.status.exited_with(1), all.stderr
   let selected = run.capture --text "xsht" lint --only lint.prefer-match-else $file
   assert "warn[lint.prefer-match-else]" in selected.stderr, selected.stderr
   assert "check.unreachable-match-arm" not in selected.stderr, selected.stderr
