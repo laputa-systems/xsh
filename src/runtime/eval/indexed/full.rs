@@ -10848,6 +10848,11 @@ impl<'a> FullDecoder<'a> {
                 };
                 source.ok_or_else(|| IrVerifyError::new("materialized callable has no immutable function reference source"))
             }
+            schema::ExprView::Field { .. } => match &self.producer_prefix {
+                Some(prefix) => prefix.immutable_function_reference_source(self, instruction)?
+                    .ok_or_else(|| IrVerifyError::new("materialized callable field has no imported function source")),
+                None => Err(IrVerifyError::new("materialized callable field has no producer proof")),
+            },
             _ => Err(IrVerifyError::new("materialized callable has no function reference producer")),
         }
     }
