@@ -1,5 +1,6 @@
 import Xsh.Semantics.Connected.SafetyScopedFixture
 import Xsh.Semantics.Connected.SafetyInitialization
+import Xsh.Semantics.Connected.SafetyValueBlockLocalProgress
 
 namespace Xsh.Semantics.Connected
 
@@ -107,12 +108,17 @@ theorem actual_scoped_invocation_execution_safe (base : Machine) (response : Xsh
         scopedFixtureParameters [] (.variable scopedFixtureTypeVar) scopedFixtureOrdered [.bindLeft, .reflexive] 2
         scopedFixtureCandidate scopedFixtureBinders (fun _ => none) scopedFixtureInhabitant = .ok principal ∧
       TypedMachine [] (fun _ => .ordinary) (fun _ => none) (scopedInvocationMachine base principal scopedFixtureArgument) ∧
-      ∀ final events fault, Execution (scopedInvocationMachine base principal scopedFixtureArgument) events final →
-        final.control = .fault fault → ∃ issue, fault = .integer issue := by
+      (∀ final events fault, Execution (scopedInvocationMachine base principal scopedFixtureArgument) events final →
+        final.control = .fault fault → ∃ issue, fault = .integer issue) ∧
+      (∀ final events, Execution (scopedInvocationMachine base principal scopedFixtureArgument) events final →
+        MachineTerminal final ∨ ∃ event next, Step final event next ∧ PermittedControl next.control) := by
   obtain ⟨principal, accepted, typed⟩ := actual_scoped_invocation_typed base scopedFixtureArgument
   obtain ⟨call, callAt, callArgs⟩ := scoped_fixture_selected_arguments
-  refine ⟨principal, call, actual_scoped_source_is_admitted, scoped_document_decodes, callAt, callArgs, accepted, typed, ?_⟩
-  intro final events fault execution failed
-  exact typed_execution_fault_is_integer [] (fun _ => .ordinary) (fun _ => none) response execution typed fault failed
+  refine ⟨principal, call, actual_scoped_source_is_admitted, scoped_document_decodes, callAt, callArgs, accepted, typed, ?_, ?_⟩
+  · intro final events fault execution failed
+    exact typed_execution_fault_is_integer [] (fun _ => .ordinary) (fun _ => none) response execution typed fault failed
+  · intro final events execution
+    exact typed_machine_safe_progress final [] (fun _ => .ordinary) (fun _ => none) response
+      (typed_machine_execution_preservation [] (fun _ => .ordinary) (fun _ => none) response execution typed)
 
 end Xsh.Semantics.Connected
