@@ -12522,6 +12522,60 @@
       "status": "fragment",
       "scope": "For the same exact original source bytes, admitted tree and scopes, checked facts and reproduced artifact, compose independent source admission, scope projection, facts-to-IR row consistency and equality of source/IR function meanings.",
       "boundary": "The shared domain is the supported pure Int fact grammar intersected with the ASCII source checker and Lean lowerer, with no module inputs. No general parse-failure or diagnostic proof, Rust parser/lowerer agreement, arbitrary IR validation, or Rust execution claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_value_correspondence_sound",
+      "module": "Xsh.Conformance.Connected.RawExpression",
+      "declaration": "Xsh.Conformance.Connected.raw_value_correspondence_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every accepted raw value comparison independently reconstructs the same scalar, read, binary, record, projection, or conditional tree from raw rows and the checked node.",
+      "boundary": "The supplied name and binder-to-slot maps require authentication. Value blocks are supported only as let-bound temporaries outside the mapped slots followed by one value. Calls, Result forms, transfer marks, and raw execution simulation remain unsupported or open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_raw_store_value_types_every_solution",
+      "module": "Xsh.Conformance.Connected.RawStoreValue",
+      "declaration": "Xsh.Conformance.Connected.checked_raw_store_value_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For every sorted solution, an accepted store retains its scoped mutable target and compatible source type and reconstructs the same replacement tree from the raw RHS and candidate node.",
+      "boundary": "Composition requires source-authenticated occurrences and binder-to-slot maps. Name spellings come from the SourceUnit. The reconstructed expression tree is not a raw execution simulation or complete source-to-IR certificate."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_store_rejects_a_different_well_typed_replacement",
+      "module": "Xsh.Conformance.Connected.RawStoreValue",
+      "declaration": "Xsh.Conformance.Connected.scoped_store_rejects_a_different_well_typed_replacement",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scoped store comparison accepts its parameter read and rejects substituting another same-type local or unmapped slot that the earlier target-only check ignored.",
+      "boundary": "Finite projected rows with supplied maps; this is not an exact foreign artifact certificate or an execution proof."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_store_replacement_rejects_changed_literal_bits",
+      "module": "Xsh.Conformance.Connected.RawStoreValue",
+      "declaration": "Xsh.Conformance.Connected.raw_store_replacement_rejects_changed_literal_bits",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The raw value comparison accepts the source integer 1 and rejects replacement by 2 or an out-of-range payload word.",
+      "boundary": "Finite integer payload checks. The Rust mutation that changes an executed store result is separate empirical evidence, not this theorem."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_value_block_binds_fresh_temporaries",
+      "module": "Xsh.Conformance.Connected.RawStoreValue",
+      "declaration": "Xsh.Conformance.Connected.raw_value_block_binds_fresh_temporaries",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The raw value comparison reads the compiler's let-bound temporary block for a literal replacement, and rejects a changed literal, a tail read of another slot, a temporary that rebinds a mapped source slot, and a non-value tail.",
+      "boundary": "Finite hand-built rows mirroring the scheme lowering shape; this is not a captured artifact certificate or an execution proof."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.source_raw_name_bytes_match_admitted_name",
+      "module": "Xsh.Conformance.Connected.RawExpression",
+      "declaration": "Xsh.Conformance.Connected.source_raw_name_bytes_match_admitted_name",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every name resolved by the admitted source name table reconstructs its exact UTF-8 spelling for raw value comparison.",
+      "boundary": "The SourceUnit must come from source admission; this theorem does not establish equivalence with the Rust parser."
     }
   ],
   "artifact_certificates": [
