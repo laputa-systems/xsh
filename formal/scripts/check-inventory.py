@@ -1194,28 +1194,32 @@ def function_tokens(
             for index in range(len(tokens) - 1)
             if tokens[index] == "impl" and tokens[index + 1] == impl_name
         ]
-        if len(impls) != 1:
-            raise InventoryError(f"expected one impl {impl_name}, found {len(impls)}")
-        impl_open = next(
-            (index for index in range(impls[0] + 2, len(tokens)) if tokens[index] == "{"),
-            None,
-        )
-        if impl_open is None:
-            raise InventoryError(f"impl body missing for {impl_name}")
-        scope = (impl_open + 1, matching(tokens, impl_open))
+        if not impls:
+            raise InventoryError(f"expected one impl {impl_name}, found 0")
+        scopes = []
+        for impl in impls:
+            impl_open = next(
+                (index for index in range(impl + 2, len(tokens)) if tokens[index] == "{"),
+                None,
+            )
+            if impl_open is None:
+                raise InventoryError(f"impl body missing for {impl_name}")
+            scopes.append((impl_open + 1, matching(tokens, impl_open)))
     else:
-        scope = (0, len(tokens))
+        scopes = [(0, len(tokens))]
     found = [
-        index
-        for index in range(scope[0], scope[1] - 1)
+        (index, end)
+        for start, end in scopes
+        for index in range(start, end - 1)
         if tokens[index] == "fn" and tokens[index + 1] == function_name
     ]
     if len(found) != 1:
         raise InventoryError(
             f"expected one {function_name} function in {impl_name or 'module'}, found {len(found)}"
         )
+    function, end = found[0]
     opening = next(
-        (index for index in range(found[0] + 2, scope[1]) if tokens[index] in ("{", ";")),
+        (index for index in range(function + 2, end) if tokens[index] in ("{", ";")),
         None,
     )
     if opening is None or tokens[opening] != "{":

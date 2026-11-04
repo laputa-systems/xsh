@@ -16,7 +16,8 @@ The test-only Rust bridge exports checker facts for the failures and calls
 fixtures, and Lean certifies the corresponding fact documents. A third
 source/IR certificate covers one integer variable and one plain assignment.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds four ARTIFACT_CERTIFIED records. The original
+`artifact_certificates` holds five ARTIFACT_CERTIFIED records, including the
+scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
 exhausted the independent kernels, so the certificate covers `divided` and
@@ -45,9 +46,9 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 818
-fragment theorem roots across 91 owners, all `SPEC_PROVED` finite models of
-selected behavior. None establishes source, raw-IR, Rust, OS, or clock
+**State:** `formal/coverage.json` is the only inventory. It lists 888
+fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
+selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
 theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
 roots: they hold for the base expression machine, which is not the frozen
@@ -56,8 +57,9 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds four ARTIFACT_CERTIFIED
-records, apart from the fragment roots. Each
+the pinned container. `artifact_certificates` holds five ARTIFACT_CERTIFIED
+records, apart from the fragment roots; the scoped fact artifact still needs
+its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
 
@@ -475,6 +477,8 @@ limits on the specified host.
 
 ### Connected milestone (successor Phase F)
 
+The in-progress connected path checks independently generated qualified schemes and supported function bodies for every well-sorted solution of their requirements. Acceptance also requires an explicit ground solution, so inconsistent residual field requirements cannot certify an uncalled body. A test-only Rust export supplies a generic projection scheme, its sparse expression facts, selected field operation, call instantiation, and source-scoped function identities; Lean checks its captured bytes and rejects mutations, including a concrete type substituted for a symbolic one. The parser projection is limited to the supported source subset and is not yet proved equivalent to Rust parsing. Effects, general sparse body facts, structural raw-IR validation, machine preservation and progress, execution observations, and fault blame remain open. This work has not received a new source freeze or the final fresh conformance and kernel checks.
+
 The integrator owns this milestone and composes slices from G1, G1b, G2 and G3
 interfaces, G4, G7b, G8, and the fact validator; it opens no new formal domain.
 Its path is resolved lexical names, constraints, substitutions and schemes,
@@ -484,6 +488,10 @@ local bindings, records and projection, Bool and Result control, and the
 relevant effect boundaries. Each stage states its exact domain; the domain is
 non-empty and contains the milestone's accepted and rejected programs, and
 reports give accepted and rejected counts.
+
+A source-bound fact check also validates a polymorphic identity body and its `Int` and `Bool` call arguments against the captured Rust document. The self-scoped decoder derives type-parameter identities from each declared body, and the call check authenticates its source target and operation bindings. Its admitted callers currently have no parameters and consist of a single outer call. A separate captured declaration-effect document for an unshadowed direct `time.now()` proc matches the independently classified source; forged contract, owner, inference and provenance facts are refused. General calls, lexical effect boundaries, symbolic effect parameters, and effect-to-runtime agreement remain open.
+
+The current local verification checker rejects an uncalled `Int` field access but accepts an uncalled mutable local whose assignment requires `value` to contain a field of its own type. The qualified Lean checker rejects both: the latter requirement has no finite solution. This observed acceptance difference is not Rust/Lean rejection agreement; it still needs reproduction at the eventual matching freeze.
 
 The milestone requires the independent contract and its connected theorems;
 actual emitted Rust facts and raw IR in the closed exchange documents; the Rust
@@ -763,6 +771,123 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   retaining verified mode and the full export. The axiom audit passed for
   16,033 declarations and rejected all six self-test controls. The inventory
   and its tests passed; all 77 universal obligations remain planned.
+- 2026-11-03: Work toward the connected milestone added a structured
+  `Syntax.Core` constraint generator for selected expressions and statements,
+  kinded type and row substitutions, executable constraint checking, and a
+  principal-solution composition theorem. A hand-built core block combining
+  generic calls, a record, mutable assignment and Result control has a
+  satisfying substitution. This is Lean-only evidence. Generator soundness,
+  principal solving, source admission, actual Rust facts and IR, effects,
+  candidate validation, and source-to-IR simulation remain open.
+
+
+- 2026-11-03: Independent expression and statement candidate validators now
+  have general typing-soundness proofs for their supported forms. An expression
+  certificate also checks the solution against constraints generated from the
+  same core expression; an identity call is accepted, while a forged binding,
+  wrong solution and exhausted generation are distinguished. These are
+  Lean-only results. Generator completeness and principal solving, function
+  completion, effects, exact source admission, real Rust facts and target IR,
+  execution and source-to-IR simulation remain open.
+
+
+- 2026-11-03: A checked unification derivation composes binding and structural
+  decomposition steps into a kind-preserving principal solution. An admitted
+  identity-call certificate uses the generated constraints and that derivation;
+  cyclic bindings and wrong steps are refused and exhaustion stays distinct.
+  Open-row solving and lacks constraints, solver completeness and scheme
+  generalization, source admission, Rust correspondence and simulation remain
+  open. This is a proof about Lean inputs, not Rust evidence.
+
+
+- 2026-11-03: A partial connected machine now uses typed cells, function-table
+  activations, structural records, Result propagation and labeled clock
+  requests. It proves a mutable assignment followed by a read returns the
+  assigned value, and that a clock request survives successful Result
+  propagation. The table accepts distinct Int and Bool instances of the same
+  identity scheme. These are Lean models, not Rust conformance or a simulation.
+  Invalid-state progress, guard and effect typing, general preservation,
+  admission, raw artifact correspondence and full connected execution stay open.
+
+
+- 2026-11-03: The block certificate combines independently generated
+  constraints, a checked principal derivation and statement typing. A constructed
+  mutable-integer program has such a certificate and a connected-machine
+  execution returning its assigned value. Wrong binder and type witnesses are
+  refused, with exhausted derivations distinct. The machine currently admits
+  decimal integer lexemes only. These are Lean inputs and a finite execution,
+  not the required general source-to-IR simulation or Rust correspondence.
+
+
+- 2026-11-03: Every modeled execution preserves saved cell types and existing
+  immutable contents. Named-record `require` retains module/declaration identity;
+  a matching runtime schema table gives the checked Result type on either guard
+  outcome. The certificates check globally unique candidate binders and explicit
+  propagation contexts. The machine instantiates stored schemes per read and
+  retains globals across calls. Review controls cover branch completion, literal
+  bounds, sibling binder reuse, nominal identity and incompatible propagation.
+  Statement tails outside the selected domain report unsupported. General
+  typing/progress, source modules, Rust facts and raw-IR simulation remain open.
+
+
+- 2026-11-03: Scheme-valued builtins now dispatch after read-time instantiation;
+  a connected Ok call exercises the actual read, argument evaluation and call
+  transitions. Independent source review found no further concrete defect in
+  the reviewed fixes; general progress, effects and Rust/IR links stay open.
+
+
+- 2026-11-03: Qualified-principal checking retains unresolved field constraints,
+  checks generalization and a candidate constraint ordering, and proves checked
+  call instances discharge original field requirements. For closed unique rows,
+  field projection is equivalent to field-plus-lacks decomposition modulo
+  permutation. These are Lean results; actual Rust row/lacks scheme and call
+  facts, source admission and target simulation remain to be connected. An
+  independently checked concrete call instance also validates its body against
+  the composed solution, including an executable finite substitution sort check;
+  generic-body typing for all qualified instances is open.
+  A pinned Rust probe of `project(value) { value.amount }` published a
+  body-span scheme with two type parameters and a Field operation requirement,
+  not a row parameter. Its call supplied a ground record and a selected Field
+  binding; the effect contract was unknown. Field-operation correspondence and
+  a separate actual row/lacks witness remain open.
+  A Lean checker now compares field operations, selected bindings and supplied
+  locations with the independently generated requirements and checks a concrete
+  body instance. Source-derived locations, Rust document exchange and generic
+  body typing remain open; the supplied locations are not source admission.
+  A test-only Rust projection now emits a closed field-facts document from the
+  published body scheme and call instance, including checker node IDs, source
+  sites, selected target, bindings and effect state. Mutating published field
+  sites, expression types or call roles changes the document; a forged target
+  is refused. It rejects unsupported scheme and invocation details. The emitted
+  bytes are now tied by a focused Rust test to a Lean byte list, whose JSON
+  parse is kernel-checked. Source-linked sparse-fact validation and the final
+  matching-freeze replay are still pending integration and qualification.
+  Lean has a closed decoder for that proposed shape; body sites scope type
+  parameter mappings, record names map through their source, and unknown
+  effects remain distinct from a known empty set. The mapping inputs are not
+  authenticated yet, and the Rust-emitted bytes have not been decoded in Lean.
+  Decoded scheme and call records can now be checked against generated
+  qualified constraints and a concrete body instance, including selected
+  target and Field bindings. This does not yet check the document's sparse
+  expression/read facts or effect obligations; expected source operations and
+  identity mappings are supplied inputs.
+
+- 2026-11-04: The connected model now carries declared storage types through
+  allocation and checks directional storage compatibility in qualified
+  constraints. A depth argument proves the cyclic Field-and-Store requirement
+  has no solution. A scoped artifact certificate checks the exact Rust-emitted
+  source and facts for a generic mutable local inside `without`, and rejects
+  ten altered decoded facts. The pinned focused bridge tests passed with the
+  source and fact bytes compared directly to the Lean inputs. These are
+  bounded artifacts and physical-cap Lean checks, not a fresh six-kernel
+  qualification or a source-to-IR simulation. Selected-call grounding, unique
+  nested rows, effects and the complete connected execution remain open.
+
+- 2026-11-04: The partial Lean raw-row reader decodes instruction and
+  function tables and proves that accepted tag names and ordinals agree with
+  its admitted table. The table is not yet connected to the source-to-IR
+  relation, and the foreign FullProgram decoder and execution simulation
+  remain open.
 
 ## For the owner afterwards
 

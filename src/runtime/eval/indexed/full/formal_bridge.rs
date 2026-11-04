@@ -10,7 +10,10 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 mod arithmetic;
+mod connected;
 mod facts;
+mod raw_semantic;
+mod raw_full;
 
 const SOURCE_SCHEMA: &str = "xsh-source-v1";
 const RAW_IR_SCHEMA: &str = "xsh-raw-ir-v1";
@@ -829,10 +832,14 @@ const LEAN_DOCUMENTS: &str = include_str!(concat!(
 ));
 
 fn lean_document(definition: &str) -> Option<String> {
+    lean_document_from(LEAN_DOCUMENTS, definition)
+}
+
+fn lean_document_from(documents: &str, definition: &str) -> Option<String> {
     let header = format!("def {definition} : List Nat :=\n");
-    let start = LEAN_DOCUMENTS.find(&header)? + header.len();
+    let start = documents.find(&header)? + header.len();
     let mut bytes = Vec::new();
-    for line in LEAN_DOCUMENTS[start..].lines() {
+    for line in documents[start..].lines() {
         let last = line.ends_with(']');
         let numbers = line.trim_start_matches(['[', ' ']).trim_end_matches([',', ']']);
         for number in numbers.split(", ") {
