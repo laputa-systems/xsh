@@ -1343,11 +1343,10 @@ check at first pull; a positive signed literal alone cannot certify a UInt
 producer contract. Native factory facts must agree with the actual selected
 operation's solved result before they can supply stream item evidence.
 
-Bare Range uses the native owned-values Stream carrier after eager checked
-allocation. The same range materializer constructs runtime values directly for
-bare Range and lowered values for the existing pipeline path. Range and captured
-Stream-result facts activate the existing producer proof for actual bounds,
-writers, success values, and captured errors. Callable declaration kind decides
+Bare `range` checks its bounds and produces items through a live Stream. The
+pipeline Range stage materializes its values. Range and captured Stream-result
+facts activate the existing producer proof for bounds, writers, success values,
+and captured errors. Callable declaration kind decides
 whether a call suspends a producer; a Pure function returning a Stream executes
 its body immediately.
 
