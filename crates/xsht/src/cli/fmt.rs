@@ -61,6 +61,9 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
         return output;
     }
     results.sort_unstable_by_key(|result| result.index);
+    let all_formatted = results.iter().all(|result| {
+        matches!(result.kind, FormatResultKind::Clean | FormatResultKind::NeedsFormat(_))
+    });
 
     for result in results {
         match result.kind {
@@ -92,7 +95,7 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
                     }
                     stdout.push_str(&result.file);
                     stdout.push_str(": needs formatting\n");
-                } else if let Err(err) = fs::write(&result.file, formatted) {
+                } else if all_formatted && let Err(err) = fs::write(&result.file, formatted) {
                     status = 4;
                     stderr.push_str(&format!("xsht: failed to write '{}': {err}\n", result.file));
                 }
