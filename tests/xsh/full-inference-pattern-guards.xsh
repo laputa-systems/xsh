@@ -660,3 +660,83 @@ for failure in [errno, missing, other] {
     stderr: ["[check.type-mismatch]", "expected Error, found Int"],
   )?
 }
+
+test test_full_inference_field_narrowed_record_stored_into_unnarrowed_storage_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Entry = {name: Str, level: Int, link: Str?}
+type Present = {name: Str, level: Int, link: Str}
+proc inspect(name: Str, level: Int, parent: Entry?) -> Entry {
+  let depth = if parent == null { 0 } else { 1 }
+  {name: name, level: level + depth, link: if level < 2 { "next" } else { null }}
+}
+proc chain(count: Int, parent) -> List[Entry] {
+  var entries: List[Entry] = []
+  var previous = parent
+  var index = 0
+  while index < count {
+    let item = inspect("n", index, previous)
+    entries += [item]
+    previous = item
+    index += 1
+  }
+  entries
+}
+proc chain_annotated(count: Int, parent: Entry?) -> List[Entry] {
+  var entries: List[Entry] = []
+  var previous = parent
+  var index = 0
+  while index < count {
+    let item = inspect("n", index, previous)
+    entries += [item]
+    previous = item
+    index += 1
+  }
+  entries
+}
+proc follow(entry: Entry) -> List[Entry] {
+  guard let target = entry.link else { return [] }
+  let _ = target
+  chain(3, entry)
+}
+proc follow_annotated(entry: Entry) -> List[Entry] {
+  guard let target = entry.link else { return [] }
+  let _ = target
+  chain_annotated(3, entry)
+}
+let linked: Entry = {name: "a", level: 0, link: "b"}
+let plain: Entry = {name: "a", level: 0, link: null}
+for entry in [linked, plain] {
+  let inferred = follow(entry)
+  let annotated = follow_annotated(entry)
+  assert inferred == annotated
+  print f"{inferred.len()} {chain(3, entry).len()}"
+}
+let present: Present = {name: "a", level: 0, link: "b"}
+assert chain(3, present) == chain_annotated(3, present)
+print f"{chain(3, present).len()}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3 3\n0 3\n3\n"
+  test.expect(
+    ctx,
+    r"""type Entry = {name: Str, link: Str?}
+proc length(parent) -> Int {
+  var previous = parent
+  let fresh: Entry = {name: "x", link: null}
+  previous = fresh
+  previous.link.len()
+}
+proc follow(entry: Entry) -> Int {
+  guard let target = entry.link else { return 0 }
+  let _ = target
+  length(entry)
+}
+let linked: Entry = {name: "a", link: "b"}
+let rejected = follow(linked)
+""",
+    status: 2,
+    stderr: ["[check.callable-mismatch]", "Length has no canonical result for Str?"],
+  )?
+}

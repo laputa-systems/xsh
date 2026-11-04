@@ -7336,6 +7336,48 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
     }
 
     #[test]
+    fn a_wider_record_binder_needs_a_store_and_cannot_narrow_below_it() {
+        let program = prepare(r#"
+type Entry = {name: Str, link: Str?}
+type Present = {name: Str, link: Str}
+proc rewrite(parent) -> Bool {
+  var previous = parent
+  let fresh: Entry = {name: "x", link: null}
+  previous = fresh
+  previous.name == "x"
+}
+pure keep(value) { value }
+let narrowed: Present = {name: "a", link: "b"}
+let kept = keep(narrowed)
+let rewritten = rewrite(narrowed)
+"#);
+        let function = |name: &str| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let (rewrite, keep) = (function("rewrite"), function("keep"));
+        let FullCallableContract::Scheme(scheme) = program.store.functions[rewrite].contract else { panic!("rewrite has a generic contract") };
+        let scheme = program.store.scheme(scheme).unwrap();
+        let stored = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap().find_map(|index| match program.store.scheme_operations[index] {
+            super::super::super::schemes::FullSealedOperation::StoreValue { storage, .. } => Some(program.store.scheme_types[storage.index()].first),
+            _ => None,
+        }).unwrap();
+        let claimed = |function: usize, binder: Option<u32>| {
+            let call = program.store.call_instantiations.iter().find(|instance| program.store.checked_call_targets.iter().any(|site| site.instruction == instance.instruction && site.function.index() == function)).unwrap();
+            let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            arguments.filter(|&index| binder.is_none_or(|binder| program.store.call_type_arguments[index].binder == binder)).next().unwrap()
+        };
+        let (rewrite_argument, keep_argument) = (claimed(rewrite, Some(stored)), claimed(keep, None));
+        let (wider, narrowed) = (program.store.call_type_arguments[rewrite_argument].ty, program.store.call_type_arguments[keep_argument].ty);
+        assert_ne!(program.store.scheme_types[wider.index()].first, program.store.scheme_types[narrowed.index()].first);
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.scheme_types[wider.index()].first = program.store.scheme_types[narrowed.index()].first;
+        assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "sealed storage replacement disagrees with its destination");
+        let mut unjustified = program.clone();
+        unjustified.store.in_place.take();
+        unjustified.store.scheme_types[narrowed.index()].first = program.store.scheme_types[wider.index()].first;
+        assert_eq!(FullVerifier::verify(&unjustified).unwrap_err().message, "generic type binder disagrees with the checked argument");
+    }
+
+    #[test]
     fn generic_inferred_index_writes_authenticate_their_operation() {
         let program = prepare("pure replace(items, key, value) { var local = items; local[key] = value; local }");
         let (owner, scheme) = generic_owner(&program);

@@ -2340,6 +2340,9 @@ impl TypeConstraints {
                 if actual.matches_expected(&expected) { Ok(()) } else { constraints.constrain(&expected, &actual, contribution) }
             });
         }
+        if let Some(stored) = self.wider_stored_record(instance, expected, &actual).map_err(conflict)? {
+            return self.constrain_context(expected, &stored, contribution);
+        }
         if let Some(optional) = self.optional_wrapper_call_argument_type(instance, expected, &actual).map_err(conflict)? {
             return self.commit_constraint_transaction(|constraints| {
                 constraints.constrain(expected, &optional, contribution)?;

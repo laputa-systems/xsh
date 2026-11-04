@@ -4675,6 +4675,32 @@ fn verify_symbolic_call_arguments(
     Ok(())
 }
 
+fn store_widens_binder(
+    store: &FullStore,
+    scope: &SchemeScope,
+    scheme: &FullScheme,
+    substitution: &ValidatedCallSubstitution<'_>,
+    parameter: SchemeTypeId,
+    binder_type: &Type,
+    actual: &Type,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    let node = store.scheme_type(parameter)?;
+    if node.tag != FullSchemeTypeTag::Parameter
+        || !matches!(binder_type, Type::Record(_)) || !matches!(actual, Type::Record(_))
+        || !actual.matches_expected(binder_type) || binder_type.matches_expected(actual)
+    { return Ok(false); }
+    for encoded in bounded(scope.owned_requirements(scheme)?.operations, &store.scheme_operations, "scheme operation range is invalid")? {
+        budget.charge(1)?;
+        let super::schemes::FullSealedOperation::StoreValue { storage, replacement } = encoded else { continue };
+        let storage = store.scheme_type(*storage)?;
+        if storage.tag == FullSchemeTypeTag::Parameter && storage.first == node.first
+            && substitution.instantiate(scope, *replacement, budget, 0)? == *binder_type
+        { return Ok(true); }
+    }
+    Ok(false)
+}
+
 fn scheme_type_contains_any(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
@@ -5001,11 +5027,12 @@ fn verify_instantiated_call_arguments(
                     ));
                 }
                 if let Some(id) = expected_scheme_type {
+                    let widened = actual != expected && store_widens_binder(store, scope, scheme, &validated, *id, expected, actual, materialization)?;
                     verify_scheme_argument_evidence(
                         store,
                         scope,
                         *id,
-                        actual,
+                        if widened { expected } else { actual },
                         &validated,
                         &mut binder_evidence,
                         materialization,
