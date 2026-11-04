@@ -4942,6 +4942,14 @@ until startup ownership transfers or its worker is waited for. A worker
 duplicates the readiness descriptor with `unix.duplicate_fd`, closes the inherited original before running commands,
 and acknowledges only after its initialization and session changes succeed.
 
+`unix.spawn_process_group`, `unix.spawn_process_group_log`, and
+`unix.spawn_with_tty` reject ignored `SIGCHLD` or `SA_NOCLDWAIT` before launch
+when the command has a CPU limit. `unix.spawn_logged_process_group` requires
+retained child status for every command. Setup retains exact child identities
+until success transfers PID ownership to the caller. A setup failure attempts
+to terminate and reap owned children. Any cleanup failure accompanies the
+primary error.
+
 ### 12.3 Exit statuses
 
 | Status | Meaning |
