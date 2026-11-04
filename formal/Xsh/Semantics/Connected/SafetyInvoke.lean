@@ -10,6 +10,51 @@ open Xsh.Values
 def StoreBelowActivation (store : Store) (limit : Nat) : Prop :=
   ∀ cell entry, store cell = some entry → cell.activation < limit
 
+theorem allocate_preserves_activation_bound (store next : Store) (cell : CellId)
+    (kind : Mutability) (value : Value) (limit : Nat) (below : StoreBelowActivation store limit)
+    (cellBelow : cell.activation < limit) (allocated : allocate store cell kind value = some next) :
+    StoreBelowActivation next limit := by
+  intro other entry present
+  by_cases same : other = cell
+  · simpa [same] using cellBelow
+  · rw [allocate_other_cell store next cell other kind value same allocated] at present
+    exact below other entry present
+
+theorem parameters_preserve_activation_bound (activation : Nat) (binders : List Xsh.Foundation.BinderId)
+    (values : List Value) (types : RuntimeType) (store next : Store) (cells : ActiveCells) (limit : Nat)
+    (below : StoreBelowActivation store limit) (activationBelow : activation < limit)
+    (bound : bindParameters activation binders values types store = .ok (cells, next)) :
+    StoreBelowActivation next limit := by
+  induction binders generalizing values types store next cells with
+  | nil =>
+    cases values with
+    | nil =>
+      cases types with
+      | argumentsEmpty => cases bound; exact below
+      | _ => cases bound
+    | cons _ _ => cases types <;> cases bound
+  | cons binder rest ih =>
+    cases values with
+    | nil => cases types <;> cases bound
+    | cons value values =>
+      cases types with
+      | argument ty types =>
+        by_cases typed : valueType value = some ty
+        · cases allocated : allocate store ⟨activation, binder⟩ .immutable value with
+          | none => simp [bindParameters, typed, allocated] at bound
+          | some intermediate =>
+            simp [bindParameters, typed, allocated, except_bind_ok] at bound
+            obtain ⟨priorCells, finalStore, recursive, finished⟩ := bound
+            split at finished
+            · cases finished
+            · cases finished
+              exact ih values types intermediate next priorCells
+                (allocate_preserves_activation_bound store intermediate _ .immutable value limit below activationBelow allocated)
+                recursive
+        · simp only [bindParameters, typed, ↓reduceIte] at bound
+          cases bound
+      | _ => cases bound
+
 inductive InvocationReady (state : Machine) : Value → List Value → RuntimeType → Prop where
   | function {declaration arguments parameters result captured typeArguments normalized function} :
       state.functions declaration = some (.function function) →
@@ -43,6 +88,7 @@ inductive InvocationEntered (result : RuntimeType) : Machine → Prop where
   | function {state : Machine} {function : Function} {arguments : List Value} {parameters resultType : RuntimeType} {captured : Substitution} {typeArguments : List (Variable × MonoType)} {cells : ActiveCells} {store : Store} :
       result = resultType →
       ParameterCellsAgree state.nextActivation cells store function.parameters arguments parameters →
+      StoreBelowActivation store (state.nextActivation + 1) →
       InvocationEntered result { state with control := .statements function.body, cells := withGlobals cells state.globals, store := store, activation := state.nextActivation, nextActivation := state.nextActivation + 1, solution := compose captured (compose (schemeSubstitution function.scheme (witnessSubstitution typeArguments)) function.elaboration), stack := .caller state.cells state.activation state.solution resultType :: state.stack }
 
 theorem ready_invocation_steps (state : Machine) (target : Value) (arguments : List Value)
@@ -61,7 +107,13 @@ theorem ready_invocation_steps (state : Machine) (target : Value) (arguments : L
     obtain ⟨cells, store, bound⟩ := fresh_typed_parameters_bind state.nextActivation function.parameters arguments
       parameters state.store typed unique fresh
     refine ⟨.internal, _, .callFunction state declaration arguments parameters result captured typeArguments normalized function cells store found signature bound, ?_⟩
-    exact .function rfl (bound_parameters_agree state.nextActivation function.parameters arguments parameters state.store store cells typed unique bound)
+    apply InvocationEntered.function rfl
+    · exact bound_parameters_agree state.nextActivation function.parameters arguments parameters state.store store cells typed unique bound
+    · apply parameters_preserve_activation_bound state.nextActivation function.parameters arguments parameters state.store store cells
+      · intro cell entry present
+        exact Nat.lt_succ_of_lt (below cell entry present)
+      · exact Nat.lt_succ_self _
+      · exact bound
   | ok found typed => exact ⟨.internal, _, .callOk state _ _ _ _ found typed, .value (by simp [valueType, typed])⟩
   | error found typed => exact ⟨.internal, _, .callError state _ _ _ _ found typed, .value (by simp [valueType, typed])⟩
   | okInstantiated found typed => exact ⟨.internal, _, .callOkInstantiated state _ _ _ _ _ _ found typed, .value (by simp [valueType, typed])⟩
