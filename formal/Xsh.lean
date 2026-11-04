@@ -112,5 +112,11 @@ import Xsh.Conformance.Vertical.FactsDocument
 import Xsh.Conformance.Vertical.FactsCertificate
 
 import Xsh.Semantics.Connected.StoreRuntime
+import Xsh.Semantics.Connected.SafetyCalls
+import Xsh.Semantics.Connected.SafetyControl
+import Xsh.Semantics.Connected.SafetyExpression
+import Xsh.Semantics.Connected.SafetyPreservation
+import Xsh.Semantics.Connected.SafetyNoFault
+import Xsh.Semantics.Connected.SafetyInitialization
 import Xsh.Conformance.Connected.ScopedCertificate
 import Xsh.Conformance.Connected.RawRows

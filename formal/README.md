@@ -41,6 +41,10 @@ preserving the stored value. The model checks qualified storage requirements
 and relates them to runtime compatibility; source-derived unique rows and
 runtime-relevant call-instance closure remain open. Source admission, lexical
 effect bounds, translation validation, and whole-machine correspondence remain open.
+The connected machine has conditional initialization, progress, step and
+execution preservation proofs. Their premises include grounded function bodies,
+storage and function-table certificates; deriving those premises from admitted
+source and published Rust facts remains open.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
 and ten altered decoded facts. Its call check currently supports direct,

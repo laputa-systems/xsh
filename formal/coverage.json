@@ -11728,6 +11728,519 @@
       "status": "fragment",
       "scope": "Each accepted raw tag has the ordinal assigned to its name by the partial Lean tag table.",
       "boundary": "The tag table is a partial model; correspondence to all Rust tags, source instructions, and execution is not established by this theorem."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.write_preserves_activation_bound",
+      "module": "Xsh.Semantics.Connected.SafetyActivation",
+      "declaration": "Xsh.Semantics.Connected.write_preserves_activation_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem write_preserves_activation_bound about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.writable_contract_after_binding",
+      "module": "Xsh.Semantics.Connected.SafetyBindingPreservation",
+      "declaration": "Xsh.Semantics.Connected.writable_contract_after_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem writable_contract_after_binding about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.step_preserves_machine_memory_invariant",
+      "module": "Xsh.Semantics.Connected.SafetyCallScope",
+      "declaration": "Xsh.Semantics.Connected.step_preserves_machine_memory_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem step_preserves_machine_memory_invariant about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.returned_caller_restores_scope",
+      "module": "Xsh.Semantics.Connected.SafetyCaller",
+      "declaration": "Xsh.Semantics.Connected.returned_caller_restores_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem returned_caller_restores_scope about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.missing_callable_cannot_invoke",
+      "module": "Xsh.Semantics.Connected.SafetyCalls",
+      "declaration": "Xsh.Semantics.Connected.missing_callable_cannot_invoke",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem missing_callable_cannot_invoke about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_expression_conditional_frame",
+      "module": "Xsh.Semantics.Connected.SafetyControl",
+      "declaration": "Xsh.Semantics.Connected.typed_expression_conditional_frame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_expression_conditional_frame about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_expression_progress",
+      "module": "Xsh.Semantics.Connected.SafetyExpression",
+      "declaration": "Xsh.Semantics.Connected.typed_expression_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_expression_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_function_call_enters_scope",
+      "module": "Xsh.Semantics.Connected.SafetyFunctionEntry",
+      "declaration": "Xsh.Semantics.Connected.typed_function_call_enters_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_function_call_enters_scope about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.checked_initial_machine_typed",
+      "module": "Xsh.Semantics.Connected.SafetyInitialization",
+      "declaration": "Xsh.Semantics.Connected.checked_initial_machine_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem checked_initial_machine_typed about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.allocate_preserves_activation_bound",
+      "module": "Xsh.Semantics.Connected.SafetyInvoke",
+      "declaration": "Xsh.Semantics.Connected.allocate_preserves_activation_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem allocate_preserves_activation_bound about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.incompatible_bad_step",
+      "module": "Xsh.Semantics.Connected.SafetyNoFault",
+      "declaration": "Xsh.Semantics.Connected.incompatible_bad_step",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem incompatible_bad_step about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_require_start",
+      "module": "Xsh.Semantics.Connected.SafetyNominalPreservation",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_require_start",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_require_start about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.parameter_cells_agree_after_binding",
+      "module": "Xsh.Semantics.Connected.SafetyParameterCells",
+      "declaration": "Xsh.Semantics.Connected.parameter_cells_agree_after_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem parameter_cells_agree_after_binding about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.parameter_bindings_scope_values",
+      "module": "Xsh.Semantics.Connected.SafetyParameterScope",
+      "declaration": "Xsh.Semantics.Connected.parameter_bindings_scope_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem parameter_bindings_scope_values about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.allocate_other_cell",
+      "module": "Xsh.Semantics.Connected.SafetyParameters",
+      "declaration": "Xsh.Semantics.Connected.allocate_other_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem allocate_other_cell about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_step_preservation",
+      "module": "Xsh.Semantics.Connected.SafetyPreservation",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_step_preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_step_preservation about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.record_types_preserve_names",
+      "module": "Xsh.Semantics.Connected.SafetyRecord",
+      "declaration": "Xsh.Semantics.Connected.record_types_preserve_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem record_types_preserve_names about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.result_value_shape",
+      "module": "Xsh.Semantics.Connected.SafetyResult",
+      "declaration": "Xsh.Semantics.Connected.result_value_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem result_value_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.compatible_ok_inner",
+      "module": "Xsh.Semantics.Connected.SafetyResultPreservation",
+      "declaration": "Xsh.Semantics.Connected.compatible_ok_inner",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem compatible_ok_inner about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scheme_function_type_shape",
+      "module": "Xsh.Semantics.Connected.SafetySavedScope",
+      "declaration": "Xsh.Semantics.Connected.scheme_function_type_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem scheme_function_type_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scope_writable_contract_survives",
+      "module": "Xsh.Semantics.Connected.SafetyScopeStorage",
+      "declaration": "Xsh.Semantics.Connected.scope_writable_contract_survives",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem scope_writable_contract_survives about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.store_compatible_composes",
+      "module": "Xsh.Semantics.Connected.SafetyStoreComposition",
+      "declaration": "Xsh.Semantics.Connected.store_compatible_composes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem store_compatible_composes about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.integer_has_exact_type",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBinary",
+      "declaration": "Xsh.Semantics.Connected.integer_has_exact_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem integer_has_exact_type about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_tail_branch_complete",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBranchComplete",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_tail_branch_complete",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_tail_branch_complete about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ground_empty_branch",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBranchEntry",
+      "declaration": "Xsh.Semantics.Connected.ground_empty_branch",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem ground_empty_branch about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_invoke_value",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBuiltins",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_invoke_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_invoke_value about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.pending_stack_activation_below",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCall",
+      "declaration": "Xsh.Semantics.Connected.pending_stack_activation_below",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem pending_stack_activation_below about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.function_has_exact_type",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCallArguments",
+      "declaration": "Xsh.Semantics.Connected.function_has_exact_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem function_has_exact_type about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_caller_resume",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCallerReturn",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_caller_resume",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_caller_resume about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.boolean_fit_is_boolean",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCompatibility",
+      "declaration": "Xsh.Semantics.Connected.boolean_fit_is_boolean",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem boolean_fit_is_boolean about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_value_block_complete",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCompletion",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_value_block_complete",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_value_block_complete about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_empty_expression_branch",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockConditional",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_empty_expression_branch",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_empty_expression_branch about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.saved_frame_scope_survives_step",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockFramePreservation",
+      "declaration": "Xsh.Semantics.Connected.saved_frame_scope_survives_step",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem saved_frame_scope_survives_step about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.record_value_shape",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockFrames",
+      "declaration": "Xsh.Semantics.Connected.record_value_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem record_value_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ground_node_type",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockGround",
+      "declaration": "Xsh.Semantics.Connected.ground_node_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem ground_node_type about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.grounded_read_operationally_compatible",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockInvariant",
+      "declaration": "Xsh.Semantics.Connected.grounded_read_operationally_compatible",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem grounded_read_operationally_compatible about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.mono_runtime_is_not_scheme_function",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockInvoke",
+      "declaration": "Xsh.Semantics.Connected.mono_runtime_is_not_scheme_function",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem mono_runtime_is_not_scheme_function about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_propagated_control_shape",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockLocalProgress",
+      "declaration": "Xsh.Semantics.Connected.typed_propagated_control_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_propagated_control_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.pending_head_binders_fresh",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockPendingProof",
+      "declaration": "Xsh.Semantics.Connected.pending_head_binders_fresh",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem pending_head_binders_fresh about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_expression_push",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockPreservation",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_expression_push",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_expression_push about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ground_expression_progress",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockProgress",
+      "declaration": "Xsh.Semantics.Connected.ground_expression_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem ground_expression_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.field_lookup_preserves_callables",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockProjection",
+      "declaration": "Xsh.Semantics.Connected.field_lookup_preserves_callables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem field_lookup_preserves_callables about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.read_preserves_callable_provenance",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockRead",
+      "declaration": "Xsh.Semantics.Connected.read_preserves_callable_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem read_preserves_callable_provenance about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_empty_record",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockRecord",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_empty_record",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_empty_record about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.runtime_fields_insert",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockRecordFinish",
+      "declaration": "Xsh.Semantics.Connected.runtime_fields_insert",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem runtime_fields_insert about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.frame_block_scope_reindex",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockScopeTransport",
+      "declaration": "Xsh.Semantics.Connected.frame_block_scope_reindex",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem frame_block_scope_reindex about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.pending_safe_of_sublist",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockStatements",
+      "declaration": "Xsh.Semantics.Connected.pending_safe_of_sublist",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem pending_safe_of_sublist about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_return_stack_progress",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockUnwind",
+      "declaration": "Xsh.Semantics.Connected.typed_return_stack_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_return_stack_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.noncaller_frame_context",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockUnwinding",
+      "declaration": "Xsh.Semantics.Connected.noncaller_frame_context",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem noncaller_frame_context about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_expression_value",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockValues",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_expression_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_expression_value about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.boolean_initial_machine_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockWitness",
+      "declaration": "Xsh.Semantics.Connected.boolean_initial_machine_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem boolean_initial_machine_is_typed about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.allocate_preserves_store_callables",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockWorld",
+      "declaration": "Xsh.Semantics.Connected.allocate_preserves_store_callables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem allocate_preserves_store_callables about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.step_preserves_global_context",
+      "module": "Xsh.Semantics.Connected.SafetyWorld",
+      "declaration": "Xsh.Semantics.Connected.step_preserves_global_context",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem step_preserves_global_context about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_excludes_internal_fault",
+      "module": "Xsh.Semantics.Connected.SafetyNoFault",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_excludes_internal_fault",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_excludes_internal_fault about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_safe_progress",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockLocalProgress",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_safe_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_safe_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_execution_preservation",
+      "module": "Xsh.Semantics.Connected.SafetyInitialization",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_execution_preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_execution_preservation about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_execution_fault_is_integer",
+      "module": "Xsh.Semantics.Connected.SafetyInitialization",
+      "declaration": "Xsh.Semantics.Connected.typed_execution_fault_is_integer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_execution_fault_is_integer about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
     }
   ],
   "artifact_certificates": [
