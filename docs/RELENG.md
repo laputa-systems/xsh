@@ -128,10 +128,7 @@ name-keyed sorts through one helper (0.5 to 0.8 MB), consolidating cold-path
 On Linux, `xsh` and `xsht` use mimalloc as the global allocator. `xshi` uses
 it on Linux only when its `laputa-asterinas` feature is enabled; the standard
 distribution ships the disabled stub. Other platforms use the system allocator.
-Mimalloc accounts for about 78 KB of the shipped `xsh`. Without it Linux
-products fall back to musl's allocator, which is much slower for XSH's
-allocation-heavy workloads. The
-jemalloc package in `Dockerfile.test` is a different thing: `cargo dev` preloads
+The jemalloc package in `Dockerfile.test` is a different thing: `cargo dev` preloads
 it into compiler steps only, to speed up builds, and no product links it.
 Changing the product allocator needs a paired runtime and memory comparison
 first.
