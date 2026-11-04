@@ -884,12 +884,12 @@ test test_uu_tail_follow_single { |ctx|
   let plan = follow(s, ["-f", "foobar.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  time.sleep(200ms)
+  let initial_expected = fixture_bytes(ctx, "foobar_single_default.expected")?
+  wait_output(s, initial_expected, b"")
   alive(child)
   let initial = streams(s)?
-  uu.stdout_only_bytes(initial, fixture_bytes(ctx, "foobar_single_default.expected")?)
   append(s, "foobar.txt", "line1\nline2\n")
-  time.sleep(1000ms)
+  wait_output(s, bytes.concat([initial_expected, bytes.from_text("line1\nline2\n")]), b"")
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
   uu.stdout_only(streams(s, initial.stdout.len(), initial.stderr.len())?, "line1\nline2\n")
