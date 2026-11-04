@@ -723,6 +723,19 @@ impl ProducerPrefixContext<'_> {
         self.evidence.guarded_path_read_is_narrowed(decoder, instruction, &target, super::super::GuardedReadContract::NonNullRead, binding, Some(self), None, charge)
     }
 
+    pub(super) fn slot_read_is_nonnull(&self, decoder: &FullDecoder<'_>, instruction: usize,
+        charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
+    ) -> Result<bool, IrVerifyError> {
+        if decoder.owner != self.owner || decoder.instruction_range != self.evidence.range {
+            return Err(IrVerifyError::new("guarded read context disagrees with its owner"));
+        }
+        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_)) { return Ok(false); }
+        let Some(target) = decoder.checked_binding_path(instruction, charge)? else { return Ok(false) };
+        if !target.1.is_empty() { return Ok(false); }
+        let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
+        self.evidence.guarded_path_read_is_narrowed(decoder, instruction, &target, super::super::GuardedReadContract::NonNullRead, binding, Some(self), None, charge)
+    }
+
     pub(super) fn guarded_nonnull_read(&self, decoder: &FullDecoder<'_>, instruction: usize, source: usize,
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {

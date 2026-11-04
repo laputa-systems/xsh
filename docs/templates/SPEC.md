@@ -921,6 +921,13 @@ to hold an element has the type `NonEmpty[T]` (4.13), whose `first()` and
 a fallback, `?.`/`?[...]` to guard an operation, or a null test to narrow (see
 5.4).
 
+Optionality is idempotent: an optional is not a wrapper, so making `Str?`
+optional again adds no value and `Str??` holds exactly the values of `Str?`.
+A `T?` slot whose `T` instantiates to `Str?` is therefore `Str?`. A local that
+starts as `null` and later receives a value of unresolved type takes the
+optional of that type: it is `Str?` whether the value instantiates to `Str` or
+to `Str?`.
+
 ### 4.7 Record schemas and constructors
 
 ```xsh

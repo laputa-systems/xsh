@@ -777,3 +777,65 @@ proc run_patches(opts: Options) {
     stderr: ["[check."],
   )?
 }
+
+test test_full_inference_null_seeded_local_assigned_an_erased_parameter_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure show(name) {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+pure show_plain(name: Str) {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+pure show_optional(name: Str?) {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+let absent: Str? = null
+let present: Str? = "y"
+print show("x")
+print show_plain("x")
+print show(present)
+print show_optional(present)
+print show(absent)
+print show_optional(absent)
+print show(7)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "<x>\n<x>\n<y>\n<y>\nnone\nnone\n<7>\n"
+  let chained = test.run_xsh(
+    ctx,
+    r"""pure label(named) { if named != null { f"<{named}>" } else { "-" } }
+pure first(files) {
+  var named = null
+  if !files.is_empty() { named = files[0] }
+  label(named)
+}
+pure first_annotated(files: List[Str]) {
+  var named: Str? = null
+  if !files.is_empty() { named = files[0] }
+  label(named)
+}
+let none: List[Str] = []
+let some: List[Str] = ["a", "b"]
+print first(some)
+print first_annotated(some)
+print first(none)
+print first_annotated(none)
+""",
+  )?
+  assert chained.success, chained.stderr
+  assert chained.stdout == "<a>\n<a>\n-\n-\n"
+  test.expect(
+    ctx,
+    "pure show(name) {\n  var wanted = null\n  wanted = name\n  if wanted != null { f\"<{wanted}>\" } else { \"none\" }\n}\nlet rejected: Int = show(\"x\")\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+}

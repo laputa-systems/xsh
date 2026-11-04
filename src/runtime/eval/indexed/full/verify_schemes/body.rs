@@ -7378,6 +7378,41 @@ let rewritten = rewrite(narrowed)
     }
 
     #[test]
+    fn a_null_seeded_local_proves_its_optional_payload_only_under_a_null_test() {
+        let mut program = prepare(r#"
+pure same(left, right) -> Bool { left == right }
+pure label(name) -> Str {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+"#);
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "label").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let comparison = range.clone().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Ne, .. }))
+        }).expect("the null test survives lowering");
+        let comparison_words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let equal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Eq).unwrap();
+        let mut flipped = program.clone();
+        flipped.store.extra[comparison_words.start] = equal as u32;
+        let error = FullVerifier::verify(&flipped).expect_err("the absent branch cannot read the payload");
+        assert_eq!(error.message, "generic body expression disagrees with its checked type", "{error:?}");
+        let null = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Null))).expect("the seed is a null literal");
+        let optional = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == null && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let name_read = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).expect("the assignment reads the parameter");
+        let name_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == name_read && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut plain = program.clone();
+        let (null_value, name_value) = (program.store.scheme_body_facts[optional].value, program.store.scheme_body_facts[name_fact].value);
+        plain.store.scheme_body_facts[optional].value = name_value;
+        plain.store.scheme_body_facts[name_fact].value = null_value;
+        let error = FullVerifier::verify(&plain).expect_err("a null literal is not a present payload");
+        assert_eq!(error.message, "generic declaration disagrees with its initializer", "{error:?}");
+    }
+
+    #[test]
     fn generic_inferred_index_writes_authenticate_their_operation() {
         let program = prepare("pure replace(items, key, value) { var local = items; local[key] = value; local }");
         let (owner, scheme) = generic_owner(&program);

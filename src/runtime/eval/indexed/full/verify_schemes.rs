@@ -2545,6 +2545,15 @@ fn verify_body_expression(
             {
                 budget.charge_scheme_clone(ty)?;
                 ty.clone()
+            } else if let SchemeType::Optional(payload) = actual
+                && body_types_equal(payload, ty)
+                && match producer_index.prefix_context(decoder.owner, &decoder.instruction_range)? {
+                    Some(prefix) => prefix.slot_read_is_nonnull(decoder, instruction, &mut |amount| budget.charge(amount))?,
+                    None => false,
+                }
+            {
+                budget.charge_scheme_clone(ty)?;
+                ty.clone()
             } else if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && !matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && body_type_matches(actual, ty, budget)?
@@ -2568,7 +2577,10 @@ fn verify_body_expression(
                 proven.clone()
             }
         },
-        schema::ExprView::Null => SchemeType::Ground(Type::Null),
+        schema::ExprView::Null => match ty {
+            SchemeType::Optional(_) => { budget.charge_scheme_clone(ty)?; ty.clone() }
+            _ => SchemeType::Ground(Type::Null),
+        },
         schema::ExprView::Unit => SchemeType::Ground(Type::Unit),
         schema::ExprView::Bool(_) => SchemeType::Ground(Type::Bool),
         schema::ExprView::Int(_) => SchemeType::Ground(Type::Int),
