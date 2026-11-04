@@ -1278,19 +1278,17 @@ return sites. Normalization preserves existing structured errors and updates
 only a matching pending traceback's error identity, retaining its source span
 and frames. Nested Result values remain data.
 
-Checked callable contracts and aliases retain the canonical `CallableKind`.
-The Rust `TypedCallable.kind` field replaces its former purity flag.
-`Type::Function(kind)` represents an opaque callable and replaces `Type::Pure`
-and `Type::Proc`. `Type::Stream(item)` continues to represent a produced stream.
+Checked callable contracts and aliases retain the canonical `CallableKind` in
+`TypedCallable.kind`. `Type::Function(kind)` represents an opaque callable.
+`Type::Stream(item)` represents a produced stream.
 The semantic codec retains the kind for opaque and typed callables and rejects
 invalid kind tags. Authored callable annotations retain the existing Pure and
 Proc syntax. Stream callable contracts have no authored annotation syntax.
 
 The public Rust module export contract uses
 `ModuleExportType::Callable { kind, sig, optional }` for ground Pure, Proc, and
-Stream declarations. This replaces the separate `Pure` and `Proc` export
-variants. `GenericCallable` identifies contracts with type, row, or effect
-binders. Callable-valued exports retain their actual lexical binding proof.
+Stream declarations. `GenericCallable` identifies contracts with type, row,
+or effect binders. Callable-valued exports retain their actual lexical binding proof.
 Calls through imported callable aliases publish their actual static module
 receiver contract before lowering. Typed-callee projection derives the export's
 canonical invocation signature from that registered module contract; producer
@@ -1313,12 +1311,10 @@ rejected. Unselected callable exports retain their existing root resources and
 shared state. Calls preserve the real callable environment, defaults, kind,
 and canonical invocation effects.
 
-The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
-Its opaque `CallableValue` carries the canonical `CallableKind`; named values
-require an explicit kind, and prepared values derive it from the authenticated
-executable target. Declaration identity remains available through `identity()`.
+The public Rust `Value::Callable` variant carries an opaque `CallableValue`
+with the canonical `CallableKind`. Named values require an explicit kind, and
+prepared values derive it from the authenticated executable target. Declaration identity remains available through `identity()`.
 Equality compares kind and identity, excluding invocation evidence.
-The runtime uses `CallableKind` in place of its former `LoweredFunctionKind`.
 Prepared invocation context belongs to the callable's executable program and
 remains private. Function references and typed calls encode the three kinds
 strictly; a stream factory is distinct from its produced stream value.
@@ -1363,8 +1359,8 @@ its body immediately.
 
 Environment path reads retain owned snapshot entries with sealed provenance.
 The public Rust `Value::EnvPathList` variant carries an opaque
-`EnvPathListSnapshot` instead of a unit marker. Runtime-to-lowered conversion and
-clones retain that provenance; an ordinary path list cannot supply an internal
+`EnvPathListSnapshot`. Runtime-to-lowered conversion and clones retain that
+provenance; an ordinary path list cannot supply an internal
 checked view contract. The native zero-argument operation returns this checked
 view, while the one-argument `env.path_list` operation returns its ordinary
 `Result[List[Path]]` contract. Actual arity selects the native contract.
