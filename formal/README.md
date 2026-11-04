@@ -32,7 +32,16 @@ remain open, so this bridge is not a certificate for foreign programs. The
 instruction exchange also retains assignment operations and decodes assignment
 path steps. Lean relates an assignment's decoded StoreValue ordinal and source
 statement site to scoped checker facts under a supplied binder-to-slot map.
-The map, raw right-hand expression and transfer mark are not yet authenticated.
+An extended comparison reconstructs the replacement expression from raw rows
+and from the checked node. It supports scalar literals, reads, binary operations,
+records, projection, and conditional expressions, and value blocks that bind
+temporaries outside the mapped slots before one value, as scheme lowering emits
+for assignment right-hand sides. It rejects different same-type reads and
+integer payloads. Its general theorem composes this comparison with
+the scoped store typing theorem for every sorted solution. Name spellings come
+from the admitted source's name table. The binder-to-slot map remains supplied;
+calls, Result forms, other value blocks, and operational correspondence remain
+open.
 Assignment transfer exports retain the checker’s optional value-type override.
 For the scoped fixture, Lean relates the emitted assignment fact to the outer
 binding and checked projected row; altered transfer facts are rejected.

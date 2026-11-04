@@ -146,6 +146,61 @@ raw_full_rows! {
     redirection_kinds: Vec<RedirectionKind>,
 }
 
+#[test]
+fn a_well_typed_raw_store_can_change_the_source_result() {
+    use crate::runtime::eval::{Evaluator, Flow};
+    use crate::runtime::value::{RuntimeError, Value};
+
+    let source = "pure choose(value) { var current = value; current = 1; current }\nassert choose(7) == 1\n";
+    let (_, _, program) = build_fixture(source).unwrap();
+    let run = |program: FullProgram| -> Result<(), RuntimeError> {
+        let span = Span::new(program.store.source_id, 0, 0);
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::new(program.clone()));
+        for step in 0..program.driver_step_count().unwrap() {
+            match evaluator.eval_indexed_driver_step(step, span).unwrap()? {
+                None | Some(Flow::Continue(_)) => {}
+                Some(Flow::Propagate(propagation)) => match propagation.error {
+                    Value::Error(error) => return Err(*error),
+                    other => panic!("step {step} propagated a non-error value: {other:?}"),
+                },
+                Some(flow) => panic!("step {step} ended with top-level control flow: {flow:?}"),
+            }
+        }
+        Ok(())
+    };
+    run(program.clone()).unwrap();
+
+    let mut changed = RawFullProgram::capture(&program);
+    let assignment = changed.rows.tags.iter().position(|tag| *tag == FullTag::StmtAssignPath).unwrap();
+    let assignment_words = changed.rows.data[assignment].lhs as usize;
+    let wrapper = changed.rows.extra[assignment_words + 3] as usize;
+    assert_eq!(changed.rows.tags[wrapper], FullTag::ExprValueBlock);
+    let wrapper_words = changed.rows.data[wrapper].lhs as usize;
+    let block = changed.rows.extra[wrapper_words] as usize;
+    let statements = changed.rows.blocks[block - 1].instructions.start as usize;
+    assert_eq!(changed.rows.extra[statements], 2);
+    let temporary = changed.rows.extra[statements + 1] as usize;
+    assert_eq!(changed.rows.tags[temporary], FullTag::StmtLet);
+    let tail = changed.rows.extra[statements + 2] as usize;
+    assert_eq!(changed.rows.tags[tail], FullTag::StmtValue);
+    let temporary_words = changed.rows.data[temporary].lhs as usize;
+    let temporary_slot = changed.rows.extra[temporary_words];
+    let tail_read = changed.rows.extra[changed.rows.data[tail].lhs as usize] as usize;
+    assert_eq!(changed.rows.tags[tail_read], FullTag::ExprParam);
+    assert_eq!(changed.rows.extra[changed.rows.data[tail_read].lhs as usize], temporary_slot);
+    let replacement = changed.rows.extra[temporary_words + 1] as usize;
+    assert_eq!(changed.rows.tags[replacement], FullTag::ExprInt);
+    let literal_words = changed.rows.data[replacement].lhs as usize;
+    assert_eq!(&changed.rows.extra[literal_words..literal_words + 2], &[1, 0]);
+    changed.rows.extra[literal_words] = 2;
+    let changed = changed.into_program();
+    FullVerifier::verify(&changed).unwrap();
+    let error = run(changed).unwrap_err();
+    assert_eq!(error.family_name, Type::assertion_error_family());
+    assert_eq!(error.variant, "Failed");
+}
+
 #[derive(Clone, Debug)]
 struct RawFullProgram {
     rows: RawFullRows,
