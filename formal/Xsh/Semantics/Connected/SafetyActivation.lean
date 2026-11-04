@@ -21,8 +21,8 @@ theorem step_preserves_store_activation_bound {before after : Machine} {event : 
     (below : StoreBelowActivation before.store before.nextActivation) :
     StoreBelowActivation after.store after.nextActivation := by
   cases step <;> try exact below
-  case bindingCommit state binder kind value rest next allocated =>
-    exact allocate_preserves_activation_bound state.store next _ _ value state.nextActivation below activeBelow allocated
+  case bindingCommit state binder kind storage value rest next allocated =>
+    exact allocate_preserves_activation_bound state.store next _ _ storage value state.nextActivation below activeBelow allocated
   case assignmentCommit state binder value rest cell next active written =>
     exact write_preserves_activation_bound state.store next cell value state.nextActivation below written
   case assignmentRejected state binder value rest cell next active rejected =>
