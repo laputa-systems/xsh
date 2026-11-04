@@ -23,4 +23,24 @@ theorem record_fit_has_row (expected actual : RuntimeType)
     ∃ row, actual = .record row ∧ rowFits expected row = true := by
   cases actual <;> simp_all [typeFits]
 
+theorem row_fit_preserves_field (expected actual : RuntimeType) (name : Xsh.Foundation.NameId) (expectedType : RuntimeType)
+    (fits : rowFits expected actual = true) (present : rowFieldType name expected = some expectedType) :
+    ∃ actualType, rowFieldType name actual = some actualType ∧ typeFits expectedType actualType = true := by
+  induction expected with
+  | rowField field value tail valueIh tailIh =>
+    cases found : rowFieldType field actual with
+    | none => simp [rowFits, found] at fits
+    | some actualValue =>
+      have both : typeFits value actualValue = true ∧ rowFits tail actual = true := by
+        simpa [rowFits, found] using fits
+      by_cases same : name = field
+      · subst name
+        simp [rowFieldType] at present
+        subst expectedType
+        exact ⟨actualValue, found, both.1⟩
+      · have tailPresent : rowFieldType name tail = some expectedType := by
+          simpa [rowFieldType, same] using present
+        exact tailIh both.2 tailPresent
+  | _ => simp [rowFieldType] at present
+
 end Xsh.Semantics.Connected
