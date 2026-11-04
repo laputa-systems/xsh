@@ -1,4 +1,4 @@
-import Xsh.Semantics.Connected.SafetyFunctionEntry
+import Xsh.Semantics.Connected.SafetyParameterScope
 
 namespace Xsh.Semantics.Connected
 

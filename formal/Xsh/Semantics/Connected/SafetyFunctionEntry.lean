@@ -1,4 +1,4 @@
-import Xsh.Semantics.Connected.SafetyParameterScope
+import Xsh.Semantics.Connected.SafetySavedScope
 
 namespace Xsh.Semantics.Connected
 
@@ -23,11 +23,13 @@ theorem typed_function_call_enters_scope (state : Machine) (globalTypes : CellTy
     (globalMutable : MutableCellsAgree globals
       (compose captured (compose (schemeSubstitution function.scheme (witnessSubstitution typeArguments)) function.elaboration))
       state.globals state.store)
-    (globalDistinct : DistinctActiveCells state.globals) :
+    (globalDistinct : DistinctActiveCells state.globals)
+    (globalSchemes : SchemeCellsImmutable state.globals state.store) :
     ∃ locals store,
       let entered : Machine := { state with control := .statements function.body, cells := withGlobals locals state.globals, store := store, activation := state.nextActivation, nextActivation := state.nextActivation + 1, solution := compose captured (compose (schemeSubstitution function.scheme (witnessSubstitution typeArguments)) function.elaboration), stack := .caller state.cells state.activation state.solution result :: state.stack }
       Step { state with control := .invoke (.instantiatedFunction declaration parameterTypes result captured typeArguments) arguments }
-        .internal entered ∧ MachineMemoryInvariant globalTypes entered ∧ ScopeStateAgrees (parameters ++ globals) entered := by
+        .internal entered ∧ MachineMemoryInvariant globalTypes entered ∧ ScopeStateAgrees (parameters ++ globals) entered ∧
+        SchemeCellsImmutable (withGlobals locals state.globals) store := by
   let solution := compose captured (compose (schemeSubstitution function.scheme (witnessSubstitution typeArguments)) function.elaboration)
   have uniqueParameters : (parameters.map Binding.binder).Nodup := by
     exact (List.nodup_append.mp (by simpa using unique)).1
@@ -44,11 +46,13 @@ theorem typed_function_call_enters_scope (state : Machine) (globalTypes : CellTy
   have actualBound : bindParameters state.nextActivation function.parameters arguments parameterTypes state.store = .ok (locals, store) := by
     simpa [binders] using bound
   have step := Step.callFunction state declaration arguments parameterTypes result captured typeArguments normalized function locals store found signature actualBound
-  refine ⟨locals, store, step, ?_, ?_⟩
+  refine ⟨locals, store, step, ?_, ?_, ?_⟩
   · apply step_preserves_machine_memory_invariant step
     exact ⟨⟨invariant.activation.active, invariant.activation.saved, invariant.activation.store⟩,
       ⟨invariant.globals.typed, invariant.globals.live⟩⟩
   · exact parameter_global_scope_agrees state globalTypes solution parameters globals arguments parameterTypes locals store
       invariant typed bound unique globalValues globalMutable globalDistinct
+  · exact function_entry_scheme_cells_immutable state solution parameters arguments parameterTypes locals store
+      typed uniqueParameters bound invariant.globals.live globalSchemes
 
 end Xsh.Semantics.Connected
