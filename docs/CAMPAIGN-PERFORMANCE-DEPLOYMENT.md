@@ -188,7 +188,7 @@ python3 -B dev/consolidation/final_canonical_replay.py bootstrap --repo SOURCE -
 | Retain the thirteen exact `lsipc` reference-crash exceptions. Independent XSH assertions give no exact-parity credit (see `dev/util-linux/README.md`). | Util-linux campaign |
 | Start Laputa world and Asterinas acceptance in parallel with consolidation, and inference integration alongside G1 and G6. Preserve exclusive G1 timing windows. Final G6 acceptance needs the same XSH source to qualify under G1. | 2026-10-18 |
 | Defer XSH-23 (bbtree evaluation). | Owner-deferred |
-| Waive the performance thresholds of the Deser cutover. | [ROADMAP](ROADMAP.md) |
+| Reopen the Deser cutover performance thresholds for Linux qualification; the earlier waiver is not a pass. | [ROADMAP](ROADMAP.md) |
 
 ### Prescribed decisions
 
@@ -378,6 +378,8 @@ universal formal obligations.
 
 ## Log
 
+- 2026-11-04: Five alternating, readiness-qualified pinned Linux O2 pairs compared pre-Deser `e1b896dc` with `ad126a1e8` on the same 20,000-record JSON. Decode median CPU was 52.556 ms (51.360–55.092) versus 55.327 ms (54.131–57.524), within paired spread. Roundtrip was 59.065 ms (58.559–59.667) versus 69.813 ms (67.172–70.258), above the 5% budget and spread. Products differ beyond the codec. Small-record text vectors, direct compact-name accumulation, and inlining the decoder sink did not improve the large workloads and were reverted.
+- 2026-11-04: With the same products and fixture, five alternating pairs performed ten exact-checked encodes after one decode: median CPU was 137.240 ms (131.295–138.909) versus 190.683 ms (190.181–201.140). Constructing the same records in XSH before ten encodes took 232.396 ms (223.499–241.000) versus 280.642 ms (276.927–298.981). Both include setup. Profiles identify serializer event dispatch and field iteration as prominent current costs, but do not attribute the historical difference to one change.
 - 2026-11-03: `cf8e2cd40` skips the source-wide list-join scan when a function has no empty list to refine. Against `085a35e79`, five alternating matched O2 pairs in the pinned Linux image passed both readiness checks and retained all 107 lint diagnostics. Median CPU for the inferred-return lint on `core/sort.xsh` fell from 31.548 s to 25.690 s (paired ratio 0.818, range 0.806–0.832); `xsht check core/sort.xsh` fell from 264.0 ms to 206.5 ms (ratio 0.787, range 0.777–0.795). Peak RSS was 199,260 versus 199,156 KiB in one untimed pair, and `xsht` shrank 2,784 bytes. These results qualify this workload and change, not the remaining G1 gates or the broader XSH-14 import-graph work.
 - 2026-11-03: Matched O2 products from pre-Deser production `9d893e007` with qualification-only harness repairs and current `085a35e79` reproduced the same 20,000-record JSON output. Five alternating pairs with readiness checks measured median CPU of 59.949 versus 93.745 ms for the roundtrip and 51.029 versus 77.153 ms for decode alone. JSONL improved from 34.565 to 26.988 ms. These sources differ in more than the codec, so the ancestry comparison does not attribute the entire change to Deser. S6 time gates and current-source qualification remain open.
 - 2026-10-17: Launch source `c6d36683872e4d0dc9173a9c2c8ff09e8e6b9d23`. KVM access through `doas` works, so sandbox visibility is not a platform limit. G2 may extend `check-current --review-evidence` to call the existing review verifier while preserving default checks and strict `final-close`.
