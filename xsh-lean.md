@@ -30,8 +30,9 @@ Next, widen the lowered shape toward the milestone
 (record locals, Bool and Result control); add a parse and
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
-byte-level certificate theorems: it adds no axiom. All six fresh kernels
-accepted the current certificates under the 8 GiB cap.
+byte-level certificate theorems: it adds no axiom. Earlier kernel passes cover
+their recorded source only. The expanded connected integration still needs a
+successful fresh six-kernel check under the unchanged limits.
 The independent kernels hold the whole export in memory. Earlier checks at the
 8 GiB address-space cap found that a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
@@ -46,7 +47,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 888
+**State:** `formal/coverage.json` is the only inventory. It lists 965
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
