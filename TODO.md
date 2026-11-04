@@ -223,35 +223,15 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-62 · P3 · Store a field-narrowed record where its unnarrowed type is expected
-
-- **Area:** Inference
-- **Where:** `src/sema/`, `core/namei.xsh:205`
-- **Problem:** `guard let target = entry.link else { ... }` followed by passing `entry` whole to `path_entries` binds the erased `parent` to the field-narrowed record. `parent` is copied to `var previous`, which later receives a plain `Entry`, and the store fails with `storage requires Record, found Record`. The annotated `Entry?` parameter accepts both.
-- **Recommendation:** Join in the store: the narrowed record refines the stored one. Do not pass the unnarrowed record instead; that would drop the field proof a whole-record read under a guard gives the callee.
-- **Acceptance:** `namei:205` erases alone and jointly; a native test stores a narrowed record into storage typed by its unnarrowed source, and a forged narrowing is still rejected.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-63 · P3 · Anchor a local whose only seed is a deferred assignment
 
 - **Area:** Inference
-- **Where:** `src/sema/`, `core/arp.xsh:216`
+- **Where:** `src/sema/`, `core/arp.xsh:216`, `core/patch.xsh:356`
 - **Problem:** `proc show(name) { var wanted = null; wanted = name; if wanted != null { ... } }` publishes the free `seed` (`material type needs an annotation`): the deferred assignment `seed? <- name` anchors nothing.
 - **Recommendation:** Bind the seed to the assigned variable when it is still unresolved at finalization. When `name` instantiates to `Str?`, `wanted` stays `Str?`: an optional is not a runtime wrapper (SPEC 4.6), so `Str??` holds exactly the values of `Str?`. State that idempotence in SPEC 4.6 with the fix.
-- **Acceptance:** `arp:216` erases; native tests cover a plain and an optional argument and match the annotated twin's behavior.
+- **Acceptance:** `arp:216` erases; native tests cover a plain and an optional argument and match the annotated twin's behavior. `patch` erases `one_patch.named` jointly with the nine `opts` parameters: `var named = null` in `run_patches` is assigned from the erased `opts.files[0]`, and the 89-site joint view fails with `material type needs an annotation` until it anchors.
 - **Fix with:** root-cause
 - **Effort:** S
-
-### XSH-64 · P3 · Generalize the patch joint view's leftover guard instance
-
-- **Area:** Inference
-- **Where:** `src/sema/constraints/wrappers.rs`, `core/patch.xsh`
-- **Problem:** Erasing all nine `opts` parameters (`note`, `q`, `run_patches`, `one_patch`, `apply_file`, `backup_name`, `make_backup`, `write_rejects`, `run_hunks`) together makes `generalize_guard_calls` return `UnresolvedGuardScope`: a guard call instance is still `Pending` with no recorded `GuardCallSource`. `run_patches` then stays monomorphic, and `main`'s two calls (one inside `if let dir = opts.directory` with the narrowed record, one in the `else` with `Options`) report `inferred types disagree`. Skipping guard instances created inside `without_pending_call_instantiations` makes the view pass, which fits instances left over from discarded return-inference passes.
-- **Recommendation:** Reduce to a reproducer that fails on the leftover instance, then land the watermark fix with it. A line-level reduction keeps unresolved-name cascades, and a hand-written mimic checks on baseline.
-- **Acceptance:** A native reproducer fails before the fix; the `patch` joint view passes; the corpus single-site and joint counts do not regress.
-- **Fix with:** root-cause
-- **Effort:** M
 
 ### XSH-65 · P4 · Find the missing executable type in expr's erased branch parser
 

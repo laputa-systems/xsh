@@ -176,7 +176,7 @@ does not close the corpus or mutation obligations.
 ## Campaign close
 
 The general-inference campaign closed on `73b59f11d`. The open residuals are
-XSH-61 through XSH-66.
+XSH-61, XSH-63, XSH-65 and XSH-66; later repairs closed XSH-62 and XSH-64.
 
 **Integrated acceptance.** Native suite 4,729 passed, 0 failed, 34 skipped
 (verification build, 32 jobs). Gates `test-sema-unit` 959, `test-sema` 55,
@@ -187,10 +187,11 @@ XSH-61 through XSH-66.
 run.
 
 **Core parameter view.** The private core parameter view (250 files, 4,677
-sites, Btop excluded) passes 4,668 sites alone. The per-file joint view of each
-file's passing sites passes in 245 of 250 files (4,307 sites); `iw`, `lsipc`,
-`mdev`, `patch` and `pstree` fail jointly. All but `patch` pass once one
-retained annotation below is kept. Btop's 39 sites remain unmeasured.
+sites, Btop excluded) passes 4,669 sites alone after the later repairs (`namei`
+`path_entries.parent` now erases). The per-file joint view of each file's
+passing sites passes in 245 of 250 files (4,308 sites); `iw`, `lsipc`, `mdev`,
+`patch` and `pstree` fail jointly. Each passes once one retained annotation
+below is kept. Btop's 39 sites remain unmeasured.
 
 **Practical view.** The applied view (405 private parameter sites in `wc`,
 `sort`, `awk` and Laputa `pm/generation.xsh`) passes every site alone and all
@@ -207,7 +208,9 @@ source gives the type no other anchor:
 - `smartctl:447` and `smartctl:468`: the `Any` payload leaves its empty list
   unanchored (`finish.session`).
 
-**Retained joint annotations.** `pstree` keeps one of `print_user_roots.name`
+**Retained joint annotations.** `patch` keeps `one_patch.named`: erased with the
+nine `opts` parameters, the `var named = null` in `run_patches`, assigned from
+the erased `opts.files[0]`, has no anchor (XSH-63). `pstree` keeps one of `print_user_roots.name`
 and `has_same_named_user_parent.name`: erased together, the callee stays generic
 over an equality with `Str`, and a generic body cannot capture the top-level
 `List` of process records. `mdev` keeps `apply_rule`'s `Captures` because the

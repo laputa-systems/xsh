@@ -4172,6 +4172,9 @@ A `null` argument copied into a local that the body later replaces takes the
 optional of the replacement type, including when the replacement sits under a
 non-null guard that the call can select. A guard that the call cannot select
 contributes no replacement.
+A record argument whose field a non-null guard narrows, copied into a local
+that the body later replaces with a record of the unnarrowed type, takes the
+replacement's type: the callee sees no field proof the replacement would break.
 
 Within a generic call, an absent `Ok` error or `Err` success component can take
 context from a compatible replacement assigned to the same local. Written
