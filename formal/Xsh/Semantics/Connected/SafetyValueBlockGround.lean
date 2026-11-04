@@ -29,4 +29,31 @@ theorem ground_block_completion {solution runtimeSolution : Substitution} {stora
     <;> intros
     <;> first | assumption | solve | constructor <;> assumption
 
+theorem ground_propagation_requires_result {solution runtimeSolution : Substitution} {storage : BindingStorageMap}
+    {scope functionResult value expectedError ty}
+    (ground : GroundNode solution runtimeSolution storage scope functionResult (.propagate value expectedError) ty) :
+    ∃ success, functionResult = .result success (substitute solution expectedError) := by
+  cases ground with
+  | propagate value matching result closed =>
+    obtain ⟨success, result⟩ := result
+    exact ⟨success, by simpa [matching] using result⟩
+
+theorem boolean_result_rejects_propagation {solution runtimeSolution : Substitution} {storage : BindingStorageMap}
+    {scope value expectedError ty} :
+    ¬ GroundNode solution runtimeSolution storage scope (.primitive .boolean) (.propagate value expectedError) ty := by
+  intro ground
+  obtain ⟨success, impossible⟩ := ground_propagation_requires_result ground
+  cases impossible
+
+theorem ground_propagation_opens_frame {state : Machine} {context : TypingContext} {value expectedError ty}
+    (ground : GroundNode context.solution context.runtimeSolution context.storage context.scope context.result
+      (.propagate value expectedError) ty) :
+    ∃ failure, GroundNode context.solution context.runtimeSolution context.storage context.scope context.result
+      value (.result ty failure) ∧
+      FrameTyped state (.expression context (.result ty failure)) (.expression context ty) .propagate := by
+  cases ground with
+  | propagate inner matching result closed =>
+    obtain ⟨success, result⟩ := result
+    exact ⟨_, inner, .propagate result⟩
+
 end Xsh.Semantics.Connected

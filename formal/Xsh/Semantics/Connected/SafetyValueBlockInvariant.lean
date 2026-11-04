@@ -120,6 +120,7 @@ mutual
         GroundNode solution runtimeSolution storage scope functionResult (.requireValue binder identity value) result
     | propagate {scope functionResult value result failure expectedError runtimeType} :
         GroundNode solution runtimeSolution storage scope functionResult value (.result result failure) → failure = substitute solution expectedError →
+        (∃ success, functionResult = .result success failure) →
         monoRuntime result = some runtimeType → GroundNode solution runtimeSolution storage scope functionResult (.propagate value expectedError) result
 
     | valueBlock {scope functionResult raw body runtimeType} :
