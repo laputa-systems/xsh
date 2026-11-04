@@ -3,6 +3,7 @@ import Xsh.Semantics.Connected.SafetyCallScope
 namespace Xsh.Semantics.Connected
 
 open Xsh.Foundation
+open Xsh.Semantics.Environments
 open Xsh.Typing.Connected
 
 inductive ParameterBindingsTyped (solution : Substitution) : Scope → List Value → RuntimeType → Prop where
@@ -130,5 +131,117 @@ theorem parameter_and_global_mutable_cells (state : Machine) (solution : Substit
           (parameters.map Binding.binder) values types state.store store locals bound binding.binder cell localActive))
     exact ⟨quantified, requirements, cell, current, runtimeType,
       by simpa [withGlobals, localAbsent] using active, present, writable, sameType, closed⟩
+
+theorem parameter_cell_for_binder (activation : Nat) (cells : ActiveCells) (store : Store)
+    (binders : List BinderId) (values : List Value) (types : RuntimeType)
+    (agrees : ParameterCellsAgree activation cells store binders values types)
+    (binder : BinderId) (member : binder ∈ binders) :
+    cells binder = some ⟨activation, binder⟩ ∧ ∃ entry, store ⟨activation, binder⟩ = some entry := by
+  induction agrees with
+  | nil => simp at member
+  | @cons first rest value values ty types active present tail ih =>
+    simp only [List.mem_cons] at member
+    rcases member with same | later
+    · subst binder
+      obtain ⟨entry, present, _, _, _⟩ := present
+      exact ⟨active, entry, present⟩
+    · exact ih later
+
+theorem parameter_local_cell (state : Machine) (solution : Substitution) (parameters : Scope) (values : List Value)
+    (types : RuntimeType) (locals : ActiveCells) (store : Store)
+    (typed : ParameterBindingsTyped solution parameters values types)
+    (unique : (parameters.map Binding.binder).Nodup)
+    (bound : bindParameters state.nextActivation (parameters.map Binding.binder) values types state.store = .ok (locals, store))
+    (binder : BinderId) (cell : CellId) (active : locals binder = some cell) :
+    cell = ⟨state.nextActivation, binder⟩ ∧ ∃ entry, store cell = some entry := by
+  have member := bound_parameter_cell_is_listed state.nextActivation (parameters.map Binding.binder)
+    values types state.store store locals bound binder cell active
+  have agrees := bound_parameters_agree state.nextActivation (parameters.map Binding.binder) values types
+    state.store store locals (parameter_bindings_have_values solution parameters values types typed) unique bound
+  obtain ⟨expected, entry, present⟩ := parameter_cell_for_binder state.nextActivation locals store
+    (parameters.map Binding.binder) values types agrees binder member
+  have same : cell = ⟨state.nextActivation, binder⟩ := Option.some.inj (active.symm.trans expected)
+  subst cell
+  exact ⟨rfl, entry, present⟩
+
+theorem merge_fresh_locals_distinct_and_live (globals locals : ActiveCells) (before after : Store) (activation : Nat)
+    (localCells : ∀ binder cell, locals binder = some cell →
+      cell = ⟨activation, binder⟩ ∧ ∃ entry, after cell = some entry)
+    (globalLive : CellsLive globals before) (globalDistinct : DistinctActiveCells globals)
+    (below : StoreBelowActivation before activation) (extension : StoreExtends before after) :
+    DistinctActiveCells (withGlobals locals globals) ∧ ActiveCellsPresent (withGlobals locals globals) after := by
+  have globalBelow : ∀ binder cell, globals binder = some cell → cell.activation < activation := by
+    intro binder cell active
+    obtain ⟨entry, present⟩ := globalLive binder cell active
+    exact below cell entry present
+  constructor
+  · intro first second cell firstAt secondAt
+    cases localFirst : locals first with
+    | some firstCell =>
+      have firstEq : firstCell = cell := by simpa [withGlobals, localFirst] using firstAt
+      subst firstCell
+      have ⟨firstEq, _⟩ := localCells first cell localFirst
+      cases localSecond : locals second with
+      | some secondCell =>
+        have secondEq : secondCell = cell := by simpa [withGlobals, localSecond] using secondAt
+        subst secondCell
+        have ⟨secondEq, _⟩ := localCells second cell localSecond
+        exact congrArg CellId.binder (firstEq.symm.trans secondEq)
+      | none =>
+        have globalSecond : globals second = some cell := by simpa [withGlobals, localSecond] using secondAt
+        have prior := globalBelow second cell globalSecond
+        rw [firstEq] at prior
+        exact False.elim (Nat.lt_irrefl _ prior)
+    | none =>
+      have globalFirst : globals first = some cell := by simpa [withGlobals, localFirst] using firstAt
+      cases localSecond : locals second with
+      | some secondCell =>
+        have secondEq : secondCell = cell := by simpa [withGlobals, localSecond] using secondAt
+        subst secondCell
+        have ⟨secondEq, _⟩ := localCells second cell localSecond
+        have prior := globalBelow first cell globalFirst
+        rw [secondEq] at prior
+        exact False.elim (Nat.lt_irrefl _ prior)
+      | none =>
+        have globalSecond : globals second = some cell := by simpa [withGlobals, localSecond] using secondAt
+        exact globalDistinct first second cell globalFirst globalSecond
+  · intro binder cell active
+    cases localFound : locals binder with
+    | some localCell =>
+      have same : localCell = cell := by simpa [withGlobals, localFound] using active
+      subst localCell
+      exact (localCells binder cell localFound).2
+    | none =>
+      have globalFound : globals binder = some cell := by simpa [withGlobals, localFound] using active
+      obtain ⟨entry, present⟩ := globalLive binder cell globalFound
+      exact ⟨entry, extension cell entry present⟩
+
+theorem parameter_global_scope_agrees (state : Machine) (globalTypes : CellTypes) (solution : Substitution)
+    (parameters globals : Scope) (values : List Value) (types : RuntimeType) (locals : ActiveCells) (store : Store)
+    (invariant : MachineMemoryInvariant globalTypes state)
+    (typed : ParameterBindingsTyped solution parameters values types)
+    (bound : bindParameters state.nextActivation (parameters.map Binding.binder) values types state.store = .ok (locals, store))
+    (unique : ((parameters ++ globals).map Binding.binder).Nodup)
+    (globalValues : ScopeValuesAgree globals solution state.globals state.store)
+    (globalMutable : MutableCellsAgree globals solution state.globals state.store)
+    (globalDistinct : DistinctActiveCells state.globals) :
+    ScopeStateAgrees (parameters ++ globals)
+      { state with solution := solution, cells := withGlobals locals state.globals, store := store } := by
+  have splitUnique : (parameters.map Binding.binder).Nodup ∧ (globals.map Binding.binder).Nodup ∧
+      ∀ first ∈ parameters.map Binding.binder, ∀ second ∈ globals.map Binding.binder, first ≠ second := by
+    exact List.nodup_append.mp (by simpa using unique)
+  have disjoint : ∀ binding ∈ globals, binding.binder ∉ parameters.map Binding.binder := by
+    intro binding member paramMember
+    apply splitUnique.2.2 binding.binder paramMember binding.binder
+      (List.mem_map.mpr ⟨binding, member, rfl⟩)
+    rfl
+  have localCells := parameter_local_cell state solution parameters values types locals store typed splitUnique.1 bound
+  have both := merge_fresh_locals_distinct_and_live state.globals locals state.store store state.nextActivation
+    localCells invariant.globals.live globalDistinct invariant.activation.store
+    (parameters_preserve_existing state.nextActivation (parameters.map Binding.binder) values types state.store store locals bound)
+  exact ⟨unique, parameter_and_global_scope_values state solution parameters globals values types locals store
+      typed bound splitUnique.1 globalValues disjoint,
+    parameter_and_global_mutable_cells state solution parameters globals values types locals store
+      typed bound globalMutable disjoint, both.1, both.2⟩
 
 end Xsh.Semantics.Connected
