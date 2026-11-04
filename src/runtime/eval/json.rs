@@ -222,7 +222,7 @@ fn encode_tree(value: CodecInput<'_>, pretty: bool, span: Span) -> Result<String
     if pretty { config.set_pretty(deser_json::Indent::Spaces(2)); }
     let mut output = crate::modules::codec::Output::new();
     let result = config.writer(&mut output).write_with(&BorrowedValue { value, pretty, span, format: Format::Json }, |driver| {
-        driver.push_layer(crate::modules::codec::EncodeLimits::default());
+        driver.push_guard(crate::modules::codec::EncodeLimits::default());
     });
     let output = output.finish(result)
         .map_err(|error| crate::modules::codec::runtime_error(error, "json", span))?;

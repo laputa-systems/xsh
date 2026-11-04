@@ -49,3 +49,10 @@ nodes and anchors before producing events; its sequence context also shares an
 alias replay allowance across documents. Scalar limits apply to resolved values,
 including decoded binary tags, rather than tag metadata or stripped whitespace.
 These opt-in limits preserve the standalone packages' defaults.
+
+Serialization event guards validate borrowed original events and immutable state
+before transforming layers. A rejection stops delivery to later guards, layers
+and sinks. The same guard state survives pauses and applies to all driver entry
+points, including `next`; drivers without guards allocate no guard storage.
+XSH uses this boundary for its existing encoding limits, avoiding the event
+forwarding and callback dispatch required by transforming layers.
