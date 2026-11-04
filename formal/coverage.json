@@ -12367,6 +12367,42 @@
       "status": "fragment",
       "scope": "The selected effect fact bytes parse to the stated wire value.",
       "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_function_certified",
+      "module": "Xsh.Semantics.Connected.SafetyScopedFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_function_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_function_certified connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_invocation_typed",
+      "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_invocation_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_invocation_typed connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scoped_fixture_source_argument",
+      "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
+      "declaration": "Xsh.Semantics.Connected.scoped_fixture_source_argument",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem scoped_fixture_source_argument connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_invocation_execution_safe",
+      "module": "Xsh.Semantics.Connected.SafetyScopedInvocation",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_invocation_execution_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_invocation_execution_safe connects the checked scoped source fixture to its typed invocation and finite execution under its stated premises.",
+      "boundary": "This fixture does not establish general source initialization, Rust execution correspondence, or raw-IR simulation."
     }
   ],
   "artifact_certificates": [
