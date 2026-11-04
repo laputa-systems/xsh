@@ -6,17 +6,16 @@ open Xsh.Semantics.Environments
 open Xsh.Typing.Connected
 
 theorem allocate_preserves_store_callables (functions : FunctionTable) (store next : Store)
-    (cell : CellId) (mutability : Mutability) (value : Value)
+    (cell : CellId) (mutability : Mutability) (ty : RuntimeType) (value : Value)
     (prior : StoreCallables functions store) (safe : ValueCallables functions value)
-    (allocated : allocate store cell mutability value = some next) : StoreCallables functions next := by
+    (allocated : allocate store cell mutability ty value = some next) : StoreCallables functions next := by
   unfold allocate at allocated
   cases occupied : store cell with
   | some entry => simp [occupied] at allocated
   | none =>
     simp only [occupied, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at allocated
     split at allocated
-    · cases allocated
-    · rename_i ty typed
+    · rename_i typed
       cases allocated
       intro other entry present
       by_cases same : other = cell
@@ -26,6 +25,7 @@ theorem allocate_preserves_store_callables (functions : FunctionTable) (store ne
         exact safe
       · simp [same] at present
         exact prior other entry present
+    · cases allocated
 
 theorem write_preserves_store_callables (functions : FunctionTable) (store next : Store)
     (cell : CellId) (value : Value) (prior : StoreCallables functions store)
@@ -67,8 +67,8 @@ theorem parameter_binding_preserves_callables (functions : FunctionTable) (activ
         have tailSafe : ∀ candidate ∈ values, ValueCallables functions candidate := by
           intro candidate member
           exact safe candidate (List.mem_cons_of_mem _ member)
-        by_cases typed : valueType value = some ty
-        · cases allocated : allocate store ⟨activation, binder⟩ .immutable value with
+        by_cases typed : HasType ty value
+        · cases allocated : allocate store ⟨activation, binder⟩ .immutable ty value with
           | none => simp [bindParameters, typed, allocated] at bound
           | some intermediate =>
             simp [bindParameters, typed, allocated, except_bind_ok] at bound
@@ -77,7 +77,7 @@ theorem parameter_binding_preserves_callables (functions : FunctionTable) (activ
             · cases finished
             · cases finished
               exact ih values types intermediate next priorCells
-                (allocate_preserves_store_callables functions store intermediate _ _ value prior headSafe allocated) tailSafe recursive
+                (allocate_preserves_store_callables functions store intermediate _ _ ty value prior headSafe allocated) tailSafe recursive
         · simp only [bindParameters, typed, ↓reduceIte] at bound
           cases bound
       | _ => cases bound
@@ -114,8 +114,8 @@ theorem parameter_binding_preserves_other_cell (activation : Nat)
           rcases outside with activationDifferent | binderAbsent
           · exact Or.inl activationDifferent
           · exact Or.inr (fun member => binderAbsent (List.mem_cons_of_mem _ member))
-        by_cases typed : valueType value = some ty
-        · cases allocated : allocate store ⟨activation, binder⟩ .immutable value with
+        by_cases typed : HasType ty value
+        · cases allocated : allocate store ⟨activation, binder⟩ .immutable ty value with
           | none => simp [bindParameters, typed, allocated] at bound
           | some intermediate =>
             simp [bindParameters, typed, allocated, except_bind_ok] at bound
@@ -124,7 +124,7 @@ theorem parameter_binding_preserves_other_cell (activation : Nat)
             · cases finished
             · cases finished
               exact (ih values types intermediate next priorCells outsideTail recursive).trans
-                (allocate_other_cell store intermediate _ cell .immutable value different allocated)
+                (allocate_other_cell store intermediate _ cell .immutable ty value different allocated)
         · simp only [bindParameters, typed, ↓reduceIte] at bound
           cases bound
       | _ => cases bound
@@ -158,8 +158,8 @@ theorem step_preserves_store_callables {before after : Machine} {event : Label}
     (step : Step before event after) (prior : StoreCallables before.functions before.store)
     (safe : ControlValuesSafe before.functions before.control) : StoreCallables after.functions after.store := by
   cases step <;> try exact prior
-  case bindingCommit state binder kind value rest next allocated =>
-    exact allocate_preserves_store_callables state.functions state.store next _ _ value prior safe allocated
+  case bindingCommit state binder kind ty value rest next allocated =>
+    exact allocate_preserves_store_callables state.functions state.store next _ _ ty value prior safe allocated
   case assignmentCommit state binder value rest cell next active written =>
     exact write_preserves_store_callables state.functions state.store next cell value prior safe written
   case assignmentRejected state binder value rest cell next active rejected =>
@@ -173,7 +173,8 @@ theorem step_preserves_store_callables {before after : Machine} {event : Label}
 theorem step_preserves_function_table_certificate {before after : Machine} {event : Label}
     (globals : Scope) (storage : BindingStorageMap) (step : Step before event after)
     (certified : FunctionTableCertified globals storage before)
-    (schemes : SchemeCellsImmutable before.globals before.store) :
+    (_schemes : SchemeCellsImmutable before.globals before.store)
+    (live : ActiveCellsPresent before.globals before.store) :
     FunctionTableCertified globals storage after := by
   obtain ⟨sameFunctions, sameSchemas, sameGlobals⟩ := step_preserves_global_context step
   have layout := step_preserves_store_layout step
@@ -181,15 +182,17 @@ theorem step_preserves_function_table_certificate {before after : Machine} {even
   intro declaration function found captured typeArguments parameters result normalized sorted signature
   rw [sameFunctions] at found
   obtain ⟨extension, parameterScope, bodyResult, extensionSorted, runtimeSorted, proofSorted,
-    globalValues, globalMutable, globalSchemas, parametersOrdinary, localsOrdinary, binders, unique,
+    globalValues, globalWritable, globalMutable, globalSchemas, parametersOrdinary, localsOrdinary, binders, unique,
     parameterTypesTyped, bodyTyped, resultClosed, bodyUnique, disjoint, propagation⟩ :=
       certified declaration function found captured typeArguments parameters result normalized sorted signature
-  refine ⟨extension, parameterScope, bodyResult, extensionSorted, runtimeSorted, proofSorted, ?_, ?_, ?_,
+  refine ⟨extension, parameterScope, bodyResult, extensionSorted, runtimeSorted, proofSorted, ?_, ?_, ?_, ?_,
     parametersOrdinary, localsOrdinary, binders, unique, parameterTypesTyped, bodyTyped, resultClosed,
     bodyUnique, disjoint, propagation⟩
   · rw [sameGlobals]
-    exact scope_values_survive_stable_store globals _ before.globals before.store after.store
-      globalValues schemes layout stable
+    exact scope_values_survive_writable_contract globals _ before.globals before.store after.store
+      globalValues globalWritable layout stable
+  · rw [sameGlobals]
+    exact scope_writable_contract_survives globals _ before.globals before.store after.store live globalWritable layout
   · rw [sameGlobals]
     exact mutable_cells_survive_store_evolution globals _ before.globals before.store after.store layout globalMutable
   · rw [sameSchemas]
@@ -217,12 +220,17 @@ theorem stable_store_reflects_scheme_read (cells : ActiveCells) (before after : 
     obtain ⟨next, nextAt, sameTag, _⟩ := layout cell old oldAt
     have nextValue : next.contents.value = .schemeFunction declaration scheme := by
       simpa [Connected.read, active, nextAt] using readAfter
+    have nextTag : next.contents.typeTag = .schemeFunction := by
+      have typed := next.contents.wellTyped
+      rw [nextValue] at typed
+      cases tag : next.contents.typeTag <;> simp_all [HasType, valueType, typeFits]
     have oldType : valueType old.contents.value = some .schemeFunction := by
-      have nextTyped := next.contents.wellTyped
-      rw [nextValue] at nextTyped
-      have oldTyped := old.contents.wellTyped
-      rw [← sameTag] at oldTyped
-      exact oldTyped.trans nextTyped.symm
+      have typed := old.contents.wellTyped
+      have oldTag : old.contents.typeTag = .schemeFunction := sameTag.symm.trans nextTag
+      rw [oldTag] at typed
+      cases actual : valueType old.contents.value with
+      | none => simp [HasType, actual] at typed
+      | some ty => cases ty <;> simp_all [HasType, typeFits]
     obtain ⟨oldDeclaration, oldScheme, oldValue⟩ := scheme_function_type_shape old.contents.value oldType
     have oldRead : Connected.read before cells binder = some (.schemeFunction oldDeclaration oldScheme) := by
       simp [Connected.read, active, oldAt, oldValue]
@@ -263,7 +271,7 @@ theorem typed_machine_world_preserved {before after : Machine} {event : Label}
       inputClosed, outputClosed, control, stack, pending⟩ := invariant.focus
     exact typed_control_values_safe before input control
   refine ⟨step_preserves_machine_memory_invariant step invariant.memory,
-    step_preserves_function_table_certificate globals storage step invariant.functions invariant.globalSchemes,
+    step_preserves_function_table_certificate globals storage step invariant.functions invariant.globalSchemes invariant.memory.globals.live,
     ?_, ?_, ?_, step_preserves_store_callables step invariant.storedValues controlSafe⟩
   · rw [sameGlobals]
     exact invariant.globalDistinct
