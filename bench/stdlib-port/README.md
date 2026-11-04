@@ -13,7 +13,9 @@ The gate allows a candidate-minus-reference increase of at most
 `max(10% of reference, 2 ms)` for end-to-end workloads. The runner exits
 nonzero when a workload fails its budget or parity check. Before timing, require
 `perf-gate-ready` to exit 0. Run `perf-gate-ready -1` immediately afterward and
-discard results if it fails. A busy host defers the timing gate.
+discard results if it fails. A busy host defers the timing gate. The runner
+reports median absolute deviations but does not use them in its budget decision.
+Treat a result as a regression only when it exceeds the observed spread.
 
 ## Historical reports
 
