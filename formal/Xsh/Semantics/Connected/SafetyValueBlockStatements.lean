@@ -144,4 +144,43 @@ theorem typed_machine_tail_value (globals : Scope) (storage : BindingStorageMap)
           ?_, middleClosed, outputClosed, .completed valueTyped valueClosed accepts callable, oldStack, newPending⟩
         simpa [ActiveScopeTyped, ScopeStateAgrees, TypedDemand.context] using active
 
+theorem typed_machine_evaluate_tail (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
+    (base : Machine) (value : Node)
+    (typed : TypedMachine globals storage types { base with control := .statements [.evaluated value] }) :
+    TypedMachine globals storage types { base with control := .expression value, stack := .tailValue :: base.stack } := by
+  have step := Step.evaluateTail base value
+  obtain ⟨memory, functions, globalDistinct, globalSchemes, globalStorage, storedValues⟩ :=
+    typed_machine_world_preserved globals storage types typed step
+  refine ⟨memory, functions, globalDistinct, globalSchemes, globalStorage, storedValues, ?_⟩
+  obtain ⟨input, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted, active,
+    inputClosed, outputClosed, control, stack, pending⟩ := typed.focus
+  cases control with
+  | statements ground fresh =>
+    rename_i context
+    simp only [TypedDemand.context] at activation
+    cases ground with
+    | evaluatedTail valueTyped accepts =>
+      have newPending : PendingBindingsSafe { base with control := .expression value, stack := .tailValue :: base.stack } := by
+        constructor
+        · simpa [pendingMachineBinders, pendingControlBinders, pendingStackBinders, pendingFrameBinders,
+            frameCallerActivation, declaredBinders] using pending.unique
+        · simpa [pendingMachineBinders, pendingControlBinders, pendingStackBinders, pendingFrameBinders,
+            frameCallerActivation, declaredBinders] using pending.fresh
+      have valueFresh : FutureNodeBindingsFresh base.store context.activation value := by
+        simpa [FutureNodeBindingsFresh, FutureBindingsFresh, declaredBinders] using fresh
+      have oldStack : StackTyped { base with control := .expression value, stack := .tailValue :: base.stack }
+          (.block context) output base.stack := by
+        apply stack_typing_survives_pending step stack
+        intro binding member
+        apply newPending.fresh binding
+        simp only [pendingMachineBinders, pendingStackBinders, pendingFrameBinders, frameCallerActivation,
+          List.map_nil, List.nil_append, List.mem_append]
+        right
+        simpa [TypedDemand.context, activation] using member
+      obtain ⟨runtimeType, closed⟩ := ground_node_is_closed valueTyped
+      refine ⟨.expression context _, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
+        ?_, ⟨runtimeType, closed⟩, outputClosed, .expression valueTyped closed valueFresh,
+        .cons (.tailValue accepts) inputClosed oldStack, newPending⟩
+      simpa [ActiveScopeTyped, ScopeStateAgrees, TypedDemand.context] using active
+
 end Xsh.Semantics.Connected
