@@ -98,16 +98,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-59 · P2 · Preserve interactive history when persistence fails
-
-- **Area:** Concurrency
-- **Where:** `crates/xshi/src/interactive/history.rs`, `crates/xshi/src/interactive/history/store.rs`
-- **Problem:** History append ignores failure to acquire the shared lock and proceeds without it. It also discards directory, open and write errors. A lock timeout can therefore overlap an exclusive compaction, and the shell can silently lose recorded commands. Unproven: a reproduced timeout and compaction sequence that loses history.
-- **Recommendation:** Require the shared lock before append, surface persistence failures and retain intended commands without corrupting prior history. Preserve bounded waits and the existing history contract.
-- **Acceptance:** Reproduce lock timeout during compaction and reject an unlocked append. Exercise directory, open and write failures; each is visible and intended commands remain recoverable without corrupting prior history. Verify concurrent append, compaction and reset behavior.
-- **Fix with:** durable-state
-- **Effort:** M
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
