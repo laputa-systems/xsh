@@ -196,8 +196,9 @@ const CONNECTED_TAGS: &[FullTag] = &[
     FullTag::IntInt, FullTag::IntSlot, FullTag::IntBinary,
     FullTag::BoolBool, FullTag::BoolSlot, FullTag::BoolNot, FullTag::BoolAnd,
     FullTag::BoolOr, FullTag::BoolIntCompare, FullTag::ExprInt, FullTag::ExprBool,
-    FullTag::ExprStr, FullTag::ExprParam, FullTag::ExprBinary, FullTag::ExprRecord,
-    FullTag::ExprField, FullTag::ExprValueBlock, FullTag::ExprIf, FullTag::ExprOk,
+    FullTag::ExprStr, FullTag::ExprFunctionRef, FullTag::ExprParam, FullTag::ExprBinary, FullTag::ExprRecord,
+    FullTag::ExprField, FullTag::ExprRequire, FullTag::ExprCheckedValue, FullTag::ExprValueBlock,
+    FullTag::ExprModuleCall, FullTag::ExprIf, FullTag::ExprOk,
     FullTag::ExprErr, FullTag::ExprTry, FullTag::ExprCall, FullTag::ExprDirectPureCall,
     FullTag::StmtLet, FullTag::StmtLetInt, FullTag::StmtLetBool, FullTag::StmtAssign,
     FullTag::StmtAssignInt, FullTag::StmtAssignBool, FullTag::StmtValue,
@@ -212,6 +213,35 @@ struct RawInstructions {
     checked_call_target_required: Vec<bool>,
     data: Vec<IrData>,
     extra: Vec<u32>,
+    binary_ops: Vec<BinaryOp>,
+    locations: Vec<IrLocation>,
+    location_sources: Vec<SourceId>,
+    strings: Vec<IrRange>,
+    string_bytes: Vec<u8>,
+}
+
+fn binary_op_name(op: BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::ResultFallback => "resultFallback", BinaryOp::Or => "or", BinaryOp::And => "and",
+        BinaryOp::Eq => "eq", BinaryOp::Ne => "ne", BinaryOp::Lt => "lt", BinaryOp::Le => "le",
+        BinaryOp::Gt => "gt", BinaryOp::Ge => "ge", BinaryOp::In => "in", BinaryOp::NotIn => "notIn",
+        BinaryOp::Add => "add", BinaryOp::Sub => "sub", BinaryOp::Mul => "mul", BinaryOp::Div => "div",
+        BinaryOp::Rem => "rem", BinaryOp::Union => "union", BinaryOp::Intersect => "intersect",
+    }
+}
+
+fn decode_binary_op(value: WireValue) -> Result<BinaryOp, CandidateDecodeError> {
+    let WireValue::String(name) = value else {
+        return Err(CandidateDecodeError::Malformed("binary operation is not a string".to_string()));
+    };
+    match name.as_str() {
+        "resultFallback" => Ok(BinaryOp::ResultFallback), "or" => Ok(BinaryOp::Or), "and" => Ok(BinaryOp::And),
+        "eq" => Ok(BinaryOp::Eq), "ne" => Ok(BinaryOp::Ne), "lt" => Ok(BinaryOp::Lt), "le" => Ok(BinaryOp::Le),
+        "gt" => Ok(BinaryOp::Gt), "ge" => Ok(BinaryOp::Ge), "in" => Ok(BinaryOp::In), "notIn" => Ok(BinaryOp::NotIn),
+        "add" => Ok(BinaryOp::Add), "sub" => Ok(BinaryOp::Sub), "mul" => Ok(BinaryOp::Mul), "div" => Ok(BinaryOp::Div),
+        "rem" => Ok(BinaryOp::Rem), "union" => Ok(BinaryOp::Union), "intersect" => Ok(BinaryOp::Intersect),
+        _ => Err(CandidateDecodeError::UnsupportedFeature(format!("binary operation {name}"))),
+    }
 }
 
 fn wire_flag(value: bool) -> WireValue {
@@ -238,6 +268,14 @@ fn encode_instructions(rows: &RawFullRows) -> Result<String, CandidateDecodeErro
         ("checkedCallTargetRequired", WireValue::Array(rows.checked_call_target_required.iter().copied().map(wire_flag).collect())),
         ("data", WireValue::Array(data)),
         ("extra", WireValue::Array(rows.extra.iter().map(|word| wire_string(format!("{word:08x}"))).collect())),
+        ("binaryOps", WireValue::Array(rows.binary_ops.iter().copied().map(|op| wire_string(binary_op_name(op))).collect())),
+        ("locations", WireValue::Array(rows.locations.iter().map(|location| wire_object([
+            ("start", wire_string(format!("{:08x}", location.start))),
+            ("length", wire_string(format!("{:08x}", location.len))),
+        ])).collect())),
+        ("locationSources", WireValue::Array(rows.location_sources.iter().map(|source| wire_string(format!("{:08x}", source.raw()))).collect())),
+        ("strings", WireValue::Array(rows.strings.iter().copied().map(wire_range).collect())),
+        ("stringBytes", WireValue::Array(rows.string_bytes.iter().map(|value| wire_word(u32::from(*value))).collect())),
     ]);
     deser_json::to_string(&wire).map_err(|error| CandidateDecodeError::Malformed(error.to_string()))
 }
@@ -252,7 +290,7 @@ fn decode_flag(value: WireValue) -> Result<bool, CandidateDecodeError> {
 
 fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeError> {
     let mut object = parse_object_fields(parse_wire_document(input)?,
-        &["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra"])?;
+        &["tags", "resourceTransfers", "checkedCallTargetRequired", "data", "extra", "binaryOps", "locations", "locationSources", "strings", "stringBytes"])?;
     let tags = take_array(&mut object, "tags")?.into_iter().map(|value| {
         let mut row = parse_object_fields(value, &["name", "ordinal"])?;
         let name = take_string(&mut row, "name")?;
@@ -280,7 +318,23 @@ fn decode_instructions(input: &str) -> Result<RawInstructions, CandidateDecodeEr
         WireValue::String(text) => parse_hex_u32(&text).map_err(CandidateDecodeError::from),
         _ => Err(CandidateDecodeError::Malformed("instruction extra word is not a string".to_string())),
     }).collect::<Result<Vec<_>, _>>()?;
-    Ok(RawInstructions { tags, resource_transfers, checked_call_target_required, data, extra })
+    let binary_ops = take_array(&mut object, "binaryOps")?.into_iter().map(decode_binary_op).collect::<Result<Vec<_>, _>>()?;
+    let locations = take_array(&mut object, "locations")?.into_iter().map(|value| {
+        let mut row = parse_object_fields(value, &["start", "length"])?;
+        Ok(IrLocation { start: parse_hex_u32(&take_string(&mut row, "start")?)?,
+            len: parse_hex_u32(&take_string(&mut row, "length")?)? })
+    }).collect::<Result<Vec<_>, CandidateDecodeError>>()?;
+    let location_sources = take_array(&mut object, "locationSources")?.into_iter().map(|value| match value {
+        WireValue::String(text) => Ok(SourceId::new(parse_hex_u32(&text)? as usize)),
+        _ => Err(CandidateDecodeError::Malformed("location source is not a string".to_string())),
+    }).collect::<Result<Vec<_>, CandidateDecodeError>>()?;
+    let strings = take_array(&mut object, "strings")?.into_iter().map(decode_range).collect::<Result<Vec<_>, _>>()?;
+    let string_bytes = take_array(&mut object, "stringBytes")?.into_iter().map(|value| match value {
+        WireValue::String(text) => u8::try_from(parse_hex_u32(&text)?)
+            .map_err(|_| CandidateDecodeError::Malformed("string byte is out of range".to_string())),
+        _ => Err(CandidateDecodeError::Malformed("string byte is not a string".to_string())),
+    }).collect::<Result<Vec<_>, CandidateDecodeError>>()?;
+    Ok(RawInstructions { tags, resource_transfers, checked_call_target_required, data, extra, binary_ops, locations, location_sources, strings, string_bytes })
 }
 
 
@@ -539,6 +593,42 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     let owner = decode_owner(&owner_bytes, &program.sources).unwrap();
     let instruction_bytes = encode_instructions(&raw.rows).unwrap();
     let instructions = decode_instructions(&instruction_bytes).unwrap();
+    assert_eq!(instructions.binary_ops, raw.rows.binary_ops);
+    assert_eq!(instructions.locations, raw.rows.locations);
+    assert_eq!(instructions.location_sources, raw.rows.location_sources);
+    assert_eq!(instructions.strings, raw.rows.strings);
+    assert_eq!(instructions.string_bytes, raw.rows.string_bytes);
+    let mut changed_ops = parse_wire_document(&instruction_bytes).unwrap();
+    let WireValue::Object(fields) = &mut changed_ops else { unreachable!() };
+    let (_, WireValue::Array(ops)) = fields.iter_mut().find(|(name, _)| name == "binaryOps").unwrap() else { unreachable!() };
+    let addition = raw.rows.binary_ops.iter().position(|op| *op == BinaryOp::Add).unwrap();
+    ops[addition] = wire_string("sub");
+    let changed_bytes = deser_json::to_string(&changed_ops).unwrap();
+    let changed_instructions = decode_instructions(&changed_bytes).unwrap();
+    assert_eq!(changed_instructions.binary_ops[addition], BinaryOp::Sub);
+    assert_ne!(changed_instructions.binary_ops, instructions.binary_ops);
+    let mut missing_location_source = parse_wire_document(&instruction_bytes).unwrap();
+    let WireValue::Object(fields) = &mut missing_location_source else { unreachable!() };
+    let (_, WireValue::Array(sources)) = fields.iter_mut().find(|(name, _)| name == "locationSources").unwrap() else { unreachable!() };
+    sources.pop().unwrap();
+    let missing_location_bytes = deser_json::to_string(&missing_location_source).unwrap();
+    let missing_location = decode_instructions(&missing_location_bytes).unwrap();
+    let mut candidate = raw.clone();
+    candidate.rows.locations = missing_location.locations;
+    candidate.rows.location_sources = missing_location.location_sources;
+    assert!(FullVerifier::verify(&candidate.into_program()).is_err());
+    let mut bad_string = parse_wire_document(&instruction_bytes).unwrap();
+    let WireValue::Object(fields) = &mut bad_string else { unreachable!() };
+    let (_, WireValue::Array(strings)) = fields.iter_mut().find(|(name, _)| name == "strings").unwrap() else { unreachable!() };
+    let WireValue::Object(range) = strings.first_mut().unwrap() else { unreachable!() };
+    let (_, length) = range.iter_mut().find(|(name, _)| name == "length").unwrap();
+    *length = wire_word(IR_NONE);
+    let bad_string_bytes = deser_json::to_string(&bad_string).unwrap();
+    let bad_string = decode_instructions(&bad_string_bytes).unwrap();
+    let mut candidate = raw.clone();
+    candidate.rows.strings = bad_string.strings;
+    candidate.rows.string_bytes = bad_string.string_bytes;
+    assert!(FullVerifier::verify(&candidate.into_program()).is_err());
     let function_bytes = encode_functions(&raw.rows).unwrap();
     let function_rows = decode_functions(&function_bytes).unwrap();
     let mut foreign_owner = raw.clone();
@@ -551,6 +641,11 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     foreign_owner.rows.checked_call_target_required = instructions.checked_call_target_required;
     foreign_owner.rows.data = instructions.data;
     foreign_owner.rows.extra = instructions.extra;
+    foreign_owner.rows.binary_ops = instructions.binary_ops;
+    foreign_owner.rows.locations = instructions.locations;
+    foreign_owner.rows.location_sources = instructions.location_sources;
+    foreign_owner.rows.strings = instructions.strings;
+    foreign_owner.rows.string_bytes = instructions.string_bytes;
     foreign_owner.rows.blocks = function_rows.blocks;
     foreign_owner.rows.functions = function_rows.functions;
     FullVerifier::verify(&foreign_owner.into_program()).unwrap();
@@ -566,6 +661,11 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     bad_candidate.rows.checked_call_target_required = bad_instructions.checked_call_target_required;
     bad_candidate.rows.data = bad_instructions.data;
     bad_candidate.rows.extra = bad_instructions.extra;
+    bad_candidate.rows.binary_ops = bad_instructions.binary_ops;
+    bad_candidate.rows.locations = bad_instructions.locations;
+    bad_candidate.rows.location_sources = bad_instructions.location_sources;
+    bad_candidate.rows.strings = bad_instructions.strings;
+    bad_candidate.rows.string_bytes = bad_instructions.string_bytes;
     assert!(FullVerifier::verify(&bad_candidate.into_program()).is_err());
 
     let mut bad_function = parse_wire_document(&function_bytes).unwrap();

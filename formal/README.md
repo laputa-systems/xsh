@@ -24,6 +24,12 @@ suite, and replay runner have not been introduced. The ledger's bridge cases are
 the fourteen named arithmetic and facts tests; other private bridge fixtures
 are not conformance cases.
 
+The experimental foreign-IR bridge also decodes candidate instruction rows,
+binary-operation tables, locations, and string pools before passing a
+reconstructed program to `FullVerifier`. Other semantic tables still come from
+an in-process program. Source-to-IR validation and portable symbol ownership
+remain open, so this bridge is not a certificate for foreign programs.
+
 Every claim here starts after parsing unless planned source-admission evidence
 covers the source bytes. Rust is the only implementation compared so far. The
 plan states the contract a second implementation must meet; no such
