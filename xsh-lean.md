@@ -31,8 +31,10 @@ Next, widen the lowered shape toward the milestone
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. Earlier kernel passes cover
-their recorded source only. The expanded connected integration still needs a
-successful fresh six-kernel check under the unchanged limits.
+their recorded source only. The expanded connected integration at `09447fa09`
+passes a fresh build and all six kernel checks under the unchanged limits.
+That result does not close the remaining connected milestone or certify a
+later source freeze.
 The independent kernels hold the whole export in memory. Earlier checks at the
 8 GiB address-space cap found that a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
@@ -889,6 +891,15 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   its admitted table. The table is not yet connected to the source-to-IR
   relation, and the foreign FullProgram decoder and execution simulation
   remain open.
+
+- 2026-11-04: On resumed source `09447fa09`, the fresh build and all six
+  bundled kernel checks pass with the unchanged 180-second build limit,
+  1080-second paranoid-check limit, and 8 GiB address-space cap. Lean paranoid,
+  lean4lean, nanoda, con-leche, con-ron, and Lean default accept the export.
+  The reported transitive axioms are `propext`, `Quot.sound`, and
+  `Classical.choice`. The separate axiom audit passes for 27,044 project
+  declarations and zero closed roots. All six audit negative controls reject.
+  The connected milestone and final matching Rust/source freeze remain open.
 
 ## For the owner afterwards
 
