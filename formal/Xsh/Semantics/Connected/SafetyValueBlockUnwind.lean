@@ -15,13 +15,15 @@ theorem typed_return_stack_progress (state : Machine) (input output : TypedDeman
     cases frame <;> try (exact ⟨_, by simpa using Step.returnUnwind { state with stack := rest } value _ rfl⟩)
     case caller cells activation solution result =>
       cases typedFrame with
-      | caller sameStorage proofSorted runtimeSorted savedActivation completion resultClosed callClosed scope schemes storage schemas =>
+      | caller sameStorage proofSorted runtimeSorted savedActivation completion resultClosed callClosed scope writable schemes storage schemas =>
         rename_i inner outer callType
         cases control with
         | returned typed valueClosed callables =>
-          have sameType : valueType value = some result := by
-            rw [← resultClosed]
-            exact typed.trans valueClosed.symm
+          have sameType : HasType result value := by
+            simp only [TypedDemand.context] at valueClosed
+            rw [resultClosed] at valueClosed
+            cases valueClosed
+            exact typed
           exact ⟨_, by simpa using Step.returnedToCaller { state with stack := rest } value cells activation outer.runtimeSolution result sameType⟩
 
 theorem typed_machine_return_progress (state : Machine) (globals : Scope) (storage : BindingStorageMap)
@@ -51,17 +53,17 @@ theorem typed_completed_stack_progress (state : Machine) (input output : TypedDe
     | @cons input middle output frame rest typedFrame closed remaining =>
       right
       cases typedFrame with
-      | continueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope schemes storage schemas restTyped fresh =>
+      | continueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope writable schemes storage schemas restTyped fresh =>
         rename_i outer cells following
         cases following with
         | nil => exact ⟨_, by simpa using Step.tailBranchComplete { state with stack := rest } value cells⟩
         | cons next tail => exact ⟨_, by simpa using Step.nonTailBranchComplete { state with stack := rest } value cells next tail⟩
-      | valueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope schemes storage schemas =>
+      | valueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope writable schemes storage schemas =>
         rename_i outer cells blockType
         exact ⟨_, by simpa using Step.valueBlockComplete { state with stack := rest } value cells⟩
-      | caller storageSame proofSorted runtimeSorted activationSame completion resultClosed callClosed scope schemes storage schemas =>
+      | caller storageSame proofSorted runtimeSorted activationSame completion resultClosed callClosed scope writable schemes storage schemas =>
         rename_i outer cells activation result callType
-        have sameType : valueType value = some result := by
+        have sameType : HasType result value := by
           have sameMono : ty = context.result := by
             rcases accepted with absent | present
             · rw [completion] at absent
@@ -69,8 +71,9 @@ theorem typed_completed_stack_progress (state : Machine) (input output : TypedDe
             · rw [completion] at present
               exact (Option.some.inj present).symm
           rw [sameMono] at valueClosed
-          rw [← resultClosed]
-          exact typed.trans valueClosed.symm
+          rw [resultClosed] at valueClosed
+          cases valueClosed
+          exact typed
         exact ⟨_, by simpa using Step.completedToCaller { state with stack := rest } value cells activation outer.runtimeSolution result sameType⟩
 
 theorem typed_machine_completed_progress (state : Machine) (globals : Scope) (storage : BindingStorageMap)
@@ -100,7 +103,7 @@ theorem typed_propagated_stack_progress (state : Machine) (input output : TypedD
     cases frame <;> try (exact ⟨_, by simpa using Step.propagateUnwind { state with stack := rest } (.error error oldType) _ rfl⟩)
     case caller cells activation solution resultType =>
       cases typedFrame with
-      | caller sameStorage proofSorted runtimeSorted savedActivation completion resultClosed callClosed scope schemes storage schemas =>
+      | caller sameStorage proofSorted runtimeSorted savedActivation completion resultClosed callClosed scope writable schemes storage schemas =>
         rename_i inner outer callType
         cases control with
         | propagated matching errorTyped failureClosed callable =>
