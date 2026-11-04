@@ -580,8 +580,8 @@ Success. Mutable reads without an authenticated origin do not establish a
 return schema.
 
 The checker publishes successful binary selections at their executable source
-identities. Constant preparation publishes its own successful fold domains, including the raw result before a
-storage annotation applies. Body comparison consumes these facts without
+identities. Constant preparation publishes its own successful fold domains,
+including the raw result before a storage annotation applies. Body comparison consumes these facts without
 folding or resolving operations. It compares operation identity and all operand
 and result domains, specializing with the same retained callable-instance
 evidence used for the interface. Unchanged schemes use the existing bound-type
