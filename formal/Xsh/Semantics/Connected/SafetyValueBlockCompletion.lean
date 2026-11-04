@@ -1,4 +1,4 @@
-import Xsh.Semantics.Connected.SafetyValueBlockAssignment
+import Xsh.Semantics.Connected.SafetyCompatibleBindingStart
 
 namespace Xsh.Semantics.Connected
 
@@ -22,7 +22,7 @@ theorem typed_machine_value_block_complete (globals : Scope) (storage : BindingS
     cases stack with
     | cons frameTyped middleClosed remaining =>
       cases frameTyped with
-      | valueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope schemes storageAgrees schemas =>
+      | valueBlock solutionSame runtimeSame storageSame resultSame activationSame completion scope writable schemes storageAgrees schemas =>
         rename_i outer blockType
         have sameType : ty = blockType := by
           rcases accepted with absent | present
@@ -48,7 +48,7 @@ theorem typed_machine_value_block_complete (globals : Scope) (storage : BindingS
         · simpa [activationSame, TypedDemand.context] using activation
         · simpa [storageSame, TypedDemand.context] using storageEqual
         · simpa [solutionSame, TypedDemand.context] using proofSorted
-        · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+        · exact ⟨by simpa [ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 theorem typed_machine_value_block_start (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
     (base : Machine) (completion : MonoType) (body : List StatementNode)
@@ -77,7 +77,7 @@ theorem typed_machine_value_block_start (globals : Scope) (storage : BindingStor
             frameCallerActivation, nodeDeclaredBinders] using pending.fresh
       have bodyFresh : FutureBindingsFresh base.store context.activation body := by
         simpa [FutureNodeBindingsFresh, FutureBindingsFresh, nodeDeclaredBinders] using fresh
-      obtain ⟨scope, schemas, schemes, storageAgrees⟩ := active
+      obtain ⟨scope, writable, schemas, schemes, storageAgrees⟩ := active
       have oldStack : StackTyped { base with control := .statements body, stack := .valueBlock base.cells :: base.stack }
           (.expression context (substitute context.solution completion)) output base.stack := by
         apply stack_typing_survives_pending step stack
@@ -90,7 +90,7 @@ theorem typed_machine_value_block_start (globals : Scope) (storage : BindingStor
       have frame : FrameTyped { base with control := .statements body, stack := .valueBlock base.cells :: base.stack }
           (.block inner) (.expression context (substitute context.solution completion)) (.valueBlock base.cells) := by
         exact .valueBlock rfl rfl rfl rfl rfl rfl (by simpa [ScopeStateAgrees, TypedDemand.context] using scope)
-          schemes storageAgrees schemas
+          writable schemes storageAgrees schemas
       have innerClosed : DemandClosed (.block inner) := by
         refine ⟨context.resultClosed, ?_⟩
         intro ty equal
@@ -99,6 +99,6 @@ theorem typed_machine_value_block_start (globals : Scope) (storage : BindingStor
         exact ⟨_, valueClosed⟩
       refine ⟨.block inner, output, runtimeSolution, activation, storageEqual, proofSorted, runtimeSorted,
         ?_, innerClosed, outputClosed, .statements bodyTyped bodyFresh, .cons frame inputClosed oldStack, newPending⟩
-      exact ⟨by simpa [inner, ScopeStateAgrees, TypedDemand.context] using scope, schemas, schemes, storageAgrees⟩
+      exact ⟨by simpa [inner, ScopeStateAgrees, TypedDemand.context] using scope, writable, schemas, schemes, storageAgrees⟩
 
 end Xsh.Semantics.Connected
