@@ -42,8 +42,11 @@ use super::{MapEmitter, SeqEmitter, SerializeHandle, StructEmitter};
 /// every event before the format receives it.  They are added with
 /// [`push_layer`](Self::push_layer) and are not supported by
 /// [`next`](Self::next).
+/// [`EventGuard`]s check borrowed original events before layers and also
+/// support [`next`](Self::next).
 pub struct SerializeDriver<'a> {
     state: State,
+    guards: Vec<Box<dyn EventGuard>>,
     layers: Vec<Box<dyn Layer>>,
     // Values and frames refer to data borrowed from the serializables and
     // emitters of the frames below them, which is why the lifetimes are
@@ -347,6 +350,17 @@ pub trait EventSink {
     }
 }
 
+/// Checks serialization events before they enter transforming layers or sinks.
+///
+/// Guards receive the original events in emission order, including map keys
+/// and container boundaries. A rejected event is not passed to later guards,
+/// layers or sinks. Guards also apply to [`SerializeDriver::next`] and retain
+/// their state when [`SerializeDriver::drive_until`] pauses.
+pub trait EventGuard: Send {
+    /// Checks an event without changing it or its serialization state.
+    fn check(&mut self, event: &Event<'_>, state: &State) -> Result<(), Error>;
+}
+
 /// A callback that delivers to an event sink and does not pause.
 struct Sink<'s, S>(&'s mut S);
 
@@ -484,6 +498,7 @@ impl<'a> SerializeDriver<'a> {
             .unwrap_or_else(|| Vec::with_capacity(STACK_CAPACITY));
         SerializeDriver {
             state,
+            guards: Vec::new(),
             layers: Vec::new(),
             // SAFETY: the driver cannot outlive 'a
             next_value: Some(unsafe { Held::new(SerializeHandle::from(serializable)) }),
@@ -548,6 +563,13 @@ impl<'a> SerializeDriver<'a> {
         self.layers.push(Box::new(layer));
     }
 
+    /// Adds a guard that checks original events before transforming layers.
+    ///
+    /// Guards run in the order they were added. See [`EventGuard`].
+    pub fn push_guard<G: EventGuard + 'static>(&mut self, guard: G) {
+        self.guards.push(Box::new(guard));
+    }
+
     /// Produces the next serialization event.
     ///
     /// # Panics
@@ -567,6 +589,13 @@ impl<'a> SerializeDriver<'a> {
             Err(err) => return Err(self.state.error_in_context(err)),
         };
         self.delivered = rv.is_some();
+        if let Some((ref event, _)) = rv {
+            for guard in &mut self.guards {
+                if let Err(error) = guard.check(event, &self.state) {
+                    return Err(self.state.error_in_context(error));
+                }
+            }
+        }
         // The event and the value borrow from the values held by the driver
         // but never from the state (serializables cannot return `Emit`s
         // borrowing from it), which is why the state can be handed out
@@ -698,6 +727,9 @@ impl<'a> SerializeDriver<'a> {
         event: Event<'_>,
         value: SerializeRef<'_>,
     ) -> Result<(), Error> {
+        for guard in &mut self.guards {
+            guard.check(&event, &self.state)?;
+        }
         // the value is only passed on if the callback wants it
         let value = if C::DESCRIBED { value } else { field_key() };
         if self.layers.is_empty() {

@@ -48,7 +48,7 @@ pub(super) fn setup_decode(format: Format, driver: &mut DeserializeDriver<'_, '_
 }
 
 pub(super) fn setup_encode(format: Format, driver: &mut deser::ser::SerializeDriver<'_>) {
-    driver.push_layer(EncodeLimits::default());
+    driver.push_guard(EncodeLimits::default());
     driver.push_layer(EncodeGuard { format });
 }
 
