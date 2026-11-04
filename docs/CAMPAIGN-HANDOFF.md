@@ -37,6 +37,20 @@ passes all six debug import-contract tests. Its tree is
 `e04676f5212f9bfc6d2df93552c1db4d989ba6ac`; a new bootstrap is running. Preserve
 the failed receipt. No full reference replay has passed.
 
+Private branch `318d2ac4e` extends the raw store check to the replacement
+expression: Lean reconstructs the replacement from raw rows and from the checked
+node and requires agreement. Scheme lowering emits assignment right-hand sides as
+let-bound temporaries followed by one value, so the reader substitutes them and
+rejects temporaries that rebind mapped source slots. The Rust control changes an
+executed store literal and observes the assertion failure; its earlier harness
+discarded propagated errors and could not fail. The binder-to-slot map, calls,
+Result forms, and execution correspondence remain open.
+
+The Codex session stopped at 17:38 UTC and ended two runs: the kernel
+`2252e24b6` full gate, in recovery round 8 of 10 with all earlier cases passing
+on both backends, and the reference bootstrap. Neither result counts. The kernel gate was restarted
+unchanged; the reference bootstrap was not.
+
 Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
 206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
 cases, other platform backends, and unavailable font-specific fixtures. Laputa's
