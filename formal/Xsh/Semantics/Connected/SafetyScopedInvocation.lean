@@ -95,11 +95,22 @@ theorem actual_scoped_invocation_typed (base : Machine) (value : Xsh.Values.IntV
 def scopedFixtureArgument : Xsh.Values.IntValue :=
   ⟨7, by unfold Xsh.Values.signed64Min Xsh.Values.signed64Limit; omega⟩
 
+theorem scoped_fixture_source_argument :
+    ∃ call, scopedDocument.calls[0]? = some call ∧
+    (unitExpressions scopedUnit).find? (fun (site, _) => decide (site = call.site)) =
+      some (call.site, scopedCall) ∧
+    scopedCall = .call (.ident scopedFunctionName) [.positional (.literal (.integer "7"))] ∧
+    parseInteger "7" = some scopedFixtureArgument := by
+  exact ⟨_, rfl, rfl, rfl, by decide⟩
+
 theorem actual_scoped_invocation_execution_safe (base : Machine) (response : Xsh.Values.IntValue) :
     ∃ principal call,
       admitSource 0 actualScopedSource = .ok scopedUnit ∧
       decodeScopedFactsDocument 128 (sourceNameResolver scopedUnit) scopedFactsCodes = some (scopedDocument, scopedScopes) ∧
       scopedDocument.calls[0]? = some call ∧
+      (unitExpressions scopedUnit).find? (fun (site, _) => decide (site = call.site)) = some (call.site, scopedCall) ∧
+      scopedCall = .call (.ident scopedFunctionName) [.positional (.literal (.integer "7"))] ∧
+      parseInteger "7" = some scopedFixtureArgument ∧
       argumentsFromCall (scopedVariableResolver scopedScopes) scopedBodyDocument
         ⟨call.expression, call.site, call.role, call.target, call.typeArguments,
           call.operationBindings.filterMap (fun binding => match binding with | .field => some .field | .store => none)⟩ =
@@ -114,7 +125,10 @@ theorem actual_scoped_invocation_execution_safe (base : Machine) (response : Xsh
         MachineTerminal final ∨ ∃ event next, Step final event next ∧ PermittedControl next.control) := by
   obtain ⟨principal, accepted, typed⟩ := actual_scoped_invocation_typed base scopedFixtureArgument
   obtain ⟨call, callAt, callArgs⟩ := scoped_fixture_selected_arguments
-  refine ⟨principal, call, actual_scoped_source_is_admitted, scoped_document_decodes, callAt, callArgs, accepted, typed, ?_, ?_⟩
+  obtain ⟨sourceCall, sourceCallAt, sourceSite, sourceExpression, parsed⟩ := scoped_fixture_source_argument
+  rw [callAt] at sourceCallAt
+  cases sourceCallAt
+  refine ⟨principal, call, actual_scoped_source_is_admitted, scoped_document_decodes, callAt, sourceSite, sourceExpression, parsed, callArgs, accepted, typed, ?_, ?_⟩
   · intro final events fault execution failed
     exact typed_execution_fault_is_integer [] (fun _ => .ordinary) (fun _ => none) response execution typed fault failed
   · intro final events execution
