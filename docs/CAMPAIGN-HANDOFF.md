@@ -16,8 +16,13 @@ timing pairs. No CPU benefit exceeds observed spread. It remains unmerged;
 the owning performance campaign records the neutral comparison. The earlier
 description of unrun measurements below records the wind-down state.
 
-The fresh connected check and complete kernel gate have been restarted.
-Neither is counted as passing before its actual completion.
+The fresh connected check at `09447fa09` now passes its build and all six
+kernels under the unchanged limits. The axiom audit passes for 27,044 project
+declarations and zero closed roots, and all six negative controls reject.
+This establishes the previously missing maintenance check, not the connected
+milestone or final matching Rust/source freeze. Private branch `c6ff5be9f`
+records the result. The complete kernel gate is still running and has no
+final acceptance credit.
 
 ## Source and publication state
 
