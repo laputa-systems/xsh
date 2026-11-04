@@ -107,8 +107,10 @@ the equality level; `|>` is looser than every operator.
 | 2 | `and` | left | logical |
 | 1 | `??` `or` | right (`??`), left (others) | fallback, logical |
 
-Ordering operators chain (`0 <= i < n`); an ordering never mixes with an
-equality, membership, or pattern test without grouping
+Ordering operators take two operands. A chain such as `0 <= i < n` is
+rejected with `parse.comparison-chain`; join the comparisons with `and` and
+bind a middle operand that is not a name or literal first. An ordering never
+mixes with an equality, membership, or pattern test without grouping
 (`parse.mixed-comparison`), which the productions spell out. The checker's
 grouping rules (`check.mixed-logical`, `check.ambiguous-grouping`,
 `check.redundant-parens`) apply on top of this grammar.
