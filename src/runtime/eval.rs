@@ -53,6 +53,8 @@ mod body_contract;
 pub use body_contract::{CheckedBodyContract, CheckedBodyContractError, checked_body_contracts};
 mod call_plan;
 use call_plan::ModuleCallPlan;
+#[cfg(test)]
+mod declaration_trace;
 mod indexed;
 
 pub(crate) fn full_instruction_tag_names() -> &'static [&'static str] {

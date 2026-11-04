@@ -1,5 +1,5 @@
 use super::super::*;
-use super::{build_fixture, check_fixture, lean_document_from, parse_hex_u32, parse_hex_u64, parse_object_fields, parse_wire_document,
+use super::{build_fixture, check_fixture, lean_definition, lean_document_from, parse_hex_u32, parse_hex_u64, parse_object_fields, parse_wire_document,
     take_array, take_string, wire_object, wire_string, WireValue};
 use crate::runtime::eval::indexed::semantic::{RawSemanticPools, SemanticPools};
 
@@ -858,4 +858,86 @@ fn raw_full_rows_reconstruct_candidate_and_preserve_verifier_failures() {
     let mut missing_semantic_data = raw;
     missing_semantic_data.rows.semantic.tables.type_data.pop().unwrap();
     assert!(FullVerifier::verify(&missing_semantic_data.into_program()).is_err());
+}
+
+fn export_local_declarations(program: &FullProgram, function: u32) -> Result<String, String> {
+    use crate::runtime::eval::declaration_trace;
+    let (lowered, emitted, _) = declaration_trace::recorded();
+    let mut rows = BTreeMap::new();
+    for source in &lowered {
+        let mut matches = emitted.iter().filter(|candidate| candidate.statement == source.statement);
+        let (Some(declaration), None) = (matches.next(), matches.next()) else {
+            return Err(format!("lowered declaration {} is not emitted exactly once", source.statement));
+        };
+        if declaration.function != function {
+            continue;
+        }
+        let row = declaration.instruction;
+        if program.store.tags.get(row) != Some(&FullTag::StmtLet) {
+            return Err(format!("declaration row {row} is not a StmtLet"));
+        }
+        let payload = program.store.data[row].lhs as usize;
+        if program.store.extra[payload] as usize != source.slot {
+            return Err(format!("declaration row {row} stores another slot than lowering assigned"));
+        }
+        if rows.insert(row, source.span).is_some() {
+            return Err(format!("declaration row {row} is claimed twice"));
+        }
+    }
+    let locals = rows.iter().map(|(row, span)| wire_object([
+        ("site", wire_object([
+            ("source", wire_string(format!("{:08x}", span.source_id.raw()))),
+            ("start", wire_string(format!("{:08x}", span.start()))),
+            ("length", wire_string(format!("{:08x}", span.end() - span.start()))),
+        ])),
+        ("row", wire_string(format!("{row:08x}"))),
+    ])).collect();
+    let facts = program.store.scheme_body_facts.iter().filter(|fact| fact.function.raw() == function)
+        .filter_map(|fact| match fact.value {
+            schemes::FullSchemeBodyFactValue::LocalImmutable(_) => Some((fact.instruction, "immutable")),
+            schemes::FullSchemeBodyFactValue::LocalMutable(_) => Some((fact.instruction, "mutable")),
+            _ => None,
+        })
+        .map(|(instruction, kind)| wire_object([
+            ("instruction", wire_string(format!("{instruction:08x}"))),
+            ("kind", wire_string(kind)),
+        ])).collect();
+    let value = wire_object([
+        ("schema", wire_string("xsh-connected-raw-locals-v1")),
+        ("function", wire_string(format!("{function:08x}"))),
+        ("locals", WireValue::Array(locals)),
+        ("facts", WireValue::Array(facts)),
+    ]);
+    deser_json::to_string(&value).map_err(|error| error.to_string())
+}
+
+const LEAN_RAW_LOCAL_DOCUMENTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+    "/formal/Xsh/Conformance/Connected/RawLocalDocuments.lean"));
+
+#[test]
+fn raw_local_declarations_bind_source_sites_to_store_rows() {
+    use crate::runtime::eval::declaration_trace;
+    let mut stale = Vec::new();
+    for (source, prefix, parameters) in [
+        ("pure scoped(value) { var current = value; without time { current = value }; current }\nassert scoped(7) == 7\n",
+            "scoped", 1usize),
+        ("pure pair(a, b) { var x = a; var y = b; y = x; y }\nassert pair(1, 2) == 1\n", "pair", 2usize),
+    ] {
+        declaration_trace::clear();
+        let (_, _, program) = build_fixture(source).unwrap();
+        let raw = RawFullProgram::capture(&program);
+        for (name, exported) in [
+            (format!("{prefix}LocalDeclarationsCodes"), export_local_declarations(&program, 1).unwrap()),
+            (format!("{prefix}RawInstructionCodes"), encode_instructions(&raw.rows).unwrap()),
+            (format!("{prefix}RawFunctionCodes"), encode_functions(&raw.rows).unwrap()),
+        ] {
+            if lean_document_from(LEAN_RAW_LOCAL_DOCUMENTS, &name).as_deref() != Some(exported.as_str()) {
+                stale.push(lean_definition(&name, &exported));
+            }
+        }
+        let (_, _, recorded) = declaration_trace::recorded();
+        assert_eq!(recorded.iter().map(|parameter| parameter.slot).collect::<Vec<_>>(), (0..parameters).collect::<Vec<_>>());
+        assert_eq!(program.store.functions[0].params.len as usize, parameters);
+    }
+    assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
 }
