@@ -136,4 +136,22 @@ theorem typed_machine_conditional_start (globals : Scope) (storage : BindingStor
   · simp [pendingMachineBinders, pendingControlBinders, pendingStackBinders, pendingFrameBinders,
       nodeDeclaredBinders, expressionBranchBinders, frameCallerActivation, List.map_append, List.append_assoc]
 
+theorem typed_machine_record_start (globals : Scope) (storage : BindingStorageMap) (types : CellTypes)
+    (base : Machine) (name : NameId) (value : Node) (rest : List (NameId × Node))
+    (typed : TypedMachine globals storage types { base with control := .expression (.record ((name, value) :: rest)) }) :
+    TypedMachine globals storage types
+      { base with control := .expression value, stack := .recordFields [] name rest :: base.stack } := by
+  apply typed_machine_expression_push globals storage types base (.record ((name, value) :: rest)) value
+    (.recordFields [] name rest) .internal (Step.recordStart base name value rest) ?_ rfl ?_ ?_ typed
+  · intro context ty ground
+    cases ground with
+    | record fields unique closed =>
+      cases fields with
+      | cons valueTyped restTyped =>
+        exact ⟨_, valueTyped, .recordFields .nil restTyped (by simpa using unique)⟩
+  · intro binder member
+    simp [nodeDeclaredBinders, fieldBinders, member]
+  · simp [pendingMachineBinders, pendingControlBinders, pendingStackBinders, pendingFrameBinders,
+      nodeDeclaredBinders, fieldBinders, frameCallerActivation, List.map_append, List.append_assoc]
+
 end Xsh.Semantics.Connected
