@@ -1,4 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::FileExt;
@@ -11,14 +12,12 @@ mod tests;
 
 use store::{
     CacheRead, FileStamp, HistoryLock, Record, cache_path_for, dedup_last, file_stamp,
-    format_record, hash_str, history_path_for_home, is_recordable, new_session_id, now_millis,
+    format_record, hash_str, history_path_for_home, is_recordable, is_torn_record, new_session_id, now_millis,
     overlay, quarantine_path_for, read_cache, read_reset_marker, read_text_records,
     remove_if_present, reset_marker_for, write_cache, write_reset_marker,
 };
 
-/// How long readers and appenders wait for a compaction before proceeding
-/// without the lock; a shell must never hang on a stuck peer.
-const SHARED_LOCK_WAIT: Duration = Duration::from_secs(1);
+const HISTORY_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// Compaction is only an optimisation, so it gives up quickly when busy.
 const COMPACT_LOCK_WAIT: Duration = Duration::from_millis(250);
 /// `history reset` and `history rebuild` are explicit requests and wait longer.
@@ -67,15 +66,11 @@ pub struct History {
     /// in-memory entries before they can persist them again.
     reset_generation: u64,
     reset_stamp: Option<FileStamp>,
+    pending: VecDeque<Record>,
 }
 
 impl History {
     fn empty(path: PathBuf) -> Self {
-        let (reset_generation, reset_stamp) = if path.as_os_str().is_empty() {
-            (0, None)
-        } else {
-            read_reset_marker(&path)
-        };
         Self {
             arena: String::new(),
             offsets: Vec::new(),
@@ -92,8 +87,9 @@ impl History {
             session_cutoff: 0,
             session_id: new_session_id(),
             cache_dirty: false,
-            reset_generation,
-            reset_stamp,
+            reset_generation: 0,
+            reset_stamp: None,
+            pending: VecDeque::new(),
         }
     }
 
@@ -111,8 +107,16 @@ impl History {
     pub fn load_from(path: PathBuf) -> Self {
         let mut hist = Self::empty(path);
         {
-            let _lock = HistoryLock::shared(&hist.path, SHARED_LOCK_WAIT);
-            hist.resync_from_disk(true);
+            match HistoryLock::shared(&hist.path, HISTORY_LOCK_WAIT) {
+                Ok(_lock) => {
+                    match hist.sync_reset_marker() {
+                        Ok(()) => hist.resync_from_disk(true),
+                        Err(error) => eprintln!("xshi: cannot load history: {error}"),
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => eprintln!("xshi: cannot load history: {error}"),
+            }
         }
         hist.session_cutoff = now_millis();
         hist
@@ -169,8 +173,14 @@ impl History {
                 Vec::new()
             }
         };
+        let text = match read_text_records(&self.path, 0, false, now_millis()) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("xshi: cannot read history: {error}");
+                return;
+            }
+        };
         self.cache_stamp = cache_stamp;
-        let text = read_text_records(&self.path, 0, false, now_millis());
         self.file_pos = text.consumed;
         self.text_id = text.stamp.map(FileStamp::id);
         self.apply_records(overlay(cached, text.records));
@@ -217,7 +227,7 @@ impl History {
         if self.is_detached() {
             return;
         }
-        self.sync_reset_marker();
+        self.flush_pending();
         let cache_now = file_stamp(&cache_path_for(&self.path));
         let text_now = file_stamp(&self.path);
         let replaced = match text_now {
@@ -226,8 +236,17 @@ impl History {
             }
             None => self.file_pos > 0 || self.text_id.is_some(),
         };
-        if replaced || cache_now != self.cache_stamp {
-            let _lock = HistoryLock::shared(&self.path, SHARED_LOCK_WAIT);
+        if replaced
+            || cache_now != self.cache_stamp
+            || file_stamp(&reset_marker_for(&self.path)) != self.reset_stamp
+        {
+            let Some(_lock) = self.sync_lock() else {
+                return;
+            };
+            if let Err(error) = self.sync_reset_marker() {
+                eprintln!("xshi: cannot sync history: {error}");
+                return;
+            }
             self.resync_from_disk(false);
             return;
         }
@@ -237,25 +256,50 @@ impl History {
         if text.size == self.file_pos {
             return;
         }
-        let _lock = HistoryLock::shared(&self.path, SHARED_LOCK_WAIT);
-        let read = read_text_records(&self.path, self.file_pos, false, now_millis());
+        let Some(_lock) = self.sync_lock() else {
+            return;
+        };
+        if let Err(error) = self.sync_reset_marker() {
+            eprintln!("xshi: cannot sync history: {error}");
+            return;
+        }
+        let read = match read_text_records(&self.path, self.file_pos, false, now_millis()) {
+            Ok(read) => read,
+            Err(error) => {
+                eprintln!("xshi: cannot read history: {error}");
+                return;
+            }
+        };
         self.file_pos = read.consumed;
         self.text_id = read.stamp.map(FileStamp::id);
         self.apply_records(read.records);
     }
 
-    fn sync_reset_marker(&mut self) {
-        if file_stamp(&reset_marker_for(&self.path)) == self.reset_stamp {
-            return;
+    fn sync_lock(&self) -> Option<HistoryLock> {
+        match HistoryLock::shared(&self.path, HISTORY_LOCK_WAIT) {
+            Ok(lock) => Some(lock),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => None,
+            Err(error) => {
+                eprintln!("xshi: cannot sync history: {error}");
+                None
+            }
         }
-        let (generation, stamp) = read_reset_marker(&self.path);
+    }
+
+    fn sync_reset_marker(&mut self) -> io::Result<()> {
+        if file_stamp(&reset_marker_for(&self.path)) == self.reset_stamp {
+            return Ok(());
+        }
+        let (generation, stamp) = read_reset_marker(&self.path)?;
         self.reset_stamp = stamp;
         if generation == self.reset_generation {
-            return;
+            return Ok(());
         }
         self.clear_entries();
+        self.pending.clear();
         self.reset_generation = generation;
         self.cache_dirty = false;
+        Ok(())
     }
 
     fn clear_entries(&mut self) {
@@ -273,16 +317,21 @@ impl History {
         self.session_cutoff = now_millis();
     }
 
-    /// Folds the log into the cache and truncates the log. Uses `flock` to
-    /// serialize across concurrent shells and skips quietly when another shell
-    /// holds the lock: every entry is already in the log, so nothing is lost.
     pub fn compact(&mut self) {
         if self.is_detached() {
             return;
         }
-        let Some(lock) = HistoryLock::exclusive(&self.path, COMPACT_LOCK_WAIT) else {
-            self.sync();
-            return;
+        self.flush_pending();
+        let lock = match HistoryLock::exclusive(&self.path, COMPACT_LOCK_WAIT) {
+            Ok(lock) => lock,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                self.sync();
+                return;
+            }
+            Err(error) => {
+                eprintln!("xshi: cannot compact history: {error}");
+                return;
+            }
         };
         self.compact_locked();
         drop(lock);
@@ -294,9 +343,16 @@ impl History {
         if self.is_detached() {
             return;
         }
-        let Some(lock) = HistoryLock::exclusive(&self.path, EXPLICIT_LOCK_WAIT) else {
-            eprintln!("xshi: history is busy; try again");
-            return;
+        let lock = match HistoryLock::exclusive(&self.path, EXPLICIT_LOCK_WAIT) {
+            Ok(lock) => lock,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                eprintln!("xshi: history is busy; try again");
+                return;
+            }
+            Err(error) => {
+                eprintln!("xshi: cannot rebuild history: {error}");
+                return;
+            }
         };
         let cache = cache_path_for(&self.path);
         if matches!(read_cache(&cache), CacheRead::Unreadable(_)) {
@@ -323,7 +379,10 @@ impl History {
     /// log, independent of this shell's memory. Returns the number of entries
     /// written.
     fn compact_locked(&mut self) -> Option<usize> {
-        self.sync_reset_marker();
+        if let Err(error) = self.sync_reset_marker() {
+            eprintln!("xshi: cannot compact history: {error}");
+            return None;
+        }
         if self.cache_dirty {
             return None;
         }
@@ -339,7 +398,13 @@ impl History {
         let cached_count = cached.len();
         // No appender can be mid-write while the exclusive lock is held, so an
         // unterminated final line is a torn write and is recovered, not deferred.
-        let text = read_text_records(&self.path, 0, true, now_millis());
+        let text = match read_text_records(&self.path, 0, true, now_millis()) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("xshi: cannot compact history: {error}");
+                return None;
+            }
+        };
         let merged = overlay(cached, text.records);
         if merged.is_empty() {
             return Some(0);
@@ -351,7 +416,8 @@ impl History {
             );
             return None;
         }
-        if write_cache(&cache, &merged).is_err() {
+        if let Err(error) = write_cache(&cache, &merged) {
+            eprintln!("xshi: cannot compact history: {error}");
             return None;
         }
         // The log's contents are now in the cache.
@@ -362,7 +428,10 @@ impl History {
         {
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => return None,
+            Err(error) => {
+                eprintln!("xshi: cannot truncate history: {error}");
+                return None;
+            }
         }
         self.file_pos = 0;
         self.text_id = file_stamp(&self.path).map(FileStamp::id);
@@ -381,8 +450,7 @@ impl History {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        // A reset is explicit, so it proceeds even if the lock stays busy.
-        let _lock = HistoryLock::exclusive(&self.path, EXPLICIT_LOCK_WAIT);
+        let _lock = HistoryLock::exclusive(&self.path, EXPLICIT_LOCK_WAIT)?;
         let generation = new_session_id();
         write_reset_marker(&self.path, generation)?;
         remove_if_present(&self.path)?;
@@ -390,6 +458,7 @@ impl History {
         remove_if_present(&quarantine_path_for(&self.path))?;
 
         self.clear_entries();
+        self.pending.clear();
         self.reset_generation = generation;
         self.reset_stamp = file_stamp(&reset_marker_for(&self.path));
         self.cache_dirty = false;
@@ -428,7 +497,7 @@ impl History {
     /// Add an entry with the directory in which it was entered. Commands that
     /// cannot be stored (over 64 KiB, or containing NUL) are not recorded.
     pub fn add_in_dir(&mut self, line: &str, cwd: Option<&Path>) {
-        self.sync_reset_marker();
+        self.sync();
         // Collapse newlines to spaces to prevent history file corruption.
         let line = line.trim().replace('\n', " ");
         let line = line.trim();
@@ -446,8 +515,14 @@ impl History {
             self.session_id,
             cwd.map(Path::to_path_buf),
             true,
-        ) {
-            self.append_to_file(timestamp, line, cwd);
+        ) && !self.is_detached() {
+            self.pending.push_back(Record {
+                command: line.to_owned(),
+                timestamp,
+                session_id: self.session_id,
+                cwd: cwd.map(Path::to_path_buf),
+            });
+            self.flush_pending();
         }
     }
 
@@ -691,38 +766,50 @@ impl History {
         &self.arena[start as usize..start as usize + len as usize]
     }
 
-    /// Appends one record to the log in a single write, under the shared lock
-    /// that keeps compaction from truncating the log underneath it.
-    fn append_to_file(&self, timestamp: u64, line: &str, cwd: Option<&Path>) {
-        if self.is_detached() {
+    fn flush_pending(&mut self) {
+        if self.pending.is_empty() {
             return;
         }
+        if let Err(error) = self.try_flush_pending() {
+            eprintln!(
+                "xshi: cannot save history: {error}; {} command(s) pending",
+                self.pending.len()
+            );
+        }
+    }
+
+    fn try_flush_pending(&mut self) -> io::Result<()> {
         if let Some(parent) = self.path.parent() {
-            let _ = fs::create_dir_all(parent);
+            fs::create_dir_all(parent)?;
         }
-        let _lock = HistoryLock::shared(&self.path, SHARED_LOCK_WAIT);
-        let Ok(file) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .read(true)
-            .open(&self.path)
-        else {
-            return;
-        };
-        let mut bytes = String::new();
-        // A writer that died mid-record leaves an unterminated line; start a
-        // fresh one so this record is not glued onto the torn one.
-        if let Ok(meta) = file.metadata()
-            && meta.len() > 0
-        {
-            let mut last = [0u8; 1];
-            if file.read_exact_at(&mut last, meta.len() - 1).is_ok() && last[0] != b'\n' {
-                bytes.push('\n');
+        let _lock = HistoryLock::exclusive(&self.path, HISTORY_LOCK_WAIT)?;
+        self.sync_reset_marker()?;
+        while let Some(record) = self.pending.front() {
+            let file = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .read(true)
+                .open(&self.path)?;
+            let mut bytes = String::new();
+            let len = recover_log_tail(&file)?;
+            if len > 0 {
+                let mut last = [0u8; 1];
+                file.read_exact_at(&mut last, len - 1)?;
+                if last[0] != b'\n' {
+                    bytes.push('\n');
+                }
             }
+            bytes.push_str(&format_record(
+                record.timestamp,
+                record.session_id,
+                record.cwd.as_deref(),
+                &record.command,
+            ));
+            bytes.push('\n');
+            write_record(&file, bytes.as_bytes(), len)?;
+            self.pending.pop_front();
         }
-        bytes.push_str(&format_record(timestamp, self.session_id, cwd, line));
-        bytes.push('\n');
-        let _ = (&file).write_all(bytes.as_bytes());
+        Ok(())
     }
 
     fn fill_search_results(&self, query: &str, results: &mut Vec<FuzzyMatch>, cwd: Option<&Path>) {
@@ -1459,4 +1546,60 @@ pub fn score_match(positions: &[u16; 32], count: u8, text: &str, _pwd_basename: 
     } else {
         1
     }
+}
+
+fn recover_log_tail(file: &fs::File) -> io::Result<u64> {
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(0);
+    }
+    let mut last = [0u8; 1];
+    file.read_exact_at(&mut last, len - 1)?;
+    if last[0] == b'\n' {
+        return Ok(len);
+    }
+    let mut pos = len;
+    let mut buffer = [0u8; 4096];
+    while pos > 0 {
+        let count = pos.min(buffer.len() as u64) as usize;
+        pos -= count as u64;
+        file.read_exact_at(&mut buffer[..count], pos)?;
+        if let Some(index) = buffer[..count].iter().rposition(|&byte| byte == b'\n') {
+            pos += index as u64 + 1;
+            break;
+        }
+    }
+    let prefix_len = (len - pos).min(16) as usize;
+    let mut prefix = [0u8; 16];
+    file.read_exact_at(&mut prefix[..prefix_len], pos)?;
+    if is_torn_record(&prefix[..prefix_len]) {
+        file.set_len(pos)?;
+        Ok(pos)
+    } else {
+        Ok(len)
+    }
+}
+
+fn write_record(file: &fs::File, bytes: &[u8], original_len: u64) -> io::Result<()> {
+    write_record_with(file, bytes, original_len, |mut file, bytes| file.write(bytes))
+}
+
+fn write_record_with(
+    file: &fs::File,
+    bytes: &[u8],
+    original_len: u64,
+    write: impl FnOnce(&fs::File, &[u8]) -> io::Result<usize>,
+) -> io::Result<()> {
+    let result = match write(file, bytes) {
+        Ok(written) if written == bytes.len() => return Ok(()),
+        Ok(_) => io::Error::new(io::ErrorKind::WriteZero, "partial history record"),
+        Err(error) => error,
+    };
+    if let Err(error) = file.set_len(original_len) {
+        return Err(io::Error::new(
+            error.kind(),
+            format!("{result}; cannot restore history log: {error}"),
+        ));
+    }
+    Err(result)
 }

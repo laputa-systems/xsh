@@ -628,8 +628,8 @@ fn a_log_line_torn_by_a_crash_does_not_swallow_the_next_record() {
 
     let log = fs::read_to_string(scratch.log()).unwrap();
     let lines: Vec<_> = log.lines().collect();
-    assert_eq!(lines.len(), 3, "{log}");
-    assert!(lines[2].ends_with("\tnext"), "{log}");
+    assert_eq!(lines.len(), 2, "{log}");
+    assert!(lines[1].ends_with("\tnext"), "{log}");
     assert_eq!(entries(&scratch.load()), ["whole", "next"]);
 }
 
@@ -972,20 +972,222 @@ fn appending_waits_for_a_running_compaction() {
 }
 
 #[test]
+fn append_does_not_cross_exclusive_lock_timeout() {
+    let scratch = Scratch::new("append-timeout");
+    let mut h = scratch.load();
+    h.add("before");
+    let held = HistoryLock::exclusive(&scratch.log(), LOCK_WAIT).expect("lock is free");
+    h.add("during compaction");
+    assert!(!fs::read_to_string(scratch.log()).unwrap().contains("during compaction"));
+    drop(held);
+    h.sync();
+    h.compact();
+    assert_eq!(entries(&scratch.load()), ["before", "during compaction"]);
+}
+
+#[test]
 fn a_stuck_lock_holder_cannot_hang_a_shell() {
     let scratch = Scratch::new("stuck");
     let mut h = scratch.load();
     let _held = HistoryLock::exclusive(&scratch.log(), LOCK_WAIT).expect("lock is free");
     let started = std::time::Instant::now();
-    // Readers and appenders give up after SHARED_LOCK_WAIT and carry on.
     h.add("still recorded");
     h.sync();
     assert!(started.elapsed() < Duration::from_secs(10));
-    assert!(
-        fs::read_to_string(scratch.log())
-            .unwrap()
-            .contains("still recorded")
-    );
+    assert!(!scratch.log().exists());
+    drop(_held);
+    h.sync();
+    assert!(fs::read_to_string(scratch.log()).unwrap().contains("still recorded"));
+}
+
+#[test]
+fn failed_open_keeps_pending_command_until_storage_is_repaired() {
+    let scratch = Scratch::new("open-error");
+    let mut h = scratch.load();
+    h.add("before");
+    fs::rename(scratch.log(), scratch.0.join("saved")).unwrap();
+    fs::create_dir(scratch.log()).unwrap();
+    h.add("pending");
+    assert_eq!(h.pending.len(), 1);
+    fs::remove_dir(scratch.log()).unwrap();
+    fs::rename(scratch.0.join("saved"), scratch.log()).unwrap();
+    h.sync();
+    assert!(h.pending.is_empty());
+    assert_eq!(entries(&scratch.load()), ["before", "pending"]);
+}
+
+#[test]
+fn torn_v2_command_is_not_promoted_by_append_or_compaction() {
+    for compact_first in [false, true] {
+        let scratch = Scratch::new("torn-v2-command");
+        let mut h = scratch.load();
+        h.add("before");
+        append_raw(&scratch.log(), b":ish-history:v2\t20\t2\t/tmp\techo trunc");
+        h.sync();
+        assert_eq!(entries(&h), ["before"]);
+        if compact_first {
+            h.compact();
+            assert_eq!(entries(&scratch.load()), ["before"]);
+        }
+        h.add("after");
+        h.compact();
+        assert_eq!(entries(&scratch.load()), ["before", "after"]);
+    }
+}
+
+#[test]
+fn failed_directory_creation_keeps_pending_command() {
+    let scratch = Scratch::new("directory-error");
+    let parent = scratch.0.join("blocked");
+    fs::write(&parent, "blocking directory").unwrap();
+    let mut h = History::load_from(parent.join("history"));
+    h.add("pending");
+    assert_eq!(h.pending.len(), 1);
+    fs::remove_file(&parent).unwrap();
+    h.sync();
+    assert!(h.pending.is_empty());
+    assert_eq!(entries(&History::load_from(parent.join("history"))), ["pending"]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_write_keeps_pending_command() {
+    use std::os::unix::fs::symlink;
+    let scratch = Scratch::new("write-error");
+    let mut h = scratch.load();
+    h.add("before");
+    fs::rename(scratch.log(), scratch.0.join("saved")).unwrap();
+    symlink("/dev/full", scratch.log()).unwrap();
+    h.add("pending");
+    assert_eq!(h.pending.len(), 1);
+    fs::remove_file(scratch.log()).unwrap();
+    fs::rename(scratch.0.join("saved"), scratch.log()).unwrap();
+    h.sync();
+    assert_eq!(entries(&scratch.load()), ["before", "pending"]);
+}
+
+#[test]
+fn invalid_reset_marker_blocks_pending_writes() {
+    let scratch = Scratch::new("invalid-reset");
+    let mut h = scratch.load();
+    h.add("before");
+    fs::write(reset_marker_for(&scratch.log()), "invalid").unwrap();
+    h.add("pending");
+    assert_eq!(h.pending.len(), 1);
+    assert!(!fs::read_to_string(scratch.log()).unwrap().contains("pending"));
+    fs::remove_file(reset_marker_for(&scratch.log())).unwrap();
+    h.sync();
+    assert_eq!(entries(&scratch.load()), ["before", "pending"]);
+}
+
+#[test]
+fn partial_append_is_rolled_back_before_retry() {
+    let scratch = Scratch::new("partial-append");
+    let mut h = scratch.load();
+    h.add("before");
+    let file = fs::OpenOptions::new().append(true).open(scratch.log()).unwrap();
+    let len = file.metadata().unwrap().len();
+    let data = format!("{}\n", format_record(now_millis(), h.session_id, None, "partial command"));
+    let result = write_record_with(&file, data.as_bytes(), len, |mut file, bytes| file.write(&bytes[..bytes.len() - 3]));
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WriteZero);
+    assert_eq!(file.metadata().unwrap().len(), len);
+    h.add("after");
+    assert_eq!(entries(&scratch.load()), ["before", "after"]);
+}
+
+#[test]
+fn pending_commands_do_not_survive_a_peer_reset() {
+    let scratch = Scratch::new("pending-reset");
+    let mut h = scratch.load();
+    let mut peer = scratch.load();
+    h.add("old");
+    let held = HistoryLock::exclusive(&scratch.log(), LOCK_WAIT).unwrap();
+    h.add("pending before reset");
+    drop(held);
+    peer.reset().unwrap();
+    h.sync();
+    assert!(h.pending.is_empty());
+    h.add("after reset");
+    h.compact();
+    assert_eq!(entries(&scratch.load()), ["after reset"]);
+}
+
+#[test]
+fn compaction_refuses_an_unreadable_log() {
+    let scratch = Scratch::new("unreadable-log");
+    let mut h = scratch.load();
+    h.add("cached");
+    h.compact();
+    let cache = fs::read(scratch.cache()).unwrap();
+    fs::remove_file(scratch.log()).unwrap();
+    fs::create_dir(scratch.log()).unwrap();
+    h.compact();
+    assert_eq!(fs::read(scratch.cache()).unwrap(), cache);
+    assert!(scratch.log().is_dir());
+}
+
+#[test]
+fn sync_and_compaction_report_lock_file_errors() {
+    const CHILD_PATH: &str = "XSHI_HISTORY_SYNC_ERROR_TEST_PATH";
+    if let Some(path) = std::env::var_os(CHILD_PATH) {
+        let mut h = History::load_from(PathBuf::from(path));
+        h.sync();
+        h.compact();
+        return;
+    }
+    let scratch = Scratch::new("sync-lock-error");
+    fs::write(scratch.log(), "existing\n").unwrap();
+    fs::create_dir(lock_path_for(&scratch.log())).unwrap();
+    let error = HistoryLock::exclusive(&scratch.log(), LOCK_WAIT).err().unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "xshi::interactive::history::tests::sync_and_compaction_report_lock_file_errors",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(CHILD_PATH, scratch.log())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(&format!("xshi: cannot sync history: {error}")), "{stderr}");
+    assert!(stderr.contains(&format!("xshi: cannot compact history: {error}")), "{stderr}");
+}
+
+#[test]
+fn rebuild_reports_lock_file_errors() {
+    const CHILD_PATH: &str = "XSHI_HISTORY_REBUILD_ERROR_TEST_PATH";
+    if let Some(path) = std::env::var_os(CHILD_PATH) {
+        History::load_from(PathBuf::from(path)).rebuild();
+        return;
+    }
+    let scratch = Scratch::new("rebuild-lock-error");
+    fs::create_dir(lock_path_for(&scratch.log())).unwrap();
+    let error = HistoryLock::exclusive(&scratch.log(), LOCK_WAIT).err().unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "xshi::interactive::history::tests::rebuild_reports_lock_file_errors",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(CHILD_PATH, scratch.log())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains(&format!("xshi: cannot rebuild history: {error}")), "{stderr}");
+}
+
+#[test]
+fn reset_does_not_proceed_without_exclusive_lock() {
+    let scratch = Scratch::new("reset-busy");
+    let mut h = scratch.load();
+    h.add("kept");
+    let held = HistoryLock::exclusive(&scratch.log(), LOCK_WAIT).unwrap();
+    assert!(h.reset().is_err());
+    assert!(fs::read_to_string(scratch.log()).unwrap().contains("kept"));
+    drop(held);
+    assert_eq!(entries(&scratch.load()), ["kept"]);
 }
 
 #[test]
