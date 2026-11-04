@@ -1761,13 +1761,15 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         (
             "unix",
-            "spawn_process_group"
-            | "spawn_process_group_log"
-            | "spawn_logged_process_group"
-            | "spawn_with_tty",
+            "spawn_process_group" | "spawn_process_group_log" | "spawn_with_tty",
         ) => Some((
             "Starts a Unix process group with explicit lifecycle and terminal options.",
-            "The returned child ownership, logging destination, and tty boundary are explicit; cleanup must be deliberate.",
+            "A CPU-limited command requires retained child status: ignored SIGCHLD or SA_NOCLDWAIT is rejected before launch. Setup retains the exact child identity until success transfers PID ownership to the caller. A setup failure attempts to terminate and reap owned children. Cleanup failures accompany the primary error.",
+            &["unix", "process", "ownership", "tty"],
+        )),
+        ("unix", "spawn_logged_process_group") => Some((
+            "Starts a Unix process group and a logger.",
+            "Requires retained child status: ignored SIGCHLD or SA_NOCLDWAIT is rejected before launch. Setup retains exact child identities until success transfers PID ownership to the caller. A setup failure attempts to terminate and reap owned children. Cleanup failures accompany the primary error.",
             &["unix", "process", "ownership", "tty"],
         )),
         ("unix", "notify_ready" | "notify_close") => Some((

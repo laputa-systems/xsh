@@ -1,5 +1,7 @@
 # Recover work after winddown
 
+This record's campaign status is historical. For current status and open work, see the [roadmap](../../../docs/ROADMAP.md).
+
 This directory preserves unfinished work and selected verification evidence
 before removing linked worktrees. The latest stop is in the leading handoff
 in [CAMPAIGN.md](../CAMPAIGN.md). Older counts below describe the previous stop. Consolidation acceptance is incomplete.

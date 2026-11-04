@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 59
+Next: 61
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -14,7 +14,8 @@ The systems-foundation items were reviewed against `9d893e0075d2`; findings
 marked unproven need a reproducer, not an assumed defect. Existing acceptance
 items remain open. The performance/deployment and Lean campaigns retain their
 own pause/launch rules; this queue update resumes neither. The Deser
-codec cutover is accepted and qualified on Linux; native macOS qualification
+codec cutover was functionally qualified on an earlier Linux source; current-source
+qualification is active. Native macOS qualification
 is deferred by the owner, with no macOS host available. The [G0 release candidate](docs/ROADMAP.md#g0-release-candidate) decides
 which items block a release; performance and resource items such as XSH-1 and
 XSH-3 are deferred for G0. Do not make an unrelated full baseline an entry fee
@@ -25,7 +26,7 @@ out of scope.
 
 - **Area:** Performance
 - **Where:** `dev/util-linux/resources.py:1632`, `dev/util-linux/acceptance.py:926`
-- **Problem:** Final private/resource qualification remains unrun on the current frozen source. The scheduler comparison failed, so composed baseline close cannot proceed.
+- **Problem:** Final private/resource qualification remains open on current source. The historical scheduler comparison failed, so composed baseline close cannot proceed.
 - **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks.
 - **Fix with:** benchmark-checklist
 - **Effort:** S
@@ -34,9 +35,10 @@ out of scope.
 
 - **Area:** Runtime contracts
 - **Where:** `src/modules/time.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `docs/templates/SPEC.md`
-- **Problem:** Wall time is epoch milliseconds while `time.monotonic()` returns nanoseconds from a process-local origin, and `time.boottime()` (XSH-53) returns nanoseconds since boot including suspend. All three use integers; Laputa's xinit currently constructs elapsed deadlines from wall time. A mechanical replacement would change units and origin. Unproven: which other deadline consumers mix domains.
-- **Recommendation:** Inventory the actual wait/retry/deadline consumers, document units and restart/pause semantics, and qualify one shared elapsed-deadline boundary. Prefer existing Duration and nominal-type machinery over new syntax or a units framework. Keep wall timestamps for calendar/security decisions; never persist a process-local instant as a restart-stable timestamp.
-- **Acceptance:** Native tests separate wall and monotonic inputs, cover backward/forward wall jumps, zero/expired budgets, overflow and cancellation; host tests establish the units/origin. Qualify VM pause separately from physical suspend. Migrate the first real consumer with unit-safe conversions and update authored docs before regeneration; no host clock changes.
+- **Problem:** Wall time is epoch milliseconds, `time.monotonic()` is nanoseconds from a process-local origin, and `time.boottime()` uses nanoseconds from a host clock. Linux boottime includes suspend; macOS uses its monotonic clock. All three use integers. Laputa xinit now converts monotonic nanoseconds to milliseconds for elapsed deadlines; other consumers and conversion boundaries remain unqualified.
+- **Progress:** Pinned Linux host tests bracket wall, process-monotonic and boot-clock readings against their owning clocks. DHCP one-shot deadlines saturate without overflowing and reject unrepresentable CLI seconds before network setup; focused tests cover cancellation, zero budgets and existing wall/boot-clock jumps. VM pause, physical suspend and the remaining consumer inventory are open.
+- **Recommendation:** Inventory the remaining wait, retry and deadline consumers and qualify their units and restart or pause semantics. Build on xinit's elapsed clock and existing Duration and nominal-type machinery. Keep wall timestamps for calendar and security decisions; never persist a process-local instant as a restart-stable timestamp.
+- **Acceptance:** Native tests separate wall and monotonic inputs, cover backward/forward wall jumps, zero/expired budgets, overflow and cancellation; host tests establish the units/origin. Qualify VM pause separately from physical suspend. Qualify xinit's conversion and any further consumer migration with unit-safe conversions; update authored docs before regeneration; no host clock changes.
 - **Coordination:** Laputa LAP-27 owns xinit migration and disposable-guest clock tests.
 - **Fix with:** make-invalid-states-unrepresentable
 - **Effort:** M
@@ -46,7 +48,8 @@ out of scope.
 - **Area:** Resources
 - **Where:** `src/modules/`, `src/runtime/eval/`, `crates/xsh-registry/`, `tests/`
 - **Problem:** Owned process/resource scopes coexist with bare descriptor APIs. Their presence is not proof of a leak; transfer, inheritance and cancellation behavior across composed operations needs a focused qualification.
-- **Recommendation:** Start with spawn plus readiness pipes and one early-terminated stream. Specify who owns each descriptor/child before and after transfer, failed spawn, close and cancellation. Reuse existing ownership/scopes; add an owned wrapper only for an evidenced unsafe common path. Keep raw APIs explicit. Audit process identity separately from a numeric PID; pidfds where supported do not excuse an acquisition race or an unproved fallback.
+- **Progress:** Focused Linux tests cover failed notify spawns, early process-stream termination and Unix spawn setup failures. CPU-limited Unix group spawns and all logged-pair spawns retain child status through setup and attempt cleanup on failure, reporting cleanup errors. Wider failure and platform qualification remains open.
+- **Recommendation:** Extend the focused spawn, readiness-pipe and early-terminated-stream cases. Specify who owns each descriptor/child before and after transfer, failed spawn, close and cancellation. Reuse existing ownership/scopes; add an owned wrapper only for an evidenced unsafe common path. Keep raw APIs explicit. Audit process identity separately from a numeric PID; pidfds where supported do not excuse an acquisition race or an unproved fallback.
 - **Acceptance:** Repeated failed spawns, early consumer exit, signal interruption, partial I/O and cleanup failure leave no owned children, zombies or leaked descriptors. Verify close-on-exec and intentional inheritance, bounded cleanup, and that signaling cannot target a recycled identity. Record backend limitations instead of treating no-ops as enforcement.
 - **Coordination:** Laputa LAP-34 exercises the service lifecycle; retain the host-process/bounded-stream concurrency model, not a new async runtime.
 - **Fix with:** lifecycle-concurrency
@@ -56,7 +59,7 @@ out of scope.
 
 - **Area:** Host authority
 - **Where:** `crates/xsh-root/`, `src/modules/`, `src/runtime/eval/`, `tests/`
-- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Unproven: which extraction/publication paths retain the trusted directory anchor throughout mutation.
+- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction stages and publishes through retained roots; other extraction and publication paths still need an anchor audit.
 - **Recommendation:** Trace the operations needed by Laputa LAP-33 and reuse Root at the smallest shared host boundary. Specify trusted-anchor acquisition, relative paths, symlinks, hard links, mount/special-file policy and destination publication. Extend only missing operations required by that consumer; do not advertise Root or effects as a process sandbox.
 - **Acceptance:** Adversarial fixtures cover ancestor/symlink replacement, traversal, archive link ordering, special files, no-clobber conflicts and interrupted publication. Outside sentinels remain unchanged and prior committed outputs survive failures. Unsupported platform enforcement fails explicitly. Distinguish atomic visibility from durable publication and test their contracts separately.
 - **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation.
@@ -74,25 +77,25 @@ out of scope.
 - **Fix with:** lifecycle-concurrency
 - **Effort:** M
 
-### XSH-55 · P2 · Build the native SSH client
+### XSH-55 · P2 · Qualify the native SSH client
 
 - **Area:** Remote execution
-- **Where:** new `crates/xsh-ssh`, a thin adapter beside `crates/xsh-net`'s, `docs/rfc/XSH-55-native-ssh-client.md`
-- **Problem:** XSH has no SSH transport, so Laputa's remote administration and xsh-infra have nothing typed to build on. The runtime must not shell out to `ssh`.
-- **Recommendation:** Follow the RFC: a reusable client over a pinned import of ssh-build's `oxish-proto` and `oxish-graviola`, Graviola as the only cryptographic provider, mandatory host verification, and a small typed exec/stream API with execution certainty.
-- **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental.
-- **Coordination:** Starts after the active campaigns per the [roadmap sequence](docs/ROADMAP.md#sequence). Laputa R6 and XSH-56 consume it.
+- **Where:** `crates/xsh-ssh`, `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md`
+- **Problem:** The native client is experimental on Linux x86-64. Native macOS qualification, a protocol and security review, and the RFC's remaining acceptance checks are open.
+- **Recommendation:** Complete the remaining qualification and review in the RFC. Preserve mandatory host verification and typed execution certainty.
+- **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental. Native macOS qualification is deferred by the owner.
+- **Coordination:** Laputa R6 and XSH-56 consume the client.
 - **Fix with:** security
 - **Effort:** L
 
-### XSH-56 · P2 · Build xsh-infra over the native SSH client
+### XSH-56 · P2 · Complete xsh-infra qualification
 
 - **Area:** Remote execution consumer
-- **Where:** new repository `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
-- **Problem:** No substantial XSH application exercises remote reconciliation; it would show whether XSH supports such an application without moving its logic into Rust.
-- **Recommendation:** Follow the RFC: a small pyinfra-inspired tool written in XSH with typed resources, plan/apply/check, per-host failure data, safe file staging and a remote lock, using only XSH-55 for transport.
+- **Where:** `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
+- **Problem:** xsh-infra implements remote reconciliation over native SSH and has Linux Alpine container coverage, but the RFC's full qualification remains open. Its pyinfra comparison covers directory, file, symlink, user and group; packages, services, commands and failure comparisons remain open.
+- **Recommendation:** Complete the remaining RFC scenarios and differential comparisons against the existing XSH implementation and native SSH transport.
 - **Acceptance:** The RFC's per-resource and integration scenarios pass against disposable Alpine SSH hosts, with pyinfra as a differential reference on equivalent hosts; XSH defects found get minimal reproducers in XSH.
-- **Coordination:** Pure planner and resource work may start before XSH-55; remote execution waits for it.
+- **Coordination:** Remote execution uses the experimental XSH-55 client.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
@@ -105,15 +108,6 @@ out of scope.
 - **Unmet:** Full combined qualification remains manual-only on a stable source. The known XSH-29 deadline causes have focused written/desugared proof; that does not supply full-corpus acceptance. The replacement image and repaired launcher are available, and historical passes do not qualify them.
 - **Fix with:** orchestrate
 - **Effort:** M
-
-### XSH-58 · P2 · Keep one invalid use of a retained requirement from rejecting valid uses
-
-- **Area:** Inference
-- **Where:** `src/sema/constraints/methods.rs`, `src/sema/constraints/operations.rs`
-- **Problem:** A callable whose omitted parameter retains a sealed host requirement (for example `keys`, `replace` or `byte_at`) is rejected at every call when one call fits no member. In one program, `ambiguous(1)` also makes `ambiguous("a\tb")` fail, although that call selects a unique member on its own.
-- **Recommendation:** Select the member per instantiation and report only the call that fits none, without sharing the failed selection across instances. Add a native test with one valid and one invalid call in the same program.
-- **Fix with:** root-cause
-- **Effort:** S
 
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
@@ -149,8 +143,8 @@ out of scope.
 
 - **Area:** Host I/O
 - **Where:** `src/modules/`, `crates/xsh-registry/`, `core/lib/`, `tests/`
-- **Problem:** Low-level descriptor/socket operations exist; the portable owned stream-I/O contract needed to replace Laputa's Python QMP helper has not been established. Do not assume an entirely new socket subsystem is needed.
-- **Recommendation:** Probe current APIs on Linux and macOS, then fill only the missing connect/read/write/deadline/cancellation boundary using XSH-35/XSH-36. Framing and QMP policy belong in XSH at the consumer, not a QMP-specific Rust intrinsic. Reuse existing JSON/codec contracts rather than starting another parser.
+- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Its local peer tests cover fragmented and coalesced frames and timeouts. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, and shutdown during a bounded poll. Consumer composition and the portable stream-I/O contract remain unqualified.
+- **Recommendation:** Qualify the existing operations and QMP consumer, then fill only demonstrated gaps in the connect, read, write, deadline and cancellation boundary using XSH-35 and XSH-36. Keep framing and QMP policy in the XSH consumer.
 - **Acceptance:** Fragmented/coalesced reads, partial writes, EOF, oversized input, timeout and cancellation are bounded and release resources on both supported host paths. A local socket fixture and Laputa LAP-35 demonstrate the same primitives; no futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
 - **Effort:** M
@@ -159,8 +153,8 @@ out of scope.
 
 - **Area:** Tests
 - **Where:** `crates/xsht/`, `src/trace/`, `tests/`
-- **Problem:** Scoped mocks, call recording and structured traces exist, but their ability to reproduce a real service or publication failure with no ambient-host fallback is unproven. A trace alone is not a replay contract.
-- **Recommendation:** Select one counterexample from Laputa LAP-34. Use existing XSHT facilities to record necessary ordered boundary inputs/results and expected effects, then shrink the sequence to an ordinary native regression. Define input completeness, ordering and redaction. Add a minimal reusable test helper only if existing fixtures cannot express the case; no generic replay platform or campaign controller.
+- **Problem:** Laputa xinit has a native fake replay of a crashed leader with an owned descendant, corroborated by a disposable Linux x86-64 guest and a deliberately broken cleanup. The replay's input completeness, ordering, redaction and rejection of ambient-host fallback remain unqualified.
+- **Recommendation:** Qualify the existing LAP-34 counterexample against an explicit ordered, complete and redacted input contract. Add a minimal reusable test helper only if existing fixtures cannot express the case; no generic replay platform or campaign controller.
 - **Acceptance:** The reduced case reproduces offline, fails when the repaired invariant is deliberately broken, and rejects missing/mismatched observations rather than consulting the host. Test fixtures contain no secrets. Corroborate with the real guest; mock agreement does not establish OS conformance or power-loss durability.
 - **Fix with:** root-cause
 - **Effort:** M
@@ -180,7 +174,7 @@ out of scope.
 - **Area:** Host tests
 - **Where:** `core/lib/btop_source.xsh`, `docs/BTOP.md`, `core/lib/`, `src/modules/`, `crates/xsht/`, `tests/`
 - **Problem:** btop has a bounded rooted `/proc`/`/sys` capture-and-replay path and XSH-40 owns one reduced lifecycle failure, but reuse across a different real host-observation workload is unproven. A universal host-provider framework is not justified.
-- **Recommendation:** After XSH-40's initial replay slice, reuse its ordered, complete, secret-redacted observation contract for one additional system-report or Laputa PM/network consumer. Separate pure policy/model derivation from narrow live host reads only where that reduces existing machinery. Use existing `FsRoot`, typed mocks and trace boundaries; don't introduce a second runtime or generic host-injection framework.
+- **Recommendation:** After XSH-40 qualifies the replay contract, reuse its ordered, complete, secret-redacted observations for one additional system-report or Laputa PM/network consumer. Separate pure policy/model derivation from narrow live host reads only where that reduces existing machinery. Use existing `FsRoot`, typed mocks and trace boundaries; don't introduce a second runtime or generic host-injection framework.
 - **Acceptance:** Fixed replay is deterministic without ambient-host fallback; omitted/reordered/stale observations fail explicitly, injected short reads and permission/clock errors reproduce a meaningful invariant, and a live Linux or disposable-guest corroboration covers the actual host boundary. Retain the smallest reusable fixture helper and report untested host behavior.
 - **Coordination:** XSH-40 owns the first hermetic failure; Laputa LAP-37 owns the second operational consumer.
 - **Fix with:** isolate-effects

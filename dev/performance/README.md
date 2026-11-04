@@ -22,8 +22,8 @@ Readiness controls exercise before and after failures without a real clock.
 
 ## Configuration
 
-[`parse_config`](check.py#L77) owns the schema and exact field sets;
-[`source_identity`](check.py#L105) validates source and path bindings. The
+[`parse_config`](check.py) owns the schema and exact field sets;
+[`source_identity`](check.py) validates source and path bindings. The
 configuration binds full lowercase Git IDs, absolute nonsymlink paths, exact
 XSH/XSHT products, an explicit Laputa checkout, and scratch under `.work/tmp`.
 Functional, baseline, and measurement objects bind their existing evidence
@@ -66,7 +66,7 @@ all five Linux contexts, and product stability. The structural scan runs
 the report and functional review rows; neither a boolean nor launcher success
 can close acceptance. Timeout or unresolved container cleanup fails the run.
 
-[`check_skip_review_policy`](check.py#L567) binds the review to the configured
+[`check_skip_review_policy`](check.py) binds the review to the configured
 source, the exact canonical and supplemental receipt hashes, and each required
 context. Every context needs `result: "review_verified"` and a nonempty reason
 for its skip disposition. Review every mandatory skip in the bound logs; an

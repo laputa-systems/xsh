@@ -1,15 +1,15 @@
 # XSH roadmap
 
-The next capability milestone is SSH-native remote XSH: make administering a
+The SSH-native remote XSH milestone makes administering a
 Laputa VM a checked, inspectable workflow rather than a collection of quoted
 remote-shell commands. It serves Laputa's
 [G2 remotely maintainable VM](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#g2-the-remotely-maintainable-vm)
 milestone: provision, inspect, update, recover, and eventually rebuild a system
 through XSH.
 
-The table preserves current campaign status and evidence. The next-phase plan
-below does not reopen the frozen G0 candidate or claim implementation. Each
-live doc owns its campaign's status, resume instructions, and open items.
+The table tracks campaign status and evidence. Work after G0 does not reopen
+the frozen candidate. Each live document owns its campaign status, resume
+instructions and open items.
 
 | # | Campaign or milestone | Status | Live doc | Next step or reason |
 |---|---|---|---|---|
@@ -18,11 +18,11 @@ live doc owns its campaign's status, resume instructions, and open items.
 | 3 | Inference: general type, row, and effect inference | done, residuals accepted | [full-inference-campaign.md](../full-inference-campaign.md) | Closed at `73b59f11d`: 4,668 of 4,677 core sites erase alone and 245 of 250 joint views pass. The campaign's Corpus residuals list the open cases and their leads. |
 | 4 | Lean: connected compiler proof | restarted 2026-11-03 | [xsh-lean.md](../xsh-lean.md) | The vertical covers integer parameters, calls, conditionals and one plain assignment. The Lean lowerer is proved for its admitted shape. CERT-FACTS validates fact documents projected from checker output for two fixtures. Eighteen finite Rust cases passed at the integrated source freeze; see the live doc's Status. |
 | 5 | Performance and deployment | resumed on Linux | [CAMPAIGN-PERFORMANCE-DEPLOYMENT.md](CAMPAIGN-PERFORMANCE-DEPLOYMENT.md) | G1 qualification and XSH-1, XSH-3, XSH-14 and XSH-19 remain open in [TODO.md](../TODO.md). G0 historically deferred these obligations. |
-| 6 | Deser cutover | functionally qualified on Linux; performance open | [SPEC](SPEC.md#structured-text-codecs), [DESIGN.md](DESIGN.md) | Qualified 2026-11-03 on `master`: Deser crate suites, codec, JSON, INI, CSV, TOML and YAML modules, and a full native run (15,243 passed, 11 host-environment failures that pass in the pinned `xsh-test` container, 152 skipped). Laputa's network plan input is the strict-consumer proof (former XSH-41): exact validation, with a related `require` repair here. Native macOS qualification is deferred by the owner; no macOS host is available. The previously waived S6 runtime, startup and build CPU-time thresholds now require examination. |
-| 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [XSH-53 RFC](rfc/XSH-53-supervised-dhcp-and-syslog.md) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
+| 6 | Deser cutover | current-source qualification active | [SPEC](SPEC.md#structured-text-codecs), [DESIGN.md](DESIGN.md) | Historical Linux functional run on 2026-11-03: Deser crate suites, codec, JSON, INI, CSV, TOML and YAML modules, and a full native run (15,243 passed, 11 host-environment failures that pass in the pinned `xsh-test` container, 152 skipped). Laputa's network plan input is the strict-consumer proof (former XSH-41): exact validation, with a related `require` repair here. Native macOS qualification is deferred by the owner; no macOS host is available. Current-source S6 runtime, startup and build CPU-time qualification remains open. |
+| 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [Core commands](CORE.md), [qualification evidence](TESTING.md#dhcp-client) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
 | 8 | util-linux cohort, btop, system-report | done | [util-linux README](../dev/util-linux/README.md), [BTOP.md](BTOP.md), [SYSTEM-REPORT.md](SYSTEM-REPORT.md) | Reuse system-report for remote inspection and redacted diagnostics; the util-linux resource rerun remains XSH-1. |
-| 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | XSH-55 delivered on Linux x86-64 (experimental); XSH-56 in its own lane | [Remote XSH](#next-capability-ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | XSH-55 delivered the native client, `known_hosts` and ssh-agent trust, hybrid post-quantum key exchange, rekeying in both directions, typed `SshError` outcomes and a loopback OpenSSH fixture, and Laputa's R6 library administers one headless x86-64 VM over it (see the RFC's audit). Open: native macOS qualification (deferred by the owner), a protocol and security review before any claim beyond experimental, remote environment and working-directory requests, and an acknowledged remote cancellation action. xsh-infra's remote execution is complete only over this client. |
-| 10 | Archive and compression consolidation (XSH-57) | done | [XSH-57 RFC](rfc/XSH-57-archive-and-compression.md) | Landed on `master`; Laputa call sites migrated. Follow-ups are listed in the RFC outcome: an `xsht api` enum-variant query, macOS and privileged coverage, and GNU tar and bsdtar interoperability. |
+| 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | Linux implementations delivered; qualification open | [Remote XSH](#ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | XSH-55 delivered the native client, `known_hosts` and ssh-agent trust, hybrid post-quantum key exchange, rekeying in both directions, typed `SshError` outcomes and a loopback OpenSSH fixture, and Laputa's R6 library administers one headless x86-64 VM over it (see the RFC's audit). Open: native macOS qualification (deferred by the owner), a protocol and security review before any claim beyond experimental, environment and working-directory options in Laputa's `remote_run`, and an acknowledged remote cancellation action. xsh-infra's remote execution is complete only over this client. |
+| 10 | Archive and compression consolidation (XSH-57) | implemented; qualification gaps open | [SPEC](SPEC.md#15-standard-modules), [testing evidence](TESTING.md#archive-and-compression) | Laputa call sites migrated. Open: XZ workspace enforcement, macOS and privileged coverage, GNU tar and bsdtar interoperability, an `xsht api` enum-variant query, built-in enum pattern matching, and durable publication. Revisit ZIP creation and repacking if a caller needs them. |
 | 11 | Syntax consolidation without feature removal | done | [CAMPAIGN-SYNTAX-CONSOLIDATION.md](CAMPAIGN-SYNTAX-CONSOLIDATION.md) | Every decided removal and reservation landed; see the audit's [Phase B status](SYNTAX-AUDIT.md#phase-b-status) and [final metrics](SYNTAX-AUDIT.md#final-metrics). |
 
 When inference changes a Pyramid input or contract, rerun the affected checks.
@@ -33,38 +33,27 @@ remain distinct evidence.
 The Deser cutover remains in place. Its performance thresholds are open; the
 earlier waiver is not a pass. Native macOS qualification remains deferred.
 
-## Next capability: SSH-native remote XSH
+## SSH-native remote XSH
 
-**Status: XSH-55 delivered; XSH-56 in progress.** The owner-selected direction is remote administration,
+**Status: Linux implementations delivered; qualification open.** The owner-selected direction is remote administration,
 not another catalog of utility ports. Preserve the [design principles](DESIGN.md):
 small reusable host mechanisms, ordinary XSH userspace policy, and mature
 external engines where they reduce risk. No new language syntax, async runtime,
 or mandatory resident management daemon is implied, and XSH itself gains no
 configuration-management framework; xsh-infra is a separate application.
 
-Two campaigns implement it. [XSH-55](rfc/XSH-55-native-ssh-client.md) builds a
+[XSH-55](rfc/XSH-55-native-ssh-client.md) provides a
 native SSH client on OxiSH's sans-I/O protocol code and Graviola, exposed
-through a small typed XSH API. [XSH-56](rfc/XSH-56-xsh-infra.md) builds
+through a small typed XSH API. [XSH-56](rfc/XSH-56-xsh-infra.md) provides
 xsh-infra, a small pyinfra-inspired configuration-management tool written in
 XSH in its own repository, as the first substantial consumer: native Rust
 handles SSH protocol and I/O, XSH handles infrastructure policy.
 
 ### Sequence
 
-1. The inference campaign (row 3) and the Deser qualification (row 6) are
-   closed.
-2. Reclaim the accumulated build and worktree state: retire every integrated
-   or superseded lane checkout and keep only protected historical references.
-3. Start three lanes in parallel from the cleaned `master`: XSH-55, XSH-56,
-   and the Lean restart (row 4). Lean touches only `formal/` and test-only
-   bridge code, so it does not contend with the other two.
-
-XSH-56's pure planner and resource work runs alongside XSH-55, but its remote
-execution is not complete until it runs over the native client. XSH-55 has
-first claim on host capacity, since it serves G2. Laputa's serial Asterinas
-successor lane runs in the same window and takes the quiet-host periods its
-qualification needs. Native macOS qualification is deferred: no macOS host is
-available. Laputa's administration library
+XSH-55 and xsh-infra have delivered Linux implementations. Qualification and
+review remain open in their RFCs. Native macOS qualification is deferred because
+no macOS host is available. Laputa's administration library
 ([R6](https://github.com/laputa-systems/laputa/blob/master/docs/ROADMAP.md#ssh-native-xsh-administration))
 consumes the same client.
 

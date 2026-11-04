@@ -15,10 +15,11 @@ profile each test and gate uses.
 
 `cargo dev dist` builds `dist` products under `target/$TARGET/dist`. It also
 rebuilds the standard library (`-Z build-std=std`) with
-`-Cpanic=immediate-abort` and `-Zlocation-detail=none`, enables only
+`-Cpanic=immediate-abort` and `-Zlocation-detail=none`, requests
 `xsh/net xsh/tools xsht/native-tests`, and selects the target CPU in
 `dev/targets.xsh`: `x86-64-v3` for x86_64 and `neoverse-n2` without SVE for
-aarch64. Linux products link statically against musl with mold.
+aarch64. `xsht/native-tests` enables `xsh/default`, including SSH, through
+Cargo feature unification. Linux products link statically against musl with mold.
 
 Darwin products link through the system C compiler driver without ICF: Apple's
 `ld` has no ICF option, and the pinned `rust-lld` cannot read the macOS 27 SDK
@@ -124,10 +125,10 @@ name-keyed sorts through one helper (0.5 to 0.8 MB), consolidating cold-path
 
 ## Allocator
 
-`xsh`, `xsht` and `xshi` link mimalloc as the global allocator; it is about
-78 KB of the shipped `xsh`. Without it the products fall back to musl's
-allocator, which is much slower for XSH's allocation-heavy workloads. The
-jemalloc package in `Dockerfile.test` is a different thing: `cargo dev` preloads
+On Linux, `xsh` and `xsht` use mimalloc as the global allocator. `xshi` uses
+it on Linux only when its `laputa-asterinas` feature is enabled; the standard
+distribution ships the disabled stub. Other platforms use the system allocator.
+The jemalloc package in `Dockerfile.test` is a different thing: `cargo dev` preloads
 it into compiler steps only, to speed up builds, and no product links it.
 Changing the product allocator needs a paired runtime and memory comparison
 first.

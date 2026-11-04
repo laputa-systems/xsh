@@ -4048,6 +4048,8 @@ Calls to value-returning procs remain effectful in expressions. First-class
 `.call(...) -> Any`; their arguments are checked at runtime. A dynamic `Proc`
 does not say what its proc returns, so `Proc.call` is the proc's own `Result`
 when it returns one and `Ok(value)` for any other value, `Ok(())` for none.
+The receiver rules in [Optional chaining](#67-optional-chaining) also apply to
+`.call(...)`.
 
 ### 9.2 Parameters
 
@@ -4839,7 +4841,8 @@ These calls require both `process` and `net`: `linux.socket`, `connect`,
 `bind`, `listen`, `accept`, `sendto`, `recvfrom`, `link_up`, `link_down`,
 `set_ipv4_address`, `flush_ipv4_addresses`, `add_default_ipv4_route`,
 `del_default_ipv4_route`,
-and `unix.connect_stream`, `read_fd`, `write_fd`, `notify_ready`. The private configuration
+and `unix.connect_stream`, `read_fd`, `write_fd`, `notify_ready`, `poll_fds`.
+The private configuration
 helpers create `AF_INET` sockets. A runtime family or raw descriptor cannot
 prove that communication stays local, so generic socket and descriptor calls
 need both effects even when a particular caller uses a local descriptor. Dedicated
@@ -5872,6 +5875,14 @@ until startup ownership transfers or its worker is waited for. A worker
 duplicates the readiness descriptor with `unix.duplicate_fd`, closes the inherited original before running commands,
 and acknowledges only after its initialization and session changes succeed.
 
+`unix.spawn_process_group`, `unix.spawn_process_group_log`, and
+`unix.spawn_with_tty` reject ignored `SIGCHLD` or `SA_NOCLDWAIT` before launch
+when the command has a CPU limit. `unix.spawn_logged_process_group` requires
+retained child status for every command. Setup retains exact child identities
+until success transfers PID ownership to the caller. A setup failure attempts
+to terminate and reap owned children. Any cleanup failure accompanies the
+primary error.
+
 ### 12.3 Exit statuses
 
 | Status | Meaning |
@@ -6356,7 +6367,13 @@ Contracts worth knowing without consulting the reference:
   to the safe untrusted policy: refuse existing names, links that stay inside the
   destination, no devices or FIFOs, permission bits only, no ownership. A shared
   budget (`max_output`, `max_entry`, `max_entries`, with fixed metadata and
-  decoder-workspace limits) bounds every layer. Publication is atomic per entry,
+  decoder-workspace limits) bounds every layer. XZ checks its estimated decoder
+  workspace for every block and concatenated member, including filter state and
+  the decoder's 32 KiB base allowance. The 64 KiB input buffer is additional;
+  this is not a limit on all allocator use. Exceeding the workspace limit reports
+  `ArchiveError.Limit` while reading; allocation and source I/O failures remain
+  I/O errors. An integrity check the decoder cannot verify is rejected.
+  Publication is atomic per entry,
   not durable. Checksums are integrity checks, not authenticity. `create` writes
   tar or cpio through one compression lifecycle to a temporary file published
   with a no-replace rename, and `compress`, `decompress` and `decompress_bytes`

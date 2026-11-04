@@ -2,9 +2,6 @@
 //! binary cache that compaction folds it into, and the advisory lock and reset
 //! marker that keep concurrent shells consistent.
 //!
-//! Every recorded command is appended to the text log before anything else, so
-//! the log plus the cache always hold the whole history. Compaction is a pure
-//! disk-to-disk merge under an exclusive lock and never trusts a shell's memory.
 
 use rustc_hash::FxHashMap;
 use std::ffi::OsStr;
@@ -73,9 +70,11 @@ pub(super) fn is_recordable(command: &str) -> bool {
     !command.is_empty() && command.len() <= MAX_ENTRY_LEN && !command.contains('\0')
 }
 
-/// Parses one log line. Plain lines are legacy commands stamped with
-/// `fallback_ts`. A line that carries the record prefix but does not parse is a
-/// torn or foreign record and is dropped instead of being taken for a command.
+pub(super) fn is_torn_record(bytes: &[u8]) -> bool {
+    let prefix = LOG_RECORD_PREFIX_V2.as_bytes();
+    !bytes.is_empty() && (prefix.starts_with(bytes) || bytes.starts_with(LOG_RECORD_STEM.as_bytes()))
+}
+
 pub(super) fn parse_line(line: &str, fallback_ts: u64) -> Option<Record> {
     let record = if let Some(rest) = line.strip_prefix(LOG_RECORD_PREFIX_V2) {
         let mut parts = rest.splitn(4, '\t');
@@ -279,32 +278,27 @@ pub(super) fn reset_marker_for(path: &Path) -> PathBuf {
     sibling_with_suffix(path, ".reset")
 }
 
-/// An advisory `flock` on the history lock file, released on drop. Readers and
-/// appenders share it; compaction and reset hold it exclusively, so neither can
-/// observe or interleave with a half-finished rewrite.
+/// An advisory `flock` on the history lock file, released on drop.
 pub(super) struct HistoryLock {
     _file: fs::File,
 }
 
 impl HistoryLock {
-    /// Returns `None` when the lock file cannot be opened or the wait expires;
-    /// callers decide whether to proceed without it.
-    pub(super) fn shared(history: &Path, wait: Duration) -> Option<Self> {
+    pub(super) fn shared(history: &Path, wait: Duration) -> io::Result<Self> {
         Self::acquire(history, false, wait)
     }
 
-    pub(super) fn exclusive(history: &Path, wait: Duration) -> Option<Self> {
+    pub(super) fn exclusive(history: &Path, wait: Duration) -> io::Result<Self> {
         Self::acquire(history, true, wait)
     }
 
-    fn acquire(history: &Path, exclusive: bool, wait: Duration) -> Option<Self> {
+    fn acquire(history: &Path, exclusive: bool, wait: Duration) -> io::Result<Self> {
         let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(lock_path_for(history))
-            .ok()?;
+            .open(lock_path_for(history))?;
         let operation = if exclusive {
             rustix::fs::FlockOperation::NonBlockingLockExclusive
         } else {
@@ -313,12 +307,12 @@ impl HistoryLock {
         let started = Instant::now();
         loop {
             match rustix::fs::flock(&file, operation) {
-                Ok(()) => return Some(Self { _file: file }),
+                Ok(()) => return Ok(Self { _file: file }),
                 Err(rustix::io::Errno::INTR) => {}
                 Err(rustix::io::Errno::WOULDBLOCK) if started.elapsed() < wait => {
                     std::thread::sleep(Duration::from_millis(1));
                 }
-                Err(_) => return None,
+                Err(error) => return Err(io::Error::from_raw_os_error(error.raw_os_error())),
             }
         }
     }
@@ -341,31 +335,27 @@ pub(super) fn read_text_records(
     from: u64,
     accept_partial: bool,
     fallback_ts: u64,
-) -> TextRead {
-    let unread = |stamp| TextRead {
-        records: Vec::new(),
-        consumed: from,
-        stamp,
+) -> io::Result<TextRead> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(TextRead {
+                records: Vec::new(),
+                consumed: 0,
+                stamp: None,
+            });
+        }
+        Err(error) => return Err(error),
     };
-    let Ok(mut file) = fs::File::open(path) else {
-        return TextRead {
-            records: Vec::new(),
-            consumed: 0,
-            stamp: None,
-        };
-    };
-    let stamp = file
-        .metadata()
-        .ok()
-        .map(|meta| FileStamp::from_metadata(&meta));
+    let stamp = Some(FileStamp::from_metadata(&file.metadata()?));
     let mut data = Vec::new();
-    if file.seek(SeekFrom::Start(from)).is_err() || file.read_to_end(&mut data).is_err() {
-        return unread(stamp);
-    }
-    let complete = if accept_partial {
+    file.seek(SeekFrom::Start(from))?;
+    file.read_to_end(&mut data)?;
+    let line_end = data.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let complete = if accept_partial && !is_torn_record(&data[line_end..]) {
         data.len()
     } else {
-        data.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1)
+        line_end
     };
     let mut records = Vec::new();
     for chunk in data[..complete].split(|&b| b == b'\n') {
@@ -375,11 +365,11 @@ pub(super) fn read_text_records(
             records.push(record);
         }
     }
-    TextRead {
+    Ok(TextRead {
         records,
         consumed: from + complete as u64,
         stamp,
-    }
+    })
 }
 
 pub(super) enum CacheRead {
@@ -487,13 +477,21 @@ pub(super) fn write_cache(cache: &Path, records: &[Record]) -> io::Result<()> {
     result
 }
 
-pub(super) fn read_reset_marker(path: &Path) -> (u64, Option<FileStamp>) {
+pub(super) fn read_reset_marker(path: &Path) -> io::Result<(u64, Option<FileStamp>)> {
     let marker = reset_marker_for(path);
-    let generation = fs::read_to_string(&marker)
-        .ok()
-        .and_then(|value| value.trim().parse().ok())
-        .unwrap_or(0);
-    (generation, file_stamp(&marker))
+    let mut file = match fs::File::open(marker) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((0, None)),
+        Err(error) => return Err(error),
+    };
+    let stamp = Some(FileStamp::from_metadata(&file.metadata()?));
+    let mut value = String::new();
+    file.read_to_string(&mut value)?;
+    let generation = value
+        .trim()
+        .parse()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    Ok((generation, stamp))
 }
 
 pub(super) fn write_reset_marker(path: &Path, generation: u64) -> io::Result<()> {

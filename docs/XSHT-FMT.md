@@ -56,7 +56,9 @@ cues. `crates/xsht/src/format.rs` owns layout. The language contract is in
   as the same expression. Parentheses around a name, number, or ordinary string
   remain because those forms are command words.
 - `xsht fmt` writes only after every selected file formats successfully.
-  Cancellation during a file writes none of the selected files.
+  Cancellation during formatting, before publication, writes none of the
+  selected files. A write error during publication does not roll back earlier
+  files.
 
 ## Tests
 

@@ -22,6 +22,7 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | Topic | Owner |
 |---|---|
 | language, OS, streams, JSON, interactive behavior | [SPEC](docs/SPEC.md), [interactive SPEC](docs/SPEC-INTERACTIVE.md) |
+| native SSH and remote execution | [SSH](docs/ssh.md) |
 | API signatures and generated references | `xsht api`, [stdlib](docs/reference/stdlib.md), [CLI](docs/reference/cli.md), [grammar](docs/reference/grammar.md), [lints](docs/reference/lints.md) |
 | architecture, invariants, contribution and content tiers | [Architecture](docs/ARCHITECTURE.md) |
 | design principles and syntax rationale | [Design](docs/DESIGN.md) |
@@ -33,6 +34,6 @@ userspace growth remove machinery rather than duplicate its responsibilities.
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
 | campaign status and open milestones | [Roadmap](docs/ROADMAP.md) |
-| paused performance and deployment campaign, inference evidence | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
+| performance and deployment campaign, inference evidence | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
 | open work and design drafts | [TODO](TODO.md) |
 | generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |

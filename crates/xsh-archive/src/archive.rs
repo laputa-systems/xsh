@@ -113,14 +113,6 @@ fn open_sequential(
         None => Box::new(Metered::new(chained, Arc::clone(&budget))),
         Some(codec) => {
             let workspace = budget.limits().workspace_bytes;
-            if codec == Codec::Xz
-                && let Some(dictionary) = compression::xz_dictionary_bytes(&peeked)
-                && dictionary > workspace
-            {
-                return Err(Error::limit(format!(
-                    "xz dictionary of {dictionary} bytes exceeds the {workspace} byte decoder workspace"
-                )));
-            }
             let decoded = compression::decoder(codec, chained, workspace)?;
             Box::new(Metered::new(decoded, Arc::clone(&budget)))
         }

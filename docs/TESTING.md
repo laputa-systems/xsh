@@ -507,6 +507,28 @@ container with a 0.01 CPU quota and a 1 GiB memory limit. Their driver waits for
 the child to open the device, then kills and reaps it. The ordinary gate runs
 this bounded case separately.
 
+## Archive and compression
+
+The XSH-57 implementation was tested on Linux through `56f5fa9f8` and a later
+list-budget follow-up. The `test-archive-*` and `test-root-mutation` cases
+covered malformed and truncated inputs, limits, path confinement, publication,
+cancellation, non-UTF-8 paths and streaming. Native coverage is in
+`tests/xsh/stdlib/archive.xsh`. The interoperability fixtures read BusyBox tar,
+Python tar and zip, Info-ZIP and cpio archives; BusyBox tar, Python tar and
+cpio read archives made by XSH. These historical results do not qualify later
+source.
+
+Rooted extraction was cross-compiled for macOS but not run there. GNU tar and
+bsdtar interoperability, root ownership application and device-node creation
+were not tested; FIFO creation was covered. CPIO hard-link sets and TAR entries with the GNU sparse type flag are
+unsupported. Publication is atomic per entry, not durable; merging
+into an existing directory can publish some entries before a conflict.
+
+The XZ reader checks the first block dictionary against the workspace limit
+when its header fits the initial sniff. The underlying decoder does not receive
+that limit. This is an open implementation gap in the workspace contract, not
+a qualified limit.
+
 ## Syslog receiver
 
 `core/tests/test-syslog-*.xsh` cover `syslogd` and its libraries. The parser,
@@ -725,6 +747,9 @@ Interactive tests require `-p xshi --features laputa-asterinas`; builds
 without the feature compile the disabled stub. Use `--lib` for units and
 `--test cli --test stdlib_preparation` for CLI and repeated-input preparation.
 Linux runs use the pinned image.
+History storage unit tests in `crates/xshi/src/interactive/history/tests.rs`
+cover lock contention, failed writes and retries, reset, and torn log tails.
+They do not establish crash or power-loss durability.
 
 Files under `tests/fixtures/interactive-parity/<os>/` are historical PTY
 transcripts from `ish`. Their replay driver is absent, so they do not establish

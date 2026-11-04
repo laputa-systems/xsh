@@ -60,8 +60,7 @@ effects for lowering and tools. Later stages consume these facts instead of
 repeating semantic decisions.
 
 `FullBuilder` encodes the checked program as indexed rows and pools. A
-construction gap is a diagnostic. The builder runs `FullVerifier::verify`
-before it returns a program. Verification checks schemas, ranges, ownership,
+construction gap is a diagnostic. The builder runs `FullVerifier` before it returns a program. Verification checks schemas, ranges, ownership,
 IDs, and references, then derives the marks used by the in-place evaluator.
 Other instructions use the explicit frame scheduler. Runtime decoders rely on
 the verified representation.
@@ -419,11 +418,7 @@ their result facts. Equality retains checked parameter relationships; ordering
 uses the same scalar-domain rule as ordinary checking. Membership reuses the
 canonical key or comparison contract, and set results require both operands to
 preserve their element guarantees. Boolean right operands keep all elaboration
-inside a lazy value block. Comparison chains store the first operand and an
-ordered list of operator, right operand, and span tuples. Both lowering paths retain each actual operand
-once. Execution carries each reached right value into the next comparison;
-cold verification proves every operand, including unreached links. Nested chains
-therefore do not duplicate their middle operand subtrees.
+inside a lazy value block.
 
 Indexing and slicing share the journaled sealed-operation lifecycle with
 arithmetic. Their requirements retain the receiver, key where present, result,
@@ -584,10 +579,8 @@ Success. Mutable reads without an authenticated origin do not establish a
 return schema.
 
 The checker publishes successful binary selections at their executable source
-identities. Comparison-chain pairs have canonical ordinal paths and use the
-preceding actual right operand as the next left domain. Constant preparation
-publishes its own successful fold domains, including the raw result before a
-storage annotation applies. Body comparison consumes these facts without
+identities. Constant preparation publishes its own successful fold domains,
+including the raw result before a storage annotation applies. Body comparison consumes these facts without
 folding or resolving operations. It compares operation identity and all operand
 and result domains, specializing with the same retained callable-instance
 evidence used for the interface. Unchanged schemes use the existing bound-type
@@ -1061,14 +1054,8 @@ cover every binder, including binders absent from that argument's type. Every
 argument retains its independent physical producer and binder evidence checks.
 The shared materialization budget also bounds each instantiated argument type.
 
-Frontend inference-work metrics count generalization and instantiation type
-function entries, schema argument slots visited by mapping, scoped constructor
-generalizations, and constructor template binder normalization iterations.
-`generalization_binding_clones` counts entries copied from scope maps and
-parameter vectors, including nested row-lacks sets. These counters are active
-only in measurement and test mode; they measure neither CPU time nor allocations.
-Output type and evidence sizes retain their independent emitted-fact census.
-Artifacts without the new metric fields are unavailable for this measurement.
+`src/frontend_stats.rs` defines frontend inference-work metrics. The counters are
+active in measurement and test mode and do not measure CPU time or allocations.
 
 Pending recursive invocation permissions constrain the actual shared effect
 cells in their declaration's inference scope before generalization. An invocation
@@ -1284,19 +1271,17 @@ return sites. Normalization preserves existing structured errors and updates
 only a matching pending traceback's error identity, retaining its source span
 and frames. Nested Result values remain data.
 
-Checked callable contracts and aliases retain the canonical `CallableKind`.
-The Rust `TypedCallable.kind` field replaces its former purity flag.
-`Type::Function(kind)` represents an opaque callable and replaces `Type::Pure`
-and `Type::Proc`. `Type::Stream(item)` continues to represent a produced stream.
+Checked callable contracts and aliases retain the canonical `CallableKind` in
+`TypedCallable.kind`. `Type::Function(kind)` represents an opaque callable.
+`Type::Stream(item)` represents a produced stream.
 The semantic codec retains the kind for opaque and typed callables and rejects
 invalid kind tags. Authored callable annotations retain the existing Pure and
 Proc syntax. Stream callable contracts have no authored annotation syntax.
 
 The public Rust module export contract uses
 `ModuleExportType::Callable { kind, sig, optional }` for ground Pure, Proc, and
-Stream declarations. This replaces the separate `Pure` and `Proc` export
-variants. `GenericCallable` identifies contracts with type, row, or effect
-binders. Callable-valued exports retain their actual lexical binding proof.
+Stream declarations. `GenericCallable` identifies contracts with type, row,
+or effect binders. Callable-valued exports retain their actual lexical binding proof.
 Calls through imported callable aliases publish their actual static module
 receiver contract before lowering. Typed-callee projection derives the export's
 canonical invocation signature from that registered module contract; producer
@@ -1319,12 +1304,10 @@ rejected. Unselected callable exports retain their existing root resources and
 shared state. Calls preserve the real callable environment, defaults, kind,
 and canonical invocation effects.
 
-The public Rust `Value::Callable` variant replaces `Value::Pure` and `Value::Proc`.
-Its opaque `CallableValue` carries the canonical `CallableKind`; named values
-require an explicit kind, and prepared values derive it from the authenticated
-executable target. Declaration identity remains available through `identity()`.
+The public Rust `Value::Callable` variant carries an opaque `CallableValue`
+with the canonical `CallableKind`. Named values require an explicit kind, and
+prepared values derive it from the authenticated executable target. Declaration identity remains available through `identity()`.
 Equality compares kind and identity, excluding invocation evidence.
-The runtime uses `CallableKind` in place of its former `LoweredFunctionKind`.
 Prepared invocation context belongs to the callable's executable program and
 remains private. Function references and typed calls encode the three kinds
 strictly; a stream factory is distinct from its produced stream value.
@@ -1359,18 +1342,17 @@ check at first pull; a positive signed literal alone cannot certify a UInt
 producer contract. Native factory facts must agree with the actual selected
 operation's solved result before they can supply stream item evidence.
 
-Bare Range uses the native owned-values Stream carrier after eager checked
-allocation. The same range materializer constructs runtime values directly for
-bare Range and lowered values for the existing pipeline path. Range and captured
-Stream-result facts activate the existing producer proof for actual bounds,
-writers, success values, and captured errors. Callable declaration kind decides
+Bare `range` checks its bounds and produces items through a live Stream. The
+pipeline Range stage materializes its values. Range and captured Stream-result
+facts activate the existing producer proof for bounds, writers, success values,
+and captured errors. Callable declaration kind decides
 whether a call suspends a producer; a Pure function returning a Stream executes
 its body immediately.
 
 Environment path reads retain owned snapshot entries with sealed provenance.
 The public Rust `Value::EnvPathList` variant carries an opaque
-`EnvPathListSnapshot` instead of a unit marker. Runtime-to-lowered conversion and
-clones retain that provenance; an ordinary path list cannot supply an internal
+`EnvPathListSnapshot`. Runtime-to-lowered conversion and clones retain that
+provenance; an ordinary path list cannot supply an internal
 checked view contract. The native zero-argument operation returns this checked
 view, while the one-argument `env.path_list` operation returns its ordinary
 `Result[List[Path]]` contract. Actual arity selects the native contract.
@@ -1490,6 +1472,25 @@ The vendored Deser packages under `crates/deser` own codec syntax and emission.
 Language decoding constructs runtime values directly; borrowed views emit runtime
 and lowered values without creating a second dynamic tree. The codec boundary
 owns representation checks, duplicate rejection and fixed resource budgets.
+
+The accepted Deser cutover illustrates the cost of that boundary. This compares
+pre-cutover `9d893e0075d2` with `ad126a1e8` and the current owners; it does
+not include experimental inline or XZ work.
+
+| Responsibility | Before and after |
+|---|---|
+| Syntax and emission | JSON used `miniserde`; `src/modules/ini.rs` owned an INI parser, intermediate `IniData` and renderer. Those INI routines, JSON tree conversion and the custom JSON tree/text sinks were retired. Vendored `crates/deser` now owns codec syntax and emission: that library and its maintenance are moved responsibility, not deleted complexity. |
+| Runtime operations | Existing JSON and INI operations remain in `crates/xsh-registry/src/runtime_op.rs`; generic codec operations and CSV, YAML and TOML operations were added. `src/modules/codec.rs` and its `config`, `table` and `sequence` modules own dispatch, error attribution, resource limits and format-specific constraints. This is an expanded capability, not a one-for-one replacement. |
+| Values and conversions | JSON previously parsed a `miniserde::json::Value` tree and recursively converted it to XSH values; some encoding built a second tree. `DecodeValue` constructs runtime or lowered values directly, and `BorrowedValue` emits from either representation (`src/runtime/eval/json.rs`). The separate runtime and lowered representations remain for execution; the `deser_value::Value` host DOM remains for Rust tooling, not language values. |
+| Invariants | The codec adapters enforce XSH value compatibility, limits and format restrictions. Registry signatures and indexed verification still authenticate operations and checked schema obligations (`src/runtime/eval/indexed/full/verify_schemes.rs`). These checks protect different boundaries and are not candidates for deletion merely because they overlap. `tests/xsh/stdlib/config-codecs.xsh` exercises cross-format conversion and rejection. |
+| Dependencies | The root moved from `miniserde` to vendored `deser`, its JSON, YAML, TOML, INI, CSV and value crates, plus their transitive workspace crates; `crates/xsht` also consumes Deser. `Cargo.toml` and `Cargo.lock` own the complete graph. |
+| Consumer | `core/lib/btop_replay.xsh` decodes JSON observations, validates `ReplayMountCapacity` with `require`, then checks frame order and sequence. `core/tests/test-btop-replay.xsh` covers replay and invalid ordering; codec parsing does not replace the consumer's domain checks. |
+| Product cost | No same-profile pre-cutover/current pair for product size and startup is established here. The `fcdae517e` x86_64 musl O2 distribution inventory in [Release engineering](RELENG.md#where-the-size-goes) attributes about 0.6 MB of code to Deser codecs, not an incremental cutover size. Current-source S6 size and startup qualification remain open. |
+
+The concrete simplification is removal of the bespoke INI parser and JSON
+intermediate tree and sinks, while keeping schema and execution boundaries.
+More formats, glue and a substantial vendored library make the overall ownership
+larger; this is not evidence of a net reduction in all code or product cost.
 
 Rust tooling uses `xsh::host::json::{Value, parse, encode, encode_pretty}`.
 `Value` is the Deser host DOM and retains the full u64 domain; parsing and both

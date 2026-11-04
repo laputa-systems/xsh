@@ -150,3 +150,236 @@ let _ = unix.connect_stream(Path({}), 20s)?
     std::fs::remove_file(script).unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unix_stream_short_write_preserves_prefix_and_reports_backpressure() {
+    let root = tempfile::Builder::new().prefix("w").tempdir_in(".work/tmp").unwrap();
+    let path = root.path().join("socket");
+    let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (release, wait) = std::sync::mpsc::channel();
+    let peer = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(peer) => break peer,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => return Err(error),
+            }
+        };
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        wait.recv_timeout(Duration::from_secs(10)).unwrap();
+        let mut received = Vec::new();
+        stream.read_to_end(&mut received).unwrap();
+        Ok(received)
+    });
+    let script = write_temp_script("unix-stream-backpressure", r#"proc main(...argv: List[Str]) [process, net, error] {
+  let fd = unix.connect_stream(Path(argv[0]), 2s)?
+  defer unix.close_fd(fd)
+  let payload = bytes.concat([b"prefix", bytes.zero(4194304)?])
+  let written = unix.write_fd(fd, payload)?
+  assert written > 0 and written < payload.len()
+  assert unix.poll_fd(fd, ["writable"], 0)? == []
+  assert unix.write_fd(fd, payload.slice(written)) is Err(is HostIo)
+  print $written
+}
+"#);
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script).arg(&path).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    wait_child_status(&mut child, Duration::from_secs(8));
+    let output = child.wait_with_output().unwrap();
+    std::fs::remove_file(script).unwrap();
+    let _ = release.send(());
+    let received = peer.join().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let received = received.unwrap();
+    let written: usize = String::from_utf8(output.stdout).unwrap().trim().parse().unwrap();
+    assert_eq!(received.len(), written);
+    assert!(received.starts_with(b"prefix"));
+    assert!(received[6..].iter().all(|byte| *byte == 0));
+    root.close().unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unix_stream_retries_short_writes_after_peer_drains() {
+    let root = tempfile::Builder::new().prefix("r").tempdir_in(".work/tmp").unwrap();
+    let path = root.path().join("socket");
+    let ready = root.path().join("ready");
+    let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let peer_ready = ready.clone();
+    let peer = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(peer) => break peer,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => return Err(error),
+            }
+        };
+        while !peer_ready.exists() {
+            if Instant::now() >= deadline {
+                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "client never reached backpressure"));
+            }
+            std::thread::yield_now();
+        }
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        let mut received = Vec::new();
+        stream.read_to_end(&mut received)?;
+        Ok(received)
+    });
+    let script = write_temp_script("unix-stream-retry", r#"proc main(...argv: List[Str]) [process, net, fs, time, error] {
+  let fd = unix.connect_stream(Path(argv[0]), 2s)?
+  defer unix.close_fd(fd)
+  let payload = bytes.concat([b"prefix", bytes.zero(4194304)?, b"suffix"])
+  var offset = unix.write_fd(fd, payload)?
+  assert offset > 0 and offset < payload.len()
+  assert unix.poll_fd(fd, ["writable"], 0)? == []
+  Path(argv[1]).write("ready")?
+  let deadline = time.monotonic()? + 5000000000
+  while offset < payload.len() {
+    let remaining = deadline - time.monotonic()?
+    assert remaining > 0
+    assert "writable" in unix.poll_fd(fd, ["writable"], (remaining + 999999) / 1000000)?
+    let written = unix.write_fd(fd, payload.slice(offset))?
+    assert written > 0
+    offset += written
+  }
+  print $offset
+}
+"#);
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script).arg(&path).arg(&ready).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    wait_child_status(&mut child, Duration::from_secs(8));
+    let output = child.wait_with_output().unwrap();
+    std::fs::remove_file(script).unwrap();
+    let received = peer.join().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let received = received.unwrap();
+    let written: usize = String::from_utf8(output.stdout).unwrap().trim().parse().unwrap();
+    assert_eq!(written, 4194316);
+    assert_eq!(received.len(), written);
+    assert!(received.starts_with(b"prefix"));
+    assert!(received[6..4194310].iter().all(|byte| *byte == 0));
+    assert!(received.ends_with(b"suffix"));
+    root.close().unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unix_stream_deadline_closes_socket_before_caller_returns() {
+    let root = tempfile::Builder::new().prefix("d").tempdir_in(".work/tmp").unwrap();
+    let path = root.path().join("socket");
+    let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let peer = std::thread::spawn(move || {
+        let result = (|| -> std::io::Result<usize> {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(peer) => break peer,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::yield_now(),
+                    Err(error) => return Err(error),
+                }
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+            stream.read(&mut [0; 1])
+        })();
+        let _ = send.send(result);
+    });
+    let script = write_temp_script("unix-stream-deadline", r#"proc wait_socket(socket: Path) -> Result[Unit, Error] {
+  let fd = unix.connect_stream(socket, 2s)?
+  defer unix.close_fd(fd)
+  assert unix.poll_fd(fd, ["readable"], 200)? == []
+}
+proc main(...argv: List[Str]) [process, net, io, error] {
+  wait_socket(Path(argv[0]))?
+  assert io.stdin_line()? == "release"
+  print "done"
+}
+"#);
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script).arg(&path).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let eof = receive.recv_timeout(Duration::from_secs(6));
+    let alive = child.try_wait().unwrap().is_none();
+    if eof.as_ref().is_ok_and(|result| result.as_ref().is_ok_and(|count| *count == 0)) && alive {
+        child.stdin.take().unwrap().write_all(b"release\n").unwrap();
+    } else {
+        let _ = child.kill();
+    }
+    wait_child_status(&mut child, Duration::from_secs(3));
+    let output = child.wait_with_output().unwrap();
+    peer.join().unwrap();
+    std::fs::remove_file(script).unwrap();
+    assert!(alive, "client exited before peer observed EOF: {:?}", output);
+    assert_eq!(eof.unwrap().unwrap(), 0, "peer did not observe EOF");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"done\n");
+    root.close().unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn unix_stream_signal_during_deadline_wait_closes_peer() {
+    let root = tempfile::Builder::new().prefix("s").tempdir_in(".work/tmp").unwrap();
+    let path = root.path().join("socket");
+    let ready = root.path().join("ready");
+    let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let peer = std::thread::spawn(move || -> std::io::Result<usize> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(peer) => break peer,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => return Err(error),
+            }
+        };
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.read(&mut [0; 1])
+    });
+    let script = write_temp_script("unix-stream-signal", r#"proc main(...argv: List[Str]) [process, net, fs, io, error] {
+  let fd = unix.connect_stream(Path(argv[0]), 2s)?
+  defer unix.close_fd(fd)
+  defer { print "cleanup" }
+  Path(argv[1]).write("ready")?
+  let _ = unix.poll_fd(fd, ["readable"], 1000)?
+  print "unexpected"
+}
+"#);
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script).arg(&path).arg(&ready).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !ready.exists() && Instant::now() < deadline && child.try_wait().unwrap().is_none() {
+        std::thread::yield_now();
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let tasks = format!("/proc/{}/task", child.id());
+    let waiting = ready.exists() && loop {
+        if std::fs::read_dir(&tasks).ok().is_some_and(|tasks| tasks.flatten().any(|task| {
+            std::fs::read_to_string(task.path().join("syscall")).ok().is_some_and(|line| {
+                line.split_whitespace().next().and_then(|number| number.parse::<libc::c_long>().ok()) == Some(libc::SYS_ppoll)
+            })
+        })) { break true; }
+        if Instant::now() >= deadline || child.try_wait().unwrap().is_some() { break false; }
+        std::thread::yield_now();
+    };
+    if waiting {
+        // SAFETY: the child was observed alive in its poll wait above.
+        assert_eq!(unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) }, 0);
+    } else {
+        let _ = child.kill();
+    }
+    wait_child_status(&mut child, Duration::from_secs(3));
+    let output = child.wait_with_output().unwrap();
+    let received = peer.join().unwrap();
+    std::fs::remove_file(script).unwrap();
+    assert!(waiting, "client did not enter poll: {:?}", output);
+    assert_eq!(output.status.code(), Some(3), "{:?}", output);
+    assert_eq!(output.stdout, b"cleanup\n");
+    assert_eq!(received.unwrap(), 0);
+    root.close().unwrap();
+}

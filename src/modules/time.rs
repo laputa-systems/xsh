@@ -272,7 +272,36 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
 
 #[cfg(test)]
 mod tests {
-    use super::format_epoch_ms_utc;
+    use super::{format_epoch_ms_utc, monotonic_ns, now_epoch_ms, MONOTONIC_ORIGIN};
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn monotonic_nanoseconds_measure_elapsed_time_from_the_process_origin() {
+        let origin = *MONOTONIC_ORIGIN.get_or_init(Instant::now);
+        let before = origin.elapsed().as_nanos();
+        let reading = monotonic_ns().unwrap() as u128;
+        let after = origin.elapsed().as_nanos();
+        assert!((before..=after).contains(&reading));
+    }
+
+    #[test]
+    fn wall_clock_is_epoch_milliseconds() {
+        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        let reading = now_epoch_ms();
+        let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+        assert!((before..=after).contains(&reading));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn boottime_is_host_clock_nanoseconds() {
+        let before = rustix::time::clock_gettime(rustix::time::ClockId::Boottime);
+        let reading = super::boottime_ns().unwrap();
+        let after = rustix::time::clock_gettime(rustix::time::ClockId::Boottime);
+        let nanoseconds = |value: rustix::time::Timespec| value.tv_sec * 1_000_000_000 + value.tv_nsec;
+        assert!((nanoseconds(before)..=nanoseconds(after)).contains(&reading));
+    }
+
 
     #[test]
     fn format_epoch_ms_utc_handles_epoch_leap_day_and_pre_epoch_values() {

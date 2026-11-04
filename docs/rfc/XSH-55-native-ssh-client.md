@@ -101,7 +101,7 @@ fixture suites did not run on a musl target. Cross-checked only, not executed:
   The code that already compiled there compiles by cross-check only.
 - A protocol and security review before any claim beyond experimental. The
   tests, fuzz loops and fixtures here are not formal verification.
-- One command per session, with no channel multiplexing. A session is dead after
+- One command at a time per session, with no channel multiplexing. A session is dead after
   any failure; a timeout does not keep the transport reusable.
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries
   are refused. Only Ed25519 host and user keys, no password or

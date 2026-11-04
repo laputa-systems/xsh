@@ -2004,6 +2004,24 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(self.wrap_argument_bindings(value, bindings, span))
             }
             ArenaExprKind::NullSafeField { base, name } => {
+                let erased_kind = match self.checked_expr_type(base).as_ref().map(Type::unvalidated) {
+                    Some(Type::Optional(inner) | Type::Result(inner, _)) => match inner.unvalidated() {
+                        Type::Function(kind) => Some(*kind),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if name == "call"
+                    && let Some(kind) = erased_kind
+                    && !self.bodies.statically_resolved_calls.contains(&id)
+                {
+                    let args = self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
+                    let callee = self.lower_postfix_receiver(base, slots, current_function, item_slot)?;
+                    let call = push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span });
+                    return Some(if kind == crate::sema::types::CallableKind::Proc {
+                        push_build_row!(self, expr, BuildExprRow::ProcCallResult(call))
+                    } else { call });
+                }
                 if name == "read_text"
                     && args_vec.is_empty()
                     && self.checked_path_method_arguments(id, &args_vec).is_some()

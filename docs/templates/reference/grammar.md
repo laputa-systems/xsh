@@ -8,7 +8,7 @@ that the parser and productions accept the same language.
 
 ## Token stream
 
-The productions read the lexer's tokens after three adjustments:
+The productions read the lexer's tokens after these adjustments:
 
 - Comments are dropped.
 - A line break followed (after any blank or comment lines) by a
@@ -77,8 +77,10 @@ the equality level; `|>` is looser than every operator.
 | {{.precedence}} | {{.operators}} | {{.associativity}} | {{.families}} |
 {{- end}}
 
-Ordering operators chain (`0 <= i < n`); an ordering never mixes with an
-equality, membership, or pattern test without grouping
+Ordering operators take two operands. A chain such as `0 <= i < n` is
+rejected with `parse.comparison-chain`; join the comparisons with `and` and
+bind a middle operand that is not a name or literal first. An ordering never
+mixes with an equality, membership, or pattern test without grouping
 (`parse.mixed-comparison`), which the productions spell out. The checker's
 grouping rules (`check.mixed-logical`, `check.ambiguous-grouping`,
 `check.redundant-parens`) apply on top of this grammar.

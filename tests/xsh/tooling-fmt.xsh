@@ -47,6 +47,33 @@ test test_fmt_check_reports_unformatted_files { |ctx|
   assert checked.stderr == ""
 }
 
+test test_fmt_does_not_write_when_any_selected_file_is_invalid { |ctx|
+  let source = "let value=1\n"
+  let cases = [
+    {valid: "a.xsh", invalid: "b.xsh"},
+    {valid: "b.xsh", invalid: "a.xsh"},
+  ]
+  for {valid, invalid} in cases {
+    let root = project(ctx, {"a.xsh": "", "b.xsh": ""})?
+    let valid_file = fp"{root}/{valid}"
+    let invalid_file = fp"{root}/{invalid}"
+    valid_file.write(source)
+    invalid_file.write("let =\n")
+    cd (root) {
+      let checked = run.capture --text "xsht" fmt --check .
+      assert checked.status.exited_with(2), checked.stderr
+      assert f"{valid}: needs formatting" in checked.stdout, checked.stdout
+      assert "err[" in checked.stderr, checked.stderr
+      let formatted = run.capture --text "xsht" fmt .
+      assert formatted.status.exited_with(2), formatted.stderr
+      assert formatted.stdout == "", formatted.stdout
+      assert "err[" in formatted.stderr, formatted.stderr
+    }
+    assert valid_file.read_text()? == source, valid
+    assert invalid_file.read_text()? == "let =\n", invalid
+  }
+}
+
 test test_fmt_check_reports_discovered_files_in_stable_order { |ctx|
   let root = project(ctx, {"b.xsh": "let b=1\n", "a.xsh": "let a=1\n"})?
   cd (root) {

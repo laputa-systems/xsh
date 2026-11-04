@@ -3,6 +3,8 @@ use lib.dhcp_client as client
 use lib.dhcp_live as live
 use lib.dhcp_wire as wire
 
+error DhcpcError = Usage : Usage
+
 pure notify_descriptor(raw: Result[Str, Error]) -> Int? {
   if let Ok(text) = raw {
     if let Ok(descriptor) = text.parse_int() {
@@ -16,7 +18,8 @@ pure notify_descriptor(raw: Result[Str, Error]) -> Int? {
 ## the interface lock, reports readiness on NOTIFY_FD once the interface is
 ## resolved, the lock is held and its sockets are open, and runs until it is
 ## stopped. With --once it acquires one lease, configures it and exits; the
-## lease is then not renewed and expires unmanaged.
+## lease is then not renewed and expires unmanaged. The --seconds limit must
+## fit in signed milliseconds.
 cli main(
   interface: Str,
   lease_dir = p"/var/lib/dhcpc",
@@ -30,6 +33,7 @@ cli main(
 ) [fs, process, net, env, time, error, io] {
   let settings = {...live.default_settings(interface), lease_dir: lease_dir, run_dir: run_dir, resolv_dir: resolv_dir, resolv_name: resolv_name, static_path: static_file, metric: metric}
   if once {
+    return Err(DhcpcError.Usage("--seconds is too large to represent in milliseconds")) when seconds > 9223372036854775807 / 1000
     let session = live.supervise(settings, .OneShot(seconds * 1000), null)?
     guard let lease = session.machine.lease else { return }
     print f"address={wire.ip_text(lease.address)}/{lease.prefix} server={wire.ip_text(lease.server)} lease={lease.lease_secs}s"

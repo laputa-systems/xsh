@@ -1465,7 +1465,7 @@ tests/test-sshd.xsh::harden_script_edits_file_and_keeps_backup ... ok 21ms
 
 test result: ok. 3 passed; 0 failed; 0 skipped</code></pre></figure>
 <p>The pieces:</p>
-<ul><li><code>assert a == b</code> reports both sides when it fails. Comparisons, <code>and</code>/<code>or</code> chains, and ordering chains all report the operands that made them false. A bare <code>Bool</code> statement is an error, never a silent no-op, so a forgotten <code>assert</code> cannot pass vacuously.</li>
+<ul><li><code>assert a == b</code> reports both sides when it fails. Comparisons and <code>and</code>/<code>or</code> chains report the operands that made them false. A bare <code>Bool</code> statement is an error, never a silent no-op, so a forgotten <code>assert</code> cannot pass vacuously.</li>
 <li><code>{ |ctx| ... }</code> binds the test context. <code>test.temp_dir(ctx)</code> and <code>test.temp_file(ctx, ...)</code> create files under a per-test root that the runner removes.</li>
 <li><code>test.run_script(ctx, source, args:, env:, stdin:)</code> runs a whole script under <code>xsh</code> and returns its status, stdout, and stderr. Child scripts inherit the configured <code>module_path</code>, so <code>use sshd</code> resolves exactly as it does in the test file.</li>
 <li><code>test.mock(ctx, "net.request", matcher, result)</code> substitutes host effects such as <code>net.*</code> and <code>dns.*</code> calls. <code>test.skip("reason")</code> skips.</li>

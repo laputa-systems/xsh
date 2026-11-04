@@ -1,9 +1,8 @@
 # Inference evidence
 
 Reference for the inference completion contract, capability evidence, corpus
-views, and retained annotations. [Active work](../full-inference-campaign.md)
-lives in the campaign document. Earlier implementation notes remain in its
-Git history.
+views, and retained annotations. The [campaign close](../full-inference-campaign.md)
+records accepted residuals. Earlier implementation notes remain in Git history.
 
 ## Completion contract
 

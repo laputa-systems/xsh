@@ -1051,6 +1051,32 @@ print $i
   assert output.stdout == "true\nfalse\n2\n1\nnone\n2\n3\n"
 }
 
+test test_full_inference_invalid_method_instance_does_not_reject_valid_instance { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure byte_or_none(source) { source.byte_at(0) ?? -1 }
+let invalid = byte_or_none(1)
+let valid: Int = byte_or_none("abc")
+""",
+  )?
+  assert output.success == false
+  assert ":2:15" in output.stderr, output.stderr
+  assert ":3:18" not in output.stderr, output.stderr
+}
+
+test test_full_inference_invalid_operation_instance_does_not_reject_valid_instance { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure twice(value) { value + value }
+let invalid = twice(true)
+let valid: Int = twice(2)
+""",
+  )?
+  assert output.success == false
+  assert ":2:15" in output.stderr, output.stderr
+  assert ":3:18" not in output.stderr, output.stderr
+}
+
 test test_full_inference_overloaded_method_without_a_unique_signature_is_rejected { |ctx|
   let cases = [
     {name: "receiver without the method", source: "pure byte_or_none(source, at) { source.byte_at(at) ?? -1 }\nlet value = byte_or_none([1, 2], 0)\n"},

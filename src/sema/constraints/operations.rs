@@ -437,6 +437,7 @@ pub(super) struct SealedOperations {
     watchers: BTreeMap<ApplicationDependency, BTreeSet<SealedOperationId>>,
     pending: VecDeque<SealedOperationId>,
     queued: BTreeSet<SealedOperationId>,
+    abandoned: BTreeSet<SealedOperationId>,
 }
 
 #[derive(Clone, Debug)]
@@ -461,6 +462,7 @@ impl SealedOperations {
             + self.watchers.values().map(|ids| ids.len() * size_of::<SealedOperationId>()).sum::<usize>()
             + self.pending.capacity() * size_of::<SealedOperationId>()
             + self.queued.len() * size_of::<SealedOperationId>()
+            + self.abandoned.len() * size_of::<SealedOperationId>()
     }
     pub(super) fn rollback(&mut self, change: OperationChange) {
         match change {
@@ -478,7 +480,7 @@ impl SealedOperations {
     }
 
     fn enqueue(&mut self, id: SealedOperationId, changes: &mut Vec<ConstraintChange>) {
-        if self.queued.insert(id) {
+        if !self.abandoned.contains(&id) && self.queued.insert(id) {
             self.pending.push_back(id);
             changes.push(ConstraintChange::Operation(OperationChange::Queued(id)));
         }
@@ -508,6 +510,15 @@ impl SealedOperations {
 }
 
 impl TypeConstraints {
+    pub(crate) fn abandon_sealed_operations(&mut self, ids: &[SealedOperationId]) {
+        for id in ids {
+            self.operations.abandoned.insert(*id);
+            self.operations.queued.remove(id);
+        }
+        let abandoned = &self.operations.abandoned;
+        self.operations.pending.retain(|id| !abandoned.contains(id));
+    }
+
     pub(crate) fn indexed_iteration_evidence(&self) -> Result<BTreeMap<(super::CallableApplicationScope, super::TypeVariableId), Vec<(Type, Type, Type, Span)>>, ConstraintResolutionError> {
         let mut evidence = BTreeMap::<_, Vec<_>>::new();
         for entry in self.operations.entries.values() {

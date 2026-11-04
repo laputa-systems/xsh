@@ -1,5 +1,7 @@
 # Joint annotation cohort
 
+This is a historical source-pinned cohort. For later inference status and residuals, see the [inference campaign](../../../full-inference-campaign.md).
+
 This cohort retains the roots, source pins, source graph and 9,194 AST sites in
 [the cohort design](../designs/typing-cohort.md). `eligibility.tsv` fixes each
 site's category before the first removal run. Site numbers index the retained

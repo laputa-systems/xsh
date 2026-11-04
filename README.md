@@ -17,7 +17,9 @@ Choose the `xsh` and `xsht` binaries for your platform from the
 [release assets](https://github.com/laputa-systems/xsh/releases), rename them
 to `xsh` and `xsht`, and put both in a directory on your `PATH`.
 Make them executable with `chmod +x xsh xsht`.
-For an interactive shell, install the matching `xshi` binary and run `xshi`.
+The standard distribution ships a disabled `xshi` stub. The interactive shell
+is available in builds that enable `xshi/laputa-asterinas`; see the
+[interactive specification](docs/SPEC-INTERACTIVE.md).
 
 ```bash
 cat > hello.xsh <<'EOF'
@@ -43,4 +45,4 @@ Tool configuration lives in `xsht-config.ini`; see
 
 ## License
 
-This repository does not currently include a license file.
+The repository has no project-wide license file. Bundled code may have its own licenses.
