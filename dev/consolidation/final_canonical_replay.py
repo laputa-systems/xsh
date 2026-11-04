@@ -490,6 +490,7 @@ def bootstrap_docker_command(validated: dict[str, Any], container_name: str, cid
         "XDG_CACHE_HOME": "/root/.cache",
         "TMPDIR": f"/scratch/{output_root.name}/tmp",
         "RUSTC_WRAPPER": "/usr/local/bin/kache",
+        "KACHE_SCHEDULER": "0",
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
         rustflags_variable: RUSTFLAGS,
     }
@@ -742,6 +743,7 @@ def docker_command(validated: dict[str, Any], container_name: str, cid_file: pat
         "HOST_UID": str(os.getuid()),
         "HOST_GID": str(os.getgid()),
         "RUSTC_WRAPPER": "/usr/local/bin/kache",
+        "KACHE_SCHEDULER": "0",
         "XSH_DEV_BUILD_PRELOAD": "/usr/lib/libjemalloc.so.2",
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
         rustflags_variable: RUSTFLAGS,
