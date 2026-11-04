@@ -55,11 +55,13 @@ last source that passed most gates, and old passes do not qualify later source.
   image, not the pinned image; the pairs are not requalified.
 - **Unrun:** private and resource close (`dev/util-linux/check.py
   resources|close`), and every pinned-image stage below.
-- **Environment:** the previous `8ddba911` image is no longer available.
+- **Environment:** the earlier `8ddba911` and `b123366b` images are no longer
+  available; a 2026-11-04 rebuild replaced the `xsh-test` tag.
   `versions.lock.json` now pins the local amd64 `Dockerfile.test` image
-  `sha256:b123366ba3e822a34a3391c800a9a5c1a9cda26306e53b13738e6813c9fb30be`.
-  Its build history matches the current Dockerfile and its Rust toolchain is
-  `nightly-2026-09-15`. Earlier image measurements do not qualify new runs.
+  `sha256:822035d36ef6da33bdd09a2f2a8b1d8b11c544b7bf0376e8327790c680599d2b`,
+  built from the unchanged Dockerfile with Rust `nightly-2026-09-15`
+  (`rustc 1.100.0-nightly 2026-09-14`). Earlier image measurements and
+  receipts do not qualify new runs.
   The launch, observer and comparison tools keep
   their controller root, locks and evidence under the main checkout's `.work/`,
   derived from the git common directory, so every lane worktree shares one set
