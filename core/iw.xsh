@@ -360,7 +360,7 @@ proc boot_millis() -> Int {
 
 proc station_report(messages: List[nl.Message], name: Str) {
   let boot = boot_millis()
-  let wall = time.now() / 1000000000 * 1000
+  let wall = time.now()
   for message in messages {
     emit(nl.station_lines(message, name, boot, wall))
   }
@@ -502,22 +502,23 @@ proc command_event(client: nl.Client, stamp: Str) -> Result[Int] {
   for entry in nl.interfaces(client)? {
     names = names.set(f"{entry.index}", entry.name)
   }
-  var previous = time.now()
+  var previous = time.monotonic()?
   while true {
     let event = nl.receive_event(client)?
     continue when event == null
-    let now = time.now()
+    let tick = time.monotonic()?
+    let wall_ns = time.now() * 1000000
     var prefix = ""
     if stamp == "-t" {
-      prefix = f"{now / 1000000000}.{now / 1000 % 1000000:06}: "
+      prefix = f"{wall_ns / 1000000000}.{wall_ns / 1000 % 1000000:06}: "
     } else if stamp == "-T" {
-      let calendar = time.format(now, "%Y-%m-%d %H:%M:%S")?
-      prefix = f"[{calendar}.{now / 1000 % 1000000:06}]: "
+      let calendar = time.format(wall_ns, "%Y-%m-%d %H:%M:%S")?
+      prefix = f"[{calendar}.{wall_ns / 1000 % 1000000:06}]: "
     } else if stamp == "-r" {
-      let delta = now - previous
+      let delta = if tick > previous { tick - previous } else { 0 }
       prefix = f"+{delta / 1000000000}.{delta / 1000 % 1000000:06}: "
     }
-    previous = now
+    previous = tick
     emit([prefix + nl.event_line(event, names)])
   }
   Ok(0)

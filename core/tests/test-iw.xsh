@@ -695,6 +695,8 @@ test test_station_dump_and_get_print_every_decoded_field { |ctx|
   assert stations[0..expected.len()] == expected
   assert stations[expected.len() + 1..2 * expected.len() + 1] == expected
   assert rx"^\tcurrent time:\t\d+ ms$".matches(stations[expected.len()])
+  let current_ms = stations[expected.len()].split("\t")[2].split(" ")[0].parse_uint()?
+  assert current_ms > 1000000000000
   let one = run_iw(ctx, "station-get", lines, ["dev", "wlan0", "station", "get", "02:00:00:00:00:02"])?
   assert one.success and one.stdout.lines()[0..expected.len()] == expected, one.stderr
   let invalid = run_iw(ctx, "station-bad-mac", lines, ["dev", "wlan0", "station", "get", "nope"])?
@@ -901,8 +903,11 @@ test test_event_prints_subscribed_events_until_the_stream_ends { |ctx|
   assert output.status == 245
   assert output.stderr == "command failed: Resource temporarily unavailable (-11)\n"
 
+  let before_s = time.now() / 1000
   let stamped = run_iw(ctx, "event-t", lines, ["event", "-t"])?
   assert rx"^\d+\.\d{6}: wlan0 \(phy #0\): scan started$".matches(stamped.stdout.lines()[0])
+  let stamped_s = stamped.stdout.lines()[0].split(".")[0].parse_uint()?
+  assert stamped_s >= before_s and stamped_s <= time.now() / 1000
   let calendar = run_iw(ctx, "event-T", lines, ["event", "-T"])?
   assert rx"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}\]: wlan0 \(phy #0\): scan started$".matches(calendar.stdout.lines()[0])
   let relative = run_iw(ctx, "event-r", lines, ["event", "-r"])?
