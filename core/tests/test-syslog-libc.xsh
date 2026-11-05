@@ -8,7 +8,7 @@ proc compiled_client(ctx: TestContext, root: Path) [fs, process, env, error] -> 
   let binary = fp"{root}/syslog_client"
   let source = fp"{ctx.core_dir}/tests/support/syslog_client.c"
   let cc = compiler()
-  let status = process.run(process.command_argv(cc, [cc, "-O1", "-o", binary.display(), source.display()], root, {PATH: e"PATH" ?? "/usr/bin:/bin", LC_ALL: "C"}, timeout: 120s))?
+  let status = process.run(process.command_argv(cc, [cc, "-O1", "-o", binary, source], root, {PATH: e"PATH" ?? "/usr/bin:/bin", LC_ALL: "C"}, timeout: 120s))?
   assert status.exited_with(0), f"{cc} could not build the syslog client"
   Ok(binary)
 }

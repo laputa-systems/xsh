@@ -76,7 +76,7 @@ test ssh_session_cannot_be_shown_or_read_as_a_record { |ctx|
   assert read.stdout == "", read.stdout
 }
 
-test ssh_session_is_not_json_and_leaves_no_token_in_values { |ctx|
+test ssh_session_is_not_json_and_leaves_no_token_in_values { |_|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
@@ -104,7 +104,7 @@ test ssh_session_is_not_json_and_leaves_no_token_in_values { |ctx|
   }
 }
 
-test ssh_session_passed_to_a_worker_still_works { |ctx|
+test ssh_session_passed_to_a_worker_still_works { |_|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {

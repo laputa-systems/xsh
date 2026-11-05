@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 70
+Next: 71
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -98,15 +98,15 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-69 · P2 · Make whole-tree `xsht lint` pass for the batch gate
+### XSH-70 · P3 · Agree on reachability after a `with` body that always returns
 
-- **Area:** Tests
-- **Where:** `crates/xsht/src/cli/lint.rs` (`lint_diagnostics_status`), `xsht-config.ini`, `dev/gates.xsh` (`batch-lint`)
-- **Problem:** Since `53e296282` and `23218c727`, any lint finding except notes fails `xsht lint`. Master has 2,415 warnings, led by `redundant-propagation` (650), `prefer-inferred-variant` (249), `prefer-guard` (156), `boolean-guard` (150) and `prefer-named-argument-pun` (119), so the canonical `batch-lint` stage cannot pass. The 63 shadowing errors were fixed in `0131d3445`.
-- **Recommendation:** Disable in `[lint]` the migration rules whose syntax is still being consolidated, and fix the rest in the sources.
-- **Blocked:** Owner decision between a source sweep and disabling rules.
-- **Fix with:** none
-- **Effort:** M
+- **Area:** Checker
+- **Where:** `crates/xsht/src/lint_rules.rs` (`dead-code`), `src/runtime/eval/indexed/full/verify_schemes/producers.rs`, `tests/xsh/ssh-connect.xsh:248` (`leave_early`)
+- **Problem:** In `with session = ssh.connect(options)? { return session }` followed by `fail "..."`, `lint.dead-code` reports the `fail` as unreachable, but deleting it makes `xsht check` fail with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`; binding the `with` result and returning it is still flagged dead. The lint and the lowering disagree on whether control can leave the `with` block, so one of them is wrong. `tests/xsh/ssh-connect.xsh` is excluded from `dead-code` until this is settled.
+- **Recommendation:** Decide from the SPEC whether a `with` body that returns on every path makes the block's end unreachable. Fix the side that disagrees, reduce the case to a native test, and remove the exclusion.
+- **Acceptance:** The reduced program checks with the trailing statement removed, or the lint stops reporting it; the `ssh-connect.xsh` exclusion is gone.
+- **Fix with:** root-cause
+- **Effort:** S
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
@@ -114,7 +114,7 @@ out of scope.
 - **Where:** `dev/consolidation/final_canonical_replay.py`, `dev/performance/check.py`, `dev/consolidation/winddown/gate-tools/`
 - **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13 (`0dfebb001`). Scheduler pairs failed there and none of this is qualified on current source. The scheduler failures are fixed: a forked child holding the closed UDP port (`e3179f233`), fixture races (`a758be15e`, `2515907c8`), and fork cost of the 32-thread runner (`0836935e3`, children start with `posix_spawn`). The frozen reference `perf/reference-9d-qualification` (local) replays at `68c37679a`; its third replay at `28eb488d7` passed every Rust suite and 14,482 native tests, then failed whole-tree `xsht check` on erased inference witnesses, now excluded. The test image is pinned in `bench/consolidation/versions.lock.json`.
 - **Recommendation:** On one frozen source, in order: `dev/performance/check.py functional --check`; a fresh normal profile (`profile-cost.py`) and `dev/perf/btop-profile.xsh` in a readiness-bracketed window; `final-observers.py --execute`; forced frames, the comparative profile and three scheduler pairs; util-linux `resources --check` and `close --check` (XSH-1). Bootstrap first with `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`. Validate each tool's `--plan` before an expensive run. Then publish the accepted baseline and retire the infrastructure under XSH-19.
-- **Unmet:** Current-source canonical replay also needs XSH-69. Historical passes do not qualify later source.
+- **Unmet:** Historical passes do not qualify later source.
 - **Fix with:** orchestrate
 - **Effort:** M
 

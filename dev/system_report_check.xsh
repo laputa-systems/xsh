@@ -6322,7 +6322,7 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
         let name = attribute.name()
         continue unless name.ends_with("_input")
         let channel = name.split("") |> take(name.count_chars() - 6).join("")
-        let channel_path = fp"{chip_path}/{channel}".require(RelPath)?
+        let _ = fp"{chip_path}/{channel}".require(RelPath)?
         let shape = hwmon_channel_shape(channel)
         yield {
           chip_entry_name: chip_path.name(),
@@ -21979,7 +21979,7 @@ export proc read_device_tree_raw_reference(
   let status = process.run(
     process.command_argv(
       "/usr/bin/od",
-      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path.display()],
+      ["od", "-An", "-tx1", "-v", "-N", f"{max_bytes + 1}", source_path],
       cwd: p"/",
       env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
       stdout: fp"{scratch_path}/{output_name}",
