@@ -366,6 +366,20 @@ default. It disables LTO and uses 64 codegen units. Release tests are for final
 verification and performance measurements; `dist` is for packaging. Unit tests
 that spawn no binaries may use debug builds. Build only the packages needed.
 
+The Linux signal-storm test (`runtime::signal_storm` in the `integration`
+target) derives each run from a fixed seed: a scenario over process scopes,
+pipelines, `defer`/`errdefer`, live streams, a PTY redirection, or a signal
+hook; SIGINT/SIGTERM injection (optionally escalated by a second signal); and
+an early-closed stdout. Seeds replay the plan, not the OS scheduling. The
+oracle checks bounded exit, no live process carrying the run's environment tag,
+one-time ordered cleanup, pipeline output, and an untouched bystander process.
+It treats death by an uncaught signal before the script is ready as
+non-cooperative, and it does not cover SIGKILL of the runner, terminal
+restoration, or macOS. `tests/xsh/process-failure-ownership.xsh` holds the
+focused failed-spawn, early-exit, partial I/O, descriptor-inheritance and
+recycled-pid cases; the recycled-pid case needs unprivileged user and pid
+namespaces and skips without them.
+
 Rust files such as `tests/grammar.rs` are modules of the `integration` target,
 not standalone Cargo test targets. For a pure grammar check, select
 `-p xsh --test integration grammar::bare_minus_command_arguments_preserve_source_adjacency -- --exact`
