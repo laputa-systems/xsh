@@ -11,9 +11,10 @@ use oxish_proto::named::{MethodName, PublicKeyAlgorithm, ServiceName};
 use oxish_proto::{Encode, MessageType, OpenSshKeyV1};
 
 use crate::agent::Agent;
+use crate::client::Connection;
 use crate::error::Error;
 use crate::host_key::Fingerprint;
-use crate::wire::{SshReader, Transport, plain_text, put_string};
+use crate::wire::{SshReader, plain_text, put_string};
 
 const SERVICE_USERAUTH: &str = "ssh-userauth";
 
@@ -153,18 +154,18 @@ fn credential(
 }
 
 /// Authenticate the user with the chosen identity.
-pub fn authenticate(
-    transport: &mut Transport,
+pub(crate) fn authenticate(
+    connection: &mut Connection,
     user: &str,
     identity: &Identity,
     session_id: &[u8],
     provider: &dyn CryptoProvider,
 ) -> Result<(), Error> {
-    let mut credential = credential(identity, transport.idle_timeout(), provider)?;
+    let mut credential = credential(identity, connection.transport().idle_timeout(), provider)?;
 
-    transport.send_raw(&service_request(SERVICE_USERAUTH))?;
+    connection.transport().send_raw(&service_request(SERVICE_USERAUTH))?;
     loop {
-        let packet = transport.recv()?;
+        let packet = connection.next_message()?;
         match packet.message_type {
             MessageType::ServiceAccept => break,
             MessageType::UserAuthBanner => continue,
@@ -202,10 +203,10 @@ pub fn authenticate(
     algorithm.encode(&mut request);
     put_string(&mut request, &public_key);
     put_string(&mut request, &signature);
-    transport.send_raw(&request)?;
+    connection.transport().send_raw(&request)?;
 
     loop {
-        let packet = transport.recv()?;
+        let packet = connection.next_message()?;
         match packet.message_type {
             MessageType::UserAuthSuccess => return Ok(()),
             MessageType::UserAuthBanner => continue,

@@ -446,6 +446,11 @@ impl Link {
         self.stream.write_all(bytes).expect("raw write");
     }
 
+    pub fn accept_service(&mut self) {
+        self.expect(SERVICE_REQUEST);
+        self.send(&message(SERVICE_ACCEPT, &[&text(b"ssh-userauth")]));
+    }
+
     pub fn accept_authentication(&mut self) {
         self.expect(SERVICE_REQUEST);
         self.send(&message(SERVICE_ACCEPT, &[&text(b"ssh-userauth")]));
