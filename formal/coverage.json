@@ -12698,7 +12698,7 @@
       "declaration": "Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "An accepted raw return check reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots.",
+      "scope": "An accepted raw return check, given the admitted source's name table, reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots.",
       "boundary": "The row layout and the exporter's function and block tables come from the Rust test-only export."
     },
     {
@@ -13024,6 +13024,15 @@
       "status": "fragment",
       "scope": "A function table entry with another body block is rejected by the raw-row comparison.",
       "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_source_names_are_the_fixture_names",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_source_names_are_the_fixture_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted Result fixture source has exactly the name table the row-mutation controls use, so those controls run the same name resolution as the certification.",
+      "boundary": "The row-mutation controls take the name table as a literal; they do not re-admit the source."
     }
   ],
   "artifact_certificates": [

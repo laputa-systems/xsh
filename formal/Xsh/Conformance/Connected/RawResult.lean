@@ -58,9 +58,13 @@ def resultTypeNames (unit : SourceUnit) : Option TypeNames := do
   pure ⟨← sourceName unit.names "Int", ← sourceName unit.names "Bool", ← sourceName unit.names "Str",
     ← sourceName unit.names "Result"⟩
 
-def resultParameterBindings (unit : SourceUnit) (parameters : List (String × MonoType)) : Option (List Binding) :=
+def resultParameterBindingsFor (names : List String) (parameters : List (String × MonoType)) :
+    Option (List Binding) :=
   (parameters.zipIdx).mapM fun ((text, ty), index) => do
-    pure ⟨← sourceName unit.names text, ← BinderId.decode? index, .immutable, ⟨[], ty, []⟩⟩
+    pure ⟨← sourceName names text, ← BinderId.decode? index, .immutable, ⟨[], ty, []⟩⟩
+
+def resultParameterBindings (unit : SourceUnit) (parameters : List (String × MonoType)) : Option (List Binding) :=
+  resultParameterBindingsFor unit.names parameters
 
 def resultBuiltinBindings (unit : SourceUnit) : Option (List Binding) := do
   pure [⟨← sourceName unit.names "Ok", resultOkBinder, .immutable, okScheme⟩,
@@ -92,16 +96,22 @@ def returnedNode : List StatementNode → Option Node
   | [.returned value] => some value
   | _ => none
 
-def rawResultReturnCheck (unit : SourceUnit) (rows : RawInstructionRows) (functions : RawFunctionRows)
+def namesRawBytes (names : List String) : RawNameBytes := fun name => (names[name.value]?).map rawBytes
+
+def rawResultReturnCheckFor (names : List String) (rows : RawInstructionRows) (functions : RawFunctionRows)
     (signature : ResultSignature) (index : Nat) (candidate : List StatementNode) : Bool :=
-  match resultParameterBindings unit signature.parameters, returnedNode candidate,
+  match resultParameterBindingsFor names signature.parameters, returnedNode candidate,
       rawFunctionReturn rows functions index with
   | some parameters, some node, some row =>
       decide ((functions.functions[index]?).map (·.parameters.length) = some parameters.length) &&
-      rawValueCorrespondenceWith 16 (sourceRawNameBytes unit)
+      rawValueCorrespondenceWith 16 (namesRawBytes names)
         (parameters.zipIdx.map fun (binding, slot) => (binding.binder, slot)) resultBinders rows functions
         (index + 1) row node
   | _, _, _ => false
+
+def rawResultReturnCheck (unit : SourceUnit) (rows : RawInstructionRows) (functions : RawFunctionRows)
+    (signature : ResultSignature) (index : Nat) (candidate : List StatementNode) : Bool :=
+  rawResultReturnCheckFor unit.names rows functions signature index candidate
 
 def certifyResultFunction (unit : SourceUnit) (rows : RawInstructionRows) (functions : RawFunctionRows)
     (signature : ResultSignature) (index : Nat) (candidate : List StatementNode)
@@ -159,18 +169,18 @@ theorem validated_result_function_is_typed (unit : SourceUnit) (signature : Resu
       (fun _ => none) steps derived
   exact ⟨source, names, parameters, builtins, rfl, rfl, rfl, rfl, generated, state, solution, run, derivation, typed⟩
 
-theorem raw_result_return_check_matches_the_checked_node (unit : SourceUnit) (rows : RawInstructionRows)
+theorem raw_result_return_check_matches_the_checked_node (names : List String) (rows : RawInstructionRows)
     (functions : RawFunctionRows) (signature : ResultSignature) (index : Nat) (candidate : List StatementNode)
-    (checked : rawResultReturnCheck unit rows functions signature index candidate = true) :
+    (checked : rawResultReturnCheckFor names rows functions signature index candidate = true) :
     ∃ parameters node row tree,
-      resultParameterBindings unit signature.parameters = some parameters ∧
+      resultParameterBindingsFor names signature.parameters = some parameters ∧
       returnedNode candidate = some node ∧
       rawFunctionReturn rows functions index = some row ∧
       readRawValueTree rows functions (index + 1) (parameters.zipIdx.map fun (_, slot) => slot) 16 row = some tree ∧
-      nodeRawValueTreeWith (sourceRawNameBytes unit)
+      nodeRawValueTreeWith (namesRawBytes names)
         (parameters.zipIdx.map fun (binding, slot) => (binding.binder, slot)) resultBinders 16 node = some tree := by
-  unfold rawResultReturnCheck at checked
-  cases parametersFound : resultParameterBindings unit signature.parameters with
+  unfold rawResultReturnCheckFor at checked
+  cases parametersFound : resultParameterBindingsFor names signature.parameters with
   | none => simp [parametersFound] at checked
   | some parameters =>
   cases nodeFound : returnedNode candidate with
@@ -181,7 +191,7 @@ theorem raw_result_return_check_matches_the_checked_node (unit : SourceUnit) (ro
   | some row =>
   simp only [parametersFound, nodeFound, rowFound, Bool.and_eq_true] at checked
   obtain ⟨_, checked⟩ := checked
-  obtain ⟨tree, actual, expected⟩ := raw_value_correspondence_with_sound 16 (sourceRawNameBytes unit)
+  obtain ⟨tree, actual, expected⟩ := raw_value_correspondence_with_sound 16 (namesRawBytes names)
     (parameters.zipIdx.map fun (binding, slot) => (binding.binder, slot)) resultBinders rows functions (index + 1)
     row node checked
   refine ⟨parameters, node, row, tree, rfl, rfl, rfl, ?_, expected⟩

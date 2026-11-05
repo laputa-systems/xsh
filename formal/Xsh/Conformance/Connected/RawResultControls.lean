@@ -12,9 +12,9 @@ def validationAccepts (signatures : List ResultSignature) (index : Nat) (candida
 
 def rowsAccept (rows : RawInstructionRows) (functions : RawFunctionRows) (index : Nat)
     (candidate : List StatementNode) : Bool :=
-  match admitSource 0 resultControlSource, resultSignatures[index]? with
-  | .ok unit, some signature => rawResultReturnCheck unit rows functions signature index candidate
-  | _, _ => false
+  match resultSignatures[index]? with
+  | some signature => rawResultReturnCheckFor resultSourceNames rows functions signature index candidate
+  | none => false
 
 set_option maxRecDepth 100000 in
 theorem source_validation_accepts_each_candidate :

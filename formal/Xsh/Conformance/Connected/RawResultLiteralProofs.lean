@@ -18,4 +18,9 @@ theorem result_control_signatures_decode_to_the_fixture :
     decodeResultSignatures resultSignatureCodes = some resultSignatures := by
   decide +kernel
 
+set_option maxRecDepth 100000 in
+theorem result_control_source_names_are_the_fixture_names :
+    (match admitSource 0 resultControlSource with | .ok unit => decide (unit.names = resultSourceNames) | .error _ => false) = true := by
+  decide +kernel
+
 end Xsh.Conformance.Connected

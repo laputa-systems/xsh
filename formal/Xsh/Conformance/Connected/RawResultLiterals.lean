@@ -3,6 +3,9 @@ import Xsh.Conformance.Connected.RawResult
 namespace Xsh.Conformance.Connected
 open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected Xsh.Conformance.Transport
 
+def resultSourceNames : List String :=
+  ["Int", "Bool", "Str", "Result", "pure", "keep", "a", "return", "Ok", "refuse", "Err", "through", "r", "advance"]
+
 def resultRows : RawInstructionRows :=
   ⟨[⟨"ExprParam", 31⟩, ⟨"ExprOk", 104⟩, ⟨"StmtReturn", 150⟩, ⟨"ExprStr", 24⟩, ⟨"ExprErr", 105⟩, ⟨"StmtReturn", 150⟩, ⟨"ExprParam", 31⟩, ⟨"ExprTry", 107⟩, ⟨"ExprOk", 104⟩, ⟨"StmtReturn", 150⟩, ⟨"ExprParam", 31⟩, ⟨"ExprTry", 107⟩, ⟨"ExprInt", 20⟩, ⟨"ExprBinary", 33⟩, ⟨"ExprOk", 104⟩, ⟨"StmtReturn", 150⟩],
     [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
