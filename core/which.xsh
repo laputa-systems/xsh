@@ -11,6 +11,8 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 
 type WhichOptions = {all: Bool, names: List[Str]}
 
+const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 proc main(...argv: List[Str]) [process, fs, env, error] {
   let opts: WhichOptions = cli.applet(
     argv,
@@ -31,16 +33,17 @@ proc main(...argv: List[Str]) [process, fs, env, error] {
   var missing = false
 
   for name in names {
-    if ! opts.all or "/" in name {
+    if "/" in name or (! opts.all and env.get("PATH") is Ok(_)) {
       if let Ok(found) = process.which(name) { print $found } else { missing = true }
       continue
     }
     var found = false
-    guard let search = env.get("PATH") else {
-      missing = true
-      continue
+    let search = match env.get("PATH") {
+      Ok(value) => value
+      Err(_) => DEFAULT_PATH
     }
     for directory in search.split(":") {
+      if found and ! opts.all { break }
       let candidate = if directory == "" { fp"./{name}" } else { fp"{directory}/{name}" }
       if let Ok(meta) = fs.stat(candidate, follow_symlinks: true) {
         if meta.kind == "file" {

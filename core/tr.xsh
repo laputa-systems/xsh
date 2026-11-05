@@ -113,16 +113,16 @@ proc parse_set(data: Bytes, fill: Count, second: Bool) -> List[Run] {
   var indefinite = false
   while at < data.len() {
     if data.byte_at(at) == 91 and data.byte_at(at + 1) == 58 and data.byte_at(at + 2) != 42 {
-      let close = find_sequence(data, b":]", at + 2)
-      if close == null { set_error("missing terminating ] in character class"); exit 1 }
-      let name = data[at + 2..close] as Str
-      if name == "" { set_error(f"missing character class name {gnu.quote_value("[::]")}") }
-      if name not in ["alnum", "alpha", "blank", "cntrl", "digit", "graph", "lower", "print", "punct", "space", "upper", "xdigit"] { set_error(f"invalid character class {gnu.quote_value(name)}") }
-      var first = true
-      for byte in range(256) {
-        if class_member(name, byte) { out += [{byte: byte, count: ONE, character_class: if first { name } else { "" }}]; first = false }
+      if let close = find_sequence(data, b":]", at + 2) {
+        let name = data[at + 2..close] as Str
+        if name == "" { set_error(f"missing character class name {gnu.quote_value("[::]")}") }
+        if name not in ["alnum", "alpha", "blank", "cntrl", "digit", "graph", "lower", "print", "punct", "space", "upper", "xdigit"] { set_error(f"invalid character class {gnu.quote_value(name)}") }
+        var first = true
+        for byte in range(256) {
+          if class_member(name, byte) { out += [{byte: byte, count: ONE, character_class: if first { name } else { "" }}]; first = false }
+        }
+        at = close + 2; continue
       }
-      at = close + 2; continue
     }
     if data.byte_at(at) == 91 and data.byte_at(at + 1) == 61 and data.byte_at(at + 2) != 42 {
       if data[at..at + 4] == b"[==]" { set_error(f"missing equivalence class character {gnu.quote_value("[==]")}") }

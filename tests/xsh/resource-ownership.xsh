@@ -32,6 +32,14 @@ proc resource_return_tail_root() [fs, error] -> Result[FsRoot] {
   root
 }
 
+proc resource_return_match_root() [fs, process] -> FsRoot {
+  let opened = fs.tempdir()
+  match opened {
+    Ok(root) => root
+    Err(_) => exit 1
+  }
+}
+
 pure resource_return_early_root(root: FsRoot, return_early: Bool) -> FsRoot {
   return root when return_early
   root
@@ -259,6 +267,10 @@ test resource_root_return_block_break_and_borrow_survive {
   let bare_tail = resource_return_tail_root()?
   defer bare_tail.close()
   assert bare_tail.exists(p".")?
+
+  let matched_tail = resource_return_match_root()
+  defer matched_tail.close()
+  assert matched_tail.exists(p".")?
 
   let block = { fs.tempdir()? }
   defer block.close()
