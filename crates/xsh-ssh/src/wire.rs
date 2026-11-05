@@ -633,7 +633,8 @@ impl Transport {
             if let Some(packet) = self.try_recv()? {
                 return Ok(packet);
             }
-            self.wait(false)?;
+            let flushed = self.flush_nonblocking()?;
+            self.wait(!flushed)?;
             self.fill_nonblocking()?;
         }
     }

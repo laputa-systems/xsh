@@ -332,18 +332,6 @@ fn on_packet(
             expect_recipient_only(channel, &packet.payload)?;
             channel.close_received = true;
         }
-        MessageType::ChannelOpen => {
-            let mut refusal = Vec::new();
-            MessageType::ChannelOpenFailure.encode(&mut refusal);
-            let mut reader = SshReader::new(&packet.payload);
-            let _kind = reader.text()?;
-            let sender = reader.u32()?;
-            refusal.extend_from_slice(&sender.to_be_bytes());
-            refusal.extend_from_slice(&1u32.to_be_bytes());
-            put_string(&mut refusal, b"channels are not accepted");
-            put_string(&mut refusal, b"");
-            connection.transport().reply(&refusal)?;
-        }
         other => {
             return Err(Error::Protocol {
                 detail: format!("unexpected channel message {other:?}"),
