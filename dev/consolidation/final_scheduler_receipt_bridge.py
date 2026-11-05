@@ -103,7 +103,7 @@ def configure(args) -> None:
     REFERENCE_RUN = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates" / f"native-scheduler-reference-{COMMIT}-{args.run_id}"
     RUNNER = tool_root / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
     COMPARE_PATH = Path(__file__).resolve().parent / "winddown/gate-tools/native-scheduler-comparison/compare.py"
-    PATCH_PATH = ROOT / "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
+    PATCH_PATH = ROOT / "dev/consolidation/winddown/unfinished/native-scheduler-reference-rederived.patch"
 
     try:
         REFERENCE_ROOT.relative_to(ROOT)

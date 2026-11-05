@@ -63,9 +63,9 @@ CONTAINER_RUNNER = HERE / "container-run.sh"
 OUTCOMES_MODULE = HERE / "outcomes.py"
 VALIDATOR = HERE / "validator.py"
 REFERENCE_AGGREGATE_PATCH_RELATIVE = Path(
-    "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
+    "dev/consolidation/winddown/unfinished/native-scheduler-reference-rederived.patch"
 )
-REFERENCE_AGGREGATE_PATCH_SHA256 = "b9b1d14e53bda60cd57523936f0a7a0fcc3c021fad5465edb05d85269076b26c"
+REFERENCE_AGGREGATE_PATCH_SHA256 = "412f7946181e70b42142f0af7fca02fff2f415d1e854e44f190c0085b0ad181e"
 REFERENCE_SCHEDULER_COMMITS = (
     ("bounded-admission", "7205a0", "7205a0b6afce7d9a0072b6727cae36a0b8301963"),
     ("default-width", "aa5aca3", "aa5aca3acbd2dafd03bf3b5a4fb2cb63f399f896"),
