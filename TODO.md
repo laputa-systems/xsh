@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 76
+Next: 77
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -125,6 +125,16 @@ out of scope.
 - **Problem:** `integer(...{first: 7}, @tail)`, where `integer` is the callable returned by `keep_rest`, is rejected with `check.splice-target`. A record spread currently requires a statically named callable, and the diagnostic does not say so.
 - **Recommendation:** Decide from the SPEC whether a record spread may target a callable value with a known signature. If so, resolve parameter names from its type; if not, make the diagnostic state the named-callable rule.
 - **Acceptance:** Either the call checks and runs, or the diagnostic names the rule and the SPEC states it.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-76 · P3 · Decide whether `main(@args)` is exempt from the fixed-slot splice rule
+
+- **Area:** Checker
+- **Where:** `src/sema/check/` (`check_function_arg_list_arena`), `docs/templates/SPEC.md`
+- **Problem:** `docs/SPEC.md` says a positional splice of unknown length fills only the final rest parameter and cannot supply a fixed slot, but the checker accepts `pair(@parts)` with `pair(a: Str, b: Str)`. It runs without producer demand and fails at preparation ("ground producer splice has no rest parameter") with it. The SPEC call example `main(@args)` and the `redundant-main-call` lint rely on the forbidden form; `tests/xsh/run.xsh`, `tests/xsh/stdlib/module.xsh` and `tests/xsh/opaque-any.xsh:107` use it, and `checker-commands.xsh::test_checker_allows_proc_expression_splice_to_supply_multiple_arguments` asserts it is accepted.
+- **Recommendation:** Owner decides whether the rule stands as written (then `main(@args)` into fixed or defaulted parameters is an error) or the SPEC grants an exemption. Then add the `check.splice-target` diagnostic at the fixed slot, migrate the five tests, and drop the now-unreachable lowering message "generic positional splice must target the final rest parameter".
+- **Acceptance:** The checker and SPEC agree; `pair(@parts)` is either a checker error or runs under producer demand.
 - **Fix with:** root-cause
 - **Effort:** S
 
