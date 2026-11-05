@@ -809,3 +809,76 @@ fn input_that_arrives_late_on_a_pipe_is_sent_when_it_arrives() {
     assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
     peer.finish();
 }
+
+#[test]
+fn an_output_file_that_stops_draining_does_not_defeat_the_command_deadline() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            if !link.try_send(&packet) {
+                return;
+            }
+        }
+        thread::sleep(Duration::from_secs(4));
+    });
+    let (stdout_file, _fifo, _directory) = silent_stdin();
+    let mut connection = peer.connect(TIMEOUT);
+    let started = Instant::now();
+    let outcome = within(Duration::from_secs(8), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdout_file: Some(stdout_file),
+                timeout: Some(Duration::from_millis(500)),
+                ..ExecOptions::default()
+            },
+        )
+    });
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    let error = outcome.expect_err("deadline");
+    assert!(matches!(error, Error::Timeout { certainty: Certainty::Submitted }), "{error:?}");
+}
+
+#[test]
+fn output_to_a_pipe_arrives_whole_when_the_pipe_is_drained() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            link.send(&packet);
+        }
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let (stdout_file, fifo, _directory) = silent_stdin();
+    let drained = thread::spawn(move || {
+        let mut reader = std::fs::File::open(&fifo).expect("reader");
+        let mut received = 0;
+        let mut chunk = vec![0u8; 8192];
+        while received < 8 * 32 * 1024 {
+            thread::sleep(Duration::from_millis(5));
+            let read = reader.read(&mut chunk).expect("read");
+            assert!(chunk[..read].iter().all(|byte| *byte == 0x41));
+            received += read;
+        }
+        received
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                stdout_file: Some(stdout_file),
+                timeout: Some(Duration::from_secs(20)),
+                ..ExecOptions::default()
+            },
+        )
+        .expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert_eq!(drained.join().expect("drain"), 8 * 32 * 1024);
+    drop(connection);
+    peer.finish();
+}

@@ -384,8 +384,35 @@ fn check_open_for_data(channel: &Channel) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Debug)]
+pub(crate) enum SinkStop {
+    Deadline,
+    Cancelled,
+}
+
+impl std::fmt::Display for SinkStop {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Deadline => "the command deadline passed while an output file was not draining",
+            Self::Cancelled => "cancelled while an output file was not draining",
+        })
+    }
+}
+
+impl std::error::Error for SinkStop {}
+
 fn sink(output: &mut dyn Write, data: &[u8], stream: &'static str) -> Result<(), Error> {
     output.write_all(data).map_err(|error| {
+        if let Some(stop) = error.get_ref().and_then(|inner| inner.downcast_ref::<SinkStop>()) {
+            return match stop {
+                SinkStop::Deadline => Error::Timeout {
+                    certainty: Certainty::Submitted,
+                },
+                SinkStop::Cancelled => Error::Cancelled {
+                    certainty: Certainty::Submitted,
+                },
+            };
+        }
         if error.kind() == std::io::ErrorKind::OutOfMemory {
             Error::OutputLimit { stream }
         } else {
