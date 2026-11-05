@@ -635,18 +635,11 @@ impl Transport {
         Ok(())
     }
 
-    /// Receive `SSH_MSG_NEWKEYS` and reset the receive sequence for strict key exchange.
-    pub fn recv_newkeys(&mut self, strict: bool) -> Result<(), Error> {
-        let packet = self.recv()?;
-        if packet.message_type != MessageType::NewKeys {
-            return Err(Error::Protocol {
-                detail: format!("expected NEWKEYS, got {:?}", packet.message_type),
-            });
-        }
+    /// Reset the receive sequence for strict key exchange after `SSH_MSG_NEWKEYS` arrived.
+    pub fn accept_newkeys(&mut self, strict: bool) {
         if strict {
             self.read.sequence_number = 0;
         }
-        Ok(())
     }
 
     /// Install the client-to-server sealing key.

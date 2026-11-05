@@ -400,6 +400,40 @@ fn client_initiated_rekeys_carry_queued_traffic_without_loss() {
 }
 
 #[test]
+fn a_server_message_between_its_rekey_reply_and_newkeys_is_skipped() {
+    let peer = serve_exec(
+        Behavior {
+            ignore_between_rekey_reply_and_newkeys: true,
+            ..Behavior::default()
+        },
+        1 << 20,
+        |link, channel| {
+            for _ in 0..40 {
+                link.data(channel, &[9; 4096]);
+            }
+            while link.rekeys == 0 {
+                link.recv();
+            }
+            link.exit_status(channel, 0);
+            link.eof(channel);
+            link.close(channel);
+            link.expect_close();
+        },
+    );
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = RekeyLimits {
+        bytes: 32 * 1024,
+        ..RekeyLimits::default()
+    };
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let result = connection.exec("command", &ExecOptions::default()).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
 fn the_session_identity_survives_a_client_rekey() {
     let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
         for _ in 0..40 {

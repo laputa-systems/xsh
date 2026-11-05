@@ -507,7 +507,7 @@ fn exchange(
     let reply = receive(
         transport,
         MessageType::KeyExchangeEcdhReply,
-        queued,
+        queued.as_deref_mut(),
     )?;
     let mut reader = SshReader::new(&reply.payload);
     let host_key_blob = reader.string()?.to_vec();
@@ -559,7 +559,8 @@ fn exchange(
 
     transport.send_newkeys(strict)?;
     transport.install_sealer(&client_to_server, provider)?;
-    transport.recv_newkeys(strict)?;
+    receive(transport, MessageType::NewKeys, queued)?;
+    transport.accept_newkeys(strict);
     transport.install_opener(&server_to_client, provider)?;
 
     Ok(Established {
