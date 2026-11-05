@@ -95,7 +95,8 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
     let invalid = || IrVerifyError::new("managed release has no canonical resource scope");
     let schema::ExprView::ValueBlock { body, .. } = decoder.expression_view(parent)? else { return Err(invalid()) };
     let body = body.map(|row| row.map(|row| row.raw() as usize)).collect::<Result<Vec<_>, _>>()?;
-    if body.len() < 5 || body.len() % 2 != 1 { return Err(invalid()); }
+    if body.len() < 4 { return Err(invalid()); }
+    let diverges = body.len() % 2 == 0;
     let schema::StmtView::Let { slot: closing_slot, value: open, annotation: None } = decoder.statement_view(body[0])? else { return Err(invalid()) };
     if !matches!(decoder.expression_view(open.raw() as usize)?, schema::ExprView::Bool(false)) { return Err(invalid()); }
     if decoder.is_parameter_or_capture_slot(closing_slot, &mut |_| Ok(()))? { return Err(IrVerifyError::new("managed release closing slot aliases external storage")); }
@@ -104,7 +105,8 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
         if decoder.store.driver_slots[slots].iter().any(|slot| slot.slot as usize == closing_slot && slot.binding_identity != super::IR_NONE) { return Err(IrVerifyError::new("managed release closing slot aliases external storage")); }
     }
     let mut locals = std::collections::BTreeSet::from([closing_slot]);
-    let resource_count = (body.len() - 3) / 2;
+    let resource_count = if diverges { (body.len() - 2) / 2 } else { (body.len() - 3) / 2 };
+    let resources_end = if diverges { body.len() - 1 } else { body.len() - 2 };
     let mut releases = Vec::with_capacity(resource_count);
     let release_call = |instruction: usize| -> Result<(_, usize), IrVerifyError> {
         let schema::ExprView::ModuleCall { call_plan: None, op, mut args, .. } = decoder.expression_view(instruction)? else { return Err(invalid()) };
@@ -113,7 +115,7 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
         let schema::ExprView::Param(slot) = decoder.expression_view(argument.raw() as usize)? else { return Err(invalid()) };
         Ok((op, slot))
     };
-    for resource in body[1..body.len() - 2].chunks_exact(2) {
+    for resource in body[1..resources_end].chunks_exact(2) {
         let schema::StmtView::Let { slot, .. } = decoder.statement_view(resource[0])? else { return Err(invalid()) };
         let schema::StmtView::Defer { value, kind: DeferKind::ManagedRelease } = decoder.statement_view(resource[1])? else { return Err(invalid()) };
         let schema::ExprView::IfExpr { mut branches, else_value, .. } = decoder.expression_view(value.raw() as usize)? else { return Err(invalid()) };
@@ -125,6 +127,12 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
         let release = release_call(else_value.raw() as usize)?;
         if release.1 != slot || !locals.insert(slot) { return Err(invalid()); }
         releases.push(release);
+    }
+    if diverges {
+        let schema::StmtView::Expr { value: scope, .. } = decoder.statement_view(body[resources_end])? else { return Err(invalid()) };
+        let schema::ExprView::ValueBlock { body: scope, .. } = decoder.expression_view(scope.raw() as usize)? else { return Err(invalid()) };
+        if !super::indexed_block_can_return_with_decoder(decoder.store, scope.block_identity(), Some(decoder))? { return Err(invalid()); }
+        return Ok((closing_slot, vec![body[0]]));
     }
     let schema::StmtView::Let { slot: finished_slot, value: finished, .. } = decoder.statement_view(body[body.len() - 2])? else { return Err(invalid()) };
     if !locals.insert(finished_slot) || !matches!(decoder.expression_view(finished.raw() as usize)?, schema::ExprView::ValueBlock { .. }) { return Err(invalid()); }
