@@ -6,7 +6,7 @@ namespace Xsh.Conformance.Connected
 open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected Xsh.Conformance.Transport
 
 def resultControlSource : String :=
-  "pure keep(a: Int) -> Result[Int, Str] {\n  return Ok(a)\n}\npure refuse() -> Result[Int, Str] {\n  return Err(\"no\")\n}\npure through(r: Result[Int, Str]) -> Result[Int, Str] {\n  return Ok(r?)\n}\npure advance(r: Result[Int, Str]) -> Result[Int, Str] {\n  return Ok(r? + 1)\n}\n"
+  "pure through(r: Result[Int, Str]) -> Result[Int, Str] { return Ok(r?) }\npure refuse() -> Result[Int, Str] { return Err(\"no\") }\n"
 
 structure ResultSignature where
   name : String

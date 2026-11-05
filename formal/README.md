@@ -86,22 +86,26 @@ and closes its storage tag. Its source-selected literal argument initializes a
 typed invocation whose finite model executions preserve typing, exclude internal
 faults, and retain safe progress. Rust execution correspondence remains open.
 A Result slice carries `Ok` construction, `Err` construction and `?` propagation
-through the connected path for one test-only fixture of four single-return pure
-functions over `Int`, `Str` and `Result`. A test-only Rust export publishes the
-checker's parameter and result types and the exported instruction and function
-rows. Lean admits the source, validates hand-written candidate bodies against
-the source and those types with a checked constraint derivation, and compares
-each function's return row, read as a value tree with Ok, Err and propagation
-forms, with the candidate's returned node. The connected machine then executes
-the validated nodes through construction, success, propagation of an error to
-the caller frame, and unwinding that leaves the rest of the enclosing addition
-unevaluated. Controls reject forged signatures, swapped Ok and Err in the
-candidate and in the rows, a dropped, misplaced or mistyped propagation, and
-forged rows and function tables. The Lean model types a nested `Ok` at an
-error type the Rust checker rejects, so agreement is shown only for the
-fixture. Per-expression checker types, calls, local declarations, the base
-machine and its lowerer, typed whole-function execution, and source-site
-binding of propagation rows remain open.
+through the connected path for one test-only fixture of two single-return pure
+functions over `Int`, `Str` and `Result`: `Ok(r?)` for a `Result[Int, Str]`
+parameter and `Err("no")`. A test-only Rust export publishes the checker's
+parameter and result types and the exported instruction and function rows.
+Lean admits the source, validates hand-written candidate bodies against the
+source and those types with a checked constraint derivation, and compares each
+function's return row, read as a value tree with Ok, Err and propagation
+forms, with the candidate's returned node. The connected machine executes the
+validated nodes through construction, success propagation and propagation of
+an error to the caller frame; it also unwinds a propagation inside the left
+operand of an addition without evaluating the right operand, for a node the
+fixture does not include. Controls reject forged signatures, swapped Ok and
+Err in the candidate and in the rows, a dropped, misplaced or mistyped
+propagation, and forged rows and function tables. The Lean model types a
+nested `Ok` at an error type the Rust checker rejects, so agreement is shown
+only for the fixture. Per-expression checker types, calls, local declarations,
+the base machine and its lowerer, typed whole-function execution, and
+source-site binding of propagation rows remain open. The source is kept short
+because lean4lean exceeds its deterministic timeout when the kernel admits a
+source of a few hundred characters.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
 and ten altered decoded facts. Its call check currently supports direct,

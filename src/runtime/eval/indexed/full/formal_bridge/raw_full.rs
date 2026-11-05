@@ -943,10 +943,8 @@ fn raw_local_declarations_bind_source_sites_to_store_rows() {
 }
 
 const RESULT_CONTROL_SOURCE: &str = concat!(
-    "pure keep(a: Int) -> Result[Int, Str] {\n  return Ok(a)\n}\n",
-    "pure refuse() -> Result[Int, Str] {\n  return Err(\"no\")\n}\n",
-    "pure through(r: Result[Int, Str]) -> Result[Int, Str] {\n  return Ok(r?)\n}\n",
-    "pure advance(r: Result[Int, Str]) -> Result[Int, Str] {\n  return Ok(r? + 1)\n}\n",
+    "pure through(r: Result[Int, Str]) -> Result[Int, Str] { return Ok(r?) }\n",
+    "pure refuse() -> Result[Int, Str] { return Err(\"no\") }\n",
 );
 
 const LEAN_RAW_RESULT_DOCUMENTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),

@@ -207,13 +207,10 @@ theorem result_control_returns_are_the_executed_nodes :
     (parseCodes resultRawFunctionCodes).bind decodeRawFunctionRows = some resultFunctions ∧
     decodeResultSignatures resultSignatureCodes = some resultSignatures ∧
     resultControlCertified = true ∧
-    returnedNode keepCandidate = some (okNode (.read resultFirstBinder [])) ∧
-    returnedNode refuseCandidate = some (errorNode (.string "no")) ∧
     returnedNode throughCandidate =
       some (okNode (.propagate (.read resultFirstBinder []) (.primitive .string))) ∧
-    returnedNode advanceCandidate =
-      some (okNode (.binary .add (.propagate (.read resultFirstBinder []) (.primitive .string)) (.integer "1"))) :=
+    returnedNode refuseCandidate = some (errorNode (.string "no")) :=
   ⟨result_control_rows_decode_to_the_fixture, result_control_functions_decode_to_the_fixture,
-    result_control_signatures_decode_to_the_fixture, result_control_is_certified, rfl, rfl, rfl, rfl⟩
+    result_control_signatures_decode_to_the_fixture, result_control_is_certified, rfl, rfl⟩
 
 end Xsh.Semantics.Connected

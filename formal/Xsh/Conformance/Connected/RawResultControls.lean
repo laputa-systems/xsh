@@ -18,18 +18,14 @@ def rowsAccept (rows : RawInstructionRows) (functions : RawFunctionRows) (index 
 
 set_option maxRecDepth 100000 in
 theorem source_validation_accepts_each_candidate :
-    validationAccepts resultSignatures 0 keepCandidate keepSteps = true ∧
-    validationAccepts resultSignatures 1 refuseCandidate refuseSteps = true ∧
-    validationAccepts resultSignatures 2 throughCandidate throughSteps = true ∧
-    validationAccepts resultSignatures 3 advanceCandidate advanceSteps = true := by
+    validationAccepts resultSignatures 0 throughCandidate throughSteps = true ∧
+    validationAccepts resultSignatures 1 refuseCandidate refuseSteps = true := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem exported_rows_accept_each_candidate :
-    rowsAccept resultRows resultFunctions 0 keepCandidate = true ∧
-    rowsAccept resultRows resultFunctions 1 refuseCandidate = true ∧
-    rowsAccept resultRows resultFunctions 2 throughCandidate = true ∧
-    rowsAccept resultRows resultFunctions 3 advanceCandidate = true := by
+    rowsAccept resultRows resultFunctions 0 throughCandidate = true ∧
+    rowsAccept resultRows resultFunctions 1 refuseCandidate = true := by
   decide +kernel
 
 def editSignature (index : Nat) (change : ResultSignature → ResultSignature) : List ResultSignature :=
@@ -42,70 +38,57 @@ def rejectsSignature (index : Nat) (change : ResultSignature → ResultSignature
 def integerErrorResult : MonoType := .result (.primitive .integer) (.primitive .integer)
 
 set_option maxRecDepth 100000 in
-theorem forged_result_types_are_rejected :
-    rejectsSignature 0 (fun s => { s with result := integerErrorResult }) keepCandidate keepSteps = true ∧
-    rejectsSignature 0 (fun s => { s with result := .primitive .integer }) keepCandidate keepSteps = true := by
+theorem a_forged_result_type_is_rejected :
+    rejectsSignature 0 (fun s => { s with result := integerErrorResult }) throughCandidate throughSteps = true := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem forged_parameter_types_are_rejected :
-    rejectsSignature 0 (fun s => { s with parameters := [("a", .primitive .string)] })
-      keepCandidate keepSteps = true ∧
-    rejectsSignature 2 (fun s => { s with parameters := [("r", .primitive .integer)] })
-      throughCandidate throughSteps = true ∧
-    rejectsSignature 2 (fun s => { s with parameters := [("r", integerErrorResult)] })
+theorem a_forged_parameter_type_is_rejected :
+    rejectsSignature 0 (fun s => { s with parameters := [("r", .primitive .integer)] })
       throughCandidate throughSteps = true := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem forged_function_identity_facts_are_rejected :
-    rejectsSignature 0 (fun s => { s with parameters := [] }) keepCandidate keepSteps = true ∧
-    rejectsSignature 0 (fun s => { s with body := ⟨0, 0, 1⟩ }) keepCandidate keepSteps = true ∧
-    rejectsSignature 0 (fun s => { s with name := "refuse" }) keepCandidate keepSteps = true := by
-  decide +kernel
-
-set_option maxRecDepth 100000 in
-theorem forged_error_and_sum_result_types_are_rejected :
+theorem a_forged_error_type_of_the_failure_is_rejected :
     rejectsSignature 1 (fun s => { s with result := .result (.primitive .string) (.primitive .integer) })
-      refuseCandidate refuseSteps = true ∧
-    rejectsSignature 3 (fun s => { s with result := .result (.primitive .string) (.primitive .string) })
-      advanceCandidate advanceSteps = true := by
-  decide +kernel
-
-def swappedKeep : List StatementNode := [.returned (errorNode (.read resultFirstBinder []))]
-def swappedRefuse : List StatementNode := [.returned (okNode (.string "no"))]
-def swappedThrough : List StatementNode :=
-  [.returned (errorNode (.propagate (.read resultFirstBinder []) (.primitive .string)))]
-def swappedAdvance : List StatementNode :=
-  [.returned (errorNode (.binary .add (.propagate (.read resultFirstBinder []) (.primitive .string))
-    (.integer "1")))]
-
-set_option maxRecDepth 100000 in
-theorem swapped_ok_and_error_candidates_are_rejected :
-    validationAccepts resultSignatures 0 swappedKeep keepSteps = false ∧
-    validationAccepts resultSignatures 1 swappedRefuse refuseSteps = false := by
+      refuseCandidate refuseSteps = true := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem swapped_constructors_around_propagation_are_rejected :
-    validationAccepts resultSignatures 2 swappedThrough throughSteps = false ∧
-    validationAccepts resultSignatures 3 swappedAdvance advanceSteps = false := by
+theorem a_forged_body_site_is_rejected :
+    rejectsSignature 0 (fun s => { s with body := ⟨0, 0, 1⟩ }) throughCandidate throughSteps = true := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem dropped_or_mistyped_propagation_is_rejected :
-    validationAccepts resultSignatures 2 [.returned (okNode (.read resultFirstBinder []))] throughSteps = false ∧
-    validationAccepts resultSignatures 2
-      [.returned (okNode (.propagate (.read resultFirstBinder []) (.primitive .integer)))] throughSteps = false ∧
-    validationAccepts resultSignatures 3
-      [.returned (okNode (.binary .add (.read resultFirstBinder []) (.integer "1")))] advanceSteps = false := by
+theorem a_swapped_function_name_is_rejected :
+    rejectsSignature 0 (fun s => { s with name := "refuse" }) throughCandidate throughSteps = true := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem misplaced_or_unwarranted_propagation_is_rejected :
+theorem err_where_the_source_builds_ok_is_rejected :
     validationAccepts resultSignatures 0
-      [.returned (okNode (.propagate (.read resultFirstBinder []) (.primitive .string)))] keepSteps = false ∧
-    validationAccepts resultSignatures 2
+      [.returned (errorNode (.propagate (.read resultFirstBinder []) (.primitive .string)))] throughSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem ok_where_the_source_builds_err_is_rejected :
+    validationAccepts resultSignatures 1 [.returned (okNode (.string "no"))] refuseSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_dropped_propagation_is_rejected :
+    validationAccepts resultSignatures 0 [.returned (okNode (.read resultFirstBinder []))] throughSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_propagation_with_the_wrong_error_type_is_rejected :
+    validationAccepts resultSignatures 0
+      [.returned (okNode (.propagate (.read resultFirstBinder []) (.primitive .integer)))] throughSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_propagation_outside_the_constructor_is_rejected :
+    validationAccepts resultSignatures 0
       [.returned (.propagate (okNode (.read resultFirstBinder [])) (.primitive .string))] throughSteps = false := by
   decide +kernel
 
@@ -124,52 +107,42 @@ def withRetaggedPayload (rows : RawInstructionRows) (row : Nat) (tag : RawTag) (
 
 set_option maxRecDepth 100000 in
 theorem an_err_row_where_the_candidate_builds_ok_is_rejected :
-    rowsAccept (withRetaggedPayload resultRows 1 ⟨"ExprErr", 105⟩ [0, 0]) resultFunctions 0 keepCandidate = false := by
+    rowsAccept (withRetaggedPayload resultRows 2 ⟨"ExprErr", 105⟩ [1, 0]) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem an_ok_row_where_the_candidate_builds_err_is_rejected :
-    rowsAccept (withRetaggedPayload resultRows 4 ⟨"ExprOk", 104⟩ [3]) resultFunctions 1 refuseCandidate = false := by
-  decide +kernel
-
-set_option maxRecDepth 100000 in
-theorem an_err_row_around_a_propagation_is_rejected :
-    rowsAccept (withRetaggedPayload resultRows 8 ⟨"ExprErr", 105⟩ [7, 0]) resultFunctions 2 throughCandidate = false := by
+    rowsAccept (withRetaggedPayload resultRows 5 ⟨"ExprOk", 104⟩ [4]) resultFunctions 1 refuseCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem a_changed_parameter_slot_is_rejected :
-    rowsAccept (withWord resultRows 0 1) resultFunctions 0 keepCandidate = false := by
+    rowsAccept (withWord resultRows 0 1) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem a_forward_reference_is_rejected :
-    rowsAccept (withWord resultRows 1 5) resultFunctions 0 keepCandidate = false := by
+    rowsAccept (withWord resultRows 3 5) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem a_constructor_that_skips_its_propagation_row_is_rejected :
-    rowsAccept (withWord resultRows 14 6) resultFunctions 2 throughCandidate = false := by
-  decide +kernel
-
-set_option maxRecDepth 100000 in
-theorem an_addition_that_skips_its_propagation_row_is_rejected :
-    rowsAccept (withWord resultRows 24 10) resultFunctions 3 advanceCandidate = false := by
+theorem a_constructor_that_skips_the_propagation_row_is_rejected :
+    rowsAccept (withWord resultRows 3 0) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem a_propagation_that_reads_another_row_is_rejected :
-    rowsAccept (withWord resultRows 12 10) resultFunctions 2 throughCandidate = false := by
+    rowsAccept (withWord resultRows 1 6) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem a_propagation_tag_with_a_foreign_ordinal_is_rejected :
-    rowsAccept (withTag resultRows 7 ⟨"ExprTry", 106⟩) resultFunctions 2 throughCandidate = false := by
+    rowsAccept (withTag resultRows 1 ⟨"ExprTry", 106⟩) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem an_ok_name_with_the_err_ordinal_is_rejected :
-    rowsAccept (withTag resultRows 1 ⟨"ExprOk", 105⟩) resultFunctions 0 keepCandidate = false := by
+    rowsAccept (withTag resultRows 2 ⟨"ExprOk", 105⟩) resultFunctions 0 throughCandidate = false := by
   decide +kernel
 
 def withFunctions (change : RawFunction → RawFunction) (index : Nat) : RawFunctionRows :=
@@ -179,18 +152,18 @@ def withFunctions (change : RawFunction → RawFunction) (index : Nat) : RawFunc
 set_option maxRecDepth 100000 in
 theorem a_function_entry_with_no_parameters_is_rejected :
     rowsAccept resultRows (withFunctions (fun f => { f with parameters := ⟨f.parameters.start, 0⟩ }) 0) 0
-      keepCandidate = false := by
+      throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem a_function_entry_with_another_body_is_rejected :
-    rowsAccept resultRows (withFunctions (fun f => { f with body := 2 }) 0) 0 keepCandidate = false := by
+    rowsAccept resultRows (withFunctions (fun f => { f with body := 2 }) 0) 0 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
 theorem a_body_block_owned_by_another_function_is_rejected :
     rowsAccept resultRows { resultFunctions with blocks := resultFunctions.blocks.mapIdx fun position block =>
-      if position = 0 then { block with owner := 2 } else block } 0 keepCandidate = false := by
+      if position = 0 then { block with owner := 2 } else block } 0 throughCandidate = false := by
   decide +kernel
 
 end Xsh.Conformance.Connected

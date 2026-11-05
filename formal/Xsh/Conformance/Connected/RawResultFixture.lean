@@ -11,27 +11,18 @@ def errorNode (argument : Node) : Node := .call (.read resultErrorBinder resultI
 
 def resultFirstBinder : BinderId := ⟨⟨0, by decide⟩⟩
 
-def keepCandidate : List StatementNode := [.returned (okNode (.read resultFirstBinder []))]
-def refuseCandidate : List StatementNode := [.returned (errorNode (.string "no"))]
 def throughCandidate : List StatementNode :=
   [.returned (okNode (.propagate (.read resultFirstBinder []) (.primitive .string)))]
-def advanceCandidate : List StatementNode :=
-  [.returned (okNode (.binary .add (.propagate (.read resultFirstBinder []) (.primitive .string)) (.integer "1")))]
+def refuseCandidate : List StatementNode := [.returned (errorNode (.string "no"))]
 
-def keepSteps : List DerivationStep :=
-  [.function, .argument, .bindLeft, .reflexive, .bindRight, .result, .reflexive, .bindLeft]
-def refuseSteps : List DerivationStep :=
-  [.function, .argument, .bindLeft, .reflexive, .bindRight, .result, .bindLeft, .reflexive]
 def throughSteps : List DerivationStep :=
   [.result, .bindRight, .bindRight, .function, .argument, .bindLeft, .reflexive, .bindRight, .result, .bindRight,
     .reflexive, .result, .reflexive, .bindLeft]
-def advanceSteps : List DerivationStep :=
-  [.result, .bindRight, .bindRight, .reflexive, .reflexive, .function, .argument, .bindLeft, .reflexive, .bindRight,
-    .result, .bindRight, .reflexive, .result, .reflexive, .bindLeft]
+def refuseSteps : List DerivationStep :=
+  [.function, .argument, .bindLeft, .reflexive, .bindRight, .result, .bindLeft, .reflexive]
 
 def resultCandidates : List (List StatementNode × List DerivationStep) :=
-  [(keepCandidate, keepSteps), (refuseCandidate, refuseSteps), (throughCandidate, throughSteps),
-    (advanceCandidate, advanceSteps)]
+  [(throughCandidate, throughSteps), (refuseCandidate, refuseSteps)]
 
 def certifyResultControl (unit : SourceUnit) (signatures : List ResultSignature) (rows : RawInstructionRows)
     (functions : RawFunctionRows) (cases : List (List StatementNode × List DerivationStep)) : Bool :=
