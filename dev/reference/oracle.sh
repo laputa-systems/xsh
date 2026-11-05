@@ -8,7 +8,7 @@
 # util-linux (taskset chrt ionice prlimit setpriv nsenter unshare lsns ...),
 # iproute2 (ip ss), iputils (ping tracepath), net-tools (ifconfig route arp),
 # traceroute, ethtool, iw, smartmontools, nvme-cli, efibootmgr, cpio, curl, wget,
-# netcat-openbsd, eudev (udevadm), procps-ng, psmisc, findutils, e2fsprogs and
+# GNU tar, bsdtar, netcat-openbsd, eudev (udevadm), procps-ng, psmisc, findutils, e2fsprogs and
 # dosfstools. COMMAND runs as UID 1000 in an empty working directory.
 #
 # Options:
@@ -50,7 +50,7 @@ FROM alpine:edge
 RUN apk add --no-cache coreutils util-linux util-linux-misc util-linux-login iproute2 \
     iproute2-ss iputils iputils-ping iputils-tracepath net-tools traceroute ethtool iw \
     smartmontools nvme-cli efibootmgr cpio curl wget netcat-openbsd eudev udev procps-ng \
-    psmisc findutils e2fsprogs e2fsprogs-extra dosfstools gzip bzip2 xz zstd lzip sysstat diffutils patch grep sed gawk
+    psmisc findutils e2fsprogs e2fsprogs-extra dosfstools gzip bzip2 xz zstd lzip sysstat diffutils patch grep sed gawk tar libarchive-tools
 EOF
 	docker build --platform linux/amd64 -t "$image" "$context" >&2
 	rm -rf "${context:?}"

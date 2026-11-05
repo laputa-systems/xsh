@@ -202,6 +202,7 @@ struct Pax {
     uid: Option<u64>,
     gid: Option<u64>,
     mtime: Option<i64>,
+    sparse: bool,
 }
 
 impl Pax {
@@ -219,6 +220,7 @@ impl Pax {
                 "uid" => pax.uid = Some(parse_unsigned(value, "uid")?),
                 "gid" => pax.gid = Some(parse_unsigned(value, "gid")?),
                 "mtime" => pax.mtime = Some(parse_seconds(value)?),
+                _ if key.starts_with("GNU.sparse.") => pax.sparse = true,
                 _ => {}
             }
         }
@@ -283,7 +285,11 @@ fn meta_from(
     if name.is_empty() {
         return Err(Error::corrupt("member has an empty name").with_offset(offset));
     }
-    let kind = kind_of(header.entry_type(), &name);
+    let kind = if pax.sparse {
+        EntryKind::Other
+    } else {
+        kind_of(header.entry_type(), &name)
+    };
     let mut meta = EntryMeta::new(name, kind);
     meta.size = Some(pax.size.unwrap_or(header_size));
     let old = header.as_old();
