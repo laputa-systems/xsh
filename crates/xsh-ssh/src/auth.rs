@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use std::str::FromStr;
 
 use data_encoding::BASE64;
@@ -14,7 +13,7 @@ use crate::agent::Agent;
 use crate::client::Connection;
 use crate::error::Error;
 use crate::host_key::Fingerprint;
-use crate::wire::{SshReader, plain_text, put_string};
+use crate::wire::{SshReader, Transport, plain_text, put_string};
 
 const SERVICE_USERAUTH: &str = "ssh-userauth";
 
@@ -104,7 +103,7 @@ struct Credential {
 
 fn credential(
     identity: &Identity,
-    timeout: Duration,
+    transport: &Transport,
     provider: &dyn CryptoProvider,
 ) -> Result<Credential, Error> {
     match identity {
@@ -128,7 +127,8 @@ fn credential(
             socket,
             fingerprint,
         } => {
-            let mut agent = Agent::connect(socket, timeout)?;
+            let mut agent = Agent::connect(socket, transport.idle_timeout())?
+                .bounded(transport.deadline(), transport.interrupt());
             let mut chosen = None;
             for blob in agent.identities()? {
                 if crate::host_key::fingerprint(&blob, provider)? == fingerprint.as_str() {
@@ -161,7 +161,7 @@ pub(crate) fn authenticate(
     session_id: &[u8],
     provider: &dyn CryptoProvider,
 ) -> Result<(), Error> {
-    let mut credential = credential(identity, connection.transport().idle_timeout(), provider)?;
+    let mut credential = credential(identity, connection.transport(), provider)?;
 
     connection.transport().send_raw(&service_request(SERVICE_USERAUTH))?;
     loop {

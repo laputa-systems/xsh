@@ -605,3 +605,128 @@ fn an_env_reply_for_another_channel_is_refused() {
         assert!(error.to_string().contains("unknown channel"), "{error:?}");
     }
 }
+
+#[derive(Clone, Copy)]
+enum SignBehavior {
+    Hang,
+    Drip,
+}
+
+fn stalling_agent(peer: &Peer, behavior: SignBehavior) -> (Identity, tempfile::TempDir) {
+    use std::os::unix::net::UnixListener;
+
+    let public = std::fs::read_to_string(peer.key.with_extension("pub")).expect("public key");
+    let blob = data_encoding::BASE64
+        .decode(public.split_whitespace().nth(1).expect("key field").as_bytes())
+        .expect("base64");
+    let fingerprint =
+        xsh_ssh::host_key::fingerprint(&blob, xsh_ssh::DEFAULT_PROVIDER).expect("fingerprint");
+    let directory = tempfile::tempdir().expect("tempdir");
+    let socket = directory.path().join("agent.sock");
+    let listener = UnixListener::bind(&socket).expect("bind");
+    thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        loop {
+            let mut length = [0u8; 4];
+            if stream.read_exact(&mut length).is_err() {
+                return;
+            }
+            let mut request = vec![0u8; u32::from_be_bytes(length) as usize];
+            if stream.read_exact(&mut request).is_err() {
+                return;
+            }
+            if request[0] == 11 {
+                let mut body = vec![12u8];
+                body.extend_from_slice(&1u32.to_be_bytes());
+                body.extend_from_slice(&text(&blob));
+                body.extend_from_slice(&text(b"comment"));
+                let mut reply = (body.len() as u32).to_be_bytes().to_vec();
+                reply.extend_from_slice(&body);
+                if stream.write_all(&reply).is_err() {
+                    return;
+                }
+                continue;
+            }
+            match behavior {
+                SignBehavior::Hang => thread::sleep(Duration::from_secs(6)),
+                SignBehavior::Drip => {
+                    if stream.write_all(&100_000u32.to_be_bytes()).is_err() {
+                        return;
+                    }
+                    for _ in 0..120 {
+                        if stream.write_all(&[14]).is_err() {
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                }
+            }
+            return;
+        }
+    });
+    let identity = Identity::Agent {
+        socket,
+        fingerprint: xsh_ssh::Fingerprint::parse(&fingerprint).expect("fingerprint"),
+    };
+    (identity, directory)
+}
+
+fn authenticating_peer() -> Peer {
+    spawn(Behavior::default(), |link| {
+        link.accept_service();
+        link.recv();
+    })
+}
+
+#[test]
+fn the_caller_can_cancel_authentication_while_the_agent_is_silent() {
+    let _guard = exclusive();
+    let peer = authenticating_peer();
+    let (identity, _directory) = stalling_agent(&peer, SignBehavior::Hang);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let mut config = peer.config(Duration::from_secs(5));
+    config.identity = identity;
+    config.interrupt = Some({
+        let cancelled = Arc::clone(&cancelled);
+        Arc::new(move || cancelled.load(Ordering::SeqCst))
+    });
+    let mut connection = Connection::connect(&config).expect("connect");
+    let flag = Arc::clone(&cancelled);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        flag.store(true, Ordering::SeqCst);
+    });
+    let started = Instant::now();
+    let (outcome, connection) = within(Duration::from_secs(10), move || {
+        let outcome = connection.authenticate();
+        (outcome, connection)
+    });
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    let error = outcome.expect_err("cancelled");
+    assert!(matches!(error, Error::Cancelled { certainty: Certainty::NotSubmitted }), "{error:?}");
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn an_agent_that_drips_its_reply_cannot_hold_authentication_past_its_deadline() {
+    let _guard = exclusive();
+    let peer = authenticating_peer();
+    let (identity, _directory) = stalling_agent(&peer, SignBehavior::Drip);
+    let mut config = peer.config(Duration::from_millis(500));
+    config.identity = identity;
+    config.deadline = Duration::from_millis(1200);
+    let mut connection = Connection::connect(&config).expect("connect");
+    let started = Instant::now();
+    let (outcome, connection) = within(Duration::from_secs(10), move || {
+        let outcome = connection.authenticate();
+        (outcome, connection)
+    });
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    let error = outcome.expect_err("deadline");
+    assert!(matches!(error, Error::Timeout { certainty: Certainty::NotSubmitted }), "{error:?}");
+    drop(connection);
+    peer.finish();
+}

@@ -294,6 +294,16 @@ impl Transport {
         }
     }
 
+    /// The deadline of the current operation, if it has one.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    /// The caller's cancellation check for the current operation, if any.
+    pub fn interrupt(&self) -> Option<Interrupt> {
+        self.interrupt.clone()
+    }
+
     /// The most the peer may stay silent while the transport waits on it.
     pub fn idle_timeout(&self) -> Duration {
         self.idle
