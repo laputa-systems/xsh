@@ -520,6 +520,49 @@ matched
 """
 }
 
+test test_pattern_predicate_narrows_mutable_bindings_and_error_variants_for_typed_calls { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""
+error BuildError = Missing(message: Str) : NotFound
+pure dynamic_failure() -> Any { BuildError.Missing(message: "absent") }
+pure error_message(failure: Error) -> Str { failure.message }
+pure family_message(failure: BuildError) -> Str { failure.message }
+pure describe(value: Any) -> Str {
+  if value is BuildError.Missing { family_message(value) + error_message(value) } else { "other" }
+}
+var failure = dynamic_failure()
+if failure is NotFound {
+  assert error_message(failure) == "absent"
+  print ${error_message(failure)}
+}
+if failure is BuildError.Missing {
+  assert family_message(failure) == "absent"
+  print ${family_message(failure)}
+}
+assert describe(failure) == "absentabsent"
+failure = 1
+assert describe(failure) == "other"
+var rounds = 0
+while rounds < 2 {
+  if failure is NotFound { print ${error_message(failure)} }
+  failure = dynamic_failure()
+  rounds += 1
+}
+if failure is BuildError.Missing { print ${describe(failure)} }
+""",
+  )?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  assert output.stdout == """absent
+absent
+absent
+absentabsent
+"""
+}
+
 test test_capitalized_unknown_pattern_names_are_rejected { |ctx|
   let rejected = test.run_script(
     ctx,
