@@ -249,7 +249,6 @@ proc leave_early(options: Record) [fs, net, error] -> Result[SshSession, Error] 
   with session = ssh.connect(options)? {
     return session
   }
-  fail "the body returned before the block ended"
 }
 
 proc open_both(a: Base, b: Base, wrong_pin: Str, fingerprint_a: Str, fingerprint_b: Str) [net, error] -> Result[List[Str], Error] {

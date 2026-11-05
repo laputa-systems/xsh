@@ -76,6 +76,31 @@ test test_with_as_the_tail_of_a_result_function_is_its_result { |ctx|
   assert tail_of_a_result_function(dir)? == 4
 }
 
+proc returns_the_held_lock(lock_path: Path) [fs, error] -> Result[FsLock, Error] {
+  with held = fs.lock(lock_path)? {
+    return held
+  }
+}
+
+proc returns_on_each_branch(root_path: Path, first: Bool) [fs, error] -> Result[Int, Error] {
+  with root = fs.open_root(root_path)? {
+    if first {
+      return 1
+    } else {
+      return 2
+    }
+  }
+}
+
+test test_with_body_that_returns_on_every_path_leaves_no_continuation { |ctx|
+  let dir = test.temp_dir(ctx, name: "with-diverges")?
+  let lock = returns_the_held_lock(fp"{dir}/lock")?
+  assert was_released(lock)
+  assert lock_available(fp"{dir}/lock")
+  assert returns_on_each_branch(dir, true)? == 1
+  assert returns_on_each_branch(dir, false)? == 2
+}
+
 test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   let dir = test.temp_dir(ctx, name: "with-several")?
   fp"{dir}/inner".mkdir()

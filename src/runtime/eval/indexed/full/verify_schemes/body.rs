@@ -2584,7 +2584,7 @@ pure make() -> Map[List[Int]] {
 
     #[test]
     fn managed_release_authenticates_cold_purpose_and_handover() {
-        let mut program = prepare("var saved = false\nproc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let observed = saved; defer { let kept = 1 }; let ignored = with held = root { return 1 } }\n");
+        let mut program = prepare("var saved = false\nproc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let observed = saved; defer { let kept = 1 }; let ignored = with held = root { if decoy { return 1 } }; 2 }\n");
         program.store.in_place.take();
         assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
         FullVerifier::verify(&program).unwrap();
@@ -2634,6 +2634,21 @@ pure make() -> Map[List[Int]] {
             let error = FullVerifier::verify(&changed).unwrap_err();
             assert!(error.message.contains(expected), "{instruction}: {error:?}");
         }
+    }
+
+    #[test]
+    fn diverging_resource_scope_authenticates_its_non_completion() {
+        let mut program = prepare("proc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let returned = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == super::super::super::FullTag::StmtReturn).unwrap();
+        let mut completing = program.clone();
+        completing.store.tags[returned] = super::super::super::FullTag::StmtValue;
+        let error = FullVerifier::verify(&completing).unwrap_err();
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
     }
 
     #[test]
@@ -2824,7 +2839,7 @@ driver()?
         assert!(matches!(changed.statement_view(failure), Ok(schema::StmtView::Value { .. })));
         assert!(super::super::super::indexed_expr_can_complete(&changed, returned.1, 0).unwrap());
         let error = FullVerifier::verify(&completing).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
 
         let mut wrong_message = program.clone();
         wrong_message.store.in_place.take();

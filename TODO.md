@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 75
+Next: 76
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -98,16 +98,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
-### XSH-70 · P3 · Agree on reachability after a `with` body that always returns
-
-- **Area:** Checker
-- **Where:** `crates/xsht/src/lint_rules.rs` (`dead-code`), `src/runtime/eval/indexed/full/verify_schemes/producers.rs`, `tests/xsh/ssh-connect.xsh:248` (`leave_early`)
-- **Problem:** In `with session = ssh.connect(options)? { return session }` followed by `fail "..."`, `lint.dead-code` reports the `fail` as unreachable, but deleting it makes `xsht check` fail with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`; binding the `with` result and returning it is still flagged dead. The lint and the lowering disagree on whether control can leave the `with` block, so one of them is wrong. `tests/xsh/ssh-connect.xsh` is excluded from `dead-code` until this is settled.
-- **Recommendation:** Decide from the SPEC whether a `with` body that returns on every path makes the block's end unreachable. Fix the side that disagrees, reduce the case to a native test, and remove the exclusion.
-- **Acceptance:** The reduced program checks with the trailing statement removed, or the lint stops reporting it; the `ssh-connect.xsh` exclusion is gone.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
@@ -132,7 +122,7 @@ out of scope.
 
 - **Area:** Verifier
 - **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs`, `src/runtime/eval/lower/`
-- **Problem:** With `keep_rest(f, first, ...items)` calling `f(first, @items)` and returning `f`, calling `keep_rest(sum, ...)` and `keep_rest(join, ...)` in one program fails `xsht check` with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`. Each call alone checks. XSH-70 reports the same verifier message for a different shape, so the two may share a cause.
+- **Problem:** With `keep_rest(f, first, ...items)` calling `f(first, @items)` and returning `f`, calling `keep_rest(sum, ...)` and `keep_rest(join, ...)` in one program fails `xsht check` with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`. Each call alone checks. The same message came from a dead `with` continuation that lowering emitted (fixed by dropping that continuation); compare against that cause first.
 - **Recommendation:** Reduce both calls to a native test, compare the producer the verifier derives with the checked contract for each instantiation, and fix the side that drops the per-instantiation type.
 - **Acceptance:** The two-instantiation program checks and runs; forged IR giving one instantiation the other's type is rejected.
 - **Fix with:** root-cause
@@ -145,6 +135,16 @@ out of scope.
 - **Problem:** `integer(...{first: 7}, @tail)`, where `integer` is the callable returned by `keep_rest`, is rejected with `check.splice-target`. A record spread currently requires a statically named callable, and the diagnostic does not say so.
 - **Recommendation:** Decide from the SPEC whether a record spread may target a callable value with a known signature. If so, resolve parameter names from its type; if not, make the diagnostic state the named-callable rule.
 - **Acceptance:** Either the call checks and runs, or the diagnostic names the rule and the SPEC states it.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-75 · P3 · Authenticate forged return values and diverging generic `with` bodies
+
+- **Area:** Verifier
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/body.rs`, `src/runtime/eval/lower/control.rs` (`Generalized` scope lowering)
+- **Problem:** While fixing a diverging `with` body, a forged IR that replaced an `FsLock` return value with a `Bool` was accepted by the verifier in a resource-scope fixture. Separately, scope bodies in generic callables still lower with the dead `finished`/capture continuation, so a generic proc whose `with` body returns on every path may still fail with `ground producer value disagrees with its checked contract`.
+- **Recommendation:** Reduce the forged-return acceptance to a body test and find which check should bind a `StmtReturn` value to the callable's result contract. Write a generic-callable native test for the diverging `with` and give the generalized path the same diverging shape if it fails.
+- **Acceptance:** The forged return is rejected with a specific error; the generic diverging `with` checks and runs, or is shown to work already by a kept test.
 - **Fix with:** root-cause
 - **Effort:** S
 
