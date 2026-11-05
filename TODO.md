@@ -108,16 +108,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-71 · P3 · Close an annotated open-spread argument passed to a generic proc
-
-- **Area:** Inference
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes.rs` (generic call argument closure), `src/sema/check/local_inference.rs`
-- **Problem:** With `pure same(value) { value }`, the annotated `pure width(state: Parsed) -> Int { let reset = same({...state, code: []}); show(reset) }` fails with `generic call argument has no closed checked type`, on the binary before and after the XSH-65 repair. The erased form of the same function checks, so the defect is specific to an annotated spread built in argument position.
-- **Recommendation:** Reduce to a native test, then close the argument's type from the annotated spread source before generic call verification, as XSH-67 did for annotated record locals.
-- **Acceptance:** The annotated and erased forms both check, lower and run; forged IR with a disagreeing element type is rejected.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
