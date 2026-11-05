@@ -21,6 +21,17 @@ proc init_gate_repository(root: Path, repository: Path) [fs, process, env, error
   open_fixture_to_native_user(root)?
 }
 
+proc ensure_git_checkout(root: Path) [fs, process, error] -> Result[Unit, Error] {
+  return when fp"{root}/.git".exists()?
+  let initialized = run.capture --text git -C $root init --quiet
+  guard initialized.status.shell_code()? == 0 else { fail f"cannot record {root} as a checkout: {initialized.stderr}" }
+  fp"{root}/.git/info/exclude".write(".work/\n")
+  for step in [["add", "."], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "fixture"]] {
+    let recorded = run.capture --text git -C $root @step
+    guard recorded.status.shell_code()? == 0 else { fail f"cannot record {root} as a checkout: {recorded.stderr}" }
+  }
+}
+
 proc open_fixture_to_native_user(root: Path) [fs, process, error] -> Result[Unit, Error] {
   return when unix.id()?.euid != 0
   fp"{root}/.work/tmp".mkdir(parents: true)?
@@ -2638,6 +2649,8 @@ test test_performance_python_owners_select_contract_tests {
 test test_focused_json_n_binds_prepared_product_and_rejects_incomplete_report { |ctx|
   test.timeout(ctx, 60s)
   let repository = fs.cwd()?
+  ensure_git_checkout(repository)?
+  fp"{repository}/.work/tmp".mkdir(parents: true)?
   let owned = fs.tempdir_in(fp"{repository}/.work/tmp")?
   let tools = owned.host_path()?
   let cargo_home = fp"{tools}/cargo"
