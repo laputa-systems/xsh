@@ -9,7 +9,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use xsh_root::{FileKind, NodeKind, OpenOptions, RenameMode, Root};
@@ -123,12 +123,23 @@ pub fn extract(
     policy: &Policy,
     budget: &Arc<Budget>,
 ) -> Result<Report> {
+    let (anchor, relative) = anchor_for(dest)?;
+    extract_beneath(archive, &anchor, &relative, policy, budget)
+}
+
+pub fn extract_beneath(
+    archive: &mut Archive,
+    root: &Root,
+    dest: &Path,
+    policy: &Policy,
+    budget: &Arc<Budget>,
+) -> Result<Report> {
     let filters = policy
         .members
         .iter()
         .map(|member| normalize(member))
         .collect::<Result<Vec<_>>>()?;
-    let mut placement = Placement::prepare(dest)?;
+    let mut placement = Placement::prepare(root, dest)?;
     let outcome = placement
         .open_stage()
         .and_then(|stage| run(archive, &stage, &placement, policy, &filters, budget));
@@ -139,6 +150,40 @@ pub fn extract(
             Err(cleanup) => Err(error.with_cleanup(&cleanup)),
         },
     }
+}
+
+fn anchor_for(dest: &Path) -> Result<(Root, PathBuf)> {
+    let open = |error: io::Error| Error::from_open(&error);
+    let not_a_directory = || Error::new(ErrorKind::Collision, "destination exists and is not a directory");
+    match fs::symlink_metadata(dest) {
+        Ok(metadata) if metadata.is_dir() => {
+            return Ok((Root::open(dest).map_err(open)?, PathBuf::from(".")));
+        }
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let resolved = fs::metadata(dest).map_err(open)?;
+            if resolved.is_dir() {
+                return Ok((Root::open(dest).map_err(open)?, PathBuf::from(".")));
+            }
+            return Err(not_a_directory());
+        }
+        Ok(_) => return Err(not_a_directory()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(open(error)),
+    }
+    let mut missing = Vec::new();
+    let mut existing = dest;
+    while !existing.as_os_str().is_empty() && fs::symlink_metadata(existing).is_err() {
+        let Some(name) = existing.file_name() else { break };
+        missing.push(name);
+        existing = existing.parent().unwrap_or(Path::new(""));
+    }
+    if missing.is_empty() {
+        return Err(Error::options("destination has no final name"));
+    }
+    let anchor = Root::open(if existing.as_os_str().is_empty() { Path::new(".") } else { existing })
+        .map_err(open)?;
+    let relative = missing.iter().rev().collect::<PathBuf>();
+    Ok((anchor, relative))
 }
 
 struct Stage {
@@ -170,31 +215,29 @@ struct Placement {
 static STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl Placement {
-    fn prepare(dest: &Path) -> Result<Self> {
+    fn prepare(root: &Root, dest: &Path) -> Result<Self> {
         let open = |error: io::Error| Error::from_open(&error);
-        match fs::symlink_metadata(dest) {
-            Ok(metadata) if metadata.is_dir() => {
-                let destination = Root::open(dest).map_err(open)?;
+        let mut components = beneath_components(dest)?;
+        let Some(leaf) = components.pop() else {
+            return Ok(Self {
+                target: Target::Existing {
+                    destination: root.open_dir_strict(".").map_err(open)?,
+                },
+                created_ancestors: None,
+                stage_name: None,
+            });
+        };
+        let parent_path = components.iter().collect::<PathBuf>();
+        let relative = parent_path.join(&leaf);
+        match root.metadata(&relative) {
+            Ok(metadata) if metadata.kind == FileKind::Directory => {
                 return Ok(Self {
-                    target: Target::Existing { destination },
+                    target: Target::Existing {
+                        destination: root.open_dir_strict(&relative).map_err(open)?,
+                    },
                     created_ancestors: None,
                     stage_name: None,
                 });
-            }
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                let resolved = fs::metadata(dest).map_err(|error| Error::from_open(&error))?;
-                if resolved.is_dir() {
-                    let destination = Root::open(dest).map_err(open)?;
-                    return Ok(Self {
-                        target: Target::Existing { destination },
-                        created_ancestors: None,
-                        stage_name: None,
-                    });
-                }
-                return Err(Error::new(
-                    ErrorKind::Collision,
-                    "destination exists and is not a directory",
-                ));
             }
             Ok(_) => {
                 return Err(Error::new(
@@ -203,17 +246,9 @@ impl Placement {
                 ));
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(Error::from_open(&error)),
+            Err(error) => return Err(open(error)),
         }
-        let leaf = dest
-            .file_name()
-            .ok_or_else(|| Error::options("destination has no final name"))?
-            .to_os_string();
-        let parent_path = match dest.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        let (created_ancestors, parent) = create_parent(&parent_path)?;
+        let (created_ancestors, parent) = create_parent(root, &parent_path)?;
         let directory_mode = probe_directory_mode(&parent)?;
         Ok(Self {
             target: Target::Fresh {
@@ -279,21 +314,42 @@ impl Placement {
     }
 }
 
-fn create_parent(parent_path: &Path) -> Result<(Option<CreatedAncestors>, Root)> {
+fn beneath_components(dest: &Path) -> Result<Vec<OsString>> {
+    let mut components = Vec::new();
+    for component in dest.components() {
+        match component {
+            Component::Normal(part) => components.push(part.to_os_string()),
+            Component::CurDir => {}
+            _ => {
+                return Err(Error::options(
+                    "destination must be relative and contain no `..`",
+                ));
+            }
+        }
+    }
+    Ok(components)
+}
+
+fn create_parent(root: &Root, parent_path: &Path) -> Result<(Option<CreatedAncestors>, Root)> {
     let open = |error: io::Error| Error::from_open(&error);
     let mut missing = Vec::new();
     let mut existing = parent_path;
-    while !existing.as_os_str().is_empty() && fs::symlink_metadata(existing).is_err() {
+    while !existing.as_os_str().is_empty() {
+        match root.metadata(existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(open(error)),
+        }
         let Some(name) = existing.file_name() else { break };
         missing.push(name);
         existing = existing.parent().unwrap_or(Path::new(""));
     }
+    let existing = if existing.as_os_str().is_empty() { Path::new(".") } else { existing };
     if missing.is_empty() {
-        return Ok((None, Root::open(parent_path).map_err(open)?));
+        return Ok((None, root.open_dir_strict(existing).map_err(open)?));
     }
     missing.reverse();
-    let anchor = Root::open(if existing.as_os_str().is_empty() { Path::new(".") } else { existing })
-        .map_err(open)?;
+    let anchor = root.open_dir_strict(existing).map_err(open)?;
     let mut prefix = PathBuf::new();
     let mut created = CreatedAncestors { anchor, relative: Vec::new() };
     for part in missing {
