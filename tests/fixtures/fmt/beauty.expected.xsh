@@ -10,13 +10,15 @@ let fmt_encoded = bytes.from_text(
 # Named and spliced arguments: preserve authored breaks and positional expansion.
 pure fmt_pair(first: Str, second: Str) -> Str { f"{first}/{second}" }
 
+pure fmt_rest(...parts: List[Str]) -> Str { parts.join("/") }
+
 let fmt_named = process.command_argv(
   "echo",
   ["echo", "ready"],
   timeout: 1s,
 )
 let fmt_parts = ["left", "right"]
-let fmt_spliced = fmt_pair(@fmt_parts)
+let fmt_spliced = fmt_rest(@fmt_parts)
 
 # Collections and comprehensions: expand related siblings and nested records consistently, keep flat rows that fit.
 let fmt_items = [{name: "one", value: "1", enabled: true}, {name: "two", value: "2", enabled: false}]

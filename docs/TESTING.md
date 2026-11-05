@@ -212,7 +212,8 @@ CPU-seconds, 429 s wall on a host at load 14 to 27) and the single sort-buffer t
 `core/awk.xsh` selects its Edit case and lists the module as an available scenario.
 
 Native cases run as the host user inside the gate container, with a private home and
-temporary directory under `.work/tmp`, as the Full native run does. The container itself
+temporary directory under `.work/tmp`, as the Full native run does. That scratch holds an empty
+`xsht-config.ini`, so tools a test runs on its fixtures do not read the repository's lint exclusions. The container itself
 keeps Docker's default seccomp profile and capabilities. Required skips still make a case
 incomplete, so a native test the unprivileged lane cannot run is not selected there.
 `dev/gate_lane.xsh` declares those tests by exact ID. Two groups can run in a container

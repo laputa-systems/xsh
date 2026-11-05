@@ -18,6 +18,44 @@ proc init_gate_repository(root: Path, repository: Path) [fs, process, env, error
   let _ = run.capture --text git -C $root init --quiet
   let _ = run.capture --text git -C $root add .
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture
+  open_fixture_to_native_user(root)?
+}
+
+proc ensure_git_checkout(root: Path) [fs, process, error] -> Result[Unit, Error] {
+  return when fp"{root}/.git".exists()?
+  let initialized = run.capture --text git -C $root init --quiet
+  guard initialized.status.shell_code()? == 0 else { fail f"cannot record {root} as a checkout: {initialized.stderr}" }
+  fp"{root}/.git/info/exclude".write(".work/\n")
+  for step in [["add", "."], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "fixture"]] {
+    let recorded = run.capture --text git -C $root @step
+    guard recorded.status.shell_code()? == 0 else { fail f"cannot record {root} as a checkout: {recorded.stderr}" }
+  }
+}
+
+proc open_fixture_to_native_user(root: Path) [fs, process, error] -> Result[Unit, Error] {
+  return when unix.id()?.euid != 0
+  fp"{root}/.work/tmp".mkdir(parents: true)?
+  for directory in [root, fp"{root}/.work", fp"{root}/.work/tmp", root.parent()] {
+    let mode = if directory == root.parent() { "a+x" } else { "a+rwx" }
+    let changed = run.capture --text chmod $mode $directory
+    guard changed.status.shell_code()? == 0 else { fail f"cannot open {directory} to the native test user: {changed.stderr}" }
+  }
+}
+
+proc hand_to_native_user(root: Path) [fs, process, env, error] -> Result[Unit, Error] {
+  return when unix.id()?.euid != 0
+  fp"{root}/.work/tmp".mkdir(parents: true)?
+  let owner = f"{env.get("HOST_UID")?.trim()}:{env.get("HOST_GID")?.trim()}"
+  for step in [["chown", "-R", owner, root.display()], ["chmod", "a+x", root.parent().display()]] {
+    let changed = run.capture --text @step
+    guard changed.status.shell_code()? == 0 else { fail f"cannot hand {root} to the native test user: {changed.stderr}" }
+  }
+}
+
+proc open_to_native_user(directory: Path) [process, error] -> Result[Unit, Error] {
+  return when unix.id()?.euid != 0
+  let changed = run.capture --text chmod -R a+rwX $directory
+  guard changed.status.shell_code()? == 0 else { fail f"cannot open {directory} to the native test user: {changed.stderr}" }
 }
 
 proc init_laputa_gate_repository(root: Path, repository: Path) [fs, process, env, error] -> Result[Unit, Error] {
@@ -336,6 +374,7 @@ test test_native_gate_rejects_product_changes_during_execution { |ctx|
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ run sh -c \"printf changed > '{product}'\" }}\n")
   init_gate_repository(root, repository)?
+  open_to_native_user(products)?
   let source = f"""
 use gates
 use fixtures
@@ -383,11 +422,12 @@ test test_native_gate_rejects_source_changes_during_execution { |ctx|
   fp"{root}/tests".mkdir()
   fp"{root}/tests/xsh".mkdir()
   let input = fp"{root}/input.txt"
-  input.write("original\n")
+  input.write("original\n", mode: 0o666)
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"changed\\n\")? }}\n")
   let _ = run.capture --text git -C $root init --quiet
   let _ = run.capture --text git -C $root add .
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture
+  hand_to_native_user(root)?
   fp"{root}/tools".mkdir()
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
@@ -420,7 +460,7 @@ proc main() [fs, process, env, time, error, io] {{
       XSH_DEV_BUILD_PRELOAD: ""})?
   let _ = run.capture --text git -C $root update-index --no-assume-unchanged input.txt
   let untracked = fp"{root}/untracked.txt"
-  untracked.write("before\n")
+  untracked.write("before\n", mode: 0o666)
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{untracked}\".write(\"after\\n\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
@@ -2609,6 +2649,8 @@ test test_performance_python_owners_select_contract_tests {
 test test_focused_json_n_binds_prepared_product_and_rejects_incomplete_report { |ctx|
   test.timeout(ctx, 60s)
   let repository = fs.cwd()?
+  ensure_git_checkout(repository)?
+  fp"{repository}/.work/tmp".mkdir(parents: true)?
   let owned = fs.tempdir_in(fp"{repository}/.work/tmp")?
   let tools = owned.host_path()?
   let cargo_home = fp"{tools}/cargo"

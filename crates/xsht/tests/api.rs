@@ -29,13 +29,13 @@ fn fs_root_registry_holds_native_receiver_operations_and_retains_factories() {
         .find(|entry| entry.receiver == xsh_registry::signature::MethodReceiver::FsRoot)
         .unwrap()
         .methods;
-    assert_eq!(methods.len(), 19);
+    assert_eq!(methods.len(), 22);
     assert_eq!(
         methods
             .iter()
             .map(|method| method.overloads.len())
             .sum::<usize>(),
-        21
+        24
     );
     let readlink_result = methods.iter().find(|method| method.name == "readlink_result").unwrap();
     assert_eq!(readlink_result.overloads.len(), 1);
