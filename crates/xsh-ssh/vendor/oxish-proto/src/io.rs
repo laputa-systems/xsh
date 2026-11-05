@@ -38,7 +38,9 @@ impl ReadState {
         // Compact the internal buffer
         if self.last_length > 0 {
             self.buf.copy_within(self.last_length.., 0);
-            self.buf.truncate(self.buf.len() - self.last_length);
+            let kept = self.buf.len() - self.last_length;
+            self.buf[kept..].zeroize();
+            self.buf.truncate(kept);
             self.last_length = 0;
         }
 

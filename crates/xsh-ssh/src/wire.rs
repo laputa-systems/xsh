@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, poll};
 use rustix::time::Timespec;
+use zeroize::Zeroizing;
 
 use oxish_proto::crypto::{CryptoProvider, HandshakeBuffer, KeySourceSide};
 use oxish_proto::key_exchange::NewKeys;
@@ -27,7 +28,7 @@ pub struct Packet {
     /// The SSH message type.
     pub message_type: MessageType,
     /// The message body after the type byte.
-    pub payload: Vec<u8>,
+    pub payload: Zeroizing<Vec<u8>>,
 }
 
 impl fmt::Debug for Packet {
@@ -466,7 +467,7 @@ impl Transport {
             Completion::Complete((sequence, length)) => {
                 let packet: IncomingPacket<'_> = self.read.decode_packet(sequence, length)?;
                 let message_type = packet.message_type;
-                let payload = packet.payload().to_vec();
+                let payload = Zeroizing::new(packet.payload().to_vec());
                 self.since_kex.packets += 1;
                 Ok(Some(Packet {
                     message_type,

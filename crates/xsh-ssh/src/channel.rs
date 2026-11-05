@@ -1,4 +1,5 @@
 use oxish_proto::{Encode, MessageType};
+use zeroize::Zeroizing;
 
 use crate::client::Connection;
 use crate::error::Error;
@@ -259,7 +260,7 @@ impl Channel {
         if limit == 0 {
             return Ok(0);
         }
-        let mut packet = Vec::with_capacity(limit + 9);
+        let mut packet = Zeroizing::new(Vec::with_capacity(limit + 9));
         MessageType::ChannelData.encode(&mut packet);
         packet.extend_from_slice(&self.remote_id.to_be_bytes());
         put_string(&mut packet, &data[..limit]);
