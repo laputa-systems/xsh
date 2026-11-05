@@ -85,6 +85,7 @@ enum FreshAggregateOrigin {
 struct AggregateSeedScope {
     initializer: Span,
     origins: BTreeMap<Span, FreshAggregateOrigin>,
+    binding_initializer: bool,
 }
 
 fn prepare_record_payloads(
@@ -717,6 +718,7 @@ impl Checker {
             self.local_inference.aggregate_scopes.push(AggregateSeedScope {
                 initializer: super::expr::expr_or_run_span_arena(program, initializer),
                 origins: BTreeMap::new(),
+                binding_initializer: true,
             });
         }
         if let Some(inference) = self.local_inference.bindings.get(&span) {
@@ -758,7 +760,7 @@ impl Checker {
             || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
             || self.local_inference.aggregate_scopes.last().is_some_and(|scope| scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end())
         { return false; }
-        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new() });
+        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new(), binding_initializer: false });
         true
     }
 
@@ -855,6 +857,7 @@ impl Checker {
         self.local_inference.aggregate_scopes.push(AggregateSeedScope {
             initializer: program.arena.expr(expression).span,
             origins: BTreeMap::new(),
+            binding_initializer: false,
         });
         true
     }
@@ -943,6 +946,14 @@ impl Checker {
             .and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
             .map_or(0, super::PendingFunctionSig::solver_level);
         self.type_constraints.fresh_at_level(origin, level)
+    }
+
+    pub(super) fn materialize_open_override(&mut self, program: &ArenaProgram, value: ExprId, ty: &Type) -> Type {
+        let span = program.arena.expr(value).span;
+        let Some(scope) = self.local_inference.aggregate_scopes.last().filter(|scope| scope.binding_initializer) else { return ty.clone() };
+        if !(scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end()) { return ty.clone(); }
+        let origins = scope.origins.clone();
+        self.materialize_fresh_aggregate(program, value, ty, std::slice::from_ref(ty), &origins, &mut Vec::new())
     }
 
     fn materialize_fresh_aggregate(
@@ -2099,6 +2110,22 @@ mod tests {
     }
 
     #[test]
+    fn nested_aggregate_open_spread_override_closes_from_a_later_use() {
+        with_checked_local_source(
+            "type Parsed = {code: List[Int], at: Int}\npure alt(state: Parsed) -> Parsed { state }\npure branch(state) -> Parsed { var st = {...state, code: []}; let inner = alt(st); st = {...st, at: 1}; st }\n",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let code = super::super::Name::intern("code");
+                let closed = output.local_binding_types.values().filter_map(|ty| match ty {
+                    Type::Record(fields) if fields.contains_key(&super::super::Name::intern("at")) => fields.get(&code),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                assert!(!closed.is_empty() && closed.iter().all(|ty| **ty == Type::List(Box::new(Type::Int))), "{:?}", output.local_binding_types);
+            },
+        );
+    }
+
+    #[test]
     fn nested_aggregate_incompatible_shared_writers_are_rejected() {
         with_checked_local_source(
             "pure sample(flag: Bool) -> Int { var state = {items: []}; if flag { state = {items: [7]} } else { state = {items: [\"word\"]} }; 7 }",
@@ -2248,7 +2275,7 @@ mod tests {
             for index in 1..256 {
                 origins.insert(Span::new(initializer.source_id, index, index + 1), FreshAggregateOrigin::Record(BTreeMap::new()));
             }
-            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins });
+            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins, binding_initializer: false });
             let probe = checker.constraint_probe();
             assert!(probe.local_inference.aggregate_scopes.is_empty());
             assert_eq!(checker.local_inference.aggregate_scopes[0].origins.len(), 255);

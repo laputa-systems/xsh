@@ -354,3 +354,43 @@ pure make(value: Str) -> Options {
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "closed\n"
 }
+
+test test_full_inference_open_spread_empty_list_field_closes_from_a_later_use_in_a_loop { |ctx|
+  let checks = r"""
+let start: Parsed = {code: [7], at: 0}
+assert alt(start, 2).at == 3
+assert alt(start, 2).code.len() == 0
+assert alt({code: [], at: 5}, 0).at == 5
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure branch(state, depth: Int) -> Parsed {
+  var st = {...state, code: []}
+  if depth > 0 { let inner = alt(st, depth - 1) }
+  loop {
+    break when st.at >= 3
+    st = {...st, at: st.at + 1}
+  }
+  st
+}
+pure alt(state: Parsed, depth: Int) -> Parsed { branch(state, depth) }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure branch(state: Parsed, depth: Int) -> Parsed {
+  var st = {...state, code: []}
+  if depth > 0 { let inner = alt(st, depth - 1) }
+  loop {
+    break when st.at >= 3
+    st = {...st, at: st.at + 1}
+  }
+  st
+}
+pure alt(state: Parsed, depth: Int) -> Parsed { branch(state, depth) }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}
