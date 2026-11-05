@@ -395,7 +395,19 @@ impl Transport {
             };
             match poll(&mut descriptors, Some(&timespec)) {
                 Ok(0) => continue,
-                Ok(_) => return Ok(descriptors[0].revents()),
+                Ok(_) => {
+                    let events = descriptors[0].revents();
+                    if reports_socket_failure(events) {
+                        let detail = self
+                            .stream
+                            .take_error()
+                            .ok()
+                            .flatten()
+                            .map_or_else(|| "socket error".to_owned(), |error| error.to_string());
+                        return Err(self.attribute(Error::NotSubmitted { detail }));
+                    }
+                    return Ok(events);
+                }
                 Err(error) if error == rustix::io::Errno::INTR => continue,
                 Err(error) => {
                     return Err(self.attribute(Error::NotSubmitted {
@@ -707,6 +719,10 @@ impl Transport {
     }
 }
 
+fn reports_socket_failure(events: PollFlags) -> bool {
+    events.intersects(PollFlags::ERR | PollFlags::NVAL)
+}
+
 fn connect_stream(
     host: &str,
     port: u16,
@@ -762,4 +778,23 @@ fn connect_addresses(host: &str, port: u16, idle: Duration) -> Result<TcpStream,
             detail: format!("no address resolved for {host}:{port}"),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_error_or_invalid_descriptor_wakeup_is_a_connection_failure() {
+        assert!(reports_socket_failure(PollFlags::ERR));
+        assert!(reports_socket_failure(PollFlags::NVAL));
+        assert!(reports_socket_failure(PollFlags::IN | PollFlags::ERR));
+    }
+
+    #[test]
+    fn readable_closed_and_writable_wakeups_are_not_failures() {
+        assert!(!reports_socket_failure(PollFlags::IN));
+        assert!(!reports_socket_failure(PollFlags::HUP));
+        assert!(!reports_socket_failure(PollFlags::IN | PollFlags::HUP | PollFlags::OUT));
+    }
 }
