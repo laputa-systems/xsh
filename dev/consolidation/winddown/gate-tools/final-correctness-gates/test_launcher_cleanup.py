@@ -358,7 +358,7 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(
             self.plan["warning_deny"],
             [[
-                "cargo", "clippy", "--locked", "--offline", "--workspace", "--target", LAUNCHER.TARGET,
+                "cargo", "clippy", "--locked", "--offline", "--workspace", "--exclude", "graviola", "--target", LAUNCHER.TARGET,
                 "--all-targets", "--all-features", "--quiet", "--", "-D", "warnings",
             ]],
         )

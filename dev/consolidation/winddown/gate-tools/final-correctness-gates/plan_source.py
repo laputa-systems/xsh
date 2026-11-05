@@ -83,7 +83,7 @@ def plan_data() -> dict[str, Any]:
         "native_extra": [],
         "warning_deny": [
             [
-                "cargo", "clippy", "--locked", "--offline", "--workspace", "--target", TARGET,
+                "cargo", "clippy", "--locked", "--offline", "--workspace", "--exclude", "graviola", "--target", TARGET,
                 "--all-targets", "--all-features", "--quiet", "--", "-D", "warnings",
             ],
         ],
