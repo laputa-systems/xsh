@@ -195,6 +195,18 @@ test test_keyword_field_labels_cannot_be_puns_or_binding_names { |ctx|
   }
 }
 
+test test_reserved_word_where_a_name_belongs_is_named_and_a_rename_is_offered { |ctx|
+  for case in [
+    {source: "let match = 1\n", word: "match", code: "parse.expected-ident"},
+    {source: "let r = Ok(1)\nmatch r {\n  Ok(run) => print here\n  else => print none\n}\n", word: "run", code: "parse.expected-pattern"},
+  ] {
+    let stderr = rejection(ctx, case.source)?
+    assert f"err[{case.code}]" in stderr, stderr
+    assert f"found reserved word `{case.word}`" in stderr, stderr
+    assert f"rename it, for example `{case.word}_value`" in stderr, stderr
+  }
+}
+
 test test_value_pipeline_hole_must_be_one_whole_argument { |ctx|
   for source in [
     "1 |> render(_, _)\n",

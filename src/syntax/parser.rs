@@ -831,7 +831,7 @@ impl<'a> Parser<'a> {
 
     pub(in crate::syntax::parser) fn expect_ident(&mut self, message: &str) -> Option<Name> {
         if self.current_tag() != grammar::BINDING_NAME {
-            self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
+            self.diagnostic_expected_name_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
         let name = self
@@ -899,7 +899,7 @@ impl<'a> Parser<'a> {
 
     pub(in crate::syntax::parser) fn expect_proc_ident(&mut self, message: &str) -> Option<Name> {
         if !self.matches_terms([grammar::COMMAND_MEMBER[1]], self.current_start()) {
-            self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
+            self.diagnostic_expected_name_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
         let name = self
@@ -1101,6 +1101,31 @@ impl<'a> Parser<'a> {
             self.index += 1;
         }
         span
+    }
+
+    pub(in crate::syntax::parser) fn diagnostic_expected_name_here(
+        &mut self,
+        message: &str,
+        code: DiagnosticCode,
+    ) {
+        let Some(keyword) = self.current_keyword() else {
+            self.diagnostic_here(message, code);
+            return;
+        };
+        if self.follows_invalid_source() {
+            return;
+        }
+        let word = keyword.as_str();
+        self.diagnostics.push(
+            Diagnostic::error(format!("{message}, found reserved word `{word}`"))
+                .with_code(code)
+                .with_label(Label::primary(
+                    self.current_span(),
+                    format!(
+                        "`{word}` is reserved and cannot be used as a name; rename it, for example `{word}_value`"
+                    ),
+                )),
+        );
     }
 
     pub(in crate::syntax::parser) fn diagnostic_here(
