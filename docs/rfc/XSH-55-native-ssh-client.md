@@ -39,7 +39,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Unsupported CPU fails clearly before any instruction | M | D | `cpu::tests` |
 | Pinned fingerprint and `known_hosts`; unknown, changed, revoked fail before authentication; hashed and CA entries rejected; no TOFU, no automatic write | P pin only | D | `tests/connect.rs`, `known_hosts::tests`, `ssh_known_hosts_refuses_unknown_changed_and_revoked_keys` |
 | Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `encrypted_key_is_rejected_explicitly` |
-| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | P key file buffer zeroized; Graviola's key memory and process dumps are not | `debug_does_not_expose_payloads`, `docs/ssh.md` |
+| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | P key file buffer, shared secret and decrypted payloads zeroized; Graviola's key memory, cipher state and process dumps are not | `debug_does_not_expose_payloads`, `docs/ssh.md` |
 | Required tests (pinned and `known_hosts`, auth, binary I/O, status and signal, absent status, premature disconnect, windows, stalled peers, reuse, both rekey directions, fragmented identification, malformed input, deadlines and cancellation, failure after submission) | P | D | `tests/connect.rs`, `exec.rs`, `stream.rs`, `protocol.rs`, `agent.rs`, `descriptors.rs` |
 | Feature-disabled and minimal builds | P they warned, which the distribution build denies | D | `cargo check -p xsh --no-default-features` and `--features net,tools`, warning-free |
 | Runnable examples: exec, transfer, reuse, errors, parallel hosts | P 1 of 5 | D | `examples/ssh/` |
@@ -71,7 +71,7 @@ exchange and `chacha20-poly1305@openssh.com` notes, and the hybrid
 `mlkem768x25519-sha256` draft. It was carried out by the implementing team's own
 tooling, not by an independent reviewer, so it does not lift the experimental
 label. Graviola's assembly and its constant-time claims were not reviewed.
-Each defect below has a test that failed before its fix.
+Each defect below has a test that failed before its fix, except the zeroization row (not observable) and the error-wakeup row (its test covers the decision only).
 
 ### Defects found and fixed
 
@@ -82,6 +82,13 @@ Each defect below has a test that failed before its fix.
 | Medium | A `stdout_path` or `stderr_path` that is a pipe or FIFO whose reader stopped draining blocked the event loop the same way. | Writes to a file that is not a regular file wait for writability in 50 ms slices, honor the deadline and interrupt, and write at most `PIPE_BUF`. `an_output_file_that_stops_draining_does_not_defeat_the_command_deadline`, `output_to_a_pipe_arrives_whole_when_the_pipe_is_drained` |
 | Low | ssh-agent exchanges used per-call socket timeouts: a silent agent ignored cancellation until the timeout ended (5.5 s measured against a 0.3 s cancel), and a dripping agent restarted the timeout on every byte (6.0 s measured against a 1.2 s deadline). | The agent socket is polled against the operation deadline and interrupt. `the_caller_can_cancel_authentication_while_the_agent_is_silent`, `an_agent_that_drips_its_reply_cannot_hold_authentication_past_its_deadline` |
 | Low | A service accept naming a service other than `ssh-userauth` was accepted (RFC 4253 section 10). | Refused. `a_service_accept_for_another_service_is_refused` |
+| Low | `Transport::recv_newkeys` used a raw receive, so an `IGNORE` or `DEBUG` between a rekey reply and `NEWKEYS` (RFC 4253 section 11) aborted the session. | `NEWKEYS` is read through the key-exchange filter; the initial exchange stays strict. `a_server_message_between_its_rekey_reply_and_newkeys_is_skipped` |
+| Medium | A key file was read with no permission check, no size bound and a blocking open, so a FIFO there blocked authentication for good. | Opened non-blocking; must be a regular file under 64 KiB; refused when the caller owns it and group or others can access it, as OpenSSH does. `a_private_key_readable_by_others_is_refused`, `a_fifo_at_the_key_path_is_refused_without_blocking`, `a_key_file_past_the_size_bound_is_refused` |
+| Medium | The adapter opened `stdin_path` and created `stdout_path` and `stderr_path` before the deadline, so a FIFO without a peer blocked it. | `exec::open_stdin_file` and `exec::create_output_file` open non-blocking and restore blocking mode; an output FIFO without a reader fails at once. `tests/fifo.rs` |
+| Low | A wakeup carrying only `POLLERR` or `POLLNVAL` spun the command loop. | Either flag in the connection poll is a connection failure carrying the pending socket error. `wire::tests`; no peer can produce an error-only wakeup, so the test covers the flag decision, not an end-to-end spin |
+| Low | A server-opened channel arriving while the client waited for the channel-open, `env` or `exec` reply failed the session; replies queued while waiting (including a global request's `REQUEST_FAILURE`) were not flushed until the command loop ran; a channel-open failure was not checked against its recipient channel. | Channel opens are refused in the connection filter, the blocking receive flushes its queue, and the failure must name the local channel. `server_opened_channels_and_global_requests_are_refused_while_*`, `a_channel_open_failure_for_another_channel_is_refused` |
+| Low | A server that sent the exit status and closed the TCP connection without a channel close produced a transport error. | A clean end of stream after a recorded status or signal returns the result and marks the session unusable, as OpenSSH does; a reset, a failed write or an end without a status stays an error. `a_connection_closed_after_the_exit_status_still_returns_the_result` |
+| Low | The key-exchange shared secret, decrypted packet payloads, the receive buffer's consumed plaintext and outgoing data packets were freed unwiped. | `Zeroizing` buffers, and wiping at buffer compaction. No test: wiping is not observable through safe code. |
 
 Two untested thresholds now have tests: the packet-count and elapsed-time
 rekey limits (`the_packet_count_alone_starts_a_rekey`,
@@ -91,7 +98,10 @@ compared with `ssh-keygen -F` over 16 patterns and 14 endpoints
 
 Contract changes: `auth::authenticate` is crate-private and takes the
 connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
-(implemented for `File`) instead of `dyn Read`.
+(implemented for `File`) instead of `dyn Read`. The later rows add `exec::open_stdin_file`, `exec::create_output_file` and
+`Transport::peer_closed`, replaces `Transport::recv_newkeys` with
+`Transport::accept_newkeys`, and changes `Packet::payload` to
+`Zeroizing<Vec<u8>>`.
 
 ### Checked and held
 
@@ -106,7 +116,7 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 - Packet bounds: length capped at 64 KiB before any wait, AEAD tag checked
   before use, padding and payload arithmetic checked, nonce counters refuse to
   wrap, rekey far below the 32-bit sequence space.
-- Channels: recipient checked on every message except a channel-open failure, receive window and packet size
+- Channels: recipient checked on every message, receive window and packet size
   enforced, peer window overflow refused, exit status or signal at most once,
   server-opened channels refused, unknown requests answered, data after EOF
   refused, a close without completion is never exit zero.
@@ -116,38 +126,25 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 - Trust: `known_hosts` agrees with `ssh-keygen -F`; hashed and CA entries are
   refused; revocation wins; the pinned fingerprint is canonicalized; there is
   no bypass path in `Connection::connect`.
-- Secrets: key file text, its base64 and PKCS#8 forms are `Zeroizing`; no
+- Secrets: key file text, its base64 and PKCS#8 forms, the shared secret and decrypted payloads are `Zeroizing`; no
   subscriber is installed in `xsh`, and the packet `Debug` forms print lengths;
   errors carry static key-parser strings.
 
 ### Risks supported by the code but not demonstrated
 
-- `Transport::recv_newkeys` uses a raw receive. During a rekey a server may
-  legally send `IGNORE` or `DEBUG` between its key-exchange reply and
-  `NEWKEYS` (strict key exchange forbids it only in the first exchange); the
-  client would abort. The scripted peer cannot inject there, and OpenSSH and
-  Dropbear do not.
-- A server-opened channel, or a global request reply, that arrives while the
-  client waits for the channel-open, `env` or `exec` reply fails the session; the
-  same message later in the command is refused politely. Fail-closed.
 - Packet framing accepts padding under 4 bytes and an AEAD `packet_length` that
   is not a multiple of the block size, which OpenSSH refuses. Only an
-  authenticated peer can send either.
-- `ChannelOpenFailure` does not check its recipient channel. Fail-closed.
-- A wakeup with only `POLLERR` would spin the command loop, which reads only on
-  `POLLIN` or `POLLHUP`. A TCP reset sets `POLLHUP` as well, so no cause is known.
+  authenticated peer can send either. Left as is: the check lives in the
+  vendored `oxish-proto` decoder.
 - While the client waits for a stalled output file it serves no connection
   traffic, so a server that enforces its own timeout on a key-exchange answer
   can drop the session.
-- Key files are read without a permission or file-type check and without a
-  size bound, and a FIFO there blocks authentication uninterruptibly. The
-  adapter opens `stdin_path` and creates `stdout_path` before the deadline
-  starts; a FIFO without a peer blocks that open.
-- Not zeroized: the key-exchange shared secret and derived session keys in
-  `oxish-proto`, decrypted packet payloads, caller stdin bytes, Graviola's
-  private-key copy. Swap and core dumps are outside any guarantee.
-- A server that closes the TCP connection after sending the exit status, without
-  a channel close, produces a transport error rather than a result.
+- Not zeroized: caller stdin bytes before they are packetized, Graviola's
+  private-key copy and the key state inside its ciphers and hash contexts, and
+  buffers a growing allocation leaves behind. Swap and core dumps are outside any
+  guarantee.
+- An output FIFO whose reader opens later than the command start is refused
+  (`ENXIO`) rather than waited for.
 - The session handle is a counter into a process-wide registry, and `ssh.exec`
   and `ssh.info` do not compare the calling evaluator with the session's owner
   (by design: a handle works in any evaluator it is passed to). Unforgeability
@@ -199,7 +196,7 @@ musl. Cross-checked only, not executed:
   The code that already compiled there compiles by cross-check only.
 - An independent protocol and security review before any claim beyond
   experimental. The [source review](#protocol-and-security-review) above found and
-  fixed five defects and lists the risks it could not demonstrate; it is not the
+  fixed five defects, then a second round fixed seven more that it could only support from the code, and the risks that remain are listed; it is not the
   independent review, and the tests, fuzz loops and fixtures are not formal
   verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
