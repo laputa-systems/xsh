@@ -244,8 +244,8 @@ test test_call_splices_preserve_shared_and_constant_lists { |ctx|
     ctx,
     r"""
 const prepared = ["constant", "backing"]
-proc pair(a: Str, b: Str) -> Result[Unit] {
-  print ${a} ${b}
+proc pair(...words: List[Str]) -> Result[Unit] {
+  print ${words[0]} ${words[1]}
   Ok()
 }
 let parts = ["left", "right"]
@@ -328,8 +328,8 @@ main(args)?
   let spliced = test.run_script(
     ctx,
     r"""
-proc pair(a: Str, b: Str) -> Result[Unit] {
-  print ${a} ${b}
+proc pair(...words: List[Str]) -> Result[Unit] {
+  print ${words[0]} ${words[1]}
   return Ok()
 }
 let parts = ["left", "right"]

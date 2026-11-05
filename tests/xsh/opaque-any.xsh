@@ -104,7 +104,7 @@ test test_opaque_any_keeps_storage_equality_and_keys {
   assert items.get(0)? == raw
   assert entries.get("one")? == raw
   let one = [raw]
-  assert keep_opaque_any(@one) == raw
+  assert keep_opaque_any(one[0]) == raw
   assert first_opaque_any(@items) == raw
   for item in items { assert item == raw }
   for {key, value} in entries {

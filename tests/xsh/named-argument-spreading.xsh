@@ -178,6 +178,62 @@ test test_named_argument_spreads_support_modules_methods_and_rest {
   assert spread_rest(...{first: 1}, @tail) == [1, 2, 3]
 }
 
+test test_positional_splices_of_unknown_length_fill_only_the_rest_parameter { |ctx|
+  let accepted = test.run_script(
+    ctx,
+    r"""pure lead(first: Str, ...rest: List[Str]) -> Int { rest.len() }
+let tail = ["y", "z"]
+print ${lead("x", @tail)}
+""",
+  )?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = accepted
+    assert assertion_condition, assertion_message
+  }
+  assert accepted.stdout == "2\n"
+  let entry = test.run_script(
+    ctx,
+    r"""proc main(first = "default", second = "none") [io] {
+  print ${first} ${second}
+}
+main(@args)
+""",
+  )?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = entry
+    assert assertion_condition, assertion_message
+  }
+  assert entry.stdout == "default none\n"
+  for source in [
+    r"""pure pair(a: Str, b: Str) -> Str { a + b }
+let parts = ["x", "y"]
+print ${pair(@parts)}
+""",
+    r"""pure lead(first: Str, ...rest: List[Str]) -> Int { rest.len() }
+let parts = ["x", "y"]
+print ${lead(@parts)}
+""",
+    r"""pure score(first: Int, second: Int = 5, ...rest: List[Int]) -> Int { first + second }
+let tail = [2]
+print ${score(1, @tail)}
+""",
+    r"""proc entry(first = "default", second = "none") [io] {
+  print ${first} ${second}
+}
+entry(@args)
+""",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    {
+      let assertion_condition = ! rejected.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    assert "[check.splice-target]" in rejected.stderr, rejected.stderr
+    assert "positional splice of unknown length" in rejected.stderr, rejected.stderr
+  }
+}
+
 test test_named_argument_spreads_project_before_later_mutation {
   var options = {first: 1}
   let total = spread_sum(

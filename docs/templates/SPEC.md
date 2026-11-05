@@ -3649,7 +3649,11 @@ type. Supplied expressions are evaluated once in source order.
 
 A positional splice with an unknown length may fill the final rest parameter;
 its inferred element type is constrained by that parameter. It cannot supply
-a fixed slot before that parameter. Defaulted parameters and
+a fixed or defaulted slot before that parameter, and the checker rejects it
+with `check.splice-target`. The one exception is a call to the script's
+top-level entry-point `proc main`, such as `main(@args)`: it binds like the
+implicit invocation of `main`, so the argument count is checked at run time.
+Defaulted parameters and
 immutable callable aliases follow the same binding rules. Omitted defaults
 retain their declaration scope and evaluation order described above.
 
