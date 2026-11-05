@@ -12702,15 +12702,6 @@
       "boundary": "The row layout and the exporter's function and block tables come from the Rust test-only export."
     },
     {
-      "id": "fragment.Xsh.Conformance.Connected.result_control_documents_decode",
-      "module": "Xsh.Conformance.Connected.RawResultFixture",
-      "declaration": "Xsh.Conformance.Connected.result_control_documents_decode",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "The exported instruction rows, function rows and Result signature facts for the Result fixture decode.",
-      "boundary": "One source with four pure functions."
-    },
-    {
       "id": "fragment.Xsh.Conformance.Connected.result_control_is_certified",
       "module": "Xsh.Conformance.Connected.RawResultFixture",
       "declaration": "Xsh.Conformance.Connected.result_control_is_certified",
@@ -12718,60 +12709,6 @@
       "status": "fragment",
       "scope": "The admitted Result fixture source, the Rust-published signatures, the exported raw rows and four hand-written candidates are accepted together: each candidate validates against its source and signature, and each returned row reads as its candidate's returned node.",
       "boundary": "Candidates and derivation steps are written by hand and validated; the checker facts are signatures only, not per-expression types; calls and local declarations are outside the fixture."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.source_validation_and_exported_rows_each_accept_the_candidates",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.source_validation_and_exported_rows_each_accept_the_candidates",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Source validation alone accepts each of the four candidates, and the raw-row comparison alone accepts each of them against the exported rows.",
-      "boundary": "One fixture."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.forged_published_facts_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.forged_published_facts_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Altering a published result type, parameter type, parameter list, body site or function name makes validation reject the candidate.",
-      "boundary": "Finite mutations of one fixture's signatures."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.swapped_ok_and_error_candidates_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.swapped_ok_and_error_candidates_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A candidate that builds Err where the source builds Ok, or the reverse, is rejected by validation.",
-      "boundary": "Finite mutations of one fixture's candidates."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.wrong_propagation_candidates_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.wrong_propagation_candidates_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A candidate that drops a propagation, propagates a non-Result, records the wrong error type, or moves the propagation outside Ok is rejected by validation.",
-      "boundary": "Finite mutations of one fixture's candidates."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.forged_rows_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.forged_rows_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Rows that swap Ok and Err with a valid payload, change a slot, point forward, bypass a propagation, or carry an inconsistent tag are rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of one fixture's rows."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.forged_function_rows_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.forged_function_rows_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A function table entry with the wrong parameter count or body block, or a body block owned by another function, is rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of one fixture's function rows."
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.ok_scheme_instantiates",
@@ -12851,8 +12788,179 @@
       "declaration": "Xsh.Semantics.Connected.result_control_returns_are_the_executed_nodes",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The Result fixture is certified and each candidate's single return is the node the execution theorems run.",
+      "scope": "The three Result documents decode to the fixture's literal rows, function table and signatures, the fixture is certified, and each candidate's single return is the node the execution theorems run.",
       "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported instruction-row document decodes to the literal rows the Result fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_functions_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_functions_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported function-row document decodes to the literal function and block tables the Result fixture checks use.",
+      "boundary": "One document from the test-only export."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_signatures_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_control_signatures_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported Result signature facts decode to the literal signatures the Result fixture checks use.",
+      "boundary": "One document from the test-only export; signatures only, not per-expression types."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.source_validation_accepts_each_candidate",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.source_validation_accepts_each_candidate",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Source validation alone accepts each of the four candidates against the published signatures.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.exported_rows_accept_each_candidate",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.exported_rows_accept_each_candidate",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The raw-row comparison alone accepts each of the four candidates against the exported rows and function table.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_result_types_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_result_types_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Replacing keep's published result type by a Result with an Int error, or by Int, makes validation reject the candidate.",
+      "boundary": "Finite mutations of one signature."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_parameter_types_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_parameter_types_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Replacing a published parameter type by Str, Int or a Result with an Int error makes validation reject the candidate.",
+      "boundary": "Finite mutations of three signatures."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_function_identity_facts_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_function_identity_facts_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Dropping the published parameter list, moving the body site or renaming the function makes validation reject the candidate.",
+      "boundary": "Finite mutations of one signature."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_error_and_sum_result_types_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_error_and_sum_result_types_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Swapping the published value and error types of refuse's result, or replacing advance's value type by Str, makes validation reject the candidate.",
+      "boundary": "Finite mutations of two signatures."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.swapped_ok_and_error_candidates_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.swapped_ok_and_error_candidates_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that builds Err of a parameter where the source builds Ok, or Ok of a string where it builds Err, is rejected by validation.",
+      "boundary": "Finite mutations of two candidates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.swapped_constructors_around_propagation_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.swapped_constructors_around_propagation_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that wraps a propagation, alone or in an addition, in Err instead of Ok is rejected by validation.",
+      "boundary": "Finite mutations of two candidates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.dropped_or_mistyped_propagation_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.dropped_or_mistyped_propagation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that drops a propagation, records the wrong error type for it, or drops it from an addition is rejected by validation.",
+      "boundary": "Finite mutations of three candidates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.misplaced_or_unwarranted_propagation_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.misplaced_or_unwarranted_propagation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that propagates a non-Result parameter, or propagates outside the Ok call, is rejected by validation.",
+      "boundary": "Finite mutations of two candidates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.swapped_ok_and_error_rows_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.swapped_ok_and_error_rows_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rows that carry a well-formed Err where the candidate builds Ok, or a well-formed Ok where it builds Err, are rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of three rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_slots_and_forward_references_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_slots_and_forward_references_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rows that read another parameter slot or point a constructor at a later row are rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of two rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.bypassed_propagation_rows_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.bypassed_propagation_rows_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rows whose constructor or addition skips the propagation row, or whose propagation reads another row, are rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of three rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.inconsistent_tags_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.inconsistent_tags_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rows whose tag name and ordinal disagree are rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of two rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_function_table_entries_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_function_table_entries_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function table entry with the wrong parameter count or body block is rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of one entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_body_block_owned_by_another_function_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_body_block_owned_by_another_function_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A body block owned by another function is rejected by the raw-row comparison.",
+      "boundary": "One mutation."
     }
   ],
   "artifact_certificates": [

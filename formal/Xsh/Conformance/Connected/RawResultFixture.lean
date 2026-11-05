@@ -1,4 +1,4 @@
-import Xsh.Conformance.Connected.RawResult
+import Xsh.Conformance.Connected.RawResultLiterals
 
 namespace Xsh.Conformance.Connected
 open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected Xsh.Conformance.Transport
@@ -32,24 +32,6 @@ def advanceSteps : List DerivationStep :=
 def resultCandidates : List (List StatementNode × List DerivationStep) :=
   [(keepCandidate, keepSteps), (refuseCandidate, refuseSteps), (throughCandidate, throughSteps),
     (advanceCandidate, advanceSteps)]
-
-def emptyResultRows : RawInstructionRows := ⟨[], [], [], [], [], [], [], [], [], [], []⟩
-
-def resultRows : RawInstructionRows :=
-  ((parseCodes resultRawInstructionCodes).bind decodeRawInstructionRows).getD emptyResultRows
-
-def resultFunctions : RawFunctionRows :=
-  ((parseCodes resultRawFunctionCodes).bind decodeRawFunctionRows).getD ⟨[], []⟩
-
-def resultSignatures : List ResultSignature :=
-  (decodeResultSignatures resultSignatureCodes).getD []
-
-set_option maxRecDepth 100000 in
-theorem result_control_documents_decode :
-    ((parseCodes resultRawInstructionCodes).bind decodeRawInstructionRows).isSome = true ∧
-    ((parseCodes resultRawFunctionCodes).bind decodeRawFunctionRows).isSome = true ∧
-    (decodeResultSignatures resultSignatureCodes).isSome = true := by
-  decide +kernel
 
 def certifyResultControl (unit : SourceUnit) (signatures : List ResultSignature) (rows : RawInstructionRows)
     (functions : RawFunctionRows) (cases : List (List StatementNode × List DerivationStep)) : Bool :=

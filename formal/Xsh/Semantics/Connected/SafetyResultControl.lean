@@ -1,5 +1,6 @@
 import Xsh.Semantics.Connected.Witness
 import Xsh.Conformance.Connected.RawResultFixture
+import Xsh.Conformance.Connected.RawResultLiteralProofs
 
 namespace Xsh.Semantics.Connected
 
@@ -8,6 +9,7 @@ open Xsh.Syntax.Foundation
 open Xsh.Values
 open Xsh.Typing.Connected
 open Xsh.Conformance.Connected
+open Xsh.Conformance.Transport
 
 theorem ok_scheme_instantiates (solution : Substitution) :
     instantiateFunction solution okScheme resultInstance =
@@ -201,6 +203,9 @@ theorem propagating_a_success_feeds_the_rest_of_the_expression (state : Machine)
     state.solution resultInstance builtins.okFunction (by decide +kernel)) (.done _)
 
 theorem result_control_returns_are_the_executed_nodes :
+    (parseCodes resultRawInstructionCodes).bind decodeRawInstructionRows = some resultRows ∧
+    (parseCodes resultRawFunctionCodes).bind decodeRawFunctionRows = some resultFunctions ∧
+    decodeResultSignatures resultSignatureCodes = some resultSignatures ∧
     resultControlCertified = true ∧
     returnedNode keepCandidate = some (okNode (.read resultFirstBinder [])) ∧
     returnedNode refuseCandidate = some (errorNode (.string "no")) ∧
@@ -208,6 +213,7 @@ theorem result_control_returns_are_the_executed_nodes :
       some (okNode (.propagate (.read resultFirstBinder []) (.primitive .string))) ∧
     returnedNode advanceCandidate =
       some (okNode (.binary .add (.propagate (.read resultFirstBinder []) (.primitive .string)) (.integer "1"))) :=
-  ⟨result_control_is_certified, rfl, rfl, rfl, rfl⟩
+  ⟨result_control_rows_decode_to_the_fixture, result_control_functions_decode_to_the_fixture,
+    result_control_signatures_decode_to_the_fixture, result_control_is_certified, rfl, rfl, rfl, rfl⟩
 
 end Xsh.Semantics.Connected
