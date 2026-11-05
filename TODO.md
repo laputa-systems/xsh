@@ -162,11 +162,11 @@ out of scope.
 
 - **Area:** Host I/O
 - **Where:** `src/modules/`, `crates/xsh-registry/`, `core/lib/`, `tests/`
-- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Its local peer tests cover fragmented and coalesced frames and timeouts. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, and shutdown during a bounded poll. Consumer composition and the portable stream-I/O contract remain unqualified.
-- **Recommendation:** Qualify the existing operations and QMP consumer, then fill only demonstrated gaps in the connect, read, write, deadline and cancellation boundary using XSH-35 and XSH-36. Keep framing and QMP policy in the XSH consumer.
-- **Acceptance:** Fragmented/coalesced reads, partial writes, EOF, oversized input, timeout and cancellation are bounded and release resources on both supported host paths. A local socket fixture and Laputa LAP-35 demonstrate the same primitives; no futures runtime or callbacks are required.
+- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, shutdown during a bounded poll, and a native line-protocol fixture on `lib.monotonic` deadlines: byte-fragmented and coalesced frames, EOF, a stalled peer, oversized unterminated and terminated frames, abrupt close mid-frame with a stable descriptor count, and SIGTERM mid-frame with cleanup and peer-visible closure. `unix.poll_fd` retries after a signal against its original deadline, so Laputa's QMP client (which polls with `poll_fd`) cancels only when the remaining session deadline expires; `unix.poll_fds` ends at the signal. macOS and Laputa LAP-35 corroboration remain unqualified.
+- **Recommendation:** Decide whether the QMP client moves to `poll_fds` for prompt cancellation or `poll_fd` gains the same signal behavior (a SPEC change). Keep framing and QMP policy in the XSH consumer.
+- **Acceptance:** The same properties hold on the macOS host path, and Laputa LAP-35 demonstrates the same primitives against a real QEMU monitor; no futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-40 · P3 · Reduce one system failure to a hermetic native replay
 
