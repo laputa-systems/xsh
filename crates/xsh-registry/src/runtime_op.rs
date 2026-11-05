@@ -283,6 +283,8 @@ pub enum RuntimeOp {
     FsRootReadlinkResult,
     FsRootSymlink,
     FsRootChmod,
+    FsRootRename,
+    FsRootFsync,
     FsRootInstallFile,
     FsCopy,
     FsCopyTree,

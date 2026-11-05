@@ -1240,6 +1240,24 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     false,
                     RuntimeOp::FsRootChmod,
                 ),
+                method(
+                    "rename",
+                    vec![
+                        labeled_param("from", Type::RelPath),
+                        labeled_param("to", Type::RelPath),
+                        default_param("replace", Type::Bool),
+                    ],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsRootRename,
+                ),
+                method(
+                    "fsync",
+                    vec![param("path", Type::RelPath)],
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsRootFsync,
+                ),
             ]),
         },
         MethodReceiverSig {

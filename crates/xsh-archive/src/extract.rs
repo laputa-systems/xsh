@@ -156,9 +156,14 @@ enum Target {
     },
 }
 
+struct CreatedAncestors {
+    anchor: Root,
+    relative: Vec<PathBuf>,
+}
+
 struct Placement {
     target: Target,
-    created_ancestors: Vec<PathBuf>,
+    created_ancestors: Option<CreatedAncestors>,
     stage_name: Option<OsString>,
 }
 
@@ -172,7 +177,7 @@ impl Placement {
                 let destination = Root::open(dest).map_err(open)?;
                 return Ok(Self {
                     target: Target::Existing { destination },
-                    created_ancestors: Vec::new(),
+                    created_ancestors: None,
                     stage_name: None,
                 });
             }
@@ -182,7 +187,7 @@ impl Placement {
                     let destination = Root::open(dest).map_err(open)?;
                     return Ok(Self {
                         target: Target::Existing { destination },
-                        created_ancestors: Vec::new(),
+                        created_ancestors: None,
                         stage_name: None,
                     });
                 }
@@ -208,9 +213,7 @@ impl Placement {
             Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
             _ => PathBuf::from("."),
         };
-        let created_ancestors = missing_ancestors(&parent_path);
-        fs::create_dir_all(&parent_path).map_err(|error| Error::from_open(&error))?;
-        let parent = Root::open(&parent_path).map_err(open)?;
+        let (created_ancestors, parent) = create_parent(&parent_path)?;
         let directory_mode = probe_directory_mode(&parent)?;
         Ok(Self {
             target: Target::Fresh {
@@ -263,12 +266,11 @@ impl Placement {
         {
             failures.push(format!("removing the staging directory: {error}"));
         }
-        for ancestor in self.created_ancestors.iter().rev() {
-            if let Err(error) = fs::remove_dir(ancestor) {
-                failures.push(format!("removing {}: {error}", ancestor.display()));
-            }
+        if let Some(created) = self.created_ancestors.take()
+            && let Err(error) = rollback(&created)
+        {
+            failures.push(error.to_string());
         }
-        self.created_ancestors.clear();
         if failures.is_empty() {
             Ok(())
         } else {
@@ -277,18 +279,56 @@ impl Placement {
     }
 }
 
-fn missing_ancestors(path: &Path) -> Vec<PathBuf> {
+fn create_parent(parent_path: &Path) -> Result<(Option<CreatedAncestors>, Root)> {
+    let open = |error: io::Error| Error::from_open(&error);
     let mut missing = Vec::new();
-    let mut current = Some(path);
-    while let Some(candidate) = current {
-        if candidate.as_os_str().is_empty() || fs::symlink_metadata(candidate).is_ok() {
-            break;
-        }
-        missing.push(candidate.to_path_buf());
-        current = candidate.parent();
+    let mut existing = parent_path;
+    while !existing.as_os_str().is_empty() && fs::symlink_metadata(existing).is_err() {
+        let Some(name) = existing.file_name() else { break };
+        missing.push(name);
+        existing = existing.parent().unwrap_or(Path::new(""));
+    }
+    if missing.is_empty() {
+        return Ok((None, Root::open(parent_path).map_err(open)?));
     }
     missing.reverse();
-    missing
+    let anchor = Root::open(if existing.as_os_str().is_empty() { Path::new(".") } else { existing })
+        .map_err(open)?;
+    let mut prefix = PathBuf::new();
+    let mut created = CreatedAncestors { anchor, relative: Vec::new() };
+    for part in missing {
+        prefix.push(part);
+        if let Err(error) = created.anchor.mkdir(&prefix, 0o777) {
+            let failure = Error::from_open(&error);
+            return Err(match rollback(&created) {
+                Ok(()) => failure,
+                Err(cleanup) => failure.with_cleanup(&cleanup),
+            });
+        }
+        created.relative.push(prefix.clone());
+    }
+    let parent = created.anchor.open_dir_strict(&prefix).map_err(open);
+    match parent {
+        Ok(parent) => Ok((Some(created), parent)),
+        Err(failure) => Err(match rollback(&created) {
+            Ok(()) => failure,
+            Err(cleanup) => failure.with_cleanup(&cleanup),
+        }),
+    }
+}
+
+fn rollback(created: &CreatedAncestors) -> Result<()> {
+    let mut failures = Vec::new();
+    for ancestor in created.relative.iter().rev() {
+        if let Err(error) = created.anchor.remove_dir(ancestor) {
+            failures.push(format!("removing {}: {error}", ancestor.display()));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::new(ErrorKind::Io, failures.join("; ")))
+    }
 }
 
 fn probe_directory_mode(parent: &Root) -> Result<u32> {

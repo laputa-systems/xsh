@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use support::{budget, open, tar_with};
-use xsh_archive::{Collision, Compression, CreateOptions, Format, Policy, create, extract};
+use support::{budget, tar_raw_header, open, tar_with};
+use xsh_archive::{
+    Archive, Collision, Compression, CreateOptions, Format, Policy, Source, create, extract,
+};
 
 const FILES: usize = 64;
 const BODY: usize = 256 * 1024;
@@ -115,4 +117,57 @@ fn an_extracted_tree_is_never_visible_before_it_is_complete() {
         },
     );
     assert_eq!(staging_names(&parent), ["dest"]);
+}
+
+struct SwapsAncestorWhenExtractionStarts {
+    bytes: Vec<u8>,
+    position: usize,
+    created: PathBuf,
+    ancestor: PathBuf,
+    moved: PathBuf,
+    outside: PathBuf,
+}
+
+impl std::io::Read for SwapsAncestorWhenExtractionStarts {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if self.created.exists() {
+            fs::rename(&self.ancestor, &self.moved)?;
+            std::os::unix::fs::symlink(&self.outside, &self.ancestor)?;
+            return Err(std::io::Error::other("source failed after the ancestor was swapped"));
+        }
+        let count = buffer.len().min(self.bytes.len() - self.position);
+        buffer[..count].copy_from_slice(&self.bytes[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
+    }
+}
+
+#[test]
+fn rolling_back_created_ancestors_never_follows_a_swapped_ancestor() {
+    let base = tempfile::tempdir().unwrap();
+    let outside = base.path().join("outside");
+    fs::create_dir_all(outside.join("inner")).unwrap();
+    let mut bytes = tar_raw_header(b"member", b'0', 1 << 20, b"").to_vec();
+    bytes.extend_from_slice(&[7; 16]);
+    let ancestor = base.path().join("first");
+    let reader = SwapsAncestorWhenExtractionStarts {
+        bytes,
+        position: 0,
+        created: ancestor.join("inner"),
+        ancestor: ancestor.clone(),
+        moved: base.path().join("moved"),
+        outside: outside.clone(),
+    };
+    let mut archive = Archive::open(
+        Source::from_reader(reader),
+        Format::Tar,
+        Compression::Auto,
+        budget(),
+    )
+    .unwrap();
+
+    let dest = ancestor.join("inner").join("dest");
+    extract(&mut archive, &dest, &Policy::default(), &budget()).unwrap_err();
+
+    assert!(outside.join("inner").is_dir(), "rollback removed a directory outside the destination");
 }
