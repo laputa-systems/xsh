@@ -325,7 +325,10 @@ fn regular_file_mode(root: &Root, path: &Path, span: Span) -> Result<u32, Runtim
 
 fn read_regular(root: &Root, path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     let mut file = root
-        .open_with(path, OpenOptions::new().read(true).no_symlinks(true))
+        .open_with(
+            path,
+            OpenOptions::new().read(true).no_symlinks(true).non_blocking(true),
+        )
         .map_err(|error| ancestor_error("patch-read", error, span))?;
     let opened = file
         .metadata()

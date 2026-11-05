@@ -1933,6 +1933,13 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
 }
 
 fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
+    if receiver == "FsRoot" && method == "extract" {
+        return Some(DocRow {
+            summary: "Extracts an archive into a destination below a retained filesystem root.",
+            contract: "Staging, per-entry publication and rollback all resolve beneath the root's descriptor, so replacing the root path or an ancestor after the root is opened cannot redirect a write. The destination is a RelPath whose ancestors and final component may not be symbolic links; missing directories are created and removed again if extraction fails. Policy, limits and errors are those of archive.extract.",
+            tags: &["archive", "extraction", "rooted"],
+        });
+    }
     if receiver == "FsRoot" {
         let legacy = match method {
             "close" => "close_root",

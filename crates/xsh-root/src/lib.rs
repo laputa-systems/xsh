@@ -140,6 +140,7 @@ pub struct OpenOptions {
     create: bool,
     create_new: bool,
     no_symlinks: bool,
+    non_blocking: bool,
     mode: u32,
 }
 
@@ -189,6 +190,13 @@ impl OpenOptions {
         self
     }
 
+    /// Opens without waiting for a peer, so a FIFO swapped in for a regular
+    /// file cannot block the open. Callers must check the opened kind.
+    pub fn non_blocking(&mut self, value: bool) -> &mut Self {
+        self.non_blocking = value;
+        self
+    }
+
     pub fn mode(&mut self, mode: u32) -> &mut Self {
         self.mode = mode;
         self
@@ -231,6 +239,9 @@ impl OpenOptions {
             flags |= libc::O_CREAT | libc::O_EXCL;
         } else if self.create {
             flags |= libc::O_CREAT;
+        }
+        if self.non_blocking {
+            flags |= libc::O_NONBLOCK;
         }
         Ok((flags, self.mode as libc::mode_t))
     }

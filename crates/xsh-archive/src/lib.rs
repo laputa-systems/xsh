@@ -26,7 +26,8 @@ pub use cursor::{Completion, Cursor, Entry, Finish};
 pub use entry::{EntryKind, EntryMeta, Format};
 pub use error::{Error, ErrorKind, Result};
 pub use extract::{
-    Collision, Links, Modes, Ownership, Policy, Report, Special, extract, normalize, remove_tree,
+    Collision, Links, Modes, Ownership, Policy, Report, Special, extract, extract_beneath, normalize,
+    remove_tree,
 };
 pub use file::{compress_file, decompress_file, decompress_to_memory};
 pub use input::{Input, ReadSeek, Source};

@@ -5706,6 +5706,12 @@ Contracts worth knowing without consulting the reference:
   durable on its own: fsync the file and its parent directory. `fs.root_install_file`
   stages the destination and publishes it by rename, so a failed copy leaves
   the prior destination intact.
+  `FsRoot.extract(source, dest, format, ...)` takes the arguments of
+  `archive.extract` with a `RelPath` destination: staging, per-entry
+  publication and rollback of created directories resolve beneath the root's
+  descriptor, so replacing the root path or an ancestor after `open_root`
+  cannot redirect a write. The destination and its ancestors may not be
+  symlinks; a symlinked destination fails instead of being followed.
 - Six methods take an argument whose label makes the call read as a
   sentence, so that two operands of one type cannot be swapped unnoticed:
 
