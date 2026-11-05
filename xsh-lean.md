@@ -930,7 +930,12 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   ordered constraints, store certificate and function-table entry are still
   hand-written and validated, not derived; raw-IR call rows, Result control
   forms and execution observations remain open, and all 77 universal
-  obligations stay planned.
+  obligations stay planned. The incremental Lake build, the inventory checker
+  and its tests, and the axiom audit with its self-test pass (27,748 project
+  declarations, zero closed roots). The fresh six-kernel check is inconclusive,
+  not a pass: with bubblewrap taken from the Lean toolchain, three runs hit the
+  180-second fresh-build limit at 246, 234 and 235 of 249 modules while another
+  session held the host at a load average of about 30, so no kernel ran.
 
 ## For the owner afterwards
 
