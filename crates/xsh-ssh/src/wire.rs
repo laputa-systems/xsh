@@ -1,6 +1,7 @@
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::os::fd::BorrowedFd;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -294,6 +295,16 @@ impl Transport {
         }
     }
 
+    /// The deadline of the current operation, if it has one.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    /// The caller's cancellation check for the current operation, if any.
+    pub fn interrupt(&self) -> Option<Interrupt> {
+        self.interrupt.clone()
+    }
+
     /// The most the peer may stay silent while the transport waits on it.
     pub fn idle_timeout(&self) -> Duration {
         self.idle
@@ -326,10 +337,25 @@ impl Transport {
 
     /// Wait for read readiness, and write readiness when `write` is set.
     pub fn wait(&mut self, write: bool) -> Result<PollFlags, Error> {
-        self.wait_for(true, write)
+        self.wait_for(true, write, None)
     }
 
-    fn wait_for(&mut self, read: bool, write: bool) -> Result<PollFlags, Error> {
+    /// Like [`Self::wait`], and also return once `input` can be read. The flags describe the
+    /// transport only.
+    pub fn wait_with_input(
+        &mut self,
+        write: bool,
+        input: Option<BorrowedFd<'_>>,
+    ) -> Result<PollFlags, Error> {
+        self.wait_for(true, write, input)
+    }
+
+    fn wait_for(
+        &mut self,
+        read: bool,
+        write: bool,
+        input: Option<BorrowedFd<'_>>,
+    ) -> Result<PollFlags, Error> {
         loop {
             if let Some(error) = self.limit_error() {
                 return Err(error);
@@ -356,7 +382,13 @@ impl Transport {
             if write {
                 events |= PollFlags::OUT;
             }
-            let mut descriptors = [PollFd::new(&self.stream, events)];
+            let mut descriptors = [
+                PollFd::new(&self.stream, events),
+                match input {
+                    Some(input) => PollFd::from_borrowed_fd(input, PollFlags::IN),
+                    None => PollFd::new(&self.stream, PollFlags::empty()),
+                },
+            ];
             let timespec = Timespec {
                 tv_sec: remaining.as_secs() as _,
                 tv_nsec: remaining.subsec_nanos() as _,
@@ -643,7 +675,7 @@ impl Transport {
     pub fn flush(&mut self) -> Result<(), Error> {
         while !self.flush_nonblocking()? {
             let reading = self.read.buf.len() < READ_BUFFER_LIMIT;
-            let events = self.wait_for(reading, true)?;
+            let events = self.wait_for(reading, true, None)?;
             if reading && events.contains(PollFlags::IN) {
                 self.fill_nonblocking()?;
             }
@@ -654,7 +686,7 @@ impl Transport {
     /// Flush buffered packets without reading anything.
     pub fn drain(&mut self) -> Result<(), Error> {
         while !self.flush_nonblocking()? {
-            self.wait_for(false, true)?;
+            self.wait_for(false, true, None)?;
         }
         Ok(())
     }

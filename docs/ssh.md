@@ -187,9 +187,18 @@ that does not take the output waiting for it is different: when no byte of that
 output is accepted for the connect `timeout_ms`, the command fails with
 `SshError.Timeout`, however much the peer sends meanwhile, and the client stops
 reading while that output is waiting. SIGINT and SIGTERM cancel connecting,
-authenticating and a running command promptly as `SshError.Canceled`. Work begun
+authenticating (including a wait on `ssh-agent`) and a running command promptly
+as `SshError.Canceled`. Work begun
 after the first signal, such as releasing a lock in a `defer`, is not cancelled by
 it; a second signal cancels that too.
+
+`stdin_path` may name a pipe, FIFO or terminal: the client reads it only when
+it is readable, so a source with nothing to give does not stop the connection or
+its deadline. A `stdout_path` or `stderr_path` that is not a regular file is
+written only when it is writable, in pieces of at most 4096 bytes; if its reader
+stops draining, the command ends at its `timeout_ms` or on a signal, and while
+the client waits on it no connection traffic is served. Opening such a file
+(a FIFO without a peer) happens before the deadline starts and can block.
 
 Closing a channel or connection does not prove that a remote process stopped,
 and the client sends no signal to it. A timed-out or cancelled command may
@@ -223,9 +232,10 @@ not claimed.
 ## Limits and threat model
 
 The client is experimental. Passing these tests is not a security review or
-formal verification of the protocol. A protocol and security review is required
-before it guards anything beyond administration of hosts that the caller
-already controls.
+formal verification of the protocol. An independent protocol and security review
+is required before it guards anything beyond administration of hosts that the
+caller already controls; the [source review](rfc/XSH-55-native-ssh-client.md#protocol-and-security-review)
+of 2026-11-05 is not that review and lists the risks it could not demonstrate.
 
 - It defends against an active network attacker who tries to impersonate the
   server (host-key verification before authentication), alter or inject packets
@@ -252,6 +262,8 @@ already controls.
 - A rekey must present the host key of the first exchange, as OpenSSH requires,
   even when the trust material lists other keys for the host.
 - Debug output, errors and traces carry no key, stdin or output bytes.
+- The key-exchange shared secret, the derived session keys and decrypted packet
+  bytes are not zeroized, and a key file is read without a permission check.
 - A server that grants a window of 0 and keeps the connection alive can hold a
   command that has input to send for as long as it likes; set `timeout_ms` on
   `ssh.exec` to bound it.

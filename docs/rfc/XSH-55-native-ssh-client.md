@@ -22,19 +22,20 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Bounded captured exec, streaming and file-backed stdin, independent sinks | P stdin past the window failed; no limit test | D | `stdin_larger_than_the_window_is_echoed_exactly`, `output_past_the_capture_limit_is_reported_and_poisons_the_session`, 128 MiB `tests/stream.rs` |
 | Negotiated algorithms and authenticated host identity | M | D | `ssh.info`, `hybrid_post_quantum_exchange_is_negotiated` |
 | Explicit close and reliable scope cleanup | D | D | `ssh_scope_releases_session`, `ssh_return_from_a_with_body_releases_the_session`, `tests/descriptors.rs` |
-| Typed records and errors with execution certainty as a field; handles cannot be forged | P string kinds; handle is a 256-bit random token | P typed `SshError`; token unchanged | `tests/xsh/ssh-exec.xsh`; forging needs the token |
+| Typed records and errors with execution certainty as a field; handles cannot be forged | P string kinds; handle is a 256-bit random token | P typed `SshError`; the handle is an opaque value holding a process-wide counter, not a token (corrected by the review) | `tests/xsh/ssh-exec.xsh`; a program cannot construct the value |
 | Outcomes: status, signal, rejection, failure classes, timeout, cancellation, missing completion | P no rejection or cancellation | D | `tests/protocol.rs`, `signal_is_an_outcome` |
 | Execution certainty; no replay after reconnect; no automatic reconnect | P timeouts only | D | `a_disconnect_after_submission_is_potentially_executed`, `a_rejected_exec_request_did_not_run` |
 | Argv helper for a named shell, hostile values, NUL refused | M | D POSIX `sh` via `shlex.join` | `tests/xsh/ssh-argv.xsh` |
 | Successive commands on one connection; concurrent use of one session rejected; independent parallel sessions | P | D | `one_connection_serves_successive_commands`, `independent_sessions_run_in_parallel`, `ssh_exec_rejects_concurrent_use` |
 | Partial and fragmented I/O, simultaneous stdin/stdout/stderr and control traffic, window and packet limits, backpressure, per-direction EOF and close, unsupported requests answered | P blocking exec and no receive limits | D | `tests/protocol.rs`, `saturated_stderr_does_not_deadlock` |
-| Sessions in scope cleanup, deadlines and cancellation; nested scope, early return, worker cancellation | P | P signal cancellation is covered in Rust (`the_caller_can_cancel_a_running_command`), not by a native signal test | above |
+| Sessions in scope cleanup, deadlines and cancellation; nested scope, early return, worker cancellation | P | P signal cancellation is covered in Rust (`the_caller_can_cancel_a_running_command`, and since the review agent exchanges, pipe input and pipe output files), not by a native signal test | above, `tests/hostile.rs` |
 | Guarantee about remote descendants documented | M | D | `docs/ssh.md` |
 | Graviola the only provider; no accept-all verifier | D | D | `scripts/check-ssh-crypto.sh` |
 | Hybrid KEX preferred, one classical alternative, Ed25519 | P classical only | D | `kex::tests`, `hybrid_post_quantum_exchange_is_negotiated` |
 | Client KEX, exchange hash, server signature check, key derivation, session-bound auth, strict KEX | P signature check untested | D | `a_tampered_host_signature_is_refused_before_authentication`, `a_message_before_kexinit_breaks_strict_key_exchange` |
 | Server- and client-initiated rekey with queued traffic; byte, packet and time thresholds; identity kept | P server side only, streaming path only | D | `client_initiated_rekeys_carry_queued_traffic_without_loss`, `the_session_identity_survives_a_client_rekey`, `server_initiated_rekeys_do_not_disturb_captured_output` |
 | Invalid lengths, ids, windows, state transitions, authenticated packets | M | D | `tests/protocol.rs` |
+| Transport messages (ignore, debug, unimplemented) and a server key exchange accepted in every phase, including authentication | M | D after the review | `tests/authentication.rs` |
 | Unsupported CPU fails clearly before any instruction | M | D | `cpu::tests` |
 | Pinned fingerprint and `known_hosts`; unknown, changed, revoked fail before authentication; hashed and CA entries rejected; no TOFU, no automatic write | P pin only | D | `tests/connect.rs`, `known_hosts::tests`, `ssh_known_hosts_refuses_unknown_changed_and_revoked_keys` |
 | Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `encrypted_key_is_rejected_explicitly` |
@@ -46,7 +47,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Public API docs, compatibility matrix, threat model, residual limits | P | D | `docs/ssh.md` |
 | Provenance and dependency-graph checks; reproducible interop commands | P no Linux fixture | D | `scripts/check-ssh-crypto.sh`, `crates/xsh-ssh/fixture/ssh-fixture.sh` |
 | Before and after size, startup, memory and throughput | P macOS only | D build time deferred: host busy | [Measurements](#measurements) |
-| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P glibc host and musl gate cases executed; musl fixture suites, macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements) |
+| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P glibc host and musl gate cases executed; the `xsh-ssh` fixture suites also ran on `x86_64-unknown-linux-musl`; the native `tests/xsh/ssh-` suite on musl, macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements), [review](#protocol-and-security-review) |
 | Stage 1: host identity, pinned verification, changed key fails closed, no agent forwarding or secrets in logs | D | D | as above |
 | Stage 1: structured argv, environment, working directory, byte-preserving paths | M | P Laputa `run` takes a UTF-8 argv and a timeout; no environment, working directory or non-UTF-8 path | `tests/system/remote_guest.xsh` in Laputa |
 | Stage 1: fixed remote entrypoint with bounded versioned data; one audited quoting helper | M | D | Laputa `system/remote_guest.xsh`, `ssh-argv.xsh` |
@@ -59,6 +60,99 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | xsh-infra: parallel connect with sessions the caller owns | M | D `ssh.connect_all` | `ssh_connect_all_opens_hosts_in_parallel_and_hands_them_to_the_caller` |
 | xsh-infra: session state after a streaming timeout | M broken pipe | D `ssh.info.usable` and `SshError.Unusable` | `ssh_session_reports_itself_dead_after_a_stdin_timeout` |
 | xsh-infra: exec environment | M | D `env` option as SSH `env` requests | `environment_requests_precede_the_command_in_order`, `ssh_exec_environment_is_sent_when_the_server_accepts_it` |
+
+## Protocol and security review
+
+2026-11-05, Linux. A source review of `crates/xsh-ssh` (the client, the packet
+and key-exchange layer it calls in the vendored `oxish-proto`, and the
+`oxish-graviola` provider glue) and `src/modules/ssh.rs`, read against RFC 4251
+to 4254, 4344, 5647, 8308, 8709, 8731, the OpenSSH `PROTOCOL` strict key
+exchange and `chacha20-poly1305@openssh.com` notes, and the hybrid
+`mlkem768x25519-sha256` draft. It was carried out by the implementing team's own
+tooling, not by an independent reviewer, so it does not lift the experimental
+label. Graviola's assembly and its constant-time claims were not reviewed.
+Each defect below has a test that failed before its fix.
+
+### Defects found and fixed
+
+| Severity | Defect | Fix and test |
+|---|---|---|
+| Medium | Authentication read raw packets. Any `SSH_MSG_IGNORE`, `DEBUG` or `UNIMPLEMENTED` (legal at any time, RFC 4253 section 11) or a server-initiated key exchange (section 9) before the service accept or the auth result failed the connection with a protocol error. | Authentication reads through the connection's message filter. `tests/authentication.rs` |
+| Medium | A pipe, FIFO or terminal given as `stdin_path` was read with a blocking `read` inside the event loop. A source with nothing to give stopped packet processing, the command deadline and cancellation, and could deadlock against a command that waited for its output to be read. | `InputSource` exposes the descriptor; the client polls it with the connection. `a_stdin_that_never_produces_does_not_defeat_the_command_deadline`, `input_that_arrives_late_on_a_pipe_is_sent_when_it_arrives` |
+| Medium | A `stdout_path` or `stderr_path` that is a pipe or FIFO whose reader stopped draining blocked the event loop the same way. | Writes to a file that is not a regular file wait for writability in 50 ms slices, honor the deadline and interrupt, and write at most `PIPE_BUF`. `an_output_file_that_stops_draining_does_not_defeat_the_command_deadline`, `output_to_a_pipe_arrives_whole_when_the_pipe_is_drained` |
+| Low | ssh-agent exchanges used per-call socket timeouts: a silent agent ignored cancellation until the timeout ended (5.5 s measured against a 0.3 s cancel), and a dripping agent restarted the timeout on every byte (6.0 s measured against a 1.2 s deadline). | The agent socket is polled against the operation deadline and interrupt. `the_caller_can_cancel_authentication_while_the_agent_is_silent`, `an_agent_that_drips_its_reply_cannot_hold_authentication_past_its_deadline` |
+| Low | A service accept naming a service other than `ssh-userauth` was accepted (RFC 4253 section 10). | Refused. `a_service_accept_for_another_service_is_refused` |
+
+Two untested thresholds now have tests: the packet-count and elapsed-time
+rekey limits (`the_packet_count_alone_starts_a_rekey`,
+`the_elapsed_time_alone_starts_a_rekey`), and `known_hosts` host matching is
+compared with `ssh-keygen -F` over 16 patterns and 14 endpoints
+(`tests/known_hosts.rs`).
+
+Contract changes: `auth::authenticate` is crate-private and takes the
+connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
+(implemented for `File`) instead of `dyn Read`.
+
+### Checked and held
+
+- Strict key exchange: the first packet must be `KEXINIT`, anything but the
+  expected message during the first exchange is fatal, both sequence numbers
+  reset at `NEWKEYS`, and the exchange hash covers both proposals so a stripped
+  indicator fails the host signature.
+- Exchange-hash order, mpint for `curve25519-sha256`, string for the hybrid,
+  all-zero X25519 refused, hybrid reply length checked, signature verified
+  before `NEWKEYS` and after the trust decision on the same blob, a rekey must
+  present the first key.
+- Packet bounds: length capped at 64 KiB before any wait, AEAD tag checked
+  before use, padding and payload arithmetic checked, nonce counters refuse to
+  wrap, rekey far below the 32-bit sequence space.
+- Channels: recipient checked on every message except a channel-open failure, receive window and packet size
+  enforced, peer window overflow refused, exit status or signal at most once,
+  server-opened channels refused, unknown requests answered, data after EOF
+  refused, a close without completion is never exit zero.
+- Resource bounds: read buffer, reply queue, traffic held during a key
+  exchange, agent message and identity count, identification line, captured
+  output; no length is allocated before it is checked.
+- Trust: `known_hosts` agrees with `ssh-keygen -F`; hashed and CA entries are
+  refused; revocation wins; the pinned fingerprint is canonicalized; there is
+  no bypass path in `Connection::connect`.
+- Secrets: key file text, its base64 and PKCS#8 forms are `Zeroizing`; no
+  subscriber is installed in `xsh`, and the packet `Debug` forms print lengths;
+  errors carry static key-parser strings.
+
+### Risks supported by the code but not demonstrated
+
+- `Transport::recv_newkeys` uses a raw receive. During a rekey a server may
+  legally send `IGNORE` or `DEBUG` between its key-exchange reply and
+  `NEWKEYS` (strict key exchange forbids it only in the first exchange); the
+  client would abort. The scripted peer cannot inject there, and OpenSSH and
+  Dropbear do not.
+- A server-opened channel, or a global request reply, that arrives while the
+  client waits for the channel-open, `env` or `exec` reply fails the session; the
+  same message later in the command is refused politely. Fail-closed.
+- Packet framing accepts padding under 4 bytes and an AEAD `packet_length` that
+  is not a multiple of the block size, which OpenSSH refuses. Only an
+  authenticated peer can send either.
+- `ChannelOpenFailure` does not check its recipient channel. Fail-closed.
+- A wakeup with only `POLLERR` would spin the command loop, which reads only on
+  `POLLIN` or `POLLHUP`. A TCP reset sets `POLLHUP` as well, so no cause is known.
+- While the client waits for a stalled output file it serves no connection
+  traffic, so a server that enforces its own timeout on a key-exchange answer
+  can drop the session.
+- Key files are read without a permission or file-type check and without a
+  size bound, and a FIFO there blocks authentication uninterruptibly. The
+  adapter opens `stdin_path` and creates `stdout_path` before the deadline
+  starts; a FIFO without a peer blocks that open.
+- Not zeroized: the key-exchange shared secret and derived session keys in
+  `oxish-proto`, decrypted packet payloads, caller stdin bytes, Graviola's
+  private-key copy. Swap and core dumps are outside any guarantee.
+- A server that closes the TCP connection after sending the exit status, without
+  a channel close, produces a transport error rather than a result.
+- The session handle is a counter into a process-wide registry, and `ssh.exec`
+  and `ssh.info` do not compare the calling evaluator with the session's owner
+  (by design: a handle works in any evaluator it is passed to). Unforgeability
+  rests on programs being unable to construct the value, not on an unguessable
+  token as the earlier audit row said.
 
 ## Measurements
 
@@ -91,16 +185,23 @@ Executed lanes: the Linux x86-64 glibc host ran every suite against Alpine
 OpenSSH 10.0, Dropbear 2026.94 served the Laputa KVM drill, and the pinned
 `xsh-test` musl container ran the `cargo dev gate` cases `test-ssh-unit`,
 `test-registry`, `test-signatures`, `test-api`, `test-registry-reference`,
-`test-modules-unit`, `check-api-snippets` and `check-docs` (all pass). The
-fixture suites did not run on a musl target. Cross-checked only, not executed:
+`test-modules-unit`, `check-api-snippets` and `check-docs` (all pass). On
+2026-11-05, after the review's fixes, all 113 `xsh-ssh` tests also passed on both
+the glibc host and `x86_64-unknown-linux-musl` against the loopback fixture
+(`crates/xsh-ssh/fixture/ssh-fixture.sh exec cargo test -p xsh-ssh [--target
+x86_64-unknown-linux-musl]`); the native `tests/xsh/ssh-` suite did not run on
+musl. Cross-checked only, not executed:
 `aarch64-apple-darwin` and `aarch64-unknown-linux-musl` (`cargo check -p xsh-ssh`).
 
 ## Open
 
 - Native macOS arm64 qualification, deferred by the owner; no macOS host exists.
   The code that already compiled there compiles by cross-check only.
-- A protocol and security review before any claim beyond experimental. The
-  tests, fuzz loops and fixtures here are not formal verification.
+- An independent protocol and security review before any claim beyond
+  experimental. The [source review](#protocol-and-security-review) above found and
+  fixed five defects and lists the risks it could not demonstrate; it is not the
+  independent review, and the tests, fuzz loops and fixtures are not formal
+  verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
   any failure; a timeout does not keep the transport reusable.
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries

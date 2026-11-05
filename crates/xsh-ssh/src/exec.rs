@@ -1,10 +1,14 @@
 use std::fs::File;
 use std::io::{Read, Write};
-use std::time::Duration;
+use std::os::fd::AsFd;
+use std::time::{Duration, Instant};
+
+use rustix::event::{PollFd, PollFlags, poll};
+use rustix::time::Timespec;
 
 use crate::client::Connection;
 use crate::error::Error;
-use crate::stream::{self, StreamOptions};
+use crate::stream::{self, InputSource, SinkStop, StreamOptions};
 use crate::wire::Interrupt;
 
 /// Bounded output capture limit for a single exec.
@@ -129,15 +133,100 @@ impl Read for Stdin<'_> {
     }
 }
 
+impl InputSource for Stdin<'_> {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        if self.head.is_empty() {
+            self.tail.and_then(InputSource::descriptor)
+        } else {
+            None
+        }
+    }
+}
+
+const PIPE_ATOMIC_WRITE: usize = 4096;
+const PACE_POLL: Duration = Duration::from_millis(50);
+
+struct Paced<'a> {
+    file: &'a File,
+    pace: bool,
+    deadline: Option<Instant>,
+    interrupt: Option<Interrupt>,
+}
+
+impl<'a> Paced<'a> {
+    fn new(file: &'a File, deadline: Option<Instant>, interrupt: Option<Interrupt>) -> Self {
+        let pace = file
+            .metadata()
+            .map_or(true, |metadata| !metadata.file_type().is_file());
+        Self {
+            file,
+            pace,
+            deadline,
+            interrupt,
+        }
+    }
+
+    fn stop(kind: SinkStop) -> std::io::Error {
+        std::io::Error::other(kind)
+    }
+
+    fn await_room(&self) -> std::io::Result<()> {
+        loop {
+            if self.interrupt.as_ref().is_some_and(|interrupt| interrupt()) {
+                return Err(Self::stop(SinkStop::Cancelled));
+            }
+            let mut slice = PACE_POLL;
+            if let Some(deadline) = self.deadline {
+                let now = Instant::now();
+                if now >= deadline {
+                    return Err(Self::stop(SinkStop::Deadline));
+                }
+                slice = slice.min(deadline - now);
+            }
+            let descriptor = self.file.as_fd();
+            let mut polled = [PollFd::new(&descriptor, PollFlags::OUT)];
+            let timespec = Timespec {
+                tv_sec: slice.as_secs() as _,
+                tv_nsec: slice.subsec_nanos() as _,
+            };
+            match poll(&mut polled, Some(&timespec)) {
+                Ok(0) => {}
+                Ok(_) => return Ok(()),
+                Err(error) if error == rustix::io::Errno::INTR => {}
+                Err(error) => return Err(std::io::Error::from(error)),
+            }
+        }
+    }
+}
+
+impl Write for Paced<'_> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if !self.pace {
+            return self.file.write(data);
+        }
+        self.await_room()?;
+        self.file.write(&data[..data.len().min(PIPE_ATOMIC_WRITE)])
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 enum Output<'a> {
     Capture(Capture),
-    File(&'a File),
+    File(Paced<'a>),
 }
 
 impl<'a> Output<'a> {
-    fn new(file: Option<&'a File>, limit: usize) -> Self {
+    fn new(
+        file: Option<&'a File>,
+        limit: usize,
+        deadline: Option<Instant>,
+        interrupt: Option<&Interrupt>,
+    ) -> Self {
         match file {
-            Some(file) => Self::File(file),
+            Some(file) => Self::File(Paced::new(file, deadline, interrupt.cloned())),
             None => Self::Capture(Capture {
                 bytes: Vec::new(),
                 limit,
@@ -165,8 +254,10 @@ pub(crate) fn exec(
     command: &str,
     options: &ExecOptions,
 ) -> Result<ExecResult, Error> {
-    let mut stdout = Output::new(options.stdout_file.as_ref(), options.max_output);
-    let mut stderr = Output::new(options.stderr_file.as_ref(), options.max_output);
+    let deadline = options.timeout.map(|timeout| Instant::now() + timeout);
+    let interrupt = options.interrupt.as_ref();
+    let mut stdout = Output::new(options.stdout_file.as_ref(), options.max_output, deadline, interrupt);
+    let mut stderr = Output::new(options.stderr_file.as_ref(), options.max_output, deadline, interrupt);
     let mut stdin = Stdin {
         head: options.stdin.as_deref().unwrap_or_default(),
         tail: options.stdin_file.as_ref(),

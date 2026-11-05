@@ -3,6 +3,7 @@ mod support;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
@@ -264,6 +265,12 @@ fn a_silent_peer_hits_the_deadline_after_submission() {
 }
 
 struct Endless;
+
+impl xsh_ssh::InputSource for Endless {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        None
+    }
+}
 
 impl Read for Endless {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -581,4 +588,53 @@ fn arbitrary_connection_messages_never_hang_or_panic_the_client() {
         drop(connection);
         peer.finish();
     }
+}
+
+fn rekeyed_under(limits: RekeyLimits, packets: usize, pause: Duration) -> bool {
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        for _ in 0..packets {
+            link.data(channel, &[3; 100]);
+        }
+        thread::sleep(pause);
+        link.data(channel, &[3; 100]);
+        let mut frames = 0;
+        while link.rekeys == 0 && frames < 200 {
+            link.recv();
+            frames += 1;
+        }
+        let rekeys = link.rekeys;
+        link.exit_status(channel, u32::from(rekeys > 0));
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = limits;
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let result = connection.exec("command", &ExecOptions::default()).expect("exec");
+    drop(connection);
+    peer.finish();
+    match result.status {
+        ExecStatus::Exited(status) => status == 1,
+        other => panic!("unexpected status {other:?}"),
+    }
+}
+
+#[test]
+fn the_packet_count_alone_starts_a_rekey() {
+    let limits = RekeyLimits {
+        packets: 30,
+        ..RekeyLimits::default()
+    };
+    assert!(rekeyed_under(limits, 60, Duration::ZERO));
+}
+
+#[test]
+fn the_elapsed_time_alone_starts_a_rekey() {
+    let limits = RekeyLimits {
+        interval: Duration::from_millis(300),
+        ..RekeyLimits::default()
+    };
+    assert!(rekeyed_under(limits, 1, Duration::from_millis(500)));
 }

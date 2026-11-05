@@ -81,8 +81,8 @@ out of scope.
 
 - **Area:** Remote execution
 - **Where:** `crates/xsh-ssh`, `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md`
-- **Problem:** The native client is experimental on Linux x86-64. Native macOS qualification, a protocol and security review, and the RFC's remaining acceptance checks are open.
-- **Recommendation:** Complete the remaining qualification and review in the RFC. Preserve mandatory host verification and typed execution certainty.
+- **Problem:** The native client is experimental on Linux x86-64. An internal protocol and security source review (2026-11-05) fixed five defects, and the `xsh-ssh` suite passes on glibc and musl against OpenSSH 10.0. Open: native macOS qualification, an independent protocol and security review, a native signal-cancellation test, the native `tests/xsh/ssh-` suite on musl, the build-time gate (host busy), and the undemonstrated risks the RFC's review section lists.
+- **Recommendation:** Complete the remaining qualification in the RFC and obtain the independent review. Preserve mandatory host verification and typed execution certainty.
 - **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental. Native macOS qualification is deferred by the owner.
 - **Coordination:** Laputa R6 and XSH-56 consume the client.
 - **Fix with:** security

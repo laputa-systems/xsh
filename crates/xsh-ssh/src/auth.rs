@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use std::str::FromStr;
 
 use data_encoding::BASE64;
@@ -11,6 +10,7 @@ use oxish_proto::named::{MethodName, PublicKeyAlgorithm, ServiceName};
 use oxish_proto::{Encode, MessageType, OpenSshKeyV1};
 
 use crate::agent::Agent;
+use crate::client::Connection;
 use crate::error::Error;
 use crate::host_key::Fingerprint;
 use crate::wire::{SshReader, Transport, plain_text, put_string};
@@ -103,7 +103,7 @@ struct Credential {
 
 fn credential(
     identity: &Identity,
-    timeout: Duration,
+    transport: &Transport,
     provider: &dyn CryptoProvider,
 ) -> Result<Credential, Error> {
     match identity {
@@ -127,7 +127,8 @@ fn credential(
             socket,
             fingerprint,
         } => {
-            let mut agent = Agent::connect(socket, timeout)?;
+            let mut agent = Agent::connect(socket, transport.idle_timeout())?
+                .bounded(transport.deadline(), transport.interrupt());
             let mut chosen = None;
             for blob in agent.identities()? {
                 if crate::host_key::fingerprint(&blob, provider)? == fingerprint.as_str() {
@@ -153,20 +154,31 @@ fn credential(
 }
 
 /// Authenticate the user with the chosen identity.
-pub fn authenticate(
-    transport: &mut Transport,
+pub(crate) fn authenticate(
+    connection: &mut Connection,
     user: &str,
     identity: &Identity,
     session_id: &[u8],
     provider: &dyn CryptoProvider,
 ) -> Result<(), Error> {
-    let mut credential = credential(identity, transport.idle_timeout(), provider)?;
+    let mut credential = credential(identity, connection.transport(), provider)?;
 
-    transport.send_raw(&service_request(SERVICE_USERAUTH))?;
+    connection.transport().send_raw(&service_request(SERVICE_USERAUTH))?;
     loop {
-        let packet = transport.recv()?;
+        let packet = connection.next_message()?;
         match packet.message_type {
-            MessageType::ServiceAccept => break,
+            MessageType::ServiceAccept => {
+                let mut reader = SshReader::new(&packet.payload);
+                let service = reader.string()?;
+                reader.finish()?;
+                if service != SERVICE_USERAUTH.as_bytes() {
+                    return Err(Error::Protocol {
+                        detail: "server accepted a different service than the one requested"
+                            .to_owned(),
+                    });
+                }
+                break;
+            }
             MessageType::UserAuthBanner => continue,
             MessageType::Disconnect => {
                 return Err(Error::Authentication {
@@ -202,10 +214,10 @@ pub fn authenticate(
     algorithm.encode(&mut request);
     put_string(&mut request, &public_key);
     put_string(&mut request, &signature);
-    transport.send_raw(&request)?;
+    connection.transport().send_raw(&request)?;
 
     loop {
-        let packet = transport.recv()?;
+        let packet = connection.next_message()?;
         match packet.message_type {
             MessageType::UserAuthSuccess => return Ok(()),
             MessageType::UserAuthBanner => continue,
