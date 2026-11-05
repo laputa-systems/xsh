@@ -1509,7 +1509,8 @@ initializer.
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
 including writes in branches and loops. Fresh empty lists nested in a local
-record or list initializer follow the same rule. Each surviving empty list has
+record or list initializer follow the same rule, including a record whose leading
+spread has a record type the checker is still inferring. Each surviving empty list has
 one element type across all writers. A closed record written before a
 projection fixes the element's full shape, retaining nested `Any` fields.
 A discarded empty list or `map.empty()`,
