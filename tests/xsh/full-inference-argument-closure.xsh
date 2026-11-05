@@ -290,3 +290,67 @@ proc size(job: Job) -> Int { job.files.len() }
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "closed\n"
 }
+
+test test_full_inference_record_field_deferred_to_an_optional_is_closed_by_a_later_use { |ctx|
+  let checks = r"""
+let base: Options = {output: null, tries: 1}
+assert apply(base, "o", "x").output == "x"
+assert apply(base, "t", "xyz").tries == 3
+assert apply(base, "t", "xyz").output == null
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure apply(options, key: Str, value) -> Options {
+  match key {
+    "o" => {...options, output: value}
+    "t" => {...options, tries: number(value)}
+    else => options
+  }
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure apply(options: Options, key: Str, value: Str) -> Options {
+  match key {
+    "o" => {...options, output: value}
+    "t" => {...options, tries: number(value)}
+    else => options
+  }
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}
+
+test test_full_inference_annotated_record_literal_defers_optional_field_to_a_later_use { |ctx|
+  let checks = r"""
+assert make("xyz").tries == 3
+assert make("xyz").output == "xyz"
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure make(value) -> Options {
+  let options: Options = {output: value, tries: 1}
+  {...options, tries: number(value)}
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure make(value: Str) -> Options {
+  let options: Options = {output: value, tries: 1}
+  {...options, tries: number(value)}
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}

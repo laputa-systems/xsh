@@ -233,16 +233,6 @@ out of scope.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
 
-### XSH-61 · P3 · Type a deferred optional assignment inside a record literal
-
-- **Area:** Inference
-- **Where:** `src/sema/`, `src/runtime/eval/indexed/full/verify_schemes/`, `core/wget.xsh:168`, `core/cpio.xsh:1490`
-- **Problem:** `let options: Options = {output: value, tries: 1}` over an unresolved `value` followed by `number(value)` depends on statement order. The assignment to the `Str?` field is deferred, but the literal keeps the field type `value`, and the comparison with `Options` unifies it with `Str?`. Typing the field by the optional it is stored into repairs both sites but regresses `find:205`, `numfmt:1551`, `route:313`, `smartctl:190`, `wc:381` and the `wget` joint view with `generic body expression disagrees with its checked type`: the verifier compares each record field expression with the literal's field type and has no coercion site for a deferred optional assignment.
-- **Recommendation:** Add that coercion site to the verifier with forged-IR tests, or defer per field in the record-to-schema comparison. Pair each repair with an annotated twin.
-- **Acceptance:** Both sites erase alone and in the `wget` and `cpio` joint views; the six regressed sites still pass; forged-IR tests reject an unproved optional coercion.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-65 · P4 · Find the missing executable type in expr's erased branch parser
 
 - **Area:** Inference
