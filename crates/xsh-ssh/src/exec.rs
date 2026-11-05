@@ -1,6 +1,7 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
+use std::os::unix::fs::OpenOptionsExt;
 use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, poll};
@@ -13,6 +14,30 @@ use crate::wire::Interrupt;
 
 /// Bounded output capture limit for a single exec.
 pub const DEFAULT_MAX_OUTPUT: usize = 16 * 1024 * 1024;
+
+fn without_blocking_open(options: &mut OpenOptions, path: &std::path::Path) -> std::io::Result<File> {
+    let file = options
+        .custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32)
+        .open(path)?;
+    let flags = rustix::fs::fcntl_getfl(&file)?;
+    rustix::fs::fcntl_setfl(&file, flags - rustix::fs::OFlags::NONBLOCK)?;
+    Ok(file)
+}
+
+/// Open a file for `ExecOptions::stdin_file`. A FIFO opens at once whether or not a writer
+/// exists, and reads wait for data through the client's descriptor polling.
+pub fn open_stdin_file(path: &std::path::Path) -> std::io::Result<File> {
+    without_blocking_open(OpenOptions::new().read(true), path)
+}
+
+/// Create or truncate a file for `ExecOptions::stdout_file` or `stderr_file`. A FIFO with no
+/// reader fails at once instead of waiting for one.
+pub fn create_output_file(path: &std::path::Path) -> std::io::Result<File> {
+    without_blocking_open(
+        OpenOptions::new().write(true).create(true).truncate(true),
+        path,
+    )
+}
 
 /// Options for one exec request.
 pub struct ExecOptions {
