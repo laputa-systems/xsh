@@ -98,6 +98,25 @@ fn tar_reads_gnu_long_names_and_pax_names() {
 }
 
 #[test]
+fn a_pax_sparse_member_is_an_unsupported_entry_not_a_regular_file() {
+    let mut builder = tar::Builder::new(Vec::new());
+    builder
+        .append_pax_extensions([
+            ("GNU.sparse.major", b"1".as_slice()),
+            ("GNU.sparse.name", b"sparse".as_slice()),
+            ("GNU.sparse.realsize", b"1048576".as_slice()),
+        ])
+        .unwrap();
+    let mut header = tar::Header::new_ustar();
+    header.set_size(2);
+    header.set_mode(0o600);
+    header.set_cksum();
+    builder.append_data(&mut header, "GNUSparseFile.0/sparse", &b"hi"[..]).unwrap();
+    let mut archive = open(builder.into_inner().unwrap(), Format::Tar, Compression::Plain).unwrap();
+    assert_eq!(list(&mut archive).unwrap().entries[0].kind, EntryKind::Other);
+}
+
+#[test]
 fn tar_without_end_of_archive_blocks_is_truncated() {
     let mut bytes = tar_with(&[(b"a", b"alpha")]);
     bytes.truncate(1024);

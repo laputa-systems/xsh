@@ -319,6 +319,15 @@ fn special_files_are_refused_by_default_and_created_on_request() {
 }
 
 #[test]
+fn created_fifos_get_their_archived_mode_whatever_the_process_umask() {
+    let sandbox = Sandbox::new();
+    let bytes = tar_of(&[with_mode(fifo(b"pipe"), 0o666)]);
+    let policy = Policy { special: Special::Create, modes: Modes::Exact, ..Policy::default() };
+    run(bytes, &sandbox.path("dest"), &policy).unwrap();
+    assert_eq!(fs::symlink_metadata(sandbox.path("dest/pipe")).unwrap().mode() & 0o777, 0o666);
+}
+
+#[test]
 fn unsupported_entry_types_are_reported_not_skipped() {
     let sandbox = Sandbox::new();
     let sparse = tar_of(&[Spec { name: b"s", flag: b'S', body: b"", link: b"", mode: 0o644 }]);
