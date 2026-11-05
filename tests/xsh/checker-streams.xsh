@@ -286,7 +286,7 @@ test test_checker_multi_clause_comprehensions_reject_invalid_inner_domains_and_f
   }
 }
 
-test test_checker_map_iteration_preserves_entry_types_and_error_boundaries { |ctx|
+test test_checker_result_iteration_sources_propagate_errors { |ctx|
   for case in [
     {
       source: "pure wrong(values: Map[Int]) -> Unit { for entry in values { let bad: Int = entry.key } }\n",
@@ -305,7 +305,55 @@ test test_checker_map_iteration_preserves_entry_types_and_error_boundaries { |ct
       code: "check.effect-violation",
     },
     {
+      source: "proc wrong(values: Result[Str]) [] { for item in values {} }\n",
+      code: "check.effect-violation",
+    },
+    {
+      source: "proc wrong(values: Result[Bytes]) [] { for item in values {} }\n",
+      code: "check.effect-violation",
+    },
+    {
+      source: "proc wrong(values: Result[List[Int]]) [] { for item in values {} }\n",
+      code: "check.effect-violation",
+    },
+    {
+      source: "proc wrong(values: Result[Set[Int]]) [] { for item in values {} }\n",
+      code: "check.effect-violation",
+    },
+    {
+      source: "proc wrong(values: Result[Stream[Int]]) [] { for item in values {} }\n",
+      code: "check.effect-violation",
+    },
+    {
+      source: "proc wrong(values: Result[NonEmpty[Int]]) [] { for item in values {} }\n",
+      code: "check.effect-violation",
+    },
+    {
       source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Map[Int], MapError]) -> Result[List[Str], OtherError] { [entry.key for entry in values] }\n",
+      code: "check.try-error",
+    },
+    {
+      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Str, MapError]) -> Result[List[Str], OtherError] { [item for item in values] }\n",
+      code: "check.try-error",
+    },
+    {
+      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Bytes, MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
+      code: "check.try-error",
+    },
+    {
+      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[List[Int], MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
+      code: "check.try-error",
+    },
+    {
+      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Set[Int], MapError]) -> Result[Set[Int], OtherError] { set.from([item for item in values]) }\n",
+      code: "check.try-error",
+    },
+    {
+      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Stream[Int], MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
+      code: "check.try-error",
+    },
+    {
+      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[NonEmpty[Int], MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
       code: "check.try-error",
     },
   ] {
