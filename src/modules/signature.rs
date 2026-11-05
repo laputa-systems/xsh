@@ -1258,7 +1258,13 @@ mod tests {
                     let params = required
                         .iter()
                         .enumerate()
-                        .map(|(index, param)| format!(", a{index}: {}", param.ty))
+                        .map(|(index, param)| {
+                            let ty = match &param.ty {
+                                super::Type::Union(members) => &members[0],
+                                ty => ty,
+                            };
+                            format!(", a{index}: {ty}")
+                        })
                         .collect::<String>();
                     let args = required
                         .iter()
