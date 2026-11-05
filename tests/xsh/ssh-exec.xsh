@@ -332,7 +332,7 @@ test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
   }
 }
 
-test ssh_exec_environment_is_sent_when_the_server_accepts_it { |ctx|
+test ssh_exec_environment_is_sent_when_the_server_accepts_it { |_|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {

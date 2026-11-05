@@ -57,7 +57,7 @@ pure parse_number(value: Int) -> Int {
     Ok(parsed) => {
       parsed_value = parsed
     }
-    Err(failure) => {
+    Err(_) => {
       parsed_value = -1
     }
   }
@@ -75,7 +75,7 @@ pure floor_computed_float(value: Float) -> Int {
     Ok(rounded) => {
       result = rounded
     }
-    Err(failure) => {
+    Err(_) => {
       result = -1
     }
   }
@@ -88,7 +88,7 @@ pure parse_computed_string(value: Int) -> Int {
     Ok(parsed) => {
       result = parsed
     }
-    Err(failure) => {
+    Err(_) => {
       result = -1
     }
   }
@@ -676,7 +676,7 @@ test test_typed_callables_flow_through_a_try_capture {
     Err(failure) => { test.fail(failure.message) }
   }
   match try { stored.get("missing")? } {
-    Ok(selected) => { test.fail("a missing key selected a callable") }
+    Ok(_) => { test.fail("a missing key selected a callable") }
     Err(failure) => { assert failure.message != "" }
   }
   let captured = try {
@@ -1412,10 +1412,10 @@ test test_long_callback_forwarding_chain_verifies_its_producers { |ctx|
 
 test test_generic_function_with_ground_annotations_is_a_verified_callback { |ctx|
   for case in [
-    {source: "pure inc(value) -> Str { \"a\" }\npure apply(callback, value) { callback(value) }\nprint $apply(inc, 0)\n", stdout: "a\n"},
-    {source: "pure inc(value) -> Int { value + 1 }\npure apply(callback, value) { callback(value) }\nprint $apply(inc, 0)\n", stdout: "1\n"},
-    {source: "pure pick(label: Str, value) { value }\npure apply(callback, label, value) { callback(label, value) }\nprint $apply(pick, \"a\", 7)\n", stdout: "7\n"},
-    {source: "pure wrap(label, value) -> List[Str] { [\"x\"] }\npure apply(callback, label, value) { callback(label, value) }\nprint $apply(wrap, \"a\", 7).len()\n", stdout: "1\n"},
+    {source: "pure inc(value) -> Str { \"a\" }\npure apply(callback, value) { callback(value) }\nprint \$apply(inc, 0)\n", stdout: "a\n"},
+    {source: "pure inc(value) -> Int { value + 1 }\npure apply(callback, value) { callback(value) }\nprint \$apply(inc, 0)\n", stdout: "1\n"},
+    {source: "pure pick(label: Str, value) { value }\npure apply(callback, label, value) { callback(label, value) }\nprint \$apply(pick, \"a\", 7)\n", stdout: "7\n"},
+    {source: "pure wrap(label, value) -> List[Str] { [\"x\"] }\npure apply(callback, label, value) { callback(label, value) }\nprint \$apply(wrap, \"a\", 7).len()\n", stdout: "1\n"},
   ] {
     let result = test.run_xsh(ctx, case.source)?
     assert result.status == 0, result.stderr
@@ -1426,9 +1426,9 @@ test test_generic_function_with_ground_annotations_is_a_verified_callback { |ctx
 test test_generic_function_with_named_record_annotations_is_a_verified_callback { |ctx|
   let apply_source = "pure apply(callback, value, extra) { callback(value, extra) }\n"
   for case in [
-    {source: "type P = {x: Int}\npure make(label, extra) -> P { {x: 3} }\n" + apply_source + "print $apply(make, \"a\", 0).x\n", stdout: "3\n"},
-    {source: "type P = {x: Int}\npure read(item: P, extra) { item.x }\n" + apply_source + "print $apply(read, {x: 5}, 0)\n", stdout: "5\n"},
-    {source: "type P = {x: Int}\npure many(label, extra) -> List[P] { [{x: 1}, {x: 2}] }\n" + apply_source + "print $apply(many, \"a\", 0).len()\n", stdout: "2\n"},
+    {source: "type P = {x: Int}\npure make(label, extra) -> P { {x: 3} }\n" + apply_source + "print \$apply(make, \"a\", 0).x\n", stdout: "3\n"},
+    {source: "type P = {x: Int}\npure read(item: P, extra) { item.x }\n" + apply_source + "print \$apply(read, {x: 5}, 0)\n", stdout: "5\n"},
+    {source: "type P = {x: Int}\npure many(label, extra) -> List[P] { [{x: 1}, {x: 2}] }\n" + apply_source + "print \$apply(many, \"a\", 0).len()\n", stdout: "2\n"},
   ] {
     let result = test.run_xsh(ctx, case.source)?
     assert result.status == 0, result.stderr

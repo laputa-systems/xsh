@@ -112,7 +112,8 @@ test test_toml_encoding_roundtrips_and_preserves_failed_destinations { |ctx|
 
 test test_configuration_formats_share_values_without_hidden_string_coercion {
   let value = yaml.decode("service: worker\nports: [80, 443]\n")?
-  let json_value = json.decode(json.encode(value)?)?
+  let encoded = json.encode(value)?
+  let json_value = json.decode(encoded)?
   assert json.get(json_value, ["ports"])? == [80, 443]
   let ini_value = ini.decode("port = 8080\n")?
   test.error_kind(json.get(ini_value, ["port"])?.require(Int), "schema")

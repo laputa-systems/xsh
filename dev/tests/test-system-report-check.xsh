@@ -3134,7 +3134,7 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")
 }
 
-test test_system_report_cpu_topology_capture_allows_absent_die_id { |ctx|
+test test_system_report_cpu_topology_capture_allows_absent_die_id { |_|
   let source = fs.tempdir()?
   defer source.close()
   let bundle = fs.tempdir()?
