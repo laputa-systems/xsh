@@ -1,4 +1,5 @@
 #!/bin/xsh
+use lib.monotonic
 
 enum Action { DeviceAdd, DeviceRemove, DeviceOther }
 enum NodeKind { BlockDevice, CharacterDevice }
@@ -476,7 +477,7 @@ proc sequence_next(paths: Paths, event_env: Map[Str, Bytes]) [fs, time, error] -
   let expected_result = sequence_text.parse_uint()
   if expected_result is Err(_) { return Err(failure(f"invalid SEQNUM '{sequence_text}'")) }
   let expected = expected_result?
-  let started = time.monotonic()?
+  let deadline = monotonic.deadline_after(monotonic.now()?, 2000)
   loop {
     if let Ok(stat) = fs.stat(paths.seq_file) {
       if stat.kind == "file" {
@@ -490,7 +491,7 @@ proc sequence_next(paths: Paths, event_env: Map[Str, Bytes]) [fs, time, error] -
         if seen >= expected { return Ok(expected + 1) }
       }
     }
-    if time.monotonic()? - started >= 2000000000 { return Ok(expected + 1) }
+    if monotonic.expired(deadline, monotonic.now()?) { return Ok(expected + 1) }
     time.sleep(32ms)
   }
 }
@@ -627,8 +628,8 @@ proc maybe_load_firmware(paths: Paths, event: Event) [fs, process, env, error, t
   let firmware_path = path_join(paths.firmware_root, firmware_name)?
   let loading_path = path_join(event.sysfs_path, b"loading")?
   let data_path = path_join(event.sysfs_path, b"data")?
-  let started = time.monotonic()?
-  while fs.stat(loading_path) is Err(_) and time.monotonic()? - started < 30000000000 { time.sleep(1s) }
+  let deadline = monotonic.deadline_after(monotonic.now()?, 30000)
+  while fs.stat(loading_path) is Err(_) and ! monotonic.expired(deadline, monotonic.now()?) { time.sleep(1s) }
   let loading_fd = unix.open_fd(loading_path, write: true)?
   defer unix.close_fd(loading_fd)
   let firmware_fd = unix.open_fd(firmware_path)

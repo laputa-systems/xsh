@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.monotonic
 
 const USAGE = """Usage: traceroute [OPTION]... HOST [PACKETLEN]
 Print the route packets take to a network host, one line per hop.
@@ -323,11 +324,9 @@ proc usage_die(message: Str) [process] -> Unit {
   exit 2
 }
 
-# Milliseconds left before a deadline given in runtime-clock milliseconds.
-proc remaining_ms(deadline_ms: Int) [time] -> Int {
-  let left = deadline_ms - time.now()
-
-  if left < 0 { 0 } else { left }
+# Milliseconds left before a monotonic deadline.
+proc remaining_ms(deadline: monotonic.Deadline) [time, error] -> Result[Int, Error] {
+  Ok(monotonic.remaining_ms(deadline, monotonic.now()?))
 }
 
 pure span_ms(start_ns: Int, end_ns: Int) -> Float {
@@ -588,10 +587,10 @@ proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms:
     return Err(describe("sendto", failure))
   }
 
-  let deadline = time.now() + wait_ms
+  let deadline = monotonic.deadline_after(monotonic.now()?, wait_ms)
 
   while true {
-    let events = unix.poll_fd(fd, [], remaining_ms(deadline))?
+    let events = unix.poll_fd(fd, [], remaining_ms(deadline)?)?
 
     if "error" in events {
       if let queued = read_queue(s, fd)? {
@@ -605,7 +604,7 @@ proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms:
       }
     }
 
-    return Ok(null) when remaining_ms(deadline) == 0
+    return Ok(null) when remaining_ms(deadline)? == 0
   }
 
   Ok(null)
@@ -651,10 +650,10 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
   }
 
   let reply_type = if s.v6 { 129 } else { 0 }
-  let deadline = time.now() + wait_ms
+  let deadline = monotonic.deadline_after(monotonic.now()?, wait_ms)
 
   while true {
-    let events = unix.poll_fd(fd, ["readable"], remaining_ms(deadline))?
+    let events = unix.poll_fd(fd, ["readable"], remaining_ms(deadline)?)?
 
     if "error" in events {
       if let queued = read_queue(s, fd)? {
@@ -681,7 +680,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
       }
     }
 
-    return Ok(null) when remaining_ms(deadline) == 0
+    return Ok(null) when remaining_ms(deadline)? == 0
   }
 
   Ok(null)
@@ -719,10 +718,10 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
 
   let echo_type = if s.v6 { 128 } else { 8 }
   let reply_type = if s.v6 { 129 } else { 0 }
-  let deadline = time.now() + wait_ms
+  let deadline = monotonic.deadline_after(monotonic.now()?, wait_ms)
 
   while true {
-    let events = unix.poll_fd(fd, ["readable"], remaining_ms(deadline))?
+    let events = unix.poll_fd(fd, ["readable"], remaining_ms(deadline)?)?
 
     if "readable" in events {
       match linux.recvfrom(fd, 65535, c.MSG_DONTWAIT) {
@@ -754,7 +753,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
       }
     }
 
-    return Ok(null) when remaining_ms(deadline) == 0
+    return Ok(null) when remaining_ms(deadline)? == 0
   }
 
   Ok(null)
@@ -786,7 +785,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
   }
 
   let local = linux.getsockname(fd)?.port
-  let deadline = time.now() + wait_ms
+  let deadline = monotonic.deadline_after(monotonic.now()?, wait_ms)
 
   while true {
     let events = unix.poll_fd(fd, ["writable"], 0)?
@@ -827,7 +826,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
       }
     }
 
-    return Ok(null) when remaining_ms(deadline) == 0
+    return Ok(null) when remaining_ms(deadline)? == 0
   }
 
   Ok(null)
@@ -902,7 +901,7 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
   let clock = open_clock()
   var port = s.port
   var seq = s.port
-  var last_send = 0
+  var last_send: monotonic.Reading? = null
   var previous_rtt = -1.0
   var finished = false
   var ttl = s.first_ttl
@@ -913,15 +912,17 @@ proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time
     var started = false
 
     for _ in range(s.queries) {
-      if s.send_wait_ms > 0 and last_send != 0 {
-        let idle = time.now() - last_send
+      if s.send_wait_ms > 0 {
+        if let sent = last_send {
+          let idle = monotonic.since_ms(sent, monotonic.now()?)
 
-        if idle < s.send_wait_ms {
-          time.sleep(time.millis(s.send_wait_ms - idle))
+          if idle < s.send_wait_ms {
+            time.sleep(time.millis(s.send_wait_ms - idle))
+          }
         }
       }
 
-      last_send = time.now()
+      last_send = monotonic.now()?
 
       let limit_ms = probe_wait_ms(s, hop_rtt, previous_rtt)
       let answer = match s.method {

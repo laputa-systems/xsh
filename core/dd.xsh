@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.bytes_enc_dd as charset
 use lib.gnu
+use lib.monotonic
 use lib.textio_a1 as tio
 
 type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int, input_flags: List[Str], output_flags: List[Str], input_nocache: Bool, output_nocache: Bool}
@@ -590,7 +591,7 @@ proc joined_records(blocks: List[BlockOutput]) [error] -> Result[Bytes] {
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES if=FILE of=FILE\n  count=N skip=N seek=N status=none|noxfer|progress\n\nEach CONV symbol may be:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock,direct,noatime,dsync,sync,nofollow,nocache\n  oflag=seek_bytes,direct,noatime,dsync,sync,nofollow,nocache\nOther descriptor flags are not supported."); return }
   if b"--version" in argv { gnu.version("dd"); return }
-  let started = time.now()
+  let started = monotonic.now()?
   let opts = parse(argv)
   # GNU allocates the input buffer, then the output buffer, when the first record is
   # requested, so a zero count allocates nothing and an unallocatable size fails
@@ -843,7 +844,7 @@ proc status_line(text: Str) [io, process, env, error] {
   if let Err(failure) = io.flush_stderr() { gnu.write_failed(failure) }
 }
 
-proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: Int, started: Int, output_failed = false) [time, io, process, env, error] {
+proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: Int, started: monotonic.Reading, output_failed = false) [time, io, process, env, error] {
   if opts.status != "none" {
     status_line(f"{complete}+{partial} records in")
     let output_complete = if opts.bs > 0 and truncated == 0 and ! output_failed { complete } else { size / opts.obs }
@@ -851,7 +852,7 @@ proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: In
     status_line(f"{output_complete}+{output_partial} records out")
     if truncated > 0 { status_line(f"{truncated} truncated {if truncated == 1 { "record" } else { "records" }}") }
     if opts.status != "noxfer" {
-      let elapsed = time.now() - started
+      let elapsed = monotonic.since_ms(started, monotonic.now()?)
       let millis = if elapsed < 1 { 1 } else { elapsed }
       let si = if size >= 1000 { human_size(size, 1000, false) } else { "" }
       let iec = if size >= 1024 { human_size(size, 1024, true) } else { "" }

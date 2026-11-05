@@ -14,6 +14,7 @@
 ##! proxy options (-X, -x, -P), TCP MD5 signatures (-S), file descriptor
 ##! passing (-F), DCCP (-Z), and alternate routing tables (-V; Linux has none).
 use lib.gnu
+use lib.monotonic
 
 const BUFSIZE = 16384
 const WAIT_SLICE_MS = 10
@@ -673,7 +674,7 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
   var received = 0
   var timeout_ms = opts.timeout
   var after_cr = false
-  var last_activity = time.now()
+  var last_activity = monotonic.now()?
   if opts.nostdin and opts.quit >= 0 {
     timeout_ms = opts.quit * 1000
   }
@@ -773,8 +774,8 @@ proc relay(fd: Int, opts: Options, listening: Bool) [net, process, time, io, err
     if ! net_out { stdin_open = false }
 
     if progressed {
-      last_activity = time.now()
-    } else if timeout_ms >= 0 and time.now() - last_activity >= timeout_ms {
+      last_activity = monotonic.now()?
+    } else if timeout_ms >= 0 and monotonic.since_ms(last_activity, monotonic.now()?) >= timeout_ms {
       break
     }
   }

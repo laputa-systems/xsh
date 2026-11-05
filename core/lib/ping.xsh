@@ -3,6 +3,7 @@
 ##! received, 1 none or fewer than a counted run with a deadline, 2 error).
 use gnu
 use icmp
+use monotonic
 
 const USAGE = """Usage
   ping [options] <destination>...
@@ -547,7 +548,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
   let show_names = (target.named or opts.resolve) and ! opts.numeric
   var names: Map[Str] = {}
   let destination = {family: target.family, address: target.address, port: 0}
-  let started_ms = time.now()
+  let started_ms = monotonic.now()?.ms
   var stats: Stats = Stats(sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first_ns: 0, last_ns: 0)
   var seen: Set[Int] = set.empty()
   var sent_at: Map[Int, Int] = {}
@@ -566,7 +567,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
   # environment, which it can read: 1 until the first reply, then 0.
   e"XSH_PING_STATUS" = "1"
   while ! finished {
-    let now = time.now()
+    let now = monotonic.now()?.ms
     if plan.deadline_s > 0 and now - started_ms >= plan.deadline_s * 1000 {
       finished = true
       continue
