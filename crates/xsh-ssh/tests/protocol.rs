@@ -71,6 +71,22 @@ fn a_disconnect_after_submission_is_potentially_executed() {
 }
 
 #[test]
+fn a_connection_closed_after_the_exit_status_still_returns_the_result() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, b"done\n");
+        link.exit_status(channel, 3);
+        link.expect(CHANNEL_EOF);
+        link.hangup();
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection.exec("command", &ExecOptions::default()).expect("result");
+    assert_eq!(result.status, ExecStatus::Exited(3));
+    assert_eq!(result.stdout, b"done\n");
+    assert!(!connection.is_usable());
+    peer.finish();
+}
+
+#[test]
 fn a_dropped_connection_after_submission_is_potentially_executed() {
     let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
         link.data(channel, b"some");
@@ -190,6 +206,89 @@ fn unsupported_global_and_channel_requests_are_answered() {
     });
     let result = run(&peer).expect("exec");
     assert_eq!(result.status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+fn server_requests_that_want_an_answer(link: &mut Link) {
+    link.send(&message(GLOBAL_REQUEST, &[&text(b"hostkeys-00@openssh.com"), &[1]]));
+    link.send(&message(
+        CHANNEL_OPEN,
+        &[&text(b"forwarded-tcpip"), &number(41), &number(1 << 20), &number(32768)],
+    ));
+    link.expect(REQUEST_FAILURE);
+    let refusal = link.expect(CHANNEL_OPEN_FAILURE);
+    assert_eq!(refusal.u32_at(0), 41);
+}
+
+#[test]
+fn server_opened_channels_and_global_requests_are_refused_while_the_open_is_pending() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        server_requests_that_want_an_answer(link);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[&number(client), &number(SERVER_CHANNEL), &number(1 << 20), &number(32768)],
+        ));
+        link.expect(CHANNEL_REQUEST);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        link.exit_status(client, 0);
+        link.eof(client);
+        link.close(client);
+        link.expect_close();
+    });
+    let result = run(&peer).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+#[test]
+fn server_opened_channels_and_global_requests_are_refused_while_env_and_exec_are_pending() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[&number(client), &number(SERVER_CHANNEL), &number(1 << 20), &number(32768)],
+        ));
+        let environment = link.expect(CHANNEL_REQUEST);
+        assert_eq!(environment.string_at(4), b"env");
+        server_requests_that_want_an_answer(link);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        let exec = link.expect(CHANNEL_REQUEST);
+        assert_eq!(exec.string_at(4), b"exec");
+        server_requests_that_want_an_answer(link);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        link.exit_status(client, 0);
+        link.eof(client);
+        link.close(client);
+        link.expect_close();
+    });
+    let options = ExecOptions {
+        env: vec![("NAME".to_owned(), "value".to_owned())],
+        ..ExecOptions::default()
+    };
+    let result = peer.connect(TIMEOUT).exec("command", &options).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+#[test]
+fn a_channel_open_failure_for_another_channel_is_refused() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        link.send(&message(
+            CHANNEL_OPEN_FAILURE,
+            &[&number(client + 1), &number(2), &text(b"no"), &text(b"")],
+        ));
+        link.linger();
+    });
+    let error = run(&peer).expect_err("wrong recipient");
+    assert!(error.to_string().contains("unknown channel"), "{error}");
     peer.finish();
 }
 
@@ -395,6 +494,40 @@ fn client_initiated_rekeys_carry_queued_traffic_without_loss() {
     let result = connection.exec("command", &ExecOptions::default()).expect("exec");
     assert_eq!(result.status, ExecStatus::Exited(0));
     assert_eq!(digest(&result.stdout), digest(&payload));
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn a_server_message_between_its_rekey_reply_and_newkeys_is_skipped() {
+    let peer = serve_exec(
+        Behavior {
+            ignore_between_rekey_reply_and_newkeys: true,
+            ..Behavior::default()
+        },
+        1 << 20,
+        |link, channel| {
+            for _ in 0..40 {
+                link.data(channel, &[9; 4096]);
+            }
+            while link.rekeys == 0 {
+                link.recv();
+            }
+            link.exit_status(channel, 0);
+            link.eof(channel);
+            link.close(channel);
+            link.expect_close();
+        },
+    );
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = RekeyLimits {
+        bytes: 32 * 1024,
+        ..RekeyLimits::default()
+    };
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let result = connection.exec("command", &ExecOptions::default()).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
     drop(connection);
     peer.finish();
 }

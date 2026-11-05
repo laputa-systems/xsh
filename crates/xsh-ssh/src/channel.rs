@@ -1,4 +1,5 @@
 use oxish_proto::{Encode, MessageType};
+use zeroize::Zeroizing;
 
 use crate::client::Connection;
 use crate::error::Error;
@@ -47,6 +48,14 @@ pub fn validate_environment(env: &[(String, String)]) -> Result<(), Error> {
     Ok(())
 }
 
+fn local_open_recipient(recipient: u32, local_id: u32) -> Result<(), Error> {
+    if recipient == local_id {
+        Ok(())
+    } else {
+        Err(channel_error(format!("message for unknown channel {recipient}")))
+    }
+}
+
 /// An open session channel.
 #[derive(Debug)]
 pub struct Channel {
@@ -90,9 +99,7 @@ impl Channel {
                 let window = reader.u32()?;
                 let maximum = reader.u32()?;
                 reader.finish()?;
-                if recipient != local_id {
-                    return Err(channel_error(format!("confirmation used channel {recipient}")));
-                }
+                local_open_recipient(recipient, local_id)?;
                 if maximum == 0 {
                     return Err(protocol_error("peer allows no data in a packet"));
                 }
@@ -111,9 +118,12 @@ impl Channel {
             }
             MessageType::ChannelOpenFailure => {
                 let mut reader = SshReader::new(&packet.payload);
-                let _recipient = reader.u32()?;
+                let recipient = reader.u32()?;
                 let reason = reader.u32()?;
                 let description = plain_text(reader.text()?);
+                let _language = reader.string()?;
+                reader.finish()?;
+                local_open_recipient(recipient, local_id)?;
                 Err(channel_error(format!(
                     "channel open failed ({reason}): {description}"
                 )))
@@ -250,7 +260,7 @@ impl Channel {
         if limit == 0 {
             return Ok(0);
         }
-        let mut packet = Vec::with_capacity(limit + 9);
+        let mut packet = Zeroizing::new(Vec::with_capacity(limit + 9));
         MessageType::ChannelData.encode(&mut packet);
         packet.extend_from_slice(&self.remote_id.to_be_bytes());
         put_string(&mut packet, &data[..limit]);

@@ -10,6 +10,7 @@ use crate::error::Error;
 use crate::host_key::{HostTrust, verify as verify_host_key};
 use crate::channel::LOCAL_WINDOW;
 use crate::wire::{Packet, SshReader, Transport, plain_text, put_string};
+use zeroize::Zeroizing;
 
 const HYBRID_KEX: &str = "mlkem768x25519-sha256";
 const CLASSICAL_KEX: &str = "curve25519-sha256";
@@ -160,11 +161,11 @@ impl ClientEphemeral {
         peer_public_key: &[u8],
         provider: &dyn CryptoProvider,
         algorithm: &KeyExchangeAlgorithm<'static>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Zeroizing<Vec<u8>>, Error> {
         match self {
             Self::X25519 { private, .. } => {
                 let shared = agree(private, peer_public_key)?;
-                let mut encoded = Vec::new();
+                let mut encoded = Zeroizing::new(Vec::new());
                 encode_mpint(&shared, &mut encoded);
                 Ok(encoded)
             }
@@ -186,7 +187,7 @@ impl ClientEphemeral {
                 let mut context = provider.hash(algorithm)?.start();
                 context.update(post_quantum.as_ref());
                 context.update(&classical);
-                let mut encoded = Vec::new();
+                let mut encoded = Zeroizing::new(Vec::new());
                 context.finish().as_ref().encode(&mut encoded);
                 Ok(encoded)
             }
@@ -194,13 +195,16 @@ impl ClientEphemeral {
     }
 }
 
-fn agree(private: x25519::PrivateKey, peer_public_key: &[u8]) -> Result<Vec<u8>, Error> {
+fn agree(
+    private: x25519::PrivateKey,
+    peer_public_key: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, Error> {
     let peer = x25519::PublicKey::try_from_slice(peer_public_key)
         .map_err(|error| protocol(format!("invalid X25519 peer key: {error}")))?;
     let shared = private
         .diffie_hellman(&peer)
         .map_err(|error| protocol(format!("X25519 key agreement failed: {error}")))?;
-    Ok(shared.as_bytes().to_vec())
+    Ok(Zeroizing::new(shared.as_bytes().to_vec()))
 }
 
 fn put_name_list(buffer: &mut Vec<u8>, names: &[&str]) {
@@ -507,7 +511,7 @@ fn exchange(
     let reply = receive(
         transport,
         MessageType::KeyExchangeEcdhReply,
-        queued,
+        queued.as_deref_mut(),
     )?;
     let mut reader = SshReader::new(&reply.payload);
     let host_key_blob = reader.string()?.to_vec();
@@ -526,7 +530,7 @@ fn exchange(
     exchange_hash.prefixed(&host_key_blob);
     exchange_hash.prefixed(&client_public);
     exchange_hash.prefixed(&server_public);
-    let shared_secret = ephemeral.complete(&server_public, provider, &negotiated.kex)?;
+    let mut shared_secret = ephemeral.complete(&server_public, provider, &negotiated.kex)?;
     exchange_hash.update(&shared_secret);
     let exchange_digest = exchange_hash.finish();
 
@@ -548,7 +552,7 @@ fn exchange(
     };
     let derivation = KeyDerivation {
         hash: hash_algorithm,
-        shared_secret: SharedSecret::from(shared_secret),
+        shared_secret: SharedSecret::from(std::mem::take(&mut *shared_secret)),
         exchange_hash: exchange_digest,
         session_id: session_id.clone(),
     };
@@ -559,7 +563,8 @@ fn exchange(
 
     transport.send_newkeys(strict)?;
     transport.install_sealer(&client_to_server, provider)?;
-    transport.recv_newkeys(strict)?;
+    receive(transport, MessageType::NewKeys, queued)?;
+    transport.accept_newkeys(strict);
     transport.install_opener(&server_to_client, provider)?;
 
     Ok(Established {

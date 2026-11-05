@@ -3,7 +3,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use oxish_proto::MessageType;
+use oxish_proto::{Encode, MessageType};
 use oxish_proto::crypto::CryptoProvider;
 
 use crate::DEFAULT_PROVIDER;
@@ -347,6 +347,19 @@ impl Connection {
                     self.transport
                         .reply(&[u8::from(MessageType::RequestFailure)])?;
                 }
+                Ok(None)
+            }
+            MessageType::ChannelOpen => {
+                let mut reader = SshReader::new(&packet.payload);
+                let _kind = reader.text()?;
+                let sender = reader.u32()?;
+                let mut refusal = Vec::new();
+                MessageType::ChannelOpenFailure.encode(&mut refusal);
+                refusal.extend_from_slice(&sender.to_be_bytes());
+                refusal.extend_from_slice(&1u32.to_be_bytes());
+                put_string(&mut refusal, b"channels are not accepted");
+                put_string(&mut refusal, b"");
+                self.transport.reply(&refusal)?;
                 Ok(None)
             }
             MessageType::KeyExchangeInit => {

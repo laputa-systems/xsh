@@ -458,12 +458,12 @@ pub(crate) fn exec(
     })?;
 
     let create = |path: &PathBuf| {
-        std::fs::File::create(path).map_err(|error| {
+        xsh_ssh::exec::create_output_file(path).map_err(|error| {
             failure("Local", format!("cannot create {}: {error}", path.display())).with_span(span)
         })
     };
     let stdin_file = match &stdin_path {
-        Some(path) => Some(std::fs::File::open(path).map_err(|error| {
+        Some(path) => Some(xsh_ssh::exec::open_stdin_file(path).map_err(|error| {
             failure("Local", format!("cannot open {}: {error}", path.display())).with_span(span)
         })?),
         None => None,

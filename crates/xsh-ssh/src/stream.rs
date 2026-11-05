@@ -11,7 +11,7 @@ use crate::channel::{Channel, validate_environment};
 use crate::client::Connection;
 use crate::error::{Certainty, Error};
 use crate::exec::{ExecResult, ExecStatus};
-use crate::wire::{Interrupt, Packet, SshReader, plain_text, put_string};
+use crate::wire::{Interrupt, Packet, SshReader, plain_text};
 
 const OUTPUT_HIGH_WATER: usize = 256 * 1024;
 const STDERR_EXTENDED_DATA: u32 = 1;
@@ -124,6 +124,10 @@ struct Completion {
 }
 
 impl Completion {
+    fn is_reported(&self) -> bool {
+        self.exit_status.is_some() || self.exit_signal.is_some()
+    }
+
     fn status(&self) -> ExecStatus {
         match (self.exit_status, &self.exit_signal) {
             (Some(status), _) => ExecStatus::Exited(status),
@@ -176,12 +180,35 @@ fn run(
 
     let mut input = Input::new(stdin);
     let mut completion = Completion::default();
+    let driven = drive(connection, &mut channel, &mut completion, &mut input, stdout, stderr);
+    match driven {
+        Ok(()) => {}
+        Err(_) if connection.transport().peer_closed() && completion.is_reported() => {
+            connection.mark_unusable();
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(ExecResult {
+        status: completion.status(),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    })
+}
+
+fn drive(
+    connection: &mut Connection,
+    channel: &mut Channel,
+    completion: &mut Completion,
+    input: &mut Input<'_>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), Error> {
     while !channel.is_closed() {
         connection.transport().check()?;
         while let Some(packet) = connection.try_next_packet()? {
-            on_packet(connection, &mut channel, &mut completion, packet, stdout, stderr)?;
+            on_packet(connection, channel, completion, packet, stdout, stderr)?;
         }
-        let feeding = feed(connection, &mut channel, &mut input)?;
+        let feeding = feed(connection, channel, input)?;
         if channel.close_received {
             channel.send_close(connection.transport())?;
         }
@@ -207,11 +234,7 @@ fn run(
         }
     }
 
-    Ok(ExecResult {
-        status: completion.status(),
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    })
+    Ok(())
 }
 
 #[derive(PartialEq, Eq)]
@@ -331,18 +354,6 @@ fn on_packet(
         MessageType::ChannelClose => {
             expect_recipient_only(channel, &packet.payload)?;
             channel.close_received = true;
-        }
-        MessageType::ChannelOpen => {
-            let mut refusal = Vec::new();
-            MessageType::ChannelOpenFailure.encode(&mut refusal);
-            let mut reader = SshReader::new(&packet.payload);
-            let _kind = reader.text()?;
-            let sender = reader.u32()?;
-            refusal.extend_from_slice(&sender.to_be_bytes());
-            refusal.extend_from_slice(&1u32.to_be_bytes());
-            put_string(&mut refusal, b"channels are not accepted");
-            put_string(&mut refusal, b"");
-            connection.transport().reply(&refusal)?;
         }
         other => {
             return Err(Error::Protocol {
