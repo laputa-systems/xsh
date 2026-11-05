@@ -91,7 +91,7 @@ fn narrowed_enum_field_read_needs_its_dominating_null_test() {
     forged.store.tags[null] = FullTag::ExprUnit;
     assert_eq!(
         FullVerifier::verify(&forged).unwrap_err().message,
-        "ground producer value disagrees with its checked contract",
+        "equality operands have incompatible checked domains",
     );
 }
 

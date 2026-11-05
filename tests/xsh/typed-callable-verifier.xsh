@@ -49,3 +49,23 @@ test test_record_callable_and_resource_survive_returned_frame {
   assert bundle.root.read_text(p"marker")? == "kept"
 }
 
+
+pure count_ints(first: Int, ...items: List[Int]) -> Int {
+  first + items.len()
+}
+
+pure join_texts(separator: Str, ...items: List[Str]) -> Str {
+  items.join(separator)
+}
+
+pure keep_rest(f, first, ...items) {
+  let _ = f(first, @items)
+  f
+}
+
+test test_one_generic_callback_returned_for_two_instantiations_keeps_each_signature {
+  let counter = keep_rest(count_ints, 1, 2, 3)
+  let joiner = keep_rest(join_texts, "-", "x", "y")
+  assert counter(10, 20, 30) == 12
+  assert joiner("+", "p", "q") == "p+q"
+}

@@ -2652,6 +2652,62 @@ pure make() -> Map[List[Int]] {
     }
 
     #[test]
+    fn forged_return_values_are_bound_to_the_result_contract() {
+        let scoped = "proc choose(root: FsRoot, decoy: Bool) [fs] -> FsRoot { let _ = decoy; let ignored = with held = root { return held } }\n";
+        let plain = "proc choose(root: FsRoot, decoy: Bool) [fs] -> FsRoot { let _ = decoy; return root }\n\
+            proc consume(root: FsRoot) [fs, error] { let kept = choose(root, true); kept.close()? }\n";
+        for (label, source) in [("a return inside a resource scope", scoped), ("a plain return", plain)] {
+            let mut program = prepare(source);
+            program.store.in_place.take();
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let range = decoder.instruction_range.clone();
+            let returned = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtReturn).unwrap();
+            let schema::StmtView::Return { value: actual } = decoder.statement_view(returned).unwrap() else { unreachable!() };
+            let actual = actual.raw() as usize;
+            let decoy = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags[actual] = program.store.tags[decoy];
+            forged.store.data[actual] = program.store.data[decoy];
+            forged.store.in_place.take();
+            let error = FullVerifier::verify(&forged).expect_err(label);
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract", "{label}");
+        }
+    }
+
+    #[test]
+    fn instantiations_of_one_returned_callback_keep_their_own_signatures() {
+        let mut program = prepare("pure count_ints(first: Int, ...items: List[Int]) -> Int { first + items.len() }\n\
+pure join_texts(separator: Str, ...items: List[Str]) -> Str { items.join(separator) }\n\
+pure keep_rest(f, first, ...items) { let _ = f(first, @items); f }\n\
+let counter = keep_rest(count_ints, 1, 2, 3)\n\
+let joiner = keep_rest(join_texts, \"-\", \"x\", \"y\")\n\
+assert counter(10, 20, 30) == 12\n\
+assert joiner(\"+\", \"p\", \"q\") == \"p+q\"\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let references = program.store.tags.iter().enumerate().filter(|(_, tag)| **tag == FullTag::ExprFunctionRef).map(|(instruction, _)| instruction).collect::<Vec<_>>();
+        assert_eq!(references.len(), 2);
+        let mut swapped = program.clone();
+        swapped.store.data[references[0]] = program.store.data[references[1]];
+        swapped.store.data[references[1]] = program.store.data[references[0]];
+        swapped.store.in_place.take();
+        let error = FullVerifier::verify(&swapped).expect_err("each instantiation keeps its own callback");
+        assert!(error.message.contains("checked function reference identity disagrees with its producer"), "{error:?}");
+        assert_eq!(program.store.call_instantiations.len(), 2);
+        let mut exchanged = program.clone();
+        let (first, second) = (program.store.call_instantiations[0].arguments, program.store.call_instantiations[1].arguments);
+        exchanged.store.call_instantiations[0].arguments = second;
+        exchanged.store.call_instantiations[1].arguments = first;
+        exchanged.store.in_place.take();
+        let error = FullVerifier::verify(&exchanged).expect_err("each instantiation keeps its own types");
+        assert_eq!(error.message, "generic call argument does not match its checked parameter slot", "{error:?}");
+    }
+
+    #[test]
     fn managed_release_authenticates_driver_statement_purposes() {
         let mut program = prepare("tempdir site { let result = with root = fs.open_root(site)? { defer { let kept = 1 }; 3 }?; assert result == 3 }?\n");
         program.store.in_place.take();
