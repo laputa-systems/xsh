@@ -2269,6 +2269,8 @@ proc native_user(ctx: context.Context) [fs, process, env, error, io] -> Result[N
   stages.execute(stages.command("native-user-scratch", ctx.target.triple, "setpriv",
     ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--clear-groups", "/bin/mkdir", "-p", "-m", "700",
       scratch.display(), home.display(), temp.display()], ctx.root, {}))
+  stages.execute(stages.command("native-user-config-root", ctx.target.triple, "setpriv",
+    ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--clear-groups", "/bin/touch", fp"{scratch}/xsht-config.ini".display()], ctx.root, {}))
   NativeUser(uid: uid, gid: gid, home: home, temp: temp)
 }
 
