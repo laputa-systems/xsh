@@ -2,6 +2,7 @@ mod support;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use support::{budget, open, tar_with};
@@ -55,7 +56,7 @@ fn a_created_archive_is_never_visible_before_it_is_complete() {
     let out = base.path().join("out");
     fs::create_dir(&out).unwrap();
     let dest = out.join("pack.tar.gz");
-    let expected = FILES as u64 * (BODY as u64 + 512);
+    let visible_sizes = Mutex::new(Vec::new());
 
     let options = CreateOptions {
         format: Format::Tar,
@@ -66,7 +67,7 @@ fn a_created_archive_is_never_visible_before_it_is_complete() {
     observe(
         || {
             if let Ok(metadata) = fs::metadata(&dest) {
-                assert!(metadata.len() >= expected, "destination was visible with {} bytes", metadata.len());
+                visible_sizes.lock().unwrap().push(metadata.len());
             }
             for name in staging_names(&out) {
                 assert!(name == "pack.tar.gz" || name.starts_with(".xsh-archive-out-"), "{name}");
@@ -75,6 +76,10 @@ fn a_created_archive_is_never_visible_before_it_is_complete() {
         || create(&dest, &src, &[b".".to_vec()], &options, &budget()).unwrap(),
     );
     assert_eq!(staging_names(&out), ["pack.tar.gz"]);
+    let complete = fs::metadata(&dest).unwrap().len();
+    for size in visible_sizes.into_inner().unwrap() {
+        assert_eq!(size, complete, "destination was visible before it was complete");
+    }
 }
 
 #[test]
