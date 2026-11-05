@@ -286,6 +286,12 @@ fn channel_request_replies_are_not_queued_while_the_peer_does_not_read() {
 
 struct Endless;
 
+impl xsh_ssh::InputSource for Endless {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        None
+    }
+}
+
 impl Read for Endless {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         buffer.fill(7);
@@ -728,5 +734,78 @@ fn an_agent_that_drips_its_reply_cannot_hold_authentication_past_its_deadline() 
     let error = outcome.expect_err("deadline");
     assert!(matches!(error, Error::Timeout { certainty: Certainty::NotSubmitted }), "{error:?}");
     drop(connection);
+    peer.finish();
+}
+
+fn silent_stdin() -> (std::fs::File, std::path::PathBuf, tempfile::TempDir) {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let fifo = directory.path().join("stdin");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status().expect("mkfifo runs");
+    assert!(status.success(), "mkfifo failed");
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&fifo)
+        .expect("fifo opens without a writer");
+    (file, fifo, directory)
+}
+
+#[test]
+fn a_stdin_that_never_produces_does_not_defeat_the_command_deadline() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, _| {
+        thread::sleep(Duration::from_secs(4));
+        link.hangup();
+    });
+    let (stdin_file, _fifo, _directory) = silent_stdin();
+    let mut connection = peer.connect(TIMEOUT);
+    let started = Instant::now();
+    let outcome = within(Duration::from_secs(8), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdin_file: Some(stdin_file),
+                timeout: Some(Duration::from_millis(500)),
+                ..ExecOptions::default()
+            },
+        )
+    });
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    let error = outcome.expect_err("deadline");
+    assert!(matches!(error, Error::Timeout { certainty: Certainty::Submitted }), "{error:?}");
+}
+
+#[test]
+fn input_that_arrives_late_on_a_pipe_is_sent_when_it_arrives() {
+    let _guard = exclusive();
+    let (received, delivered) = mpsc::channel();
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        let frame = link.expect_reply(CHANNEL_DATA);
+        let _ = received.send(frame.string_at(4).to_vec());
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let (stdin_file, fifo, _directory) = silent_stdin();
+    let mut connection = peer.connect(TIMEOUT);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(400));
+        std::fs::write(&fifo, b"late").expect("writer");
+    });
+    let started = Instant::now();
+    let outcome = within(Duration::from_secs(8), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdin_file: Some(stdin_file),
+                timeout: Some(Duration::from_secs(6)),
+                ..ExecOptions::default()
+            },
+        )
+    });
+    assert_eq!(outcome.expect("exec").status, ExecStatus::Exited(0));
+    assert_eq!(delivered.recv_timeout(Duration::from_secs(1)).expect("data"), b"late");
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
     peer.finish();
 }

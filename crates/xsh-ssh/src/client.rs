@@ -12,7 +12,7 @@ use crate::error::Error;
 use crate::exec::{self, ExecOptions, ExecResult};
 use crate::host_key::{Fingerprint, HostTrust};
 use crate::kex::{self, Algorithms, Established};
-use crate::stream::{self, StreamOptions};
+use crate::stream::{self, InputSource, StreamOptions};
 use crate::wire::{Interrupt, Packet, SshReader, Transport, plain_text, put_string};
 
 /// When to start a new key exchange under the current keys.
@@ -199,7 +199,7 @@ impl Connection {
         &mut self,
         command: &str,
         options: &StreamOptions,
-        stdin: Option<&mut dyn std::io::Read>,
+        stdin: Option<&mut dyn InputSource>,
         stdout: &mut dyn std::io::Write,
         stderr: &mut dyn std::io::Write,
     ) -> Result<ExecResult, Error> {

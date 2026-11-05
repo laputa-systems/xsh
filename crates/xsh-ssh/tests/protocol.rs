@@ -265,6 +265,12 @@ fn a_silent_peer_hits_the_deadline_after_submission() {
 
 struct Endless;
 
+impl xsh_ssh::InputSource for Endless {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        None
+    }
+}
+
 impl Read for Endless {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         buffer.fill(7);

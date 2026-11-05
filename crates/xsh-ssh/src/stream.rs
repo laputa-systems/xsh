@@ -1,8 +1,11 @@
+use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::{AsFd, BorrowedFd};
 use std::time::Duration;
 
 use oxish_proto::{Encode, MessageType};
-use rustix::event::PollFlags;
+use rustix::event::{PollFd, PollFlags, poll};
+use rustix::time::Timespec;
 
 use crate::channel::{Channel, validate_environment};
 use crate::client::Connection;
@@ -33,8 +36,22 @@ impl std::fmt::Debug for StreamOptions {
     }
 }
 
+/// A source of command input. The client waits on its descriptor, so a source that can block
+/// without one would stall the connection, its deadline and its cancellation.
+pub trait InputSource: Read {
+    /// A descriptor that polls readable when the next read will not block, or `None` for a
+    /// source whose reads never block.
+    fn descriptor(&self) -> Option<BorrowedFd<'_>>;
+}
+
+impl InputSource for File {
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
+        Some(self.as_fd())
+    }
+}
+
 struct Input<'a> {
-    reader: Option<&'a mut dyn Read>,
+    reader: Option<&'a mut dyn InputSource>,
     buffer: Vec<u8>,
     position: usize,
     length: usize,
@@ -42,7 +59,7 @@ struct Input<'a> {
 }
 
 impl<'a> Input<'a> {
-    fn new(reader: Option<&'a mut dyn Read>) -> Self {
+    fn new(reader: Option<&'a mut dyn InputSource>) -> Self {
         let eof = reader.is_none();
         Self {
             reader,
@@ -55,6 +72,22 @@ impl<'a> Input<'a> {
 
     fn drained(&self) -> bool {
         self.position == self.length
+    }
+
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
+        self.reader.as_ref().and_then(|reader| reader.descriptor())
+    }
+
+    fn readable(&self) -> bool {
+        let Some(descriptor) = self.descriptor() else {
+            return true;
+        };
+        let mut polled = [PollFd::from_borrowed_fd(descriptor, PollFlags::IN)];
+        let immediately = Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        !matches!(poll(&mut polled, Some(&immediately)), Ok(0) | Err(_))
     }
 
     fn refill(&mut self) -> Result<(), Error> {
@@ -104,7 +137,7 @@ pub(crate) fn exec_stream(
     connection: &mut Connection,
     command: &str,
     options: &StreamOptions,
-    stdin: Option<&mut dyn Read>,
+    stdin: Option<&mut dyn InputSource>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExecResult, Error> {
@@ -130,7 +163,7 @@ fn run(
     connection: &mut Connection,
     command: &str,
     env: &[(String, String)],
-    stdin: Option<&mut dyn Read>,
+    stdin: Option<&mut dyn InputSource>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExecResult, Error> {
@@ -163,7 +196,12 @@ fn run(
         if flushed && feeding == Feed::OutputFull {
             continue;
         }
-        let events = connection.transport().wait(!flushed)?;
+        let waiting_for = if feeding == Feed::WaitingForInput {
+            input.descriptor()
+        } else {
+            None
+        };
+        let events = connection.transport().wait_with_input(!flushed, waiting_for)?;
         if events.contains(PollFlags::IN) || events.contains(PollFlags::HUP) {
             connection.transport().fill_nonblocking()?;
         }
@@ -180,6 +218,7 @@ fn run(
 enum Feed {
     Done,
     WaitingForWindow,
+    WaitingForInput,
     OutputFull,
 }
 
@@ -201,6 +240,9 @@ fn feed(
             }
             if channel.remote_window == 0 {
                 return Ok(Feed::WaitingForWindow);
+            }
+            if !input.readable() {
+                return Ok(Feed::WaitingForInput);
             }
             input.refill()?;
             continue;

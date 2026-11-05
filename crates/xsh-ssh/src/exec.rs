@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::client::Connection;
 use crate::error::Error;
-use crate::stream::{self, StreamOptions};
+use crate::stream::{self, InputSource, StreamOptions};
 use crate::wire::Interrupt;
 
 /// Bounded output capture limit for a single exec.
@@ -125,6 +125,16 @@ impl Read for Stdin<'_> {
         match self.tail.as_mut() {
             Some(tail) => tail.read(buffer),
             None => Ok(0),
+        }
+    }
+}
+
+impl InputSource for Stdin<'_> {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        if self.head.is_empty() {
+            self.tail.and_then(InputSource::descriptor)
+        } else {
+            None
         }
     }
 }
