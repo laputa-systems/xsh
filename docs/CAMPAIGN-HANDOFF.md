@@ -64,6 +64,18 @@ spawning `tail -f`. Neither receipt has credit. `master` now polls in that test
 (`ddf203804`); the frozen reference keeps its fixed sleeps, so its next replay
 must run on a quiet host.
 
+The third replay (`reference-replay-28e-r3`, fresh bootstrap, quiet host) passed
+every Rust suite and all 14,482 native tests, then failed `batch-check`:
+whole-tree `xsht check` rejected four erased witnesses under
+`dev/performance/corpus/witnesses/` that record where inference stops. No
+receipt has credit. Master had the same defect for the two constructor probes
+since `13f4adf69`; `f773c3294` excludes them. Reference-only `68c37679a`
+excludes all four (tree `2ee3bd229ff77974eaf1e205052c422c0e005509`); its check,
+lint, diff, and ratchet stages pass locally, and a fresh bootstrap and replay
+are running. Master's `batch-lint` still fails: since `53e296282` every lint
+warning fails the run, and master has 2,415. The 63 shadowing errors are fixed
+in `0131d3445`.
+
 Ghostty's font-filtered tests now pass inside the composed Laputa runtime:
 206 pass, 13 skip, zero fail. The skips include existing disabled complex-script
 cases, other platform backends, and unavailable font-specific fixtures. Laputa's
