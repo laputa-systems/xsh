@@ -285,6 +285,7 @@ pub enum RuntimeOp {
     FsRootChmod,
     FsRootRename,
     FsRootFsync,
+    FsRootExtract,
     FsRootInstallFile,
     FsCopy,
     FsCopyTree,

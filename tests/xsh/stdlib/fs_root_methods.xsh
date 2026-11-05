@@ -277,3 +277,21 @@ test fs_root_fsync_flushes_files_and_directories_but_not_links { |ctx|
   assert root.fsync(p"link") is Err(_)
   assert root.fsync(p"missing") is Err(_)
 }
+
+test fs_root_extract_stays_beneath_the_retained_root { |ctx|
+  let base = test.temp_dir(ctx, name: "root-extract")?
+  let src = fp"{base}/src"
+  fp"{src}/dir".mkdir()
+  fp"{src}/dir/a.txt".write("alpha")
+  let tarball = fp"{base}/pkg.tar"
+  archive.create(tarball, src, [p"."], .Tar)?
+  fp"{base}/root".mkdir()
+  fp"{base}/outside".mkdir()
+  fp"{base}/outside/sentinel".write("sentinel")
+  let root = fs.open_root(fp"{base}/root")?
+  root.extract(tarball, p"gen/1", .Tar)?
+  assert root.read_text(p"gen/1/dir/a.txt")? == "alpha"
+  assert root.extract(tarball, p"gen/1", .Tar) is Err(ArchiveError.Collision {..})
+  assert root.extract(tarball, p"gen/1/dir/a.txt", .Tar) is Err(_)
+  assert fp"{base}/outside/sentinel".read_text()? == "sentinel"
+}

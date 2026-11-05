@@ -776,6 +776,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.chmod(path: RelPath, mode: Int) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.close() -> Result[Unit, Error]` — Closes an owned rooted filesystem capability.
 - `FsRoot.exists(path: RelPath) -> Result[Bool, Error]` — Inspects a path below a rooted filesystem capability.
+- `FsRoot.extract(source: Union[Path, Bytes, Stream[Bytes]], dest: RelPath, format: archive.Format, compression: archive.Compression = default, members: List[Path] = default, strip_components: UInt = default, collision: archive.Collision = default, links: archive.Links = default, special: archive.Special = default, modes: archive.Modes = default, ownership: archive.Ownership = default, max_output: UInt? = default, max_entry: UInt? = default, max_entries: UInt? = default) -> Result[Unit, ArchiveError]` — Extracts an archive into a destination below a retained filesystem root.
 - `FsRoot.filesystem_stats(path: RelPath) -> Result[{available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}, Error]` — Reads exact filesystem capacity counters below a rooted directory capability.
 - `FsRoot.fsync(path: RelPath) -> Result[Unit, Error]` — Flushes a file or directory below a rooted filesystem capability to stable storage.
 - `FsRoot.host_path() -> Result[Path, Error]` — Returns the host path represented by a rooted filesystem capability.

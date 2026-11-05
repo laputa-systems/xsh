@@ -7,7 +7,12 @@ use super::{
     fs_root_type, labeled_param, net_response_type, param, regex_match_type, result,
     sig_with_arg_check,
 };
+use crate::enums::{
+    ARCHIVE_COLLISION, ARCHIVE_COMPRESSION, ARCHIVE_FORMAT, ARCHIVE_LINKS, ARCHIVE_MODES,
+    ARCHIVE_OWNERSHIP, ARCHIVE_SPECIAL,
+};
 use crate::types::BuiltinTypeParameter;
+use super::modules::{archive_enum, archive_result, archive_source_type};
 
 pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
     let mut receivers = vec![
@@ -1257,6 +1262,28 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     result(Type::Unit),
                     false,
                     RuntimeOp::FsRootFsync,
+                ),
+                method(
+                    "extract",
+                    vec![
+                        param("source", archive_source_type()),
+                        param("dest", Type::RelPath),
+                        param("format", archive_enum(ARCHIVE_FORMAT)),
+                        default_param("compression", archive_enum(ARCHIVE_COMPRESSION)),
+                        default_param("members", Type::List(Box::new(Type::Path))),
+                        default_param("strip_components", Type::UInt),
+                        default_param("collision", archive_enum(ARCHIVE_COLLISION)),
+                        default_param("links", archive_enum(ARCHIVE_LINKS)),
+                        default_param("special", archive_enum(ARCHIVE_SPECIAL)),
+                        default_param("modes", archive_enum(ARCHIVE_MODES)),
+                        default_param("ownership", archive_enum(ARCHIVE_OWNERSHIP)),
+                        default_param("max_output", Type::Optional(Box::new(Type::UInt))),
+                        default_param("max_entry", Type::Optional(Box::new(Type::UInt))),
+                        default_param("max_entries", Type::Optional(Box::new(Type::UInt))),
+                    ],
+                    archive_result(Type::Unit),
+                    false,
+                    RuntimeOp::FsRootExtract,
                 ),
             ]),
         },

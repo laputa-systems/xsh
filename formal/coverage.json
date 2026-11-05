@@ -1964,6 +1964,7 @@
         "FsRootChmod",
         "FsRootRename",
         "FsRootFsync",
+        "FsRootExtract",
         "FsRootInstallFile",
         "FsCopy",
         "FsCopyTree",

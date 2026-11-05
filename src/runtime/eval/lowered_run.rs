@@ -4553,6 +4553,7 @@ impl Evaluator {
                 }
             }
             callable; RuntimeOp::ArchiveList if (2..=7).contains(&values.len()) => self.eval_lowered_archive_list(values, span)?,
+            callable; RuntimeOp::FsRootExtract if (4..=15).contains(&values.len()) => self.eval_lowered_fs_root_extract(values, span)?,
             callable; RuntimeOp::ArchiveExtract if (3..=14).contains(&values.len()) => self.eval_lowered_archive_extract(values, span)?,
             callable; RuntimeOp::ArchiveCreate if (4..=7).contains(&values.len()) => self.eval_lowered_archive_create(values, span)?,
             callable; RuntimeOp::ArchiveCompress if (2..=5).contains(&values.len()) => self.eval_lowered_archive_compress(values, span)?,

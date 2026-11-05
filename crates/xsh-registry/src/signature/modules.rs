@@ -317,7 +317,7 @@ fn applet_module() -> ModuleSig {
     ])
 }
 
-fn archive_source_type() -> Type {
+pub(in crate::signature) fn archive_source_type() -> Type {
     Type::Union(vec![
         Type::Path,
         Type::Bytes,
@@ -325,11 +325,11 @@ fn archive_source_type() -> Type {
     ])
 }
 
-fn archive_result(ok: Type) -> Type {
+pub(in crate::signature) fn archive_result(ok: Type) -> Type {
     Type::Result(Box::new(ok), Box::new(Type::ErrorFamily("ArchiveError")))
 }
 
-fn archive_enum(name: &'static str) -> Type {
+pub(in crate::signature) fn archive_enum(name: &'static str) -> Type {
     Type::Enum(name)
 }
 
