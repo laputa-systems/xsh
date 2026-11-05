@@ -175,8 +175,8 @@ does not close the corpus or mutation obligations.
 
 ## Campaign close
 
-The general-inference campaign closed on `73b59f11d`. The open residuals are
-XSH-65 and XSH-66; later repairs closed XSH-61, XSH-62, XSH-63, XSH-64 and XSH-67.
+The general-inference campaign closed on `73b59f11d`. The open residual is
+XSH-66; later repairs closed XSH-61, XSH-62, XSH-63, XSH-64, XSH-65 and XSH-67.
 
 **Integrated acceptance.** Native suite 4,729 passed, 0 failed, 34 skipped
 (verification build, 32 jobs). Gates `test-sema-unit` 959, `test-sema` 55,
@@ -188,7 +188,9 @@ run.
 
 **Core parameter view.** The private core parameter view (250 files, 4,677
 sites, Btop excluded) passes 4,670 sites alone after the later repairs (`namei`
-`path_entries.parent` and `arp` `show.options` now erase). The per-file joint
+`path_entries.parent` and `arp` `show.options` now erase). XSH-65 added
+`expr` `parse_branch.state`, which erases with all 182 expr native tests
+unchanged; the site counts were not remeasured. The per-file joint
 view of each file's passing sites passes in 246 of 250 files (4,398 sites);
 `iw`, `lsipc`, `mdev` and `pstree` fail jointly. Each passes once one retained
 annotation below is kept. Btop's 39 sites remain unmeasured.

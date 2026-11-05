@@ -232,31 +232,6 @@ out of scope.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
 
-### XSH-65 · P4 · Find the missing executable type in expr's erased branch parser
-
-- **Area:** Inference
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs` (`slot_context_type_for_binding`, `StmtView::Let` arm), `core/expr.xsh:547`
-- **Problem:** Erasing `parse_branch.state` fails with `ground producer form has no executable type proof: ExprBinary`. This 17-line reduction fails with `ground producer operand has no checked contract`; removing the loop, the reassignment or the `alt(st)` call makes it pass. That it shares the real site's cause is unconfirmed.
-  ```
-  type Parsed = {code: List[Int], at: Int}
-  pure branch(state) -> Parsed {
-    var st = {...state, code: []}
-    let inner = alt(st)
-    loop {
-      break when st.at >= 3
-      st = {...st, at: 1}
-    }
-    st
-  }
-  pure alt(state: Parsed) -> Parsed { branch(state) }
-  print alt({code: [], at: 0}).at
-  ```
-- **Hypothesis:** `st` has two writers, so the binding falls through to `decoder.checked_slot_type(slot)`, which is absent or contains `Any` when the spread source is an erased row-typed parameter; `st.at` then has no type. `inductive_storage_type` already registers the initial type for scalars, `Bytes` and `Str`; a closed record from a spread may need the same, provided every writer's type is proven equal.
-- **Recommendation:** Confirm what `checked_slot_type` returns for `st`, repair at that boundary, and add an annotated/erased native twin plus a forged-IR test.
-- **Acceptance:** The reduction and the real site check, lower and run; `core/tests/test-expr*.xsh` agree on the erased copy; forged IR with a disagreeing writer type is rejected.
-- **Fix with:** root-cause
-- **Effort:** M
-
 ### XSH-66 · P3 · Compare practical joint views and close erased sort's CPU gap
 
 - **Area:** Inference performance
