@@ -5600,9 +5600,12 @@ fn annotated_local_argument_type(
         };
         return Ok(empty.then_some(annotation));
     }
-    if !matches!(annotation.unvalidated(), Type::Optional(payload) if matches!(payload.as_ref(), Type::Record(_)))
-        || store.tags.get(initializer) != Some(&FullTag::ExprRecord)
-    {
+    let records = match annotation.unvalidated() {
+        Type::Record(_) => true,
+        Type::Optional(payload) => matches!(payload.as_ref(), Type::Record(_)),
+        _ => false,
+    };
+    if !records || store.tags.get(initializer) != Some(&FullTag::ExprRecord) {
         return Ok(None);
     }
     Ok(Some(annotation))

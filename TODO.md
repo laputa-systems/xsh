@@ -232,26 +232,6 @@ out of scope.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
 
-### XSH-61 · P3 · Type a deferred optional assignment inside a record literal
-
-- **Area:** Inference
-- **Where:** `src/sema/`, `src/runtime/eval/indexed/full/verify_schemes/`, `core/wget.xsh:168`, `core/cpio.xsh:1490`
-- **Problem:** `let options: Options = {output: value, tries: 1}` over an unresolved `value` followed by `number(value)` depends on statement order. The assignment to the `Str?` field is deferred, but the literal keeps the field type `value`, and the comparison with `Options` unifies it with `Str?`. Typing the field by the optional it is stored into repairs both sites but regresses `find:205`, `numfmt:1551`, `route:313`, `smartctl:190`, `wc:381` and the `wget` joint view with `generic body expression disagrees with its checked type`: the verifier compares each record field expression with the literal's field type and has no coercion site for a deferred optional assignment.
-- **Recommendation:** Add that coercion site to the verifier with forged-IR tests, or defer per field in the record-to-schema comparison. Pair each repair with an annotated twin.
-- **Acceptance:** Both sites erase alone and in the `wget` and `cpio` joint views; the six regressed sites still pass; forged-IR tests reject an unproved optional coercion.
-- **Fix with:** root-cause
-- **Effort:** M
-
-### XSH-67 · P3 · Close an empty list literal field passed to a generic proc
-
-- **Area:** Inference
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes.rs`, `src/sema/`
-- **Problem:** An annotated record literal whose field is `files: []`, passed to a generic proc, fails the verifier with `generic call argument has no closed checked type`: the empty list's element type comes only from the record's annotation, and the call argument evidence does not close it. Found while reducing the `patch` joint view; the reproducer there avoids it.
-- **Recommendation:** Reduce to a native test, then close the argument's checked type from the annotated record field before call verification, keeping the verifier's independent check.
-- **Acceptance:** The reduced program checks, lowers and runs; forged-IR coverage still rejects an argument whose element type disagrees with the field.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-65 · P4 · Find the missing executable type in expr's erased branch parser
 
 - **Area:** Inference

@@ -17,6 +17,7 @@ pub(super) struct LocalInference {
     aggregate_scopes: Vec<AggregateSeedScope>,
     fixed_storage_checks: Vec<FixedStorageCheck>,
     pipeline_key_checks: Vec<PipelineKeyCheck>,
+    record_field_deferrals: Vec<RecordFieldDeferral>,
     pub(super) conversions: Vec<super::conversion::PendingConversion>,
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
@@ -54,10 +55,18 @@ struct PipelineKeyCheck {
     contribution: Span,
 }
 
+#[derive(Clone)]
+struct RecordFieldDeferral {
+    expected: Type,
+    actual: Type,
+    contribution: Span,
+}
+
 pub(super) struct LocalBodyConstraints {
     collecting: bool,
     fixed_storage_start: usize,
     pipeline_key_start: usize,
+    record_field_deferral_start: usize,
     conversion_start: usize,
 }
 
@@ -119,6 +128,7 @@ impl LocalInference {
                 && other.aggregate_scopes.is_empty()
                 && other.fixed_storage_checks.is_empty()
                 && other.pipeline_key_checks.is_empty()
+                && other.record_field_deferrals.is_empty()
                 && other.conversions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
@@ -424,6 +434,7 @@ impl Checker {
             collecting: self.local_inference.collecting,
             fixed_storage_start: self.local_inference.fixed_storage_checks.len(),
             pipeline_key_start: self.local_inference.pipeline_key_checks.len(),
+            record_field_deferral_start: self.local_inference.record_field_deferrals.len(),
             conversion_start: self.local_inference.conversions.len(),
         };
         self.local_inference.collecting = true;
@@ -471,12 +482,23 @@ impl Checker {
             assert_eq!(check.owner, self.stream_origin_owner);
             self.validate_pipeline_key_domain(check.scope, check.domain, &check.subject, check.contribution);
         }
+        let deferrals = self.local_inference.record_field_deferrals.drain(enclosing.record_field_deferral_start..).collect::<Vec<_>>();
+        for deferral in deferrals {
+            if !matches!(self.type_constraints.resolve(&deferral.actual), Ok(Type::Inference(_))) { continue; }
+            if let Err(conflict) = self.type_constraints.constrain_context(&deferral.expected, &deferral.actual, deferral.contribution) {
+                self.report_inferred_type_conflict(conflict);
+            }
+        }
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         match self.type_constraints.source_list_from_end_indexes(owner) {
             Ok(indexes) => self.from_end_indexes.extend(indexes),
             Err(error) => self.error(body, &format!("literal index modes cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference),
         }
         self.local_inference.collecting = enclosing.collecting;
+    }
+
+    pub(super) fn defer_record_field_to_body_end(&mut self, expected: &Type, actual: &Type, contribution: Span) {
+        self.local_inference.record_field_deferrals.push(RecordFieldDeferral { expected: expected.clone(), actual: actual.clone(), contribution });
     }
 
     pub(super) fn defer_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, subject: &Type, contribution: Span) -> bool {
