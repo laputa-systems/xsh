@@ -1,4 +1,6 @@
-use std::fs;
+use std::fs::{File, OpenOptions};
+use std::io::Read;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -16,15 +18,14 @@ use crate::host_key::Fingerprint;
 use crate::wire::{SshReader, Transport, plain_text, put_string};
 
 const SERVICE_USERAUTH: &str = "ssh-userauth";
+const MAX_KEY_FILE_BYTES: u64 = 64 * 1024;
 
 /// Load an unencrypted Ed25519 key from an OpenSSH private-key file.
 pub fn load_key(
     path: &Path,
     provider: &dyn CryptoProvider,
 ) -> Result<Box<dyn SigningKey>, Error> {
-    let text = Zeroizing::new(fs::read_to_string(path).map_err(|error| Error::KeyFile {
-        detail: format!("cannot read {}: {error}", path.display()),
-    })?);
+    let text = read_key_file(path)?;
     if is_encrypted(&text) {
         return Err(Error::EncryptedKey);
     }
@@ -48,6 +49,43 @@ pub fn load_key(
         });
     }
     Ok(key)
+}
+
+fn read_key_file(path: &Path) -> Result<Zeroizing<String>, Error> {
+    let refuse = |detail: String| Error::KeyFile {
+        detail: format!("{}: {detail}", path.display()),
+    };
+    let file: File = OpenOptions::new()
+        .read(true)
+        .custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32)
+        .open(path)
+        .map_err(|error| refuse(format!("cannot read: {error}")))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| refuse(format!("cannot read: {error}")))?;
+    if !metadata.is_file() {
+        return Err(refuse("not a regular file".to_owned()));
+    }
+    if metadata.uid() == rustix::process::getuid().as_raw() && metadata.mode() & 0o077 != 0 {
+        return Err(refuse(format!(
+            "permissions {:04o} are too open; a private key must not be accessible by group or others",
+            metadata.mode() & 0o7777
+        )));
+    }
+    if metadata.len() > MAX_KEY_FILE_BYTES {
+        return Err(refuse(format!("larger than {MAX_KEY_FILE_BYTES} bytes")));
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    file.take(MAX_KEY_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| refuse(format!("cannot read: {error}")))?;
+    if bytes.len() as u64 > MAX_KEY_FILE_BYTES {
+        return Err(refuse(format!("larger than {MAX_KEY_FILE_BYTES} bytes")));
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| refuse("not text".to_owned()))?
+        .to_owned();
+    Ok(Zeroizing::new(text))
 }
 
 fn is_encrypted(text: &str) -> bool {

@@ -64,3 +64,55 @@ fn a_service_accept_for_another_service_is_refused() {
     drop(connection);
     peer.finish();
 }
+
+fn authenticate_with_key_at(prepare: impl FnOnce(&std::path::Path)) -> Result<(), Error> {
+    let peer = spawn(Behavior::default(), |link| link.linger());
+    prepare(&peer.key);
+    let mut connection = Connection::connect(&peer.config(TIMEOUT)).expect("connect");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let outcome = connection.authenticate();
+        let _ = sender.send(outcome);
+    });
+    let outcome = receiver
+        .recv_timeout(Duration::from_secs(3))
+        .expect("authentication returns instead of blocking on the key file");
+    drop(peer);
+    outcome
+}
+
+fn key_file_failure(outcome: Result<(), Error>) -> String {
+    match outcome {
+        Err(Error::KeyFile { detail }) => detail,
+        other => panic!("expected a key file failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_private_key_readable_by_others_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    for mode in [0o640, 0o604, 0o644, 0o660] {
+        let detail = key_file_failure(authenticate_with_key_at(|path| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).expect("chmod");
+        }));
+        assert!(detail.contains("too open"), "{mode:o}: {detail}");
+    }
+}
+
+#[test]
+fn a_fifo_at_the_key_path_is_refused_without_blocking() {
+    let detail = key_file_failure(authenticate_with_key_at(|path| {
+        std::fs::remove_file(path).expect("remove key");
+        let status = std::process::Command::new("mkfifo").arg(path).status().expect("mkfifo");
+        assert!(status.success());
+    }));
+    assert!(detail.contains("not a regular file"), "{detail}");
+}
+
+#[test]
+fn a_key_file_past_the_size_bound_is_refused() {
+    let detail = key_file_failure(authenticate_with_key_at(|path| {
+        std::fs::write(path, vec![b'a'; 1 << 20]).expect("write");
+    }));
+    assert!(detail.contains("larger than"), "{detail}");
+}
