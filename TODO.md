@@ -138,16 +138,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-75 · P3 · Authenticate forged return values and diverging generic `with` bodies
-
-- **Area:** Verifier
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes/body.rs`, `src/runtime/eval/lower/control.rs` (`Generalized` scope lowering)
-- **Problem:** While fixing a diverging `with` body, a forged IR that replaced an `FsLock` return value with a `Bool` was accepted by the verifier in a resource-scope fixture. Separately, scope bodies in generic callables still lower with the dead `finished`/capture continuation, so a generic proc whose `with` body returns on every path may still fail with `ground producer value disagrees with its checked contract`.
-- **Recommendation:** Reduce the forged-return acceptance to a body test and find which check should bind a `StmtReturn` value to the callable's result contract. Write a generic-callable native test for the diverging `with` and give the generalized path the same diverging shape if it fails.
-- **Acceptance:** The forged return is rejected with a specific error; the generic diverging `with` checks and runs, or is shown to work already by a kept test.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
 - **Area:** Performance

@@ -101,6 +101,48 @@ test test_with_body_that_returns_on_every_path_leaves_no_continuation { |ctx|
   assert returns_on_each_branch(dir, false)? == 2
 }
 
+proc generic_returns_through_scope(root_path: Path, value) [fs, error] {
+  with root = fs.open_root(root_path)? {
+    return value
+  }
+}
+
+proc generic_returns_on_each_branch(root_path: Path, first: Bool, left, right) [fs, error] {
+  with root = fs.open_root(root_path)? {
+    if first {
+      return left
+    } else {
+      return right
+    }
+  }
+}
+
+proc generic_returns_the_held_lock(lock_path: Path, marker) [fs, error] -> Result[FsLock, Error] {
+  let _ = marker
+  with held = fs.lock(lock_path)? {
+    return held
+  }
+}
+
+proc generic_returns_a_declared_count(root_path: Path, marker, count: Int) [fs, error] -> Result[Int, Error] {
+  let _ = marker
+  with root = fs.open_root(root_path)? {
+    return count
+  }
+}
+
+test test_generic_with_body_that_returns_on_every_path_leaves_no_continuation { |ctx|
+  let dir = test.temp_dir(ctx, name: "with-generic-diverges")?
+  assert generic_returns_through_scope(dir, 7)? == 7
+  assert generic_returns_through_scope(dir, "text")? == "text"
+  assert generic_returns_on_each_branch(dir, true, 1, 2)? == 1
+  assert generic_returns_on_each_branch(dir, false, "a", "b")? == "b"
+  let lock = generic_returns_the_held_lock(fp"{dir}/lock", "marker")?
+  assert was_released(lock)
+  assert lock_available(fp"{dir}/lock")
+  assert generic_returns_a_declared_count(dir, true, 5)? == 5
+}
+
 test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   let dir = test.temp_dir(ctx, name: "with-several")?
   fp"{dir}/inner".mkdir()

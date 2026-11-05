@@ -2652,6 +2652,32 @@ pure make() -> Map[List[Int]] {
     }
 
     #[test]
+    fn forged_return_values_are_bound_to_the_result_contract() {
+        let scoped = "proc choose(root: FsRoot, decoy: Bool) [fs] -> FsRoot { let _ = decoy; let ignored = with held = root { return held } }\n";
+        let plain = "proc choose(root: FsRoot, decoy: Bool) [fs] -> FsRoot { let _ = decoy; return root }\n\
+            proc consume(root: FsRoot) [fs, error] { let kept = choose(root, true); kept.close()? }\n";
+        for (label, source) in [("a return inside a resource scope", scoped), ("a plain return", plain)] {
+            let mut program = prepare(source);
+            program.store.in_place.take();
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let range = decoder.instruction_range.clone();
+            let returned = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtReturn).unwrap();
+            let schema::StmtView::Return { value: actual } = decoder.statement_view(returned).unwrap() else { unreachable!() };
+            let actual = actual.raw() as usize;
+            let decoy = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags[actual] = program.store.tags[decoy];
+            forged.store.data[actual] = program.store.data[decoy];
+            forged.store.in_place.take();
+            let error = FullVerifier::verify(&forged).expect_err(label);
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract", "{label}");
+        }
+    }
+
+    #[test]
     fn managed_release_authenticates_driver_statement_purposes() {
         let mut program = prepare("tempdir site { let result = with root = fs.open_root(site)? { defer { let kept = 1 }; 3 }?; assert result == 3 }?\n");
         program.store.in_place.take();

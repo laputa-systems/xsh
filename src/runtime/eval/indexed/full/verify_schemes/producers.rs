@@ -2503,9 +2503,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
     }
     for (index, function) in store.functions.iter().enumerate() {
         proof.budget.charge(1)?;
-        if matches!(function.contract, FullCallableContract::Ground(_))
-            && store.function_metadata.get(index).is_some_and(|metadata| metadata.callable_kind == CallableKind::Stream)
-        {
+        if matches!(function.contract, FullCallableContract::Ground(_)) {
             proof.budget.charge(2)?;
             proof.ground_function(index)?;
         }
@@ -4367,6 +4365,26 @@ impl<'a> ProducerProof<'a> {
         Ok(self.producer_targets(owner, instruction, ProducerTargetPurpose::Callable, Vec::new())?.functions)
     }
 
+    fn scheme_callable_functions(&mut self, id: crate::sema::types::SchemeCallableId) -> Result<BTreeSet<usize>, IrVerifyError> {
+        let relationship = self.store.semantic.scheme_callable_index(id)?;
+        let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable producer relationship is out of bounds"))?;
+        let range = relationship.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("scheme callable producer target range is invalid"))?;
+        self.budget.charge(range.len())?;
+        Ok(self.store.scheme_callable_targets[range].iter().map(|target| target.function.index()).collect())
+    }
+
+    fn verify_scheme_callable_returns(&mut self, owner: u32, returns: &[usize], id: crate::sema::types::SchemeCallableId) -> Result<(), IrVerifyError> {
+        let expected = self.scheme_callable_functions(id)?;
+        let decoder = self.owner(owner)?;
+        let mut actual = ProducerTargets::default();
+        for &returned in returns {
+            let schema::StmtView::Return { value } = decoder.statement_view(returned)? else { unreachable!("ground producer return index contains a non-return") };
+            actual.absorb(&self.producer_targets(owner, value.raw() as usize, ProducerTargetPurpose::Callable, Vec::new())?);
+        }
+        if actual.opaque || !actual.parameters.is_empty() || actual.functions != expected { return Err(IrVerifyError::new("scheme callable relationship disagrees with its exact physical producers")); }
+        Ok(())
+    }
+
     fn producer_targets(&mut self, owner: u32, instruction: usize, purpose: ProducerTargetPurpose, projection: Vec<FunctionProjection>) -> Result<ProducerTargets, IrVerifyError> {
         let mut summaries = StreamSummaries::default();
         let result = self.producer_target_walk(owner, instruction, purpose, projection.clone(), &mut summaries, None)?;
@@ -5249,7 +5267,12 @@ impl<'a> ProducerProof<'a> {
                             self.verify_stream_yields(index, &decoder, expected)?;
                             continue;
                         }
-                        for returned in self.index.owners[&owner].header_returns().copied().collect::<Vec<_>>() {
+                        let returns = self.index.owners[&owner].header_returns().copied().collect::<Vec<_>>();
+                        if let Type::SchemeCallable(id) = expected.as_ref() {
+                            self.verify_scheme_callable_returns(owner, &returns, *id)?;
+                            continue;
+                        }
+                        for returned in returns {
                             let schema::StmtView::Return { value } = decoder.statement_view(returned)? else { unreachable!("ground producer return index contains a non-return") };
                             self.expression(owner, value.raw() as usize, Arc::clone(&expected), true);
                         }
@@ -5387,11 +5410,7 @@ impl<'a> ProducerProof<'a> {
             return Ok(());
         }
         if let Type::SchemeCallable(id) = expected.as_ref() {
-            let relationship = self.store.semantic.scheme_callable_index(*id)?;
-            let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable producer relationship is out of bounds"))?;
-            let range = relationship.targets.bounds(self.store.scheme_callable_targets.len()).ok_or_else(|| IrVerifyError::new("scheme callable producer target range is invalid"))?;
-            self.budget.charge(range.len())?;
-            let expected = self.store.scheme_callable_targets[range].iter().map(|target| target.function.index()).collect::<BTreeSet<_>>();
+            let expected = self.scheme_callable_functions(*id)?;
             let actual = self.producer_targets(owner, instruction, ProducerTargetPurpose::Callable, Vec::new())?;
             if actual.opaque || !actual.parameters.is_empty() || actual.functions != expected { return Err(IrVerifyError::new("scheme callable relationship disagrees with its exact physical producers")); }
             return Ok(());
