@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 71
+Next: 72
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -105,6 +105,16 @@ out of scope.
 - **Problem:** In `with session = ssh.connect(options)? { return session }` followed by `fail "..."`, `lint.dead-code` reports the `fail` as unreachable, but deleting it makes `xsht check` fail with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`; binding the `with` result and returning it is still flagged dead. The lint and the lowering disagree on whether control can leave the `with` block, so one of them is wrong. `tests/xsh/ssh-connect.xsh` is excluded from `dead-code` until this is settled.
 - **Recommendation:** Decide from the SPEC whether a `with` body that returns on every path makes the block's end unreachable. Fix the side that disagrees, reduce the case to a native test, and remove the exclusion.
 - **Acceptance:** The reduced program checks with the trailing statement removed, or the lint stops reporting it; the `ssh-connect.xsh` exclusion is gone.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-71 · P3 · Close an annotated open-spread argument passed to a generic proc
+
+- **Area:** Inference
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes.rs` (generic call argument closure), `src/sema/check/local_inference.rs`
+- **Problem:** With `pure same(value) { value }`, the annotated `pure width(state: Parsed) -> Int { let reset = same({...state, code: []}); show(reset) }` fails with `generic call argument has no closed checked type`, on the binary before and after the XSH-65 repair. The erased form of the same function checks, so the defect is specific to an annotated spread built in argument position.
+- **Recommendation:** Reduce to a native test, then close the argument's type from the annotated spread source before generic call verification, as XSH-67 did for annotated record locals.
+- **Acceptance:** The annotated and erased forms both check, lower and run; forged IR with a disagreeing element type is rejected.
 - **Fix with:** root-cause
 - **Effort:** S
 
