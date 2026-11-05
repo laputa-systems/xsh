@@ -72,7 +72,15 @@ effect bounds, translation validation, and whole-machine correspondence remain o
 The connected machine has conditional initialization, progress, step and
 execution preservation proofs. Their premises include grounded function bodies,
 storage and function-table certificates; deriving those premises from admitted
-source and published Rust facts remains open in general. For the scoped
+source and published Rust facts remains open in general. The call side is
+derived: Lean computes the invoked declaration, type arguments, instantiated
+parameter and result types, and integer or Bool literal arguments from the
+admitted source and the decoded call and body facts, and proves the invocation
+machine typed with integer-only faults and safe progress for any function entry
+carrying the published scheme with a certified body. The scoped fixture's
+derived machine equals its earlier hand-written one, and forged arguments,
+instantiations, roles, sites, targets and indices are rejected. The body
+candidate, store certificate and function-table entry remain hand-written. For the scoped
 mutable-local fixture, its actual published Int call grounds the checked body
 and closes its storage tag. Its source-selected literal argument initializes a
 typed invocation whose finite model executions preserve typing, exclude internal

@@ -42,6 +42,10 @@ and 3.9 KB still failed con-leche, so the original certified documents are
 2.4 KB and 3.9 KB. A certificate that evaluates a string literal or repeats a document
 decode can pass the bundled kernel and still exceed the cap.
 
+The connected call certificate for the scoped fixture is derived from admitted
+source and the decoded Rust call fact rather than written by hand; the body,
+store and function-table certificates are still hand-written fixture data.
+
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
 requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements))
@@ -49,7 +53,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 980
+**State:** `formal/coverage.json` is the only inventory. It lists 992
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -480,7 +484,7 @@ limits on the specified host.
 
 ### Connected milestone (successor Phase F)
 
-The in-progress connected path checks independently generated qualified schemes and supported function bodies for every well-sorted solution of their requirements. Acceptance also requires an explicit ground solution, so inconsistent residual field requirements cannot certify an uncalled body. A test-only Rust export supplies a generic projection scheme, its sparse expression facts, selected field operation, call instantiation, and source-scoped function identities; Lean checks its captured bytes and rejects mutations, including a concrete type substituted for a symbolic one. A second certificate checks captured scoped mutable-storage facts. A partial raw-assignment check connects a decoded StoreValue ordinal and statement location to these scoped facts; a further comparison reconstructs supported scalar, read, binary, record, projection, and conditional replacements, including the let-bound temporary blocks scheme lowering emits, from the raw rows and checked node. The binder-to-slot map is no longer supplied: parameters take their positional slots, and each source local takes the slot of the StmtLet row that a test-only Rust export claims for its declaration site, accepted only when that row lies in the function's statement blocks, its captured fact has the local's mutability, its initializer resolved through the function's single-assignment temporaries equals the source initializer, and binders and slots are injective. The claim table, the parameter slot convention, and the fact kinds come from the Rust export and the lowerer, not from Lean. Locals with structurally equal initializers are distinguished only by the uses a check covers. Unsupported initializer forms, annotated or destructuring declarations, global captures, the name map's equivalence with the Rust parser, unsupported RHS forms, transfer marks, and execution simulation remain open. The parser projection is limited to the supported source subset and is not yet proved equivalent to Rust parsing. Conditional connected-machine initialization, progress, step preservation and finite-execution preservation are proved from grounded body, store and function-table certificates; deriving those certificates from accepted source and the selected Rust call remains open in general. General effects, complete structural raw-IR validation, execution observations, and fault blame also remain open. This work has not received a new source freeze or the final fresh conformance and kernel checks.
+The in-progress connected path checks independently generated qualified schemes and supported function bodies for every well-sorted solution of their requirements. Acceptance also requires an explicit ground solution, so inconsistent residual field requirements cannot certify an uncalled body. A test-only Rust export supplies a generic projection scheme, its sparse expression facts, selected field operation, call instantiation, and source-scoped function identities; Lean checks its captured bytes and rejects mutations, including a concrete type substituted for a symbolic one. A second certificate checks captured scoped mutable-storage facts. A partial raw-assignment check connects a decoded StoreValue ordinal and statement location to these scoped facts; a further comparison reconstructs supported scalar, read, binary, record, projection, and conditional replacements, including the let-bound temporary blocks scheme lowering emits, from the raw rows and checked node. The binder-to-slot map is no longer supplied: parameters take their positional slots, and each source local takes the slot of the StmtLet row that a test-only Rust export claims for its declaration site, accepted only when that row lies in the function's statement blocks, its captured fact has the local's mutability, its initializer resolved through the function's single-assignment temporaries equals the source initializer, and binders and slots are injective. The claim table, the parameter slot convention, and the fact kinds come from the Rust export and the lowerer, not from Lean. Locals with structurally equal initializers are distinguished only by the uses a check covers. Unsupported initializer forms, annotated or destructuring declarations, global captures, the name map's equivalence with the Rust parser, unsupported RHS forms, transfer marks, and execution simulation remain open. The parser projection is limited to the supported source subset and is not yet proved equivalent to Rust parsing. Conditional connected-machine initialization, progress, step preservation and finite-execution preservation are proved from grounded body, store and function-table certificates. The call side is now derived rather than written by hand: from the admitted source and the decoded Rust call and body facts, Lean computes the invoked declaration, the type arguments, the instantiated parameter and result types (the Rust-published scheme instantiated at the identity solution), and the integer and Bool literal arguments read from the call site. It proves that the machine invoking that call is typed, keeps integer-only faults and has safe progress for any function table entry carrying the published scheme with a certified body. For the scoped fixture the derived machine equals the earlier hand-written one, and rejected mutations cover the source argument, the type arguments, role, site, target identity, definition and indices. Deriving the grounded body, the store certificate and the function-table entry from accepted source remains open, as does any raw-IR call row (the raw value comparison still rejects calls), Result control forms, and callers beyond top-level assertion calls. General effects, complete structural raw-IR validation, execution observations, and fault blame also remain open. This work has not received a new source freeze or the final fresh conformance and kernel checks.
 
 The integrator owns this milestone and composes slices from G1, G1b, G2 and G3
 interfaces, G4, G7b, G8, and the fact validator; it opens no new formal domain.
@@ -900,6 +904,33 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   `Classical.choice`. The separate axiom audit passes for 27,044 project
   declarations and zero closed roots. All six audit negative controls reject.
   The connected milestone and final matching Rust/source freeze remain open.
+
+- 2026-11-05: The invocation of the scoped fixture's call is now derived from
+  admitted source and the decoded Rust call and body facts instead of being
+  written by hand. `deriveSelectedInvocation` takes the call fact at an index,
+  requires its target to resolve to the body site and to be listed, requires
+  the role to be a call and the source expression at the call site to be a
+  call of that target, decodes the declaration binder from the target
+  definition, takes the type arguments from the call fact, instantiates the
+  Rust-published scheme at the identity solution for the runtime parameter and
+  result types, and reads the arguments from the call's integer and Bool
+  literals, which must fit those parameters in number and type. A generic
+  theorem shows a machine invoking any such call is typed for a function entry
+  carrying the published scheme with a certified body, so every finite
+  execution keeps typing, faults are integer faults and progress is safe. For
+  the scoped fixture the derived machine equals the earlier hand-written
+  machine. Controls reject a Bool, identifier, string, out-of-range or named
+  source argument, a Bool instantiation against an Int literal, a missing type
+  argument, a value role, a site that is not a call, a shifted body, a forged
+  name, an undecodable definition, an empty or mismatched function list and
+  bad indices; a literal change or a different consistent target changes only
+  the derived argument or declaration. These are Lean results over the existing
+  Rust-emitted bytes (no new Rust export, so no Rust change); the supported
+  callers are the fixture's top-level assertion calls. The body candidate,
+  ordered constraints, store certificate and function-table entry are still
+  hand-written and validated, not derived; raw-IR call rows, Result control
+  forms and execution observations remain open, and all 77 universal
+  obligations stay planned.
 
 ## For the owner afterwards
 

@@ -12556,6 +12556,114 @@
       "status": "fragment",
       "scope": "The exported two-parameter, two-local body derives slots 0, 1, 3, 5 and rejects swapped local claims, a local claimed at a temporary row, and an unmatched site.",
       "boundary": "Swapped locals are caught here only because their initializers differ; identical initializers rely on checked uses."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.select_invocation_sound",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.select_invocation_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted invocation selection takes its declaration and type arguments as given, reads its arguments from integer and Bool source literals, instantiates the scheme at the captured identity solution, and has arguments that fit the instantiated parameter types in number and type.",
+      "boundary": "Only integer and Bool literal arguments are selected; string, named, spread, and non-literal arguments make selection fail closed."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invocation_machine_typed",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.invocation_machine_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine that invokes an instantiated function over fitting literal arguments satisfies the connected typing invariant whenever the function body is certified for every sorted instantiation.",
+      "boundary": "The function body certificate, store and function-table premises are inputs here; the machine holds one function and no globals."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derive_selected_invocation_sound",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.derive_selected_invocation_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted derivation names a call fact and a body fact at the requested indices, a published scheme, a type-argument list from the call fact, a target whose source identity equals the body site, a top-level call expression at the call site that resolves to that target, a binder decoded from the target definition, and arguments read from that call's source literals.",
+      "boundary": "The call and body facts are Rust test-only export evidence; supported callers are the scoped fixture's top-level assertion calls only. Source parsing equivalence with Rust and the declaration-to-function-table correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_machine_typed",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_machine_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine invoking the derived call is typed whenever its function carries the Rust-published scheme of the selected body and its body is certified for that machine.",
+      "boundary": "The function-table entry and its body certificate are not derived from source here."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_execution_safe",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocation",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_execution_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every finite execution of the derived invocation machine preserves typing, any fault is an integer fault, and every reachable state is terminal or steps to a permitted control.",
+      "boundary": "Lean-model execution only; no Rust execution correspondence or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_call_is_derived",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_call_is_derived",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted scoped source and the decoded Rust call fact derive the invocation of declaration 0 with parameter type Int, result type Int, type argument Int, and the single argument 7.",
+      "boundary": "One exported fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derived_scoped_machine_is_fixture_machine",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_scoped_machine_is_fixture_machine",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The machine built from the derived invocation equals the hand-written scoped invocation machine, so earlier scoped execution theorems apply to the derived one.",
+      "boundary": "One exported fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_derived_scoped_invocation_execution_safe",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_derived_scoped_invocation_execution_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the scoped fixture, the call is derived from admitted source and the decoded Rust call fact, the body candidate validates, and the derived invocation machine is typed with integer-only faults and safe progress.",
+      "boundary": "The candidate body, ordered constraints and function-table entry are still written by hand and validated; Rust execution correspondence and raw-IR simulation remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_follows_the_source_literal",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_follows_the_source_literal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Changing the source argument literal changes the derived argument value and nothing else.",
+      "boundary": "The mutated unit replaces one expression of the admitted unit and is not itself parsed from text."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_rejects_source_and_call_forgeries",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_rejects_source_and_call_forgeries",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Derivation is refused for a Bool, identifier, string, out-of-range, or named source argument, a Bool type argument against an Int literal, a missing type argument, a value role, a call site that is not a call, a shifted target body, a forged target name, an undecodable definition, an empty function list, a call target that differs from the listed target, and out-of-range call and body indices.",
+      "boundary": "Rejection shows these corruptions are caught, not that every corruption is."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.derived_invocation_follows_the_selected_target",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.derived_invocation_follows_the_selected_target",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A different consistent selected target changes only the derived declaration.",
+      "boundary": "One exported fixture with a synthetic target definition."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.selection_checks_arity_and_literal_types",
+      "module": "Xsh.Semantics.Connected.SafetyDerivedInvocationFixture",
+      "declaration": "Xsh.Semantics.Connected.selection_checks_arity_and_literal_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Selection accepts one Int literal at an Int instantiation and one Bool literal at a Bool instantiation, and rejects an Int literal at a Bool instantiation, a Bool at Int, no argument, two arguments, and a missing instantiation.",
+      "boundary": "Finite cases over one scheme."
     }
   ],
   "artifact_certificates": [

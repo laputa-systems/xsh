@@ -127,3 +127,5 @@ import Xsh.Conformance.Connected.RawStoreFixture
 import Xsh.Conformance.Connected.ScopedTransferEvidence
 import Xsh.Conformance.Connected.RawStoreValue
 import Xsh.Conformance.Connected.RawStoreDerivedFixture
+import Xsh.Semantics.Connected.SafetyDerivedInvocation
+import Xsh.Semantics.Connected.SafetyDerivedInvocationFixture
