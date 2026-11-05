@@ -1447,6 +1447,18 @@ fn context_scopes_followed_by_conversions_and_pattern_tests_are_values() {
 }
 
 #[test]
+fn within_scopes_followed_by_an_operator_or_postfix_are_values() {
+    for source in [
+        "within y { ; } in . ( )\n",
+        "within 10ms { } ?. y\n",
+        "within x { } + 1\n",
+        "within 1h { } [ 0 ]\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
 fn a_test_name_head_is_a_declaration_never_a_command() {
     assert_parser_and_grammar_agree("test b { }\n", true);
     assert_parser_and_grammar_agree("test -f x\n", true);
