@@ -954,6 +954,64 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   passed; all six kernels accepted 115,293 declarations using only `propext`,
   `Quot.sound` and `Classical.choice`.
 
+- 2026-11-05: Result control forms are carried through the connected path for
+  one test-only fixture of two single-return pure functions: `through` returns
+  `Ok(r?)` for a `Result[Int, Str]` parameter and `refuse` returns
+  `Err("no")`. A test-only Rust test (`raw_full.rs`) exports the instruction
+  rows, the function rows and the checker's published parameter and result
+  types, and compares them with the bytes held in `RawResultDocuments.lean`.
+  In Lean, the raw value comparison now reads `ExprOk`, `ExprErr` without a
+  cause and `ExprTry` as value trees and translates Ok and Err calls and
+  propagation nodes the same way, with the builtin binders supplied
+  (`raw_value_correspondence_with_sound`). `validateResultFunction` admits the
+  source, checks the published parameter and result types against the source
+  annotations, and validates the hand-written candidate body with a checked
+  constraint derivation (Ok and Err are builtin schemes in scope). The raw
+  return check requires each function's return row to read as its candidate's
+  returned node, with parameters in their positional slots, and the function
+  table to agree on the parameter count and the owned body block; it reads
+  only the source's name table, which one theorem ties to the admitted source.
+  The connected machine theorems run the certified nodes (Ok and Err
+  construction, success propagation inside Ok, and error propagation that
+  unwinds the pending Ok call and returns the same error to the caller frame)
+  and a node outside the fixture: a propagation in an addition's left operand
+  either adds one and wraps the sum, or unwinds the addition and the Ok call
+  without evaluating the right operand. Controls reject a forged result type,
+  parameter type, error type, body site or function name in the published
+  signatures; Ok and Err swapped in the candidate and, with a valid payload,
+  in the rows; a dropped, mistyped or misplaced propagation; rows that change
+  a slot, point forward, bypass or misread the propagation, or carry an
+  inconsistent tag; and function rows with the wrong parameter count, body or
+  owner. Signature and candidate controls are attributed to validation, row
+  and function controls to the row comparison, and each component alone
+  accepts the baseline. Observed disagreement: the Lean Ok scheme leaves the
+  error type free, so it types `Ok(Ok(1)? + 1)` at `Result[Int, Str]`, which
+  the Rust checker rejects ("cannot propagate Error from function returning
+  Str"), and Rust also rejects a generic body `Ok(value)` at an annotated
+  `Result[Int, Str]`. The fixture avoids those shapes. Not covered: the base
+  machine and the Vertical lowerer have no Result forms; the checker facts
+  are signatures, not per-expression types (by inspection the scoped fact
+  validator refuses builtin calls and global bindings); calls, so `?` over a
+  Result-returning call; local declarations; typed whole-function execution
+  (`FunctionBodyCertified`) of Result bodies; and binding the propagation
+  rows' locations to source sites. Kernel size: the first fixture was four
+  functions of 330 characters. Four fresh checks passed paranoid, nanoda,
+  con-leche, con-ron and the Lean default kernel, but lean4lean timed out on
+  whichever declaration it reached first that admitted that source by
+  evaluation, even after the documents became literals and every case its own
+  declaration; the longest source admitted by evaluation in the existing
+  declarations is about 140 characters. The fixture is now two functions of
+  about 130 characters. The new Rust test ran in the pinned container against
+  this worktree and is not a ledger case. The gate passed the 1,694 lowering
+  cases, the type-agreement case and the 12 native lowering-coverage cases.
+  The incremental Lake build (256 jobs), the inventory (1,033 roots) with its
+  71 tests, the axiom audit (27,969 declarations, zero closed roots) with its
+  self-test, and the fresh check all pass; all six kernels accepted 115,534
+  declarations using only `propext`, `Quot.sound` and `Classical.choice`.
+  `tests/test_check_fresh.py` passes under `/usr/bin/python3` and fails its
+  real-sandbox case under the home-installed interpreter, which the sandbox
+  hides. All 77 universal obligations stay planned.
+
 ## For the owner afterwards
 
 Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep each full theorem obligation planned until its complete proof and required evidence pass.
