@@ -176,7 +176,7 @@ does not close the corpus or mutation obligations.
 ## Campaign close
 
 The general-inference campaign closed on `73b59f11d`. The open residuals are
-XSH-61, XSH-65 and XSH-66; later repairs closed XSH-62, XSH-63 and XSH-64.
+XSH-65 and XSH-66; later repairs closed XSH-61, XSH-62, XSH-63, XSH-64 and XSH-67.
 
 **Integrated acceptance.** Native suite 4,729 passed, 0 failed, 34 skipped
 (verification build, 32 jobs). Gates `test-sema-unit` 959, `test-sema` 55,
