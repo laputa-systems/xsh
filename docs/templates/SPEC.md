@@ -4439,6 +4439,11 @@ a statement.
 A generic callable may return from every path of the resource body. Such a
 scope has no tail value to infer; its returns still release the resources.
 
+A `with` body that returns or exits on every path leaves no continuation after
+the block: a statement after it is unreachable (`lint.dead-code`), and as the
+last statement of a function the block needs nothing after it to satisfy the
+function's result.
+
 The scope's `Err` reports only a release that failed after the body reached
 its end. Every resource is still released; the first failure, in release
 order, is the `Err`, and a later one is reported as a cleanup failure with
