@@ -33,6 +33,18 @@ test test_xargs_eof_marker_flushes_preceding_batch { |ctx|
   assert out == "<one>\n<two>\n"
 }
 
+test test_xargs_eof_option_without_argument_disables_the_marker { |ctx|
+  let root = test.temp_dir(ctx, name: "xargs-eof-optional")?
+  let input = fp"{root}/input"
+  input.write("a\n_\nb\n")
+  let unmarked = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/xargs.xsh" -- -e printf "<%s>" < $input
+  assert unmarked == "<a><_><b>", unmarked
+  let attached = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/xargs.xsh" -- -e_ printf "<%s>" < $input
+  assert attached == "<a>", attached
+  let long = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/xargs.xsh" -- --eof printf "<%s>" < $input
+  assert long == "<a><_><b>", long
+}
+
 test test_xargs_parallel_and_fatal_child_status { |ctx|
   let root = test.temp_dir(ctx, name: "xargs-parallel")?
   let input = fp"{root}/input"
