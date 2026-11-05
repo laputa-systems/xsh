@@ -123,9 +123,10 @@ fn poll_fds_idle_wait_makes_no_wakeups() {
     let after = switches(child.id());
     let _ = child.kill();
     let _ = child.wait();
-    assert!(after - before <= 1, "idle wait woke {} times in 2 s", after - before);
     let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(format!("{}.fifo", ready.display()));
     let _ = std::fs::remove_file(ready);
+    assert!(after - before <= 1, "idle wait woke {} times in 2 s", after - before);
 }
 
 #[test]
