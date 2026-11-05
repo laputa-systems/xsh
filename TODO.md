@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 73
+Next: 75
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -125,6 +125,26 @@ out of scope.
 - **Problem:** With `pure same(value) { value }`, the fully erased `pure width(state) { let reset = same({...state, code: []}); show(reset) }` fails in sema with `callable generalization failed: Build(RecoveryType)`. A record literal nested in a call argument inside a binding initializer gets no aggregate scope, so the open-spread override that XSH-65 added does not fire. Treating the argument-position scope as a binding initializer was tried and reverted.
 - **Recommendation:** Reduce to a native test, then give a record literal in argument position the same open-spread materialization a binding initializer gets, without widening other argument inference.
 - **Acceptance:** The erased form checks, lowers and runs with the same result as the annotated form; forged IR with a disagreeing field type is rejected.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-73 · P3 · Verify two instantiations of one rest-parameter callback
+
+- **Area:** Verifier
+- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs`, `src/runtime/eval/lower/`
+- **Problem:** With `keep_rest(f, first, ...items)` calling `f(first, @items)` and returning `f`, calling `keep_rest(sum, ...)` and `keep_rest(join, ...)` in one program fails `xsht check` with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`. Each call alone checks. XSH-70 reports the same verifier message for a different shape, so the two may share a cause.
+- **Recommendation:** Reduce both calls to a native test, compare the producer the verifier derives with the checked contract for each instantiation, and fix the side that drops the per-instantiation type.
+- **Acceptance:** The two-instantiation program checks and runs; forged IR giving one instantiation the other's type is rejected.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-74 · P4 · Accept a record spread into a returned callable
+
+- **Area:** Checker
+- **Where:** `src/sema/check/` (splice target resolution)
+- **Problem:** `integer(...{first: 7}, @tail)`, where `integer` is the callable returned by `keep_rest`, is rejected with `check.splice-target`. A record spread currently requires a statically named callable, and the diagnostic does not say so.
+- **Recommendation:** Decide from the SPEC whether a record spread may target a callable value with a known signature. If so, resolve parameter names from its type; if not, make the diagnostic state the named-callable rule.
+- **Acceptance:** Either the call checks and runs, or the diagnostic names the rule and the SPEC states it.
 - **Fix with:** root-cause
 - **Effort:** S
 
