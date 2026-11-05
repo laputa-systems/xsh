@@ -68,7 +68,8 @@ fn instruction_with_tag(program: &FullProgram, owner: usize, tag: FullTag, nth: 
 }
 
 const NARROWED_ENUM_FIELD: &str = "enum Ordering: Str { Older = \"lt\", Same = \"eq\" }\n\
-type Installed = {version: Str, ordering: Ordering?}\n\
+type Installed = {previous: Ordering?, ordering: Ordering?}\n\
+pure earlier(installed: Installed) -> Bool { installed.previous == null }\n\
 enum State { Gone, There(Installed) }\n\
 pure holds(o: Ordering) -> Bool { o == .Same }\n\
 pure classify(state: State) -> Bool {\n\
@@ -86,12 +87,18 @@ fn narrowed_enum_field_read_needs_its_dominating_null_test() {
     let program = checked_program("narrowed-enum-field.xsh", NARROWED_ENUM_FIELD);
     FullVerifier::verify(&program).unwrap();
     let owner = function_index(&program, "classify");
-    let null = instruction_with_tag(&program, owner, FullTag::ExprNull, 0);
+    let tested = instruction_with_tag(&program, owner, FullTag::ExprField, 0);
+    let words = program.store.data[tested].range().bounds(program.store.extra.len()).unwrap();
+    let ordering = program.store.extra[words.start + 1];
+    let previous = (0..program.store.extra.len() as u32)
+        .find(|&id| program.store.string(id.into()).ok() == Some("previous"))
+        .expect("the fixture reads the previous field elsewhere");
+    assert_eq!(program.store.string(ordering.into()).unwrap(), "ordering");
     let mut forged = program.clone();
-    forged.store.tags[null] = FullTag::ExprUnit;
+    forged.store.extra[words.start + 1] = previous;
     assert_eq!(
         FullVerifier::verify(&forged).unwrap_err().message,
-        "equality operands have incompatible checked domains",
+        "ground producer value disagrees with its checked contract",
     );
 }
 
