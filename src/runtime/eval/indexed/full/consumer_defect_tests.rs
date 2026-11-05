@@ -260,3 +260,55 @@ fn external_script_call_is_typed_by_the_registry_contract() {
         "ground producer value disagrees with its checked contract",
     );
 }
+
+const TESTED_ERROR_PARAMETER: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure error_message(failure: Error) -> Str { failure.message }\n\
+pure describe(value: Any) -> Str { if value is NotFound { error_message(value) } else { \"other\" } }\n\
+assert describe(BuildError.Missing(message: \"absent\")) == \"absent\"\n";
+
+const TESTED_ERROR_DRIVER: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure error_message(failure: Error) -> Str { failure.message }\n\
+let failure = dynamic_failure()\n\
+if failure is NotFound {\n  print ${error_message(failure)}\n}\n";
+
+const TESTED_ERROR_FAMILY: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure family_message(failure: BuildError) -> Str { failure.message }\n\
+pure describe(value: Any) -> Str { if value is BuildError { family_message(value) } else { \"other\" } }\n\
+assert describe(BuildError.Missing(message: \"absent\")) == \"absent\"\n";
+
+#[test]
+fn type_tested_error_facet_reaches_an_error_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-facet.xsh", TESTED_ERROR_PARAMETER)).unwrap();
+}
+
+#[test]
+fn type_tested_error_facet_of_an_immutable_driver_binding_reaches_an_error_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-driver.xsh", TESTED_ERROR_DRIVER)).unwrap();
+}
+
+#[test]
+fn type_tested_error_family_reaches_a_family_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-family.xsh", TESTED_ERROR_FAMILY)).unwrap();
+}
+
+#[test]
+fn type_tested_error_reaches_only_the_error_types_it_satisfies() {
+    for (name, source, narrower) in [
+        ("tested-error-facet-forged.xsh", TESTED_ERROR_PARAMETER, "error_message"),
+        ("tested-error-family-forged.xsh", TESTED_ERROR_FAMILY, "family_message"),
+    ] {
+        let program = checked_program(name, source);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let owner = function_index(&program, narrower);
+        for forged_parameter in [Type::Str, Type::Int, Type::ErrorFacet(Name::intern("Unrelated")), Type::ErrorFamily(Name::intern("Unrelated"))] {
+            let forged = reissued(&program, owner, |callable| callable.params[0].ty = forged_parameter.clone());
+            assert_eq!(
+                FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract",
+                "{name}: {forged_parameter:?}",
+            );
+        }
+    }
+}

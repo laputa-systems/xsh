@@ -333,11 +333,47 @@ impl ProducerPrefixContext<'_> {
     }
 
     pub(in crate::runtime::eval::indexed::full) fn runtime_tested_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
-        self.tested_read_type(decoder, instruction, &Type::Any)
+        Ok(self.tested_read_type(decoder, instruction, &Type::Any)?.filter(|ty| !is_nominal_error_type(ty)))
+    }
+
+    fn tested_error_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        Ok(self.tested_read_type(decoder, instruction, &Type::Any)?.filter(is_nominal_error_type))
     }
 
     pub(in crate::runtime::eval::indexed::full) fn validated_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize, declared: &Type) -> Result<Option<Type>, IrVerifyError> {
         Ok(self.tested_read_type(decoder, instruction, declared)?.filter(|ty| matches!(ty, Type::Validated(validated) if validated.base() == declared)))
+    }
+
+    fn immutable_driver_definition(&self, decoder: &FullDecoder<'_>, binding: ProducerBinding) -> Result<bool, IrVerifyError> {
+        let ProducerBinding::DriverBinding(_) = binding else { return Ok(false) };
+        let Some(current) = super::super::driver_owner_index(decoder.owner) else { return Ok(false) };
+        self.evidence.work.borrow_mut().charge(1)?;
+        let Some(storage) = self.evidence.storage_bindings.get(&binding) else { return Ok(false) };
+        if storage.mutable || storage.identity == IR_NONE { return Ok(false); }
+        let origin = decoder.store.binding_identities.get(storage.identity as usize).ok_or_else(|| IrVerifyError::new("driver binding identity is invalid"))?;
+        if origin.flags != 0 { return Ok(false); }
+        let Some((_, step, program_owner)) = self.index.binding_writers.get(storage.identity as usize).copied().flatten() else { return Ok(false) };
+        if program_owner != origin.owner { return Err(IrVerifyError::new("driver binding owner disagrees with its writer")); }
+        if step >= current { return Err(IrVerifyError::new("driver binding is used before its declaration")); }
+        let mut same_program = false;
+        for program in &decoder.store.driver_programs {
+            self.evidence.work.borrow_mut().charge(1)?;
+            let steps = program.steps.bounds(decoder.store.driver_steps.len()).ok_or_else(|| IrVerifyError::new("driver binding program range is invalid"))?;
+            if steps.contains(&current) {
+                same_program = program.owner == origin.owner && steps.contains(&step);
+                break;
+            }
+        }
+        if !same_program { return Err(IrVerifyError::new("driver binding belongs to another driver program")); }
+        if decoder.store.driver_steps[step].tag != super::super::FullDriverTag::Let { return Ok(false); }
+        let writer_decoder = decoder_for_driver_step(decoder.store, step)?;
+        let mut payload = super::super::FullCursor::new(decoder.store.payload(decoder.store.driver_steps[step].data.range())?);
+        let _: Name = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+        let _: Option<super::super::LoweredType> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+        let _: Option<super::super::LoweredTypeCheck> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+        let _: Option<Type> = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+        let mutable: bool = super::super::FullCodec::decode(&writer_decoder, &mut payload)?;
+        Ok(!mutable)
     }
 
     fn tested_read_type(&self, decoder: &FullDecoder<'_>, instruction: usize, stored: &Type) -> Result<Option<Type>, IrVerifyError> {
@@ -349,7 +385,7 @@ impl ProducerPrefixContext<'_> {
         let slot_type = decoder.checked_binding_path_type(instruction, &target, &mut charge)?;
         if slot_type.as_ref() != Some(stored) && !(slot_type.is_none() && target.1.is_empty()) { return Ok(None); }
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
-        if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? { return Ok(None); }
+        if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? && !self.immutable_driver_definition(decoder, binding)? { return Ok(None); }
         let mut matched = None;
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
             |guard, charge| {
@@ -360,10 +396,14 @@ impl ProducerPrefixContext<'_> {
             }, None, &mut charge)?;
         if !proven { return Ok(None); }
         let Some(ty) = matched else { return Ok(None) };
+        let ty = match ty {
+            super::super::TestedType::ErrorFacet(facet) => return Ok(Some(Type::ErrorFacet(facet))),
+            super::super::TestedType::Semantic(ty) => ty,
+        };
         let mut work = self.evidence.work.borrow_mut();
         let ty = decoder.store.semantic.to_type_with_budget(ty, &mut work.semantic_types)?;
         ensure_closed_type(&ty)?;
-        if super::runtime_complete_value_check_type(&ty, &mut work, 0)? { Ok(Some(ty)) } else { Ok(None) }
+        if is_nominal_error_type(&ty) || super::runtime_complete_value_check_type(&ty, &mut work, 0)? { Ok(Some(ty)) } else { Ok(None) }
     }
 
     fn exact_runtime_kind(ty: &Type, work: &mut SchemeInstantiationBudget) -> Result<Option<super::super::LoweredType>, IrVerifyError> {
@@ -416,6 +456,7 @@ impl ProducerPrefixContext<'_> {
                 let mut work = self.evidence.work.borrow_mut();
                 let mut tested = Vec::with_capacity(alternatives.len());
                 for alternative in alternatives {
+                    let super::super::TestedType::Semantic(alternative) = alternative else { return Ok(false) };
                     let alternative = decoder.store.semantic.to_type_with_budget(alternative, &mut work.semantic_types)?;
                     let Some(kind) = Self::narrowing_runtime_kind(&alternative, &mut work)? else { return Ok(false) };
                     tested.push((alternative, kind));
@@ -5526,6 +5567,10 @@ impl<'a> ProducerProof<'a> {
                         || actual.unvalidated() == &Type::Any && match &decoder.producer_prefix {
                             Some(prefix) => prefix.runtime_tested_read_type(&decoder, instruction)?.as_ref() == Some(container),
                             None => false,
+                        }
+                        || actual.unvalidated() == &Type::Any && match &decoder.producer_prefix {
+                            Some(prefix) => prefix.tested_error_read_type(&decoder, instruction)?.is_some_and(|tested| tested.matches_expected(container)),
+                            None => false,
                         },
                     Type::Int | Type::UInt | Type::Path | Type::List(_) if matches!(container, Type::Validated(_)) => match &decoder.producer_prefix {
                         Some(prefix) => prefix.validated_read_type(&decoder, instruction, actual)?.as_ref() == Some(container),
@@ -9121,4 +9166,8 @@ mod declared_producer_fact_tests {
             assert_eq!(error.message, "declared producer fact belongs to another expression");
         }
     }
+}
+
+fn is_nominal_error_type(ty: &Type) -> bool {
+    matches!(ty, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_))
 }

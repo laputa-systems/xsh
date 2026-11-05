@@ -7266,6 +7266,12 @@ enum CheckedValueProjection {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
+enum TestedType {
+    Semantic(TypeId),
+    ErrorFacet(Name),
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum TypeTestOutcome {
     Accepted,
     Rejected,
@@ -14792,7 +14798,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(TypeId, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(TestedType, TypeTestOutcome)>, IrVerifyError> {
         Ok(match self.checked_type_test_alternatives(condition, when_true, is_boolean, use_site, target, charge)? {
             Some((tested, outcome)) if tested.len() == 1 => Some((tested[0], outcome)),
             _ => None,
@@ -14807,7 +14813,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(Vec<TypeId>, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(Vec<TestedType>, TypeTestOutcome)>, IrVerifyError> {
         for _ in self.instruction_range.clone() {
             charge(1)?;
             if is_boolean {
@@ -14856,12 +14862,14 @@ impl<'a> FullDecoder<'a> {
                     if yes == no { return Ok(None); }
                     let mut tested = Vec::new();
                     match self.checked_pattern_view(pattern.raw())? {
-                        schema::PatternView::Type { ty, .. } => tested.push(ty.id),
+                        schema::PatternView::Type { ty, .. } => tested.push(TestedType::Semantic(ty.id)),
+                        schema::PatternView::Facet { facet, result_wrapped: false } => tested.push(TestedType::ErrorFacet(facet)),
                         schema::PatternView::Alternation { mut patterns } => {
                             for alternative in &mut patterns {
                                 charge(1)?;
                                 let schema::PatternView::Type { ty, slot: None } = self.checked_pattern_view(alternative?.raw())? else { return Ok(None) };
-                                if !tested.contains(&ty.id) { tested.push(ty.id); }
+                                let ty = TestedType::Semantic(ty.id);
+                                if !tested.contains(&ty) { tested.push(ty); }
                             }
                             if tested.is_empty() { return Ok(None); }
                         }
@@ -14887,7 +14895,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(Vec<TypeId>, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(Vec<TestedType>, TypeTestOutcome)>, IrVerifyError> {
         for operand in [left, right] {
             charge(1)?;
             let boolean = self.store.tags.get(operand).is_some_and(|tag| tag.kind() == schema::InstructionKind::Bool);
