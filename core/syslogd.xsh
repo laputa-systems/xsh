@@ -66,7 +66,7 @@ proc receive(fd: Int) [process, net, error] -> Result[List[LinuxReceivedMessage]
 }
 
 pure sender_of(found: Credentials?) -> limit.Sender? {
-  if let credentials = found { return limit.Sender(uid: credentials.uid, pid: credentials.pid) }
+  if let peer = found { return limit.Sender(uid: peer.uid, pid: peer.pid) }
   null
 }
 

@@ -9,7 +9,7 @@ type Fixture = {
   timeout_ms: Int,
 }
 
-proc fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
+proc open_fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
   let host = env.get(f"XINFRA_FIXTURE_{suffix}_HOST")?
   let port = env.get(f"XINFRA_FIXTURE_{suffix}_PORT")?.parse_int()?
   let username = env.get("XINFRA_FIXTURE_USER")?
@@ -26,7 +26,7 @@ proc fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
 }
 
 test ssh_exec_reports_status_and_output {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -52,7 +52,7 @@ test ssh_exec_reports_status_and_output {
 }
 
 test ssh_exec_reports_signals {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -77,7 +77,7 @@ test ssh_exec_reports_signals {
 }
 
 test ssh_exec_timeout_carries_certainty {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -104,7 +104,7 @@ test ssh_exec_timeout_carries_certainty {
 }
 
 test ssh_exec_rejects_concurrent_use {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -135,7 +135,7 @@ test ssh_exec_rejects_concurrent_use {
 }
 
 test ssh_exec_moves_stdin_larger_than_the_window {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -159,7 +159,7 @@ test ssh_exec_moves_stdin_larger_than_the_window {
 }
 
 test ssh_session_serves_successive_commands {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -184,7 +184,7 @@ test ssh_session_serves_successive_commands {
 }
 
 test ssh_exec_output_past_the_limit_is_an_outcome_error {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -210,7 +210,7 @@ test ssh_exec_output_past_the_limit_is_an_outcome_error {
 
 test ssh_exec_file_options_leave_the_capture_limit_on_every_other_stream { |ctx|
   let root = test.temp_dir(ctx, name: "limit")?
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -274,7 +274,7 @@ time.sleep(60s)
 """
 
 test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -308,7 +308,7 @@ test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
 }
 
 test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -333,7 +333,7 @@ test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
 }
 
 test ssh_exec_environment_is_sent_when_the_server_accepts_it { |ctx|
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -365,7 +365,7 @@ test ssh_exec_environment_is_sent_when_the_server_accepts_it { |ctx|
 }
 
 test ssh_session_reports_itself_dead_after_a_stdin_timeout { |ctx|
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -399,7 +399,7 @@ test ssh_session_reports_itself_dead_after_a_stdin_timeout { |ctx|
 }
 
 test ssh_lost_connection_after_submission_is_a_submitted_transport_error {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?

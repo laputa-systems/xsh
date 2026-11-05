@@ -9,7 +9,7 @@ type Fixture = {
   timeout_ms: Int,
 }
 
-proc fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
+proc open_fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
   let host = env.get(f"XINFRA_FIXTURE_{suffix}_HOST")?
   let port = env.get(f"XINFRA_FIXTURE_{suffix}_PORT")?.parse_int()?
   let username = env.get("XINFRA_FIXTURE_USER")?
@@ -26,7 +26,7 @@ proc fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
 }
 
 test ssh_pinned_connect_succeeds {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -52,7 +52,7 @@ proc open_session(options: Record) -> Result[SshSession, Error] {
 }
 
 test ssh_session_survives_a_proc_return {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -73,7 +73,7 @@ test ssh_session_survives_a_proc_return {
 }
 
 test ssh_changed_pin_is_rejected {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -95,7 +95,7 @@ test ssh_changed_pin_is_rejected {
 }
 
 test ssh_scope_releases_session {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -123,7 +123,7 @@ type Base = {
 }
 
 proc connect_options(suffix: Str) [env, error] -> Result[Base, Error] {
-  let fixture = fixture(suffix)?
+  let fixture = open_fixture(suffix)?
   {
     host: fixture.host,
     port: fixture.port,
@@ -181,7 +181,7 @@ test ssh_known_hosts_refuses_unknown_changed_and_revoked_keys { |ctx|
 }
 
 test ssh_connect_requires_exactly_one_trust_and_identity {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -199,7 +199,7 @@ test ssh_connect_requires_exactly_one_trust_and_identity {
 }
 
 test ssh_info_reports_the_authenticated_host_and_algorithms {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -226,7 +226,7 @@ test ssh_info_reports_the_authenticated_host_and_algorithms {
 }
 
 test ssh_return_from_a_with_body_releases_the_session {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value
     Err(_) => {
       test.skip("fixture environment is absent")?

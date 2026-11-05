@@ -62,7 +62,7 @@ proc configured_path(entries: List[EnvRawEntry], name: Str, fallback: Bytes) [er
   Path.parse_bytes(value)
 }
 
-proc paths() [env, error] -> Result[Paths] {
+proc load_paths() [env, error] -> Result[Paths] {
   let entries = env.entries()?
   let dev_root = configured_path(entries, "DEV_ROOT", b"/dev")?
   let sysfs_root = configured_path(entries, "SYSFS", b"/sys")?
@@ -696,7 +696,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time, net] -> Int {
   }
   match run_mdev(argv) {
     Ok(status) => status
-    Err(failure) => { eprint f"mdev: {failure.message}"; 1 }
+    Err(problem) => { eprint f"mdev: {problem.message}"; 1 }
   }
 }
 
@@ -706,7 +706,7 @@ proc run_mdev(argv: List[Str]) [fs, process, env, error, io, time, net] -> Resul
     return Ok(0)
   }
   let options = parse_options(argv)?
-  let paths = paths()?
+  let paths = load_paths()?
   if options.daemon {
     if options.foreground {
       mdev_daemon_worker(false)?
@@ -743,7 +743,7 @@ proc mdev_daemon_worker(detached: Bool) [fs, process, env, error, io, time, net]
     defer { if ready_open { let _ = unix.close_fd(descriptor) } }
     unix.close_fd(notification_number)?
   }
-  let paths = paths()?
+  let paths = load_paths()?
   var rules = read_rules(paths.conf)?
   let socket = open_uevent_socket()?
   defer unix.close_fd(socket)

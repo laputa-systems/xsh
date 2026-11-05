@@ -74,8 +74,8 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
     parent.mkdir(name, mode: 0o700.clear_bits(fs.umask()?))
     var copied = copies
     for entry in fs.children(source)? {
-      let name = basename_path(entry.path)?
-      copied = copy_move_node(child_path(source, name), child_path(target, name), copied)?
+      let entry_name = basename_path(entry.path)?
+      copied = copy_move_node(child_path(source, entry_name), child_path(target, entry_name), copied)?
     }
     preserve_move_metadata(source, target, metadata)
     return copied

@@ -727,8 +727,8 @@ pure pad_right(text: Str, width: Int) -> Str {
   text + spaces
 }
 
-proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [process, error] -> Str {
-  let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
+proc table_text(inventory: Inventory, output_columns: List[Str], opts: Options) [process, error] -> Str {
+  let shown = [column for column in output_columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   let rows = [[block_value(inventory, block, column, opts.bytes) ?? "" for column in shown] for block in inventory.blocks]
   var widths = [if opts.noheadings { 0 } else { column.byte_len() } for column in shown]
   for row in rows {
@@ -766,8 +766,8 @@ proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [proces
   output
 }
 
-proc raw_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
-  let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
+proc raw_text(inventory: Inventory, output_columns: List[Str], opts: Options) [error] -> Str {
+  let shown = [column for column in output_columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = ""
   if ! opts.noheadings { output += shown.join(" ") + "\n" }
   for block in inventory.blocks {
@@ -776,8 +776,8 @@ proc raw_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -
   output
 }
 
-proc pairs_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
-  let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
+proc pairs_text(inventory: Inventory, output_columns: List[Str], opts: Options) [error] -> Str {
+  let shown = [column for column in output_columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = ""
   for block in inventory.blocks {
     let fields = collect {
@@ -792,8 +792,8 @@ proc pairs_text(inventory: Inventory, columns: List[Str], opts: Options) [error]
   output
 }
 
-proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
-  let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
+proc json_text(inventory: Inventory, output_columns: List[Str], opts: Options) [error] -> Str {
+  let shown = [column for column in output_columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = "{\n   \"memory\": ["
   if ! inventory.blocks.is_empty() { output += "\n" }
   for block_index in range(inventory.blocks.len()) {

@@ -85,22 +85,22 @@ pure permission_text(mode: Int) -> Str {
 pure octal_text(value: Int) -> Str {
   return "0" when value == 0
   const DIGITS = "01234567"
-  var number = value
+  var remaining = value
   var out = ""
-  while number > 0 {
-    out = DIGITS.byte_slice(number % 8, length: 1) + out
-    number = number / 8
+  while remaining > 0 {
+    out = DIGITS.byte_slice(remaining % 8, length: 1) + out
+    remaining = remaining / 8
   }
   "0" + out
 }
 
 pure hex_key(value: Int) -> Str {
   const DIGITS = "0123456789abcdef"
-  var number = if value < 0 { value + 4294967296 } else { value }
+  var remaining = if value < 0 { value + 4294967296 } else { value }
   var out = ""
   for _ in range(8) {
-    out = DIGITS.byte_slice(number % 16, length: 1) + out
-    number = number / 16
+    out = DIGITS.byte_slice(remaining % 16, length: 1) + out
+    remaining = remaining / 16
   }
   f"0x{out}"
 }
@@ -140,7 +140,7 @@ pure divide_decimal_1024(value: Str) -> DecimalDivision {
 }
 
 proc human_limit(value: Str) [error] -> Str {
-  if let Ok(number) = value.parse_int() { return human_size(number) }
+  if let Ok(whole) = value.parse_int() { return human_size(whole) }
   let divided = divide_decimal_1024(value)
   let quotient = divided.quotient.parse_int()?
   const DIVISOR = 1125899906842624
