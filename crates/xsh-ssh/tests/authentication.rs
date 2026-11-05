@@ -3,7 +3,7 @@ mod support;
 use std::time::Duration;
 
 use support::*;
-use xsh_ssh::Connection;
+use xsh_ssh::{Connection, Error};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const DEBUG: u8 = 4;
@@ -48,4 +48,19 @@ fn transport_messages_while_the_server_decides_do_not_break_authentication() {
         drop(connection);
         peer.finish();
     }
+}
+
+#[test]
+fn a_service_accept_for_another_service_is_refused() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.expect(SERVICE_REQUEST);
+        link.send(&message(SERVICE_ACCEPT, &[&text(b"ssh-connection")]));
+    });
+    let mut connection = Connection::connect(&peer.config(TIMEOUT)).expect("connect");
+    match connection.authenticate() {
+        Err(Error::Protocol { detail }) => assert!(detail.contains("different service"), "{detail}"),
+        other => panic!("expected a protocol failure, got {other:?}"),
+    }
+    drop(connection);
+    peer.finish();
 }

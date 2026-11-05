@@ -167,7 +167,18 @@ pub(crate) fn authenticate(
     loop {
         let packet = connection.next_message()?;
         match packet.message_type {
-            MessageType::ServiceAccept => break,
+            MessageType::ServiceAccept => {
+                let mut reader = SshReader::new(&packet.payload);
+                let service = reader.string()?;
+                reader.finish()?;
+                if service != SERVICE_USERAUTH.as_bytes() {
+                    return Err(Error::Protocol {
+                        detail: "server accepted a different service than the one requested"
+                            .to_owned(),
+                    });
+                }
+                break;
+            }
             MessageType::UserAuthBanner => continue,
             MessageType::Disconnect => {
                 return Err(Error::Authentication {
