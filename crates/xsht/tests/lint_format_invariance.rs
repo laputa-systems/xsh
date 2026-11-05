@@ -868,7 +868,7 @@ fn lint_fix_commutes_with_formatting_on_corpus_files() {
     copy_corpus(&workspace_root(), &fix_first);
     fs::write(
         format_first.join(FIXTURE),
-        "pure has_id(id: Str?) -> Bool {\n  if id == null or (id) == \"\" {\n    return false\n  }\n  true\n}\nlet value = \"  root=private  quiet  \" + \"\\n\"\nassert value == (\"  root=private  quiet  \" + \"\\n\")\nassert has_id(\"linux\")\n",
+        "pure has_id(id: Str?) -> Bool {\n  if id == null or (id) == \"\" {\n    return false\n  }\n  true\n}\nlet value = \"  root=private  quiet  \" + \"\\n\"\nassert value == (\"  root=private  quiet  \" + \"\\n\")\nassert has_id(\"linux\")\npure greet(name: Str) -> Str {\n  \"hello {name}\"\n}\nassert greet(\"a\") == \"hello a\"\n",
     )
     .expect("write fixture");
     let mut fixed_files = 0;
