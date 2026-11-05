@@ -385,15 +385,39 @@ impl ProducerPrefixContext<'_> {
         let slot_type = decoder.checked_binding_path_type(instruction, &target, &mut charge)?;
         if slot_type.as_ref() != Some(stored) && !(slot_type.is_none() && target.1.is_empty()) { return Ok(None); }
         let binding = self.evidence.binding(decoder.store, decoder.owner, instruction, target.0)?;
-        if !self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? && !self.immutable_driver_definition(decoder, binding)? { return Ok(None); }
-        let mut matched = None;
+        let snapshot = self.evidence.binding_path_is_snapshot(decoder, binding, target.0, &mut charge)? || self.immutable_driver_definition(decoder, binding)?;
+        let matched = RefCell::new(None);
+        let accepts = |condition: usize, when_true: bool, is_boolean: bool, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| -> Result<bool, IrVerifyError> {
+            let found = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)?
+                .and_then(|(ty, outcome)| (outcome == super::super::TypeTestOutcome::Accepted).then_some(ty));
+            let accepted = found.is_some();
+            if accepted { *matched.borrow_mut() = found; }
+            Ok(accepted)
+        };
+        let mut enclosing = |parent: usize, child: usize, charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>| -> Result<bool, IrVerifyError> {
+            if !matches!(decoder.store.tags[parent], FullTag::StmtIf | FullTag::StmtIfBool | FullTag::ExprIf | FullTag::StmtPatternIf | FullTag::ExprPatternIf | FullTag::StmtWhile | FullTag::StmtWhileBool) { return Ok(false); }
+            let Some((conditions, body_roots)) = decoder.checked_branch_conditions_for_child(parent, child, charge)? else { return Ok(false) };
+            for (condition, when_true, is_boolean) in conditions {
+                charge(1)?;
+                if accepts(condition, when_true, is_boolean, charge)?
+                    && self.evidence.visible_binding(decoder.store, decoder.owner, condition, target.0)? == Some(binding)
+                    && !decoder.checked_parent_path_crosses_overwriting_loop(instruction, parent, &target, charge)?
+                    && decoder.checked_branch_preserves_binding_path(parent, &body_roots, instruction, &target, charge)?
+                { return Ok(true); }
+            }
+            Ok(false)
+        };
         let proven = self.evidence.guarded_binding_read_is_narrowed(decoder, instruction, target.0, binding,
             |guard, charge| {
-                let BindingReadGuard::Condition { condition, when_true, is_boolean, .. } = guard else { return Ok(false) };
-                matched = decoder.checked_type_test_contract(condition, when_true, is_boolean, instruction, &target, charge)?
-                    .and_then(|(ty, outcome)| (outcome == super::super::TypeTestOutcome::Accepted).then_some(ty));
-                Ok(matched.is_some())
-            }, None, &mut charge)?;
+                let BindingReadGuard::Condition { condition, when_true, is_boolean, preceding } = guard else { return Ok(false) };
+                if !accepts(condition, when_true, is_boolean, charge)? { return Ok(false); }
+                if snapshot { return Ok(true); }
+                let Some((guard, branch_index, anchor, roots)) = preceding else { return Ok(false) };
+                Ok(self.evidence.guard_fallthrough_preserves_binding_path(decoder, guard, branch_index, &target, charge)?
+                    && !decoder.checked_path_crosses_overwriting_loop_through(instruction, anchor, &target, charge)?
+                    && decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), instruction, &target, charge)?)
+            }, if snapshot { None } else { Some(&mut enclosing) }, &mut charge)?;
+        let matched = matched.into_inner();
         if !proven { return Ok(None); }
         let Some(ty) = matched else { return Ok(None) };
         let ty = match ty {
