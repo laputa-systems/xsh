@@ -268,3 +268,25 @@ pure outer(context: Int, entry: Entry) -> Int {
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "repeated\n"
 }
+
+test test_full_inference_annotated_record_with_empty_list_field_closes_generic_argument { |ctx|
+  let checks = r"""
+let job: Job = {name: "a", files: []}
+assert size(job) == 0
+let filled: Job = {name: "b", files: ["x", "y"]}
+assert size(filled) == 2
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Job = {name: Str, files: List[Str]}
+proc size(job) -> Int { job.files.len() }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Job = {name: Str, files: List[Str]}
+proc size(job: Job) -> Int { job.files.len() }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}

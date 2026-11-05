@@ -33440,6 +33440,36 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
     }
 
     #[test]
+    fn full_verifier_authenticates_annotated_record_with_empty_list_field_arguments() {
+        let source = "type Job = {name: Str, files: List[Str]}\n\
+                      pure identity(value) { value }\n\
+                      let job: Job = {name: \"a\", files: []}\n\
+                      let copy = identity(job)\n";
+        let program = fixture("generic-driver-record-empty-list-field.xsh", source);
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let (call, slot) = scheme_fixture_driver_call_for_slot(&program, "identity", "job");
+        let mut forged = program.clone();
+        let wrong = SemanticPoolBuilder::default()
+            .intern_type(
+                &mut forged.store.semantic,
+                &Type::Record(Arc::new(BTreeMap::from([
+                    (Name::intern("name"), Type::Str),
+                    (Name::intern("files"), Type::List(Box::new(Type::UInt))),
+                ]))),
+            )
+            .unwrap();
+        replace_scheme_fixture_driver_slot_type(&mut forged, slot, wrong);
+        replace_scheme_fixture_call_type(&mut forged, call, wrong);
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("driver slot type fact disagrees with its declaration annotation"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
     fn full_verifier_authenticates_driver_scalar_temporary_generic_arguments() {
         let program = fixture(
             "generic-driver-scalar-temporary.xsh",

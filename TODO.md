@@ -243,16 +243,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-67 · P3 · Close an empty list literal field passed to a generic proc
-
-- **Area:** Inference
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes.rs`, `src/sema/`
-- **Problem:** An annotated record literal whose field is `files: []`, passed to a generic proc, fails the verifier with `generic call argument has no closed checked type`: the empty list's element type comes only from the record's annotation, and the call argument evidence does not close it. Found while reducing the `patch` joint view; the reproducer there avoids it.
-- **Recommendation:** Reduce to a native test, then close the argument's checked type from the annotated record field before call verification, keeping the verifier's independent check.
-- **Acceptance:** The reduced program checks, lowers and runs; forged-IR coverage still rejects an argument whose element type disagrees with the field.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-65 · P4 · Find the missing executable type in expr's erased branch parser
 
 - **Area:** Inference
