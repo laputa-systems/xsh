@@ -18,6 +18,22 @@ pub(crate) struct PollInterest {
     requested: PollFlags,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Request {
+    Readable,
+    Writable,
+}
+
+impl PollInterest {
+    pub(crate) fn new(fd: libc::c_int, requests: &[Request]) -> Self {
+        let requested = requests.iter().fold(PollFlags::empty(), |flags, request| flags | match request {
+            Request::Readable => PollFlags::IN,
+            Request::Writable => PollFlags::OUT,
+        });
+        PollInterest { fd, requested }
+    }
+}
+
 pub(crate) fn writable(fd: libc::c_int) -> PollInterest {
     PollInterest { fd, requested: PollFlags::OUT }
 }
