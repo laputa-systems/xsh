@@ -974,7 +974,10 @@ pub(crate) fn rooted_fsync(root: &Root, path: &Path, span: Span) -> Result<(), R
                 .map_err(host)
         }
         xsh_root::FileKind::File => root
-            .open_with(path, RootOpenOptions::new().read(true).no_symlinks(true))
+            .open_with(
+                path,
+                RootOpenOptions::new().read(true).no_symlinks(true).non_blocking(true),
+            )
             .and_then(|file| file.sync_all())
             .map_err(host),
         _ => Err(RuntimeError::new("fs-root-fsync", "only a regular file or directory can be synchronized")
