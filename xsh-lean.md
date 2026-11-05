@@ -932,10 +932,12 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   forms and execution observations remain open, and all 77 universal
   obligations stay planned. The incremental Lake build, the inventory checker
   and its tests, and the axiom audit with its self-test pass (27,748 project
-  declarations, zero closed roots). The fresh six-kernel check is inconclusive,
-  not a pass: with bubblewrap taken from the Lean toolchain, three runs hit the
-  180-second fresh-build limit at 246, 234 and 235 of 249 modules while another
-  session held the host at a load average of about 30, so no kernel ran.
+  declarations, zero closed roots). Three fresh-check runs under host load
+  near 30 hit the 180-second fresh-build limit before any kernel ran. At load
+  about 4, with Lean 4.35.0 and its bubblewrap on `PATH`, the full build, the
+  axiom audit and self-test, the inventory (992 roots) and the fresh check all
+  passed; all six kernels accepted 115,293 declarations using only `propext`,
+  `Quot.sound` and `Classical.choice`.
 
 ## For the owner afterwards
 
