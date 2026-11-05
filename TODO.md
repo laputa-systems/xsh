@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 70
+Next: 71
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -97,6 +97,16 @@ out of scope.
 - **Coordination:** Remote execution uses the experimental XSH-55 client.
 - **Fix with:** isolate-effects
 - **Effort:** L
+
+### XSH-70 · P3 · Agree on reachability after a `with` body that always returns
+
+- **Area:** Checker
+- **Where:** `crates/xsht/src/lint_rules.rs` (`dead-code`), `src/runtime/eval/indexed/full/verify_schemes/producers.rs`, `tests/xsh/ssh-connect.xsh:248` (`leave_early`)
+- **Problem:** In `with session = ssh.connect(options)? { return session }` followed by `fail "..."`, `lint.dead-code` reports the `fail` as unreachable, but deleting it makes `xsht check` fail with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`; binding the `with` result and returning it is still flagged dead. The lint and the lowering disagree on whether control can leave the `with` block, so one of them is wrong. `tests/xsh/ssh-connect.xsh` is excluded from `dead-code` until this is settled.
+- **Recommendation:** Decide from the SPEC whether a `with` body that returns on every path makes the block's end unreachable. Fix the side that disagrees, reduce the case to a native test, and remove the exclusion.
+- **Acceptance:** The reduced program checks with the trailing statement removed, or the lint stops reporting it; the `ssh-connect.xsh` exclusion is gone.
+- **Fix with:** root-cause
+- **Effort:** S
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
