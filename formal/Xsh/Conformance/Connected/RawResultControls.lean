@@ -123,28 +123,52 @@ def withRetaggedPayload (rows : RawInstructionRows) (row : Nat) (tag : RawTag) (
       extra := rows.extra ++ payload }
 
 set_option maxRecDepth 100000 in
-theorem swapped_ok_and_error_rows_are_rejected :
-    rowsAccept (withRetaggedPayload resultRows 1 ⟨"ExprErr", 105⟩ [0, 0]) resultFunctions 0 keepCandidate = false ∧
-    rowsAccept (withRetaggedPayload resultRows 4 ⟨"ExprOk", 104⟩ [3]) resultFunctions 1 refuseCandidate = false ∧
+theorem an_err_row_where_the_candidate_builds_ok_is_rejected :
+    rowsAccept (withRetaggedPayload resultRows 1 ⟨"ExprErr", 105⟩ [0, 0]) resultFunctions 0 keepCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem an_ok_row_where_the_candidate_builds_err_is_rejected :
+    rowsAccept (withRetaggedPayload resultRows 4 ⟨"ExprOk", 104⟩ [3]) resultFunctions 1 refuseCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem an_err_row_around_a_propagation_is_rejected :
     rowsAccept (withRetaggedPayload resultRows 8 ⟨"ExprErr", 105⟩ [7, 0]) resultFunctions 2 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem forged_slots_and_forward_references_are_rejected :
-    rowsAccept (withWord resultRows 0 1) resultFunctions 0 keepCandidate = false ∧
+theorem a_changed_parameter_slot_is_rejected :
+    rowsAccept (withWord resultRows 0 1) resultFunctions 0 keepCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_forward_reference_is_rejected :
     rowsAccept (withWord resultRows 1 5) resultFunctions 0 keepCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem bypassed_propagation_rows_are_rejected :
-    rowsAccept (withWord resultRows 14 6) resultFunctions 2 throughCandidate = false ∧
-    rowsAccept (withWord resultRows 24 10) resultFunctions 3 advanceCandidate = false ∧
+theorem a_constructor_that_skips_its_propagation_row_is_rejected :
+    rowsAccept (withWord resultRows 14 6) resultFunctions 2 throughCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem an_addition_that_skips_its_propagation_row_is_rejected :
+    rowsAccept (withWord resultRows 24 10) resultFunctions 3 advanceCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_propagation_that_reads_another_row_is_rejected :
     rowsAccept (withWord resultRows 12 10) resultFunctions 2 throughCandidate = false := by
   decide +kernel
 
 set_option maxRecDepth 100000 in
-theorem inconsistent_tags_are_rejected :
-    rowsAccept (withTag resultRows 7 ⟨"ExprTry", 106⟩) resultFunctions 2 throughCandidate = false ∧
+theorem a_propagation_tag_with_a_foreign_ordinal_is_rejected :
+    rowsAccept (withTag resultRows 7 ⟨"ExprTry", 106⟩) resultFunctions 2 throughCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem an_ok_name_with_the_err_ordinal_is_rejected :
     rowsAccept (withTag resultRows 1 ⟨"ExprOk", 105⟩) resultFunctions 0 keepCandidate = false := by
   decide +kernel
 
@@ -153,9 +177,13 @@ def withFunctions (change : RawFunction → RawFunction) (index : Nat) : RawFunc
       if position = index then change function else function }
 
 set_option maxRecDepth 100000 in
-theorem forged_function_table_entries_are_rejected :
+theorem a_function_entry_with_no_parameters_is_rejected :
     rowsAccept resultRows (withFunctions (fun f => { f with parameters := ⟨f.parameters.start, 0⟩ }) 0) 0
-      keepCandidate = false ∧
+      keepCandidate = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_function_entry_with_another_body_is_rejected :
     rowsAccept resultRows (withFunctions (fun f => { f with body := 2 }) 0) 0 keepCandidate = false := by
   decide +kernel
 

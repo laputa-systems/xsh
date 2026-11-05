@@ -12909,51 +12909,6 @@
       "boundary": "Finite mutations of two candidates."
     },
     {
-      "id": "fragment.Xsh.Conformance.Connected.swapped_ok_and_error_rows_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.swapped_ok_and_error_rows_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Rows that carry a well-formed Err where the candidate builds Ok, or a well-formed Ok where it builds Err, are rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of three rows."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.forged_slots_and_forward_references_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.forged_slots_and_forward_references_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Rows that read another parameter slot or point a constructor at a later row are rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of two rows."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.bypassed_propagation_rows_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.bypassed_propagation_rows_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Rows whose constructor or addition skips the propagation row, or whose propagation reads another row, are rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of three rows."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.inconsistent_tags_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.inconsistent_tags_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "Rows whose tag name and ordinal disagree are rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of two rows."
-    },
-    {
-      "id": "fragment.Xsh.Conformance.Connected.forged_function_table_entries_are_rejected",
-      "module": "Xsh.Conformance.Connected.RawResultControls",
-      "declaration": "Xsh.Conformance.Connected.forged_function_table_entries_are_rejected",
-      "evidence_class": "SPEC_PROVED",
-      "status": "fragment",
-      "scope": "A function table entry with the wrong parameter count or body block is rejected by the raw-row comparison.",
-      "boundary": "Finite mutations of one entry."
-    },
-    {
       "id": "fragment.Xsh.Conformance.Connected.a_body_block_owned_by_another_function_is_rejected",
       "module": "Xsh.Conformance.Connected.RawResultControls",
       "declaration": "Xsh.Conformance.Connected.a_body_block_owned_by_another_function_is_rejected",
@@ -12961,6 +12916,114 @@
       "status": "fragment",
       "scope": "A body block owned by another function is rejected by the raw-row comparison.",
       "boundary": "One mutation."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_err_row_where_the_candidate_builds_ok_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_err_row_where_the_candidate_builds_ok_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A well-formed ExprErr row where the candidate builds Ok is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_ok_row_where_the_candidate_builds_err_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_ok_row_where_the_candidate_builds_err_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A well-formed ExprOk row where the candidate builds Err is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_err_row_around_a_propagation_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_err_row_around_a_propagation_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A well-formed ExprErr row around a propagation where the candidate builds Ok is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_changed_parameter_slot_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_changed_parameter_slot_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A parameter read of another slot is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forward_reference_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forward_reference_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A constructor row that points at a later row is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_constructor_that_skips_its_propagation_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_constructor_that_skips_its_propagation_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An Ok row whose operand skips the propagation row is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_addition_that_skips_its_propagation_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_addition_that_skips_its_propagation_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An addition row whose left operand skips the propagation row is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_propagation_that_reads_another_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_propagation_that_reads_another_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A propagation row that reads a different row is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_propagation_tag_with_a_foreign_ordinal_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_propagation_tag_with_a_foreign_ordinal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A propagation row whose tag name and ordinal disagree is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_ok_name_with_the_err_ordinal_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_ok_name_with_the_err_ordinal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An Ok row whose tag name and ordinal disagree is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_function_entry_with_no_parameters_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_function_entry_with_no_parameters_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function table entry with no parameters is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_function_entry_with_another_body_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_function_entry_with_another_body_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function table entry with another body block is rejected by the raw-row comparison.",
+      "boundary": "One mutation of the exported Result fixture."
     }
   ],
   "artifact_certificates": [
