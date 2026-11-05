@@ -941,3 +941,90 @@ fn raw_local_declarations_bind_source_sites_to_store_rows() {
     }
     assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
 }
+
+const RESULT_CONTROL_SOURCE: &str = concat!(
+    "pure keep(a: Int) -> Result[Int, Str] {\n  return Ok(a)\n}\n",
+    "pure refuse() -> Result[Int, Str] {\n  return Err(\"no\")\n}\n",
+    "pure through(r: Result[Int, Str]) -> Result[Int, Str] {\n  return Ok(r?)\n}\n",
+    "pure advance(r: Result[Int, Str]) -> Result[Int, Str] {\n  return Ok(r? + 1)\n}\n",
+);
+
+const LEAN_RAW_RESULT_DOCUMENTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+    "/formal/Xsh/Conformance/Connected/RawResultDocuments.lean"));
+
+fn result_signature_type(ty: &crate::sema::types::Type) -> Result<WireValue, String> {
+    use crate::sema::types::Type;
+    match ty {
+        Type::Int => Ok(wire_object([("kind", wire_string("int"))])),
+        Type::Str => Ok(wire_object([("kind", wire_string("str"))])),
+        Type::Result(value, error) => Ok(wire_object([
+            ("kind", wire_string("result")),
+            ("value", result_signature_type(value)?),
+            ("error", result_signature_type(error)?),
+        ])),
+        other => Err(format!("type {other:?} is outside the Result signature export")),
+    }
+}
+
+fn export_result_signatures(
+    arena: &crate::syntax::arena::ArenaProgram,
+    published: &super::facts::PublishedFacts,
+) -> Result<String, String> {
+    let ast = &arena.arena;
+    let functions = (0..ast.function_defs.len()).map(|index| {
+        let definition = ast.function_def(crate::syntax::arena::FunctionDefId::from_index(index));
+        let signature = published.declarations.pures.get(&definition.name)
+            .ok_or_else(|| "the checker published no signature for a pure function".to_string())?;
+        let parameters = ast.params(definition.params);
+        if signature.params.len() != parameters.len() {
+            return Err("the published signature disagrees with the declared parameters".to_string());
+        }
+        let body = ast.span(ast.block(definition.body).span);
+        let parameters = parameters.iter().zip(&signature.params).map(|(parameter, published)| Ok(wire_object([
+            ("name", wire_string(super::name_text(parameter.name))),
+            ("type", result_signature_type(&published.ty)?),
+        ]))).collect::<Result<Vec<_>, String>>()?;
+        Ok(wire_object([
+            ("name", wire_string(super::name_text(definition.name))),
+            ("body", wire_object([
+                ("source", wire_string(format!("{:08x}", body.source_id.raw()))),
+                ("start", wire_string(format!("{:08x}", body.start()))),
+                ("length", wire_string(format!("{:08x}", body.end() - body.start()))),
+            ])),
+            ("parameters", WireValue::Array(parameters)),
+            ("result", result_signature_type(&signature.return_ty)?),
+        ]))
+    }).collect::<Result<Vec<_>, String>>()?;
+    let value = wire_object([
+        ("schema", wire_string("xsh-connected-result-signatures-v1")),
+        ("functions", WireValue::Array(functions)),
+    ]);
+    deser_json::to_string(&value).map_err(|error| error.to_string())
+}
+
+#[test]
+fn result_control_rows_and_signatures_are_the_lean_documents() {
+    let (_, _, parsed, mut published) = check_fixture(RESULT_CONTROL_SOURCE).unwrap();
+    let (_, _, program) = build_fixture(RESULT_CONTROL_SOURCE).unwrap();
+    let raw = RawFullProgram::capture(&program);
+    for tag in [FullTag::ExprOk, FullTag::ExprErr, FullTag::ExprTry] {
+        assert!(raw.rows.tags.contains(&tag), "the fixture lowers a {tag:?} row");
+    }
+    let signatures = export_result_signatures(&parsed.arena, &published).unwrap();
+    let mut stale = Vec::new();
+    for (name, exported) in [
+        ("resultRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
+        ("resultRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
+        ("resultSignatureCodes", signatures.clone()),
+    ] {
+        if lean_document_from(LEAN_RAW_RESULT_DOCUMENTS, name).as_deref() != Some(exported.as_str()) {
+            stale.push(lean_definition(name, &exported));
+        }
+    }
+    assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
+
+    let definition = parsed.arena.arena.function_def(crate::syntax::arena::FunctionDefId::from_index(0));
+    let published_signature = published.declarations.pures.get_mut(&definition.name).unwrap();
+    published_signature.return_ty = crate::sema::types::Type::Int;
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &published).unwrap());
+}

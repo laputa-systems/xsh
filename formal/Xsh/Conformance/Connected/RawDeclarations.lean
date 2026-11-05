@@ -70,6 +70,7 @@ mutual
     | .field base _ => RawValueTree.mentions slot base
     | .record fields => RawValueFields.mentions slot fields
     | .conditional branches otherwise => RawValueBranches.mentions slot branches || RawValueTree.mentions slot otherwise
+    | .resultOk inner | .resultError inner | .propagate inner => RawValueTree.mentions slot inner
     | _ => false
   termination_by structural tree => tree
 

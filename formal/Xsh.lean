@@ -129,3 +129,7 @@ import Xsh.Conformance.Connected.RawStoreValue
 import Xsh.Conformance.Connected.RawStoreDerivedFixture
 import Xsh.Semantics.Connected.SafetyDerivedInvocation
 import Xsh.Semantics.Connected.SafetyDerivedInvocationFixture
+import Xsh.Conformance.Connected.RawResult
+import Xsh.Conformance.Connected.RawResultFixture
+import Xsh.Conformance.Connected.RawResultControls
+import Xsh.Semantics.Connected.SafetyResultControl

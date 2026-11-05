@@ -12664,6 +12664,195 @@
       "status": "fragment",
       "scope": "Selection accepts one Int literal at an Int instantiation and one Bool literal at a Bool instantiation, and rejects an Int literal at a Bool instantiation, a Bool at Int, no argument, two arguments, and a missing instantiation.",
       "boundary": "Finite cases over one scheme."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_value_correspondence_with_sound",
+      "module": "Xsh.Conformance.Connected.RawExpression",
+      "declaration": "Xsh.Conformance.Connected.raw_value_correspondence_with_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A raw-versus-checked value comparison that accepts, with the given Ok and Err constructor binders, yields one value tree that the raw rows read as and the checked node translates to, including Ok and Err construction and propagation.",
+      "boundary": "The comparison supports Ok, Err without a cause, and propagation over scalar, read, binary, record, projection and conditional trees; calls, Err causes and annotated forms are rejected. Row locations are not tied to source sites."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.certified_result_function_components",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.certified_result_function_components",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A certified Result function splits into a validation of the function against the Rust-published signature and a raw-row comparison of its returned value.",
+      "boundary": "Only single-return pure functions whose parameters and result use Int, Str and Result."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.validated_result_function_is_typed",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.validated_result_function_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A validated Result function has a generated constraint set, a derivation that solves it, and a source block typed under the solution in a scope of its parameters and the Ok and Err constructors.",
+      "boundary": "The Ok and Err constructor schemes and binders are fixed by the Lean model; the Rust checker is not shown to agree beyond the fixture's published signatures."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted raw return check reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots.",
+      "boundary": "The row layout and the exporter's function and block tables come from the Rust test-only export."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_documents_decode",
+      "module": "Xsh.Conformance.Connected.RawResultFixture",
+      "declaration": "Xsh.Conformance.Connected.result_control_documents_decode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported instruction rows, function rows and Result signature facts for the Result fixture decode.",
+      "boundary": "One source with four pure functions."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_control_is_certified",
+      "module": "Xsh.Conformance.Connected.RawResultFixture",
+      "declaration": "Xsh.Conformance.Connected.result_control_is_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted Result fixture source, the Rust-published signatures, the exported raw rows and four hand-written candidates are accepted together: each candidate validates against its source and signature, and each returned row reads as its candidate's returned node.",
+      "boundary": "Candidates and derivation steps are written by hand and validated; the checker facts are signatures only, not per-expression types; calls and local declarations are outside the fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.source_validation_and_exported_rows_each_accept_the_candidates",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.source_validation_and_exported_rows_each_accept_the_candidates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Source validation alone accepts each of the four candidates, and the raw-row comparison alone accepts each of them against the exported rows.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_published_facts_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_published_facts_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Altering a published result type, parameter type, parameter list, body site or function name makes validation reject the candidate.",
+      "boundary": "Finite mutations of one fixture's signatures."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.swapped_ok_and_error_candidates_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.swapped_ok_and_error_candidates_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that builds Err where the source builds Ok, or the reverse, is rejected by validation.",
+      "boundary": "Finite mutations of one fixture's candidates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.wrong_propagation_candidates_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.wrong_propagation_candidates_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that drops a propagation, propagates a non-Result, records the wrong error type, or moves the propagation outside Ok is rejected by validation.",
+      "boundary": "Finite mutations of one fixture's candidates."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_rows_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_rows_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rows that swap Ok and Err with a valid payload, change a slot, point forward, bypass a propagation, or carry an inconsistent tag are rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of one fixture's rows."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.forged_function_rows_are_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.forged_function_rows_are_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function table entry with the wrong parameter count or body block, or a body block owned by another function, is rejected by the raw-row comparison.",
+      "boundary": "Finite mutations of one fixture's function rows."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.ok_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Ok scheme instantiates at Int and Str to a one-argument function returning Result[Int, Str] under any captured solution.",
+      "boundary": "One instantiation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.error_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.error_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Err scheme instantiates at Int and Str to a one-argument function taking Str and returning Result[Int, Str] under any captured solution.",
+      "boundary": "One instantiation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_construction_executes",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.ok_construction_executes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Reading the Ok constructor, applying it to a parameter read and completing the call yields Ok of the parameter's value with the error type Str.",
+      "boundary": "Machine steps for the certified node; whole-function execution and Rust correspondence are open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.error_construction_executes",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.error_construction_executes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Applying the Err constructor to the string literal yields Err of that string with success type Int.",
+      "boundary": "Machine steps for the certified node."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagating_a_success_continues",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagating_a_success_continues",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating an Ok value inside the Ok constructor's argument yields Ok of the inner value.",
+      "boundary": "Machine steps for the certified node."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagating_a_failure_leaves_the_caller_with_the_failure",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagating_a_failure_leaves_the_caller_with_the_failure",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating an Err value unwinds the pending Ok call and returns the same error to the caller frame with the caller's success type.",
+      "boundary": "Machine steps for the certified node; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagation_discards_the_rest_of_the_expression",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagation_discards_the_rest_of_the_expression",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating an Err value inside the left operand of an addition unwinds the addition and the Ok call without evaluating the right operand.",
+      "boundary": "Machine steps for the certified node; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.propagating_a_success_feeds_the_rest_of_the_expression",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.propagating_a_success_feeds_the_rest_of_the_expression",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Propagating Ok(1) inside the left operand of an addition adds one and wraps the sum in Ok.",
+      "boundary": "Machine steps for the certified node."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.result_control_returns_are_the_executed_nodes",
+      "module": "Xsh.Semantics.Connected.SafetyResultControl",
+      "declaration": "Xsh.Semantics.Connected.result_control_returns_are_the_executed_nodes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Result fixture is certified and each candidate's single return is the node the execution theorems run.",
+      "boundary": "One fixture."
     }
   ],
   "artifact_certificates": [

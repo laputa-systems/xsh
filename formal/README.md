@@ -51,7 +51,7 @@ store target is rejected for the exported scoped body, and swapped claims for th
 exported two-local body. The claim table, parameter order, fact kinds, and the
 invariant that slots are never reused remain assumptions of the Rust lowerer;
 locals with equal initializers are told apart only by the uses a check covers.
-Calls, Result forms, annotated or destructuring declarations, other value blocks,
+Calls, annotated or destructuring declarations, other value blocks,
 the older projected-row fixtures that still pass a map, and operational
 correspondence remain open.
 Assignment transfer exports retain the checker’s optional value-type override.
@@ -85,6 +85,23 @@ mutable-local fixture, its actual published Int call grounds the checked body
 and closes its storage tag. Its source-selected literal argument initializes a
 typed invocation whose finite model executions preserve typing, exclude internal
 faults, and retain safe progress. Rust execution correspondence remains open.
+A Result slice carries `Ok` construction, `Err` construction and `?` propagation
+through the connected path for one test-only fixture of four single-return pure
+functions over `Int`, `Str` and `Result`. A test-only Rust export publishes the
+checker's parameter and result types and the exported instruction and function
+rows. Lean admits the source, validates hand-written candidate bodies against
+the source and those types with a checked constraint derivation, and compares
+each function's return row, read as a value tree with Ok, Err and propagation
+forms, with the candidate's returned node. The connected machine then executes
+the validated nodes through construction, success, propagation of an error to
+the caller frame, and unwinding that leaves the rest of the enclosing addition
+unevaluated. Controls reject forged signatures, swapped Ok and Err in the
+candidate and in the rows, a dropped, misplaced or mistyped propagation, and
+forged rows and function tables. The Lean model types a nested `Ok` at an
+error type the Rust checker rejects, so agreement is shown only for the
+fixture. Per-expression checker types, calls, local declarations, the base
+machine and its lowerer, typed whole-function execution, and source-site
+binding of propagation rows remain open.
 A scoped fact certificate checks one Rust-exported generic mutable-local example
 inside `without`, including source sites, storage requirements, call bindings,
 and ten altered decoded facts. Its call check currently supports direct,

@@ -13,6 +13,9 @@ mutual
     | field (base : RawValueTree) (name : List Nat)
     | record (fields : RawValueFields)
     | conditional (branches : RawValueBranches) (otherwise : RawValueTree)
+    | resultOk (value : RawValueTree)
+    | resultError (value : RawValueTree)
+    | propagate (value : RawValueTree)
     deriving DecidableEq
 
   inductive RawValueFields where
@@ -35,6 +38,13 @@ def RawValueBranches.length : RawValueBranches → Nat
   | .cons _ _ rest => 1 + rest.length
 
 abbrev RawNameBytes := NameId → Option (List Nat)
+
+inductive ResultForm where
+  | ok
+  | error
+  deriving DecidableEq
+
+abbrev ResultBinders := BinderId → Option ResultForm
 
 def rawBytes (text : String) : List Nat := text.toUTF8.data.toList.map UInt8.toNat
 
@@ -66,6 +76,9 @@ mutual
     | .field base name => .field (RawValueTree.bind slot value base) name
     | .record fields => .record (RawValueFields.bind slot value fields)
     | .conditional branches otherwise => .conditional (RawValueBranches.bind slot value branches) (RawValueTree.bind slot value otherwise)
+    | .resultOk inner => .resultOk (RawValueTree.bind slot value inner)
+    | .resultError inner => .resultError (RawValueTree.bind slot value inner)
+    | .propagate inner => .propagate (RawValueTree.bind slot value inner)
     | tree => tree
   termination_by structural tree => tree
 
@@ -110,6 +123,15 @@ mutual
           if branches.length = count then
             some (.conditional branches (← readRawValueTree rows functions owner reserved fuel otherwise))
           else none
+      | .resultOk value => do
+          if value < row then pure () else none
+          some (.resultOk (← readRawValueTree rows functions owner reserved fuel value))
+      | .resultError value none => do
+          if value < row then pure () else none
+          some (.resultError (← readRawValueTree rows functions owner reserved fuel value))
+      | .propagate value _ => do
+          if value < row then pure () else none
+          some (.propagate (← readRawValueTree rows functions owner reserved fuel value))
       | .valueBlock block _ => do
           let statements ← readRawStatementBlock rows functions owner block
           let tail :: bindings := statements.reverse | none
@@ -161,7 +183,8 @@ mutual
 end
 
 mutual
-  def nodeRawValueTree (names : RawNameBytes) (slots : List (BinderId × Nat)) : Nat → Node → Option RawValueTree
+  def nodeRawValueTreeWith (names : RawNameBytes) (slots : List (BinderId × Nat)) (results : ResultBinders) :
+      Nat → Node → Option RawValueTree
     | 0, _ => none
     | _ + 1, .integer text => do
         let value ← parseInteger text
@@ -172,56 +195,83 @@ mutual
         let (_, slot) ← slots.find? (fun entry => decide (entry.1 = binder))
         some (.slot slot)
     | fuel + 1, .binary operator left right => do
-        some (.binary operator (← nodeRawValueTree names slots fuel left) (← nodeRawValueTree names slots fuel right))
+        some (.binary operator (← nodeRawValueTreeWith names slots results fuel left)
+          (← nodeRawValueTreeWith names slots results fuel right))
     | fuel + 1, .field base name => do
-        some (.field (← nodeRawValueTree names slots fuel base) (← names name))
+        some (.field (← nodeRawValueTreeWith names slots results fuel base) (← names name))
     | fuel + 1, .record fields => do
-        let values ← nodeRawValueFields names slots fuel fields
+        let values ← nodeRawValueFieldsWith names slots results fuel fields
         if values.names.Nodup then some (.record values) else none
     | fuel + 1, .conditional branches otherwise => do
-        some (.conditional (← nodeRawValueBranches names slots fuel branches) (← nodeRawValueTree names slots fuel otherwise))
+        some (.conditional (← nodeRawValueBranchesWith names slots results fuel branches)
+          (← nodeRawValueTreeWith names slots results fuel otherwise))
+    | fuel + 1, .call (.read binder _) [argument] => do
+        match ← results binder with
+        | .ok => some (.resultOk (← nodeRawValueTreeWith names slots results fuel argument))
+        | .error => some (.resultError (← nodeRawValueTreeWith names slots results fuel argument))
+    | fuel + 1, .propagate value _ => do
+        some (.propagate (← nodeRawValueTreeWith names slots results fuel value))
     | _ + 1, _ => none
 
-  def nodeRawValueFields (names : RawNameBytes) (slots : List (BinderId × Nat)) :
+  def nodeRawValueFieldsWith (names : RawNameBytes) (slots : List (BinderId × Nat)) (results : ResultBinders) :
       Nat → List (NameId × Node) → Option RawValueFields
     | 0, _ => none
     | _ + 1, [] => some .nil
     | fuel + 1, (name, value) :: rest => do
         let key ← names name
-        let tree ← nodeRawValueTree names slots fuel value
-        let fields ← nodeRawValueFields names slots fuel rest
+        let tree ← nodeRawValueTreeWith names slots results fuel value
+        let fields ← nodeRawValueFieldsWith names slots results fuel rest
         some (.cons key tree fields)
 
-  def nodeRawValueBranches (names : RawNameBytes) (slots : List (BinderId × Nat)) :
+  def nodeRawValueBranchesWith (names : RawNameBytes) (slots : List (BinderId × Nat)) (results : ResultBinders) :
       Nat → List (Node × Node) → Option RawValueBranches
     | 0, _ => none
     | _ + 1, [] => some .nil
     | fuel + 1, (condition, value) :: rest => do
-        let guard ← nodeRawValueTree names slots fuel condition
-        let tree ← nodeRawValueTree names slots fuel value
-        let branches ← nodeRawValueBranches names slots fuel rest
+        let guard ← nodeRawValueTreeWith names slots results fuel condition
+        let tree ← nodeRawValueTreeWith names slots results fuel value
+        let branches ← nodeRawValueBranchesWith names slots results fuel rest
         some (.cons guard tree branches)
 end
 
-def rawValueCorrespondence (fuel : Nat) (names : RawNameBytes) (slots : List (BinderId × Nat))
-    (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat) (candidate : Node) : Bool :=
-  match readRawValueTree rows functions owner (slots.map Prod.snd) fuel row, nodeRawValueTree names slots fuel candidate with
+def noResultBinders : ResultBinders := fun _ => none
+
+def nodeRawValueTree (names : RawNameBytes) (slots : List (BinderId × Nat)) : Nat → Node → Option RawValueTree :=
+  nodeRawValueTreeWith names slots noResultBinders
+
+def rawValueCorrespondenceWith (fuel : Nat) (names : RawNameBytes) (slots : List (BinderId × Nat))
+    (results : ResultBinders) (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat)
+    (candidate : Node) : Bool :=
+  match readRawValueTree rows functions owner (slots.map Prod.snd) fuel row,
+      nodeRawValueTreeWith names slots results fuel candidate with
   | some actual, some expected => decide (actual = expected)
   | _, _ => false
+
+theorem raw_value_correspondence_with_sound (fuel : Nat) (names : RawNameBytes) (slots : List (BinderId × Nat))
+    (results : ResultBinders) (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat)
+    (candidate : Node)
+    (accepted : rawValueCorrespondenceWith fuel names slots results rows functions owner row candidate = true) :
+    ∃ value, readRawValueTree rows functions owner (slots.map Prod.snd) fuel row = some value ∧
+      nodeRawValueTreeWith names slots results fuel candidate = some value := by
+  cases actual : readRawValueTree rows functions owner (slots.map Prod.snd) fuel row with
+  | none => simp [rawValueCorrespondenceWith, actual] at accepted
+  | some value =>
+      cases expected : nodeRawValueTreeWith names slots results fuel candidate with
+      | none => simp [rawValueCorrespondenceWith, actual, expected] at accepted
+      | some node =>
+          simp [rawValueCorrespondenceWith, actual, expected] at accepted
+          subst node
+          exact ⟨value, rfl, rfl⟩
+
+def rawValueCorrespondence (fuel : Nat) (names : RawNameBytes) (slots : List (BinderId × Nat))
+    (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat) (candidate : Node) : Bool :=
+  rawValueCorrespondenceWith fuel names slots noResultBinders rows functions owner row candidate
 
 theorem raw_value_correspondence_sound (fuel : Nat) (names : RawNameBytes) (slots : List (BinderId × Nat))
     (rows : RawInstructionRows) (functions : RawFunctionRows) (owner row : Nat) (candidate : Node)
     (accepted : rawValueCorrespondence fuel names slots rows functions owner row candidate = true) :
     ∃ value, readRawValueTree rows functions owner (slots.map Prod.snd) fuel row = some value ∧
-      nodeRawValueTree names slots fuel candidate = some value := by
-  cases actual : readRawValueTree rows functions owner (slots.map Prod.snd) fuel row with
-  | none => simp [rawValueCorrespondence, actual] at accepted
-  | some value =>
-      cases expected : nodeRawValueTree names slots fuel candidate with
-      | none => simp [rawValueCorrespondence, actual, expected] at accepted
-      | some node =>
-          simp [rawValueCorrespondence, actual, expected] at accepted
-          subst node
-          exact ⟨value, rfl, rfl⟩
+      nodeRawValueTree names slots fuel candidate = some value :=
+  raw_value_correspondence_with_sound fuel names slots noResultBinders rows functions owner row candidate accepted
 
 end Xsh.Conformance.Connected
