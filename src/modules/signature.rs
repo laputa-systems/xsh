@@ -1453,7 +1453,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(required, 7);
+        assert_eq!(required, 8);
 
         let check_capability_arguments = |arguments: &str| {
             let source = format!(
