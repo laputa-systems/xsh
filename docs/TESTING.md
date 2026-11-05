@@ -524,10 +524,12 @@ were not tested; FIFO creation was covered. CPIO hard-link sets and TAR entries 
 unsupported. Publication is atomic per entry, not durable; merging
 into an existing directory can publish some entries before a conflict.
 
-The XZ reader checks the first block dictionary against the workspace limit
-when its header fits the initial sniff. The underlying decoder does not receive
-that limit. This is an open implementation gap in the workspace contract, not
-a qualified limit.
+The XZ reader passes the workspace limit to the decoder (`liblzma` memlimit),
+which checks it for the first block, every later block and every concatenated
+member, including filter state; integrity checks the decoder cannot verify are
+rejected. The `files.rs` cases cover later members, later blocks, filter chains
+with trailing data and an unknown check, and a source I/O error is not reported
+as a limit.
 
 ## Syslog receiver
 
