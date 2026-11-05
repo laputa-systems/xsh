@@ -71,6 +71,22 @@ fn a_disconnect_after_submission_is_potentially_executed() {
 }
 
 #[test]
+fn a_connection_closed_after_the_exit_status_still_returns_the_result() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, b"done\n");
+        link.exit_status(channel, 3);
+        link.expect(CHANNEL_EOF);
+        link.hangup();
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection.exec("command", &ExecOptions::default()).expect("result");
+    assert_eq!(result.status, ExecStatus::Exited(3));
+    assert_eq!(result.stdout, b"done\n");
+    assert!(!connection.is_usable());
+    peer.finish();
+}
+
+#[test]
 fn a_dropped_connection_after_submission_is_potentially_executed() {
     let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
         link.data(channel, b"some");

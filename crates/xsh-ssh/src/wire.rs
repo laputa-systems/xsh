@@ -189,6 +189,7 @@ pub struct Transport {
     write_progress: Instant,
     since_kex: KexUsage,
     awaiting_command: bool,
+    peer_closed: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -236,6 +237,7 @@ impl Transport {
             interrupt,
             last_progress: now,
             write_progress: now,
+            peer_closed: false,
             since_kex: KexUsage::new(),
             awaiting_command: false,
         })
@@ -429,9 +431,12 @@ impl Transport {
     pub fn fill_nonblocking(&mut self) -> Result<bool, Error> {
         let mut buffer = [0u8; 16_384];
         match self.stream.read(&mut buffer) {
-            Ok(0) => Err(self.attribute(Error::NotSubmitted {
-                detail: "connection closed".to_owned(),
-            })),
+            Ok(0) => {
+                self.peer_closed = true;
+                Err(self.attribute(Error::NotSubmitted {
+                    detail: "connection closed".to_owned(),
+                }))
+            }
             Ok(read) => {
                 self.read.buf.extend_from_slice(&buffer[..read]);
                 self.last_progress = Instant::now();
@@ -442,6 +447,11 @@ impl Transport {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
             Err(error) => Err(self.transport_error(error)),
         }
+    }
+
+    /// Whether the peer ended the connection cleanly before this side did.
+    pub fn peer_closed(&self) -> bool {
+        self.peer_closed
     }
 
     /// Decode one complete buffered packet, if any.
