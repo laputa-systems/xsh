@@ -6840,12 +6840,13 @@ let text = notes.replace("DRAFT", with: "FINAL")
   offsets relative to the descriptor's position or file length, with invalid
   resulting positions rejected by the kernel. `unix.open_pty` gives a
   pseudo-terminal pair; descriptors are the script's to close. `unix.poll_fds`
-  waits on up to 64 distinct descriptors at once and, unlike `poll_fd`, ends
-  at a signal the evaluator handles: the signal's hook runs, then the script
-  stops with the shutdown status as at a `time.sleep` checkpoint (`defer`
-  actions run), so the call never returns as if the wait had timed out. Its
-  timeout is a `Duration?`; `null` waits indefinitely, and an idle wait makes
-  no periodic wakeups. `unix.read_utmp`
+  waits on up to 64 distinct descriptors at once. Both it and `unix.poll_fd`
+  end at a signal the evaluator handles: the signal's hook runs, then the
+  script stops with the shutdown status as at a `time.sleep` checkpoint
+  (`defer` actions run), so a call never returns as if the wait had timed
+  out. A signal that needs no handling does not end the wait. The timeout of
+  `poll_fds` is a `Duration?`; `null` waits indefinitely, and an idle wait
+  makes no periodic wakeups. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
 - `unix.connect_stream(path, timeout)` connects a filesystem Unix stream socket

@@ -17,6 +17,7 @@ proc main(...argv: List[Str]) [process, net, fs, io, error] {
   let rights = argv[3]
   let limit = argv[4].parse_int()?
   let c = linux.net_constants()
+  let _ = unix.poll_fd(0, [], 0)?
   if limit > 0 { process.set_rlimit("nofile", soft: limit)? }
   let server = linux.socket(c.AF_UNIX, c.SOCK_DGRAM.bit_or(c.SOCK_NONBLOCK))?
   linux.bind(server, {family: "unix", address: socket.display()})

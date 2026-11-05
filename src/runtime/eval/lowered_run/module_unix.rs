@@ -579,6 +579,29 @@ impl Evaluator {
         }
     }
 
+    pub(super) fn poll_fd_until(
+        &mut self,
+        fd: i64,
+        events: &[String],
+        timeout_ms: i64,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let (interest, deadline) = match unix_module::poll_fd_interest(fd, events, timeout_ms, span) {
+            Ok(prepared) => prepared,
+            Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+        };
+        Ok(match self.poll_fds_until(&[interest], deadline, span)? {
+            Value::Result(crate::runtime::value::ResultValue::Ok(ready)) => Value::ok(match *ready {
+                Value::List(entries) => entries.first().and_then(|entry| match entry {
+                    Value::Record(record) => record.get("events").cloned(),
+                    _ => None,
+                }).unwrap_or(Value::List(Vec::new())),
+                other => other,
+            }),
+            failed => failed,
+        })
+    }
+
     fn poll_fds_until(
         &mut self,
         interests: &[unix_module::poll::PollInterest],

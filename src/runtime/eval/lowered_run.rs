@@ -6492,7 +6492,7 @@ impl Evaluator {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.poll_fd", span)?;
                 let events = lowered_str_list_arg(values.get(1).cloned(), "unix.poll_fd", span)?;
                 let timeout = lowered_int_arg_or(values.get(2).cloned(), 0, "unix.poll_fd", span)?;
-                lowered_runtime_result(unix_module::poll_fd(fd, &events, timeout, span), span)?
+                lowered_runtime_result(self.poll_fd_until(fd, &events, timeout, span), span)?
             }
             // Lowering builds both from the checked call; these are what a
             // call that reaches the module operation itself evaluates to.

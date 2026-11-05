@@ -9,9 +9,7 @@ use crate::runtime::process::{
 };
 use crate::runtime::value::{ErrorContext, LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
-use rustix::event::{PollFd, PollFlags, poll};
 use rustix::fd::BorrowedFd;
-use rustix::time::Timespec;
 use rustix::{fs as rfs, io as rio, pipe as rpipe, process as rprocess, stdio, termios};
 use std::ffi::{CString, OsString};
 use std::fs::File;
@@ -1811,40 +1809,25 @@ fn read_fd_native(fd: i64, max_bytes: i64, span: Span) -> Result<Vec<u8>, Runtim
     }
 }
 
-pub(crate) fn poll_fd(
+pub(crate) fn poll_fd_interest(
     fd: i64,
     events: &[String],
     timeout_ms: i64,
     span: Span,
-) -> Result<Value, RuntimeError> {
-    match poll_fd_native(fd, events, timeout_ms, span) {
-        Ok(events) => Ok(Value::ok(Value::List(events.into_iter()
-            .map(|event| Value::Str(event.into())).collect()))),
-        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
-    }
-}
-
-// Error, hangup, and invalid-descriptor events are returned even when no
-// readiness was requested. A retry after a signal uses the original deadline.
-fn poll_fd_native(
-    fd: i64,
-    events: &[String],
-    timeout_ms: i64,
-    span: Span,
-) -> Result<Vec<&'static str>, RuntimeError> {
+) -> Result<(poll::PollInterest, Option<Instant>), RuntimeError> {
     let kind = "unix-poll-fd";
     let fd = raw_fd_arg(fd, kind, span)?;
     if timeout_ms < -1 {
         return Err(RuntimeError::new(kind, "timeout_ms must be -1 or non-negative").with_span(span));
     }
-    let mut requested = PollFlags::empty();
+    let mut requested = Vec::with_capacity(events.len());
     for event in events {
-        requested |= match event.as_str() {
-            "readable" => PollFlags::IN,
-            "writable" => PollFlags::OUT,
+        requested.push(match event.as_str() {
+            "readable" => poll::Request::Readable,
+            "writable" => poll::Request::Writable,
             _ => return Err(RuntimeError::new(kind,
                 format!("unknown requested event {event}; expected readable or writable")).with_span(span)),
-        };
+        });
     }
     let deadline = if timeout_ms == -1 {
         None
@@ -1852,44 +1835,7 @@ fn poll_fd_native(
         Some(Instant::now().checked_add(Duration::from_millis(timeout_ms as u64))
             .ok_or_else(|| RuntimeError::new(kind, "timeout_ms is too large").with_span(span))?)
     };
-    // SAFETY: the number is only addressed by value; the kernel reports a
-    // descriptor that is not open as an invalid-descriptor event.
-    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
-    // Darwin's poll reports nothing for a zero-interest entry, including a
-    // closed descriptor, so ask the descriptor itself.
-    if requested.is_empty() && rio::fcntl_getfd(borrowed).is_err() {
-        return Ok(vec!["invalid"]);
-    }
-    loop {
-        let timeout = deadline.map(|deadline| {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let millis = remaining.as_millis()
-                + u128::from(remaining.subsec_nanos() % 1_000_000 != 0);
-            Timespec {
-                tv_sec: (millis / 1000) as i64,
-                tv_nsec: (millis % 1000) as i64 * 1_000_000,
-            }
-        });
-        let mut descriptors = [PollFd::new(&borrowed, requested)];
-        let ready = match poll(&mut descriptors, timeout.as_ref()) {
-            Ok(ready) => ready,
-            Err(rio::Errno::INTR) => continue,
-            Err(error) => {
-                return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));
-            }
-        };
-        if ready == 0 && deadline.is_some_and(|deadline| Instant::now() < deadline) {
-            continue;
-        }
-        let revents = descriptors[0].revents();
-        return Ok([
-            (PollFlags::IN, "readable"),
-            (PollFlags::OUT, "writable"),
-            (PollFlags::ERR, "error"),
-            (PollFlags::HUP, "hangup"),
-            (PollFlags::NVAL, "invalid"),
-        ].into_iter().filter_map(|(flag, event)| revents.contains(flag).then_some(event)).collect());
-    }
+    Ok((poll::PollInterest::new(fd, &requested), deadline))
 }
 
 fn raw_fd_arg(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeError> {

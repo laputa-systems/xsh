@@ -1536,8 +1536,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("unix", "seek_fd") => Some(("Moves a descriptor relative to its start, current position, or end.", "whence defaults to start; current and end permit negative offsets. The resulting position must be nonnegative and representable by Int. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
         ("unix", "poll_fd") => Some((
             "Waits for descriptor readiness and reports terminal conditions.",
-            "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",
-            &["unix", "io", "poll"],
+            "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions that need no handling. A signal the evaluator handles (SIGINT, SIGTERM and signals with an on hook) ends the wait as in unix.poll_fds: the hook runs, and the script then stops with the shutdown status (or the canceled error when none is set); the call never reports success.",
+            &["unix", "io", "poll", "signal"],
         )),
         ("unix", "poll_fds") => Some((
             "Waits for readiness on up to 64 descriptors and for a handled signal.",

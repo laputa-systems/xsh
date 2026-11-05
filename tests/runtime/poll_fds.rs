@@ -127,3 +127,29 @@ fn poll_fds_idle_wait_makes_no_wakeups() {
     let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_file(ready);
 }
+
+#[test]
+fn poll_fd_sigterm_ends_a_bounded_wait_and_runs_defers() {
+    let ready = temp_path("poll-fd-term-ready");
+    let _ = std::fs::remove_file(&ready);
+    let source = format!(
+        "\
+defer {{ print \"cleanup\" }}
+let fifo = Path({ready} + \".fifo\")
+fs.mkfifo(fifo, mode: 384)
+let reader = unix.open_fd(fifo, nonblock: true)?
+let writer = unix.open_fd(fifo, write: true, nonblock: true)?
+defer {{ unix.close_fd(reader); unix.close_fd(writer); fifo.remove() }}
+Path({ready}).write(\"ready\")?
+let seen = unix.poll_fd(reader, [\"readable\"], 20000)?
+print \"unreachable ${{seen.len()}}\"
+",
+        ready = xsh_string_literal(ready.to_str().unwrap()),
+    );
+    let started = Instant::now();
+    let output = run_cancelable_temp_script("poll-fd-term", &source, [], &ready, libc::SIGTERM);
+    assert_eq!(output.status.code(), Some(SHUTDOWN_STATUS), "{:?}", output);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "cleanup\n");
+    assert!(started.elapsed() < Duration::from_secs(3));
+    let _ = std::fs::remove_file(ready);
+}
