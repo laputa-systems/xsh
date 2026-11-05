@@ -945,6 +945,43 @@ pub(crate) fn rooted_chmod(
         .map_err(|error| RuntimeError::host("fs-root-chmod", &error).with_span(span))
 }
 
+pub(crate) fn rooted_rename(
+    root: &Root,
+    from: &Path,
+    to: &Path,
+    replace: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    rooted_check_path(from, "fs-root-rename", span)?;
+    rooted_check_path(to, "fs-root-rename", span)?;
+    let mode = if replace {
+        xsh_root::RenameMode::Replace
+    } else {
+        xsh_root::RenameMode::NoReplace
+    };
+    root.rename(from, to, mode)
+        .map_err(|error| RuntimeError::host("fs-root-rename", &error).with_span(span))
+}
+
+pub(crate) fn rooted_fsync(root: &Root, path: &Path, span: Span) -> Result<(), RuntimeError> {
+    let host = |error: std::io::Error| RuntimeError::host("fs-root-fsync", &error).with_span(span);
+    let path = if path.as_os_str() == "." { path } else { rooted_check_path(path, "fs-root-fsync", span).map(|()| path)? };
+    match root.metadata(path).map_err(host)?.kind {
+        xsh_root::FileKind::Directory => {
+            root.open_directory_handle(path)
+                .and_then(|directory| directory.open_readable_dir("."))
+                .and_then(|directory| directory.sync_all())
+                .map_err(host)
+        }
+        xsh_root::FileKind::File => root
+            .open_with(path, RootOpenOptions::new().read(true).no_symlinks(true))
+            .and_then(|file| file.sync_all())
+            .map_err(host),
+        _ => Err(RuntimeError::new("fs-root-fsync", "only a regular file or directory can be synchronized")
+            .with_span(span)),
+    }
+}
+
 pub(crate) fn rooted_install_file(
     source_root: &Root,
     source: &Path,
@@ -972,22 +1009,36 @@ pub(crate) fn rooted_install_file(
     if parents {
         rooted_create_dir_all(dest_root, parent_path, 0o777, "fs-root-install", span)?;
     }
-    if overwrite {
-        let _ = rooted_remove(dest_root, dest, false, span);
-    }
-    let open_mode = if overwrite {
-        RootedOpenMode::WriteTruncate
-    } else {
-        RootedOpenMode::WriteCreateNew
-    };
-    let mut output = rooted_open_file(dest_root, dest, open_mode, "fs-root-install", span)?;
-    if let Err(error) = std::io::copy(&mut input, &mut output) {
-        let _ = rooted_remove(dest_root, dest, false, span);
-        return Err(RuntimeError::host("fs-root-install", &error).with_span(span));
-    }
-    rooted_set_mode_file(&output, mode as u32).map_err(|error| {
-        let _ = rooted_remove(dest_root, dest, false, span);
-        RuntimeError::host("fs-root-install", &error).with_span(span)
+    let (parent, leaf) = rooted_parent_root_and_leaf(dest_root, dest, "fs-root-install", span)?;
+    let staged = OsString::from(format!(
+        ".{}.install.{}.{}",
+        leaf.to_string_lossy(),
+        std::process::id(),
+        unix_time_nanos()
+    ));
+    let host = |error: std::io::Error| RuntimeError::host("fs-root-install", &error).with_span(span);
+    let mut output = parent
+        .open_with(
+            Path::new(&staged),
+            RootOpenOptions::new().write(true).create_new(true).no_symlinks(true).mode(0o600),
+        )
+        .map_err(host)?;
+    let published = std::io::copy(&mut input, &mut output)
+        .and_then(|_| rooted_set_mode_file(&output, mode as u32))
+        .and_then(|()| {
+            parent.rename(
+                Path::new(&staged),
+                Path::new(&leaf),
+                if overwrite {
+                    xsh_root::RenameMode::Replace
+                } else {
+                    xsh_root::RenameMode::NoReplace
+                },
+            )
+        });
+    published.map_err(|error| {
+        let _ = rooted_remove_at(&parent, &staged, false);
+        host(error)
     })
 }
 
@@ -1005,7 +1056,6 @@ pub(crate) fn rooted_remove(
 enum RootedOpenMode {
     Read,
     WriteTruncate,
-    WriteCreateNew,
 }
 
 fn rooted_open_file(
@@ -1022,9 +1072,6 @@ fn rooted_open_file(
         }
         RootedOpenMode::WriteTruncate => {
             options.write(true).create(true).truncate(true);
-        }
-        RootedOpenMode::WriteCreateNew => {
-            options.write(true).create_new(true);
         }
     }
     root.open_with(path, &options)
@@ -1738,6 +1785,67 @@ mod tests {
         std::fs::remove_file(&target).unwrap();
         assert!(super::create_path(link, b"replacement", test_span()).is_err());
         assert!(!target.exists());
+    }
+
+    fn install_options(overwrite: bool) -> super::RootedInstallOptions {
+        super::RootedInstallOptions {
+            mode: 0o640,
+            parents: true,
+            overwrite,
+            span: test_span(),
+        }
+    }
+
+    #[test]
+    fn rooted_install_keeps_the_prior_file_when_the_copy_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("out"), b"prior").unwrap();
+        std::fs::create_dir(directory.path().join("unreadable")).unwrap();
+        let root = Root::open(directory.path()).unwrap();
+        let result = super::rooted_install_file(
+            &root,
+            Path::new("unreadable"),
+            &root,
+            Path::new("out"),
+            install_options(true),
+        );
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(directory.path().join("out")).unwrap(), b"prior");
+        let mut names: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["out", "unreadable"]);
+    }
+
+    #[test]
+    fn rooted_install_refuses_to_replace_without_overwrite_and_never_shows_a_partial_file() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("src"), b"new").unwrap();
+        std::fs::write(directory.path().join("out"), b"prior").unwrap();
+        let root = Root::open(directory.path()).unwrap();
+        let refused = super::rooted_install_file(
+            &root,
+            Path::new("src"),
+            &root,
+            Path::new("out"),
+            install_options(false),
+        );
+        assert!(refused.is_err());
+        assert_eq!(std::fs::read(directory.path().join("out")).unwrap(), b"prior");
+        super::rooted_install_file(
+            &root,
+            Path::new("src"),
+            &root,
+            Path::new("nested/fresh"),
+            install_options(false),
+        )
+        .unwrap();
+        let installed = directory.path().join("nested/fresh");
+        assert_eq!(std::fs::read(&installed).unwrap(), b"new");
+        assert_eq!(std::fs::metadata(&installed).unwrap().permissions().mode() & 0o7777, 0o640);
+        assert_eq!(std::fs::read_dir(directory.path().join("nested")).unwrap().count(), 1);
     }
 
     fn atomic_fixture() -> (tempfile::TempDir, Root) {

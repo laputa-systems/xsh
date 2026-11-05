@@ -777,6 +777,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.close() -> Result[Unit, Error]` — Closes an owned rooted filesystem capability.
 - `FsRoot.exists(path: RelPath) -> Result[Bool, Error]` — Inspects a path below a rooted filesystem capability.
 - `FsRoot.filesystem_stats(path: RelPath) -> Result[{available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}, Error]` — Reads exact filesystem capacity counters below a rooted directory capability.
+- `FsRoot.fsync(path: RelPath) -> Result[Unit, Error]` — Flushes a file or directory below a rooted filesystem capability to stable storage.
 - `FsRoot.host_path() -> Result[Path, Error]` — Returns the host path represented by a rooted filesystem capability.
 - `FsRoot.metadata(path: RelPath) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Inspects a path below a rooted filesystem capability.
 - `FsRoot.mkdir(path: RelPath, mode: Int = default, parents: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
@@ -787,6 +788,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.readlink(path: RelPath) -> Result[Path, Error]` — Reads a symlink target below a rooted filesystem capability.
 - `FsRoot.readlink_result(path: RelPath) -> Result[{errno: Int?, error_kind: Str?, state: Str, target: Path?}, Error]` — Observes a symlink target below a rooted filesystem capability.
 - `FsRoot.remove(path: RelPath, dir: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `FsRoot.rename(from: RelPath, to: RelPath, replace: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.stat(path: RelPath, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
 - `FsRoot.symlink(target: Path, path: RelPath, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
 - `FsRoot.write(path: RelPath, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.

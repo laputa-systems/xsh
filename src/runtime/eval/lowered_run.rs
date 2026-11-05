@@ -5123,6 +5123,40 @@ impl Evaluator {
                         .and_then(|dir| fs_module::rooted_chmod(dir, &rel, mode, span)),
                 )
             }
+            callable; RuntimeOp::FsRootRename if values.len() == 3 || values.len() == 4 => {
+                let replace =
+                    lowered_bool_arg_or(values.get(3).cloned(), false, "fs.root_rename", span)?;
+                let to = lowered_path_arg(
+                    values.get(2).cloned().expect("checked value length"),
+                    "fs.root_rename",
+                    span,
+                )?;
+                let from = lowered_path_arg(
+                    values.get(1).cloned().expect("checked value length"),
+                    "fs.root_rename",
+                    span,
+                )?;
+                let root = values.first().cloned().expect("checked value length");
+                let from = pathbuf_from_path_value(&from);
+                let to = pathbuf_from_path_value(&to);
+                lowered_unit_result(
+                    lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
+                        .and_then(|dir| fs_module::rooted_rename(dir, &from, &to, replace, span)),
+                )
+            }
+            callable; RuntimeOp::FsRootFsync if values.len() == 2 => {
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "fs.root_fsync",
+                    span,
+                )?;
+                let root = values.pop().expect("checked value length");
+                let rel = pathbuf_from_path_value(&path);
+                lowered_unit_result(
+                    lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
+                        .and_then(|dir| fs_module::rooted_fsync(dir, &rel, span)),
+                )
+            }
             callable; RuntimeOp::FsRootInstallFile if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_root_install_file_values(values, span),
             callable; RuntimeOp::FsCopy if values.len() == 2 || values.len() == 3 => {
                 let overwrite =

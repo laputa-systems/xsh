@@ -58,13 +58,13 @@ out of scope.
 ### XSH-37 · P2 · Qualify confined filesystem operations for privileged consumers
 
 - **Area:** Host authority
-- **Where:** `crates/xsh-root/`, `src/modules/`, `src/runtime/eval/`, `tests/`
-- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction stages and publishes through retained roots; other extraction and publication paths still need an anchor audit.
-- **Recommendation:** Trace the operations needed by Laputa LAP-33 and reuse Root at the smallest shared host boundary. Specify trusted-anchor acquisition, relative paths, symlinks, hard links, mount/special-file policy and destination publication. Extend only missing operations required by that consumer; do not advertise Root or effects as a process sandbox.
-- **Acceptance:** Adversarial fixtures cover ancestor/symlink replacement, traversal, archive link ordering, special files, no-clobber conflicts and interrupted publication. Outside sentinels remain unchanged and prior committed outputs survive failures. Unsupported platform enforcement fails explicitly. Distinguish atomic visibility from durable publication and test their contracts separately.
-- **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation.
+- **Where:** `crates/xsh-root/`, `crates/xsh-archive/`, `src/modules/fs.rs`, `src/modules/archive/`, `tests/`
+- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction, `patch.apply`, `FsRoot.rename`/`fsync` and `fs.root_install_file` now acquire one anchor and resolve beneath it; Path-taking extraction and publication still re-acquire their anchor from the path, so a consumer holding an `FsRoot` cannot extract into it.
+- **Recommendation:** Let `archive.extract` take an `FsRoot` plus `RelPath` destination so a retained root is never re-resolved from a path (Laputa LAP-33 needs this for artifact-to-generation extraction). Then add `FsRoot` hard-link and special-file creation only if LAP-33 shows a need. Opening a rooted target that is swapped for a FIFO after the kind check can still block; give `Root` a non-blocking open for file reads.
+- **Acceptance:** Adversarial fixtures cover extraction into a retained root under ancestor and symlink replacement, and interrupted publication by process kill. Power-loss durability stays unclaimed; atomic visibility and durability stay tested as separate contracts. macOS enforcement is owner-deferred and must fail explicitly until qualified.
+- **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation; XSH-47 owns any process sandbox claim.
 - **Fix with:** isolate-effects
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-43 · P2 · Stress process and stream lifetimes with signal storms
 

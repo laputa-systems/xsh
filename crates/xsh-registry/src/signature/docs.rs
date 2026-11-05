@@ -810,11 +810,16 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         (
             "fs",
-            "root_mkdir" | "root_remove" | "root_chmod" | "root_install_file",
+            "root_mkdir" | "root_remove" | "root_chmod" | "root_install_file" | "root_rename",
         ) => Some((
             "Mutates a path below a rooted filesystem capability.",
             "Relative paths are validated against the root before the mutation and cannot address an outside destination.",
             &["filesystem", "rooted", "mutation"],
+        )),
+        ("fs", "root_fsync") => Some((
+            "Flushes a file or directory below a rooted filesystem capability to stable storage.",
+            "Rename and write publication are atomic in visibility only; fsync the published file and its parent directory to make them durable. A symlink or special file fails.",
+            &["filesystem", "rooted", "durability"],
         )),
         ("fs", "root_path") => Some((
             "Returns the host path represented by a rooted filesystem capability.",
@@ -1949,6 +1954,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "readlink_result" => "root_readlink_result",
             "symlink" => "root_symlink",
             "chmod" => "root_chmod",
+            "rename" => "root_rename",
+            "fsync" => "root_fsync",
             _ => return None,
         };
         return function_doc("fs", legacy);

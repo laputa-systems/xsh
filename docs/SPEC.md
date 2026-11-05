@@ -6383,11 +6383,8 @@ Contracts worth knowing without consulting the reference:
   this is not a limit on all allocator use. Exceeding the workspace limit reports
   `ArchiveError.Limit` while reading; allocation and source I/O failures remain
   I/O errors. An integrity check the decoder cannot verify is rejected.
-  A GNU sparse tar member (type flag `S` or `GNU.sparse.*` pax keys) is an
-  unsupported entry: `list` reports it and `extract` refuses it.
   Publication is atomic per entry,
-  not durable: no operation calls `fsync`, so call `fs.fsync` on the output and
-  its parent directory when it must survive a crash. Checksums are integrity checks, not authenticity. `create` writes
+  not durable. Checksums are integrity checks, not authenticity. `create` writes
   tar or cpio through one compression lifecycle to a temporary file published
   with a no-replace rename, and `compress`, `decompress` and `decompress_bytes`
   do the same for single files.
@@ -6657,6 +6654,14 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   preserves filesystem enumeration order, including partial results. `max_entries` defaults to
   65536 and accepts 0 through 65536; truncated results retain a prefix in
   the selected order and report `enumeration_succeeded: false`.
+  `FsRoot.rename(from:, to:, replace:)` renames beneath one root and refuses an
+  existing destination unless `replace: true`; `FsRoot.fsync(path)` flushes a
+  regular file or directory and refuses a symlink or special file. Both fail
+  when any parent component is a symlink. Publication by `rename`,
+  `write_atomic` or `fs.root_install_file` is atomic for readers and never
+  durable on its own: fsync the file and its parent directory. `fs.root_install_file`
+  stages the destination and publishes it by rename, so a failed copy leaves
+  the prior destination intact.
 - Six methods take an argument whose label makes the call read as a
   sentence, so that two operands of one type cannot be swapped unnoticed:
 
@@ -6702,7 +6707,13 @@ let text = notes.replace("DRAFT", with: "FINAL")
   and `linux.disk_usage(path)` name one mount and fail with the host's error
   when it is refused.
 - Archive extraction and `patch.apply` reject absolute paths, parent
-  traversal, symlink escapes, and overwrites unless asked.
+  traversal, symlink escapes, and overwrites unless asked. Extraction and
+  `patch.apply` open their destination root once and resolve every later
+  create, rename and removal beneath that descriptor, so replacing the
+  destination path or an ancestor with a symlink after the open cannot redirect
+  a write; acquiring the root from a path is the one ambient step. Both stage
+  each file and publish it by rename, which is atomic for readers and not
+  durable. This is pathname confinement, not a process sandbox.
 - Civil formatting uses the host calendar and locale through `time.format`;
   date input grammar is implemented in XSH.
 - Regex syntax is the common Rust regex surface without Unicode property

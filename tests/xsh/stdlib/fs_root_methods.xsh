@@ -252,3 +252,28 @@ print (root.read_text(p"data")?)
   assert "method.FsRoot.write" in output.stderr
   assert "FsRoot.read_text" in output.stderr
 }
+
+test fs_root_rename_refuses_to_clobber_unless_asked { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-rename")?)?
+  root.mkdir(p"sub")
+  root.write(p"sub/new", "new")
+  root.write(p"kept", "kept")
+  assert root.rename(from: p"sub/new", to: p"kept") is Err(_)
+  assert root.read_text(p"kept")? == "kept"
+  assert root.read_text(p"sub/new")? == "new"
+  root.rename(from: p"sub/new", to: p"kept", replace: true)?
+  assert root.read_text(p"kept")? == "new"
+  assert root.exists(p"sub/new")? == false
+}
+
+test fs_root_fsync_flushes_files_and_directories_but_not_links { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-fsync")?)?
+  root.mkdir(p"sub")
+  root.write(p"sub/file", "data")
+  root.symlink(target: p"sub/file", path: p"link")
+  root.fsync(p"sub/file")?
+  root.fsync(p"sub")?
+  root.fsync(p".")?
+  assert root.fsync(p"link") is Err(_)
+  assert root.fsync(p"missing") is Err(_)
+}
