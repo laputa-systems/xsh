@@ -118,16 +118,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-73 · P3 · Verify two instantiations of one rest-parameter callback
-
-- **Area:** Verifier
-- **Where:** `src/runtime/eval/indexed/full/verify_schemes/producers.rs`, `src/runtime/eval/lower/`
-- **Problem:** With `keep_rest(f, first, ...items)` calling `f(first, @items)` and returning `f`, calling `keep_rest(sum, ...)` and `keep_rest(join, ...)` in one program fails `xsht check` with `err[compact.indexed-build]: ground producer value disagrees with its checked contract`. Each call alone checks. The same message came from a dead `with` continuation that lowering emitted (fixed by dropping that continuation); compare against that cause first.
-- **Recommendation:** Reduce both calls to a native test, compare the producer the verifier derives with the checked contract for each instantiation, and fix the side that drops the per-instantiation type.
-- **Acceptance:** The two-instantiation program checks and runs; forged IR giving one instantiation the other's type is rejected.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-74 · P4 · Accept a record spread into a returned callable
 
 - **Area:** Checker

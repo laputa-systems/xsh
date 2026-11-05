@@ -4365,6 +4365,24 @@ impl<'a> ProducerProof<'a> {
         Ok(self.producer_targets(owner, instruction, ProducerTargetPurpose::Callable, Vec::new())?.functions)
     }
 
+    fn returned_argument(&mut self, callee: &FullDecoder<'a>, value: usize, arguments: &[ProducerArgument]) -> Result<Option<usize>, IrVerifyError> {
+        let schema::ExprView::Param(slot) = callee.expression_view(value)? else { return Ok(None) };
+        let binding = self.binding(callee.owner, value, slot)?;
+        let ProducerBinding::HeaderParameter(parameter) = binding else { return Ok(None) };
+        let function = function_index(callee.owner)?;
+        let flags = bounded(self.store.functions[function].params, &self.store.params, "callable parameter range is invalid")?
+            .get(parameter).ok_or_else(|| IrVerifyError::new("callable parameter is out of bounds"))?.flags;
+        if flags & 1 != 0 { return Ok(None); }
+        for &writer in self.index.owners[&callee.owner].writers.get(&binding).into_iter().flatten() {
+            self.budget.charge(1)?;
+            if !matches!(callee.statement_view(writer)?, schema::StmtView::DefaultParameter { .. }) { return Ok(None); }
+        }
+        Ok(match arguments.get(parameter) {
+            Some(ProducerArgument::Single(argument)) => Some(*argument),
+            _ => None,
+        })
+    }
+
     fn scheme_callable_functions(&mut self, id: crate::sema::types::SchemeCallableId) -> Result<BTreeSet<usize>, IrVerifyError> {
         let relationship = self.store.semantic.scheme_callable_index(id)?;
         let relationship = self.store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("scheme callable producer relationship is out of bounds"))?;
@@ -5032,10 +5050,14 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => {
                     let target = function_owner(function.id.index())?;
+                    let arguments = call_values(&decoder, instruction)?;
                     for returned in self.index.owners[&target].header_returns().copied().collect::<Vec<_>>() {
                         let target_decoder = self.owner(target)?;
                         let schema::StmtView::Return { value } = target_decoder.statement_view(returned)? else { unreachable!("callable function return index contains a non-return") };
-                        pending.push((target, CallableProducer::Expression(value.raw() as usize), path.clone()));
+                        match self.returned_argument(&target_decoder, value.raw() as usize, &arguments)? {
+                            Some(argument) => pending.push((owner, CallableProducer::Expression(argument), path.clone())),
+                            None => pending.push((target, CallableProducer::Expression(value.raw() as usize), path.clone())),
+                        }
                     }
                 }
                 schema::ExprView::EmptyMap => {}
