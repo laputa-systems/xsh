@@ -5528,11 +5528,35 @@ fn checked_record_argument_type(
 ) -> Result<Option<Type>, IrVerifyError> {
     let Type::Record(expected_fields) = expected.unvalidated() else { return Ok(None) };
     let schema::ExprView::Record(mut entries) = decoder.expression_view(instruction)? else { return Ok(None) };
-    let Ok(writers) = decoder.checked_record_field_writers(&mut entries, |_| Ok(Arc::new(Type::Any))) else { return Ok(None) };
+    let mut spread_failure = None;
+    let writers = decoder.checked_record_field_writers(&mut entries, |spread| {
+        match checked_argument_type(store, decoder, instruction, spread, materialization, 0) {
+            Ok(Some(CheckedArgumentType::Known(source))) if matches!(source.unvalidated(), Type::Record(_)) => Ok(Arc::new(source)),
+            Ok(_) => Err(IrVerifyError::new("checked record spread has no closed record type")),
+            Err(error) => {
+                spread_failure = Some(error.clone());
+                Err(error)
+            }
+        }
+    });
+    if let Some(error) = spread_failure { return Err(error); }
+    let Ok(writers) = writers else { return Ok(None) };
     let mut fields = BTreeMap::new();
     for (name, writer) in writers {
-        let super::CheckedRecordFieldWriter::Value(value) = writer else { return Ok(None) };
         let Some(expected_field) = expected_fields.get(&name) else { return Ok(None) };
+        let value = match writer {
+            super::CheckedRecordFieldWriter::Value(value) => value,
+            super::CheckedRecordFieldWriter::Spread { fields: source, .. } => {
+                let Type::Record(source_fields) = source.unvalidated() else { return Ok(None) };
+                match source_fields.get(&name) {
+                    Some(actual) if actual.matches_expected(expected_field) => {
+                        fields.insert(name, expected_field.clone());
+                        continue;
+                    }
+                    _ => return Ok(None),
+                }
+            }
+        };
         match checked_argument_type(store, decoder, instruction, value, materialization, 0)? {
             Some(CheckedArgumentType::Known(actual)) if actual.matches_expected(expected_field) => {}
             Some(CheckedArgumentType::EmptyList(None)) if matches!(expected_field.unvalidated(), Type::List(_)) => {}

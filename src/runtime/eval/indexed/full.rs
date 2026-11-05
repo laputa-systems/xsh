@@ -33470,6 +33470,34 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
     }
 
     #[test]
+    fn full_verifier_authenticates_annotated_open_spread_record_arguments() {
+        let source = "type Parsed = {code: List[Int], at: Int}\n\
+                      pure same(value) { value }\n\
+                      pure show(value: Parsed) -> Int { value.at }\n\
+                      pure width(state: Parsed) -> Int {\n\
+                        let reset = same({...state, code: []})\n\
+                        show(reset)\n\
+                      }\n";
+        let program = fixture("generic-open-spread-record-argument.xsh", source);
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call_in_function(&program, "same", "width");
+        let mut forged = program.clone();
+        let wrong = SemanticPoolBuilder::default()
+            .intern_type(
+                &mut forged.store.semantic,
+                &Type::Record(Arc::new(BTreeMap::from([
+                    (Name::intern("at"), Type::Str),
+                    (Name::intern("code"), Type::List(Box::new(Type::Int))),
+                ]))),
+            )
+            .unwrap();
+        replace_scheme_fixture_call_type(&mut forged, call, wrong);
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("generic call argument has no closed checked type"), "{}", error.message);
+    }
+
+    #[test]
     fn full_verifier_authenticates_driver_scalar_temporary_generic_arguments() {
         let program = fixture(
             "generic-driver-scalar-temporary.xsh",
