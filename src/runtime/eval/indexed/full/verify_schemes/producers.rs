@@ -422,6 +422,7 @@ impl ProducerPrefixContext<'_> {
         let Some(ty) = matched else { return Ok(None) };
         let ty = match ty {
             super::super::TestedType::ErrorFacet(facet) => return Ok(Some(Type::ErrorFacet(facet))),
+            super::super::TestedType::ErrorVariant { family, variant } => return Ok(Some(Type::ErrorVariant { family, variant })),
             super::super::TestedType::Semantic(ty) => ty,
         };
         let mut work = self.evidence.work.borrow_mut();

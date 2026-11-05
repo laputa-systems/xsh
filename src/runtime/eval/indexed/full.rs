@@ -7269,6 +7269,7 @@ enum CheckedValueProjection {
 enum TestedType {
     Semantic(TypeId),
     ErrorFacet(Name),
+    ErrorVariant { family: Name, variant: Name },
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -14864,6 +14865,8 @@ impl<'a> FullDecoder<'a> {
                     match self.checked_pattern_view(pattern.raw())? {
                         schema::PatternView::Type { ty, .. } => tested.push(TestedType::Semantic(ty.id)),
                         schema::PatternView::Facet { facet, result_wrapped: false } => tested.push(TestedType::ErrorFacet(facet)),
+                        schema::PatternView::ErrorTest { family, variant, fields } if family != Name::PROCESS_ERROR && fields.len() == 0 =>
+                            tested.push(TestedType::ErrorVariant { family, variant }),
                         schema::PatternView::Alternation { mut patterns } => {
                             for alternative in &mut patterns {
                                 charge(1)?;

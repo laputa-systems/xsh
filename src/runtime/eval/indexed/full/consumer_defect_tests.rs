@@ -374,3 +374,44 @@ fn a_driver_var_rewritten_before_its_use_loses_its_type_test_narrowing() {
         "ground producer value disagrees with its checked contract",
     );
 }
+
+const TESTED_ERROR_VARIANT: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure variant_seen(failure: BuildError) -> Str { \"seen\" }\n\
+pure error_seen(failure: Error) -> Str { \"seen\" }\n\
+pure describe(value: Any) -> Str { if value is BuildError.Missing { variant_seen(value) + error_seen(value) } else { \"other\" } }\n\
+assert describe(BuildError.Missing(message: \"absent\")) == \"seenseen\"\n";
+
+const TESTED_ERROR_VARIANT_DRIVER_VAR: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure variant_seen(failure: BuildError) -> Str { \"seen\" }\n\
+var failure = dynamic_failure()\n\
+if failure is BuildError.Missing {\n  assert variant_seen(failure) == \"seen\"\n}\n";
+
+#[test]
+fn type_tested_error_variant_reaches_family_and_error_parameters() {
+    FullVerifier::verify(&checked_program("tested-error-variant.xsh", TESTED_ERROR_VARIANT)).unwrap();
+    FullVerifier::verify(&checked_program("tested-error-variant-driver-var.xsh", TESTED_ERROR_VARIANT_DRIVER_VAR)).unwrap();
+}
+
+#[test]
+fn type_tested_error_variant_reaches_only_the_error_types_it_satisfies() {
+    let program = checked_program("tested-error-variant-forged.xsh", TESTED_ERROR_VARIANT);
+    FullVerifier::verify(&program).unwrap();
+    let _symbols = program.symbol_owner().enter();
+    for (callee, forged_parameters) in [
+        ("variant_seen", vec![Type::Str, Type::Int, Type::ErrorFamily(Name::intern("Unrelated")), Type::ErrorFacet(Name::intern("Unrelated")),
+            Type::ErrorVariant { family: Name::intern("BuildError"), variant: Name::intern("Unrelated") }]),
+        ("error_seen", vec![Type::Str, Type::Int, Type::ErrorFacet(Name::intern("Unrelated")),
+            Type::ErrorVariant { family: Name::intern("BuildError"), variant: Name::intern("Unrelated") }]),
+    ] {
+        let owner = function_index(&program, callee);
+        for forged_parameter in forged_parameters {
+            let forged = reissued(&program, owner, |callable| callable.params[0].ty = forged_parameter.clone());
+            assert_eq!(
+                FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract",
+                "{callee}: {forged_parameter:?}",
+            );
+        }
+    }
+}
