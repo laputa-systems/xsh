@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 68
+Next: 70
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -99,14 +99,34 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** L
 
+### XSH-69 · P2 · Make whole-tree `xsht lint` pass for the batch gate
+
+- **Area:** Tests
+- **Where:** `crates/xsht/src/cli/lint.rs` (`lint_diagnostics_status`), `xsht-config.ini`, `dev/gates.xsh` (`batch-lint`)
+- **Problem:** Since `53e296282` and `23218c727`, any lint finding except notes fails `xsht lint`. Master has 2,415 warnings, led by `redundant-propagation` (650), `prefer-inferred-variant` (249), `prefer-guard` (156), `boolean-guard` (150) and `prefer-named-argument-pun` (119), so the canonical `batch-lint` stage cannot pass. The 63 shadowing errors were fixed in `0131d3445`.
+- **Recommendation:** Disable in `[lint]` the migration rules whose syntax is still being consolidated, and fix the rest in the sources.
+- **Blocked:** Owner decision between a source sweep and disabling rules.
+- **Fix with:** none
+- **Effort:** M
+
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
-- **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
-- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed and none of this is qualified on current source. The causes are now known: the UDP failure (a forked child holding the closed port) was fixed by `e3179f233`, and the full-corpus timeouts came from forking the 32-thread runner for every child, fixed by starting children with `posix_spawn` (`0836935e3`). Private/resource close and the scheduler pairs are now to be requalified on the re-pinned current `xsh-test` image (`7bf01daae`); the owner approved the inherited tools keeping their shared controller root in the main checkout's `.work`.
-- **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
-- **Unmet:** Full combined qualification remains manual-only on a stable source. The known XSH-29 deadline causes have focused written/desugared proof; that does not supply full-corpus acceptance. The replacement image and repaired launcher are available, and historical passes do not qualify them.
+- **Where:** `dev/consolidation/final_canonical_replay.py`, `dev/performance/check.py`, `dev/consolidation/winddown/gate-tools/`
+- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13 (`0dfebb001`). Scheduler pairs failed there and none of this is qualified on current source. The scheduler failures are fixed: a forked child holding the closed UDP port (`e3179f233`), fixture races (`a758be15e`, `2515907c8`), and fork cost of the 32-thread runner (`0836935e3`, children start with `posix_spawn`). The frozen reference `perf/reference-9d-qualification` (local) replays at `68c37679a`; its third replay at `28eb488d7` passed every Rust suite and 14,482 native tests, then failed whole-tree `xsht check` on erased inference witnesses, now excluded. The test image is pinned in `bench/consolidation/versions.lock.json`.
+- **Recommendation:** On one frozen source, in order: `dev/performance/check.py functional --check`; a fresh normal profile (`profile-cost.py`) and `dev/perf/btop-profile.xsh` in a readiness-bracketed window; `final-observers.py --execute`; forced frames, the comparative profile and three scheduler pairs; util-linux `resources --check` and `close --check` (XSH-1). Bootstrap first with `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`. Validate each tool's `--plan` before an expensive run. Then publish the accepted baseline and retire the infrastructure under XSH-19.
+- **Unmet:** Current-source canonical replay also needs XSH-69. Historical passes do not qualify later source.
 - **Fix with:** orchestrate
+- **Effort:** M
+
+### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
+
+- **Area:** Performance
+- **Where:** `crates/deser`, `src/modules/json.rs`, the serializer event path
+- **Problem:** On the same 20,000-record JSON, five alternating pinned Linux O2 pairs measured roundtrip median CPU of 59.065 ms on pre-Deser `e1b896dc` against 69.813 ms on `ad126a1e8`, above the 5% budget and the spread; decode alone stays within spread. Borrowed event guards later cut ten encodes by about 5%. Rejected without benefit above spread: small-record text vectors, direct compact-name accumulation, decoder sink inlining, an `#[inline]` encoder hint, per-container field emitters, and the parked primitive-handle prototype `fb3bc1712`. Profiles point at serializer event dispatch and field iteration. The products differ beyond the codec, so no single change is attributed.
+- **Recommendation:** Profile the current encode path against `e1b896dc` on matched products and fix the dominant cost; S6 runtime, startup and build CPU-time qualification on current source closes with it.
+- **Acceptance:** Roundtrip median CPU within `max(5%, paired spread)` of the pre-Deser baseline over five readiness-qualified alternating pairs with exact outputs; decode, JSONL and checker controls within budget.
+- **Fix with:** make-it-fast
 - **Effort:** M
 
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
@@ -122,7 +142,7 @@ out of scope.
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
-- **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`, `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`
+- **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`
 - **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The accepted baseline is still pending, so deletion must follow G1.
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
@@ -276,7 +296,7 @@ out of scope.
 ### XSH-49 · P4 · Account for first-party complexity in one capability change
 
 - **Area:** Design economy
-- **Where:** `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, one selected codec or host-capability change
+- **Where:** `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, one selected codec or host-capability change
 - **Problem:** Binary-size/startup gates already exist, but they do not expose ownership proliferation, parallel representations, repeated semantics or Rust/native glue added for one XSH-facing capability. A raw line-count ceiling would punish reuse of trustworthy dependencies and tests.
 - **Recommendation:** On one real accepted change (the Deser cutover or a bounded host API), record before/after first-party source ownership, runtime variants and operations, representations/conversions, duplicated invariants, required crates, product size and startup, and one end-to-end XSH consumer. Identify machinery retired and any complexity moved outward; use a small review table in the owning existing document, not a separate metrics framework.
 - **Acceptance:** Independent reviewer can trace added, retained and deleted responsibilities to code and tests; no compatibility or verifier boundary is counted as removable merely because it duplicates a check. Record a concrete simplification or reject the abstraction on evidence, without blocking unrelated fixes on a new arbitrary LOC quota.

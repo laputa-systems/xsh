@@ -1,6 +1,6 @@
 # Syntax audit
 
-Phase A of the [syntax consolidation campaign](CAMPAIGN-SYNTAX-CONSOLIDATION.md). It lists what the language spells more than one way, which words are special only in one position, and which rules exist only to separate two forms. The owner's decisions are in [Owner decisions](#owner-decisions).
+The syntax consolidation audit. It lists what the language spells more than one way, which words are special only in one position, and which rules exist only to separate two forms. The owner's decisions are in [Owner decisions](#owner-decisions).
 
 ## Summary
 

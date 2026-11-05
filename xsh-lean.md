@@ -763,6 +763,15 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   retaining verified mode and the full export. The axiom audit passed for
   16,033 declarations and rejected all six self-test controls. The inventory
   and its tests passed; all 77 universal obligations remain planned.
+- 2026-11-04: The fresh connected check at `09447fa09` passed its build and all
+  six kernels; the axiom audit passed for 27,044 declarations and rejected all
+  six controls. The local private branch `qualify/connected-machine` (never
+  merged) then gained the raw store replacement check (`318d2ac4e`): Lean
+  rebuilds an assignment's replacement from the raw rows and from the checked
+  node and requires agreement, substituting the let-bound temporaries scheme
+  lowering emits. `d751aadc4` derives the binder-to-slot map from the exported
+  declarations; the inventory checks 980 roots. Calls, Result forms and
+  execution correspondence remain open.
 
 ## For the owner afterwards
 
