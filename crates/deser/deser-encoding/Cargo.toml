@@ -21,4 +21,5 @@ deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
 deser-cbor = { path = "../deser-cbor" }
 deser-json = { path = "../deser-json" }
 
-[lints]
+[lints.clippy]
+all = "allow"

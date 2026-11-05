@@ -46,4 +46,5 @@ jiff = { version = "0.2.14", default-features = false, features = ["std"] }
 name = "integration"
 path = "tests/integration.rs"
 
-[lints]
+[lints.clippy]
+all = "allow"

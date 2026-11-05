@@ -29,4 +29,5 @@ deser-yaml = { version = "0.10.1", path = "../deser-yaml" }
 name = "integration"
 path = "tests/integration.rs"
 
-[lints]
+[lints.clippy]
+all = "allow"

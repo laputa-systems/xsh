@@ -39,4 +39,5 @@ harness = false
 name = "integration"
 path = "tests/integration.rs"
 
-[lints]
+[lints.clippy]
+all = "allow"

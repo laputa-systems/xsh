@@ -56,3 +56,7 @@ and sinks. The same guard state survives pauses and applies to all driver entry
 points, including `next`; drivers without guards allocate no guard storage.
 XSH uses this boundary for its existing encoding limits, avoiding the event
 forwarding and callback dispatch required by transforming layers.
+
+The packages replace upstream's lint table with `[lints.clippy] all = "allow"`.
+The repository clippy gate (`-D warnings`, root `clippy.toml` disallowing
+`HashMap` and `HashSet`) governs XSH source, not the frozen upstream revision.

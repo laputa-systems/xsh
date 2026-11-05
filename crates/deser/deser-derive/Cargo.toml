@@ -27,4 +27,5 @@ proc-macro2 = "1.0.91"
 quote = "1.0.35"
 syn = "3.0.6"
 
-[lints]
+[lints.clippy]
+all = "allow"

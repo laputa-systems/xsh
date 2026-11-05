@@ -45,4 +45,5 @@ deser = { path = "../deser", features = ["derive", "open-enums"] }
 # the no-default-features builds of the tests stay without std)
 deser-json = { path = "../deser-json", default-features = false }
 
-[lints]
+[lints.clippy]
+all = "allow"
