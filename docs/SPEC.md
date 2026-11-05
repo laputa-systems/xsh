@@ -6386,7 +6386,8 @@ Contracts worth knowing without consulting the reference:
   A GNU sparse tar member (type flag `S` or `GNU.sparse.*` pax keys) is an
   unsupported entry: `list` reports it and `extract` refuses it.
   Publication is atomic per entry,
-  not durable. Checksums are integrity checks, not authenticity. `create` writes
+  not durable: no operation calls `fsync`, so call `fs.fsync` on the output and
+  its parent directory when it must survive a crash. Checksums are integrity checks, not authenticity. `create` writes
   tar or cpio through one compression lifecycle to a temporary file published
   with a no-replace rename, and `compress`, `decompress` and `decompress_bytes`
   do the same for single files.

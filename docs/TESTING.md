@@ -523,7 +523,7 @@ ownership application and device-node creation were not tested; FIFO creation
 was covered. CPIO hard-link sets are unsupported. TAR members with the GNU
 sparse type flag or `GNU.sparse.*` pax keys list as unsupported entries and
 extraction refuses them; XSH never extracts a sparse member as its compacted
-bytes. Publication is atomic per entry, not durable; merging into an existing directory can publish some entries before a conflict.
+bytes.
 
 `crates/xsh-archive/tests/interop.rs` runs GNU tar 1.35 and bsdtar 3.8 (the
 `tar` and `libarchive-tools` packages of the `xsh-oracle` image, started through
@@ -542,6 +542,14 @@ absent or lacks the two tools; a stale `xsh-oracle` image needs deleting so
 `oracle.sh` rebuilds it with them. Run them with
 `cargo test -p xsh-archive --test interop` (`XSH_ORACLE_IMAGE` selects another
 image name). On x86_64 Linux: 3 passed, 0 skipped.
+
+Publication is atomic and not durable. `publication.rs` observes the
+destination from a second thread while `create` and `extract` run: a created
+archive or an extracted tree is visible only complete, and only staging names
+beginning `.xsh-archive-` appear beside it. Neither operation calls `fsync`;
+a caller that needs the result to survive a crash calls `fs.fsync` on the
+output and on its parent directory. Merging into an existing directory can
+publish some entries before a conflict.
 
 The XZ reader passes the workspace limit to the decoder (`liblzma` memlimit),
 which checks it for the first block, every later block and every concatenated
