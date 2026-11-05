@@ -2353,7 +2353,10 @@ impl Checker {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(field_expected, &ty, value_span);
                     }
-                    if open_spread.is_some() { overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: ty.clone() }); }
+                    if open_spread.is_some() {
+                        let override_ty = self.materialize_open_override(arena, *value, &ty);
+                        overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: override_ty });
+                    }
                     exposed.remove(name);
                     writer_spans.insert(*name, field_span);
                     record.insert(*name, ty);
