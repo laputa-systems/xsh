@@ -32,6 +32,9 @@ mod poll_fds;
 mod process;
 #[path = "runtime/run.rs"]
 mod run;
+#[cfg(target_os = "linux")]
+#[path = "runtime/signal_storm.rs"]
+mod signal_storm;
 #[path = "runtime/stack_depth.rs"]
 mod stack_depth;
 #[path = "runtime/streams.rs"]

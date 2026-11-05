@@ -46,14 +46,13 @@ out of scope.
 ### XSH-36 · P2 · Qualify descriptor and process ownership under failure
 
 - **Area:** Resources
-- **Where:** `src/modules/`, `src/runtime/eval/`, `crates/xsh-registry/`, `tests/`
-- **Problem:** Owned process/resource scopes coexist with bare descriptor APIs. Their presence is not proof of a leak; transfer, inheritance and cancellation behavior across composed operations needs a focused qualification.
-- **Progress:** Focused Linux tests cover failed notify spawns, early process-stream termination and Unix spawn setup failures. CPU-limited Unix group spawns and all logged-pair spawns retain child status through setup and attempt cleanup on failure, reporting cleanup errors. Wider failure and platform qualification remains open.
-- **Recommendation:** Extend the focused spawn, readiness-pipe and early-terminated-stream cases. Specify who owns each descriptor/child before and after transfer, failed spawn, close and cancellation. Reuse existing ownership/scopes; add an owned wrapper only for an evidenced unsafe common path. Keep raw APIs explicit. Audit process identity separately from a numeric PID; pidfds where supported do not excuse an acquisition race or an unproved fallback.
-- **Acceptance:** Repeated failed spawns, early consumer exit, signal interruption, partial I/O and cleanup failure leave no owned children, zombies or leaked descriptors. Verify close-on-exec and intentional inheritance, bounded cleanup, and that signaling cannot target a recycled identity. Record backend limitations instead of treating no-ops as enforcement.
+- **Where:** `src/modules/`, `src/runtime/process.rs`, `tests/xsh/process-failure-ownership.xsh`, `tests/xsh/unix-spawn-ownership.xsh`
+- **Problem:** Linux qualification found no defect: repeated failed spawns, early consumer exit, partial input and output, and descriptor inheritance leave no owned children or leaked descriptors, and a released or stale handle cannot signal a recycled pid. macOS has no qualification, and no backend limitation is recorded for it.
+- **Recommendation:** Run the same cases on macOS, where `/proc` is absent, so the child and descriptor inventories need another source. Record any backend that cannot enforce a contract instead of treating a no-op as enforcement.
+- **Acceptance:** The cases in `tests/xsh/process-failure-ownership.xsh` pass on native macOS. Native macOS qualification is deferred by the owner.
 - **Coordination:** Laputa LAP-34 exercises the service lifecycle; retain the host-process/bounded-stream concurrency model, not a new async runtime.
 - **Fix with:** lifecycle-concurrency
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-37 · P2 · Qualify confined filesystem operations for privileged consumers
 
@@ -69,13 +68,13 @@ out of scope.
 ### XSH-43 · P2 · Stress process and stream lifetimes with signal storms
 
 - **Area:** Runtime verification
-- **Where:** `src/runtime/process/`, `src/runtime/eval/`, `crates/xshi/`, `tests/`, `dev/`, `docs/TESTING.md`
-- **Problem:** XSH-36 tests focused descriptor and child ownership, but deterministic stress of process trees and cancellation at adversarial timing boundaries is not established. Existing success-path tests cannot rule out orphans, double cleanup or inherited terminal state.
-- **Recommendation:** Build a bounded, seed-replayable Linux/macOS signal-storm test over existing process scopes, pipelines, `defer`/`errdefer`, live streams and interactive PTYs. Inject SIGINT/SIGTERM, SIGPIPE/EPIPE, EOF, child exits and interruption during spawn/cleanup; use real OS children alongside narrow native fakes. Reuse the existing ownership model and test runner; add no new scope syntax or daemon.
-- **Acceptance:** Fixed seeds and retained minimized reproducers check one-time release, child reaping, process-group identity, pipeline status, cleanup order, terminal restoration where possible, bounded cancellation and no foreign-process signaling. Deliberately broken cleanup fails the oracle. Distinguish SIGKILL/non-cooperative shutdown and unsupported host behavior; do not claim impossible cleanup guarantees.
+- **Where:** `tests/runtime/signal_storm.rs`, `docs/TESTING.md`
+- **Problem:** The Linux seed-replayable storm (`runtime::signal_storm`) found no orphan, double cleanup or unbounded cancellation. It does not cover SIGKILL of the runner, terminal-mode restoration, interruption inside spawn setup, or macOS. A second signal that lands after cleanup but before exit kills the runner with the default action, which the oracle accepts.
+- **Recommendation:** Add terminal restoration for an interactive PTY session (`crates/xshi/`) and the macOS run when a host exists; reuse the plan generator and oracle.
+- **Acceptance:** The storm passes on native macOS and checks terminal restoration. Native macOS qualification is deferred by the owner.
 - **Coordination:** XSH-36 owns the resource contracts; Laputa LAP-36 supplies the xinit/PID 1 consumer, and LAP-34 owns its first hermetic lifecycle replay.
 - **Fix with:** lifecycle-concurrency
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-55 · P2 · Qualify the native SSH client
 
