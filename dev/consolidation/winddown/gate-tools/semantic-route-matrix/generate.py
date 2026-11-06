@@ -530,23 +530,6 @@ RUN_OPERAND_ENUM_SCHEMA = {
         {"name": "Argument", "fields": [{"name": "value", "type": "LoweredRunArg"}]},
         {"name": "Redirection", "fields": [{"name": "value", "type": "LoweredRunRedirection"}]},
     ],
-    "LoweredProcessCommandBuilderEntry": [
-        {
-            "name": "Field",
-            "fields": [
-                {"name": "name", "type": "Name"},
-                {"name": "value", "type": "BuildExprId"},
-                {"name": "span", "type": "Span"},
-            ],
-        },
-        {
-            "name": "Run",
-            "fields": [
-                {"name": "operands", "type": "LoweredRunOperands"},
-                {"name": "span", "type": "Span"},
-            ],
-        },
-    ],
 }
 RUN_OPERAND_ENUM_VARIANTS = {
     name: tuple(variant["name"] for variant in variants)
@@ -619,10 +602,6 @@ CUSTOM_CHILD_PATHS = {
         ".stderr?", ".stdout_append?", ".stderr_append?", ".timeout?",
         ".detach?", ".new_session?", ".ignore_hup?", ".cpu_max?",
         ".accept?", ".same_group?",
-    ],
-    "LoweredProcessCommandBuilderEntry": [
-        ".Field.value",
-        *[f".Run.operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
     ],
     "LoweredRecordEntry": [".Field.value", ".Spread.value"],
     "LoweredRecordUpdates": ["[*].value"],
@@ -2537,7 +2516,7 @@ def validate_frame_constructor_inventory(
         "EmptyMap": "no_child",
     }
     expected_value = {
-        "FunctionRef": "indexed_function_ref_value",
+        "FunctionRef": "materialize_indexed_callable(indexed_function_ref_value)",
         "PathFrom": "indexed_path_from_value",
         "EmptyMap": "indexed_empty_map_value",
     }
@@ -3900,7 +3879,7 @@ def validate_eager_atom_inventory(
     value_contract = inventory.get("value_contract", {})
     for name, expected in {
         "decode_error": "indexed_error(error, span)",
-        "path_error": "indexed_error(IrVerifyError { message: error.message }, span)",
+        "path_error": "indexed_error(IrVerifyError::at(None, error.message), span)",
         "slot_bounds": "slot >= decoder.slot_count",
         "freeze": "before slots[slot].clone()",
     }.items():

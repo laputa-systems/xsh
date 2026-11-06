@@ -616,6 +616,7 @@ const EAGER_ATOM_ROWS: &[(&str, &str, u16)] = &[
     ("Null", "ExprNull", 18),
     ("Unit", "ExprUnit", 19),
     ("Int", "ExprInt", 20),
+    ("UInt", "ExprUInt", 158),
     ("Float", "ExprFloat", 21),
     ("Duration", "ExprDuration", 22),
     ("Bool", "ExprBool", 23),
@@ -631,6 +632,7 @@ const EAGER_VIEW_VARIANTS: &[&str] = &[
     "Null",
     "Unit",
     "Int",
+    "UInt",
     "Float",
     "Duration",
     "Bool",
@@ -645,7 +647,7 @@ const EAGER_VIEW_VARIANTS: &[&str] = &[
 fn expected_eager_schema_fields(variant: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match variant {
         "Null" | "Unit" => Some(&[]),
-        "Int" => Some(&[("value", "i64")]),
+        "Int" | "UInt" => Some(&[("value", "i64")]),
         "Float" => Some(&[("value", "FloatValue")]),
         "Duration" => Some(&[("value", "DurationValue")]),
         "Bool" => Some(&[("value", "bool")]),
@@ -741,12 +743,12 @@ const FRAME_APPLY_TAGS: &[&str] = &[
     "ExprEmptyMap",
     "ExprRange",
     "ExprTag",
+    "ExprTargetVariant",
     "ExprSlice",
     "ExprStrByteLen",
     "ExprStrByteAt",
     "ExprStrPredicate",
     "ExprGlob",
-    "ExprLastStatus",
     "ExprAbort",
     "ExprFail",
     "ExprError",
@@ -768,7 +770,6 @@ const FRAME_APPLY_TAGS: &[&str] = &[
     "ExprPathWrite",
     "ExprPathMkdir",
     "ExprPathRemove",
-    "ExprArchiveTarCreate",
 ];
 
 const FRAME_PREPARED_OPERAND_TAGS: &[&str] = &[
@@ -780,7 +781,6 @@ const FRAME_PREPARED_OPERAND_TAGS: &[&str] = &[
     "ExprPathWrite",
     "ExprPathMkdir",
     "ExprPathRemove",
-    "ExprArchiveTarCreate",
 ];
 
 pub fn extract_typed_scalar_inventory(
@@ -1533,7 +1533,6 @@ pub fn extract_run_operand_variant_inventory(
         "LoweredRunArgKind",
         "LoweredRunOption",
         "LoweredRunTailOperand",
-        "LoweredProcessCommandBuilderEntry",
     ];
     let expected_struct_names = [
         "LoweredRunArg",
@@ -3146,13 +3145,11 @@ fn validate_expression_in_place_bypass(branch: &syn::ExprIf) -> Result<(), Strin
         return Err("in-place expression bypass does not evaluate the selected instruction with its call slots".into());
     }
     if !path_is_ident(&flow_match.expr, "flow")
-        || flow_match.arms.len() != 3
+        || flow_match.arms.len() != 2
         || enum_pattern_name(&flow_match.arms[0].pat, "ControlFlow")? != "Continue"
         || enum_pattern_name(&flow_match.arms[1].pat, "ControlFlow")? != "Break"
-        || enum_pattern_name(&flow_match.arms[2].pat, "ControlFlow")? != "Break"
         || flow_match.arms[0].guard.is_some()
-        || flow_match.arms[1].guard.is_none()
-        || flow_match.arms[2].guard.is_some()
+        || flow_match.arms[1].guard.is_some()
     {
         return Err("in-place expression bypass no longer consumes indexed expression flow before returning".into());
     }
@@ -3404,8 +3401,8 @@ fn call_frame_forced_behavior(
     match variant {
         "Call" | "DirectPureCall" => {
             if method_call_nodes_in_expr(body, "preflight").len() != 1
-                || method_call_nodes_in_expr(body, "key").len() != 1
-                || method_call_nodes_in_expr(body, "function_kind").len() != 1
+                || method_call_nodes_in_expr(body, "identity").len() != 1
+                || method_call_nodes_in_expr(body, "function_identity").len() != 1
                 || method_call_nodes_in_expr(body, "push_static_arguments").len() != 1
                 || !static_call_schedule_matches(body, variant)
             {
@@ -3537,20 +3534,14 @@ fn static_call_schedule_matches(body: &Expr, variant: &str) -> bool {
                     &["index", "qualified", "span"],
                 )))
         || (variant != "ExternalCall"
-            && (!method_call_has_exact_arguments(body, "key", "function", &["execution"])
-                || !method_call_has_exact_arguments(
-                    body,
-                    "function_kind",
-                    "self",
-                    &["index", "function", "span"],
-                )))
+            && !method_call_has_exact_arguments(body, "identity", "function", &["execution"]))
     {
         return false;
     }
-    let local_names: &[&str] = if variant == "ExternalCall" {
-        &["qualified", "kind", "value_span"]
+    let (local_names, arm_bound_names): (&[&str], &[&str]) = if variant == "ExternalCall" {
+        (&["qualified", "kind", "value_span"], &[])
     } else {
-        &["function", "kind", "value_span"]
+        (&["value_span"], &["function", "kind"])
     };
     for name in local_names {
         let mut bindings = LocalNameBindingFinder { name: *name, count: 0 };
@@ -3559,27 +3550,26 @@ fn static_call_schedule_matches(body: &Expr, variant: &str) -> bool {
             return false;
         }
     }
+    for name in arm_bound_names {
+        let mut bindings = LocalNameBindingFinder { name: *name, count: 0 };
+        bindings.visit_block(block);
+        if bindings.count != 3 || has_assignment(&block.stmts, *name) {
+            return false;
+        }
+    }
     let Ok((_, args_local)) = top_level_local_with_pattern_binding(block, "args") else {
         return false;
     };
     if variant != "ExternalCall"
         && !matches!(&args_local.pat, Pat::Tuple(tuple)
-            if tuple.elems.len() == 3
-                && matches!(tuple.elems.first(), Some(Pat::Ident(binding))
-                    if binding.ident == "function"
-                        && binding.by_ref.is_none()
-                        && binding.mutability.is_none()
-                        && binding.subpat.is_none())
-                && matches!(tuple.elems.iter().nth(1), Some(Pat::Ident(binding))
-                    if binding.ident == "args"
-                        && binding.by_ref.is_none()
-                        && binding.mutability.is_some()
-                        && binding.subpat.is_none())
-                && matches!(tuple.elems.iter().nth(2), Some(Pat::Ident(binding))
-                    if binding.ident == "value_span"
-                        && binding.by_ref.is_none()
-                        && binding.mutability.is_none()
-                        && binding.subpat.is_none()))
+            if tuple.elems.len() == 4
+                && ["function", "kind", "args", "value_span"].iter().zip(tuple.elems.iter()).all(|(expected, element)| {
+                    matches!(element, Pat::Ident(binding)
+                        if binding.ident == *expected
+                            && binding.by_ref.is_none()
+                            && binding.mutability.is_some() == (*expected == "args")
+                            && binding.subpat.is_none())
+                }))
     {
         return false;
     }
@@ -3702,10 +3692,23 @@ fn static_call_view_outputs_are_fields(view_match: &syn::ExprMatch) -> bool {
         if collect_named_view_variants(&arm.pat, "ExprView", &mut variants).is_err() {
             return false;
         }
-        let Expr::Tuple(tuple) = &*arm.body else { return false; };
-        if tuple.elems.len() != 3
-            || !path_is_ident(&tuple.elems[1], "args")
-            || !path_is_ident(&tuple.elems[2], "span")
+        let Expr::Block(arm_block) = &*arm.body else { return false; };
+        let [Stmt::Local(identity_local), Stmt::Expr(Expr::Tuple(tuple), None)] = arm_block.block.stmts.as_slice() else {
+            return false;
+        };
+        if !matches!(&identity_local.pat, Pat::Tuple(identity)
+                if identity.elems.len() == 2
+                    && matches!(&identity.elems[0], Pat::Ident(binding) if binding.ident == "function" && binding.mutability.is_none())
+                    && matches!(&identity.elems[1], Pat::Ident(binding) if binding.ident == "kind" && binding.mutability.is_none()))
+        {
+            return false;
+        }
+        let Some(identity_source) = identity_local.init.as_ref().map(|init| &*init.expr) else { return false; };
+        if tuple.elems.len() != 4
+            || !path_is_ident(&tuple.elems[0], "function")
+            || !path_is_ident(&tuple.elems[1], "kind")
+            || !path_is_ident(&tuple.elems[2], "args")
+            || !path_is_ident(&tuple.elems[3], "span")
         {
             return false;
         }
@@ -3723,11 +3726,11 @@ fn static_call_view_outputs_are_fields(view_match: &syn::ExprMatch) -> bool {
                 return false;
             }
             if matches!(variant.as_str(), "Call" | "DirectPureCall") {
-                if !method_call_has_exact_arguments(&tuple.elems[0], "key", "function", &["execution"]) {
+                if !method_call_has_exact_arguments(identity_source, "identity", "function", &["execution"]) {
                     return false;
                 }
             } else {
-                let calls = method_call_nodes_in_expr(&tuple.elems[0], "function_identity");
+                let calls = method_call_nodes_in_expr(identity_source, "function_identity");
                 let [call] = calls.as_slice() else { return false; };
                 if call.turbofish.is_some()
                     || !call.args.is_empty()
@@ -7304,6 +7307,25 @@ fn frame_constructor_view_arms(
     Ok(found.into_values().collect())
 }
 
+fn materialized_function_ref(body: &Expr) -> bool {
+    let tail = match body {
+        Expr::Block(block) => match block.block.stmts.last() {
+            Some(Stmt::Expr(tail, None)) => tail,
+            _ => return false,
+        },
+        other => other,
+    };
+    let Some(call) = exact_call(tail, &["materialize_indexed_callable"]) else {
+        return false;
+    };
+    call.args.len() == 6
+        && exact_call(&call.args[4], &["indexed_function_ref_value"]).is_some_and(|value| {
+            value.args.len() == 2
+                && path_is_ident(&value.args[0], "function")
+                && path_is_ident(&value.args[1], "kind")
+        })
+}
+
 fn frame_constructor_arm_behavior(
     helper: &str,
     variant: &str,
@@ -7342,10 +7364,16 @@ fn frame_constructor_arm_behavior(
         };
         let mut calls = CallNameFinder::default();
         calls.visit_expr(body);
-        if calls.names.iter().filter(|(name, _)| name == expected).count() == 1
-            && returned_call_matches(body, expected)
-        {
+        let constructed_once = calls.names.iter().filter(|(name, _)| name == expected).count() == 1;
+        if constructed_once && returned_call_matches(body, expected) {
             return Ok(expected.into());
+        }
+        if variant == "FunctionRef"
+            && constructed_once
+            && returned_call_matches(body, "materialize_indexed_callable")
+            && materialized_function_ref(body)
+        {
+            return Ok(format!("materialize_indexed_callable({expected})"));
         }
         return Err(format!("{helper} {variant} arm does not return {expected}"));
     }
@@ -8181,7 +8209,7 @@ fn forced_eager_atom_route(file: &File) -> Result<EagerAtomRoute, String> {
 }
 
 fn forced_eager_atom_body(expression: &syn::ExprIf) -> Result<usize, String> {
-    if expression.else_branch.is_some() || expression.then_branch.stmts.len() != 4 {
+    if expression.else_branch.is_some() || expression.then_branch.stmts.len() != 5 {
         return Err("forced eager atom fast path has an unrecognized body".into());
     }
     if !matches!(
@@ -8206,8 +8234,9 @@ fn forced_eager_atom_body(expression: &syn::ExprIf) -> Result<usize, String> {
     let helper = exact_call(&try_expression.expr, &["super", "indexed_eager_atom_value"])
         .ok_or_else(|| "forced eager atom route does not call indexed_eager_atom_value".to_string())?;
     validate_eager_helper_arguments(helper, true)?;
+    validate_forced_param_materialization(&expression.then_branch.stmts[2])?;
 
-    let Stmt::Expr(Expr::MethodCall(push), _) = &expression.then_branch.stmts[2] else {
+    let Stmt::Expr(Expr::MethodCall(push), _) = &expression.then_branch.stmts[3] else {
         return Err("forced eager atom route does not push its result".into());
     };
     if push.method != "push_value"
@@ -8224,7 +8253,7 @@ fn forced_eager_atom_body(expression: &syn::ExprIf) -> Result<usize, String> {
     {
         return Err("forced eager atom route has an unrecognized result push".into());
     }
-    let Stmt::Expr(Expr::Return(returned), _) = &expression.then_branch.stmts[3] else {
+    let Stmt::Expr(Expr::Return(returned), _) = &expression.then_branch.stmts[4] else {
         return Err("forced eager atom route does not return after pushing".into());
     };
     let Some(returned) = returned.expr.as_deref() else {
@@ -8237,6 +8266,43 @@ fn forced_eager_atom_body(expression: &syn::ExprIf) -> Result<usize, String> {
         return Err("forced eager atom route returns an unexpected completion".into());
     }
     Ok(helper.func.span().start().line)
+}
+
+fn validate_forced_param_materialization(statement: &Stmt) -> Result<(), String> {
+    let Stmt::Local(local) = statement else {
+        return Err("forced eager atom route has no parameter materialization binding".into());
+    };
+    if !matches!(&local.pat, Pat::Ident(pattern) if pattern.ident == "value") {
+        return Err("forced eager atom parameter materialization binds an unexpected value".into());
+    }
+    let Some(Expr::If(selection)) = local.init.as_ref().map(|init| init.expr.as_ref()) else {
+        return Err("forced eager atom parameter materialization is not a tag selection".into());
+    };
+    let Expr::Binary(condition) = selection.cond.as_ref() else {
+        return Err("forced eager atom parameter materialization has an unrecognized condition".into());
+    };
+    if !matches!(condition.op, syn::BinOp::Eq(_))
+        || !path_is_ident(&condition.left, "tag")
+        || !path_has_segments(&condition.right, &["FullTag", "ExprParam"])
+    {
+        return Err("forced eager atom parameter materialization does not select ExprParam".into());
+    }
+    let [Stmt::Expr(Expr::Try(materialized), None)] = selection.then_branch.stmts.as_slice() else {
+        return Err("forced eager atom parameter materialization has an unrecognized body".into());
+    };
+    if exact_call(&materialized.expr, &["super", "materialize_indexed_callable"]).is_none() {
+        return Err("forced eager atom parameter materialization does not call materialize_indexed_callable".into());
+    }
+    let Some((_, otherwise)) = &selection.else_branch else {
+        return Err("forced eager atom parameter materialization drops other atoms".into());
+    };
+    let Expr::Block(otherwise) = otherwise.as_ref() else {
+        return Err("forced eager atom parameter materialization has an unrecognized fallback".into());
+    };
+    if !matches!(otherwise.block.stmts.as_slice(), [Stmt::Expr(value, None)] if path_is_ident(value, "value")) {
+        return Err("forced eager atom parameter materialization changes other atoms".into());
+    }
+    Ok(())
 }
 
 fn validate_eager_helper_arguments(call: &syn::ExprCall, explicit: bool) -> Result<(), String> {
@@ -8438,7 +8504,7 @@ fn eager_atom_helper_inventory(
         helper_boundaries,
         EagerAtomValueContract {
             decode_error: "map_err(indexed_error(error, span)) propagates ExprView decode errors".into(),
-            path_error: "map_err(indexed_error(IrVerifyError { message: error.message }, span)) propagates PathValue validation errors".into(),
+            path_error: "map_err(indexed_error(IrVerifyError::at(None, error.message), span)) propagates PathValue validation errors".into(),
             slot_bounds: "FullCodec<usize>::decode rejects slot >= decoder.slot_count before ExprParam reads slots[slot]".into(),
             freeze: "lowered_freeze_large_slot_list is infallible and runs before slots[slot].clone()".into(),
         },
@@ -8498,6 +8564,7 @@ fn eager_atom_value_arm(
         "Null" => (None, "construct", "LoweredValue::Null"),
         "Unit" => (None, "construct", "LoweredValue::Unit"),
         "Int" => (Some("value"), "copy", "LoweredValue::Int"),
+        "UInt" => (Some("value"), "copy", "LoweredValue::Int"),
         "Float" => (Some("value"), "copy", "LoweredValue::Float"),
         "Duration" => (Some("value"), "copy", "LoweredValue::Duration"),
         "Bool" => (Some("value"), "copy", "LoweredValue::Bool"),
@@ -8531,6 +8598,11 @@ fn eager_atom_value_arm(
         "Int" | "Float" | "Duration" | "Bool" => {
             if !eager_value_call(body, variant, "value") {
                 return Err(format!("ExprView::{variant} does not preserve its decoded value"));
+            }
+        }
+        "UInt" => {
+            if !eager_value_call(body, "Int", "value") {
+                return Err("ExprView::UInt does not preserve its decoded value as LoweredValue::Int".into());
             }
         }
         "Str" | "Bytes" => {
@@ -8688,24 +8760,14 @@ fn is_indexed_error_call(expression: &Expr, error_name: &str, verify_error: bool
     if !verify_error {
         return path_is_ident(&indexed_error.args[0], error_name);
     }
-    let Expr::Struct(error) = &indexed_error.args[0] else {
+    let Some(error) = exact_call(&indexed_error.args[0], &["IrVerifyError", "at"]) else {
         return false;
     };
-    if !path_has_segments(&Expr::Path(syn::ExprPath {
-        attrs: Vec::new(),
-        qself: None,
-        path: error.path.clone(),
-    }), &["IrVerifyError"])
-        || error.fields.len() != 1
-    {
-        return false;
-    }
-    error.fields.iter().any(|field| {
-        matches!(&field.member, syn::Member::Named(name) if name == "message")
-            && matches!(&field.expr, Expr::Field(message)
-                if matches!(&message.member, syn::Member::Named(name) if name == "message")
-                    && path_is_ident(&message.base, error_name))
-    })
+    error.args.len() == 2
+        && path_is_ident(&error.args[0], "None")
+        && matches!(&error.args[1], Expr::Field(message)
+            if matches!(&message.member, syn::Member::Named(name) if name == "message")
+                && path_is_ident(&message.base, error_name))
 }
 
 fn eager_param_slot_value(body: &Expr, slot: &str) -> Result<(usize, Vec<usize>), String> {
@@ -12602,7 +12664,7 @@ fn eval_indexed_typed_scalar() {{
             .map(|(variant, tag, ordinal)| {
                 let payload = match *variant {
                     "Null" | "Unit" => String::new(),
-                    "Int" => "(value: i64)".into(),
+                    "Int" | "UInt" => "(value: i64)".into(),
                     "Float" => "(value: FloatValue)".into(),
                     "Duration" => "(value: DurationValue)".into(),
                     "Bool" => "(value: bool)".into(),
@@ -12642,6 +12704,7 @@ instruction_schema! {{ BuildExprRow => ExprView [Expr] {{ {rows} }} }}
                 "Null" => "ExprView::Null => LoweredValue::Null,".to_string(),
                 "Unit" => "ExprView::Unit => LoweredValue::Unit,".to_string(),
                 "Int" => "ExprView::Int(value) => LoweredValue::Int(value),".to_string(),
+                "UInt" => "ExprView::UInt(value) => LoweredValue::Int(value),".to_string(),
                 "Float" => "ExprView::Float(value) => LoweredValue::Float(value),".to_string(),
                 "Duration" => "ExprView::Duration(value) => LoweredValue::Duration(value),".to_string(),
                 "Bool" => "ExprView::Bool(value) => LoweredValue::Bool(value),".to_string(),
@@ -12649,7 +12712,7 @@ instruction_schema! {{ BuildExprRow => ExprView [Expr] {{ {rows} }} }}
                 "Bytes" => "ExprView::Bytes(value) => LoweredValue::Bytes(Arc::from(value)),".to_string(),
                 "PreparedRegex" => "ExprView::PreparedRegex(value) => LoweredValue::Regex(Box::new(value.clone())),".to_string(),
                 "PreparedConstant" => "ExprView::PreparedConstant(value) => value.0.clone(),".to_string(),
-                "Path" => "ExprView::Path(value) => LoweredValue::Path(PathValue::new(value.to_vec()).map_err(|error| indexed_error(IrVerifyError { message: error.message }, span))?),".to_string(),
+                "Path" => "ExprView::Path(value) => LoweredValue::Path(PathValue::new(value.to_vec()).map_err(|error| indexed_error(IrVerifyError::at(None, error.message), span))?),".to_string(),
                 "Param" => "ExprView::Param(slot) => { lowered_freeze_large_slot_list(&mut slots[slot]); slots[slot].clone() },".to_string(),
                 _ => unreachable!("closed EagerAtom fixture"),
             })
@@ -12696,6 +12759,9 @@ fn eval_expr(&mut self) {{
     if tag.is_eager_atom() {{
         let call = &mut self.calls[index];
         let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;
+        let value = if tag == FullTag::ExprParam {{
+            super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?
+        }} else {{ value }};
         self.push_value(index, FrameValue::Value(value), next);
         return Ok(());
     }}
@@ -13000,7 +13066,7 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
             .unwrap_err().contains("unknown typed FrameApply tag"));
 
         let wildcard_classifier = sources.1.replace(
-            "FullTag::ExprArchiveTarCreate",
+            "FullTag::ExprPathRemove",
             "_",
         );
         assert!(frame_constructor_inventory(&(sources.0.clone(), wildcard_classifier, sources.2.clone()))
@@ -13075,17 +13141,18 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
     fn eager_atom_inventory_maps_schema_macro_normal_and_forced_paths() {
         let sources = eager_fixture();
         let inventory = eager_inventory(&sources).unwrap();
-        assert_eq!(inventory.schema_rows.len(), 12);
+        assert_eq!(inventory.schema_rows.len(), 13);
         assert_eq!(inventory.schema_rows[0].tag, "ExprNull");
-        assert_eq!(inventory.schema_rows[11].tag, "ExprParam");
+        assert_eq!(inventory.schema_rows[12].tag, "ExprParam");
         assert!(inventory.default_false_line < inventory.eager_true_line);
         assert!(inventory.eager_true_line < inventory.expansion_line);
         assert_eq!(inventory.normal_route.mode, "normal");
         assert_eq!(inventory.forced_route.mode, "forced");
-        assert_eq!(inventory.helper_arms.len(), 12);
+        assert_eq!(inventory.helper_arms.len(), 13);
         assert_eq!(inventory.helper_arms[2].input, "value");
         assert_eq!(inventory.helper_arms[2].output, "LoweredValue::Int");
-        assert_eq!(inventory.helper_arms[11].transformation, "freeze_slot_then_clone");
+        assert_eq!(inventory.helper_arms[3].output, "LoweredValue::Int");
+        assert_eq!(inventory.helper_arms[12].transformation, "freeze_slot_then_clone");
         assert_eq!(inventory.helper_fallback.outcome, "unreachable!: only eager atom tags reach this value helper");
         assert_eq!(inventory.explicit_error_group.outcome, "frame_strategy_error(tag, span)");
         assert_eq!(inventory.helper_boundaries.len(), 3);
@@ -13155,7 +13222,7 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
             "instruction_schema! { BuildIntRow => IntView [Int] { Other => IntOther = 0 [0; Operands; FrameApply; EagerAtom]; } BuildExprRow",
         );
         assert!(eager_inventory(&(eager_on_scalar, sources.1.clone(), sources.2.clone()))
-            .unwrap_err().contains("13 EagerAtom row flags"));
+            .unwrap_err().contains("14 EagerAtom row flags"));
     }
 
     #[test]
@@ -13194,15 +13261,15 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
             .unwrap_err().contains("after ExprViewKind fallback"));
 
         let forced_removed = sources.2.replace(
-            "    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }\n",
+            "    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        let value = if tag == FullTag::ExprParam {\n            super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?\n        } else { value };\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }\n",
             "",
         );
         assert!(eager_inventory(&(sources.0.clone(), sources.1.clone(), forced_removed))
             .unwrap_err().contains("eval_expr has no eager atom route"));
 
         let forced_reordered = sources.2.replace(
-            "    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }\n    if super::indexed_frame_apply_tag(tag) {}",
-            "    if super::indexed_frame_apply_tag(tag) {}\n    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }",
+            "    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        let value = if tag == FullTag::ExprParam {\n            super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?\n        } else { value };\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }\n    if super::indexed_frame_apply_tag(tag) {}",
+            "    if super::indexed_frame_apply_tag(tag) {}\n    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        let value = if tag == FullTag::ExprParam {\n            super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?\n        } else { value };\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }",
         );
         assert!(eager_inventory(&(sources.0.clone(), sources.1.clone(), forced_reordered))
             .unwrap_err().contains("after generic FrameApply"));
@@ -13287,7 +13354,7 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
             .unwrap_err().contains("no indexed-error conversion"));
 
         let path_error_bypass = sources.1.replace(
-            "indexed_error(IrVerifyError { message: error.message }, span)",
+            "indexed_error(IrVerifyError::at(None, error.message), span)",
             "RuntimeError::new(\"path\", error.message)",
         );
         assert!(eager_inventory(&(sources.0.clone(), path_error_bypass, sources.2.clone()))

@@ -553,7 +553,7 @@ def eager_atom_fixture() -> tuple[list[dict], dict]:
         },
         "value_contract": {
             "decode_error": "map_err(indexed_error(error, span)) propagates ExprView decode errors",
-            "path_error": "map_err(indexed_error(IrVerifyError { message: error.message }, span)) propagates PathValue validation errors",
+            "path_error": "map_err(indexed_error(IrVerifyError::at(None, error.message), span)) propagates PathValue validation errors",
             "slot_bounds": "FullCodec<usize>::decode rejects slot >= decoder.slot_count before ExprParam reads slots[slot]",
             "freeze": "lowered_freeze_large_slot_list is infallible and runs before slots[slot].clone()",
         },
@@ -636,7 +636,7 @@ def frame_constructor_fixture() -> tuple[list[dict], dict]:
     frame_tags = [tag for _, tag, _ in rows_by_variant] + ["ExprFsFiles"]
     child_behavior = {"FunctionRef": "no_child", "PathFrom": "one_child", "EmptyMap": "no_child"}
     value_behavior = {
-        "FunctionRef": "indexed_function_ref_value",
+        "FunctionRef": "materialize_indexed_callable(indexed_function_ref_value)",
         "PathFrom": "indexed_path_from_value",
         "EmptyMap": "indexed_empty_map_value",
     }
@@ -1468,10 +1468,6 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                 generate.CUSTOM_CHILD_PATHS[name],
                 [f".operands{path}" for path in expected],
             )
-        self.assertEqual(
-            generate.CUSTOM_CHILD_PATHS["LoweredProcessCommandBuilderEntry"],
-            [".Field.value", *[f".Run.operands{path}" for path in expected]],
-        )
         inventory = {
             "source_path": generate.RUN_OPERAND_DECODE_PATH.as_posix(),
             "enums": [
