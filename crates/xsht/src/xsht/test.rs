@@ -670,8 +670,7 @@ pub(crate) fn test_scripts(mut options: TestOptions) -> CliOutput {
     if interrupted.is_none() { interrupted = native_cancellation_output(); }
     let status_text = if interrupted.is_some() { "CANCELLED" }
         else if failed > 0 { "FAILED" }
-        else if lifecycle_error.is_some() || cleanup_error.is_some() { "INCOMPLETE" }
-        else if !options.exact_ids.is_empty() && skipped > 0 { "INCOMPLETE" }
+        else if lifecycle_error.is_some() || cleanup_error.is_some() || (!options.exact_ids.is_empty() && skipped > 0) { "INCOMPLETE" }
         else { "ok" };
     stdout.push_str(&format!(
         "test result: {status_text}. {passed} passed; {failed} failed; {skipped} skipped\n"
@@ -1767,7 +1766,7 @@ fn run_native_test_in_directory(
 ) -> TestOutcome {
     let xsh_binary = absolute_path(&test_binary("xsh"));
     let ctx = if case.has_ctx {
-        match test_context_value(&case.id, &case.file, &temp_root, &xsh_binary) {
+        match test_context_value(&case.id, &case.file, temp_root, &xsh_binary) {
             Ok(ctx) => ctx,
             Err(message) => {
                 return TestOutcome {
