@@ -24432,14 +24432,14 @@ assert read(Err("absent"), "replacement") == 0
             let mut foreign_binding = (*program).clone();
             foreign_binding.store.extra[binding.start] = 0;
             let error = FullVerifier::verify(&foreign_binding).unwrap_err();
-            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
+            assert_eq!(error.message, "generic call argument has no closed checked type");
             assert!(matches!(error.context, Some(super::super::VerifyContext::Instruction(_))), "{error:?}");
             let patterns = program.store.patterns.iter().enumerate().filter_map(|(index, tag)| (*tag == FullPatternTag::ResultOk).then_some(index)).collect::<Vec<_>>();
             assert_eq!(patterns.len(), 1);
             let mut wrong_pattern = (*program).clone();
             wrong_pattern.store.patterns[patterns[0]] = FullPatternTag::ResultErr;
             let error = FullVerifier::verify(&wrong_pattern).unwrap_err();
-            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
+            assert_eq!(error.message, "generic call argument has no closed checked type");
         });
     }
 
@@ -24467,7 +24467,7 @@ assert read(b"", "ignored") == 0
             let mut foreign_binding = (*program).clone();
             foreign_binding.store.extra[binding.start] = 1;
             let error = FullVerifier::verify(&foreign_binding).unwrap_err();
-            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
+            assert_eq!(error.message, "generic call argument has no closed checked type");
         });
     }
 
@@ -33961,7 +33961,7 @@ assert nullable_name == null
             let mut forged = program.clone();
             scheme_fixture_erase_local_as_any(&mut forged, caller, slot);
             let error = FullVerifier::verify(&forged).unwrap_err();
-            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
+            assert_eq!(error.message, "generic call argument has no closed checked type");
         }
 
         reject_erased_field(
