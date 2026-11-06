@@ -177,7 +177,7 @@ class CoverageTests(unittest.TestCase):
             r"tests\.native\(ctx,\s*profile,\s*(\[[^\]]*\])\)",
             execute_full,
         )
-        self.assertEqual([re.sub(r"\s+", "", filters) for filters in native_filters], ['["--jobs","4"]'])
+        self.assertEqual([re.sub(r"\s+", "", filters) for filters in native_filters], ['["--jobs","8"]'])
         self.assertRegex(native.group(0), r'xsht\.display\(\),\s*"test",\s*@filters')
         self.assertNotIn("tests.full(", execute_full)
         self.assertEqual(execute_full.count("docs_gate(ctx, profile)"), 1)
