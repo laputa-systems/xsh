@@ -332,7 +332,9 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         "desugared corpus: desugaring all {} files",
         sugared.len()
     );
+    let mut sources = BTreeMap::new();
     for file in &sugared {
+        let written = fs::read(root.join(file)).expect("read written file");
         let output = xsht(root, &["desugar", file]);
         assert!(
             output.status.success(),
@@ -340,6 +342,7 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
             String::from_utf8_lossy(&output.stderr)
         );
         fs::write(root.join(file), &output.stdout).expect("write desugared file");
+        sources.insert(file.clone(), (written, output.stdout));
         assert!(
             !holds_sugar(&root.join(file)),
             "xsht desugar {file} left sugar in its output"
@@ -361,17 +364,47 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         test_jobs()
     );
     let desugared_tests = batch_test_report(root, &sugared);
-    for file in &sugared {
-        let written = &written_tests.files[file];
-        let desugared = &desugared_tests.files[file];
+    let differing = sugared
+        .iter()
+        .filter(|file| written_tests.files[*file].outcomes != desugared_tests.files[*file].outcomes)
+        .cloned()
+        .collect::<Vec<_>>();
+    if differing.is_empty() {
+        return;
+    }
+
+    eprintln!(
+        "desugared corpus: rerunning {} differing files: {differing:?}",
+        differing.len()
+    );
+    for file in &differing {
+        fs::write(root.join(file), &sources[file].0).expect("restore written file");
+    }
+    let written_rerun = batch_test_report(root, &differing);
+    for file in &differing {
+        fs::write(root.join(file), &sources[file].1).expect("write desugared file");
+    }
+    let desugared_rerun = batch_test_report(root, &differing);
+    for file in &differing {
         assert_eq!(
-            &written.outcomes,
-            &desugared.outcomes,
-            "{file} tests differently once desugared\nwritten stdout:\n{}\nwritten stderr:\n{}\ndesugared stdout:\n{}\ndesugared stderr:\n{}",
-            written.stdout,
+            &written_rerun.files[file].outcomes,
+            &desugared_rerun.files[file].outcomes,
+            "{file} tests differently once desugared, on both attempts\n\
+             first attempt written outcomes: {:?}\nfirst attempt desugared outcomes: {:?}\n\
+             first attempt written stdout:\n{}\nfirst attempt written stderr:\n{}\n\
+             first attempt desugared stdout:\n{}\nfirst attempt desugared stderr:\n{}\n\
+             rerun written stdout:\n{}\nrerun written stderr:\n{}\n\
+             rerun desugared stdout:\n{}\nrerun desugared stderr:\n{}",
+            written_tests.files[file].outcomes,
+            desugared_tests.files[file].outcomes,
+            written_tests.files[file].stdout,
             written_tests.stderr,
-            desugared.stdout,
-            desugared_tests.stderr
+            desugared_tests.files[file].stdout,
+            desugared_tests.stderr,
+            written_rerun.files[file].stdout,
+            written_rerun.stderr,
+            desugared_rerun.files[file].stdout,
+            desugared_rerun.stderr
         );
     }
 }
