@@ -14,8 +14,8 @@ struct Terminal { master: File, slave: File }
 impl Terminal {
     fn new() -> Self {
         let (mut master, mut slave) = (-1, -1);
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        assert_eq!(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut size) }, 0);
+        let size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        assert_eq!(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &size) }, 0);
         let terminal = Self { master: unsafe { File::from_raw_fd(master) }, slave: unsafe { File::from_raw_fd(slave) } };
         for file in [&terminal.master, &terminal.slave] {
             assert_eq!(unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) }, 0);

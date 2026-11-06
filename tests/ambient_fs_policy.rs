@@ -924,7 +924,6 @@ fn visit_source_file(
     active.insert(file.clone());
     visit_source_items(
         &ast.items,
-        &file,
         &state.1,
         &state.2,
         reachability,
@@ -939,7 +938,6 @@ fn visit_source_file(
 
 fn visit_source_items(
     items: &[Item],
-    file: &Path,
     directory: &Path,
     path_base: &Path,
     reachability: SourceReachability,
@@ -963,7 +961,6 @@ fn visit_source_items(
             let inline_directory = directory.join(module.ident.to_string());
             visit_source_items(
                 items,
-                file,
                 &inline_directory,
                 &inline_directory,
                 child_reachability,
