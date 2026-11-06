@@ -13278,6 +13278,231 @@
       "boundary": "One control."
     },
     {
+      "id": "fragment.Xsh.Semantics.Connected.ok_read_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.ok_read_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A read of the Ok builtin at the fixture's instance has the Int-to-Result[Int, Str] function type under any solution.",
+      "boundary": "One instance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.monomorphic_read_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.monomorphic_read_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A read of a monomorphic binding at a closed well-formed value type has that type under any solution.",
+      "boundary": "Closed monomorphic types."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_read_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.ok_read_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The Ok read is grounded with its runtime instantiation contract in any scope that binds it uniquely.",
+      "boundary": "One instance."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_body_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_body_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's certified body is grounded in its certified scope under any proof and runtime solutions.",
+      "boundary": "One body."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_body_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_body_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified body, with the call and its propagation, is grounded in its certified scope under any proof and runtime solutions.",
+      "boundary": "One body."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.monomorphic_runtime_sorted",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.monomorphic_runtime_sorted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Entering a function with a monomorphic scheme keeps the runtime solution well sorted.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_store_is_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_store_is_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every cell of the loaded program store is immutable.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_scope_contracts",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_scope_contracts",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The global scope's value, writable, mutable-cell and schema contracts hold over the loaded program store.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_function_parameters",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_function_parameters",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified callee binds exactly the first parameter binder.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_function_parameters",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_function_parameters",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified caller has no parameters.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_body_declares_nothing",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_body_declares_nothing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's certified body declares no locals.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_body_declares_nothing",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_body_declares_nothing",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified body declares no locals.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_function_certified",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.wrap_function_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified callee satisfies FunctionBodyCertified over the global scheme bindings for every well-sorted captured solution and instantiation.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_function_certified",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_function_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified caller satisfies FunctionBodyCertified over the global scheme bindings for every well-sorted captured solution and instantiation.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_global_scheme_reads",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_global_scheme_reads",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scheme-function read of the loaded globals comes from a present cell of Ok, the callee or the caller.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_scheme_cells_are_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_scheme_cells_are_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The loaded program's scheme-function cells are immutable.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_storage_agrees",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_storage_agrees",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The storage map marking Ok, the callee and the caller as scheme bindings agrees with the loaded globals.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_scheme_is_callable",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.ok_scheme_is_callable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every instantiation of the Ok scheme has one argument and a Result of that argument.",
+      "boundary": "General over captured solutions and type arguments."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_store_callables",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_store_callables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every value in the loaded program store is callable through the function table.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_functions_certified",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.program_functions_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every user function in the loaded table is body-certified over the global scope.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_invocation_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.lift_invocation_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the certified caller in the loaded program, with a well-sorted solution, is a TypedMachine over the global scheme bindings.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_lift_invocation_is_type_safe",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.the_certified_lift_invocation_is_type_safe",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every execution of the invoked certified caller preserves TypedMachine, faults only with an integer fault, and is terminal or can take a permitted step.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_returned_lift_state_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.the_returned_lift_state_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The state after the caller returns Ok(1) to its caller frame is a TypedMachine.",
+      "boundary": "The program machine is a witness with the certified functions loaded at their published schemes; Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.an_identity_solution_lift_invocation_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.an_identity_solution_lift_invocation_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The invocation with the identity solution is a TypedMachine, so the hypothesis is inhabited.",
+      "boundary": "One witness."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.storage_that_forgets_the_scheme_bindings_disagrees",
+      "module": "Xsh.Semantics.Connected.SafetyResultTyped",
+      "declaration": "Xsh.Semantics.Connected.storage_that_forgets_the_scheme_bindings_disagrees",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A storage map that marks the Ok binding ordinary disagrees with the loaded globals.",
+      "boundary": "One control."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
       "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
       "declaration": "Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",

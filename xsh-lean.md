@@ -67,7 +67,8 @@ node through the callee's frame to `Ok(1)` for any machine that holds the
 certified program and satisfies the activation invariant, and propagates a
 failing callee's error to the caller's caller. Invoking the caller runs its
 whole body to the return under its caller frame, with the typed-scope invariant
-at both entries and after the return. Local declarations, recursion, the base machine
+at both entries and after the return, and the invoked machine is a
+`TypedMachine`, so every execution of it is type safe. Local declarations, recursion, the base machine
 and its lowerer, and typed whole-function execution of Result bodies remain
 open.
 
@@ -1273,6 +1274,30 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   paranoid check hit its 1080-second cap while con-ron ran, so con-ron and the
   Lean default kernel did not finish. It is not a pass; re-run it when the host
   is quiet.
+
+- 2026-11-06: The invoked call program is a `TypedMachine`
+  (`Semantics/Connected/SafetyResultTyped.lean`). Both certified bodies are
+  grounded (`GroundBlock`) in their certified scopes under any proof and runtime
+  solutions: the Ok read at the fixture instance and the callee read carry their
+  runtime instantiation contracts, the parameter read is monomorphic, and the
+  propagation's error is the caller's. With the storage map that marks Ok, the
+  callee and the caller as scheme bindings, both functions satisfy
+  `FunctionBodyCertified` over the global scope for every well-sorted captured
+  solution, which makes the loaded table certified; the store's values are
+  callable (every Ok instantiation has the Ok shape), its scheme cells
+  immutable, and its storage agreement holds. The invocation of `lift` with a
+  well-sorted solution is therefore a `TypedMachine`, and the existing
+  `typed_machine_execution_preservation`, `typed_execution_fault_is_integer` and
+  `typed_machine_safe_progress` give the invariant, integer-only faults and
+  progress for every execution from it, including the state after `Ok(1)`
+  returns. The identity solution inhabits the hypothesis; a storage map that
+  marks Ok ordinary disagrees with the globals. This is the first `TypedMachine`
+  with a non-empty global scope. Not covered: the loaded program is a witness
+  machine rather than a load of the Rust function rows; recursion, local
+  declarations, and the base machine and Vertical lowerer remain open. No Rust
+  change, so the gate selects no case. The Lake build (264 jobs), the inventory
+  (1,144 roots) with its 71 tests, and the axiom audit (28,736
+  declarations, zero closed roots) with its self-test pass.
 
 ## For the owner afterwards
 

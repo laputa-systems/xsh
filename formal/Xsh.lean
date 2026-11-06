@@ -142,3 +142,4 @@ import Xsh.Semantics.Connected.SafetyResultControl
 import Xsh.Semantics.Connected.SafetyResultCall
 import Xsh.Semantics.Connected.SafetyResultProgram
 import Xsh.Semantics.Connected.SafetyResultFunction
+import Xsh.Semantics.Connected.SafetyResultTyped

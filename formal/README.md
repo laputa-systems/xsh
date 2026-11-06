@@ -131,8 +131,10 @@ whole body under the caller frame `callFunction` pushes and returns `Ok(1)` to
 it. The typed-scope invariant (`ScopeStateAgrees`) holds over the certified
 scopes at the caller's entry, at the callee's entry, where the parameter holds
 the `Int` argument, and after the return; the certified scopes are shown equal
-to those scopes. The full `TypedMachine` invariant for Result bodies is not yet
-established. Local declarations, recursion, the base machine and its lowerer, typed whole-function execution, and
+to those scopes. Both certified bodies satisfy `FunctionBodyCertified` over the
+global scheme bindings (Ok, the callee and the caller), so the invoked machine
+is a `TypedMachine`: every execution from it preserves the invariant, faults
+only with an integer fault, and is terminal or can take a permitted step. Local declarations, recursion, the base machine and its lowerer, typed whole-function execution, and
 source-site binding of propagation and call rows remain open. The source is kept short
 because lean4lean exceeds its deterministic timeout when the kernel admits a
 source of a few hundred characters.
