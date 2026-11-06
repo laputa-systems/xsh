@@ -1017,6 +1017,26 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   real-sandbox case under the home-installed interpreter, which the sandbox
   hides. All 77 universal obligations stay planned.
 
+- 2026-11-06: The next remainder slice, Result forms in the base machine and
+  the Vertical lowerer, is parked unstarted with a sizing and a first probe.
+  `BaseType` is a flat enumeration and `BaseTypedValue` pairs it with
+  `CompositeValue`; a Result needs its success and error types, so the type
+  becomes recursive (or a Result carries one tag with typed payload checks).
+  `BaseExpr` needs `ok`, `err` and `propagate`; propagation needs a call
+  boundary, but a base `call` substitutes the callee body inline with no frame,
+  so a `callBoundary` frame must join `BaseFrame` and its `consumes`/`produces`
+  discipline. Every case split on `BaseType`, `BaseExpr` or `BaseFrame` in
+  `Proofs/BaseMachine.lean` (1,131 lines), `Proofs/BaseInvariant.lean`,
+  `Proofs/Base/*`, `Foundation/ObservedMachine`, `Foundation/ResolvedBinding`
+  and the Vertical `Meaning`, `Reading`, `Lowering` and `LoweringSound`
+  changes, plus the Rust arithmetic exporter, its documents and the outcome
+  encoding for Result values. That is several thousand proof lines and does not
+  fit one coherent commit beside the focused gates on a shared host. First
+  probe: add the recursive `BaseType.result` and the three expression forms
+  with the boundary frame, and count the broken cases in the base proofs before
+  touching the Vertical files. The per-expression checker types, calls, local
+  declarations and typed whole-function execution slices stay behind it.
+
 ## For the owner afterwards
 
 Review theorem statements and `formal/coverage.json`, especially each `EXTERNAL_ASSUMPTION`, actual Rust and artifact identity, and any parked mandatory item. The campaign is complete only with G10 on a fresh identified checkout. Keep each full theorem obligation planned until its complete proof and required evidence pass.
