@@ -13033,6 +13033,51 @@
       "status": "fragment",
       "scope": "A body block owned by another function is rejected by the raw-row comparison.",
       "boundary": "One mutation or case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.generated_constraints_contain_the_error_conflict",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.generated_constraints_contain_the_error_conflict",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for the nested construction Ok(Ok(1)? + 1) in a function declared to return Result[Int, Str] contain the default of the bare inner Ok to the error type Error, the propagated operand's Result type, and the declared Result type.",
+      "boundary": "One body with the Ok constructor in scope."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.the_error_conflict_has_no_solution",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.the_error_conflict_has_no_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The default error type of a bare Ok under ?, the propagated operand type and a declared string error type have no common solution.",
+      "boundary": "Three constraints of one shape."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.nested_ok_under_propagation_is_rejected_at_a_string_error",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.nested_ok_under_propagation_is_rejected_at_a_string_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for the nested Ok(Ok(1)? + 1) at Result[Int, Str] have no solution of any kind.",
+      "boundary": "The model defaults only bare Ok under ?, in binary operands, field bases, unannotated declarations and discarded statements; call arguments and record fields are not yet expected positions."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.nested_ok_under_propagation_is_accepted_at_the_broad_error",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.nested_ok_under_propagation_is_accepted_at_the_broad_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for Ok(Ok(1)? + 1) at Result[Int, Error] have a checked derivation.",
+      "boundary": "One body; generation and derivation only, not a candidate node."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.an_expected_ok_keeps_the_declared_error_type",
+      "module": "Xsh.Typing.Connected.ExpectedConstructors",
+      "declaration": "Xsh.Typing.Connected.an_expected_ok_keeps_the_declared_error_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A returned Ok(1) keeps the declared error type at both Result[Int, Str] and Result[Int, Error].",
+      "boundary": "One body; generation and derivation only."
     }
   ],
   "artifact_certificates": [

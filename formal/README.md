@@ -99,9 +99,13 @@ an error to the caller frame; it also unwinds a propagation inside the left
 operand of an addition without evaluating the right operand, for a node the
 fixture does not include. Controls reject forged signatures, swapped Ok and
 Err in the candidate and in the rows, a dropped, misplaced or mistyped
-propagation, and forged rows and function tables. The Lean model types a
-nested `Ok` whose error type SPEC 8.5 fixes to `Error` (Rust rejects it,
-correctly), a looseness of the model, so agreement is shown only for the
+propagation, and forged rows and function tables. A bare `Ok` under `?`, in
+a binary operand, a field base, an unannotated declaration or a discarded
+statement defaults its error type to `Error` (SPEC 8.5), while an `Ok` at the
+function's return keeps the declared error type; witnesses reject the nested
+`Ok(Ok(1)? + 1)` at `Result[Int, Str]` and accept it at `Result[Int, Error]`.
+Call arguments and record fields are not yet expected positions in the model,
+so agreement is shown only for the
 fixture. Per-expression checker types, calls, local declarations,
 the base machine and its lowerer, typed whole-function execution, and
 source-site binding of propagation rows remain open. The source is kept short

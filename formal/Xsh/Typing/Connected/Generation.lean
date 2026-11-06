@@ -201,6 +201,31 @@ def resolve (scope : Scope) (name : NameId) : Generator Binding :=
   | some binding => pure binding
   | none => throw .unresolvedName
 
+def resultValueVariable : Variable := ⟨1, .value⟩
+
+def okScheme : Scheme :=
+  ⟨[identityVariable, resultValueVariable],
+    .function (.argument (.variable identityVariable) .argumentsEmpty)
+      (.result (.variable identityVariable) (.variable resultValueVariable)), []⟩
+
+def errorScheme : Scheme :=
+  ⟨[identityVariable, resultValueVariable],
+    .function (.argument (.variable resultValueVariable) .argumentsEmpty)
+      (.result (.variable identityVariable) (.variable resultValueVariable)), []⟩
+
+def isOkConstructor (scope : Scope) : Expr → Bool
+  | .call (.ident name) _ =>
+      match scope.find? (fun binding => decide (binding.name = name)) with
+      | some binding => decide (binding.scheme.quantified = okScheme.quantified) &&
+          decide (binding.scheme.body = okScheme.body)
+      | none => false
+  | _ => false
+
+def defaultBareConstructor (scope : Scope) (source : Expr) (generated : Generated) : Generator Unit := do
+  if isOkConstructor scope source then
+    let value ← fresh .value
+    emit (.equal generated.ty (.result value (.primitive .error)))
+
 def constrainArguments (callee : MonoType) (arguments : List MonoType) : Generator MonoType := do
   let result ← fresh .value
   let parameters := arguments.foldr MonoType.argument .argumentsEmpty
@@ -294,6 +319,8 @@ mutual
             | throw .unsupportedExpression
           let first ← expressionIn fuel context scope left
           let second ← expressionIn fuel context scope right
+          defaultBareConstructor scope left first
+          defaultBareConstructor scope right second
           emit (.equal first.ty leftType)
           emit (.equal second.ty rightType)
           pure ⟨result, .binary operator first.node second.node⟩
@@ -310,6 +337,7 @@ mutual
           else throw .duplicateField
       | .field base name => do
           let record ← expressionIn fuel context scope base
+          defaultBareConstructor scope base record
           let value ← fresh .value
           emit (.field record.ty name value)
           pure ⟨value, .field record.node name⟩
@@ -332,6 +360,7 @@ mutual
             .requireValue binding.binder identity generated.node⟩
       | .tryExpr value => do
           let inner ← expressionIn fuel context scope value
+          defaultBareConstructor scope value inner
           let result ← fresh .value
           let error ← fresh .value
           emit (.equal inner.ty (.result result error))
@@ -385,6 +414,7 @@ mutual
       | .binding kind (.name name) typeAnnotation initializer => do
           let generated ← expressionIn fuel (some (names, result)) scope initializer
           constrainPropagation result generated.node
+          if typeAnnotation.isNone then defaultBareConstructor scope initializer generated else pure ()
           let storage ← match typeAnnotation with
             | some declared => do
                 let some ty := annotation names declared | throw .unsupportedAnnotation
@@ -420,6 +450,7 @@ mutual
       | .expression value => do
           let generated ← expressionIn fuel (some (names, result)) scope value
           constrainPropagation result generated.node
+          if rest.isEmpty then pure () else defaultBareConstructor scope value generated
           if rest.isEmpty then
             match completion with
             | some ty => emit (.equal generated.ty ty)
@@ -502,18 +533,6 @@ theorem assignment_to_immutable_binding_is_rejected :
 def exampleTypeNames : TypeNames :=
   ⟨exampleName 3 (by decide), exampleName 4 (by decide),
     exampleName 5 (by decide), exampleName 6 (by decide)⟩
-
-def resultValueVariable : Variable := ⟨1, .value⟩
-
-def okScheme : Scheme :=
-  ⟨[identityVariable, resultValueVariable],
-    .function (.argument (.variable identityVariable) .argumentsEmpty)
-      (.result (.variable identityVariable) (.variable resultValueVariable)), []⟩
-
-def errorScheme : Scheme :=
-  ⟨[identityVariable, resultValueVariable],
-    .function (.argument (.variable resultValueVariable) .argumentsEmpty)
-      (.result (.variable identityVariable) (.variable resultValueVariable)), []⟩
 
 def composedScope : Scope :=
   [ identityBinding,
