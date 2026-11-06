@@ -1123,7 +1123,14 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   `Err` has no published type; only named calls, propagation, binary
   operations, literals and reads are aligned; calls of user functions, local
   declarations, typed whole-function execution and the base machine and
-  Vertical lowerer remain open.
+  Vertical lowerer remain open. The gate passed the 1,694 lowering cases, the
+  type-agreement case and the 12 native lowering-coverage cases. The Lake build
+  (257 jobs), the inventory (1,046 roots) with its 71 tests, and the axiom audit
+  (28,059 declarations, zero closed roots) with its self-test pass. With
+  `perf-gate-ready` clean before and after, the fresh check passed: all six
+  kernels accepted 115,618 declarations using only `propext`, `Quot.sound` and
+  `Classical.choice`. This run also covers the expected-position `Ok` commit,
+  whose earlier fresh check was inconclusive.
 
 ## For the owner afterwards
 
