@@ -22,9 +22,7 @@ pub(super) fn source(store: &FullStore, call: FullGuardCall, budget: &mut Scheme
 pub(in crate::runtime::eval::indexed::full) fn source_target(store: &FullStore, call: FullGuardCall, budget: &mut SchemeInstantiationBudget) -> Result<(FullInstantiation, super::IrFunctionId), IrVerifyError> {
     budget.charge(1)?;
     let instruction = call.instruction as usize;
-    let arguments;
-    let target;
-    if call.leaf != IR_NONE {
+    let (arguments, target) = if call.leaf != IR_NONE {
         if call.role != InstantiationRole::Value || store.tags.get(instruction) != Some(&FullTag::ExprCheckedValue) { return Err(IrVerifyError::new("guard call materialization has another physical source role")); }
         let payload = store.payload(store.data[instruction].range())?;
         if payload.get(1) != Some(&(super::super::decode::ValueCheckTag::Materialization as u32)) { return Err(IrVerifyError::new("guard call source has no physical materialization")); }
@@ -42,22 +40,24 @@ pub(in crate::runtime::eval::indexed::full) fn source_target(store: &FullStore, 
         }
         if !found { return Err(IrVerifyError::new("guard call leaf belongs to another materialization")); }
         let leaf = store.materialization_leaves.get(call.leaf as usize).ok_or_else(|| IrVerifyError::new("guard call materialization leaf is invalid"))?;
-        arguments = leaf.instance;
-        target = store.scheme_callable_values.get(leaf.relationship as usize).ok_or_else(|| IrVerifyError::new("guard call materialization relationship is invalid"))?.canonical;
+        let arguments = leaf.instance;
+        let target = store.scheme_callable_values.get(leaf.relationship as usize).ok_or_else(|| IrVerifyError::new("guard call materialization relationship is invalid"))?.canonical;
+        (arguments, target)
     } else {
         let tag = store.tags.get(instruction).ok_or_else(|| IrVerifyError::new("guard call source instruction is invalid"))?;
         let actual_role = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprDynamicCall) { InstantiationRole::Call } else if matches!(tag, FullTag::ExprFunctionRef | FullTag::ExprParam | FullTag::ExprCheckedValue) { InstantiationRole::Value } else { return Err(IrVerifyError::new("guard call source has no invocation or value role")); };
         if call.role != actual_role { return Err(IrVerifyError::new("guard call source has another physical role")); }
         let index = store.call_instantiations.binary_search_by_key(&call.instruction, |instance| instance.instruction).map_err(|_| IrVerifyError::new("guard call source has no actual call instantiation"))?;
-        arguments = store.call_instantiations[index].arguments;
-        target = if let Ok(index) = store.checked_call_targets.binary_search_by_key(&call.instruction, |target| target.instruction) {
+        let arguments = store.call_instantiations[index].arguments;
+        let target = if let Ok(index) = store.checked_call_targets.binary_search_by_key(&call.instruction, |target| target.instruction) {
             store.checked_call_targets[index].function
         } else {
             let index = store.scheme_callable_calls.binary_search_by_key(&call.instruction, |call| call.instruction).map_err(|_| IrVerifyError::new("guard call source has no checked target"))?;
             let relationship = store.scheme_callable_calls[index].relationship;
             store.scheme_callable_values.get(relationship as usize).ok_or_else(|| IrVerifyError::new("guard call source relationship is invalid"))?.canonical
         };
-    }
+        (arguments, target)
+    };
     Ok((arguments, target))
 }
 
