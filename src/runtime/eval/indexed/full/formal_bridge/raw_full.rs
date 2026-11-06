@@ -964,6 +964,51 @@ fn result_signature_type(ty: &crate::sema::types::Type) -> Result<WireValue, Str
     }
 }
 
+fn result_site_wire(span: Span) -> WireValue {
+    wire_object([
+        ("source", wire_string(format!("{:08x}", span.source_id.raw()))),
+        ("start", wire_string(format!("{:08x}", span.start()))),
+        ("length", wire_string(format!("{:08x}", span.end() - span.start()))),
+    ])
+}
+
+fn result_expression_types(
+    arena: &crate::syntax::arena::ArenaProgram,
+    published: &super::facts::PublishedFacts,
+    expression: crate::syntax::arena::ExprId,
+    output: &mut Vec<WireValue>,
+) -> Result<(), String> {
+    use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind};
+    let ast = &arena.arena;
+    let ty = published.declarations.bodies.expr_types.get(&expression)
+        .ok_or_else(|| "the checker published no type for an expression".to_string())?;
+    output.push(wire_object([
+        ("site", result_site_wire(ast.expr(expression).span)),
+        ("type", result_signature_type(ty)?),
+    ]));
+    match ast.expr(expression).kind {
+        ArenaExprKind::Call { callee, args } => {
+            if !matches!(ast.expr(callee).kind, ArenaExprKind::Ident(_)) {
+                return Err("only a named callee is in the expression-type export".to_string());
+            }
+            for argument in ast.call_args(args) {
+                let ArenaCallArgKind::Positional(value) = argument.kind else {
+                    return Err("only positional arguments are in the expression-type export".to_string());
+                };
+                result_expression_types(arena, published, value, output)?;
+            }
+        }
+        ArenaExprKind::Try(inner) => result_expression_types(arena, published, inner, output)?,
+        ArenaExprKind::Binary { left, right, .. } => {
+            result_expression_types(arena, published, left, output)?;
+            result_expression_types(arena, published, right, output)?;
+        }
+        ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Ident(_) => {}
+        other => return Err(format!("expression {other:?} is outside the expression-type export")),
+    }
+    Ok(())
+}
+
 fn export_result_signatures(
     arena: &crate::syntax::arena::ArenaProgram,
     published: &super::facts::PublishedFacts,
@@ -978,6 +1023,14 @@ fn export_result_signatures(
             return Err("the published signature disagrees with the declared parameters".to_string());
         }
         let body = ast.span(ast.block(definition.body).span);
+        let mut expressions = Vec::new();
+        for statement in ast.stmt_ids(ast.block(definition.body).statements) {
+            let crate::syntax::arena::ArenaStmtKind::Return(Some(crate::syntax::arena::ArenaExprOrRun::Expr(value))) =
+                ast.stmt(statement).kind else {
+                return Err("only a returned expression is in the expression-type export".to_string());
+            };
+            result_expression_types(arena, published, value, &mut expressions)?;
+        }
         let parameters = parameters.iter().zip(&signature.params).map(|(parameter, published)| Ok(wire_object([
             ("name", wire_string(super::name_text(parameter.name))),
             ("type", result_signature_type(&published.ty)?),
@@ -991,10 +1044,11 @@ fn export_result_signatures(
             ])),
             ("parameters", WireValue::Array(parameters)),
             ("result", result_signature_type(&signature.return_ty)?),
+            ("expressions", WireValue::Array(expressions)),
         ]))
     }).collect::<Result<Vec<_>, String>>()?;
     let value = wire_object([
-        ("schema", wire_string("xsh-connected-result-signatures-v1")),
+        ("schema", wire_string("xsh-connected-result-signatures-v2")),
         ("functions", WireValue::Array(functions)),
     ]);
     deser_json::to_string(&value).map_err(|error| error.to_string())
@@ -1024,5 +1078,10 @@ fn result_control_rows_and_signatures_are_the_lean_documents() {
     let definition = parsed.arena.arena.function_def(crate::syntax::arena::FunctionDefId::from_index(0));
     let published_signature = published.declarations.pures.get_mut(&definition.name).unwrap();
     published_signature.return_ty = crate::sema::types::Type::Int;
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &published).unwrap());
+    let (_, _, parsed, mut published) = check_fixture(RESULT_CONTROL_SOURCE).unwrap();
+    let propagated = (0..parsed.arena.arena.expr_tags.len()).map(crate::syntax::arena::ExprId::from_index)
+        .find(|&id| matches!(parsed.arena.arena.expr(id).kind, crate::syntax::arena::ArenaExprKind::Try(_))).unwrap();
+    published.declarations.bodies.expr_types.insert(propagated, crate::sema::types::Type::Str);
     assert_ne!(signatures, export_result_signatures(&parsed.arena, &published).unwrap());
 }

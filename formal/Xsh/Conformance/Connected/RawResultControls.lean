@@ -92,6 +92,53 @@ theorem a_propagation_outside_the_constructor_is_rejected :
       [.returned (.propagate (okNode (.read resultFirstBinder [])) (.primitive .string))] throughSteps = false := by
   decide +kernel
 
+def typesAccept (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode)
+    (steps : List DerivationStep) : Bool :=
+  match admitSource 0 resultControlSource, signatures[index]? with
+  | .ok unit, some signature => checkResultExpressionTypes unit signature index candidate steps
+  | _, _ => false
+
+set_option maxRecDepth 100000 in
+theorem published_expression_types_match_each_candidate :
+    typesAccept resultSignatures 0 throughCandidate throughSteps = true ∧
+    typesAccept resultSignatures 1 refuseCandidate refuseSteps = true := by
+  decide +kernel
+
+def withExpressions (index : Nat) (expressions : List (SourceSite × MonoType)) : List ResultSignature :=
+  editSignature index fun s => { s with expressions := expressions }
+
+def stringResult : MonoType := .result (.primitive .integer) (.primitive .string)
+
+set_option maxRecDepth 100000 in
+theorem a_forged_propagated_value_type_is_rejected :
+    typesAccept (withExpressions 0 [(⟨0, 63, 6⟩, stringResult), (⟨0, 66, 2⟩, .primitive .string),
+      (⟨0, 66, 1⟩, stringResult)]) 0 throughCandidate throughSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_forged_constructor_type_is_rejected :
+    typesAccept (withExpressions 1 [(⟨0, 115, 9⟩, integerErrorResult), (⟨0, 119, 4⟩, .primitive .string)])
+      1 refuseCandidate refuseSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_shifted_expression_site_is_rejected :
+    typesAccept (withExpressions 0 [(⟨0, 63, 6⟩, stringResult), (⟨0, 67, 2⟩, .primitive .integer),
+      (⟨0, 66, 1⟩, stringResult)]) 0 throughCandidate throughSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem a_dropped_expression_type_is_rejected :
+    typesAccept (withExpressions 0 [(⟨0, 63, 6⟩, stringResult), (⟨0, 66, 1⟩, stringResult)])
+      0 throughCandidate throughSteps = false := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+theorem an_extra_expression_type_is_rejected :
+    typesAccept (withExpressions 1 [(⟨0, 115, 9⟩, stringResult), (⟨0, 119, 4⟩, .primitive .string),
+      (⟨0, 119, 4⟩, .primitive .string)]) 1 refuseCandidate refuseSteps = false := by
+  decide +kernel
+
 def withTag (rows : RawInstructionRows) (row : Nat) (tag : RawTag) : RawInstructionRows :=
   { rows with tags := rows.tags.set row tag }
 

@@ -106,7 +106,7 @@ function's return keeps the declared error type; witnesses reject the nested
 `Ok(Ok(1)? + 1)` at `Result[Int, Str]` and accept it at `Result[Int, Error]`.
 Call arguments and record fields are not yet expected positions in the model,
 so agreement is shown only for the
-fixture. Per-expression checker types, calls, local declarations,
+fixture. The published facts also give the checker's type of every non-callee expression; Lean pairs them in pre-order with the validated nodes and requires the same types, and forged, shifted, dropped and extra entries are rejected. Calls, local declarations,
 the base machine and its lowerer, typed whole-function execution, and
 source-site binding of propagation rows remain open. The source is kept short
 because lean4lean exceeds its deterministic timeout when the kernel admits a

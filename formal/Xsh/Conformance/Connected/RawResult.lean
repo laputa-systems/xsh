@@ -13,6 +13,7 @@ structure ResultSignature where
   body : SourceSite
   parameters : List (String × MonoType)
   result : MonoType
+  expressions : List (SourceSite × MonoType)
   deriving DecidableEq
 
 def decodeResultType : Nat → WireValue → Option MonoType
@@ -37,15 +38,20 @@ def decodeResultParameter (value : WireValue) : Option (String × MonoType) := d
   let fields ← value.closedObject? ["name", "type"]
   pure (← textField fields "name", ← (WireValue.field? fields "type").bind (decodeResultType 8))
 
+def decodeResultExpression (value : WireValue) : Option (SourceSite × MonoType) := do
+  let fields ← value.closedObject? ["site", "type"]
+  pure (← siteField fields "site", ← (WireValue.field? fields "type").bind (decodeResultType 8))
+
 def decodeResultSignature (value : WireValue) : Option ResultSignature := do
-  let fields ← value.closedObject? ["name", "body", "parameters", "result"]
+  let fields ← value.closedObject? ["name", "body", "parameters", "result", "expressions"]
   pure ⟨← textField fields "name", ← siteField fields "body", ← listField fields "parameters" decodeResultParameter,
-    ← (WireValue.field? fields "result").bind (decodeResultType 8)⟩
+    ← (WireValue.field? fields "result").bind (decodeResultType 8),
+    ← listField fields "expressions" decodeResultExpression⟩
 
 def decodeResultSignatures (codes : ExchangeCodes) : Option (List ResultSignature) := do
   let value ← parseCodes codes
   let fields ← value.closedObject? ["schema", "functions"]
-  if textField fields "schema" = some "xsh-connected-result-signatures-v1" then pure () else none
+  if textField fields "schema" = some "xsh-connected-result-signatures-v2" then pure () else none
   listField fields "functions" decodeResultSignature
 
 def resultOkBinder : BinderId := ⟨⟨10, by decide⟩⟩
@@ -83,6 +89,108 @@ def validateResultFunction (unit : SourceUnit) (signature : ResultSignature) (in
   validateSourceAnnotation names identity source.result signature.result
   validateDerivedBlock 48 names (parameters ++ builtins) signature.result source.body candidate (fun _ => none) steps
 
+def returnedNode : List StatementNode → Option Node
+  | [.returned value] => some value
+  | _ => none
+
+mutual
+  def alignedNodes : Nat → Expr → Node → Option (List (Expr × Node))
+    | 0, _, _ => none
+    | fuel + 1, source@(.call (.ident _) arguments), node@(.call (.read _ _) nodes) => do
+        pure ((source, node) :: (← alignedArguments fuel arguments nodes))
+    | fuel + 1, source@(.tryExpr inner), node@(.propagate innerNode _) => do
+        pure ((source, node) :: (← alignedNodes fuel inner innerNode))
+    | fuel + 1, source@(.binary _ left right), node@(.binary _ leftNode rightNode) => do
+        pure ((source, node) :: ((← alignedNodes fuel left leftNode) ++ (← alignedNodes fuel right rightNode)))
+    | _ + 1, source@(.literal _), node => some [(source, node)]
+    | _ + 1, source@(.ident _), node => some [(source, node)]
+    | _ + 1, _, _ => none
+
+  def alignedArguments : Nat → List CallArgument → List Node → Option (List (Expr × Node))
+    | 0, _, _ => none
+    | _ + 1, [], [] => some []
+    | fuel + 1, .positional source :: sources, node :: nodes => do
+        pure ((← alignedNodes fuel source node) ++ (← alignedArguments fuel sources nodes))
+    | _ + 1, _, _ => none
+end
+
+def withoutCallees : List (SourceSite × Expr) → List SourceSite
+  | [] => []
+  | (site, .call (.ident _) _) :: _ :: rest => site :: withoutCallees rest
+  | (site, _) :: rest => site :: withoutCallees rest
+
+def returnedSource : List Statement → Option Expr
+  | [.returnValue (some value)] => some value
+  | _ => none
+
+def resultExpressionTypes (unit : SourceUnit) (signature : ResultSignature) (index : Nat)
+    (candidate : List StatementNode) (steps : List DerivationStep) :
+    Option (List SourceSite × List MonoType) := do
+  let some (.function source) := unit.declarations[index]? | none
+  let names ← resultTypeNames unit
+  let parameters ← resultParameterBindings unit signature.parameters
+  let builtins ← resultBuiltinBindings unit
+  let scope := parameters ++ builtins
+  let (_, state) ← ((block 48 names scope signature.result source.body).run
+    (initialBlockState scope signature.result)).toOption
+  let solution ← (checkDerivation steps state.constraints).toOption
+  let expression ← returnedSource source.body
+  let node ← returnedNode candidate
+  let pairs ← alignedNodes 32 expression node
+  let types ← (pairs.mapM fun (expression, node) => validateExpression 48 scope solution expression node).toOption
+  pure (withoutCallees source.expressions, types)
+
+def checkResultExpressionTypes (unit : SourceUnit) (signature : ResultSignature) (index : Nat)
+    (candidate : List StatementNode) (steps : List DerivationStep) : Bool :=
+  match resultExpressionTypes unit signature index candidate steps with
+  | some (sites, types) => decide (sites = signature.expressions.map Prod.fst) &&
+      decide (types = signature.expressions.map Prod.snd)
+  | none => false
+
+theorem checked_expression_types_are_validated (unit : SourceUnit) (signature : ResultSignature) (index : Nat)
+    (candidate : List StatementNode) (steps : List DerivationStep)
+    (checked : checkResultExpressionTypes unit signature index candidate steps = true) :
+    ∃ sites types, resultExpressionTypes unit signature index candidate steps = some (sites, types) ∧
+      sites = signature.expressions.map Prod.fst ∧ types = signature.expressions.map Prod.snd := by
+  unfold checkResultExpressionTypes at checked
+  cases found : resultExpressionTypes unit signature index candidate steps with
+  | none => simp [found] at checked
+  | some pair =>
+    obtain ⟨sites, types⟩ := pair
+    simp only [found, Bool.and_eq_true, decide_eq_true_eq] at checked
+    exact ⟨sites, types, rfl, checked.1, checked.2⟩
+
+theorem mapM_validation_types_each (fuel : Nat) (scope : Scope) (solution : Substitution)
+    (pairs : List (Expr × Node)) (types : List MonoType)
+    (accepted : pairs.mapM (fun (expression, node) => validateExpression fuel scope solution expression node) =
+      .ok types) :
+    pairs.length = types.length ∧
+      ∀ entry ∈ pairs.zip types, ExpressionHasType scope solution entry.1.1 entry.2 := by
+  induction pairs generalizing types with
+  | nil =>
+    simp [List.mapM_nil] at accepted
+    cases accepted
+    simp
+  | cons pair rest ih =>
+    obtain ⟨expression, node⟩ := pair
+    simp only [List.mapM_cons] at accepted
+    cases first : validateExpression fuel scope solution expression node with
+    | error error => simp [first] at accepted; cases accepted
+    | ok ty =>
+      cases others : rest.mapM (fun (expression, node) => validateExpression fuel scope solution expression node) with
+      | error error => simp [first, others] at accepted; cases accepted
+      | ok tys =>
+        simp [first, others] at accepted
+        cases accepted
+        obtain ⟨lengths, typed⟩ := ih tys others
+        refine ⟨by simp [lengths], ?_⟩
+        intro entry member
+        simp only [List.zip_cons_cons, List.mem_cons] at member
+        rcases member with same | later
+        · subst same
+          exact accepted_expression_has_type fuel scope solution expression node ty first
+        · exact typed entry later
+
 def rawFunctionReturn (rows : RawInstructionRows) (functions : RawFunctionRows) (index : Nat) : Option Nat := do
   let function ← functions.functions[index]?
   let statements ← readRawStatementBlock rows functions (index + 1) function.body
@@ -91,10 +199,6 @@ def rawFunctionReturn (rows : RawInstructionRows) (functions : RawFunctionRows) 
   if instruction.tag = ⟨"StmtReturn", 150⟩ then pure () else none
   let [value] := instruction.payload | none
   if value < statement then some value else none
-
-def returnedNode : List StatementNode → Option Node
-  | [.returned value] => some value
-  | _ => none
 
 def namesRawBytes (names : List String) : RawNameBytes := fun name => (names[name.value]?).map rawBytes
 
@@ -117,21 +221,23 @@ def certifyResultFunction (unit : SourceUnit) (rows : RawInstructionRows) (funct
     (signature : ResultSignature) (index : Nat) (candidate : List StatementNode)
     (steps : List DerivationStep) : Bool :=
   (match validateResultFunction unit signature index candidate steps with | .ok _ => true | .error _ => false) &&
-    rawResultReturnCheck unit rows functions signature index candidate
+    rawResultReturnCheck unit rows functions signature index candidate &&
+    checkResultExpressionTypes unit signature index candidate steps
 
 theorem certified_result_function_components (unit : SourceUnit) (rows : RawInstructionRows)
     (functions : RawFunctionRows) (signature : ResultSignature) (index : Nat) (candidate : List StatementNode)
     (steps : List DerivationStep)
     (certified : certifyResultFunction unit rows functions signature index candidate steps = true) :
     validateResultFunction unit signature index candidate steps = .ok () ∧
-      rawResultReturnCheck unit rows functions signature index candidate = true := by
+      rawResultReturnCheck unit rows functions signature index candidate = true ∧
+      checkResultExpressionTypes unit signature index candidate steps = true := by
   unfold certifyResultFunction at certified
   cases validated : validateResultFunction unit signature index candidate steps with
   | error error => simp [validated] at certified
   | ok unitValue =>
     cases unitValue
     simp [validated] at certified
-    exact ⟨rfl, certified⟩
+    exact ⟨rfl, certified.1, certified.2⟩
 
 theorem validated_result_function_is_typed (unit : SourceUnit) (signature : ResultSignature) (index : Nat)
     (candidate : List StatementNode) (steps : List DerivationStep)

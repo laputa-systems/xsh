@@ -12680,7 +12680,7 @@
       "declaration": "Xsh.Conformance.Connected.certified_result_function_components",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A certified Result function splits into a validation of the function against the Rust-published signature and a raw-row comparison of its returned value.",
+      "scope": "A certified Result function splits into a validation against the Rust-published signature, a raw-row comparison of its returned value, and a check of the published per-expression types against the validated nodes.",
       "boundary": "Only single-return pure functions whose parameters and result use Int, Str and Result."
     },
     {
@@ -13078,6 +13078,78 @@
       "status": "fragment",
       "scope": "A returned Ok(1) keeps the declared error type at both Result[Int, Str] and Result[Int, Error].",
       "boundary": "One body; generation and derivation only."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_expression_types_are_validated",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.checked_expression_types_are_validated",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted per-expression check pairs the source's non-callee expression sites, in pre-order, with the Rust-published sites and the types the Lean validator gives the aligned candidate nodes under the derived solution with the published types.",
+      "boundary": "Only calls of named callees, propagation, binary operations, literals and reads are aligned; the callee read itself has no published type."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.mapM_validation_types_each",
+      "module": "Xsh.Conformance.Connected.RawResult",
+      "declaration": "Xsh.Conformance.Connected.mapM_validation_types_each",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every type the Lean validator returns for an aligned expression and node is a typing of that source expression under the solution.",
+      "boundary": "General over aligned pairs."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.published_expression_types_match_each_candidate",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.published_expression_types_match_each_candidate",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The checker's published type of every non-callee expression in both fixture functions equals the Lean type of the aligned candidate node.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_propagated_value_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_propagated_value_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing Str as the type of the propagated operand is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_constructor_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_constructor_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing an Int error type for the Err construction is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_shifted_expression_site_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_shifted_expression_site_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Publishing a type at a shifted site is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_dropped_expression_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.a_dropped_expression_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Dropping one published expression type is rejected.",
+      "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_extra_expression_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultControls",
+      "declaration": "Xsh.Conformance.Connected.an_extra_expression_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An extra published expression type is rejected.",
+      "boundary": "One case of the exported Result fixture."
     }
   ],
   "artifact_certificates": [
