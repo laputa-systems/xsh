@@ -173,7 +173,7 @@ impl SyscallSummary {
             let Ok(value) = xsh::host::json::parse(line) else {
                 continue;
             };
-            let kind_value = (&value).get("kind");
+            let kind_value = value.get("kind");
             let kind = match kind_value.and_then(|value| value.as_str()) {
                 Some(kind)
                     if matches!(
@@ -193,22 +193,22 @@ impl SyscallSummary {
                 }
                 _ => continue,
             };
-            let start_us = match (&value).get("start_time_us")
+            let start_us = match value.get("start_time_us")
                 .and_then(|value| value.as_u64())
             {
                 Some(v) if v > 0 => v,
                 _ => continue,
             };
-            let duration_us = match (&value).get("duration_us")
+            let duration_us = match value.get("duration_us")
                 .and_then(|value| value.as_u64())
             {
                 Some(v) => v,
                 _ => continue,
             };
-            let name = (&value).get("name")
+            let name = value.get("name")
                 .and_then(|value| value.as_str())
                 .or_else(|| {
-                    (&value).get("payload")
+                    value.get("payload")
                         .and_then(|payload| (payload).get("target"))
                         .and_then(|target| (target).get("display"))
                         .and_then(|value| value.as_str())
@@ -1858,7 +1858,7 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
             "wait.start",
             vec![(
                 "handle_ids".to_string(),
-                (handle_ids.into_iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
+                (handle_ids.into_iter().map(JsonValue::from)).collect::<JsonValue>(),
             )],
         ),
         TracePayloadJson::WaitEnd {
@@ -2177,7 +2177,7 @@ fn trace_arg_json_value(data: TraceArgJson) -> JsonValue {
 }
 
 fn trace_args_json_value(args: Vec<TraceArgJson>) -> JsonValue {
-    (args.into_iter().map(trace_arg_json_value)).into_iter().collect::<JsonValue>()
+    (args.into_iter().map(trace_arg_json_value)).collect::<JsonValue>()
 }
 
 fn trace_env_json_value(env: Vec<TraceEnvJson>) -> JsonValue {
@@ -2186,7 +2186,7 @@ fn trace_env_json_value(env: Vec<TraceEnvJson>) -> JsonValue {
             ("name".to_string(), trace_arg_json_value(item.name)),
             ("value".to_string(), trace_arg_json_value(item.value)),
         ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
-    })).into_iter().collect::<JsonValue>()
+    })).collect::<JsonValue>()
 }
 
 fn trace_status_json_value(data: TraceStatusJson) -> JsonValue {
@@ -2234,7 +2234,7 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
         ("message".into(), JsonValue::from(&detail.message)),
         (
             "facets".into(),
-            (detail.facets.iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
+            (detail.facets.iter().map(JsonValue::from)).collect::<JsonValue>(),
         ),
         (
             "span".into(),
@@ -2258,7 +2258,7 @@ fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap)
                         ),
                     ),
                 ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
-            })).into_iter().collect::<JsonValue>(),
+            })).collect::<JsonValue>(),
         ),
         (
             "status".into(),
@@ -2287,11 +2287,11 @@ fn trace_summary_json_value(data: TraceSummaryJson) -> JsonValue {
         ),
         (
             "function_calls".to_string(),
-            (data.function_calls.into_iter().map(summary_row_json_value)).into_iter().collect::<JsonValue>(),
+            (data.function_calls.into_iter().map(summary_row_json_value)).collect::<JsonValue>(),
         ),
         (
             "hot_commands".to_string(),
-            (data.hot_commands.into_iter().map(summary_row_json_value)).into_iter().collect::<JsonValue>(),
+            (data.hot_commands.into_iter().map(summary_row_json_value)).collect::<JsonValue>(),
         ),
     ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
@@ -2331,21 +2331,21 @@ fn syscall_summary_json_value(data: SyscallSummaryJson) -> JsonValue {
             (
                 data.top_syscalls_by_count
                     .into_iter()
-                    .map(syscall_summary_row_json_value)).into_iter().collect::<JsonValue>(),
+                    .map(syscall_summary_row_json_value)).collect::<JsonValue>(),
         ),
         (
             "per_program_top_syscalls".to_string(),
             (
                 data.per_program_top_syscalls
                     .into_iter()
-                    .map(syscall_program_summary_json_value)).into_iter().collect::<JsonValue>(),
+                    .map(syscall_program_summary_json_value)).collect::<JsonValue>(),
         ),
         (
             "per_process_top_syscalls".to_string(),
             (
                 data.per_process_top_syscalls
                     .into_iter()
-                    .map(syscall_process_summary_json_value)).into_iter().collect::<JsonValue>(),
+                    .map(syscall_process_summary_json_value)).collect::<JsonValue>(),
         ),
     ];
     if let Some(wall_seconds) = data.wall_seconds {
@@ -2357,7 +2357,7 @@ fn syscall_summary_json_value(data: SyscallSummaryJson) -> JsonValue {
             (
                 data.per_operation_syscalls
                     .into_iter()
-                    .map(syscall_operation_summary_json_value)).into_iter().collect::<JsonValue>(),
+                    .map(syscall_operation_summary_json_value)).collect::<JsonValue>(),
         ));
     }
     (fields).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
@@ -2374,7 +2374,7 @@ fn syscall_operation_summary_json_value(data: SyscallOperationSummaryJson) -> Js
         ("seconds".to_string(), JsonValue::from(data.seconds)),
         (
             "syscalls".to_string(),
-            (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
+            (data.syscalls.into_iter().map(syscall_count_row_json_value)).collect::<JsonValue>(),
         ),
     ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
@@ -2398,7 +2398,7 @@ fn syscall_program_summary_json_value(data: SyscallProgramSummaryJson) -> JsonVa
         ("calls".to_string(), JsonValue::from(data.calls)),
         (
             "syscalls".to_string(),
-            (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
+            (data.syscalls.into_iter().map(syscall_count_row_json_value)).collect::<JsonValue>(),
         ),
     ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
@@ -2410,7 +2410,7 @@ fn syscall_process_summary_json_value(data: SyscallProcessSummaryJson) -> JsonVa
         ("calls".to_string(), JsonValue::from(data.calls)),
         (
             "syscalls".to_string(),
-            (data.syscalls.into_iter().map(syscall_count_row_json_value)).into_iter().collect::<JsonValue>(),
+            (data.syscalls.into_iter().map(syscall_count_row_json_value)).collect::<JsonValue>(),
         ),
     ]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
 }
