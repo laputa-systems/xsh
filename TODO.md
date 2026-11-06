@@ -118,6 +118,16 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
+### XSH-77 · P4 · Accept a record spread into a returned callable without a rest parameter
+
+- **Area:** Checker
+- **Where:** `src/sema/types.rs` (`TypedCallable`), `src/sema/check/typed_callable.rs` (`check_callable_contract_call_with_checked_argument`), `src/sema/check/call.rs`
+- **Problem:** A local holding a declaration-derived callable keeps its parameter names, but `TypedCallable` does not record whether the value came from a declaration or from an authored fixed-arity type, so a call through any callable without a rest parameter rejects `...` spreads with `check.callable-mismatch`. Only callables with a rest parameter, which an authored type cannot have, take the record-spread path.
+- **Recommendation:** Record the origin on the callable type, or on the binding that holds it, and route declaration-derived locals through the spread path whether or not they have a rest parameter. Keep the authored-type rejection.
+- **Acceptance:** `...{first: 7}` into a returned callable without a rest parameter checks and runs; an authored `pure(Int) -> Int` type still rejects spreads; SPEC 6.3 and 9.4 state the rule.
+- **Fix with:** architect
+- **Effort:** M
+
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
 - **Area:** Performance
