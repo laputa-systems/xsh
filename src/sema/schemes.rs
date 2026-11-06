@@ -677,6 +677,36 @@ impl CallableScheme {
             || !self.requirements.guards.is_empty()
     }
 
+    pub(crate) fn undetermined_record_override_field(&self) -> Option<Name> {
+        if !self.requirements.guards.is_empty() { return None; }
+        let type_ids = self.type_parameters.iter().copied().collect::<BTreeSet<_>>();
+        let row_ids = self.row_parameters.iter().map(|parameter| parameter.id).collect::<BTreeSet<_>>();
+        let effect_ids = self.requirements.effect_parameters.iter().copied().collect::<BTreeSet<_>>();
+        let mut determined = BTreeSet::new();
+        let mut scratch_effects = BTreeSet::new();
+        let mut scratch_rows = BTreeSet::new();
+        let mut scratch_requirements = BTreeMap::new();
+        for ty in self.params().iter().map(|parameter| &parameter.ty) {
+            ty.validate(&type_ids, &row_ids, &effect_ids, &mut scratch_effects, &mut determined, &mut scratch_rows, &mut scratch_requirements).ok()?;
+        }
+        let mut others = self.requirements.clone();
+        others.operations.retain(|operation| !matches!(operation, super::sealed_operation::SealedOperation::RecordOverride { .. }));
+        visit_requirement_terms(&others, |term| match term {
+            RequirementTerm::Type(ty) => ty.validate(&type_ids, &row_ids, &effect_ids, &mut scratch_effects, &mut determined, &mut scratch_rows, &mut scratch_requirements),
+            RequirementTerm::Parameter(parameter) => { determined.insert(parameter); Ok(()) }
+            RequirementTerm::Effects(_) | RequirementTerm::RowParameter(_) => Ok(()),
+        }).ok()?;
+        for operation in &self.requirements.operations {
+            let super::sealed_operation::SealedOperation::RecordOverride { overrides, .. } = operation else { continue };
+            for field in overrides.iter() {
+                let mut used = BTreeSet::new();
+                field.ty.validate(&type_ids, &row_ids, &effect_ids, &mut scratch_effects, &mut used, &mut scratch_rows, &mut scratch_requirements).ok()?;
+                if !used.is_subset(&determined) { return Some(field.name); }
+            }
+        }
+        None
+    }
+
     pub(crate) fn type_parameters(&self) -> &[SchemeTypeParameterId] {
         &self.type_parameters
     }

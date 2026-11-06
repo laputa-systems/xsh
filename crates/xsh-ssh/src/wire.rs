@@ -1,11 +1,13 @@
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::os::fd::BorrowedFd;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, poll};
 use rustix::time::Timespec;
+use zeroize::Zeroizing;
 
 use oxish_proto::crypto::{CryptoProvider, HandshakeBuffer, KeySourceSide};
 use oxish_proto::key_exchange::NewKeys;
@@ -26,7 +28,7 @@ pub struct Packet {
     /// The SSH message type.
     pub message_type: MessageType,
     /// The message body after the type byte.
-    pub payload: Vec<u8>,
+    pub payload: Zeroizing<Vec<u8>>,
 }
 
 impl fmt::Debug for Packet {
@@ -188,6 +190,7 @@ pub struct Transport {
     write_progress: Instant,
     since_kex: KexUsage,
     awaiting_command: bool,
+    peer_closed: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -235,6 +238,7 @@ impl Transport {
             interrupt,
             last_progress: now,
             write_progress: now,
+            peer_closed: false,
             since_kex: KexUsage::new(),
             awaiting_command: false,
         })
@@ -294,6 +298,16 @@ impl Transport {
         }
     }
 
+    /// The deadline of the current operation, if it has one.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    /// The caller's cancellation check for the current operation, if any.
+    pub fn interrupt(&self) -> Option<Interrupt> {
+        self.interrupt.clone()
+    }
+
     /// The most the peer may stay silent while the transport waits on it.
     pub fn idle_timeout(&self) -> Duration {
         self.idle
@@ -326,10 +340,25 @@ impl Transport {
 
     /// Wait for read readiness, and write readiness when `write` is set.
     pub fn wait(&mut self, write: bool) -> Result<PollFlags, Error> {
-        self.wait_for(true, write)
+        self.wait_for(true, write, None)
     }
 
-    fn wait_for(&mut self, read: bool, write: bool) -> Result<PollFlags, Error> {
+    /// Like [`Self::wait`], and also return once `input` can be read. The flags describe the
+    /// transport only.
+    pub fn wait_with_input(
+        &mut self,
+        write: bool,
+        input: Option<BorrowedFd<'_>>,
+    ) -> Result<PollFlags, Error> {
+        self.wait_for(true, write, input)
+    }
+
+    fn wait_for(
+        &mut self,
+        read: bool,
+        write: bool,
+        input: Option<BorrowedFd<'_>>,
+    ) -> Result<PollFlags, Error> {
         loop {
             if let Some(error) = self.limit_error() {
                 return Err(error);
@@ -356,14 +385,32 @@ impl Transport {
             if write {
                 events |= PollFlags::OUT;
             }
-            let mut descriptors = [PollFd::new(&self.stream, events)];
+            let mut descriptors = [
+                PollFd::new(&self.stream, events),
+                match input {
+                    Some(input) => PollFd::from_borrowed_fd(input, PollFlags::IN),
+                    None => PollFd::new(&self.stream, PollFlags::empty()),
+                },
+            ];
             let timespec = Timespec {
                 tv_sec: remaining.as_secs() as _,
                 tv_nsec: remaining.subsec_nanos() as _,
             };
             match poll(&mut descriptors, Some(&timespec)) {
                 Ok(0) => continue,
-                Ok(_) => return Ok(descriptors[0].revents()),
+                Ok(_) => {
+                    let events = descriptors[0].revents();
+                    if reports_socket_failure(events) {
+                        let detail = self
+                            .stream
+                            .take_error()
+                            .ok()
+                            .flatten()
+                            .map_or_else(|| "socket error".to_owned(), |error| error.to_string());
+                        return Err(self.attribute(Error::NotSubmitted { detail }));
+                    }
+                    return Ok(events);
+                }
                 Err(error) if error == rustix::io::Errno::INTR => continue,
                 Err(error) => {
                     return Err(self.attribute(Error::NotSubmitted {
@@ -385,9 +432,12 @@ impl Transport {
     pub fn fill_nonblocking(&mut self) -> Result<bool, Error> {
         let mut buffer = [0u8; 16_384];
         match self.stream.read(&mut buffer) {
-            Ok(0) => Err(self.attribute(Error::NotSubmitted {
-                detail: "connection closed".to_owned(),
-            })),
+            Ok(0) => {
+                self.peer_closed = true;
+                Err(self.attribute(Error::NotSubmitted {
+                    detail: "connection closed".to_owned(),
+                }))
+            }
             Ok(read) => {
                 self.read.buf.extend_from_slice(&buffer[..read]);
                 self.last_progress = Instant::now();
@@ -398,6 +448,11 @@ impl Transport {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
             Err(error) => Err(self.transport_error(error)),
         }
+    }
+
+    /// Whether the peer ended the connection cleanly before this side did.
+    pub fn peer_closed(&self) -> bool {
+        self.peer_closed
     }
 
     /// Decode one complete buffered packet, if any.
@@ -412,7 +467,7 @@ impl Transport {
             Completion::Complete((sequence, length)) => {
                 let packet: IncomingPacket<'_> = self.read.decode_packet(sequence, length)?;
                 let message_type = packet.message_type;
-                let payload = packet.payload().to_vec();
+                let payload = Zeroizing::new(packet.payload().to_vec());
                 self.since_kex.packets += 1;
                 Ok(Some(Packet {
                     message_type,
@@ -589,7 +644,8 @@ impl Transport {
             if let Some(packet) = self.try_recv()? {
                 return Ok(packet);
             }
-            self.wait(false)?;
+            let flushed = self.flush_nonblocking()?;
+            self.wait(!flushed)?;
             self.fill_nonblocking()?;
         }
     }
@@ -603,18 +659,11 @@ impl Transport {
         Ok(())
     }
 
-    /// Receive `SSH_MSG_NEWKEYS` and reset the receive sequence for strict key exchange.
-    pub fn recv_newkeys(&mut self, strict: bool) -> Result<(), Error> {
-        let packet = self.recv()?;
-        if packet.message_type != MessageType::NewKeys {
-            return Err(Error::Protocol {
-                detail: format!("expected NEWKEYS, got {:?}", packet.message_type),
-            });
-        }
+    /// Reset the receive sequence for strict key exchange after `SSH_MSG_NEWKEYS` arrived.
+    pub fn accept_newkeys(&mut self, strict: bool) {
         if strict {
             self.read.sequence_number = 0;
         }
-        Ok(())
     }
 
     /// Install the client-to-server sealing key.
@@ -643,7 +692,7 @@ impl Transport {
     pub fn flush(&mut self) -> Result<(), Error> {
         while !self.flush_nonblocking()? {
             let reading = self.read.buf.len() < READ_BUFFER_LIMIT;
-            let events = self.wait_for(reading, true)?;
+            let events = self.wait_for(reading, true, None)?;
             if reading && events.contains(PollFlags::IN) {
                 self.fill_nonblocking()?;
             }
@@ -654,7 +703,7 @@ impl Transport {
     /// Flush buffered packets without reading anything.
     pub fn drain(&mut self) -> Result<(), Error> {
         while !self.flush_nonblocking()? {
-            self.wait_for(false, true)?;
+            self.wait_for(false, true, None)?;
         }
         Ok(())
     }
@@ -680,6 +729,10 @@ impl Transport {
             }),
         }
     }
+}
+
+fn reports_socket_failure(events: PollFlags) -> bool {
+    events.intersects(PollFlags::ERR | PollFlags::NVAL)
 }
 
 fn connect_stream(
@@ -737,4 +790,23 @@ fn connect_addresses(host: &str, port: u16, idle: Duration) -> Result<TcpStream,
             detail: format!("no address resolved for {host}:{port}"),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_error_or_invalid_descriptor_wakeup_is_a_connection_failure() {
+        assert!(reports_socket_failure(PollFlags::ERR));
+        assert!(reports_socket_failure(PollFlags::NVAL));
+        assert!(reports_socket_failure(PollFlags::IN | PollFlags::ERR));
+    }
+
+    #[test]
+    fn readable_closed_and_writable_wakeups_are_not_failures() {
+        assert!(!reports_socket_failure(PollFlags::IN));
+        assert!(!reports_socket_failure(PollFlags::HUP));
+        assert!(!reports_socket_failure(PollFlags::IN | PollFlags::HUP | PollFlags::OUT));
+    }
 }

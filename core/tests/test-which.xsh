@@ -27,3 +27,12 @@ test test_which_all_reports_each_executable_search_path_match { |ctx|
   assert single.status.exited_with(0)
   assert single.stdout == f"{first}/tool\n"
 }
+
+test test_which_unset_path_searches_default_directories { |ctx|
+  let output = run.capture --text /usr/bin/env -u PATH ${ctx.xsh_bin} fp"{ctx.core_dir}/which.xsh" -- -a sh
+  assert output.status.exited_with(0)
+  assert output.stdout.ends_with("/sh\n"), output.stdout
+  let single = run.capture --text /usr/bin/env -u PATH ${ctx.xsh_bin} fp"{ctx.core_dir}/which.xsh" -- sh
+  assert single.status.exited_with(0)
+  assert single.stdout.ends_with("/sh\n")
+}

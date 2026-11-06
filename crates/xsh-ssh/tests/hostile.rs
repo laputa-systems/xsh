@@ -286,6 +286,12 @@ fn channel_request_replies_are_not_queued_while_the_peer_does_not_read() {
 
 struct Endless;
 
+impl xsh_ssh::InputSource for Endless {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        None
+    }
+}
+
 impl Read for Endless {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         buffer.fill(7);
@@ -604,4 +610,275 @@ fn an_env_reply_for_another_channel_is_refused() {
         let error = exec_reply_for_another_channel(reply, true);
         assert!(error.to_string().contains("unknown channel"), "{error:?}");
     }
+}
+
+#[derive(Clone, Copy)]
+enum SignBehavior {
+    Hang,
+    Drip,
+}
+
+fn stalling_agent(peer: &Peer, behavior: SignBehavior) -> (Identity, tempfile::TempDir) {
+    use std::os::unix::net::UnixListener;
+
+    let public = std::fs::read_to_string(peer.key.with_extension("pub")).expect("public key");
+    let blob = data_encoding::BASE64
+        .decode(public.split_whitespace().nth(1).expect("key field").as_bytes())
+        .expect("base64");
+    let fingerprint =
+        xsh_ssh::host_key::fingerprint(&blob, xsh_ssh::DEFAULT_PROVIDER).expect("fingerprint");
+    let directory = tempfile::tempdir().expect("tempdir");
+    let socket = directory.path().join("agent.sock");
+    let listener = UnixListener::bind(&socket).expect("bind");
+    thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        loop {
+            let mut length = [0u8; 4];
+            if stream.read_exact(&mut length).is_err() {
+                return;
+            }
+            let mut request = vec![0u8; u32::from_be_bytes(length) as usize];
+            if stream.read_exact(&mut request).is_err() {
+                return;
+            }
+            if request[0] == 11 {
+                let mut body = vec![12u8];
+                body.extend_from_slice(&1u32.to_be_bytes());
+                body.extend_from_slice(&text(&blob));
+                body.extend_from_slice(&text(b"comment"));
+                let mut reply = (body.len() as u32).to_be_bytes().to_vec();
+                reply.extend_from_slice(&body);
+                if stream.write_all(&reply).is_err() {
+                    return;
+                }
+                continue;
+            }
+            match behavior {
+                SignBehavior::Hang => thread::sleep(Duration::from_secs(6)),
+                SignBehavior::Drip => {
+                    if stream.write_all(&100_000u32.to_be_bytes()).is_err() {
+                        return;
+                    }
+                    for _ in 0..120 {
+                        if stream.write_all(&[14]).is_err() {
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                }
+            }
+            return;
+        }
+    });
+    let identity = Identity::Agent {
+        socket,
+        fingerprint: xsh_ssh::Fingerprint::parse(&fingerprint).expect("fingerprint"),
+    };
+    (identity, directory)
+}
+
+fn authenticating_peer() -> Peer {
+    spawn(Behavior::default(), |link| {
+        link.accept_service();
+        link.recv();
+    })
+}
+
+#[test]
+fn the_caller_can_cancel_authentication_while_the_agent_is_silent() {
+    let _guard = exclusive();
+    let peer = authenticating_peer();
+    let (identity, _directory) = stalling_agent(&peer, SignBehavior::Hang);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let mut config = peer.config(Duration::from_secs(5));
+    config.identity = identity;
+    config.interrupt = Some({
+        let cancelled = Arc::clone(&cancelled);
+        Arc::new(move || cancelled.load(Ordering::SeqCst))
+    });
+    let mut connection = Connection::connect(&config).expect("connect");
+    let flag = Arc::clone(&cancelled);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        flag.store(true, Ordering::SeqCst);
+    });
+    let started = Instant::now();
+    let (outcome, connection) = within(Duration::from_secs(10), move || {
+        let outcome = connection.authenticate();
+        (outcome, connection)
+    });
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    let error = outcome.expect_err("cancelled");
+    assert!(matches!(error, Error::Cancelled { certainty: Certainty::NotSubmitted }), "{error:?}");
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn an_agent_that_drips_its_reply_cannot_hold_authentication_past_its_deadline() {
+    let _guard = exclusive();
+    let peer = authenticating_peer();
+    let (identity, _directory) = stalling_agent(&peer, SignBehavior::Drip);
+    let mut config = peer.config(Duration::from_millis(500));
+    config.identity = identity;
+    config.deadline = Duration::from_millis(1200);
+    let mut connection = Connection::connect(&config).expect("connect");
+    let started = Instant::now();
+    let (outcome, connection) = within(Duration::from_secs(10), move || {
+        let outcome = connection.authenticate();
+        (outcome, connection)
+    });
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    let error = outcome.expect_err("deadline");
+    assert!(matches!(error, Error::Timeout { certainty: Certainty::NotSubmitted }), "{error:?}");
+    drop(connection);
+    peer.finish();
+}
+
+fn silent_stdin() -> (std::fs::File, std::path::PathBuf, tempfile::TempDir) {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let fifo = directory.path().join("stdin");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status().expect("mkfifo runs");
+    assert!(status.success(), "mkfifo failed");
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&fifo)
+        .expect("fifo opens without a writer");
+    (file, fifo, directory)
+}
+
+#[test]
+fn a_stdin_that_never_produces_does_not_defeat_the_command_deadline() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, _| {
+        thread::sleep(Duration::from_secs(4));
+        link.hangup();
+    });
+    let (stdin_file, _fifo, _directory) = silent_stdin();
+    let mut connection = peer.connect(TIMEOUT);
+    let started = Instant::now();
+    let outcome = within(Duration::from_secs(8), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdin_file: Some(stdin_file),
+                timeout: Some(Duration::from_millis(500)),
+                ..ExecOptions::default()
+            },
+        )
+    });
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    let error = outcome.expect_err("deadline");
+    assert!(matches!(error, Error::Timeout { certainty: Certainty::Submitted }), "{error:?}");
+}
+
+#[test]
+fn input_that_arrives_late_on_a_pipe_is_sent_when_it_arrives() {
+    let _guard = exclusive();
+    let (received, delivered) = mpsc::channel();
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        let frame = link.expect_reply(CHANNEL_DATA);
+        let _ = received.send(frame.string_at(4).to_vec());
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let (stdin_file, fifo, _directory) = silent_stdin();
+    let mut connection = peer.connect(TIMEOUT);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(400));
+        std::fs::write(&fifo, b"late").expect("writer");
+    });
+    let started = Instant::now();
+    let outcome = within(Duration::from_secs(8), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdin_file: Some(stdin_file),
+                timeout: Some(Duration::from_secs(6)),
+                ..ExecOptions::default()
+            },
+        )
+    });
+    assert_eq!(outcome.expect("exec").status, ExecStatus::Exited(0));
+    assert_eq!(delivered.recv_timeout(Duration::from_secs(1)).expect("data"), b"late");
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    peer.finish();
+}
+
+#[test]
+fn an_output_file_that_stops_draining_does_not_defeat_the_command_deadline() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            if !link.try_send(&packet) {
+                return;
+            }
+        }
+        thread::sleep(Duration::from_secs(4));
+    });
+    let (stdout_file, _fifo, _directory) = silent_stdin();
+    let mut connection = peer.connect(TIMEOUT);
+    let started = Instant::now();
+    let outcome = within(Duration::from_secs(8), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdout_file: Some(stdout_file),
+                timeout: Some(Duration::from_millis(500)),
+                ..ExecOptions::default()
+            },
+        )
+    });
+    assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+    let error = outcome.expect_err("deadline");
+    assert!(matches!(error, Error::Timeout { certainty: Certainty::Submitted }), "{error:?}");
+}
+
+#[test]
+fn output_to_a_pipe_arrives_whole_when_the_pipe_is_drained() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            link.send(&packet);
+        }
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let (stdout_file, fifo, _directory) = silent_stdin();
+    let drained = thread::spawn(move || {
+        let mut reader = std::fs::File::open(&fifo).expect("reader");
+        let mut received = 0;
+        let mut chunk = vec![0u8; 8192];
+        while received < 8 * 32 * 1024 {
+            thread::sleep(Duration::from_millis(5));
+            let read = reader.read(&mut chunk).expect("read");
+            assert!(chunk[..read].iter().all(|byte| *byte == 0x41));
+            received += read;
+        }
+        received
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                stdout_file: Some(stdout_file),
+                timeout: Some(Duration::from_secs(20)),
+                ..ExecOptions::default()
+            },
+        )
+        .expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert_eq!(drained.join().expect("drain"), 8 * 32 * 1024);
+    drop(connection);
+    peer.finish();
 }

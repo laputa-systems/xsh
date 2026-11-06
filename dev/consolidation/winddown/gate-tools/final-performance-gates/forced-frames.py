@@ -52,7 +52,7 @@ CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"
 BINARY_NAMES = ("xsh", "xsht", "xsh-test-helper")
 MOLD = Path("/usr/local/bin/mold")
-OWNER_HELPER_SHA256 = "de1104e5c225596c99d565ae2f5587071db35b45bb67073eaafa5c1d6cf26078"
+OWNER_HELPER_SHA256 = "8fec5b545a4b60396acccfdf6dcb51037d79e5ce13aa337a588e5ec3234a8590"
 STAGE = "forced-frames-full-native-suite"
 
 

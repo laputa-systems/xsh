@@ -37,6 +37,9 @@ impl<'a> Parser<'a> {
             return self.parse_wait_until_arena_only(start, arena);
         }
         if self.at_keyword(Keyword::Within) {
+            if self.within_scope_suffix_lookahead() == Some(true) {
+                return self.parse_expr_statement_arena_only(start, arena);
+            }
             let scope = self.parse_within_scope_arena_only(arena, false)?;
             let value = if self.consume(TokenKindMatch::Question).is_some() {
                 arena.push_try_expr(scope.id, self.span(start, self.previous_end()))

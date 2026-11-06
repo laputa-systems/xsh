@@ -58,6 +58,7 @@ proc charset() -> Charset {
 pure char_width(line: Bytes, at: Int, encoding: Charset) -> Int {
   return 1 when encoding == SingleByte
   let first = line.byte_at(at) ?? 0
+  return 1 when first < 128
   if encoding == Gb18030 {
     let second = line.byte_at(at + 1) ?? 0
     let third = line.byte_at(at + 2) ?? 0
@@ -160,13 +161,13 @@ proc main(...argv: List[Bytes]) {
         var start = 0
         var at = 0
         while at < line.len() {
-          let separator = if whitespace { blank_size(line, at, unicode) } else if line[at..at + delimiter_bytes.len()] == delimiter_bytes { delimiter_bytes.len() } else { 0 }
+          let separator = if whitespace { blank_size(line, at, unicode) } else if line.byte_at(at) == delimiter and line[at..at + delimiter_bytes.len()] == delimiter_bytes { delimiter_bytes.len() } else { 0 }
           if separator > 0 {
             parts += [line[start..at]]
             at += separator
             if whitespace or ! opts.merged.is_empty() {
               while at < line.len() {
-                let size = if whitespace { blank_size(line, at, unicode) } else if line[at..at + delimiter_bytes.len()] == delimiter_bytes { delimiter_bytes.len() } else { 0 }
+                let size = if whitespace { blank_size(line, at, unicode) } else if line.byte_at(at) == delimiter and line[at..at + delimiter_bytes.len()] == delimiter_bytes { delimiter_bytes.len() } else { 0 }
                 break when size == 0
                 at += size
               }

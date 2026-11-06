@@ -674,7 +674,10 @@ impl<'a> Parser<'a> {
                 Some((arena.push_pattern_record(&fields, rest, span), span, None))
             }
             _ => {
-                self.diagnostic_here("expected pattern", DiagnosticCode::ParseExpectedPattern);
+                self.diagnostic_expected_name_here(
+                    "expected pattern",
+                    DiagnosticCode::ParseExpectedPattern,
+                );
                 None
             }
         }

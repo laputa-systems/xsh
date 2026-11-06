@@ -5,6 +5,11 @@ use super::{
      lowered_arena_run_capture_type,
 };
 
+enum ResourceScopeBody {
+    Completes(BuildExprId),
+    Diverges(BuildExprId),
+}
+
 pub(super) enum ScopeLoweringDomain<'a> {
     Ordinary,
     Generalized {
@@ -1344,7 +1349,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 body.push(release(self, slot, kind, true, domain));
                 held.push((slot, kind));
             }
-            let finished = self.scope_body_in_domain(block, Vec::new(), span, slots, current_function, item_slot, domain)?;
+            let finished = match domain {
+                ScopeLoweringDomain::Ordinary => match self.lower_resource_body(block, span, slots, current_function, item_slot)? {
+                    ResourceScopeBody::Completes(finished) => finished,
+                    ResourceScopeBody::Diverges(scope) => {
+                        body.push(push_build_row!(self, stmt, BuildStmtRow::Expr { value: scope, span }));
+                        return Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }));
+                    }
+                },
+                ScopeLoweringDomain::Generalized { .. } => self.scope_body_in_domain(block, Vec::new(), span, slots, current_function, item_slot, domain)?,
+            };
             let finished_type = match domain {
                 ScopeLoweringDomain::Ordinary => ground(self.canonicalize_checked_type(self.lower_binding_checked_type(None, scope)?)),
                 ScopeLoweringDomain::Generalized { types, .. } => types.get(&finished)?.clone(),
@@ -1381,15 +1395,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         result
     }
 
-    fn lower_tempdir_body(
+    fn lower_scope_statements(
         &mut self,
         block: BlockId,
         prefix: Vec<BuildStmtId>,
-        span: Span,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<BuildExprId> {
+    ) -> Option<(Vec<BuildStmtId>, Option<BuildExprId>)> {
         let mut body = prefix;
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
@@ -1418,6 +1431,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 )?);
             }
         }
+        Some((body, tail))
+    }
+
+    fn lower_tempdir_body(
+        &mut self,
+        block: BlockId,
+        prefix: Vec<BuildStmtId>,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let (mut body, tail) =
+            self.lower_scope_statements(block, prefix, slots, current_function, item_slot)?;
         let tail = tail.unwrap_or_else(|| push_build_row!(self, expr, BuildExprRow::Unit));
         let value = push_build_row!(self, expr, BuildExprRow::Ok(tail));
         body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
@@ -1426,6 +1453,41 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             expr,
             BuildExprRow::ValueBlock { body, span }
         ))
+    }
+
+    fn lower_resource_body(
+        &mut self,
+        block: BlockId,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<ResourceScopeBody> {
+        let (mut body, tail) =
+            self.lower_scope_statements(block, Vec::new(), slots, current_function, item_slot)?;
+        let cannot_fall_through = tail.is_none()
+            && crate::sema::check::block_callable_body_cannot_fall_through_arena(
+                self.program,
+                block,
+                false,
+                &self.bodies.expr_types,
+                &self.declarations.tag_variants_by_name,
+                &self.bodies.conversions,
+                &self.bodies.argument_bindings,
+                &self.bodies.checked_control_flow,
+                &self.bodies.resolved_bindings,
+            );
+        if !cannot_fall_through {
+            let tail = tail.unwrap_or_else(|| push_build_row!(self, expr, BuildExprRow::Unit));
+            let value = push_build_row!(self, expr, BuildExprRow::Ok(tail));
+            body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+        }
+        let scope = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span });
+        Some(if cannot_fall_through {
+            ResourceScopeBody::Diverges(scope)
+        } else {
+            ResourceScopeBody::Completes(scope)
+        })
     }
 
     /// Keep branch statements and their tail in one lexical scope so the

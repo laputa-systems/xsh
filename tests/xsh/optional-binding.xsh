@@ -278,6 +278,45 @@ if let value = count {
   assert "check.irrefutable-pattern-condition" in if_report, if_report
 }
 
+test test_pattern_condition_over_a_null_narrowed_subject_explains_the_narrowing { |ctx|
+  let narrowed = test.temp_file(
+    ctx,
+    name: "if-let-narrowed.xsh",
+    contents: bytes.from_text("""pure show(label: Str?) -> Str {
+  if label != null {
+    if let text = label {
+      return text
+    }
+  }
+  "none"
+}
+print show("a")
+"""),
+  )?
+  let checked = run.capture --text --accept=[0, 1, 2] "xsht" check $narrowed
+  let report = checked.stdout + checked.stderr
+  assert "check.irrefutable-pattern-condition" in report, report
+  assert "`label` is already known to be non-null here" in report, report
+  assert "let text = label" in report, report
+
+  let plain = test.temp_file(
+    ctx,
+    name: "if-let-declared.xsh",
+    contents: bytes.from_text("""pure show(label: Str) -> Str {
+  if let text = label {
+    return text
+  }
+  "none"
+}
+print show("a")
+"""),
+  )?
+  let declared = run.capture --text --accept=[0, 1, 2] "xsht" check $plain
+  let declared_report = declared.stdout + declared.stderr
+  assert "check.irrefutable-pattern-condition" in declared_report, declared_report
+  assert "already known to be non-null" not in declared_report, declared_report
+}
+
 test test_lint_rewrites_a_null_test_and_restating_binding_as_guard_let { |ctx|
   let source = """enum Mode { Fast, Slow }
 

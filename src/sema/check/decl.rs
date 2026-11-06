@@ -431,6 +431,13 @@ impl Checker {
         for (expression, ty) in body_types.iter_mut() {
             if let Some(operand) = self.condition_operand_types.get(&program.arena.expr(*expression).span) { *ty = operand.clone(); }
         }
+        for &statement in &local_statements {
+            let (ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }) = program.arena.stmt(statement).kind else { continue };
+            let Some(seeded) = self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span) else { continue };
+            if self.prepared_nullable_seed(seeded).is_some() && body_types.contains_key(&value) {
+                if let Ok(resolved) = self.type_constraints.resolve(seeded) && resolved.contains_inference() { body_types.insert(value, resolved); }
+            }
+        }
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {
             Type::Result(success, _) if **success != Type::Unknown && !success.contains_recovery() => Some((**success).clone()),
             _ => None,
@@ -696,6 +703,15 @@ impl Checker {
             )
             .ok()?,
         );
+        if let Some(field) = callable.undetermined_record_override_field() {
+            self.diagnostics.push(
+                crate::diagnostic::Diagnostic::error(format!("`{}` overrides field `{field}` with a type that nothing determines", def.name))
+                    .with_code(DiagnosticCode::CheckLocalInference)
+                    .with_label(crate::diagnostic::Label::primary(body_span, "the override leaves the field type free"))
+                    .with_note("declare the result type of the procedure so the override is checked against it"),
+            );
+            return None;
+        }
         let guard_scopes = (|| {
             let expressions = generalized_body_types.keys().chain(&noncompleting_expressions).filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr(expression).span).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
             let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt(statement).span).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();

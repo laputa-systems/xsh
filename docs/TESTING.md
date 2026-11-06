@@ -95,8 +95,12 @@ privileged `cargo dev test linux` container, and `profile_parity` compares
 builds that exist only on aarch64 Linux and macOS. The `xsh-ssh` connect, exec,
 stream and agent harnesses and the native `tests/xsh/ssh-` tests need disposable
 OpenSSH servers: run them through `crates/xsh-ssh/fixture/ssh-fixture.sh exec
-COMMAND` (Docker, loopback only). The `protocol` and `descriptors` harnesses use
-a scripted peer and need only `ssh-keygen`.
+COMMAND` (Docker, loopback only). The `authentication`, `descriptors`, `hostile`,
+`known_hosts` and `protocol` harnesses use a scripted peer but need `ssh-keygen`,
+which the gate image lacks; run them with `cargo test -p xsh-ssh --test NAME` on
+a host with OpenSSH or through the fixture script. `xsh-archive`'s `interop`
+harness needs the GNU tar and bsdtar oracle image built by
+`dev/reference/oracle.sh`.
 `split::` runs in its resource-limited container, and the `runtime::coverage`
 test and the external-corpus tests that the XSHT runs skip by name are manual.
 `test-root-unit` is Linux-only because xsh-root's unit tests cover `openat2`;
@@ -208,7 +212,8 @@ CPU-seconds, 429 s wall on a host at load 14 to 27) and the single sort-buffer t
 `core/awk.xsh` selects its Edit case and lists the module as an available scenario.
 
 Native cases run as the host user inside the gate container, with a private home and
-temporary directory under `.work/tmp`, as the Full native run does. The container itself
+temporary directory under `.work/tmp`, as the Full native run does. That scratch holds an empty
+`xsht-config.ini`, so tools a test runs on its fixtures do not read the repository's lint exclusions. The container itself
 keeps Docker's default seccomp profile and capabilities. Required skips still make a case
 incomplete, so a native test the unprivileged lane cannot run is not selected there.
 `dev/gate_lane.xsh` declares those tests by exact ID. Two groups can run in a container
@@ -366,6 +371,20 @@ default. It disables LTO and uses 64 codegen units. Release tests are for final
 verification and performance measurements; `dist` is for packaging. Unit tests
 that spawn no binaries may use debug builds. Build only the packages needed.
 
+The Linux signal-storm test (`runtime::signal_storm` in the `integration`
+target) derives each run from a fixed seed: a scenario over process scopes,
+pipelines, `defer`/`errdefer`, live streams, a PTY redirection, or a signal
+hook; SIGINT/SIGTERM injection (optionally escalated by a second signal); and
+an early-closed stdout. Seeds replay the plan, not the OS scheduling. The
+oracle checks bounded exit, no live process carrying the run's environment tag,
+one-time ordered cleanup, pipeline output, and an untouched bystander process.
+It treats death by an uncaught signal before the script is ready as
+non-cooperative, and it does not cover SIGKILL of the runner, terminal
+restoration, or macOS. `tests/xsh/process-failure-ownership.xsh` holds the
+focused failed-spawn, early-exit, partial I/O, descriptor-inheritance and
+recycled-pid cases; the recycled-pid case needs unprivileged user and pid
+namespaces and skips without them.
+
 Rust files such as `tests/grammar.rs` are modules of the `integration` target,
 not standalone Cargo test targets. For a pure grammar check, select
 `-p xsh --test integration grammar::bare_minus_command_arguments_preserve_source_adjacency -- --exact`
@@ -518,16 +537,45 @@ Python tar and zip, Info-ZIP and cpio archives; BusyBox tar, Python tar and
 cpio read archives made by XSH. These historical results do not qualify later
 source.
 
-Rooted extraction was cross-compiled for macOS but not run there. GNU tar and
-bsdtar interoperability, root ownership application and device-node creation
-were not tested; FIFO creation was covered. CPIO hard-link sets and TAR entries with the GNU sparse type flag are
-unsupported. Publication is atomic per entry, not durable; merging
-into an existing directory can publish some entries before a conflict.
+Rooted extraction was cross-compiled for macOS but not run there. Root
+ownership application and device-node creation were not tested; FIFO creation
+was covered. CPIO hard-link sets are unsupported. TAR members with the GNU
+sparse type flag or `GNU.sparse.*` pax keys list as unsupported entries and
+extraction refuses them; XSH never extracts a sparse member as its compacted
+bytes.
 
-The XZ reader checks the first block dictionary against the workspace limit
-when its header fits the initial sniff. The underlying decoder does not receive
-that limit. This is an open implementation gap in the workspace contract, not
-a qualified limit.
+`crates/xsh-archive/tests/interop.rs` runs GNU tar 1.35 and bsdtar 3.8 (the
+`tar` and `libarchive-tools` packages of the `xsh-oracle` image, started through
+`dev/reference/oracle.sh` with no network) in both directions. The reference
+tools write ustar, GNU, old GNU, pax and v7 archives (bsdtar: ustar, pax, GNU
+and v7) with hard links, symbolic links, a FIFO, set-id and private modes,
+non-UTF-8 and non-ASCII names, and names and link targets over 100 bytes; XSH
+must report mode, mtime, uid, gid, link target and kind exactly, and its
+extracted tree must match the source tree. XSH writes plain, gzip, bzip2, xz,
+zstd and lzma tars that both tools extract to the same tree (same files, modes,
+links, contents) and list with owner 0/0 and mtime 0. XSH archives hard-linked
+files as independent regular files. bsdtar drops the set-id bit when it extracts
+as an unprivileged user, so the extracted-tree comparison normalizes that bit and
+the listings check it. The tests skip with a stderr line when the image is
+absent or lacks the two tools; a stale `xsh-oracle` image needs deleting so
+`oracle.sh` rebuilds it with them. Run them with
+`cargo test -p xsh-archive --test interop` (`XSH_ORACLE_IMAGE` selects another
+image name). On x86_64 Linux: 3 passed, 0 skipped.
+
+Publication is atomic and not durable. `publication.rs` observes the
+destination from a second thread while `create` and `extract` run: a created
+archive or an extracted tree is visible only complete, and only staging names
+beginning `.xsh-archive-` appear beside it. Neither operation calls `fsync`;
+a caller that needs the result to survive a crash calls `fs.fsync` on the
+output and on its parent directory. Merging into an existing directory can
+publish some entries before a conflict.
+
+The XZ reader passes the workspace limit to the decoder (`liblzma` memlimit),
+which checks it for the first block, every later block and every concatenated
+member, including filter state; integrity checks the decoder cannot verify are
+rejected. The `files.rs` cases cover later members, later blocks, filter chains
+with trailing data and an unknown check, and a source I/O error is not reported
+as a limit.
 
 ## Syslog receiver
 

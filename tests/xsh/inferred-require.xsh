@@ -63,11 +63,11 @@ print "module contracts preserved"
     let output = test.expect(ctx, program, status: 0, args: [good, bad_name, bad_callable])?
     assert output.stdout == "module contracts preserved\n", output.stdout
   }
-  for source in [
+  for rejected_source in [
     "proc unchecked(target: Path) { module.load(target)? }\n",
     "type Opaque = module { export let value: Any }\nproc unchecked(target: Path) { module.load(target)?.require(Opaque)? }\n",
   ] {
-    let rejected = test.run_xsh(ctx, source)?
+    let rejected = test.run_xsh(ctx, rejected_source)?
     assert ! rejected.success, rejected.stdout
     assert "[check.infer-return]" in rejected.stderr, rejected.stderr
   }

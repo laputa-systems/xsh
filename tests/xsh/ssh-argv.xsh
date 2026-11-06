@@ -9,7 +9,7 @@ type Fixture = {
   timeout_ms: Int,
 }
 
-proc fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
+proc open_fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
   let host = env.get(f"XINFRA_FIXTURE_{suffix}_HOST")?
   let port = env.get(f"XINFRA_FIXTURE_{suffix}_PORT")?.parse_int()?
   let username = env.get("XINFRA_FIXTURE_USER")?
@@ -61,7 +61,7 @@ proc expected(values: List[Str]) -> Str {
 }
 
 test ssh_command_strings_round_trip_hostile_arguments_through_a_posix_shell {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -86,7 +86,7 @@ test ssh_command_strings_round_trip_hostile_arguments_through_a_posix_shell {
 }
 
 test ssh_command_strings_with_nul_are_refused_before_submission {
-  let fixture = match fixture("A") {
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?

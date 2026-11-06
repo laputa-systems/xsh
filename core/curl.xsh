@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.http_transfer
+use lib.monotonic
 
 const VERSION = "8.22.0"
 
@@ -933,7 +934,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
   let to_terminal = dest == null and unix.isatty(1)
   let meter = !settings.silent and !settings.no_progress and !settings.progress_bar and !to_terminal
   let bar = !settings.silent and !settings.no_progress and settings.progress_bar and !to_terminal
-  let started = time.now()
+  let started = monotonic.now()?
   if settings.verbose {
     let route = http_transfer.url_path(request.url)
     emit(f"*   Trying {host}:{http_transfer.url_port(request.url)}...\n", settings.stderr_to_stdout)
@@ -951,7 +952,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
 
   let streamed = dest != null and !buffered
   let result = if streamed { http_transfer.fetch_to(request, dest) } else { http_transfer.fetch(request) }
-  let elapsed = time.now() - started
+  let elapsed = monotonic.since_ms(started, monotonic.now()?)
 
   match result {
     Err(failure) => {

@@ -22,7 +22,7 @@ test test_util_linux_private_context_rejects_advertised_misconfiguration {
   }
 }
 
-test test_util_linux_comparison_rejects_observable_mutants { |_ctx|
+test test_util_linux_comparison_rejects_observable_mutants { |_|
   let reference: uu.Ran = {util: "lslocks", args: ["--raw"], status: 0,
     stdout: b"holder=21 blocker=22 inode=101\n", stderr: b""}
   assert ul.equal(reference, reference, reference_state: b"owned=101", candidate_state: b"owned=101")

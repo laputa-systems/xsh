@@ -13,6 +13,7 @@ type Scale = pure(n: Int) -> Int
 type CallbackRecord = {double: Scale}
 
 type Join = pure(left: Str, right: Str) -> Str
+type JoinHolder = {join: Join}
 
 type Step = {name: Str, build: Builder, scale: Scale}
 type Holder = {callback: Scale}
@@ -57,7 +58,7 @@ pure parse_number(value: Int) -> Int {
     Ok(parsed) => {
       parsed_value = parsed
     }
-    Err(failure) => {
+    Err(_) => {
       parsed_value = -1
     }
   }
@@ -75,7 +76,7 @@ pure floor_computed_float(value: Float) -> Int {
     Ok(rounded) => {
       result = rounded
     }
-    Err(failure) => {
+    Err(_) => {
       result = -1
     }
   }
@@ -88,7 +89,7 @@ pure parse_computed_string(value: Int) -> Int {
     Ok(parsed) => {
       result = parsed
     }
-    Err(failure) => {
+    Err(_) => {
       result = -1
     }
   }
@@ -676,7 +677,7 @@ test test_typed_callables_flow_through_a_try_capture {
     Err(failure) => { test.fail(failure.message) }
   }
   match try { stored.get("missing")? } {
-    Ok(selected) => { test.fail("a missing key selected a callable") }
+    Ok(_) => { test.fail("a missing key selected a callable") }
     Err(failure) => { assert failure.message != "" }
   }
   let captured = try {
@@ -941,8 +942,41 @@ proc main(roots: List[Path], fields: Fields) -> Result[Unit] {
   assert "err[check.arity]: incorrect function arity: expected 2 arguments, found 1" in stderr, stderr
   assert count(stderr, "err[check.type-mismatch]") == 2, stderr
   assert "err[check.named-arg]" in stderr, stderr
-  assert count(stderr, "err[check.callable-mismatch]: a call through a fixed-arity callable type requires explicit arguments") == 2, stderr
+  assert count(stderr, "err[check.callable-mismatch]: a call through a fixed-arity callable type requires explicit arguments") == 1, stderr
   assert "is called directly, as `name(...)`; it has no `.call` method" in stderr, stderr
+}
+
+pure spread_join(callback: Join) -> Str {
+  callback(...{right: "b", left: "a"})
+}
+
+test test_record_spread_binds_by_label_through_an_authored_callable_type {
+  let joined: Join = join
+  assert joined(...{right: "y", left: "x"}) == "x-y"
+  assert spread_join(joined) == "a-b"
+  assert joined("p", ...{right: "q"}) == "p-q"
+  let holder: JoinHolder = {join: joined}
+  assert holder.join(...{left: "h", right: "i"}) == "h-i"
+}
+
+test test_record_spread_through_an_authored_callable_type_rejects_unknown_and_duplicate_labels { |ctx|
+  let stderr = check_errors(
+    ctx,
+    r"""type Join = pure(left: Str, right: Str) -> Str
+
+pure join_labels(left: Str, right: Str) -> Str {
+  f"{left}-{right}"
+}
+
+pure invoke(join: Join) -> Str {
+  let a = join(...{left: "x", middle: "m", right: "y"})
+  let b = join("x", ...{left: "z", right: "y"})
+  a + b
+}
+""",
+  )?
+  assert "err[check.named-arg]: unknown named parameter `middle`" in stderr, stderr
+  assert count(stderr, "err[check.named-arg]") == 2, stderr
 }
 
 # A handle does not carry its signature, so nothing at run time can vouch for
@@ -1412,10 +1446,10 @@ test test_long_callback_forwarding_chain_verifies_its_producers { |ctx|
 
 test test_generic_function_with_ground_annotations_is_a_verified_callback { |ctx|
   for case in [
-    {source: "pure inc(value) -> Str { \"a\" }\npure apply(callback, value) { callback(value) }\nprint $apply(inc, 0)\n", stdout: "a\n"},
-    {source: "pure inc(value) -> Int { value + 1 }\npure apply(callback, value) { callback(value) }\nprint $apply(inc, 0)\n", stdout: "1\n"},
-    {source: "pure pick(label: Str, value) { value }\npure apply(callback, label, value) { callback(label, value) }\nprint $apply(pick, \"a\", 7)\n", stdout: "7\n"},
-    {source: "pure wrap(label, value) -> List[Str] { [\"x\"] }\npure apply(callback, label, value) { callback(label, value) }\nprint $apply(wrap, \"a\", 7).len()\n", stdout: "1\n"},
+    {source: "pure inc(value) -> Str { \"a\" }\npure apply(callback, value) { callback(value) }\nprint \$apply(inc, 0)\n", stdout: "a\n"},
+    {source: "pure inc(value) -> Int { value + 1 }\npure apply(callback, value) { callback(value) }\nprint \$apply(inc, 0)\n", stdout: "1\n"},
+    {source: "pure pick(label: Str, value) { value }\npure apply(callback, label, value) { callback(label, value) }\nprint \$apply(pick, \"a\", 7)\n", stdout: "7\n"},
+    {source: "pure wrap(label, value) -> List[Str] { [\"x\"] }\npure apply(callback, label, value) { callback(label, value) }\nprint \$apply(wrap, \"a\", 7).len()\n", stdout: "1\n"},
   ] {
     let result = test.run_xsh(ctx, case.source)?
     assert result.status == 0, result.stderr
@@ -1424,11 +1458,11 @@ test test_generic_function_with_ground_annotations_is_a_verified_callback { |ctx
 }
 
 test test_generic_function_with_named_record_annotations_is_a_verified_callback { |ctx|
-  let apply = "pure apply(callback, value, extra) { callback(value, extra) }\n"
+  let apply_source = "pure apply(callback, value, extra) { callback(value, extra) }\n"
   for case in [
-    {source: "type P = {x: Int}\npure make(label, extra) -> P { {x: 3} }\n" + apply + "print $apply(make, \"a\", 0).x\n", stdout: "3\n"},
-    {source: "type P = {x: Int}\npure read(item: P, extra) { item.x }\n" + apply + "print $apply(read, {x: 5}, 0)\n", stdout: "5\n"},
-    {source: "type P = {x: Int}\npure many(label, extra) -> List[P] { [{x: 1}, {x: 2}] }\n" + apply + "print $apply(many, \"a\", 0).len()\n", stdout: "2\n"},
+    {source: "type P = {x: Int}\npure make(label, extra) -> P { {x: 3} }\n" + apply_source + "print \$apply(make, \"a\", 0).x\n", stdout: "3\n"},
+    {source: "type P = {x: Int}\npure read(item: P, extra) { item.x }\n" + apply_source + "print \$apply(read, {x: 5}, 0)\n", stdout: "5\n"},
+    {source: "type P = {x: Int}\npure many(label, extra) -> List[P] { [{x: 1}, {x: 2}] }\n" + apply_source + "print \$apply(many, \"a\", 0).len()\n", stdout: "2\n"},
   ] {
     let result = test.run_xsh(ctx, case.source)?
     assert result.status == 0, result.stderr

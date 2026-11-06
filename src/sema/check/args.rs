@@ -41,6 +41,7 @@ enum CallArgumentAuthority<'a> {
         deferred: &'a std::cell::Cell<bool>,
         pending_storage: Option<&'a std::cell::RefCell<Vec<(Type, Type, Span)>>>,
         storage_bounds: Option<&'a [Type]>,
+        callee: Option<super::CheckedFunctionTarget>,
     },
 }
 
@@ -250,7 +251,7 @@ impl Checker {
             &contract.params,
             span,
             checked_argument,
-            CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: Some(&pending_storage), storage_bounds: None },
+            CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: Some(&pending_storage), storage_bounds: None, callee: contract.definition_target },
         );
         let mut pending_storage = pending_storage.into_inner();
         if let Some((_, instance)) = &contract.instantiation
@@ -288,7 +289,7 @@ impl Checker {
             }).collect::<Vec<_>>();
             for (expected, actual, argument_span) in arguments {
                 self.expect_function_call_argument(
-                    CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: None, storage_bounds: Some(&bounds) },
+                    CallArgumentAuthority::KnownCallable { instance: contract.instantiation.as_ref().map(|(_, authority)| authority), deferred: &deferred, pending_storage: None, storage_bounds: Some(&bounds), callee: contract.definition_target },
                     &expected, &actual, argument_span,
                 );
             }
@@ -1166,6 +1167,9 @@ impl Checker {
                             DiagnosticCode::CheckSpliceTarget,
                         );
                     }
+                    if matches!(arg.kind, ArenaCallArgKind::Splice { .. }) && matches!(actual.unvalidated(), Type::List(_)) {
+                        self.reject_splice_outside_rest(arena, args, authority, splice_span);
+                    }
                     can_check_following_positionals = false;
                     index += 1;
                     break;
@@ -1192,6 +1196,29 @@ impl Checker {
                 break;
             }
         }
+        for arg in &args[index..] {
+            if let ArenaCallArgKind::Splice { value, span } = &arg.kind
+                && static_positional_list_elements(arena, *value).is_none()
+            {
+                let actual = self.check_expr_arena(arena, source, *value, None);
+                if matches!(actual.unvalidated(), Type::List(_)) {
+                    self.reject_splice_outside_rest(arena, args, authority, arena.arena.span(*span));
+                }
+            }
+        }
+    }
+
+    fn reject_splice_outside_rest(&mut self, arena: &ArenaProgram, args: &[ArenaCallArg], authority: CallArgumentAuthority<'_>, splice_span: Span) {
+        let named_spread = args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }));
+        let entry_main = matches!(authority, CallArgumentAuthority::KnownCallable { callee: Some(callee), .. } if super::is_entry_main(arena, callee));
+        if named_spread || entry_main {
+            return;
+        }
+        self.error(
+            splice_span,
+            "a positional splice of unknown length fills only the final rest parameter",
+            DiagnosticCode::CheckSpliceTarget,
+        );
     }
 
     fn function_argument_type(&mut self, param: &FunctionParamSig, span: Span) -> Type {

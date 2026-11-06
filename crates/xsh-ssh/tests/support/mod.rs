@@ -82,6 +82,7 @@ pub struct Behavior {
     pub ignore_before_kexinit: bool,
     pub corrupt_signature: bool,
     pub rekey_with_another_host_key: bool,
+    pub ignore_between_rekey_reply_and_newkeys: bool,
 }
 
 pub struct Peer {
@@ -194,6 +195,7 @@ pub struct Link {
     read: ReadState,
     write: WriteState,
     rekey: Option<RekeyState>,
+    ignore_before_newkeys: bool,
     pub rekeys: u32,
 }
 
@@ -268,6 +270,7 @@ impl Link {
             read: ReadState::default(),
             write: WriteState::new(provider.secure_random()),
             rekey: None,
+            ignore_before_newkeys: behavior.ignore_between_rekey_reply_and_newkeys,
             rekeys: 0,
         };
         let mut state = InitialKeyExchangeState::new(exchange, identities, host_keys);
@@ -370,6 +373,9 @@ impl Link {
                         let finished = state.handle(packet, &mut self.write, DEFAULT_PROVIDER)?;
                         self.flush();
                         if let Some(rekeyed) = finished {
+                            if self.ignore_before_newkeys {
+                                self.send(&[IGNORE, 0, 0, 0, 0]);
+                            }
                             rekeyed.update.apply(&mut self.write, &mut self.read)?;
                             self.flush();
                             self.rekeys += 1;
@@ -444,6 +450,11 @@ impl Link {
 
     pub fn write_raw(&mut self, bytes: &[u8]) {
         self.stream.write_all(bytes).expect("raw write");
+    }
+
+    pub fn accept_service(&mut self) {
+        self.expect(SERVICE_REQUEST);
+        self.send(&message(SERVICE_ACCEPT, &[&text(b"ssh-userauth")]));
     }
 
     pub fn accept_authentication(&mut self) {

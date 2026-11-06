@@ -3134,7 +3134,7 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")
 }
 
-test test_system_report_cpu_topology_capture_allows_absent_die_id { |ctx|
+test test_system_report_cpu_topology_capture_allows_absent_die_id { |_|
   let source = fs.tempdir()?
   defer source.close()
   let bundle = fs.tempdir()?
@@ -6209,6 +6209,7 @@ test test_system_report_process_reference_excludes_exits_and_new_arrivals_from_s
 }
 
 test test_system_report_traced_live_text_modes_keep_host_effect_contract { |ctx|
+  test.timeout(ctx, 300s)
   guard system.uname()?.sysname == "Linux" else {
     test.skip("the production syscall audit requires Linux strace")
     return
@@ -6219,6 +6220,7 @@ test test_system_report_traced_live_text_modes_keep_host_effect_contract { |ctx|
 }
 
 test test_system_report_traced_live_json_modes_keep_host_effect_contract { |ctx|
+  test.timeout(ctx, 300s)
   guard system.uname()?.sysname == "Linux" else {
     test.skip("the production syscall audit requires Linux strace")
     return
@@ -6229,6 +6231,7 @@ test test_system_report_traced_live_json_modes_keep_host_effect_contract { |ctx|
 }
 
 test test_system_report_traced_replay_paths_keep_host_effect_contract { |ctx|
+  test.timeout(ctx, 300s)
   guard system.uname()?.sysname == "Linux" else {
     test.skip("the production syscall audit requires Linux strace")
     return

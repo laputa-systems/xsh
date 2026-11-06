@@ -45,6 +45,28 @@ fn execute_both_routes(program: FullProgram) {
 }
 
 #[test]
+fn imported_generic_callable_storage_authenticates_selected_export() {
+    let mut program = module_fixture(
+        "use model\ntype StringIdentity = pure(value: Str) -> Str\nlet generic = model.identity\nlet stored: StringIdentity = generic\nassert stored(\"demo\") == \"demo\"\n",
+        "##! Generic callable fixture.\n## Preserves its input.\nexport pure identity(value) { value }\n## Inverts a Boolean.\nexport pure invert(value: Bool) -> Bool { !value }\n",
+    );
+    program.store.in_place.take();
+    FullVerifier::verify(&program).unwrap();
+    execute_both_routes(program.clone());
+    let identity = (1..=program.store.strings.len() as u32)
+        .find(|&raw| program.store.string(raw).unwrap() == "identity").unwrap();
+    let invert = (1..=program.store.strings.len() as u32)
+        .find(|&raw| program.store.string(raw).unwrap() == "invert").unwrap();
+    let field = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+        if *tag != FullTag::ExprField { return None; }
+        let words = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+        (program.store.extra[words.start + 1] == identity).then_some(words.start + 1)
+    }).unwrap();
+    program.store.extra[field] = invert;
+    assert!(FullVerifier::verify(&program).is_err());
+}
+
+#[test]
 fn imported_module_storage_executes_after_frontend_disposal() {
     let program = module_fixture(
         "use model\nvar total = 0\nproc imported() [] -> Int { total += model.marker; total }\nassert imported() == 7\n",

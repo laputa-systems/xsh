@@ -1522,9 +1522,18 @@ impl Checker {
                     }
                     value_ty => {
                         if cannot_fail && !self.optional_binding_spans.contains(&expr.span) {
+                            let message = if self.is_narrowed_from_optional(arena, *value) {
+                                let value_text = &source[arena.arena.expr(*value).span.range()];
+                                let pattern_text = &source[arena.arena.span(arena.arena.pattern(pattern).span).range()];
+                                format!(
+                                    "pattern condition cannot fail: `{value_text}` is already known to be non-null here (an earlier null test narrowed it); bind it with `let {pattern_text} = {value_text}`"
+                                )
+                            } else {
+                                "pattern condition cannot fail; bind the subject with `let` instead".to_string()
+                            };
                             self.error(
                                 expr.span,
-                                "pattern condition cannot fail; bind the subject with `let` instead",
+                                &message,
                                 DiagnosticCode::CheckIrrefutablePatternCondition,
                             );
                         }
@@ -2353,7 +2362,10 @@ impl Checker {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(field_expected, &ty, value_span);
                     }
-                    if open_spread.is_some() { overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: ty.clone() }); }
+                    if open_spread.is_some() {
+                        let override_ty = self.materialize_open_override(arena, *value, &ty);
+                        overrides.push(crate::sema::sealed_operation::RecordOverrideField { name: *name, ty: override_ty });
+                    }
                     exposed.remove(name);
                     writer_spans.insert(*name, field_span);
                     record.insert(*name, ty);

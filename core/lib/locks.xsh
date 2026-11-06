@@ -355,7 +355,7 @@ pure canonical_column(name: Str) -> Str? {
   null
 }
 
-pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[Str], ColumnSelectionError] {
+pure select_columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[Str], ColumnSelectionError] {
   var selected = if output_all { COLUMNS } else { DEFAULT_COLUMNS }
   if output == null and environment == null { return Ok(selected) }
   let value = if output != null { output ?? "" } else { environment ?? "" }
@@ -1119,7 +1119,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     return
   }
-  let selection = columns(opts.output, opts.output_all, output_environment)
+  let selection = select_columns(opts.output, opts.output_all, output_environment)
   if let Err(error) = selection {
     match error {
       EmptyColumnList => exit 1

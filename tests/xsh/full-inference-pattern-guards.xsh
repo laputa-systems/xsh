@@ -660,3 +660,182 @@ for failure in [errno, missing, other] {
     stderr: ["[check.type-mismatch]", "expected Error, found Int"],
   )?
 }
+
+test test_full_inference_field_narrowed_record_stored_into_unnarrowed_storage_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""type Entry = {name: Str, level: Int, link: Str?}
+type Present = {name: Str, level: Int, link: Str}
+proc inspect(name: Str, level: Int, parent: Entry?) -> Entry {
+  let depth = if parent == null { 0 } else { 1 }
+  {name: name, level: level + depth, link: if level < 2 { "next" } else { null }}
+}
+proc chain(count: Int, parent) -> List[Entry] {
+  var entries: List[Entry] = []
+  var previous = parent
+  var index = 0
+  while index < count {
+    let item = inspect("n", index, previous)
+    entries += [item]
+    previous = item
+    index += 1
+  }
+  entries
+}
+proc chain_annotated(count: Int, parent: Entry?) -> List[Entry] {
+  var entries: List[Entry] = []
+  var previous = parent
+  var index = 0
+  while index < count {
+    let item = inspect("n", index, previous)
+    entries += [item]
+    previous = item
+    index += 1
+  }
+  entries
+}
+proc follow(entry: Entry) -> List[Entry] {
+  guard let target = entry.link else { return [] }
+  let _ = target
+  chain(3, entry)
+}
+proc follow_annotated(entry: Entry) -> List[Entry] {
+  guard let target = entry.link else { return [] }
+  let _ = target
+  chain_annotated(3, entry)
+}
+let linked: Entry = {name: "a", level: 0, link: "b"}
+let plain: Entry = {name: "a", level: 0, link: null}
+for entry in [linked, plain] {
+  let inferred = follow(entry)
+  let annotated = follow_annotated(entry)
+  assert inferred == annotated
+  print f"{inferred.len()} {chain(3, entry).len()}"
+}
+let present: Present = {name: "a", level: 0, link: "b"}
+assert chain(3, present) == chain_annotated(3, present)
+print f"{chain(3, present).len()}"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "3 3\n0 3\n3\n"
+  test.expect(
+    ctx,
+    r"""type Entry = {name: Str, link: Str?}
+proc length(parent) -> Int {
+  var previous = parent
+  let fresh: Entry = {name: "x", link: null}
+  previous = fresh
+  previous.link.len()
+}
+proc follow(entry: Entry) -> Int {
+  guard let target = entry.link else { return 0 }
+  let _ = target
+  length(entry)
+}
+let linked: Entry = {name: "a", link: "b"}
+let rejected = follow(linked)
+""",
+    status: 2,
+    stderr: ["[check.callable-mismatch]", "Length has no canonical result for Str?"],
+  )?
+}
+
+test test_full_inference_guard_call_of_a_discarded_return_pass_does_not_block_generalization { |ctx|
+  let types = "type Options = {files: List[Str], reject_format: Str?}\n"
+  let inferred = r"""proc write_rejects(opts) {
+  let as_context = if let format = opts.reject_format { format == "context" } else { true }
+}
+proc apply_file(opts) -> Int {
+  write_rejects(opts)
+  0
+}
+proc run_patches(opts) {
+  let first = opts.files.get(1) ?? "-"
+  let outcome = apply_file(opts)
+}
+"""
+  let annotated = r"""proc write_rejects(opts: Options) {
+  let as_context = if let format = opts.reject_format { format == "context" } else { true }
+}
+proc apply_file(opts: Options) -> Int {
+  write_rejects(opts)
+  0
+}
+proc run_patches(opts: Options) {
+  let first = opts.files.get(1) ?? "-"
+  let outcome = apply_file(opts)
+}
+"""
+  let calls = "let plain: Options = {files: [\"a\"], reject_format: null}\nlet named: Options = {files: [\"b\"], reject_format: \"context\"}\nrun_patches(plain)\nrun_patches(named)\n"
+  test.expect(ctx, types + annotated + calls, status: 0)?
+  test.expect(ctx, types + inferred + calls, status: 0)?
+  test.expect(
+    ctx,
+    types + inferred + "let wrong = {files: [\"c\"], reject_format: 5}\nrun_patches(wrong)\n",
+    status: 2,
+    stderr: ["[check."],
+  )?
+}
+
+test test_full_inference_null_seeded_local_assigned_an_erased_parameter_matches_its_annotated_twin { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure show(name) {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+pure show_plain(name: Str) {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+pure show_optional(name: Str?) {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+let absent: Str? = null
+let present: Str? = "y"
+print show("x")
+print show_plain("x")
+print show(present)
+print show_optional(present)
+print show(absent)
+print show_optional(absent)
+print show(7)
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "<x>\n<x>\n<y>\n<y>\nnone\nnone\n<7>\n"
+  let chained = test.run_xsh(
+    ctx,
+    r"""pure label(named) { if named != null { f"<{named}>" } else { "-" } }
+pure first(files) {
+  var named = null
+  if !files.is_empty() { named = files[0] }
+  label(named)
+}
+pure first_annotated(files: List[Str]) {
+  var named: Str? = null
+  if !files.is_empty() { named = files[0] }
+  label(named)
+}
+let none: List[Str] = []
+let some: List[Str] = ["a", "b"]
+print first(some)
+print first_annotated(some)
+print first(none)
+print first_annotated(none)
+""",
+  )?
+  assert chained.success, chained.stderr
+  assert chained.stdout == "<a>\n<a>\n-\n-\n"
+  test.expect(
+    ctx,
+    "pure show(name) {\n  var wanted = null\n  wanted = name\n  if wanted != null { f\"<{wanted}>\" } else { \"none\" }\n}\nlet rejected: Int = show(\"x\")\n",
+    status: 2,
+    stderr: ["[check.type-mismatch]"],
+  )?
+}

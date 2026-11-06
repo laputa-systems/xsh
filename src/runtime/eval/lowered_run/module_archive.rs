@@ -1,10 +1,10 @@
 use super::{
     Evaluator, LoweredValue, NativeArgumentValues, RuntimeError, Span, archive_module,
-    lowered_path_arg, lowered_path_list_arg, lowered_runtime_result, lowered_runtime_stream_result,
+    lowered_fs_root_dir, lowered_path_arg, pathbuf_from_path_value, lowered_path_list_arg, lowered_runtime_result, lowered_runtime_stream_result,
     lowered_unit_result,
 };
 use crate::modules::archive::{
-    CreateRequest, ExtractRequest, LimitOverrides, Selection, SourceArg,
+    CreateRequest, ExtractRequest, ExtractTarget, LimitOverrides, Selection, SourceArg,
 };
 use crate::runtime::value::{StreamValue, Value};
 use crate::symbol::Name;
@@ -318,31 +318,54 @@ impl Evaluator {
         values: NativeArgumentValues,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        const OP: &str = "archive.extract";
-        let source = self.archive_source(values[0].clone(), OP, span)?;
-        let dest = self.host_path(&lowered_path_arg(values[1].clone(), OP, span)?);
-        let selection = self.archive_selection(&values, 2, OP, span)?;
-        let strip_components = match optional_unsigned(values.get(5), OP, span)? {
+        let dest = self.host_path(&lowered_path_arg(values[1].clone(), "archive.extract", span)?);
+        self.extract_archive(values, ExtractTarget::Path(dest), "archive.extract", span)
+    }
+
+    pub(super) fn eval_lowered_fs_root_extract(
+        &mut self,
+        mut values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        const OP: &str = "FsRoot.extract";
+        let receiver = values.remove(0);
+        let root = lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &receiver, span)?
+            .open_dir_strict(".")
+            .map_err(|error| RuntimeError::host("fs-root", &error).with_span(span))?;
+        let dest = pathbuf_from_path_value(&lowered_path_arg(values[1].clone(), OP, span)?);
+        self.extract_archive(values, ExtractTarget::Beneath { root, dest }, OP, span)
+    }
+
+    fn extract_archive(
+        &mut self,
+        values: NativeArgumentValues,
+        target: ExtractTarget,
+        operation: &str,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let source = self.archive_source(values[0].clone(), operation, span)?;
+        let selection = self.archive_selection(&values, 2, operation, span)?;
+        let strip_components = match optional_unsigned(values.get(5), operation, span)? {
             Some(count) => usize::try_from(count).map_err(|_| {
-                RuntimeError::new("type-error", format!("{OP} strip_components is too large"))
+                RuntimeError::new("type-error", format!("{operation} strip_components is too large"))
                     .with_span(span)
             })?,
             None => 0,
         };
         let mut request = ExtractRequest {
             source: SourceArg::Bytes(Vec::new()),
-            dest,
+            target,
             selection,
             strip_components,
-            collision: variant_arg(values.get(6), ARCHIVE_COLLISION, Some(engine::Collision::Refuse), parse_collision, OP, span)?,
-            links: variant_arg(values.get(7), ARCHIVE_LINKS, Some(engine::Links::Contained), parse_links, OP, span)?,
-            special: variant_arg(values.get(8), ARCHIVE_SPECIAL, Some(engine::Special::Refuse), parse_special, OP, span)?,
-            modes: variant_arg(values.get(9), ARCHIVE_MODES, Some(engine::Modes::Plain), parse_modes, OP, span)?,
-            ownership: variant_arg(values.get(10), ARCHIVE_OWNERSHIP, Some(engine::Ownership::Ignore), parse_ownership, OP, span)?,
+            collision: variant_arg(values.get(6), ARCHIVE_COLLISION, Some(engine::Collision::Refuse), parse_collision, operation, span)?,
+            links: variant_arg(values.get(7), ARCHIVE_LINKS, Some(engine::Links::Contained), parse_links, operation, span)?,
+            special: variant_arg(values.get(8), ARCHIVE_SPECIAL, Some(engine::Special::Refuse), parse_special, operation, span)?,
+            modes: variant_arg(values.get(9), ARCHIVE_MODES, Some(engine::Modes::Plain), parse_modes, operation, span)?,
+            ownership: variant_arg(values.get(10), ARCHIVE_OWNERSHIP, Some(engine::Ownership::Ignore), parse_ownership, operation, span)?,
             limits: LimitOverrides {
-                max_output: optional_unsigned(values.get(11), OP, span)?,
-                max_entry: optional_unsigned(values.get(12), OP, span)?,
-                max_entries: optional_unsigned(values.get(13), OP, span)?,
+                max_output: optional_unsigned(values.get(11), operation, span)?,
+                max_entry: optional_unsigned(values.get(12), operation, span)?,
+                max_entries: optional_unsigned(values.get(13), operation, span)?,
             },
         };
         let result = match source {

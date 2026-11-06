@@ -43,12 +43,12 @@ pure number(record: Map[Str, Str], key: Str) -> Int? {
 
 pure octal(value: Str) -> Int? {
   return null when value.is_empty()
-  var number = 0
+  var accumulated = 0
   for digit in value {
     if digit < "0" or digit > "7" { return null }
-    number = number * 8 + (digit.byte_at(0) ?? 48) - 48
+    accumulated = accumulated * 8 + (digit.byte_at(0) ?? 48) - 48
   }
-  number
+  accumulated
 }
 
 pure identity(record: Map[Str, Str]) -> Identity? {

@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 61
+Next: 77
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -36,8 +36,8 @@ out of scope.
 - **Area:** Runtime contracts
 - **Where:** `src/modules/time.rs`, `src/runtime/eval/`, `crates/xsh-registry/`, `docs/templates/SPEC.md`
 - **Problem:** Wall time is epoch milliseconds, `time.monotonic()` is nanoseconds from a process-local origin, and `time.boottime()` uses nanoseconds from a host clock. Linux boottime includes suspend; macOS uses its monotonic clock. All three use integers. Laputa xinit now converts monotonic nanoseconds to milliseconds for elapsed deadlines; other consumers and conversion boundaries remain unqualified.
-- **Progress:** Pinned Linux host tests bracket wall, process-monotonic and boot-clock readings against their owning clocks. DHCP one-shot deadlines saturate without overflowing and reject unrepresentable CLI seconds before network setup; focused tests cover cancellation, zero budgets and existing wall/boot-clock jumps. VM pause, physical suspend and the remaining consumer inventory are open.
-- **Recommendation:** Inventory the remaining wait, retry and deadline consumers and qualify their units and restart or pause semantics. Build on xinit's elapsed clock and existing Duration and nominal-type machinery. Keep wall timestamps for calendar and security decisions; never persist a process-local instant as a restart-stable timestamp.
+- **Progress:** Pinned Linux host tests bracket wall, process-monotonic and boot-clock readings against their owning clocks. DHCP one-shot deadlines saturate without overflowing and reject unrepresentable CLI seconds before network setup; focused tests cover cancellation, zero budgets and existing wall/boot-clock jumps. The Linux inventory of `core/`, `core/lib/` and the Rust wait paths is complete. Rust waits (`Instant`, `poll`, process and netlink deadlines) are monotonic and take Durations of at most `u64` milliseconds, which cannot overflow `Instant` on 64-bit Linux; a `time.sleep` of the largest millisecond Duration is cancelled by SIGTERM rather than panicking. `syslogd` and DHCP use the boot clock deliberately. `lib.monotonic` gives `Reading` and `Deadline` nominal types so a wall value cannot meet a monotonic deadline, with tests for zero, negative, expired and saturating budgets; `udevadm`, `nc`, `traceroute`, `ping`, `curl`, `wget`, `dd` and `mdev` now use it. `iw` read wall milliseconds as nanoseconds and is fixed.
+- **Remainder:** VM pause and physical suspend need a disposable guest and host (LAP-27) and stay unqualified. Native tests cannot step the wall clock inside a consumer, so wall-jump immunity of the migrated commands rests on the types, not an injected clock. `ping` still adds raw millisecond integers taken from `Reading.ms`. `traceroute` and `ping` round-trip times subtract wall readings from `SO_TIMESTAMP` receive stamps, which are `CLOCK_REALTIME`, so a step during a probe distorts that RTT. macOS is owner-deferred. Keep wall timestamps for calendar and security decisions; never persist a process-local instant as a restart-stable timestamp.
 - **Acceptance:** Native tests separate wall and monotonic inputs, cover backward/forward wall jumps, zero/expired budgets, overflow and cancellation; host tests establish the units/origin. Qualify VM pause separately from physical suspend. Qualify xinit's conversion and any further consumer migration with unit-safe conversions; update authored docs before regeneration; no host clock changes.
 - **Coordination:** Laputa LAP-27 owns xinit migration and disposable-guest clock tests.
 - **Fix with:** make-invalid-states-unrepresentable
@@ -46,43 +46,43 @@ out of scope.
 ### XSH-36 · P2 · Qualify descriptor and process ownership under failure
 
 - **Area:** Resources
-- **Where:** `src/modules/`, `src/runtime/eval/`, `crates/xsh-registry/`, `tests/`
-- **Problem:** Owned process/resource scopes coexist with bare descriptor APIs. Their presence is not proof of a leak; transfer, inheritance and cancellation behavior across composed operations needs a focused qualification.
-- **Progress:** Focused Linux tests cover failed notify spawns, early process-stream termination and Unix spawn setup failures. CPU-limited Unix group spawns and all logged-pair spawns retain child status through setup and attempt cleanup on failure, reporting cleanup errors. Wider failure and platform qualification remains open.
-- **Recommendation:** Extend the focused spawn, readiness-pipe and early-terminated-stream cases. Specify who owns each descriptor/child before and after transfer, failed spawn, close and cancellation. Reuse existing ownership/scopes; add an owned wrapper only for an evidenced unsafe common path. Keep raw APIs explicit. Audit process identity separately from a numeric PID; pidfds where supported do not excuse an acquisition race or an unproved fallback.
-- **Acceptance:** Repeated failed spawns, early consumer exit, signal interruption, partial I/O and cleanup failure leave no owned children, zombies or leaked descriptors. Verify close-on-exec and intentional inheritance, bounded cleanup, and that signaling cannot target a recycled identity. Record backend limitations instead of treating no-ops as enforcement.
+- **Where:** `src/modules/`, `src/runtime/process.rs`, `tests/xsh/process-failure-ownership.xsh`, `tests/xsh/unix-spawn-ownership.xsh`
+- **Problem:** Linux qualification found no defect: repeated failed spawns, early consumer exit, partial input and output, and descriptor inheritance leave no owned children or leaked descriptors, and a released or stale handle cannot signal a recycled pid. macOS has no qualification, and no backend limitation is recorded for it.
+- **Recommendation:** Run the same cases on macOS, where `/proc` is absent, so the child and descriptor inventories need another source. Record any backend that cannot enforce a contract instead of treating a no-op as enforcement.
+- **Acceptance:** The cases in `tests/xsh/process-failure-ownership.xsh` pass on native macOS. Native macOS qualification is deferred by the owner.
 - **Coordination:** Laputa LAP-34 exercises the service lifecycle; retain the host-process/bounded-stream concurrency model, not a new async runtime.
 - **Fix with:** lifecycle-concurrency
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-37 · P2 · Qualify confined filesystem operations for privileged consumers
 
 - **Area:** Host authority
-- **Where:** `crates/xsh-root/`, `src/modules/`, `src/runtime/eval/`, `tests/`
-- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction stages and publishes through retained roots; other extraction and publication paths still need an anchor audit.
-- **Recommendation:** Trace the operations needed by Laputa LAP-33 and reuse Root at the smallest shared host boundary. Specify trusted-anchor acquisition, relative paths, symlinks, hard links, mount/special-file policy and destination publication. Extend only missing operations required by that consumer; do not advertise Root or effects as a process sandbox.
-- **Acceptance:** Adversarial fixtures cover ancestor/symlink replacement, traversal, archive link ordering, special files, no-clobber conflicts and interrupted publication. Outside sentinels remain unchanged and prior committed outputs survive failures. Unsupported platform enforcement fails explicitly. Distinguish atomic visibility from durable publication and test their contracts separately.
-- **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation.
+- **Where:** `crates/xsh-root/`, `crates/xsh-archive/`, `src/modules/fs.rs`, `src/modules/archive/`, `tests/`
+- **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction (`archive.extract` and `FsRoot.extract`, one engine), `patch.apply`, `FsRoot.rename`/`fsync` and `fs.root_install_file` acquire one anchor and resolve beneath it; Path-taking extraction and publication acquire that anchor from the path. Rooted file reads in archive creation, patch and `FsRoot.fsync` open non-blocking and refuse a non-regular file, but `FsRoot.read` of a FIFO still blocks by design.
+- **Recommendation:** Add `FsRoot` hard-link and special-file creation only if Laputa LAP-33 shows a need.
+- **Status:** The Linux acceptance is met. `crates/xsh-archive/tests/interrupted.rs` (`test-archive-interrupted`) SIGKILLs a child mid-extraction (path and retained-root destinations, and over an existing destination), mid-creation, and during repeated publication. `tests/runtime/root_install.rs` SIGKILLs a script mid-`fs.root_install_file`, fresh and replacing. In every case staging is left behind and no partial destination or replaced file becomes visible. `rooted.rs` and `publication.rs` cover ancestor and symlink replacement of a retained root. Only the owner-deferred macOS work and the items conditional on Laputa LAP-33 (`FsRoot` hard-link and special-file creation) remain; the ticket stays open for those.
+- **Acceptance:** Adversarial fixtures cover extraction into a retained root under ancestor and symlink replacement, and interrupted publication by process kill. Power-loss durability stays unclaimed; atomic visibility and durability stay tested as separate contracts. macOS enforcement is owner-deferred and must fail explicitly until qualified.
+- **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation; XSH-47 owns any process sandbox claim.
 - **Fix with:** isolate-effects
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-43 · P2 · Stress process and stream lifetimes with signal storms
 
 - **Area:** Runtime verification
-- **Where:** `src/runtime/process/`, `src/runtime/eval/`, `crates/xshi/`, `tests/`, `dev/`, `docs/TESTING.md`
-- **Problem:** XSH-36 tests focused descriptor and child ownership, but deterministic stress of process trees and cancellation at adversarial timing boundaries is not established. Existing success-path tests cannot rule out orphans, double cleanup or inherited terminal state.
-- **Recommendation:** Build a bounded, seed-replayable Linux/macOS signal-storm test over existing process scopes, pipelines, `defer`/`errdefer`, live streams and interactive PTYs. Inject SIGINT/SIGTERM, SIGPIPE/EPIPE, EOF, child exits and interruption during spawn/cleanup; use real OS children alongside narrow native fakes. Reuse the existing ownership model and test runner; add no new scope syntax or daemon.
-- **Acceptance:** Fixed seeds and retained minimized reproducers check one-time release, child reaping, process-group identity, pipeline status, cleanup order, terminal restoration where possible, bounded cancellation and no foreign-process signaling. Deliberately broken cleanup fails the oracle. Distinguish SIGKILL/non-cooperative shutdown and unsupported host behavior; do not claim impossible cleanup guarantees.
+- **Where:** `tests/runtime/signal_storm.rs`, `docs/TESTING.md`
+- **Problem:** The Linux seed-replayable storm (`runtime::signal_storm`) found no orphan, double cleanup or unbounded cancellation. It does not cover SIGKILL of the runner, terminal-mode restoration, interruption inside spawn setup, or macOS. A second signal that lands after cleanup but before exit kills the runner with the default action, which the oracle accepts.
+- **Recommendation:** Add terminal restoration for an interactive PTY session (`crates/xshi/`) and the macOS run when a host exists; reuse the plan generator and oracle.
+- **Acceptance:** The storm passes on native macOS and checks terminal restoration. Native macOS qualification is deferred by the owner.
 - **Coordination:** XSH-36 owns the resource contracts; Laputa LAP-36 supplies the xinit/PID 1 consumer, and LAP-34 owns its first hermetic lifecycle replay.
 - **Fix with:** lifecycle-concurrency
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-55 · P2 · Qualify the native SSH client
 
 - **Area:** Remote execution
 - **Where:** `crates/xsh-ssh`, `src/modules/ssh.rs`, `docs/rfc/XSH-55-native-ssh-client.md`
-- **Problem:** The native client is experimental on Linux x86-64. Native macOS qualification, a protocol and security review, and the RFC's remaining acceptance checks are open.
-- **Recommendation:** Complete the remaining qualification and review in the RFC. Preserve mandatory host verification and typed execution certainty.
+- **Problem:** The native client is experimental on Linux x86-64. An internal protocol and security source review (2026-11-05) fixed five defects, and a second round fixed seven of its undemonstrated risks (rekey `NEWKEYS` filtering, key file permissions and size, FIFO opens, error wakeups, server requests during channel setup, close after exit status, zeroization). The `xsh-ssh` suite passed on glibc against OpenSSH 10.0; the second round was not rerun on musl. Open: native macOS qualification, an independent protocol and security review, a native signal-cancellation test, the native `tests/xsh/ssh-` suite on musl, the build-time gate (host busy), and the review section's remaining risks (lenient padding and AEAD length checks in the vendored decoder, no traffic served while a stalled output file is awaited, unwiped caller stdin and Graviola key state).
+- **Recommendation:** Complete the remaining qualification in the RFC and obtain the independent review. Preserve mandatory host verification and typed execution certainty.
 - **Acceptance:** The RFC's required tests pass against disposable OpenSSH servers, with ssh-build's OpenSSH client as oracle, on the executed Linux musl and macOS arm64 lanes; the client is labeled experimental. Native macOS qualification is deferred by the owner.
 - **Coordination:** Laputa R6 and XSH-56 consume the client.
 - **Fix with:** security
@@ -102,11 +102,21 @@ out of scope.
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
-- **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
-- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed and none of this is qualified on current source. The causes are now known: the UDP failure (a forked child holding the closed port) was fixed by `e3179f233`, and the full-corpus timeouts came from forking the 32-thread runner for every child, fixed by starting children with `posix_spawn` (`0836935e3`). Private/resource close and the scheduler pairs are now to be requalified on the re-pinned current `xsh-test` image (`7bf01daae`); the owner approved the inherited tools keeping their shared controller root in the main checkout's `.work`.
-- **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
-- **Unmet:** Full combined qualification remains manual-only on a stable source. The known XSH-29 deadline causes have focused written/desugared proof; that does not supply full-corpus acceptance. The replacement image and repaired launcher are available, and historical passes do not qualify them.
+- **Where:** `dev/consolidation/final_canonical_replay.py`, `dev/performance/check.py`, `dev/consolidation/winddown/gate-tools/`
+- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13 (`0dfebb001`); nothing is qualified on current source. The scheduler failures there are fixed (`e3179f233`, `a758be15e`, `2515907c8`, `0836935e3`). The frozen reference `perf/reference-9d-qualification` cannot continue: its pinned test image is gone and `Dockerfile.test` builds from `alpine:edge`; master pins the present `xsh-test` image in `bench/consolidation/versions.lock.json`. On `perf/reference-10-qualification` (`eb94b57d7` plus the fixes below) the tooling now runs: observer, supplemental-plan and owned-container pins are re-pinned or requalified, the replay mounts `.work/gate`, and root-run gate fixtures are handed to the native user. Bootstrap passes. The latest canonical replay (`replay-r10f` on `eb94b57d7`, 2026-11-05) passed every Rust stage and the full native suite finished with 15,270 passed, 54 failed, 181 skipped. Fixes since: 51 lint-fix and tooling failures came from the repository `xsht-config.ini` reaching fixtures under the native scratch (`8546e8fe5`), one from a stale API surface fixture (`05d1aef79`), and one from a formatter fixture that spliced a list into fixed parameters (`6551176d1`); each file passes in the pinned image. The replay has not been rerun on the fixed tree.
+- **Recommendation:** On one frozen source, in order: `dev/performance/check.py functional --check`; a fresh normal profile (`profile-cost.py`) and `dev/perf/btop-profile.xsh` in a readiness-bracketed window; `final-observers.py --execute`; forced frames, the comparative profile and three scheduler pairs; util-linux `resources --check` and `close --check` (XSH-1). Bootstrap first with `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`. Validate each tool's `--plan` before an expensive run. Then publish the accepted baseline and retire the infrastructure under XSH-19.
+- **Unmet:** (1) `tests/xsh/pattern-tests.xsh::test_pattern_predicate_dynamic_facets_retain_the_error_api` fails: the full IR verifier rejects `error_message(value)` after `value is NotFound` (`ground producer value disagrees with its checked contract`) because `tested_read_type` takes only types that `runtime_complete_check_type` calls complete, and that excludes `ErrorFamily`, `ErrorVariant` and `ErrorFacet`. Accepting them (`type_view.rs` decides all three completely) and letting a tested error type fit `Error` was not enough in two attempts; the draft patch and its tests are not committed. (2) The scheduler reference arm cannot be derived: the pinned `dev/consolidation/winddown/unfinished/475-native-scheduler-reference-*.patch` no longer applies to `crates/xsht/src/xsht/test.rs`, which has been rewritten since, and reverting the three reference scheduler commits conflicts in five regions. (3) `check.py functional --check` needs a skip review and a semantic review bundle (`ReviewEvidenceBundle`) bound to the source trees; none exists for this source, and every later step takes the functional-close record. (4) No supplemental, functional, profile, observer, forced, comparative, scheduler or util-linux step has run on this source. The checker also accepts a positional list splice into fixed parameters that docs/SPEC.md forbids (positional splices fill only the final rest parameter).
 - **Fix with:** orchestrate
+- **Effort:** M
+
+### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
+
+- **Area:** Performance
+- **Where:** `crates/deser`, `src/modules/json.rs`, the serializer event path
+- **Problem:** On the same 20,000-record JSON, five alternating pinned Linux O2 pairs measured roundtrip median CPU of 59.065 ms on pre-Deser `e1b896dc` against 69.813 ms on `ad126a1e8`, above the 5% budget and the spread; decode alone stays within spread. Borrowed event guards later cut ten encodes by about 5%. Rejected without benefit above spread: small-record text vectors, direct compact-name accumulation, decoder sink inlining, an `#[inline]` encoder hint, per-container field emitters, and the parked primitive-handle prototype `fb3bc1712`. Profiles point at serializer event dispatch and field iteration. The products differ beyond the codec, so no single change is attributed.
+- **Recommendation:** Profile the current encode path against `e1b896dc` on matched products and fix the dominant cost; S6 runtime, startup and build CPU-time qualification on current source closes with it.
+- **Acceptance:** Roundtrip median CPU within `max(5%, paired spread)` of the pre-Deser baseline over five readiness-qualified alternating pairs with exact outputs; decode, JSONL and checker controls within budget.
+- **Fix with:** make-it-fast
 - **Effort:** M
 
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
@@ -122,7 +132,7 @@ out of scope.
 ### XSH-19 · P3 · Retire consolidation-only gate infrastructure after acceptance
 
 - **Area:** Build
-- **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`, `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`
+- **Where:** `dev/consolidation/winddown/gate-tools/`, `dev/performance/check.py`, `dev/util-linux/acceptance.py`
 - **Problem:** Baseline qualification currently depends on campaign-specific controllers, receipt adapters and historical pins. Leaving those dependencies in the everyday gate path makes subsequent changes require campaign history. The accepted baseline is still pending, so deletion must follow G1.
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
@@ -143,11 +153,11 @@ out of scope.
 
 - **Area:** Host I/O
 - **Where:** `src/modules/`, `crates/xsh-registry/`, `core/lib/`, `tests/`
-- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Its local peer tests cover fragmented and coalesced frames and timeouts. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, and shutdown during a bounded poll. Consumer composition and the portable stream-I/O contract remain unqualified.
-- **Recommendation:** Qualify the existing operations and QMP consumer, then fill only demonstrated gaps in the connect, read, write, deadline and cancellation boundary using XSH-35 and XSH-36. Keep framing and QMP policy in the XSH consumer.
-- **Acceptance:** Fragmented/coalesced reads, partial writes, EOF, oversized input, timeout and cancellation are bounded and release resources on both supported host paths. A local socket fixture and Laputa LAP-35 demonstrate the same primitives; no futures runtime or callbacks are required.
+- **Problem:** `unix.connect_stream`, descriptor I/O and polling support Laputa's XSH QMP client, which owns and closes its socket and uses a monotonic deadline. Linux host tests cover short-write backpressure and retries, scoped closure while the interpreter remains alive, shutdown during a bounded poll, and a native line-protocol fixture on `lib.monotonic` deadlines: byte-fragmented and coalesced frames, EOF, a stalled peer, oversized unterminated and terminated frames, abrupt close mid-frame with a stable descriptor count, and SIGTERM mid-frame with cleanup and peer-visible closure. `unix.poll_fd` and `unix.poll_fds` both end at a handled signal, so Laputa's QMP client cancels promptly. macOS and Laputa LAP-35 corroboration remain unqualified.
+- **Recommendation:** Keep framing and QMP policy in the XSH consumer.
+- **Acceptance:** The same properties hold on the macOS host path, and Laputa LAP-35 demonstrates the same primitives against a real QEMU monitor; no futures runtime or callbacks are required.
 - **Fix with:** isolate-effects
-- **Effort:** M
+- **Effort:** S
 
 ### XSH-40 · P3 · Reduce one system failure to a hermetic native replay
 
@@ -213,6 +223,16 @@ out of scope.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
 
+### XSH-66 · P3 · Compare practical joint views and close erased sort's CPU gap
+
+- **Area:** Inference performance
+- **Where:** `core/wc.xsh`, `core/sort.xsh`, `core/awk.xsh`, Laputa `pm/generation.xsh`, `docs/PERFORMANCE-INFERENCE.md`
+- **Problem:** The four practical joint views pass, but their joint behavior and interfaces have not been compared with the annotated sources, and the host-consumer guest drill has not been rerun on them. Joint-erased `sort.xsh` produces identical output at about 2.3 times the annotated source's CPU on the faster sort build.
+- **Recommendation:** Diff joint-view interfaces and outputs against the annotated sources, rerun the guest drill, then profile erased `sort` to find which inferred types cost the extra CPU.
+- **Acceptance:** Interfaces and outputs match or each difference is explained; the CPU gap is attributed and either removed or recorded with its cause under the performance campaign's sampling rules.
+- **Fix with:** make-it-fast, benchmark-checklist
+- **Effort:** M
+
 ### XSH-23 · P4 · Evaluate bbtree as the ordered-map implementation
 
 - **Deferred:** The owner is not interested in this evaluation at present. Exclude it from the active backlog run until the owner reopens it, even after a baseline becomes available.
@@ -236,7 +256,7 @@ out of scope.
 ### XSH-49 · P4 · Account for first-party complexity in one capability change
 
 - **Area:** Design economy
-- **Where:** `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, one selected codec or host-capability change
+- **Where:** `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, one selected codec or host-capability change
 - **Problem:** Binary-size/startup gates already exist, but they do not expose ownership proliferation, parallel representations, repeated semantics or Rust/native glue added for one XSH-facing capability. A raw line-count ceiling would punish reuse of trustworthy dependencies and tests.
 - **Recommendation:** On one real accepted change (the Deser cutover or a bounded host API), record before/after first-party source ownership, runtime variants and operations, representations/conversions, duplicated invariants, required crates, product size and startup, and one end-to-end XSH consumer. Identify machinery retired and any complexity moved outward; use a small review table in the owning existing document, not a separate metrics framework.
 - **Acceptance:** Independent reviewer can trace added, retained and deleted responsibilities to code and tests; no compatibility or verifier boundary is counted as removable merely because it duplicates a check. Record a concrete simplification or reject the abstraction on evidence, without blocking unrelated fixes on a new arbitrary LOC quota.

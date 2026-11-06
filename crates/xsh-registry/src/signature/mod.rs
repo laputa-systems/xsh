@@ -665,6 +665,8 @@ pub fn legacy_fs_root_method(function: &str) -> Option<&'static str> {
         "root_readlink_result" => Some("readlink_result"),
         "root_symlink" => Some("symlink"),
         "root_chmod" => Some("chmod"),
+        "root_rename" => Some("rename"),
+        "root_fsync" => Some("fsync"),
         _ => None,
     }
 }

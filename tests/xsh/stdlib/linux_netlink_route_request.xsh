@@ -37,14 +37,6 @@ pure acknowledgement(errno: Int, request_type: Int, sequence: Int, port: Int) ->
   message(NLMSG_ERROR, NLM_F_CAPPED, sequence, port, error_payload(errno, request_type, sequence, port)?)
 }
 
-pure errno_of(result: Result[Any, Error]) -> Int {
-  if let Err(failure) = result {
-    return failure.errno ?? -1
-  } else {
-    return 0
-  }
-}
-
 proc failure_of(result: Result[Any, Error], kind: Str) [error] -> Error {
   match result {
     Ok(_) => {

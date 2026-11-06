@@ -9,7 +9,7 @@ type Fixture = {
   timeout_ms: Int,
 }
 
-proc fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
+proc open_fixture(suffix: Str) [env, error] -> Result[Fixture, Error] {
   let host = env.get(f"XINFRA_FIXTURE_{suffix}_HOST")?
   let port = env.get(f"XINFRA_FIXTURE_{suffix}_PORT")?.parse_int()?
   let username = env.get("XINFRA_FIXTURE_USER")?
@@ -76,8 +76,8 @@ test ssh_session_cannot_be_shown_or_read_as_a_record { |ctx|
   assert read.stdout == "", read.stdout
 }
 
-test ssh_session_is_not_json_and_leaves_no_token_in_values { |ctx|
-  let fixture = match fixture("A") {
+test ssh_session_is_not_json_and_leaves_no_token_in_values { |_|
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?
@@ -104,8 +104,8 @@ test ssh_session_is_not_json_and_leaves_no_token_in_values { |ctx|
   }
 }
 
-test ssh_session_passed_to_a_worker_still_works { |ctx|
-  let fixture = match fixture("A") {
+test ssh_session_passed_to_a_worker_still_works { |_|
+  let fixture = match open_fixture("A") {
     Ok(value) => value,
     Err(_) => {
       test.skip("fixture environment is absent")?

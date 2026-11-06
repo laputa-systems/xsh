@@ -268,3 +268,185 @@ pure outer(context: Int, entry: Entry) -> Int {
   assert inferred.stdout == annotated.stdout
   assert inferred.stdout == "repeated\n"
 }
+
+test test_full_inference_annotated_record_with_empty_list_field_closes_generic_argument { |ctx|
+  let checks = r"""
+let job: Job = {name: "a", files: []}
+assert size(job) == 0
+let filled: Job = {name: "b", files: ["x", "y"]}
+assert size(filled) == 2
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Job = {name: Str, files: List[Str]}
+proc size(job) -> Int { job.files.len() }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Job = {name: Str, files: List[Str]}
+proc size(job: Job) -> Int { job.files.len() }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}
+
+test test_full_inference_record_field_deferred_to_an_optional_is_closed_by_a_later_use { |ctx|
+  let checks = r"""
+let base: Options = {output: null, tries: 1}
+assert apply(base, "o", "x").output == "x"
+assert apply(base, "t", "xyz").tries == 3
+assert apply(base, "t", "xyz").output == null
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure apply(options, key: Str, value) -> Options {
+  match key {
+    "o" => {...options, output: value}
+    "t" => {...options, tries: number(value)}
+    else => options
+  }
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure apply(options: Options, key: Str, value: Str) -> Options {
+  match key {
+    "o" => {...options, output: value}
+    "t" => {...options, tries: number(value)}
+    else => options
+  }
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}
+
+test test_full_inference_annotated_record_literal_defers_optional_field_to_a_later_use { |ctx|
+  let checks = r"""
+assert make("xyz").tries == 3
+assert make("xyz").output == "xyz"
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure make(value) -> Options {
+  let options: Options = {output: value, tries: 1}
+  {...options, tries: number(value)}
+}
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Options = {output: Str?, tries: Int}
+pure number(text: Str) -> Int { text.byte_len() }
+pure make(value: Str) -> Options {
+  let options: Options = {output: value, tries: 1}
+  {...options, tries: number(value)}
+}
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}
+
+test test_full_inference_open_spread_empty_list_field_closes_from_a_later_use_in_a_loop { |ctx|
+  let checks = r"""
+let start: Parsed = {code: [7], at: 0}
+assert alt(start, 2).at == 3
+assert alt(start, 2).code.len() == 0
+assert alt({code: [], at: 5}, 0).at == 5
+print "closed"
+"""
+  let inferred = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure branch(state, depth: Int) -> Parsed {
+  var st = {...state, code: []}
+  if depth > 0 { let inner = alt(st, depth - 1) }
+  loop {
+    break when st.at >= 3
+    st = {...st, at: st.at + 1}
+  }
+  st
+}
+pure alt(state: Parsed, depth: Int) -> Parsed { branch(state, depth) }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure branch(state: Parsed, depth: Int) -> Parsed {
+  var st = {...state, code: []}
+  if depth > 0 { let inner = alt(st, depth - 1) }
+  loop {
+    break when st.at >= 3
+    st = {...st, at: st.at + 1}
+  }
+  st
+}
+pure alt(state: Parsed, depth: Int) -> Parsed { branch(state, depth) }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert inferred.success, inferred.stderr
+  assert inferred.stdout == annotated.stdout
+  assert inferred.stdout == "closed\n"
+}
+
+test test_full_inference_open_spread_record_argument_closes_a_generic_call { |ctx|
+  let checks = r"""
+let start: Parsed = {code: [7], at: 4}
+assert width(start) == 4
+assert reset(start).code.len() == 0
+assert reset(start).at == 4
+print "closed"
+"""
+  let generic = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure same(value) { value }
+pure show(value: Parsed) -> Int { value.at }
+pure width(state: Parsed) -> Int { let cleared = same({...state, code: []}); show(cleared) }
+pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
+""" + checks)?
+  let monomorphic = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure same(value: Parsed) -> Parsed { value }
+pure show(value: Parsed) -> Int { value.at }
+pure width(state: Parsed) -> Int { let cleared = same({...state, code: []}); show(cleared) }
+pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
+""" + checks)?
+  assert monomorphic.success, monomorphic.stderr
+  assert generic.success, generic.stderr
+  assert generic.stdout == monomorphic.stdout
+  assert generic.stdout == "closed\n"
+}
+
+test test_full_inference_erased_open_spread_record_argument_closes_a_generic_call { |ctx|
+  let checks = r"""
+let start: Parsed = {code: [7], at: 4}
+assert width(start) == 4
+assert reset(start).code.len() == 0
+assert reset(start).at == 4
+print "closed"
+"""
+  let erased = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure same(value) { value }
+pure show(value: Parsed) -> Int { value.at }
+pure width(state) { let cleared = same({...state, code: []}); show(cleared) }
+pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure same(value) { value }
+pure show(value: Parsed) -> Int { value.at }
+pure width(state: Parsed) -> Int { let cleared = same({...state, code: []}); show(cleared) }
+pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert erased.success, erased.stderr
+  assert erased.stdout == annotated.stdout
+  assert erased.stdout == "closed\n"
+}

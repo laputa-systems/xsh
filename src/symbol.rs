@@ -302,8 +302,8 @@ impl Name {
     pub const NET_JOB: Self = Self(Symbol::from_raw(25));
     pub const FS_ROOT: Self = Self(Symbol::from_raw(26));
     pub const FS_LOCK: Self = Self(Symbol::from_raw(27));
-    pub const REL_PATH: Self = Self(Symbol::from_raw(28));
-    pub const RESULT: Self = Self(Symbol::from_raw(29));
+    pub const REL_PATH: Self = Self(Symbol::from_raw(29));
+    pub const RESULT: Self = Self(Symbol::from_raw(30));
 
     pub(crate) fn lookup_owned(text: &str) -> Option<Self> {
         if let Some(symbol) = preloaded_symbol(text) {

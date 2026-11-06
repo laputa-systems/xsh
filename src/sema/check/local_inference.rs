@@ -17,6 +17,7 @@ pub(super) struct LocalInference {
     aggregate_scopes: Vec<AggregateSeedScope>,
     fixed_storage_checks: Vec<FixedStorageCheck>,
     pipeline_key_checks: Vec<PipelineKeyCheck>,
+    record_field_deferrals: Vec<RecordFieldDeferral>,
     pub(super) conversions: Vec<super::conversion::PendingConversion>,
     nonmaterial_expressions: BTreeSet<Span>,
     constructor_producers: BTreeMap<ExprId, crate::sema::schemes::NonmaterialConstructor>,
@@ -54,10 +55,18 @@ struct PipelineKeyCheck {
     contribution: Span,
 }
 
+#[derive(Clone)]
+struct RecordFieldDeferral {
+    expected: Type,
+    actual: Type,
+    contribution: Span,
+}
+
 pub(super) struct LocalBodyConstraints {
     collecting: bool,
     fixed_storage_start: usize,
     pipeline_key_start: usize,
+    record_field_deferral_start: usize,
     conversion_start: usize,
 }
 
@@ -76,6 +85,7 @@ enum FreshAggregateOrigin {
 struct AggregateSeedScope {
     initializer: Span,
     origins: BTreeMap<Span, FreshAggregateOrigin>,
+    open_spread_override: bool,
 }
 
 fn prepare_record_payloads(
@@ -119,6 +129,7 @@ impl LocalInference {
                 && other.aggregate_scopes.is_empty()
                 && other.fixed_storage_checks.is_empty()
                 && other.pipeline_key_checks.is_empty()
+                && other.record_field_deferrals.is_empty()
                 && other.conversions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.constructor_producers.is_empty()
@@ -424,6 +435,7 @@ impl Checker {
             collecting: self.local_inference.collecting,
             fixed_storage_start: self.local_inference.fixed_storage_checks.len(),
             pipeline_key_start: self.local_inference.pipeline_key_checks.len(),
+            record_field_deferral_start: self.local_inference.record_field_deferrals.len(),
             conversion_start: self.local_inference.conversions.len(),
         };
         self.local_inference.collecting = true;
@@ -471,12 +483,23 @@ impl Checker {
             assert_eq!(check.owner, self.stream_origin_owner);
             self.validate_pipeline_key_domain(check.scope, check.domain, &check.subject, check.contribution);
         }
+        let deferrals = self.local_inference.record_field_deferrals.drain(enclosing.record_field_deferral_start..).collect::<Vec<_>>();
+        for deferral in deferrals {
+            if !matches!(self.type_constraints.resolve(&deferral.actual), Ok(Type::Inference(_))) { continue; }
+            if let Err(conflict) = self.type_constraints.constrain_context(&deferral.expected, &deferral.actual, deferral.contribution) {
+                self.report_inferred_type_conflict(conflict);
+            }
+        }
         let owner = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         match self.type_constraints.source_list_from_end_indexes(owner) {
             Ok(indexes) => self.from_end_indexes.extend(indexes),
             Err(error) => self.error(body, &format!("literal index modes cannot be resolved: {error:?}"), DiagnosticCode::CheckLocalInference),
         }
         self.local_inference.collecting = enclosing.collecting;
+    }
+
+    pub(super) fn defer_record_field_to_body_end(&mut self, expected: &Type, actual: &Type, contribution: Span) {
+        self.local_inference.record_field_deferrals.push(RecordFieldDeferral { expected: expected.clone(), actual: actual.clone(), contribution });
     }
 
     pub(super) fn defer_pipeline_key_domain(&mut self, domain: crate::sema::sealed_operation::TypeDomain, subject: &Type, contribution: Span) -> bool {
@@ -695,6 +718,7 @@ impl Checker {
             self.local_inference.aggregate_scopes.push(AggregateSeedScope {
                 initializer: super::expr::expr_or_run_span_arena(program, initializer),
                 origins: BTreeMap::new(),
+                open_spread_override: true,
             });
         }
         if let Some(inference) = self.local_inference.bindings.get(&span) {
@@ -736,7 +760,7 @@ impl Checker {
             || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
             || self.local_inference.aggregate_scopes.last().is_some_and(|scope| scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end())
         { return false; }
-        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new() });
+        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new(), open_spread_override: false });
         true
     }
 
@@ -833,6 +857,7 @@ impl Checker {
         self.local_inference.aggregate_scopes.push(AggregateSeedScope {
             initializer: program.arena.expr(expression).span,
             origins: BTreeMap::new(),
+            open_spread_override: true,
         });
         true
     }
@@ -921,6 +946,14 @@ impl Checker {
             .and_then(|owner| self.declaration_inference.pending(super::FunctionDeclarationId::new(owner)))
             .map_or(0, super::PendingFunctionSig::solver_level);
         self.type_constraints.fresh_at_level(origin, level)
+    }
+
+    pub(super) fn materialize_open_override(&mut self, program: &ArenaProgram, value: ExprId, ty: &Type) -> Type {
+        let span = program.arena.expr(value).span;
+        let Some(scope) = self.local_inference.aggregate_scopes.last().filter(|scope| scope.open_spread_override) else { return ty.clone() };
+        if !(scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end()) { return ty.clone(); }
+        let origins = scope.origins.clone();
+        self.materialize_fresh_aggregate(program, value, ty, std::slice::from_ref(ty), &origins, &mut Vec::new())
     }
 
     fn materialize_fresh_aggregate(
@@ -2077,6 +2110,22 @@ mod tests {
     }
 
     #[test]
+    fn nested_aggregate_open_spread_override_closes_from_a_later_use() {
+        with_checked_local_source(
+            "type Parsed = {code: List[Int], at: Int}\npure alt(state: Parsed) -> Parsed { state }\npure branch(state) -> Parsed { var st = {...state, code: []}; let inner = alt(st); st = {...st, at: 1}; st }\n",
+            |output| {
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let code = super::super::Name::intern("code");
+                let closed = output.local_binding_types.values().filter_map(|ty| match ty {
+                    Type::Record(fields) if fields.contains_key(&super::super::Name::intern("at")) => fields.get(&code),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                assert!(!closed.is_empty() && closed.iter().all(|ty| **ty == Type::List(Box::new(Type::Int))), "{:?}", output.local_binding_types);
+            },
+        );
+    }
+
+    #[test]
     fn nested_aggregate_incompatible_shared_writers_are_rejected() {
         with_checked_local_source(
             "pure sample(flag: Bool) -> Int { var state = {items: []}; if flag { state = {items: [7]} } else { state = {items: [\"word\"]} }; 7 }",
@@ -2226,7 +2275,7 @@ mod tests {
             for index in 1..256 {
                 origins.insert(Span::new(initializer.source_id, index, index + 1), FreshAggregateOrigin::Record(BTreeMap::new()));
             }
-            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins });
+            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins, open_spread_override: false });
             let probe = checker.constraint_probe();
             assert!(probe.local_inference.aggregate_scopes.is_empty());
             assert_eq!(checker.local_inference.aggregate_scopes[0].origins.len(), 255);

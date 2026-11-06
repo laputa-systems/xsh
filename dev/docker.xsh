@@ -404,7 +404,7 @@ export proc remove_owned_container(ctx: context.Context, cidfile: Path, query_ti
       print f"[docker-container-remove target={ctx.target.triple}] docker rm -f {id}"
       print $removal.stderr when ! removal.ok and "No such container" not in removal.stderr and "already in progress" not in removal.stderr
     }
-    time.sleep(time.millis(250))
+    time.sleep(250 * 1ms)
     attempt += 1
   }
   Err(ContainerError.Survived(id: id))

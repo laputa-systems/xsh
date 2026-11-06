@@ -1087,6 +1087,13 @@ to hold an element has the type `NonEmpty[T]` (4.13), whose `first()` and
 a fallback, `?.`/`?[...]` to guard an operation, or a null test to narrow (see
 5.4).
 
+Optionality is idempotent: an optional is not a wrapper, so making `Str?`
+optional again adds no value and `Str??` holds exactly the values of `Str?`.
+A `T?` slot whose `T` instantiates to `Str?` is therefore `Str?`. A local that
+starts as `null` and later receives a value of unresolved type takes the
+optional of that type: it is `Str?` whether the value instantiates to `Str` or
+to `Str?`.
+
 ### 4.7 Record schemas and constructors
 
 ```xsh
@@ -1918,7 +1925,8 @@ initializer.
 An unannotated empty list (`[]`) or `map.empty()` has an unresolved element
 type that later writes, arguments, and returns in the same function resolve,
 including writes in branches and loops. Fresh empty lists nested in a local
-record or list initializer follow the same rule. Each surviving empty list has
+record or list initializer follow the same rule, including a record whose leading
+spread has a record type the checker is still inferring. Each surviving empty list has
 one element type across all writers. A closed record written before a
 projection fixes the element's full shape, retaining nested `Any` fields.
 A discarded empty list or `map.empty()`,
@@ -2443,6 +2451,10 @@ A record spread supplies exactly the fields visible in its checked record
 type; `Any`, open `Record`, `Map`, `Optional`, and `Result` operands must be
 narrowed or unwrapped first. A `null` field is supplied (it does not select the
 parameter's default). Unknown names and parameters supplied twice are errors.
+A record spread may target a named function or alias, a record constructor, or a
+local that holds a callable value, including one of an authored callable type
+(9.4); it binds by parameter label, and a final rest parameter still takes
+positional `@` splices beside it.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
@@ -2488,7 +2500,11 @@ let merged = {...defaults, ...overrides}
   otherwise it is `check.spread-hides-field`. Write the field after the spread
   (`{...r, TERM: 1}`) or name it in the operand's type. The type of a field is
   that of the last entry that names it, so a spread that names the field takes
-  its type, optional or not, from the operand.
+  its type, optional or not, from the operand. When the operand is the
+  parameter of an erased procedure, the overriding value of a field must take
+  its type from a parameter or an operation of the procedure; an override such
+  as `[]` that nothing determines is `check.local-inference` at the procedure,
+  and declaring the result type (`-> Parsed`) fixes it.
 - **Maps.** A computed key `[expr]: value` makes a brace literal a map, as does
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace
@@ -4172,6 +4188,9 @@ A `null` argument copied into a local that the body later replaces takes the
 optional of the replacement type, including when the replacement sits under a
 non-null guard that the call can select. A guard that the call cannot select
 contributes no replacement.
+A record argument whose field a non-null guard narrows, copied into a local
+that the body later replaces with a record of the unnarrowed type, takes the
+replacement's type: the callee sees no field proof the replacement would break.
 
 Within a generic call, an absent `Ok` error or `Err` success component can take
 context from a compatible replacement assigned to the same local. Written
@@ -4381,7 +4400,11 @@ type. Supplied expressions are evaluated once in source order.
 
 A positional splice with an unknown length may fill the final rest parameter;
 its inferred element type is constrained by that parameter. It cannot supply
-a fixed slot before that parameter. Defaulted parameters and
+a fixed or defaulted slot before that parameter, and the checker rejects it
+with `check.splice-target`. The one exception is a call to the script's
+top-level entry-point `proc main`, such as `main(@args)`: it binds like the
+implicit invocation of `main`, so the argument count is checked at run time.
+Defaulted parameters and
 immutable callable aliases follow the same binding rules. Omitted defaults
 retain their declaration scope and evaluation order described above.
 
@@ -4727,7 +4750,9 @@ effect clause is charged to the caller exactly as a named proc's clause is
 (9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
 any proc, and a caller with a declared or `without` bound cannot call it. A
 call through an authored fixed-arity type passes each argument explicitly;
-`@` splices and `...` spreads are rejected. A stream stage's callable is still a function name; a value of a
+`@` splices are rejected. A `...` record spread binds by label, because a
+function fits the type only when its labels match, and reports unknown or
+repeated labels as `check.named-arg`. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was
@@ -5304,6 +5329,11 @@ a statement.
 
 A generic callable may return from every path of the resource body. Such a
 scope has no tail value to infer; its returns still release the resources.
+
+A `with` body that returns or exits on every path leaves no continuation after
+the block: a statement after it is unreachable (`lint.dead-code`), and as the
+last statement of a function the block needs nothing after it to satisfy the
+function's result.
 
 The scope's `Err` reports only a release that failed after the body reached
 its end. Every resource is still released; the first failure, in release
@@ -6644,6 +6674,20 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   preserves filesystem enumeration order, including partial results. `max_entries` defaults to
   65536 and accepts 0 through 65536; truncated results retain a prefix in
   the selected order and report `enumeration_succeeded: false`.
+  `FsRoot.rename(from:, to:, replace:)` renames beneath one root and refuses an
+  existing destination unless `replace: true`; `FsRoot.fsync(path)` flushes a
+  regular file or directory and refuses a symlink or special file. Both fail
+  when any parent component is a symlink. Publication by `rename`,
+  `write_atomic` or `fs.root_install_file` is atomic for readers and never
+  durable on its own: fsync the file and its parent directory. `fs.root_install_file`
+  stages the destination and publishes it by rename, so a failed copy leaves
+  the prior destination intact.
+  `FsRoot.extract(source, dest, format, ...)` takes the arguments of
+  `archive.extract` with a `RelPath` destination: staging, per-entry
+  publication and rollback of created directories resolve beneath the root's
+  descriptor, so replacing the root path or an ancestor after `open_root`
+  cannot redirect a write. The destination and its ancestors may not be
+  symlinks; a symlinked destination fails instead of being followed.
 - Six methods take an argument whose label makes the call read as a
   sentence, so that two operands of one type cannot be swapped unnoticed:
 
@@ -6689,7 +6733,13 @@ let text = notes.replace("DRAFT", with: "FINAL")
   and `linux.disk_usage(path)` name one mount and fail with the host's error
   when it is refused.
 - Archive extraction and `patch.apply` reject absolute paths, parent
-  traversal, symlink escapes, and overwrites unless asked.
+  traversal, symlink escapes, and overwrites unless asked. Extraction and
+  `patch.apply` open their destination root once and resolve every later
+  create, rename and removal beneath that descriptor, so replacing the
+  destination path or an ancestor with a symlink after the open cannot redirect
+  a write; acquiring the root from a path is the one ambient step. Both stage
+  each file and publish it by rename, which is atomic for readers and not
+  durable. This is pathname confinement, not a process sandbox.
 - Civil formatting uses the host calendar and locale through `time.format`;
   date input grammar is implemented in XSH.
 - Regex syntax is the common Rust regex surface without Unicode property
@@ -6816,12 +6866,13 @@ let text = notes.replace("DRAFT", with: "FINAL")
   offsets relative to the descriptor's position or file length, with invalid
   resulting positions rejected by the kernel. `unix.open_pty` gives a
   pseudo-terminal pair; descriptors are the script's to close. `unix.poll_fds`
-  waits on up to 64 distinct descriptors at once and, unlike `poll_fd`, ends
-  at a signal the evaluator handles: the signal's hook runs, then the script
-  stops with the shutdown status as at a `time.sleep` checkpoint (`defer`
-  actions run), so the call never returns as if the wait had timed out. Its
-  timeout is a `Duration?`; `null` waits indefinitely, and an idle wait makes
-  no periodic wakeups. `unix.read_utmp`
+  waits on up to 64 distinct descriptors at once. Both it and `unix.poll_fd`
+  end at a signal the evaluator handles: the signal's hook runs, then the
+  script stops with the shutdown status as at a `time.sleep` checkpoint
+  (`defer` actions run), so a call never returns as if the wait had timed
+  out. A signal that needs no handling does not end the wait. The timeout of
+  `poll_fds` is a `Duration?`; `null` waits indefinitely, and an idle wait
+  makes no periodic wakeups. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
 - `unix.connect_stream(path, timeout)` connects a filesystem Unix stream socket

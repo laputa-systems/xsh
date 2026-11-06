@@ -68,7 +68,8 @@ fn instruction_with_tag(program: &FullProgram, owner: usize, tag: FullTag, nth: 
 }
 
 const NARROWED_ENUM_FIELD: &str = "enum Ordering: Str { Older = \"lt\", Same = \"eq\" }\n\
-type Installed = {version: Str, ordering: Ordering?}\n\
+type Installed = {previous: Ordering?, ordering: Ordering?}\n\
+pure earlier(installed: Installed) -> Bool { installed.previous == null }\n\
 enum State { Gone, There(Installed) }\n\
 pure holds(o: Ordering) -> Bool { o == .Same }\n\
 pure classify(state: State) -> Bool {\n\
@@ -86,9 +87,15 @@ fn narrowed_enum_field_read_needs_its_dominating_null_test() {
     let program = checked_program("narrowed-enum-field.xsh", NARROWED_ENUM_FIELD);
     FullVerifier::verify(&program).unwrap();
     let owner = function_index(&program, "classify");
-    let null = instruction_with_tag(&program, owner, FullTag::ExprNull, 0);
+    let tested = instruction_with_tag(&program, owner, FullTag::ExprField, 0);
+    let words = program.store.data[tested].range().bounds(program.store.extra.len()).unwrap();
+    let ordering = program.store.extra[words.start + 1];
+    let previous = (0..program.store.extra.len() as u32)
+        .find(|&id| program.store.string(id).ok() == Some("previous"))
+        .expect("the fixture reads the previous field elsewhere");
+    assert_eq!(program.store.string(ordering).unwrap(), "ordering");
     let mut forged = program.clone();
-    forged.store.tags[null] = FullTag::ExprUnit;
+    forged.store.extra[words.start + 1] = previous;
     assert_eq!(
         FullVerifier::verify(&forged).unwrap_err().message,
         "ground producer value disagrees with its checked contract",
@@ -259,4 +266,159 @@ fn external_script_call_is_typed_by_the_registry_contract() {
         FullVerifier::verify(&forged).unwrap_err().message,
         "ground producer value disagrees with its checked contract",
     );
+}
+
+const TESTED_ERROR_PARAMETER: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure error_message(failure: Error) -> Str { failure.message }\n\
+pure describe(value: Any) -> Str { if value is NotFound { error_message(value) } else { \"other\" } }\n\
+assert describe(BuildError.Missing(message: \"absent\")) == \"absent\"\n";
+
+const TESTED_ERROR_DRIVER: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure error_message(failure: Error) -> Str { failure.message }\n\
+let failure = dynamic_failure()\n\
+if failure is NotFound {\n  print ${error_message(failure)}\n}\n";
+
+const TESTED_ERROR_FAMILY: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure family_message(failure: BuildError) -> Str { failure.message }\n\
+pure describe(value: Any) -> Str { if value is BuildError { family_message(value) } else { \"other\" } }\n\
+assert describe(BuildError.Missing(message: \"absent\")) == \"absent\"\n";
+
+#[test]
+fn type_tested_error_facet_reaches_an_error_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-facet.xsh", TESTED_ERROR_PARAMETER)).unwrap();
+}
+
+#[test]
+fn type_tested_error_facet_of_an_immutable_driver_binding_reaches_an_error_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-driver.xsh", TESTED_ERROR_DRIVER)).unwrap();
+}
+
+#[test]
+fn type_tested_error_family_reaches_a_family_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-family.xsh", TESTED_ERROR_FAMILY)).unwrap();
+}
+
+#[test]
+fn type_tested_error_reaches_only_the_error_types_it_satisfies() {
+    for (name, source, narrower) in [
+        ("tested-error-facet-forged.xsh", TESTED_ERROR_PARAMETER, "error_message"),
+        ("tested-error-family-forged.xsh", TESTED_ERROR_FAMILY, "family_message"),
+    ] {
+        let program = checked_program(name, source);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let owner = function_index(&program, narrower);
+        for forged_parameter in [Type::Str, Type::Int, Type::ErrorFacet(Name::intern("Unrelated")), Type::ErrorFamily(Name::intern("Unrelated"))] {
+            let forged = reissued(&program, owner, |callable| callable.params[0].ty = forged_parameter.clone());
+            assert_eq!(
+                FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract",
+                "{name}: {forged_parameter:?}",
+            );
+        }
+    }
+}
+
+const TESTED_ERROR_DRIVER_VAR: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure seen(failure: Error) -> Str { \"seen\" }\n\
+var failure = dynamic_failure()\n\
+if failure is NotFound {\n  assert seen(failure) == \"seen\"\n}\n\
+failure = 1\n";
+
+const TESTED_ERROR_DRIVER_VAR_LOOP: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure seen(failure: Error) -> Str { \"seen\" }\n\
+var failure = dynamic_failure()\n\
+var rounds = 0\n\
+while rounds < 2 {\n  if failure is NotFound {\n    assert seen(failure) == \"seen\"\n  }\n  failure = dynamic_failure()\n  rounds += 1\n}\n";
+
+#[test]
+fn type_tested_error_of_a_driver_var_reaches_an_error_parameter() {
+    FullVerifier::verify(&checked_program("tested-error-driver-var.xsh", TESTED_ERROR_DRIVER_VAR)).unwrap();
+    FullVerifier::verify(&checked_program("tested-error-driver-var-loop.xsh", TESTED_ERROR_DRIVER_VAR_LOOP)).unwrap();
+}
+
+#[test]
+fn type_tested_error_of_a_driver_var_reaches_only_the_error_types_it_satisfies() {
+    let program = checked_program("tested-error-driver-var-forged.xsh", TESTED_ERROR_DRIVER_VAR);
+    FullVerifier::verify(&program).unwrap();
+    let _symbols = program.symbol_owner().enter();
+    let owner = function_index(&program, "seen");
+    for forged_parameter in [Type::Str, Type::Int, Type::ErrorFacet(Name::intern("Unrelated")), Type::ErrorFamily(Name::intern("Unrelated"))] {
+        let forged = reissued(&program, owner, |callable| callable.params[0].ty = forged_parameter.clone());
+        assert_eq!(
+            FullVerifier::verify(&forged).unwrap_err().message,
+            "ground producer value disagrees with its checked contract",
+            "{forged_parameter:?}",
+        );
+    }
+}
+
+const TESTED_ERROR_DRIVER_VAR_REWRITTEN_AFTER_USE: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure seen(failure: Error) -> Str { \"seen\" }\n\
+var failure = dynamic_failure()\n\
+if failure is NotFound {\n  assert seen(failure) == \"seen\"\n  failure = 1\n}\n";
+
+#[test]
+fn a_driver_var_rewritten_before_its_use_loses_its_type_test_narrowing() {
+    let program = checked_program("tested-error-driver-var-rewrite.xsh", TESTED_ERROR_DRIVER_VAR_REWRITTEN_AFTER_USE);
+    FullVerifier::verify(&program).unwrap();
+    let assertion = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssert).expect("the branch asserts");
+    let write = program.store.tags.iter().position(|tag| format!("{tag:?}").starts_with("StmtAssign")).expect("the branch rewrites the var");
+    let block = program.store.blocks.iter().find(|block| {
+        let Some(words) = block.instructions.bounds(program.store.extra.len()) else { return false };
+        block.flags & BLOCK_STATEMENTS != 0 && program.store.extra[words.start + 1..words.end].contains(&(assertion as u32))
+    }).expect("the assertion sits in a statement block");
+    let words = block.instructions.bounds(program.store.extra.len()).unwrap();
+    let position = |instruction: usize| (words.start + 1..words.end).find(|&at| program.store.extra[at] == instruction as u32).expect("the statement is in the block");
+    let mut forged = program.clone();
+    forged.store.extra.swap(position(assertion), position(write));
+    assert_eq!(
+        FullVerifier::verify(&forged).unwrap_err().message,
+        "ground producer value disagrees with its checked contract",
+    );
+}
+
+const TESTED_ERROR_VARIANT: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure variant_seen(failure: BuildError) -> Str { \"seen\" }\n\
+pure error_seen(failure: Error) -> Str { \"seen\" }\n\
+pure describe(value: Any) -> Str { if value is BuildError.Missing { variant_seen(value) + error_seen(value) } else { \"other\" } }\n\
+assert describe(BuildError.Missing(message: \"absent\")) == \"seenseen\"\n";
+
+const TESTED_ERROR_VARIANT_DRIVER_VAR: &str = "error BuildError = Missing(message: Str) : NotFound\n\
+pure dynamic_failure() -> Any { BuildError.Missing(message: \"absent\") }\n\
+pure variant_seen(failure: BuildError) -> Str { \"seen\" }\n\
+var failure = dynamic_failure()\n\
+if failure is BuildError.Missing {\n  assert variant_seen(failure) == \"seen\"\n}\n";
+
+#[test]
+fn type_tested_error_variant_reaches_family_and_error_parameters() {
+    FullVerifier::verify(&checked_program("tested-error-variant.xsh", TESTED_ERROR_VARIANT)).unwrap();
+    FullVerifier::verify(&checked_program("tested-error-variant-driver-var.xsh", TESTED_ERROR_VARIANT_DRIVER_VAR)).unwrap();
+}
+
+#[test]
+fn type_tested_error_variant_reaches_only_the_error_types_it_satisfies() {
+    let program = checked_program("tested-error-variant-forged.xsh", TESTED_ERROR_VARIANT);
+    FullVerifier::verify(&program).unwrap();
+    let _symbols = program.symbol_owner().enter();
+    for (callee, forged_parameters) in [
+        ("variant_seen", vec![Type::Str, Type::Int, Type::ErrorFamily(Name::intern("Unrelated")), Type::ErrorFacet(Name::intern("Unrelated")),
+            Type::ErrorVariant { family: Name::intern("BuildError"), variant: Name::intern("Unrelated") }]),
+        ("error_seen", vec![Type::Str, Type::Int, Type::ErrorFacet(Name::intern("Unrelated")),
+            Type::ErrorVariant { family: Name::intern("BuildError"), variant: Name::intern("Unrelated") }]),
+    ] {
+        let owner = function_index(&program, callee);
+        for forged_parameter in forged_parameters {
+            let forged = reissued(&program, owner, |callable| callable.params[0].ty = forged_parameter.clone());
+            assert_eq!(
+                FullVerifier::verify(&forged).unwrap_err().message,
+                "ground producer value disagrees with its checked contract",
+                "{callee}: {forged_parameter:?}",
+            );
+        }
+    }
 }

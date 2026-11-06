@@ -184,12 +184,22 @@ impl Read for ExactBody<'_> {
 }
 
 fn open_source(source: &Root, components: &Components) -> Result<File> {
-    source
+    let file = source
         .open_with(
             to_path(components),
-            OpenOptions::new().read(true).no_symlinks(true),
+            OpenOptions::new().read(true).no_symlinks(true).non_blocking(true),
         )
-        .map_err(|error| Error::from_host(&error).with_entry(&joined(components)))
+        .map_err(|error| Error::from_host(&error).with_entry(&joined(components)))?;
+    let opened = file
+        .metadata()
+        .map_err(|error| Error::from_host(&error).with_entry(&joined(components)))?;
+    if !opened.is_file() {
+        return Err(Error::unsafe_entry(
+            &joined(components),
+            "a source file was replaced by a non-regular file while it was being archived",
+        ));
+    }
+    Ok(file)
 }
 
 fn write_tar<W: Write>(

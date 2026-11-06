@@ -2584,7 +2584,7 @@ pure make() -> Map[List[Int]] {
 
     #[test]
     fn managed_release_authenticates_cold_purpose_and_handover() {
-        let mut program = prepare("var saved = false\nproc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let observed = saved; defer { let kept = 1 }; let ignored = with held = root { return 1 } }\n");
+        let mut program = prepare("var saved = false\nproc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let observed = saved; defer { let kept = 1 }; let ignored = with held = root { if decoy { return 1 } }; 2 }\n");
         program.store.in_place.take();
         assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
         FullVerifier::verify(&program).unwrap();
@@ -2634,6 +2634,77 @@ pure make() -> Map[List[Int]] {
             let error = FullVerifier::verify(&changed).unwrap_err();
             assert!(error.message.contains(expected), "{instruction}: {error:?}");
         }
+    }
+
+    #[test]
+    fn diverging_resource_scope_authenticates_its_non_completion() {
+        let mut program = prepare("proc choose(root: FsRoot, decoy: Bool) [fs] -> Int { let ignored = with held = root { return 1 } }\n");
+        program.store.in_place.take();
+        assert_eq!(GroundProducerIndex::new(&program.store).unwrap().demand(), crate::runtime::eval::ProducerDemand::Needed);
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let decoder = decoder_for_function(&program.store, 0).unwrap();
+        let returned = decoder.instruction_range.clone().find(|&instruction| program.store.tags[instruction] == super::super::super::FullTag::StmtReturn).unwrap();
+        let mut completing = program.clone();
+        completing.store.tags[returned] = super::super::super::FullTag::StmtValue;
+        let error = FullVerifier::verify(&completing).unwrap_err();
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
+    }
+
+    #[test]
+    fn forged_return_values_are_bound_to_the_result_contract() {
+        let scoped = "proc choose(root: FsRoot, decoy: Bool) [fs] -> FsRoot { let _ = decoy; let ignored = with held = root { return held } }\n";
+        let plain = "proc choose(root: FsRoot, decoy: Bool) [fs] -> FsRoot { let _ = decoy; return root }\n\
+            proc consume(root: FsRoot) [fs, error] { let kept = choose(root, true); kept.close()? }\n";
+        for (label, source) in [("a return inside a resource scope", scoped), ("a plain return", plain)] {
+            let mut program = prepare(source);
+            program.store.in_place.take();
+            FullVerifier::verify(&program).unwrap();
+            program.store.in_place.take();
+            let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "choose").unwrap();
+            let decoder = decoder_for_function(&program.store, owner).unwrap();
+            let range = decoder.instruction_range.clone();
+            let returned = range.clone().find(|&instruction| program.store.tags[instruction] == FullTag::StmtReturn).unwrap();
+            let schema::StmtView::Return { value: actual } = decoder.statement_view(returned).unwrap() else { unreachable!() };
+            let actual = actual.raw() as usize;
+            let decoy = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))).unwrap();
+            let mut forged = program.clone();
+            forged.store.tags[actual] = program.store.tags[decoy];
+            forged.store.data[actual] = program.store.data[decoy];
+            forged.store.in_place.take();
+            let error = FullVerifier::verify(&forged).expect_err(label);
+            assert_eq!(error.message, "ground producer value disagrees with its checked contract", "{label}");
+        }
+    }
+
+    #[test]
+    fn instantiations_of_one_returned_callback_keep_their_own_signatures() {
+        let mut program = prepare("pure count_ints(first: Int, ...items: List[Int]) -> Int { first + items.len() }\n\
+pure join_texts(separator: Str, ...items: List[Str]) -> Str { items.join(separator) }\n\
+pure keep_rest(f, first, ...items) { let _ = f(first, @items); f }\n\
+let counter = keep_rest(count_ints, 1, 2, 3)\n\
+let joiner = keep_rest(join_texts, \"-\", \"x\", \"y\")\n\
+assert counter(10, 20, 30) == 12\n\
+assert joiner(\"+\", \"p\", \"q\") == \"p+q\"\n");
+        program.store.in_place.take();
+        FullVerifier::verify(&program).unwrap();
+        program.store.in_place.take();
+        let references = program.store.tags.iter().enumerate().filter(|(_, tag)| **tag == FullTag::ExprFunctionRef).map(|(instruction, _)| instruction).collect::<Vec<_>>();
+        assert_eq!(references.len(), 2);
+        let mut swapped = program.clone();
+        swapped.store.data[references[0]] = program.store.data[references[1]];
+        swapped.store.data[references[1]] = program.store.data[references[0]];
+        swapped.store.in_place.take();
+        let error = FullVerifier::verify(&swapped).expect_err("each instantiation keeps its own callback");
+        assert!(error.message.contains("checked function reference identity disagrees with its producer"), "{error:?}");
+        assert_eq!(program.store.call_instantiations.len(), 2);
+        let mut exchanged = program.clone();
+        let (first, second) = (program.store.call_instantiations[0].arguments, program.store.call_instantiations[1].arguments);
+        exchanged.store.call_instantiations[0].arguments = second;
+        exchanged.store.call_instantiations[1].arguments = first;
+        exchanged.store.in_place.take();
+        let error = FullVerifier::verify(&exchanged).expect_err("each instantiation keeps its own types");
+        assert_eq!(error.message, "generic call argument does not match its checked parameter slot", "{error:?}");
     }
 
     #[test]
@@ -2824,7 +2895,7 @@ driver()?
         assert!(matches!(changed.statement_view(failure), Ok(schema::StmtView::Value { .. })));
         assert!(super::super::super::indexed_expr_can_complete(&changed, returned.1, 0).unwrap());
         let error = FullVerifier::verify(&completing).unwrap_err();
-        assert!(error.message.contains("ground producer value disagrees with its checked contract"), "{error:?}");
+        assert!(error.message.contains("managed release has no canonical resource scope"), "{error:?}");
 
         let mut wrong_message = program.clone();
         wrong_message.store.in_place.take();
@@ -7333,6 +7404,83 @@ proc selected(value, wrong: Bytes) [fs, error] -> Result[Str] {
         assert_eq!(FullVerifier::verify(&immutable).unwrap_err().message, "generic assignment does not target a mutable declaration");
         let changed = retarget_comprehension_operand(&program, owner, scheme, value, 1, 0);
         assert!(FullVerifier::verify(&changed).is_err());
+    }
+
+    #[test]
+    fn a_wider_record_binder_needs_a_store_and_cannot_narrow_below_it() {
+        let program = prepare(r#"
+type Entry = {name: Str, link: Str?}
+type Present = {name: Str, link: Str}
+proc rewrite(parent) -> Bool {
+  var previous = parent
+  let fresh: Entry = {name: "x", link: null}
+  previous = fresh
+  previous.name == "x"
+}
+pure keep(value) { value }
+let narrowed: Present = {name: "a", link: "b"}
+let kept = keep(narrowed)
+let rewritten = rewrite(narrowed)
+"#);
+        let function = |name: &str| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let (rewrite, keep) = (function("rewrite"), function("keep"));
+        let FullCallableContract::Scheme(scheme) = program.store.functions[rewrite].contract else { panic!("rewrite has a generic contract") };
+        let scheme = program.store.scheme(scheme).unwrap();
+        let stored = scheme.operations.bounds(program.store.scheme_operations.len()).unwrap().find_map(|index| match program.store.scheme_operations[index] {
+            super::super::super::schemes::FullSealedOperation::StoreValue { storage, .. } => Some(program.store.scheme_types[storage.index()].first),
+            _ => None,
+        }).unwrap();
+        let claimed = |function: usize, binder: Option<u32>| {
+            let call = program.store.call_instantiations.iter().find(|instance| program.store.checked_call_targets.iter().any(|site| site.instruction == instance.instruction && site.function.index() == function)).unwrap();
+            let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            arguments.filter(|&index| binder.is_none_or(|binder| program.store.call_type_arguments[index].binder == binder)).next().unwrap()
+        };
+        let (rewrite_argument, keep_argument) = (claimed(rewrite, Some(stored)), claimed(keep, None));
+        let (wider, narrowed) = (program.store.call_type_arguments[rewrite_argument].ty, program.store.call_type_arguments[keep_argument].ty);
+        assert_ne!(program.store.scheme_types[wider.index()].first, program.store.scheme_types[narrowed.index()].first);
+        let mut forged = program.clone();
+        forged.store.in_place.take();
+        forged.store.scheme_types[wider.index()].first = program.store.scheme_types[narrowed.index()].first;
+        assert_eq!(FullVerifier::verify(&forged).unwrap_err().message, "sealed storage replacement disagrees with its destination");
+        let mut unjustified = program.clone();
+        unjustified.store.in_place.take();
+        unjustified.store.scheme_types[narrowed.index()].first = program.store.scheme_types[wider.index()].first;
+        assert_eq!(FullVerifier::verify(&unjustified).unwrap_err().message, "generic type binder disagrees with the checked argument");
+    }
+
+    #[test]
+    fn a_null_seeded_local_proves_its_optional_payload_only_under_a_null_test() {
+        let mut program = prepare(r#"
+pure same(left, right) -> Bool { left == right }
+pure label(name) -> Str {
+  var wanted = null
+  wanted = name
+  if wanted != null { f"<{wanted}>" } else { "none" }
+}
+"#);
+        program.store.in_place.take();
+        let owner = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "label").unwrap();
+        let decoder = decoder_for_function(&program.store, owner).unwrap();
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let comparison = range.clone().find(|&instruction| {
+            matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Ne, .. }))
+        }).expect("the null test survives lowering");
+        let comparison_words = program.store.data[comparison].range().bounds(program.store.extra.len()).unwrap();
+        let equal = program.store.binary_ops.iter().position(|operation| *operation == crate::syntax::node::BinaryOp::Eq).unwrap();
+        let mut flipped = program.clone();
+        flipped.store.extra[comparison_words.start] = equal as u32;
+        let error = FullVerifier::verify(&flipped).expect_err("the absent branch cannot read the payload");
+        assert_eq!(error.message, "generic body expression disagrees with its checked type", "{error:?}");
+        let null = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Null))).expect("the seed is a null literal");
+        let optional = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == null && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let name_read = range.clone().find(|&instruction| matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))).expect("the assignment reads the parameter");
+        let name_fact = program.store.scheme_body_facts.iter().position(|fact| fact.instruction as usize == name_read && fact.kind() == FullSchemeBodyFactKind::Expression).unwrap();
+        let mut plain = program.clone();
+        let (null_value, name_value) = (program.store.scheme_body_facts[optional].value, program.store.scheme_body_facts[name_fact].value);
+        plain.store.scheme_body_facts[optional].value = name_value;
+        plain.store.scheme_body_facts[name_fact].value = null_value;
+        let error = FullVerifier::verify(&plain).expect_err("a null literal is not a present payload");
+        assert_eq!(error.message, "generic declaration disagrees with its initializer", "{error:?}");
     }
 
     #[test]

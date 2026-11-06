@@ -348,7 +348,8 @@ let result: List[Int] = selected([1, 2])
 """,
   )?
   assert !dynamic.success, dynamic.stderr
-  assert "generic positional splice must target the final rest parameter" in dynamic.stderr, dynamic.stderr
+  assert "[check.splice-target]" in dynamic.stderr, dynamic.stderr
+  assert "a positional splice of unknown length fills only the final rest parameter" in dynamic.stderr, dynamic.stderr
 }
 
 test rank1_generic_default_parameters_use_defaults { |ctx|

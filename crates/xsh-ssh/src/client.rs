@@ -3,7 +3,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use oxish_proto::MessageType;
+use oxish_proto::{Encode, MessageType};
 use oxish_proto::crypto::CryptoProvider;
 
 use crate::DEFAULT_PROVIDER;
@@ -12,7 +12,7 @@ use crate::error::Error;
 use crate::exec::{self, ExecOptions, ExecResult};
 use crate::host_key::{Fingerprint, HostTrust};
 use crate::kex::{self, Algorithms, Established};
-use crate::stream::{self, StreamOptions};
+use crate::stream::{self, InputSource, StreamOptions};
 use crate::wire::{Interrupt, Packet, SshReader, Transport, plain_text, put_string};
 
 /// When to start a new key exchange under the current keys.
@@ -181,13 +181,10 @@ impl Connection {
     pub fn authenticate_with(&mut self, provider: &dyn CryptoProvider) -> Result<(), Error> {
         self.transport
             .begin_operation(Some(self.config.deadline), self.config.interrupt.clone());
-        let result = auth::authenticate(
-            &mut self.transport,
-            &self.config.user,
-            &self.config.identity,
-            self.established.session_id.as_ref(),
-            provider,
-        );
+        let user = self.config.user.clone();
+        let identity = self.config.identity.clone();
+        let session_id = self.established.session_id.clone();
+        let result = auth::authenticate(self, &user, &identity, session_id.as_ref(), provider);
         self.transport.end_operation();
         result
     }
@@ -202,7 +199,7 @@ impl Connection {
         &mut self,
         command: &str,
         options: &StreamOptions,
-        stdin: Option<&mut dyn std::io::Read>,
+        stdin: Option<&mut dyn InputSource>,
         stdout: &mut dyn std::io::Write,
         stderr: &mut dyn std::io::Write,
     ) -> Result<ExecResult, Error> {
@@ -293,8 +290,9 @@ impl Connection {
         self.transport.shutdown();
     }
 
-    /// The next connection-layer packet, answering transport traffic on the way.
-    pub(crate) fn next_packet(&mut self) -> Result<Packet, Error> {
+    /// The next message that is not ignorable transport traffic. Ignorable messages are skipped,
+    /// server key exchanges are answered, and a disconnect is delivered to the caller.
+    pub(crate) fn next_message(&mut self) -> Result<Packet, Error> {
         loop {
             let packet = match self.pending.pop_front() {
                 Some(packet) => packet,
@@ -309,6 +307,12 @@ impl Connection {
         }
     }
 
+    /// The next connection-layer packet, answering transport traffic on the way.
+    pub(crate) fn next_packet(&mut self) -> Result<Packet, Error> {
+        let packet = self.next_message()?;
+        self.reject_disconnect(packet)
+    }
+
     /// The next connection-layer packet already available without blocking.
     pub(crate) fn try_next_packet(&mut self) -> Result<Option<Packet>, Error> {
         loop {
@@ -320,8 +324,16 @@ impl Connection {
                 },
             };
             if let Some(packet) = self.filter(packet)? {
-                return Ok(Some(packet));
+                return self.reject_disconnect(packet).map(Some);
             }
+        }
+    }
+
+    fn reject_disconnect(&self, packet: Packet) -> Result<Packet, Error> {
+        if packet.message_type == MessageType::Disconnect {
+            Err(self.disconnected(&packet))
+        } else {
+            Ok(packet)
         }
     }
 
@@ -337,11 +349,23 @@ impl Connection {
                 }
                 Ok(None)
             }
+            MessageType::ChannelOpen => {
+                let mut reader = SshReader::new(&packet.payload);
+                let _kind = reader.text()?;
+                let sender = reader.u32()?;
+                let mut refusal = Vec::new();
+                MessageType::ChannelOpenFailure.encode(&mut refusal);
+                refusal.extend_from_slice(&sender.to_be_bytes());
+                refusal.extend_from_slice(&1u32.to_be_bytes());
+                put_string(&mut refusal, b"channels are not accepted");
+                put_string(&mut refusal, b"");
+                self.transport.reply(&refusal)?;
+                Ok(None)
+            }
             MessageType::KeyExchangeInit => {
                 self.rekey(Some(packet))?;
                 Ok(None)
             }
-            MessageType::Disconnect => Err(self.disconnected(&packet)),
             _ => Ok(Some(packet)),
         }
     }

@@ -579,6 +579,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
         rust_gate(ctx, profile, "test-core-compat-boundaries", ["-p", "xsh", "--test", "core_compat_boundaries"])?,
         rust_gate(ctx, profile, "test-core-compat-extra", ["-p", "xsh", "--test", "core_compat_extra", "--", @skipping(["split::", "date_clock::test_date_set_valid"])])?,
         rust_gate(ctx, profile, "test-ssh-unit", ["-p", "xsh-ssh", "--lib"], debug: true)?,
+        rust_gate(ctx, profile, "test-ssh-fifo", ["-p", "xsh-ssh", "--test", "fifo"], debug: true)?,
       ]
       compile_gates += [rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?] when ctx.target.os == "linux"
       compile_gates += [
@@ -588,6 +589,9 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
         rust_gate(ctx, profile, "test-archive-extract", ["-p", "xsh-archive", "--test", "extract"], debug: true)?,
         rust_gate(ctx, profile, "test-archive-files", ["-p", "xsh-archive", "--test", "files"], debug: true)?,
         rust_gate(ctx, profile, "test-archive-reading", ["-p", "xsh-archive", "--test", "reading"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-publication", ["-p", "xsh-archive", "--test", "publication"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-rooted", ["-p", "xsh-archive", "--test", "rooted"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-interrupted", ["-p", "xsh-archive", "--test", "interrupted"], debug: true)?,
       ]
       compile_gates
     }
@@ -2266,6 +2270,8 @@ proc native_user(ctx: context.Context) [fs, process, env, error, io] -> Result[N
   stages.execute(stages.command("native-user-scratch", ctx.target.triple, "setpriv",
     ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--clear-groups", "/bin/mkdir", "-p", "-m", "700",
       scratch.display(), home.display(), temp.display()], ctx.root, {}))
+  stages.execute(stages.command("native-user-config-root", ctx.target.triple, "setpriv",
+    ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--clear-groups", "/bin/touch", fp"{scratch}/xsht-config.ini".display()], ctx.root, {}))
   NativeUser(uid: uid, gid: gid, home: home, temp: temp)
 }
 

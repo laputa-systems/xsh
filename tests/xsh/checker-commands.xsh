@@ -106,11 +106,11 @@ test test_checker_ignored_result_diagnostic_points_at_the_statement { |ctx|
   assert "\n  ^^^^^^^^^^^^^^^^^^^^ " in checked.stderr, checked.stderr
 }
 
-test test_checker_allows_proc_expression_splice_to_supply_multiple_arguments { |ctx|
+test test_checker_allows_proc_expression_splice_to_fill_the_rest_parameter { |ctx|
   expect_accepted(
     ctx,
     r"""
-proc pair(a: Str, b: Str) -> Result[Unit] {
+proc pair(...words: List[Str]) -> Result[Unit] {
   return Ok()
 }
 let parts = ["a", "b"]

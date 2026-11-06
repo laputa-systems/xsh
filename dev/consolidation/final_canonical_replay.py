@@ -31,6 +31,8 @@ CARGO_LOCK_PATH = pathlib.Path(".work/consolidation/infra/cargo.lock")
 CARGO_LOCK_CONTAINER_PATH = "/work/.work/consolidation/infra/cargo.lock"
 METRICS_PATH = pathlib.Path(".work/consolidation")
 METRICS_CONTAINER_PATH = "/work/.work/consolidation"
+GATE_EVIDENCE_PATH = pathlib.Path(".work/gate")
+GATE_EVIDENCE_CONTAINER_PATH = "/work/.work/gate"
 SCRATCH_CONTAINER_PATH = "/work/.work/tmp"
 BOOTSTRAP_CARGO_ARGV = [
     "cargo",
@@ -571,6 +573,9 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
     metrics_dir = root / METRICS_PATH
     if metrics_dir.is_symlink() or not metrics_dir.is_dir() or not os.access(metrics_dir, os.W_OK):
         raise ReplayError(f"writable consolidation metrics mount is missing or unsafe: {metrics_dir}")
+    gate_evidence_dir = root / GATE_EVIDENCE_PATH
+    if gate_evidence_dir.is_symlink() or not gate_evidence_dir.is_dir() or not os.access(gate_evidence_dir, os.W_OK):
+        raise ReplayError(f"writable gate evidence mount is missing or unsafe: {gate_evidence_dir}")
     ignored = subprocess.run(
         ["git", "check-ignore", "--quiet", "--no-index", ".work"], cwd=root, check=False
     )
@@ -638,6 +643,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "output_root": output_root,
         "scratch_dir": scratch_dir,
         "metrics_dir": metrics_dir,
+        "gate_evidence_dir": gate_evidence_dir,
         "target_dir": target_dir,
         "bootstrap": bootstrap,
         "bootstrap_path": bootstrap_xsh,
@@ -673,6 +679,7 @@ def docker_command(validated: dict[str, Any], container_name: str, cid_file: pat
     common_git = validated["common_git"]
     target_dir = validated["target_dir"]
     metrics_dir = validated["metrics_dir"]
+    gate_evidence_dir = validated["gate_evidence_dir"]
     cargo_lock_path = validated["cargo_lock_path"]
     tools = validated["tools"]
     inner_resource_path = f"/scratch/{output_root.name}/container-resources.json"
@@ -711,6 +718,8 @@ def docker_command(validated: dict[str, Any], container_name: str, cid_file: pat
         f"{validated['scratch_dir']}:{SCRATCH_CONTAINER_PATH}:rw",
         "--volume",
         f"{metrics_dir}:{METRICS_CONTAINER_PATH}:rw",
+        "--volume",
+        f"{gate_evidence_dir}:{GATE_EVIDENCE_CONTAINER_PATH}:rw",
         "--volume",
         f"{cargo_lock_path}:{CARGO_LOCK_CONTAINER_PATH}:rw",
         "--volume",

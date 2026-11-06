@@ -353,12 +353,50 @@ impl Checker {
         }
     }
 
+    fn defer_record_optional_fields(&mut self, expected: &Type, actual: &Type, span: Span) -> Option<(Type, Type)> {
+        if !self.collecting_local_constraints() {
+            return None;
+        }
+        let (Ok(Type::Record(expected_fields)), Ok(actual)) =
+            (self.type_constraints.resolve(expected), self.type_constraints.resolve(actual))
+        else {
+            return None;
+        };
+        let mut expected_rest = expected_fields.as_ref().clone();
+        let mut deferred = false;
+        for (name, expected_field) in expected_fields.iter() {
+            if !matches!(expected_field, Type::Optional(_)) {
+                continue;
+            }
+            let actual_field = match &actual {
+                Type::Record(fields) => fields.get(name).cloned(),
+                Type::Inference(_) => self.type_constraints.recorded_field_type(&actual, &[*name]).ok().flatten(),
+                _ => None,
+            };
+            let Some(actual_field) = actual_field else { continue };
+            let Ok(actual_field) = self.type_constraints.resolve(&actual_field) else { continue };
+            if !matches!(actual_field, Type::Inference(_)) {
+                continue;
+            }
+            if !self.defer_optional_assignment(expected_field, &actual_field, span) {
+                continue;
+            }
+            self.defer_record_field_to_body_end(expected_field, &actual_field, span);
+            expected_rest.insert(*name, actual_field);
+            deferred = true;
+        }
+        deferred.then(|| (Type::Record(expected_rest.into()), actual))
+    }
+
     fn constrain_inferred_expectation(
         &mut self,
         expected: &Type,
         actual: &Type,
         span: Span,
     ) -> Result<(), crate::sema::constraints::ConstraintConflict> {
+        if let Some((expected_rest, actual_rest)) = self.defer_record_optional_fields(expected, actual, span) {
+            return self.constrain_inferred_expectation(&expected_rest, &actual_rest, span);
+        }
         match self.method_result_matches_written_path_return(expected, actual) {
             Ok(true) => return Ok(()),
             Ok(false) => {}

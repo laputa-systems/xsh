@@ -202,3 +202,6 @@ temporary workspace under `.work/tmp/`. Its sandbox passes the Lake thread
 limit to con-leche's `--jobs` option as well as to Lean. Con-ron uses one worker
 to fit its per-worker stack and scratch storage alongside the complete export
 within the same 8 GiB address-space limit.
+Each checker's output is printed as it runs. If a build or checker exceeds its
+deadline, the command terminates the owned process group; a timeout does not
+qualify a check.

@@ -159,3 +159,13 @@ test test_tr_octal_warning_preserves_gnu_layout_and_precedes_set_errors { |ctx|
   assert invalid.stdout == ""
   assert invalid.stderr == "tr: warning: the ambiguous octal escape \\400 is being\n\tinterpreted as the 2-byte sequence \\040, 0\ntr: invalid character class 'foo'\n"
 }
+
+test test_tr_unterminated_class_opener_is_an_ordinary_character { |ctx|
+  let input = test.temp_file(ctx, name: "input", contents: b"t12[:ab\n")?
+  for case in [{spec: "[[:alpha:]", output: "12:\n"}, {spec: "[:alpha", output: "t12b\n"}, {spec: "[:alpha:", output: "t12b\n"}, {spec: "[[:alpha", output: "t12b\n"}] {
+    let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -d ${case.spec} < $input
+    assert output == case.output, f"{case.spec}: {output}"
+  }
+  let mapped = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- "[:" ab < $input
+  assert mapped == "t12abab\n", mapped
+}

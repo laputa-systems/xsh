@@ -611,6 +611,94 @@ fn test_roots_share_imported_modules_during_parallel_discovery() {
 }
 
 #[test]
+fn lint_trace_validator_accepts_two_roots_reusing_one_shared_module() {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let temporary_directory = repository.join(".work/tmp");
+    fs::create_dir_all(&temporary_directory).expect("create ignored W9 trace test directory");
+    let root = TempDir::new_in(&temporary_directory).expect("temporary lint project");
+    fs::write(
+        root.path().join("shared.xsh"),
+        "##! A shared module.\n\n## The shared answer.\nexport pure answer() -> Int { 42 }\n",
+    )
+    .expect("write shared module");
+    for name in ["a.xsh", "b.xsh"] {
+        fs::write(
+            root.path().join(name),
+            "use shared\nprint shared.answer()\n",
+        )
+        .expect("write lint root");
+    }
+
+    let trace = root.path().join("cache.tsv");
+    let lint = Command::new(test_bin!("xsht"))
+        .args(["lint", "a.xsh", "b.xsh"])
+        .current_dir(root.path())
+        .env("XSH_W9_CACHE_TRACE", &trace)
+        .env_remove("XSH_MODULE_PATH")
+        .output()
+        .expect("lint two roots with one shared module");
+    assert_eq!(
+        lint.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&lint.stderr)
+    );
+    assert_eq!(
+        crate::stderr_before_timing_line("lint", &lint.stderr),
+        ""
+    );
+
+    let trace_text = fs::read_to_string(&trace).expect("read real cache trace");
+    let validator = repository.join("dev/consolidation/w9-cache-trace-validate.awk");
+    let validation = Command::new("awk")
+        .args(["-F", "\t", "-f"])
+        .arg(validator)
+        .arg(&trace)
+        .output()
+        .expect("run cache trace validator");
+    assert_eq!(
+        validation.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&validation.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(validation.stdout).expect("UTF-8 trace summary"),
+        "shared caches=1 requests=4 records=3 cache_reuses=1 checks=3 check_hits=1\
+         \nprivate caches=2 requests=2 records=2 cache_reuses=0 checks=2 check_hits=0\
+         \nshared module keys across multiple owners=0\nprivate repeated module keys across owners=0\n"
+    );
+
+    let shared_module_events = trace_text
+        .lines()
+        .filter_map(|line| {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            (fields.len() == 13
+                && fields[7].ends_with("/shared.xsh\"")
+                && fields[11] == "User"
+                && fields[12] == "Str")
+                .then_some(fields[6])
+        })
+        .collect::<Vec<_>>();
+    for (event, expected) in [
+        ("requested", 2),
+        ("prepared", 1),
+        ("reuse", 1),
+        ("checked", 1),
+        ("check_hit", 1),
+    ] {
+        assert_eq!(
+            shared_module_events
+                .iter()
+                .filter(|actual| **actual == event)
+                .count(),
+            expected,
+            "{event}: {trace_text}"
+        );
+    }
+}
+
+#[test]
 fn test_roots_resolve_shared_modules_in_their_nearest_config_context() {
     let root = TempDir::new().expect("temporary native test project");
     let left_tests = root.path().join("tests/left");
@@ -823,6 +911,22 @@ fn test_runner_admits_another_file_while_one_file_is_at_its_active_limit() {
     assert!(markers.join("hot-12").exists());
 }
 
+// Linux refuses to exec a file another process holds open for writing. A
+// sibling test thread that forks while fs::copy has the copy open passes that
+// descriptor to its child until the child's own exec, so exec of a freshly
+// copied binary fails with ETXTBSY for that window.
+fn run_copied_binary(command: &mut Command) -> std::process::Output {
+    for _ in 0..50 {
+        match command.output() {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            result => return result.expect("run copied binary"),
+        }
+    }
+    command.output().expect("run copied binary")
+}
+
 #[test]
 fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
     let root = TempDir::new().expect("create isolated source root");
@@ -850,12 +954,12 @@ fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_module
         vec!["fmt", "--check", "."],
         vec!["lint", "."],
     ] {
-        let output = Command::new(&xsht)
-            .args(&args)
-            .current_dir(root.path())
-            .env_remove("XSH_MODULE_PATH")
-            .output()
-            .expect("run copied xsht");
+        let output = run_copied_binary(
+            Command::new(&xsht)
+                .args(&args)
+                .current_dir(root.path())
+                .env_remove("XSH_MODULE_PATH"),
+        );
         assert_eq!(
             output.status.code(),
             Some(0),

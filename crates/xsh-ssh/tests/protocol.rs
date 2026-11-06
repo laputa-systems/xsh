@@ -3,6 +3,7 @@ mod support;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
@@ -66,6 +67,22 @@ fn a_disconnect_after_submission_is_potentially_executed() {
     let error = run(&peer).expect_err("disconnect fails the command");
     assert!(matches!(error, Error::Submitted { .. }), "{error:?}");
     assert_eq!(error.certainty(), Certainty::Submitted);
+    peer.finish();
+}
+
+#[test]
+fn a_connection_closed_after_the_exit_status_still_returns_the_result() {
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        link.data(channel, b"done\n");
+        link.exit_status(channel, 3);
+        link.expect(CHANNEL_EOF);
+        link.hangup();
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection.exec("command", &ExecOptions::default()).expect("result");
+    assert_eq!(result.status, ExecStatus::Exited(3));
+    assert_eq!(result.stdout, b"done\n");
+    assert!(!connection.is_usable());
     peer.finish();
 }
 
@@ -192,6 +209,89 @@ fn unsupported_global_and_channel_requests_are_answered() {
     peer.finish();
 }
 
+fn server_requests_that_want_an_answer(link: &mut Link) {
+    link.send(&message(GLOBAL_REQUEST, &[&text(b"hostkeys-00@openssh.com"), &[1]]));
+    link.send(&message(
+        CHANNEL_OPEN,
+        &[&text(b"forwarded-tcpip"), &number(41), &number(1 << 20), &number(32768)],
+    ));
+    link.expect(REQUEST_FAILURE);
+    let refusal = link.expect(CHANNEL_OPEN_FAILURE);
+    assert_eq!(refusal.u32_at(0), 41);
+}
+
+#[test]
+fn server_opened_channels_and_global_requests_are_refused_while_the_open_is_pending() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        server_requests_that_want_an_answer(link);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[&number(client), &number(SERVER_CHANNEL), &number(1 << 20), &number(32768)],
+        ));
+        link.expect(CHANNEL_REQUEST);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        link.exit_status(client, 0);
+        link.eof(client);
+        link.close(client);
+        link.expect_close();
+    });
+    let result = run(&peer).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+#[test]
+fn server_opened_channels_and_global_requests_are_refused_while_env_and_exec_are_pending() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[&number(client), &number(SERVER_CHANNEL), &number(1 << 20), &number(32768)],
+        ));
+        let environment = link.expect(CHANNEL_REQUEST);
+        assert_eq!(environment.string_at(4), b"env");
+        server_requests_that_want_an_answer(link);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        let exec = link.expect(CHANNEL_REQUEST);
+        assert_eq!(exec.string_at(4), b"exec");
+        server_requests_that_want_an_answer(link);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(client)]));
+        link.exit_status(client, 0);
+        link.eof(client);
+        link.close(client);
+        link.expect_close();
+    });
+    let options = ExecOptions {
+        env: vec![("NAME".to_owned(), "value".to_owned())],
+        ..ExecOptions::default()
+    };
+    let result = peer.connect(TIMEOUT).exec("command", &options).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    peer.finish();
+}
+
+#[test]
+fn a_channel_open_failure_for_another_channel_is_refused() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let client = open.u32_at(4 + open.u32_at(0) as usize);
+        link.send(&message(
+            CHANNEL_OPEN_FAILURE,
+            &[&number(client + 1), &number(2), &text(b"no"), &text(b"")],
+        ));
+        link.linger();
+    });
+    let error = run(&peer).expect_err("wrong recipient");
+    assert!(error.to_string().contains("unknown channel"), "{error}");
+    peer.finish();
+}
+
 #[test]
 fn identification_split_across_segments_is_assembled() {
     let behavior = Behavior {
@@ -264,6 +364,12 @@ fn a_silent_peer_hits_the_deadline_after_submission() {
 }
 
 struct Endless;
+
+impl xsh_ssh::InputSource for Endless {
+    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        None
+    }
+}
 
 impl Read for Endless {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -388,6 +494,40 @@ fn client_initiated_rekeys_carry_queued_traffic_without_loss() {
     let result = connection.exec("command", &ExecOptions::default()).expect("exec");
     assert_eq!(result.status, ExecStatus::Exited(0));
     assert_eq!(digest(&result.stdout), digest(&payload));
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
+fn a_server_message_between_its_rekey_reply_and_newkeys_is_skipped() {
+    let peer = serve_exec(
+        Behavior {
+            ignore_between_rekey_reply_and_newkeys: true,
+            ..Behavior::default()
+        },
+        1 << 20,
+        |link, channel| {
+            for _ in 0..40 {
+                link.data(channel, &[9; 4096]);
+            }
+            while link.rekeys == 0 {
+                link.recv();
+            }
+            link.exit_status(channel, 0);
+            link.eof(channel);
+            link.close(channel);
+            link.expect_close();
+        },
+    );
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = RekeyLimits {
+        bytes: 32 * 1024,
+        ..RekeyLimits::default()
+    };
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let result = connection.exec("command", &ExecOptions::default()).expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
     drop(connection);
     peer.finish();
 }
@@ -581,4 +721,53 @@ fn arbitrary_connection_messages_never_hang_or_panic_the_client() {
         drop(connection);
         peer.finish();
     }
+}
+
+fn rekeyed_under(limits: RekeyLimits, packets: usize, pause: Duration) -> bool {
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        for _ in 0..packets {
+            link.data(channel, &[3; 100]);
+        }
+        thread::sleep(pause);
+        link.data(channel, &[3; 100]);
+        let mut frames = 0;
+        while link.rekeys == 0 && frames < 200 {
+            link.recv();
+            frames += 1;
+        }
+        let rekeys = link.rekeys;
+        link.exit_status(channel, u32::from(rekeys > 0));
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let mut config = peer.config(TIMEOUT);
+    config.rekey = limits;
+    let mut connection = Connection::connect(&config).expect("connect");
+    connection.authenticate().expect("authenticate");
+    let result = connection.exec("command", &ExecOptions::default()).expect("exec");
+    drop(connection);
+    peer.finish();
+    match result.status {
+        ExecStatus::Exited(status) => status == 1,
+        other => panic!("unexpected status {other:?}"),
+    }
+}
+
+#[test]
+fn the_packet_count_alone_starts_a_rekey() {
+    let limits = RekeyLimits {
+        packets: 30,
+        ..RekeyLimits::default()
+    };
+    assert!(rekeyed_under(limits, 60, Duration::ZERO));
+}
+
+#[test]
+fn the_elapsed_time_alone_starts_a_rekey() {
+    let limits = RekeyLimits {
+        interval: Duration::from_millis(300),
+        ..RekeyLimits::default()
+    };
+    assert!(rekeyed_under(limits, 1, Duration::from_millis(500)));
 }

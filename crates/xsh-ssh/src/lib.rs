@@ -17,7 +17,7 @@ pub use auth::Identity;
 pub use client::{ClientConfig, Connection, RekeyLimits};
 pub use error::{Certainty, Error};
 pub use exec::{ExecOptions, ExecResult, ExecStatus};
-pub use stream::StreamOptions;
+pub use stream::{InputSource, StreamOptions};
 pub use wire::Interrupt;
 pub use host_key::{Fingerprint, HostTrust};
 pub use known_hosts::KnownHosts;

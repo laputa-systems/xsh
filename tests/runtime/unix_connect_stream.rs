@@ -383,3 +383,298 @@ fn unix_stream_signal_during_deadline_wait_closes_peer() {
     assert_eq!(received.unwrap(), 0);
     root.close().unwrap();
 }
+
+#[cfg(target_os = "linux")]
+mod line_protocol {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+
+    const CLIENT: &str = r#"use lib.monotonic
+
+error FrameError = Timeout(remaining_ms: Int) | Oversize(limit: Int) | Closed(pending: Int)
+
+type Frame = {line: Str, pending: Bytes}
+
+proc await_readable(fd: Int, deadline: monotonic.Deadline) [process, fs, time, net, error] -> Result[Unit, Error] {
+  let remaining = monotonic.remaining_ms(deadline, monotonic.now()?)
+  if remaining == 0 { return Err(FrameError.Timeout(remaining)) }
+  let ready = unix.poll_fds([{fd, events: ["readable"]}], timeout: time.millis(remaining))?
+  if ready.is_empty() { return Err(FrameError.Timeout(remaining)) }
+}
+
+proc read_frame(fd: Int, pending: Bytes, deadline: monotonic.Deadline, limit: Int) [process, fs, time, net, error] -> Result[Frame, Error] {
+  var buffer = pending
+  loop {
+    let endings = regex.find_bytes("\n", buffer)?
+    if !endings.is_empty() {
+      let end = endings[0].start
+      if end > limit { return Err(FrameError.Oversize(limit)) }
+      return {line: buffer.slice(0, end).utf8()?, pending: buffer.slice(end + 1)}
+    }
+    if buffer.len() > limit { return Err(FrameError.Oversize(limit)) }
+    await_readable(fd, deadline)?
+    let part = unix.read_fd(fd, 7)?
+    if part.len() == 0 { return Err(FrameError.Closed(buffer.len())) }
+    buffer = bytes.concat([buffer, part])
+  }
+}
+
+proc kind(result: Result[Frame, Error]) -> Str {
+  match result {
+    Ok(_) => "ok"
+    Err(failure) => match failure {
+      FrameError.Timeout {remaining_ms} => "timeout"
+      FrameError.Oversize {limit} => "oversize"
+      FrameError.Closed {pending} => f"closed:{pending}"
+      else => "other"
+    }
+  }
+}
+
+proc open_descriptors() [process, fs, time, net, error] -> Result[Int, Error] {
+  Ok([entry.name for entry in fs.children(p"/proc/self/fd")?].len())
+}
+
+proc connect(socket: Path) [process, fs, time, net, error] -> Result[Int, Error] {
+  unix.connect_stream(socket, 2s)
+}
+
+proc deadline_in(budget_ms: Int) [process, fs, time, net, error] -> Result[monotonic.Deadline, Error] {
+  Ok(monotonic.deadline_after(monotonic.now()?, budget_ms))
+}
+
+proc fragmented_and_coalesced(socket: Path) [process, fs, time, net, error] -> Result[Unit, Error] {
+  let fd = connect(socket)?
+  defer unix.close_fd(fd)
+  let deadline = deadline_in(5000)?
+  var pending = b""
+  for expected in ["greeting-one", "second", "third", "fourth-after-a-gap"] {
+    let frame = read_frame(fd, pending, deadline, 1024)?
+    assert frame.line == expected
+    pending = frame.pending
+  }
+  assert pending == b""
+  assert kind(read_frame(fd, pending, deadline, 1024)) == "closed:0"
+}
+
+proc stalled_peer(socket: Path) [process, fs, time, net, error] -> Result[Unit, Error] {
+  let fd = connect(socket)?
+  defer unix.close_fd(fd)
+  let started = monotonic.now()?
+  assert kind(read_frame(fd, b"", deadline_in(300)?, 1024)) == "timeout"
+  let elapsed = monotonic.since_ms(started, monotonic.now()?)
+  assert elapsed >= 250 and elapsed < 3000
+}
+
+proc oversized_peer(socket: Path) [process, fs, time, net, error] -> Result[Unit, Error] {
+  let fd = connect(socket)?
+  defer unix.close_fd(fd)
+  assert kind(read_frame(fd, b"", deadline_in(5000)?, 64)) == "oversize"
+}
+
+proc oversized_terminated_frame(socket: Path) [process, fs, time, net, error] -> Result[Unit, Error] {
+  let fd = connect(socket)?
+  defer unix.close_fd(fd)
+  assert kind(read_frame(fd, b"", deadline_in(5000)?, 8)) == "oversize"
+}
+
+proc abrupt_close(socket: Path) [process, fs, time, net, error] -> Result[Unit, Error] {
+  for _ in [1] {
+    let fd = connect(socket)?
+    assert kind(read_frame(fd, b"", deadline_in(5000)?, 1024)) == "closed:11"
+    unix.close_fd(fd)?
+  }
+  let before = open_descriptors()?
+  for _ in [1, 2, 3] {
+    let fd = connect(socket)?
+    let outcome = kind(read_frame(fd, b"", deadline_in(5000)?, 1024))
+    unix.close_fd(fd)?
+    assert outcome == "closed:11"
+  }
+  assert open_descriptors()? == before
+}
+
+proc cancelled_mid_frame(socket: Path, ready: Path) [process, fs, time, net, error] -> Result[Unit, Error] {
+  let fd = connect(socket)?
+  defer unix.close_fd(fd)
+  defer { print "cleanup" }
+  let first = read_frame(fd, b"", deadline_in(5000)?, 1024)?
+  assert first.line == "partial-sent"
+  ready.write("ready")?
+  let _ = read_frame(fd, b"", deadline_in(20000)?, 1024)?
+  print "unexpected"
+}
+
+proc main(...argv: List[Str]) [process, net, time, fs, error] {
+  let socket = Path(argv[1])
+  match argv[0] {
+    "fragmented" => fragmented_and_coalesced(socket)?
+    "stalled" => stalled_peer(socket)?
+    "oversized" => oversized_peer(socket)?
+    "oversized-terminated" => oversized_terminated_frame(socket)?
+    "abrupt" => abrupt_close(socket)?
+    "cancelled" => cancelled_mid_frame(socket, Path(argv[2]))?
+    else => assert false
+  }
+}
+"#;
+
+    fn accept(listener: &UnixListener) -> UnixStream {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                    return stream;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => panic!("accept: {error}"),
+            }
+        }
+    }
+
+    fn client_script(root: &Path) -> PathBuf {
+        std::os::unix::fs::symlink(Path::new(env!("CARGO_MANIFEST_DIR")).join("core/lib"), root.join("lib")).unwrap();
+        let script = root.join("client.xsh");
+        std::fs::write(&script, CLIENT).unwrap();
+        script
+    }
+
+    fn pause() {
+        std::thread::sleep(Duration::from_millis(30));
+    }
+
+    fn expect_closed(stream: &mut UnixStream) {
+        let mut byte = [0; 1];
+        match stream.read(&mut byte) {
+            Ok(0) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+            other => panic!("client left the socket open: {other:?}"),
+        }
+    }
+
+    fn scenario<P>(name: &str, connections: usize, peer: P) -> std::process::Output
+    where
+        P: Fn(usize, UnixStream) + Send + Clone + 'static,
+    {
+        let root = tempfile::Builder::new().prefix("l").tempdir_in(".work/tmp").unwrap();
+        let path = root.path().join("socket");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let acceptor = std::thread::spawn(move || {
+            let handles: Vec<_> = (0..connections).map(|index| {
+                let stream = accept(&listener);
+                let peer = peer.clone();
+                std::thread::spawn(move || peer(index, stream))
+            }).collect();
+            for handle in handles { handle.join().unwrap(); }
+        });
+        let script = client_script(root.path());
+        let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+            .arg(&script).arg(name).arg(&path).output().unwrap();
+        acceptor.join().unwrap();
+        root.close().unwrap();
+        output
+    }
+
+    fn assert_success(output: &std::process::Output) {
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn fragmented_and_coalesced_frames_arrive_in_order_then_eof() {
+        let output = scenario("fragmented", 1, |_, mut stream| {
+            for byte in b"greeting-one\n" {
+                stream.write_all(&[*byte]).unwrap();
+                pause();
+            }
+            stream.write_all(b"second\nthird\nfourth").unwrap();
+            pause();
+            stream.write_all(b"-after-a-gap\n").unwrap();
+        });
+        assert_success(&output);
+    }
+
+    #[test]
+    fn stalled_peer_times_out_within_the_deadline_and_the_socket_closes() {
+        let output = scenario("stalled", 1, |_, mut stream| {
+            stream.write_all(b"half a fra").unwrap();
+            expect_closed(&mut stream);
+        });
+        assert_success(&output);
+    }
+
+    #[test]
+    fn unterminated_oversized_input_is_refused_and_the_socket_closes() {
+        let output = scenario("oversized", 1, |_, mut stream| {
+            let chunk = [b'x'; 4096];
+            let mut sent = 0usize;
+            while sent < 1 << 22 {
+                match stream.write(&chunk) {
+                    Ok(count) => sent += count,
+                    Err(_) => return,
+                }
+            }
+            panic!("client accepted {sent} bytes without a frame boundary");
+        });
+        assert_success(&output);
+    }
+
+    #[test]
+    fn oversized_terminated_frame_is_refused() {
+        let output = scenario("oversized-terminated", 1, |_, mut stream| {
+            stream.write_all(b"much longer than eight bytes\n").unwrap();
+            expect_closed(&mut stream);
+        });
+        assert_success(&output);
+    }
+
+    #[test]
+    fn abrupt_close_mid_frame_is_reported_and_leaks_no_descriptors() {
+        let output = scenario("abrupt", 4, |_, mut stream| {
+            stream.write_all(b"{\"partial\":").unwrap();
+        });
+        assert_success(&output);
+    }
+
+    #[test]
+    fn sigterm_mid_frame_runs_cleanup_and_closes_the_socket() {
+        let root = tempfile::Builder::new().prefix("k").tempdir_in(".work/tmp").unwrap();
+        let path = root.path().join("socket");
+        let ready = root.path().join("ready");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let peer = std::thread::spawn(move || {
+            let mut stream = accept(&listener);
+            stream.write_all(b"partial-sent\nrest of a fra").unwrap();
+            expect_closed(&mut stream);
+        });
+        let script = client_script(root.path());
+        let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+            .arg(&script).arg("cancelled").arg(&path).arg(&ready)
+            .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        wait_for_path(&ready, Duration::from_secs(5), &mut child);
+        let tasks = format!("/proc/{}/task", child.id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !std::fs::read_dir(&tasks).ok().is_some_and(|tasks| tasks.flatten().any(|task| {
+            std::fs::read_to_string(task.path().join("syscall")).ok().is_some_and(|line| {
+                line.split_whitespace().next().and_then(|number| number.parse::<libc::c_long>().ok()) == Some(libc::SYS_ppoll)
+            })
+        })) {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                panic!("client never entered its poll");
+            }
+            std::thread::yield_now();
+        }
+        // SAFETY: child.id() identifies the live child observed in its poll above.
+        assert_eq!(unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) }, 0);
+        let status = wait_child_status(&mut child, Duration::from_secs(5));
+        let output = child.wait_with_output().unwrap();
+        peer.join().unwrap();
+        assert_eq!(status.code(), Some(3), "{:?}", output);
+        assert_eq!(output.stdout, b"cleanup\n");
+        root.close().unwrap();
+    }
+}

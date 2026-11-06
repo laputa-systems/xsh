@@ -306,7 +306,7 @@ test test_a_flood_is_bounded_counted_and_leaves_the_service_responsive { |ctx|
   svc.await_ready(launch)
   let pid = svc.reported_pid(lay)?
   var delivered = 0
-  for round in range(3) {
+  for _ in range(3) {
     let result = svc.send_with(ctx, lay, "flood", ["1500", "200"])?
     delivered += result.sent
   }
@@ -372,7 +372,7 @@ test test_a_full_pipe_never_stalls_the_receive_loop_and_is_counted { |ctx|
   assert "readable" in unix.poll_fd(drain, ["readable"], timeout_ms: 30000)?
   let started = unix.read_fd(drain, 4096)?.utf8()?
   let pid = rx"pid=([0-9]+)".captures(started)[1].parse_int()?
-  for round in range(3) {
+  for _ in range(3) {
     let result = svc.send_with(ctx, lay, "flood", ["150", "1500"])?
     assert result.sent == 150
   }
@@ -399,7 +399,7 @@ test test_an_unwritable_sink_is_counted_reported_once_a_second_and_does_not_grow
   let resident = rx"VmRSS:\s+([0-9]+) kB"
   let before = resident.captures(fp"/proc/{pid}/status".read_text()?)[1].parse_int()?
   let started = time.monotonic()?
-  for round in range(8) {
+  for _ in range(8) {
     let result = svc.send_with(ctx, lay, "flood", ["150", "800"])?
     assert result.sent == 150
   }
@@ -428,7 +428,7 @@ test test_copy_truncate_rotation_of_the_append_only_log_is_tolerated { |ctx|
   let _ = svc.await_containing(lay, "before rotation", 1)?
   lay.log.truncate(0)
   assert svc.send(lay.socket, b"<13>after rotation")? > 0
-  let found = svc.await_containing(lay, "after rotation", 1)?
+  let _ = svc.await_containing(lay, "after rotation", 1)?
   let text = svc.log_text(lay)?
   assert text.lines().len() == 1 and "before rotation" not in text and "\0" not in text, text
   process.kill(pid, signal: "TERM")

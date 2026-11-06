@@ -1,6 +1,7 @@
-use std::fs;
+use std::fs::{File, OpenOptions};
+use std::io::Read;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use std::str::FromStr;
 
 use data_encoding::BASE64;
@@ -11,20 +12,20 @@ use oxish_proto::named::{MethodName, PublicKeyAlgorithm, ServiceName};
 use oxish_proto::{Encode, MessageType, OpenSshKeyV1};
 
 use crate::agent::Agent;
+use crate::client::Connection;
 use crate::error::Error;
 use crate::host_key::Fingerprint;
 use crate::wire::{SshReader, Transport, plain_text, put_string};
 
 const SERVICE_USERAUTH: &str = "ssh-userauth";
+const MAX_KEY_FILE_BYTES: u64 = 64 * 1024;
 
 /// Load an unencrypted Ed25519 key from an OpenSSH private-key file.
 pub fn load_key(
     path: &Path,
     provider: &dyn CryptoProvider,
 ) -> Result<Box<dyn SigningKey>, Error> {
-    let text = Zeroizing::new(fs::read_to_string(path).map_err(|error| Error::KeyFile {
-        detail: format!("cannot read {}: {error}", path.display()),
-    })?);
+    let text = read_key_file(path)?;
     if is_encrypted(&text) {
         return Err(Error::EncryptedKey);
     }
@@ -48,6 +49,43 @@ pub fn load_key(
         });
     }
     Ok(key)
+}
+
+fn read_key_file(path: &Path) -> Result<Zeroizing<String>, Error> {
+    let refuse = |detail: String| Error::KeyFile {
+        detail: format!("{}: {detail}", path.display()),
+    };
+    let file: File = OpenOptions::new()
+        .read(true)
+        .custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32)
+        .open(path)
+        .map_err(|error| refuse(format!("cannot read: {error}")))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| refuse(format!("cannot read: {error}")))?;
+    if !metadata.is_file() {
+        return Err(refuse("not a regular file".to_owned()));
+    }
+    if metadata.uid() == rustix::process::getuid().as_raw() && metadata.mode() & 0o077 != 0 {
+        return Err(refuse(format!(
+            "permissions {:04o} are too open; a private key must not be accessible by group or others",
+            metadata.mode() & 0o7777
+        )));
+    }
+    if metadata.len() > MAX_KEY_FILE_BYTES {
+        return Err(refuse(format!("larger than {MAX_KEY_FILE_BYTES} bytes")));
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    file.take(MAX_KEY_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| refuse(format!("cannot read: {error}")))?;
+    if bytes.len() as u64 > MAX_KEY_FILE_BYTES {
+        return Err(refuse(format!("larger than {MAX_KEY_FILE_BYTES} bytes")));
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| refuse("not text".to_owned()))?
+        .to_owned();
+    Ok(Zeroizing::new(text))
 }
 
 fn is_encrypted(text: &str) -> bool {
@@ -103,7 +141,7 @@ struct Credential {
 
 fn credential(
     identity: &Identity,
-    timeout: Duration,
+    transport: &Transport,
     provider: &dyn CryptoProvider,
 ) -> Result<Credential, Error> {
     match identity {
@@ -127,7 +165,8 @@ fn credential(
             socket,
             fingerprint,
         } => {
-            let mut agent = Agent::connect(socket, timeout)?;
+            let mut agent = Agent::connect(socket, transport.idle_timeout())?
+                .bounded(transport.deadline(), transport.interrupt());
             let mut chosen = None;
             for blob in agent.identities()? {
                 if crate::host_key::fingerprint(&blob, provider)? == fingerprint.as_str() {
@@ -153,20 +192,31 @@ fn credential(
 }
 
 /// Authenticate the user with the chosen identity.
-pub fn authenticate(
-    transport: &mut Transport,
+pub(crate) fn authenticate(
+    connection: &mut Connection,
     user: &str,
     identity: &Identity,
     session_id: &[u8],
     provider: &dyn CryptoProvider,
 ) -> Result<(), Error> {
-    let mut credential = credential(identity, transport.idle_timeout(), provider)?;
+    let mut credential = credential(identity, connection.transport(), provider)?;
 
-    transport.send_raw(&service_request(SERVICE_USERAUTH))?;
+    connection.transport().send_raw(&service_request(SERVICE_USERAUTH))?;
     loop {
-        let packet = transport.recv()?;
+        let packet = connection.next_message()?;
         match packet.message_type {
-            MessageType::ServiceAccept => break,
+            MessageType::ServiceAccept => {
+                let mut reader = SshReader::new(&packet.payload);
+                let service = reader.string()?;
+                reader.finish()?;
+                if service != SERVICE_USERAUTH.as_bytes() {
+                    return Err(Error::Protocol {
+                        detail: "server accepted a different service than the one requested"
+                            .to_owned(),
+                    });
+                }
+                break;
+            }
             MessageType::UserAuthBanner => continue,
             MessageType::Disconnect => {
                 return Err(Error::Authentication {
@@ -202,10 +252,10 @@ pub fn authenticate(
     algorithm.encode(&mut request);
     put_string(&mut request, &public_key);
     put_string(&mut request, &signature);
-    transport.send_raw(&request)?;
+    connection.transport().send_raw(&request)?;
 
     loop {
-        let packet = transport.recv()?;
+        let packet = connection.next_message()?;
         match packet.message_type {
             MessageType::UserAuthSuccess => return Ok(()),
             MessageType::UserAuthBanner => continue,

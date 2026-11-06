@@ -7,6 +7,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use xsh_archive as engine;
+use xsh_root::Root;
 
 pub(crate) enum SourceArg {
     Path(PathBuf),
@@ -27,9 +28,14 @@ pub(crate) struct LimitOverrides {
     pub(crate) max_entries: Option<u64>,
 }
 
+pub(crate) enum ExtractTarget {
+    Path(PathBuf),
+    Beneath { root: Root, dest: PathBuf },
+}
+
 pub(crate) struct ExtractRequest {
     pub(crate) source: SourceArg,
-    pub(crate) dest: PathBuf,
+    pub(crate) target: ExtractTarget,
     pub(crate) selection: Selection,
     pub(crate) strip_components: usize,
     pub(crate) collision: engine::Collision,
@@ -141,8 +147,13 @@ pub(crate) fn extract(request: ExtractRequest, span: Span) -> Result<(), Runtime
         strip_components: request.strip_components,
         members: members(&request.selection.members),
     };
-    engine::extract(&mut archive, &request.dest, &policy, &budget)
-        .map(drop)
+    match &request.target {
+        ExtractTarget::Path(dest) => engine::extract(&mut archive, dest, &policy, &budget),
+        ExtractTarget::Beneath { root, dest } => {
+            engine::extract_beneath(&mut archive, root, dest, &policy, &budget)
+        }
+    }
+    .map(drop)
         .map_err(|error| archive_error(&error, Some(format), span))
 }
 

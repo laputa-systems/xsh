@@ -931,6 +931,15 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   declarations and zero closed roots. All six audit negative controls reject.
   The connected milestone and final matching Rust/source freeze remain open.
 
+- 2026-11-04: The fresh connected check at `09447fa09` passed its build and all
+  six kernels; the axiom audit passed for 27,044 declarations and rejected all
+  six controls. The local private branch `qualify/connected-machine` (never
+  merged) then gained the raw store replacement check (`318d2ac4e`): Lean
+  rebuilds an assignment's replacement from the raw rows and from the checked
+  node and requires agreement, substituting the let-bound temporaries scheme
+  lowering emits. `d751aadc4` derives the binder-to-slot map from the exported
+  declarations; the inventory checks 980 roots. Calls, Result forms and
+  execution correspondence remain open.
 - 2026-11-05: The invocation of the scoped fixture's call is now derived from
   admitted source and the decoded Rust call and body facts instead of being
   written by hand. `deriveSelectedInvocation` takes the call fact at an index,

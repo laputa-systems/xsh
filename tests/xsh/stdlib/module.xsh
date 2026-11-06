@@ -517,7 +517,7 @@ let plugin_path = Path(args[0])
 let loaded = module.load(plugin_path)?.require(ReloadingModule)?
 print ${loaded.reload_then_increment(plugin_path, args[1])?}
 """,
-    [plugin_path.display(), replacement],
+    [plugin_path, replacement],
     {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
@@ -562,7 +562,7 @@ print ${loaded.nested()}
 print ${module.load(plugin_path)?.require(Captures)?.outer()}
 print ${report.value}
 """,
-    [plugin.display()],
+    [plugin],
     {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
@@ -593,7 +593,7 @@ let loaded = module.load(outer_path)?.require(Reader)?
 print ${loaded.value()}
 print ${module.load(outer_path)?.require(Reader)?.value()}
 """,
-    [outer_path.display()],
+    [outer_path],
     {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr

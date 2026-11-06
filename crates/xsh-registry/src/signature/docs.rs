@@ -810,11 +810,16 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         (
             "fs",
-            "root_mkdir" | "root_remove" | "root_chmod" | "root_install_file",
+            "root_mkdir" | "root_remove" | "root_chmod" | "root_install_file" | "root_rename",
         ) => Some((
             "Mutates a path below a rooted filesystem capability.",
             "Relative paths are validated against the root before the mutation and cannot address an outside destination.",
             &["filesystem", "rooted", "mutation"],
+        )),
+        ("fs", "root_fsync") => Some((
+            "Flushes a file or directory below a rooted filesystem capability to stable storage.",
+            "Rename and write publication are atomic in visibility only; fsync the published file and its parent directory to make them durable. A symlink or special file fails.",
+            &["filesystem", "rooted", "durability"],
         )),
         ("fs", "root_path") => Some((
             "Returns the host path represented by a rooted filesystem capability.",
@@ -1531,8 +1536,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("unix", "seek_fd") => Some(("Moves a descriptor relative to its start, current position, or end.", "whence defaults to start; current and end permit negative offsets. The resulting position must be nonnegative and representable by Int. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
         ("unix", "poll_fd") => Some((
             "Waits for descriptor readiness and reports terminal conditions.",
-            "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",
-            &["unix", "io", "poll"],
+            "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions that need no handling. A signal the evaluator handles (SIGINT, SIGTERM and signals with an on hook) ends the wait as in unix.poll_fds: the hook runs, and the script then stops with the shutdown status (or the canceled error when none is set); the call never reports success.",
+            &["unix", "io", "poll", "signal"],
         )),
         ("unix", "poll_fds") => Some((
             "Waits for readiness on up to 64 descriptors and for a handled signal.",
@@ -1928,6 +1933,13 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
 }
 
 fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
+    if receiver == "FsRoot" && method == "extract" {
+        return Some(DocRow {
+            summary: "Extracts an archive into a destination below a retained filesystem root.",
+            contract: "Staging, per-entry publication and rollback all resolve beneath the root's descriptor, so replacing the root path or an ancestor after the root is opened cannot redirect a write. The destination is a RelPath whose ancestors and final component may not be symbolic links; missing directories are created and removed again if extraction fails. Policy, limits and errors are those of archive.extract.",
+            tags: &["archive", "extraction", "rooted"],
+        });
+    }
     if receiver == "FsRoot" {
         let legacy = match method {
             "close" => "close_root",
@@ -1949,6 +1961,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "readlink_result" => "root_readlink_result",
             "symlink" => "root_symlink",
             "chmod" => "root_chmod",
+            "rename" => "root_rename",
+            "fsync" => "root_fsync",
             _ => return None,
         };
         return function_doc("fs", legacy);

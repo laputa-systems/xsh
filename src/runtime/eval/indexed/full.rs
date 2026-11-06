@@ -7266,6 +7266,13 @@ enum CheckedValueProjection {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
+enum TestedType {
+    Semantic(TypeId),
+    ErrorFacet(Name),
+    ErrorVariant { family: Name, variant: Name },
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum TypeTestOutcome {
     Accepted,
     Rejected,
@@ -14792,7 +14799,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(TypeId, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(TestedType, TypeTestOutcome)>, IrVerifyError> {
         Ok(match self.checked_type_test_alternatives(condition, when_true, is_boolean, use_site, target, charge)? {
             Some((tested, outcome)) if tested.len() == 1 => Some((tested[0], outcome)),
             _ => None,
@@ -14807,7 +14814,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(Vec<TypeId>, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(Vec<TestedType>, TypeTestOutcome)>, IrVerifyError> {
         for _ in self.instruction_range.clone() {
             charge(1)?;
             if is_boolean {
@@ -14856,12 +14863,16 @@ impl<'a> FullDecoder<'a> {
                     if yes == no { return Ok(None); }
                     let mut tested = Vec::new();
                     match self.checked_pattern_view(pattern.raw())? {
-                        schema::PatternView::Type { ty, .. } => tested.push(ty.id),
+                        schema::PatternView::Type { ty, .. } => tested.push(TestedType::Semantic(ty.id)),
+                        schema::PatternView::Facet { facet, result_wrapped: false } => tested.push(TestedType::ErrorFacet(facet)),
+                        schema::PatternView::ErrorTest { family, variant, fields } if family != Name::PROCESS_ERROR && fields.len() == 0 =>
+                            tested.push(TestedType::ErrorVariant { family, variant }),
                         schema::PatternView::Alternation { mut patterns } => {
                             for alternative in &mut patterns {
                                 charge(1)?;
                                 let schema::PatternView::Type { ty, slot: None } = self.checked_pattern_view(alternative?.raw())? else { return Ok(None) };
-                                if !tested.contains(&ty.id) { tested.push(ty.id); }
+                                let ty = TestedType::Semantic(ty.id);
+                                if !tested.contains(&ty) { tested.push(ty); }
                             }
                             if tested.is_empty() { return Ok(None); }
                         }
@@ -14887,7 +14898,7 @@ impl<'a> FullDecoder<'a> {
         use_site: usize,
         target: &(usize, Vec<Name>),
         charge: &mut dyn FnMut(usize) -> Result<(), IrVerifyError>,
-    ) -> Result<Option<(Vec<TypeId>, TypeTestOutcome)>, IrVerifyError> {
+    ) -> Result<Option<(Vec<TestedType>, TypeTestOutcome)>, IrVerifyError> {
         for operand in [left, right] {
             charge(1)?;
             let boolean = self.store.tags.get(operand).is_some_and(|tag| tag.kind() == schema::InstructionKind::Bool);
@@ -33439,6 +33450,101 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn full_verifier_authenticates_annotated_record_with_empty_list_field_arguments() {
+        let source = "type Job = {name: Str, files: List[Str]}\n\
+                      pure identity(value) { value }\n\
+                      let job: Job = {name: \"a\", files: []}\n\
+                      let copy = identity(job)\n";
+        let program = fixture("generic-driver-record-empty-list-field.xsh", source);
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let (call, slot) = scheme_fixture_driver_call_for_slot(&program, "identity", "job");
+        let mut forged = program.clone();
+        let wrong = SemanticPoolBuilder::default()
+            .intern_type(
+                &mut forged.store.semantic,
+                &Type::Record(Arc::new(BTreeMap::from([
+                    (Name::intern("name"), Type::Str),
+                    (Name::intern("files"), Type::List(Box::new(Type::UInt))),
+                ]))),
+            )
+            .unwrap();
+        replace_scheme_fixture_driver_slot_type(&mut forged, slot, wrong);
+        replace_scheme_fixture_call_type(&mut forged, call, wrong);
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("driver slot type fact disagrees with its declaration annotation"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn full_verifier_authenticates_annotated_open_spread_record_arguments() {
+        let source = "type Parsed = {code: List[Int], at: Int}\n\
+                      pure same(value) { value }\n\
+                      pure show(value: Parsed) -> Int { value.at }\n\
+                      pure width(state: Parsed) -> Int {\n\
+                        let reset = same({...state, code: []})\n\
+                        show(reset)\n\
+                      }\n";
+        let program = fixture("generic-open-spread-record-argument.xsh", source);
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call_in_function(&program, "same", "width");
+        let mut forged = program.clone();
+        let wrong = SemanticPoolBuilder::default()
+            .intern_type(
+                &mut forged.store.semantic,
+                &Type::Record(Arc::new(BTreeMap::from([
+                    (Name::intern("at"), Type::Str),
+                    (Name::intern("code"), Type::List(Box::new(Type::Int))),
+                ]))),
+            )
+            .unwrap();
+        replace_scheme_fixture_call_type(&mut forged, call, wrong);
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(error.message.contains("generic call argument has no closed checked type"), "{}", error.message);
+    }
+
+    #[test]
+    fn full_verifier_authenticates_erased_open_spread_record_arguments() {
+        let source = "type Parsed = {code: List[Int], at: Int}\n\
+                      pure same(value) { value }\n\
+                      pure show(value: Parsed) -> Int { value.at }\n\
+                      pure width(state) {\n\
+                        let reset = same({...state, code: []})\n\
+                        show(reset)\n\
+                      }\n\
+                      let start: Parsed = {code: [7], at: 4}\n\
+                      assert width(start) == 4\n";
+        let program = fixture("generic-erased-open-spread-record-argument.xsh", source);
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call_in_function(&program, "same", "width");
+        let arguments = program.store.call_instantiations.iter()
+            .find(|row| row.instruction == call)
+            .expect("the generic call has a substitution")
+            .arguments.type_arguments
+            .bounds(program.store.call_type_arguments.len())
+            .unwrap();
+        assert_eq!(arguments.len(), 1);
+        let record = program.store.call_type_arguments[arguments.start].ty;
+        let node = program.store.scheme_types[record.index()];
+        assert_eq!(node.tag, schema::FullSchemeTypeTag::Record);
+        assert_eq!(node.first, IR_NONE);
+        let fields = node.children.bounds(program.store.scheme_fields.len()).unwrap();
+        let field = |name: &str| fields.clone().find(|&index| program.store.string(program.store.scheme_fields[index].name).unwrap() == name).unwrap();
+        let at_type = program.store.scheme_fields[field("at")].ty;
+        assert_eq!(program.store.scheme_types[at_type.index()].tag, schema::FullSchemeTypeTag::Ground);
+        let mut forged = program.clone();
+        let wrong = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Str).unwrap();
+        forged.store.scheme_types[at_type.index()].first = wrong.raw();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
     }
 
     #[test]

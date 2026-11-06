@@ -806,10 +806,10 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
 
 test test_check_current_cli_validates_explicit_semantic_review { |ctx|
   let fixture = review_fixture(ctx)?
-  let measured = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
+  let measured_report = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
   let required = current_source_report()
-  let report = {...measured, metrics: collect {
-    for row in measured.metrics {
+  let report = {...measured_report, metrics: collect {
+    for row in measured_report.metrics {
       let policy = required.metrics |> where .name == row.name |> collect
       yield if policy.is_empty() { row } else { policy[0] }
     }

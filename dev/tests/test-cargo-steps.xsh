@@ -168,7 +168,7 @@ cargo_steps.run_build(stages.command(
   }
 }
 
-test test_mold_driver_preserves_other_command_environment { |ctx|
+test test_mold_driver_preserves_other_command_environment { |_|
   let spec = stages.command(
     "link", musl_host, "cargo", ["cargo", "build"], p"/repo",
     {

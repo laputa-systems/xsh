@@ -57,6 +57,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.bootstrap = self.target_dir / runner.TARGET / "verification" / "xsh"
         self.infra = self.repo / ".work/consolidation/infra"
         self.metrics = self.repo / ".work/consolidation"
+        self.gate_evidence = self.repo / ".work/gate"
         self.native_lock = self.infra / "native-suite.lock"
         self.cargo_lock = self.infra / "cargo.lock"
         self.scratch_dir = self.repo / ".work/tmp"
@@ -65,6 +66,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.build_json_path = self.scratch_dir / "bootstrap-build.jsonl"
         self.scratch_dir.mkdir(parents=True)
         self.infra.mkdir(parents=True)
+        self.gate_evidence.mkdir(parents=True)
         self.native_lock.write_text("", encoding="utf-8")
         self.cargo_lock.write_text("", encoding="utf-8")
         self.create_bootstrap()
@@ -333,6 +335,11 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.ReplayError, "shared native-suite lock is missing"):
             self.validate()
 
+    def test_rejects_missing_gate_evidence_mount(self):
+        shutil.rmtree(self.gate_evidence)
+        with self.assertRaisesRegex(runner.ReplayError, "writable gate evidence mount is missing"):
+            self.validate()
+
     def test_rejects_missing_metrics_mount(self):
         shutil.rmtree(self.metrics)
         with self.assertRaisesRegex(runner.ReplayError, "writable consolidation metrics mount is missing"):
@@ -354,6 +361,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.assertIn(f"{self.scratch_dir}:/scratch:rw", volumes)
         self.assertIn(f"{self.scratch_dir}:{runner.SCRATCH_CONTAINER_PATH}:rw", volumes)
         self.assertIn(f"{self.metrics}:{runner.METRICS_CONTAINER_PATH}:rw", volumes)
+        self.assertIn(f"{self.gate_evidence}:{runner.GATE_EVIDENCE_CONTAINER_PATH}:rw", volumes)
         self.assertFalse(any(value.endswith(":/work:rw") for value in volumes))
         hostname_index = command.index("--hostname")
         self.assertEqual(command[hostname_index + 1], runner.CONTAINER_HOSTNAME)

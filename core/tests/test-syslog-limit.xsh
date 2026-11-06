@@ -29,7 +29,7 @@ test test_configuration_bounds_are_enforced {
 test test_a_sender_may_burst_then_is_held_to_its_sustained_rate {
   var l = limit.new_limiter(TIGHT)?
   var accepted = 0
-  for step in range(5) {
+  for _ in range(5) {
     let decision = limit.admit(l, plain(1, 7), 0)
     l = decision.limiter
     if decision.accepted { accepted += 1 }
@@ -59,7 +59,7 @@ test test_accepted_count_over_time_matches_burst_plus_rate {
 
 test test_a_flooding_sender_does_not_spend_another_senders_budget {
   var l = limit.new_limiter(TIGHT)?
-  for step in range(500) { l = limit.admit(l, plain(1, 7), 0).limiter }
+  for _ in range(500) { l = limit.admit(l, plain(1, 7), 0).limiter }
   let other = limit.admit(l, plain(2, 8), 0)
   assert other.accepted
 }
@@ -85,7 +85,7 @@ test test_oversize_truncated_control_and_descriptor_datagrams_drop_without_using
     limit.Datagram(sender: limit.Sender(uid: 1, pid: 7), oversize: false, control_truncated: true, rights: 0),
     limit.Datagram(sender: limit.Sender(uid: 1, pid: 7), oversize: false, control_truncated: false, rights: 3),
   ]
-  for round in range(100) {
+  for _ in range(100) {
     for datagram in cases { l = limit.admit(l, datagram, 0).limiter }
   }
   assert l.counters.oversize == 100 and l.counters.control_truncated == 100 and l.counters.rights == 100
@@ -104,7 +104,7 @@ test test_senders_without_credentials_share_one_bucket {
   var l = limit.new_limiter(TIGHT)?
   let anonymous = limit.Datagram(sender: null, oversize: false, control_truncated: false, rights: 0)
   var accepted = 0
-  for step in range(50) {
+  for _ in range(50) {
     let decision = limit.admit(l, anonymous, 0)
     l = decision.limiter
     if decision.accepted { accepted += 1 }
@@ -176,7 +176,7 @@ test test_sink_drops_move_admitted_datagrams_into_their_own_reason {
 test test_time_extremes_never_fail_or_overflow {
   var l = limit.new_limiter(TIGHT)?
   for now in [-1, 0, 9223372036854775807, -9223372036854775807, 4611686018427387903, 4611686018427387904] {
-    for step in range(20) { l = limit.admit(l, plain(1, 7), now).limiter }
+    for _ in range(20) { l = limit.admit(l, plain(1, 7), now).limiter }
   }
   assert l.counters.offered == 120
   assert l.counters.accepted + dropped_total(l) == 120

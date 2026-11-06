@@ -1258,7 +1258,13 @@ mod tests {
                     let params = required
                         .iter()
                         .enumerate()
-                        .map(|(index, param)| format!(", a{index}: {}", param.ty))
+                        .map(|(index, param)| {
+                            let ty = match &param.ty {
+                                super::Type::Union(members) => &members[0],
+                                ty => ty,
+                            };
+                            format!(", a{index}: {ty}")
+                        })
                         .collect::<String>();
                     let args = required
                         .iter()
@@ -1453,7 +1459,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(required, 7);
+        assert_eq!(required, 8);
 
         let check_capability_arguments = |arguments: &str| {
             let source = format!(

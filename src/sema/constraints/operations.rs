@@ -1048,6 +1048,34 @@ impl TypeConstraints {
         Ok(false)
     }
 
+    pub(super) fn wider_stored_record(
+        &self,
+        instance: &super::InstantiatedScheme,
+        expected: &Type,
+        actual: &Type,
+    ) -> Result<Option<Type>, super::ConstraintResolutionError> {
+        let Type::Record(_) = actual else { return Ok(None); };
+        if actual.contains_inference() || actual.contains_any() || actual.contains_recovery() { return Ok(None); }
+        let expected = self.resolve(expected)?;
+        if !matches!(expected, Type::Inference(_)) { return Ok(None); }
+        let mut stores = Vec::new();
+        self.collect_live_store_values(instance, &mut stores)?;
+        let mut joined: Option<Type> = None;
+        for (storage, replacement) in stores {
+            if self.resolve(&storage)? != expected { continue; }
+            let replacement = self.resolve(&replacement)?;
+            if !matches!(replacement, Type::Record(_)) || replacement.contains_inference() || replacement.contains_any() || replacement.contains_recovery() { continue; }
+            if replacement == *actual || !actual.matches_expected(&replacement) || replacement.matches_expected(actual) { continue; }
+            joined = match joined {
+                None => Some(replacement),
+                Some(current) if current.matches_expected(&replacement) => Some(replacement),
+                Some(current) if replacement.matches_expected(&current) => Some(current),
+                Some(_) => return Ok(None),
+            };
+        }
+        Ok(joined)
+    }
+
     pub(super) fn nullable_store_witness(
         &self,
         instance: &super::InstantiatedScheme,

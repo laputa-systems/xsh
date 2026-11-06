@@ -216,3 +216,22 @@ fn concurrent_rename_and_symlink_switch_never_returns_outside_sentinel() -> io::
     );
     Ok(())
 }
+
+#[test]
+fn a_non_blocking_open_of_a_fifo_returns_without_waiting_for_a_writer() {
+    let tree = Tree::new().unwrap();
+    let fifo = CString::new(tree.root_path.join("pipe").as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let root = Root::open(&tree.root_path).unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let opened = root.open_with("pipe", OpenOptions::new().read(true).non_blocking(true));
+        let _ = sender.send(opened.map(|file| file.metadata().map(|metadata| metadata.is_file())));
+    });
+
+    let opened = receiver
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the open waited for a writer");
+
+    assert!(!opened.unwrap().unwrap());
+}

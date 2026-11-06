@@ -81,3 +81,19 @@ test test_failed_callback_call_does_not_reject_later_valid_calls { |ctx|
   assert_single(stderr, "poisoned application", "check.callable-mismatch")
   assert ":3:" in stderr, stderr
 }
+
+test test_erased_open_spread_override_asks_for_a_declared_result { |ctx|
+  let prelude = "type Parsed = {code: List[Int], at: Int}\npure same(value) { value }\nlet start: Parsed = {code: [7], at: 4}\n"
+  let stderr = diagnose(
+    ctx,
+    "erased override",
+    prelude + "pure reset(state) { same({...state, code: []}) }\nlet cleared = reset(start)\nassert reset(start).code.len() == 0\n",
+  )?
+  assert_single(stderr, "erased override", "check.local-inference")
+  assert "overrides field `code`" in stderr, stderr
+  assert "declare the result type" in stderr, stderr
+  assert "sealed arithmetic" not in stderr, stderr
+  let declared = test.run_xsh(ctx, prelude + "pure reset(state) -> Parsed { same({...state, code: []}) }\nassert reset(start).code.len() == 0\nprint \"closed\"\n")?
+  assert declared.success, declared.stderr
+  assert declared.stdout == "closed\n"
+}

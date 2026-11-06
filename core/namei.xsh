@@ -365,8 +365,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let operand = gnu.argument_bytes(token, prepared.raw)
     let operand_path = Path.parse_bytes(operand)?
     if fs.stat(operand_path, follow_symlinks: true) is Err(_) { failed = true }
-    let components = path_entries(operand, 0, b"", 0, null, options.mounts)?
-    let result = expand(components, options.nosymlinks, options.mounts)?
+    let entries_from_root = path_entries(operand, 0, b"", 0, null, options.mounts)?
+    let result = expand(entries_from_root, options.nosymlinks, options.mounts)?
     for entry in result.entries {
       if let failure = entry.link_error { report_fatal(entry.path, "failed to read symlink: ", failure) }
       if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.."]), "stat of ", failure) }

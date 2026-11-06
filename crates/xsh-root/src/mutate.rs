@@ -1,7 +1,7 @@
 use crate::Root;
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use rustix::fs::{
-    AtFlags, Dir, FileType, Gid, Mode, OFlags, RenameFlags, Uid, chownat, fchmod, linkat, mkdirat,
+    AtFlags, Dir, FileType, Gid, Mode, OFlags, RenameFlags, Uid, chmodat, chownat, fchmod, linkat, mkdirat,
     openat, readlinkat, renameat, renameat_with, statat, symlinkat, unlinkat,
 };
 use std::ffi::{OsStr, OsString};
@@ -218,6 +218,12 @@ impl Root {
             file_type,
             mode_bits(mode),
             rustix::fs::makedev(major, minor),
+        )?;
+        chmodat(
+            target.parent.fd(),
+            target.leaf.as_os_str(),
+            mode_bits(mode),
+            AtFlags::empty(),
         )
         .map_err(io::Error::from)
     }

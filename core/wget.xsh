@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.http_transfer
+use lib.monotonic
 
 const VERSION = "1.25.0"
 
@@ -528,7 +529,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
   var attempt = 1
   var hops = 0
   while true {
-    let started = time.now()
+    let started = monotonic.now()?
     let tag = if attempt > 1 { f"(try:{attempt:>2})  " } else { "" }
     if options.spider and attempt == 1 {
       log_verbose(options, "Spider mode enabled. Check if remote file exists.\n")
@@ -558,7 +559,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     } else {
       http_transfer.fetch_to(request, target.path ?? p"/dev/null")
     }
-    let elapsed = time.now() - started
+    let elapsed = monotonic.since_ms(started, monotonic.now()?)
     match result {
       Err(failure) => {
         let plan = failure_plan(failure, host)
@@ -765,7 +766,7 @@ proc main(...argv: List[Str]) [net, fs, process, env, io, error, time] {
     }
   }
   if urls.is_empty() { usage_failure("missing URL", EXIT_GENERIC) }
-  let began = time.now()
+  let began = monotonic.now()?
   var status = 0
   var files = 0
   var total = 0
@@ -780,7 +781,7 @@ proc main(...argv: List[Str]) [net, fs, process, env, io, error, time] {
     }
   }
   if urls.len() > 1 {
-    let wall = time.now() - began
+    let wall = monotonic.since_ms(began, monotonic.now()?)
     log_verbose(options, f"FINISHED --{stamp()}--\nTotal wall clock time: {elapsed_text(wall)}\nDownloaded: {files} files, {human_size(total)} in {elapsed_text(spent)} ({unit_rate(rate_of(total, spent))})\n")
   }
   exit status

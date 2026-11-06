@@ -3840,6 +3840,17 @@ impl Checker {
         })
     }
 
+    pub(super) fn is_narrowed_from_optional(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
+        let Some((_, path, _, binding)) = self.proof_subject_arena(arena, expr) else {
+            return false;
+        };
+        binding
+            .unrefined_ty
+            .as_ref()
+            .and_then(|original| super::proof::projected_type(original, &path))
+            .is_some_and(|original| matches!(original, Type::Optional(_)))
+    }
+
     pub(super) fn infer_condition_proof_arena(
         &self,
         arena: &ArenaProgram,

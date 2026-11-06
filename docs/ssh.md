@@ -95,6 +95,9 @@ A remote exit status or signal is a result, not an error. `exit_code` is the
 remote status, `signal` the remote signal name (and `exit_code` is `-1`), and
 `missing` is true when the channel closed with neither; that case is never exit
 zero.
+A server that sends the status and then ends the TCP connection without closing
+the channel still yields that status, as with OpenSSH; the session is unusable
+afterwards. A reset, a failed write or an end without a status stays an error.
 
 Every failure is an `SshError` variant. Each carries `message` and
 `certainty`, an `ssh.Certainty`: `NotSubmitted` means the request never reached the
@@ -151,7 +154,9 @@ Each rekey checks the key again and requires the key of the first exchange.
 Ed25519 public-key authentication only. A key file must be an unencrypted
 OpenSSH-format Ed25519 private key; an encrypted file fails with
 `SshError.Key`. To keep an encrypted identity out of this process, load it into
-`ssh-agent` and pass `agent` and `agent_identity`. The client asks the agent
+`ssh-agent` and pass `agent` and `agent_identity`. Like OpenSSH, the client
+refuses a key file it owns that group or others can access, and refuses one that
+is not a regular file or is larger than 64 KiB, with `SshError.Key`. The client asks the agent
 only to sign the authentication request for that one fingerprint, bounds and
 validates every agent message, and never forwards the agent. There is no
 password, keyboard-interactive, PTY, X11, port forwarding or SFTP, and no
@@ -187,9 +192,19 @@ that does not take the output waiting for it is different: when no byte of that
 output is accepted for the connect `timeout_ms`, the command fails with
 `SshError.Timeout`, however much the peer sends meanwhile, and the client stops
 reading while that output is waiting. SIGINT and SIGTERM cancel connecting,
-authenticating and a running command promptly as `SshError.Canceled`. Work begun
+authenticating (including a wait on `ssh-agent`) and a running command promptly
+as `SshError.Canceled`. Work begun
 after the first signal, such as releasing a lock in a `defer`, is not cancelled by
 it; a second signal cancels that too.
+
+`stdin_path` may name a pipe, FIFO or terminal: the client reads it only when
+it is readable, so a source with nothing to give does not stop the connection or
+its deadline. A `stdout_path` or `stderr_path` that is not a regular file is
+written only when it is writable, in pieces of at most 4096 bytes; if its reader
+stops draining, the command ends at its `timeout_ms` or on a signal, and while
+the client waits on it no connection traffic is served. Opening such a file
+does not block: a `stdin_path` FIFO opens at once without a writer, and a
+`stdout_path` or `stderr_path` FIFO without a reader fails with `SshError.Local`.
 
 Closing a channel or connection does not prove that a remote process stopped,
 and the client sends no signal to it. A timed-out or cancelled command may
@@ -223,9 +238,10 @@ not claimed.
 ## Limits and threat model
 
 The client is experimental. Passing these tests is not a security review or
-formal verification of the protocol. A protocol and security review is required
-before it guards anything beyond administration of hosts that the caller
-already controls.
+formal verification of the protocol. An independent protocol and security review
+is required before it guards anything beyond administration of hosts that the
+caller already controls; the [source review](rfc/XSH-55-native-ssh-client.md#protocol-and-security-review)
+of 2026-11-05 is not that review and lists the risks it could not demonstrate.
 
 - It defends against an active network attacker who tries to impersonate the
   server (host-key verification before authentication), alter or inject packets
@@ -242,9 +258,12 @@ already controls.
   `known_hosts` file or fingerprint source, or a malicious agent that signs for
   an identity the caller selected.
 - Private key file contents, and every copy this client makes while checking
-  and parsing them, are held in zeroized buffers. The private-key copy inside
-  Graviola, the key-exchange shared secret, process memory dumps and swap are
-  outside that guarantee.
+  and parsing them, the key-exchange shared secret, the derived key material
+  held by the client, decrypted packet payloads and the receive buffer's consumed
+  bytes are wiped when dropped or compacted. The private-key copy inside
+  Graviola, key state inside its ciphers and hash contexts, buffers a growing
+  allocation leaves behind, caller stdin bytes before they are packetized,
+  process memory dumps and swap are outside that guarantee.
 - Text the server supplies (a disconnect description, a channel-open failure
   reason, an exit-signal name, offered authentication methods and algorithm
   names) loses its control and bidirectional-override characters and is cut to

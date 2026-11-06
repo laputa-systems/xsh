@@ -2988,15 +2988,24 @@ impl Checker {
     }
 }
 
-fn defines_proc_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {
+fn entry_main_definition(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> Option<crate::syntax::arena::FunctionDefId> {
     match program.arena.stmt(stmt).kind {
-        ArenaStmtKind::Export(inner) => defines_proc_main(program, inner),
-        ArenaStmtKind::ProcDef(def) => {
-            let def = program.arena.function_def(def);
-            !def.test_declaration && def.name == "main"
+        ArenaStmtKind::Export(inner) => entry_main_definition(program, inner),
+        ArenaStmtKind::ProcDef(id) => {
+            let def = program.arena.function_def(id);
+            (!def.test_declaration && def.name == "main").then_some(id)
         }
-        _ => false,
+        _ => None,
     }
+}
+
+fn defines_proc_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {
+    entry_main_definition(program, stmt).is_some()
+}
+
+pub(super) fn is_entry_main(program: &ArenaProgram, target: CheckedFunctionTarget) -> bool {
+    target.namespace.is_none()
+        && program.statement_ids().any(|stmt| entry_main_definition(program, stmt) == Some(target.definition))
 }
 
 fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {

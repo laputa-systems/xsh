@@ -1,14 +1,17 @@
+use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::{AsFd, BorrowedFd};
 use std::time::Duration;
 
 use oxish_proto::{Encode, MessageType};
-use rustix::event::PollFlags;
+use rustix::event::{PollFd, PollFlags, poll};
+use rustix::time::Timespec;
 
 use crate::channel::{Channel, validate_environment};
 use crate::client::Connection;
 use crate::error::{Certainty, Error};
 use crate::exec::{ExecResult, ExecStatus};
-use crate::wire::{Interrupt, Packet, SshReader, plain_text, put_string};
+use crate::wire::{Interrupt, Packet, SshReader, plain_text};
 
 const OUTPUT_HIGH_WATER: usize = 256 * 1024;
 const STDERR_EXTENDED_DATA: u32 = 1;
@@ -33,8 +36,22 @@ impl std::fmt::Debug for StreamOptions {
     }
 }
 
+/// A source of command input. The client waits on its descriptor, so a source that can block
+/// without one would stall the connection, its deadline and its cancellation.
+pub trait InputSource: Read {
+    /// A descriptor that polls readable when the next read will not block, or `None` for a
+    /// source whose reads never block.
+    fn descriptor(&self) -> Option<BorrowedFd<'_>>;
+}
+
+impl InputSource for File {
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
+        Some(self.as_fd())
+    }
+}
+
 struct Input<'a> {
-    reader: Option<&'a mut dyn Read>,
+    reader: Option<&'a mut dyn InputSource>,
     buffer: Vec<u8>,
     position: usize,
     length: usize,
@@ -42,7 +59,7 @@ struct Input<'a> {
 }
 
 impl<'a> Input<'a> {
-    fn new(reader: Option<&'a mut dyn Read>) -> Self {
+    fn new(reader: Option<&'a mut dyn InputSource>) -> Self {
         let eof = reader.is_none();
         Self {
             reader,
@@ -55,6 +72,22 @@ impl<'a> Input<'a> {
 
     fn drained(&self) -> bool {
         self.position == self.length
+    }
+
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
+        self.reader.as_ref().and_then(|reader| reader.descriptor())
+    }
+
+    fn readable(&self) -> bool {
+        let Some(descriptor) = self.descriptor() else {
+            return true;
+        };
+        let mut polled = [PollFd::from_borrowed_fd(descriptor, PollFlags::IN)];
+        let immediately = Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        !matches!(poll(&mut polled, Some(&immediately)), Ok(0) | Err(_))
     }
 
     fn refill(&mut self) -> Result<(), Error> {
@@ -91,6 +124,10 @@ struct Completion {
 }
 
 impl Completion {
+    fn is_reported(&self) -> bool {
+        self.exit_status.is_some() || self.exit_signal.is_some()
+    }
+
     fn status(&self) -> ExecStatus {
         match (self.exit_status, &self.exit_signal) {
             (Some(status), _) => ExecStatus::Exited(status),
@@ -104,7 +141,7 @@ pub(crate) fn exec_stream(
     connection: &mut Connection,
     command: &str,
     options: &StreamOptions,
-    stdin: Option<&mut dyn Read>,
+    stdin: Option<&mut dyn InputSource>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExecResult, Error> {
@@ -130,7 +167,7 @@ fn run(
     connection: &mut Connection,
     command: &str,
     env: &[(String, String)],
-    stdin: Option<&mut dyn Read>,
+    stdin: Option<&mut dyn InputSource>,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExecResult, Error> {
@@ -143,12 +180,35 @@ fn run(
 
     let mut input = Input::new(stdin);
     let mut completion = Completion::default();
+    let driven = drive(connection, &mut channel, &mut completion, &mut input, stdout, stderr);
+    match driven {
+        Ok(()) => {}
+        Err(_) if connection.transport().peer_closed() && completion.is_reported() => {
+            connection.mark_unusable();
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(ExecResult {
+        status: completion.status(),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    })
+}
+
+fn drive(
+    connection: &mut Connection,
+    channel: &mut Channel,
+    completion: &mut Completion,
+    input: &mut Input<'_>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), Error> {
     while !channel.is_closed() {
         connection.transport().check()?;
         while let Some(packet) = connection.try_next_packet()? {
-            on_packet(connection, &mut channel, &mut completion, packet, stdout, stderr)?;
+            on_packet(connection, channel, completion, packet, stdout, stderr)?;
         }
-        let feeding = feed(connection, &mut channel, &mut input)?;
+        let feeding = feed(connection, channel, input)?;
         if channel.close_received {
             channel.send_close(connection.transport())?;
         }
@@ -163,23 +223,25 @@ fn run(
         if flushed && feeding == Feed::OutputFull {
             continue;
         }
-        let events = connection.transport().wait(!flushed)?;
+        let waiting_for = if feeding == Feed::WaitingForInput {
+            input.descriptor()
+        } else {
+            None
+        };
+        let events = connection.transport().wait_with_input(!flushed, waiting_for)?;
         if events.contains(PollFlags::IN) || events.contains(PollFlags::HUP) {
             connection.transport().fill_nonblocking()?;
         }
     }
 
-    Ok(ExecResult {
-        status: completion.status(),
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    })
+    Ok(())
 }
 
 #[derive(PartialEq, Eq)]
 enum Feed {
     Done,
     WaitingForWindow,
+    WaitingForInput,
     OutputFull,
 }
 
@@ -201,6 +263,9 @@ fn feed(
             }
             if channel.remote_window == 0 {
                 return Ok(Feed::WaitingForWindow);
+            }
+            if !input.readable() {
+                return Ok(Feed::WaitingForInput);
             }
             input.refill()?;
             continue;
@@ -290,18 +355,6 @@ fn on_packet(
             expect_recipient_only(channel, &packet.payload)?;
             channel.close_received = true;
         }
-        MessageType::ChannelOpen => {
-            let mut refusal = Vec::new();
-            MessageType::ChannelOpenFailure.encode(&mut refusal);
-            let mut reader = SshReader::new(&packet.payload);
-            let _kind = reader.text()?;
-            let sender = reader.u32()?;
-            refusal.extend_from_slice(&sender.to_be_bytes());
-            refusal.extend_from_slice(&1u32.to_be_bytes());
-            put_string(&mut refusal, b"channels are not accepted");
-            put_string(&mut refusal, b"");
-            connection.transport().reply(&refusal)?;
-        }
         other => {
             return Err(Error::Protocol {
                 detail: format!("unexpected channel message {other:?}"),
@@ -342,8 +395,35 @@ fn check_open_for_data(channel: &Channel) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Debug)]
+pub(crate) enum SinkStop {
+    Deadline,
+    Cancelled,
+}
+
+impl std::fmt::Display for SinkStop {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Deadline => "the command deadline passed while an output file was not draining",
+            Self::Cancelled => "cancelled while an output file was not draining",
+        })
+    }
+}
+
+impl std::error::Error for SinkStop {}
+
 fn sink(output: &mut dyn Write, data: &[u8], stream: &'static str) -> Result<(), Error> {
     output.write_all(data).map_err(|error| {
+        if let Some(stop) = error.get_ref().and_then(|inner| inner.downcast_ref::<SinkStop>()) {
+            return match stop {
+                SinkStop::Deadline => Error::Timeout {
+                    certainty: Certainty::Submitted,
+                },
+                SinkStop::Cancelled => Error::Cancelled {
+                    certainty: Certainty::Submitted,
+                },
+            };
+        }
         if error.kind() == std::io::ErrorKind::OutOfMemory {
             Error::OutputLimit { stream }
         } else {

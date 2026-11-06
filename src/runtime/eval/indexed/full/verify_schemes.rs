@@ -2545,6 +2545,15 @@ fn verify_body_expression(
             {
                 budget.charge_scheme_clone(ty)?;
                 ty.clone()
+            } else if let SchemeType::Optional(payload) = actual
+                && body_types_equal(payload, ty)
+                && match producer_index.prefix_context(decoder.owner, &decoder.instruction_range)? {
+                    Some(prefix) => prefix.slot_read_is_nonnull(decoder, instruction, &mut |amount| budget.charge(amount))?,
+                    None => false,
+                }
+            {
+                budget.charge_scheme_clone(ty)?;
+                ty.clone()
             } else if matches!(ty, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && !matches!(actual, SchemeType::Optional(_) | SchemeType::Ground(Type::Optional(_)))
                 && body_type_matches(actual, ty, budget)?
@@ -2568,7 +2577,10 @@ fn verify_body_expression(
                 proven.clone()
             }
         },
-        schema::ExprView::Null => SchemeType::Ground(Type::Null),
+        schema::ExprView::Null => match ty {
+            SchemeType::Optional(_) => { budget.charge_scheme_clone(ty)?; ty.clone() }
+            _ => SchemeType::Ground(Type::Null),
+        },
         schema::ExprView::Unit => SchemeType::Ground(Type::Unit),
         schema::ExprView::Bool(_) => SchemeType::Ground(Type::Bool),
         schema::ExprView::Int(_) => SchemeType::Ground(Type::Int),
@@ -4675,6 +4687,32 @@ fn verify_symbolic_call_arguments(
     Ok(())
 }
 
+fn store_widens_binder(
+    store: &FullStore,
+    scope: &SchemeScope,
+    scheme: &FullScheme,
+    substitution: &ValidatedCallSubstitution<'_>,
+    parameter: SchemeTypeId,
+    binder_type: &Type,
+    actual: &Type,
+    budget: &mut SchemeInstantiationBudget,
+) -> Result<bool, IrVerifyError> {
+    let node = store.scheme_type(parameter)?;
+    if node.tag != FullSchemeTypeTag::Parameter
+        || !matches!(binder_type, Type::Record(_)) || !matches!(actual, Type::Record(_))
+        || !actual.matches_expected(binder_type) || binder_type.matches_expected(actual)
+    { return Ok(false); }
+    for encoded in bounded(scope.owned_requirements(scheme)?.operations, &store.scheme_operations, "scheme operation range is invalid")? {
+        budget.charge(1)?;
+        let super::schemes::FullSealedOperation::StoreValue { storage, replacement } = encoded else { continue };
+        let storage = store.scheme_type(*storage)?;
+        if storage.tag == FullSchemeTypeTag::Parameter && storage.first == node.first
+            && substitution.instantiate(scope, *replacement, budget, 0)? == *binder_type
+        { return Ok(true); }
+    }
+    Ok(false)
+}
+
 fn scheme_type_contains_any(ty: &SchemeType, budget: &mut SchemeInstantiationBudget) -> Result<bool, IrVerifyError> {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
@@ -5001,11 +5039,12 @@ fn verify_instantiated_call_arguments(
                     ));
                 }
                 if let Some(id) = expected_scheme_type {
+                    let widened = actual != expected && store_widens_binder(store, scope, scheme, &validated, *id, expected, actual, materialization)?;
                     verify_scheme_argument_evidence(
                         store,
                         scope,
                         *id,
-                        actual,
+                        if widened { expected } else { actual },
                         &validated,
                         &mut binder_evidence,
                         materialization,
@@ -5489,11 +5528,35 @@ fn checked_record_argument_type(
 ) -> Result<Option<Type>, IrVerifyError> {
     let Type::Record(expected_fields) = expected.unvalidated() else { return Ok(None) };
     let schema::ExprView::Record(mut entries) = decoder.expression_view(instruction)? else { return Ok(None) };
-    let Ok(writers) = decoder.checked_record_field_writers(&mut entries, |_| Ok(Arc::new(Type::Any))) else { return Ok(None) };
+    let mut spread_failure = None;
+    let writers = decoder.checked_record_field_writers(&mut entries, |spread| {
+        match checked_argument_type(store, decoder, instruction, spread, materialization, 0) {
+            Ok(Some(CheckedArgumentType::Known(source))) if matches!(source.unvalidated(), Type::Record(_)) => Ok(Arc::new(source)),
+            Ok(_) => Err(IrVerifyError::new("checked record spread has no closed record type")),
+            Err(error) => {
+                spread_failure = Some(error.clone());
+                Err(error)
+            }
+        }
+    });
+    if let Some(error) = spread_failure { return Err(error); }
+    let Ok(writers) = writers else { return Ok(None) };
     let mut fields = BTreeMap::new();
     for (name, writer) in writers {
-        let super::CheckedRecordFieldWriter::Value(value) = writer else { return Ok(None) };
         let Some(expected_field) = expected_fields.get(&name) else { return Ok(None) };
+        let value = match writer {
+            super::CheckedRecordFieldWriter::Value(value) => value,
+            super::CheckedRecordFieldWriter::Spread { fields: source, .. } => {
+                let Type::Record(source_fields) = source.unvalidated() else { return Ok(None) };
+                match source_fields.get(&name) {
+                    Some(actual) if actual.matches_expected(expected_field) => {
+                        fields.insert(name, expected_field.clone());
+                        continue;
+                    }
+                    _ => return Ok(None),
+                }
+            }
+        };
         match checked_argument_type(store, decoder, instruction, value, materialization, 0)? {
             Some(CheckedArgumentType::Known(actual)) if actual.matches_expected(expected_field) => {}
             Some(CheckedArgumentType::EmptyList(None)) if matches!(expected_field.unvalidated(), Type::List(_)) => {}
@@ -5561,9 +5624,12 @@ fn annotated_local_argument_type(
         };
         return Ok(empty.then_some(annotation));
     }
-    if !matches!(annotation.unvalidated(), Type::Optional(payload) if matches!(payload.as_ref(), Type::Record(_)))
-        || store.tags.get(initializer) != Some(&FullTag::ExprRecord)
-    {
+    let records = match annotation.unvalidated() {
+        Type::Record(_) => true,
+        Type::Optional(payload) => matches!(payload.as_ref(), Type::Record(_)),
+        _ => false,
+    };
+    if !records || store.tags.get(initializer) != Some(&FullTag::ExprRecord) {
         return Ok(None);
     }
     Ok(Some(annotation))

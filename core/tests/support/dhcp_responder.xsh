@@ -85,8 +85,8 @@ pure classless_entry(text: Str) -> Bytes {
   let parts = text.split(" ")
   let network = parts[0].split("/")
   let prefix = network[1].parse_int() ?? 0
-  let destination = bytes.pack_be(wire.ip_parse(network[0]) ?? 0, 4) ?? b""
-  bytes.concat([bytes.from_ints([prefix]) ?? b"", destination[..(prefix + 7) / 8], address_bytes(parts[1])])
+  let prefix_octets = bytes.pack_be(wire.ip_parse(network[0]) ?? 0, 4) ?? b""
+  bytes.concat([bytes.from_ints([prefix]) ?? b"", prefix_octets[..(prefix + 7) / 8], address_bytes(parts[1])])
 }
 
 ## The datagram a reply specification produces for a request.

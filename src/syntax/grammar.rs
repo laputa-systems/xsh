@@ -1096,6 +1096,15 @@ pub fn context_scope_suffix_lookahead<'s>(
     if !peek(offset).is_some_and(|token| token.tag == TokenTag::LBrace) {
         return None;
     }
+    scope_block_has_expression_suffix(&mut peek, offset)
+}
+
+/// Returns whether the block opening at `offset` is followed by an expression
+/// suffix rather than ending its statement.
+fn scope_block_has_expression_suffix<'s>(
+    mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>,
+    mut offset: usize,
+) -> Option<bool> {
     let mut braces = 0usize;
     loop {
         let tag = peek(offset).map(|token| token.tag)?;
@@ -1132,6 +1141,25 @@ pub fn context_scope_suffix_lookahead<'s>(
             peek(offset + 1).and_then(|token| token.keyword),
         )
         .is_some())
+}
+
+/// Returns whether a complete `within DURATION { ... }` form has an expression
+/// suffix; `None` means the input does not start that form.
+pub fn within_scope_suffix_lookahead<'s>(
+    mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>,
+) -> Option<bool> {
+    if peek(0)?.keyword != Some(Keyword::Within) {
+        return None;
+    }
+    let mut offset = 1;
+    loop {
+        match peek(offset)?.tag {
+            TokenTag::LBrace => break,
+            TokenTag::Ident | TokenTag::Dot | TokenTag::Duration => offset += 1,
+            _ => return None,
+        }
+    }
+    scope_block_has_expression_suffix(&mut peek, offset)
 }
 
 pub fn name_starts_collect<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {

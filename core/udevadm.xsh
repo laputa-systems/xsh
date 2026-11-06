@@ -13,6 +13,7 @@
 ##! kernel uevent stream does not carry. Without `-u`, `monitor` prints kernel
 ##! uevents.
 use lib.gnu
+use lib.monotonic
 use lib.search
 use lib.sys_udev as udev
 
@@ -721,7 +722,7 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] {
   # nothing will ever drain the queue, so settle has nothing to wait for.
   return when unix.id()?.euid == 0 and ! udev.daemon_present(root)
 
-  let deadline = time.now() + seconds * 1000
+  let deadline = monotonic.deadline_after(monotonic.now()?, monotonic.seconds_ms(seconds))
   while true {
     if let marker = opts.exit_if_exists {
       return when fp"{marker}".exists()
@@ -729,7 +730,7 @@ proc settle(argv: List[Str]) [fs, env, process, io, time, error] {
 
     return when ! udev.queue_pending(root)
 
-    if time.now() >= deadline {
+    if monotonic.expired(deadline, monotonic.now()?) {
       exit 1
     }
 
@@ -794,15 +795,15 @@ proc monitor(argv: List[Str]) [env, process, io, time, error] {
 
   let events = linux.uevent_stream()?
   gnu.write_text("monitor will print the received events for:\nKERNEL - the kernel uevent\n\n")
-  # Event stamps are seconds since boot. Uptime is whole seconds and the wall
-  # clock is milliseconds, so stamps advance with millisecond resolution from
+  # Event stamps are seconds since boot. Uptime is whole seconds and the
+  # monotonic clock is milliseconds, so stamps advance with millisecond resolution from
   # the uptime observed at start.
   let base_ms = unix.uptime_seconds()? * 1000
-  let started = time.now()
+  let started = monotonic.now()?
   for event in events {
     continue when ! monitor_selected(event, opts.subsystem_match)
 
-    let stamp = base_ms + time.now() - started
+    let stamp = base_ms + monotonic.since_ms(started, monotonic.now()?)
     let micros = stamp % 1000 * 1000
     gnu.write_text(f"{"KERNEL":<6}[{stamp / 1000}.{micros:06}] {event.action:<8} {event.devpath} ({event.subsystem})\n")
     if opts.property {

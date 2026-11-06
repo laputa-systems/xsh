@@ -353,7 +353,7 @@ let missing_root = Path({})
     Ok(_) => test.fail(\"mount_all with unknown filesystem succeeded\")?
   }}
   test.ok(! linux.is_mountpoint(target)?)?
-  match linux.switch_root(missing_root, /sbin/init) {{
+  match linux.switch_root(missing_root, p\"/sbin/init\") {{
     Err(error) => test.error_kind(error, \"linux-switch-root\")?
     Ok(_) => test.fail(\"switch_root with missing root succeeded\")?
   }}

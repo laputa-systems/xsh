@@ -1334,6 +1334,10 @@ impl<'a> Parser<'a> {
         self.peek_tag(offset) == Some(TokenTag::Pipe)
     }
 
+    pub(super) fn within_scope_suffix_lookahead(&self) -> Option<bool> {
+        grammar::within_scope_suffix_lookahead(|offset| self.grammar_token(offset))
+    }
+
     pub(super) fn context_scope_suffix_lookahead(&self) -> Option<bool> {
         grammar::context_scope_suffix_lookahead(|offset| self.grammar_token(offset))
     }
