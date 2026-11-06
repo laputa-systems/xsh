@@ -154,10 +154,12 @@ fn interrupted_child() {
         "extract-repeatedly" => {
             let parent = arg(0);
             let bytes = archive_bytes();
-            for index in 0.. {
+            let mut index = 0u64;
+            loop {
                 let mut archive = open(bytes.clone(), Format::Tar, Compression::Auto).unwrap();
                 extract(&mut archive, &parent.join(format!("dest-{index:05}")), &Policy::default(), &budget())
                     .unwrap();
+                index += 1;
             }
         }
         "create" => {
