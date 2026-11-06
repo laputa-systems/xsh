@@ -13044,6 +13044,240 @@
       "boundary": "One forged scheme."
     },
     {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_scopes_are_the_typed_scopes",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.the_certified_scopes_are_the_typed_scopes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scopes the certificate validates the caller and callee in are, binding for binding, the scopes the typed-scope invariant is stated over.",
+      "boundary": "One fixture; bindings are compared by name, binder, kind and scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scope_values_agree_of_members",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.scope_values_agree_of_members",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scope whose every binding reads as a value agreeing with it satisfies scope-value agreement.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.mutable_cells_agree_of_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.mutable_cells_agree_of_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scope of immutable bindings satisfies mutable-cell agreement.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_globals_cell",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_globals_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each global cell of the loaded program is at activation 0 and belongs to Ok, the callee or the caller.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.top_cells_are_the_globals",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.top_cells_are_the_globals",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A function entered with no parameters sees exactly the program globals.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_globals_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_globals_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The loaded program's global cells are distinct.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_globals_are_present",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_globals_are_present",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every global cell of the loaded program is present in its store.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_global_values",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_global_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every global binding of the caller's scope reads as the scheme function of its binding.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_scope_is_immutable",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_scope_is_immutable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every binding of the callee's scope is immutable.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_scope_binders_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_scope_binders_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's scope binders are distinct.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.read_through_program_globals",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.read_through_program_globals",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A store that agrees with the program store at activation 0 reads every global the same way.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_top_level_state_agrees_with_the_lift_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.a_top_level_state_agrees_with_the_lift_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A state at the program globals whose store agrees with the program store at activation 0 satisfies the caller's typed-scope invariant.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified scheme instantiates to no parameters and a Result[Int, Str] result.",
+      "boundary": "One monomorphic scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invoking_lift_enters_its_body",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.invoking_lift_enters_its_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the caller enters its certified body under a caller frame in a new activation.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_store_is_below",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.program_store_is_below",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The program store holds only activation-0 cells.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_returning_satisfies_the_activation_invariant",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_returning_satisfies_the_activation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's body state satisfies the activation invariant.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.certified_program_of_the_same_tables",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.certified_program_of_the_same_tables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified-program hypothesis depends only on the store, globals and function table.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_returning_holds_the_certified_program",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_returning_holds_the_certified_program",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's body state still holds the certified program.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invoking_lift_runs_its_body_to_the_caller",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.invoking_lift_runs_its_body_to_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the certified caller runs its whole body, through the certified callee, and returns Ok(1) to the caller frame in 26 internal steps, restoring the top-level cells, activation and solution.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_body_starts_in_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_body_starts_in_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's body starts in its certified scope's typed-scope invariant.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_returns_in_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.lift_returns_in_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "After the return the top-level state still satisfies the caller's typed-scope invariant, although the callee's parameter cell remains in the store.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.callee_cells_cell",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.callee_cells_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A cell active in the callee frame is its parameter cell or a program global.",
+      "boundary": "Witness data for the loaded call program."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_body_starts_in_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.wrap_body_starts_in_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee's body starts in its certified scope's typed-scope invariant: its parameter holds the Int argument and the globals still read as their scheme functions.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.invoking_lift_reaches_the_wrap_frame",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.invoking_lift_reaches_the_wrap_frame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Invoking the caller reaches the callee's entered frame in 12 internal steps.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_lift_function_runs_in_its_typed_scopes",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.the_certified_lift_function_runs_in_its_typed_scopes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The certified caller, invoked in the loaded program, runs to its return with the typed-scope invariant at its entry, at the callee's entry and after the return, and the fixture and its scopes are certified.",
+      "boundary": "The program machine is a witness with the certified functions loaded; the typed scope is ScopeStateAgrees, not the full TypedMachine invariant. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_state_without_the_ok_cell_is_outside_the_typed_scope",
+      "module": "Xsh.Semantics.Connected.SafetyResultFunction",
+      "declaration": "Xsh.Semantics.Connected.a_state_without_the_ok_cell_is_outside_the_typed_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A caller state whose store lacks the Ok cell does not satisfy the typed-scope invariant.",
+      "boundary": "One control."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
       "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
       "declaration": "Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",

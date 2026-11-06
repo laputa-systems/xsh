@@ -126,7 +126,13 @@ caller's own caller frame. Those machine hypotheses follow from a certified
 program (every fixture function bound at its published scheme with its
 certified body, and `Ok` bound) together with the activation invariant at top
 level; a concrete loaded machine satisfies both, and a callee loaded at a forged
-scheme does not. Local declarations, recursion, the base machine and its lowerer, typed whole-function execution, and
+scheme does not. Invoking the certified caller in that loaded machine runs its
+whole body under the caller frame `callFunction` pushes and returns `Ok(1)` to
+it. The typed-scope invariant (`ScopeStateAgrees`) holds over the certified
+scopes at the caller's entry, at the callee's entry, where the parameter holds
+the `Int` argument, and after the return; the certified scopes are shown equal
+to those scopes. The full `TypedMachine` invariant for Result bodies is not yet
+established. Local declarations, recursion, the base machine and its lowerer, typed whole-function execution, and
 source-site binding of propagation and call rows remain open. The source is kept short
 because lean4lean exceeds its deterministic timeout when the kernel admits a
 source of a few hundred characters.

@@ -65,7 +65,9 @@ of the callee's function entry, and the checker's selected call target must be
 the function the validated node calls; the connected machine runs that caller
 node through the callee's frame to `Ok(1)` for any machine that holds the
 certified program and satisfies the activation invariant, and propagates a
-failing callee's error to the caller's caller. Local declarations, recursion, the base machine
+failing callee's error to the caller's caller. Invoking the caller runs its
+whole body to the return under its caller frame, with the typed-scope invariant
+at both entries and after the return. Local declarations, recursion, the base machine
 and its lowerer, and typed whole-function execution of Result bodies remain
 open.
 
@@ -1240,6 +1242,31 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   pass. The fresh check, for slices 4 and 5, is deferred: the canonical replay
   container was running (`perf-gate-ready` exited 0, but a replay held the
   host); it is not a pass.
+
+- 2026-11-06: Whole-function execution of the certified caller
+  (`Semantics/Connected/SafetyResultFunction.lean`). In the loaded program
+  machine, invoking `lift` (`callFunction`, no parameters, new activation 1,
+  caller frame for the top level) runs its certified body through `wrap` and
+  returns `Ok(1)` to that frame in 26 internal steps, restoring the top-level
+  cells, activation and solution. The typed-scope invariant `ScopeStateAgrees`
+  (distinct binders, scope values, mutable cells, distinct and present active
+  cells) holds over the caller's scope at its entry, over the callee's scope at
+  its entry (the parameter cell holds the `Int` argument, the globals still read
+  as their scheme functions through the callee's cells), and over the caller's
+  scope after the return, although the callee's parameter cell stays in the
+  store. `the_certified_scopes_are_the_typed_scopes` shows, by kernel
+  evaluation of the admitted source, that the scopes the certificate validates
+  the two functions in are binding for binding those scopes. A caller state
+  whose store lacks the Ok cell is outside the invariant. Not covered: this is
+  the typed-scope invariant at the three frame boundaries, not the full
+  `TypedMachine` preservation (control and stack typing, function-table
+  certification through `FunctionBodyCertified` with global scheme bindings),
+  so faults and progress are not proved for every intermediate state of Result
+  bodies; recursion, local declarations, and the base machine and Vertical
+  lowerer remain open. No Rust change, so the gate selects no case. The Lake
+  build (263 jobs), the inventory (1,119 roots) with its 71 tests, and the
+  axiom audit (28,652 declarations, zero closed roots) with its self-test
+  pass.
 
 ## For the owner afterwards
 
