@@ -1267,13 +1267,7 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   lowerer remain open. No Rust change, so the gate selects no case. The Lake
   build (263 jobs), the inventory (1,119 roots) with its 71 tests, and the
   axiom audit (28,652 declarations, zero closed roots) with its self-test
-  pass. The fresh check for slices 4 to 6 is inconclusive: it started with no
-  replay container running and `perf-gate-ready` clean, and the build passed and
-  lean4lean, nanoda and con-leche accepted 116,108 declarations, but a new
-  canonical replay (`xsh-canonical-replay-r11f`) started during the run and the
-  paranoid check hit its 1080-second cap while con-ron ran, so con-ron and the
-  Lean default kernel did not finish. It is not a pass; re-run it when the host
-  is quiet.
+  pass. The fresh check for slices 4 to 6 is covered by the slice 7 entry.
 
 - 2026-11-06: The invoked call program is a `TypedMachine`
   (`Semantics/Connected/SafetyResultTyped.lean`). Both certified bodies are
@@ -1298,6 +1292,14 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   change, so the gate selects no case. The Lake build (264 jobs), the inventory
   (1,144 roots) with its 71 tests, and the axiom audit (28,736
   declarations, zero closed roots) with its self-test pass.
+  Fresh check for slices 4 to 7: inconclusive, not a pass. Two runs started
+  with no replay container and `perf-gate-ready` clean, and each was cut off by
+  a canonical replay that started during the run. The first (`r11f`) hit the
+  1080-second paranoid cap while con-ron ran; the second, started at 16:58 UTC
+  after `r11f` ended, built cleanly and lean4lean, nanoda, con-leche and con-ron
+  accepted 116,164 declarations, but `r11g` started and the cap ended the Lean
+  default kernel before it finished. Five of the six kernels accept the current
+  tree; the Lean default kernel needs a quiet host.
 
 ## For the owner afterwards
 
