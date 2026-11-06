@@ -1096,8 +1096,14 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   solution; the same body at `Result[Int, Error]` has a checked derivation; a
   returned `Ok(1)` is accepted at both error types. Call arguments, record
   fields and callee-parameter positions are still not expected positions, so a
-  bare `Ok` there stays free. No Rust change. The incremental Lake build
-  passes; the other checks are recorded below.
+  bare `Ok` there stays free. No Rust change, so no Rust gate applies. The Lake
+  build (257 jobs), the inventory (1,038 roots) with its 71 tests, and the axiom
+  audit (28,006 declarations, zero closed roots) with its self-test pass. The
+  fresh check is inconclusive: with a canonical replay running (load 7 to 12)
+  the build passed and paranoid, lean4lean, nanoda, con-leche and con-ron
+  accepted 115,571 declarations, but the run hit the 1080-second cap before
+  the Lean default kernel finished. It is not a pass; re-run it when the host
+  is quiet.
 
 ## For the owner afterwards
 
