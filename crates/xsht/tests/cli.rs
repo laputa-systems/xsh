@@ -911,6 +911,22 @@ fn test_runner_admits_another_file_while_one_file_is_at_its_active_limit() {
     assert!(markers.join("hot-12").exists());
 }
 
+// Linux refuses to exec a file another process holds open for writing. A
+// sibling test thread that forks while fs::copy has the copy open passes that
+// descriptor to its child until the child's own exec, so exec of a freshly
+// copied binary fails with ETXTBSY for that window.
+fn run_copied_binary(command: &mut Command) -> std::process::Output {
+    for _ in 0..50 {
+        match command.output() {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            result => return result.expect("run copied binary"),
+        }
+    }
+    command.output().expect("run copied binary")
+}
+
 #[test]
 fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
     let root = TempDir::new().expect("create isolated source root");
@@ -938,12 +954,12 @@ fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_module
         vec!["fmt", "--check", "."],
         vec!["lint", "."],
     ] {
-        let output = Command::new(&xsht)
-            .args(&args)
-            .current_dir(root.path())
-            .env_remove("XSH_MODULE_PATH")
-            .output()
-            .expect("run copied xsht");
+        let output = run_copied_binary(
+            Command::new(&xsht)
+                .args(&args)
+                .current_dir(root.path())
+                .env_remove("XSH_MODULE_PATH"),
+        );
         assert_eq!(
             output.status.code(),
             Some(0),
