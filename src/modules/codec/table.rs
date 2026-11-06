@@ -4,7 +4,7 @@ use crate::source::Span;
 use deser::de::{DeserializeDriver, Layer as DecodeLayer};
 use deser::ser::Layer as EncodeLayer;
 use deser::{Atom, Error, ErrorKind, Event, Serialize};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 #[derive(Clone, Copy)]
 pub(crate) struct DecodeOptions {
@@ -162,7 +162,7 @@ impl DecodeLayer for DecodeGuard {
 }
 
 struct EncodeGuard {
-    columns: Option<HashMap<String, usize>>,
+    columns: Option<FxHashMap<String, usize>>,
     seen: Vec<bool>,
     explicit_columns: bool,
     collecting_columns: bool,
@@ -172,8 +172,8 @@ struct EncodeGuard {
 }
 
 impl EncodeGuard {
-    fn new(columns: Option<HashMap<String, usize>>, explicit_columns: bool) -> Self {
-        let seen = vec![false; columns.as_ref().map_or(0, HashMap::len)];
+    fn new(columns: Option<FxHashMap<String, usize>>, explicit_columns: bool) -> Self {
+        let seen = vec![false; columns.as_ref().map_or(0, FxHashMap::len)];
         Self {
             columns,
             seen,
@@ -206,7 +206,7 @@ impl EncodeGuard {
                     if self.columns.is_some() {
                         self.seen.fill(false);
                     } else {
-                        self.columns = Some(HashMap::new());
+                        self.columns = Some(FxHashMap::default());
                         self.seen.clear();
                         self.collecting_columns = true;
                     }
@@ -305,7 +305,7 @@ where I: IntoIterator<Item = T>, T: Serialize {
     output.finish_bytes(result).map_err(|error| table_error(error, format, span))
 }
 
-fn column_indices(columns: &[String], format: Format, span: Span) -> Result<HashMap<String, usize>, RuntimeError> {
+fn column_indices(columns: &[String], format: Format, span: Span) -> Result<FxHashMap<String, usize>, RuntimeError> {
     if columns.len() > 1_000_000 {
         return Err(runtime_error(
             Error::new(ErrorKind::LimitExceeded, "codec container exceeds 1000000 entries"),
@@ -313,7 +313,7 @@ fn column_indices(columns: &[String], format: Format, span: Span) -> Result<Hash
             span,
         ));
     }
-    let mut indices = HashMap::with_capacity(columns.len());
+    let mut indices = FxHashMap::with_capacity_and_hasher(columns.len(), Default::default());
     let mut payload_bytes = 0usize;
     for (index, column) in columns.iter().enumerate() {
         if column.len() > 16 * 1024 * 1024 {
