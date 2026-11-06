@@ -326,7 +326,10 @@ impl Checker {
                 return self.check_scheme_callable_application(arena, source, callee, relationship, args, span, checked_argument, expected_context);
             }
         }
-        if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
+        if let Some(callable) = self.typed_callable_local_callee(arena, source, callee)
+            && !(callable.sig.params.iter().any(|parameter| parameter.rest)
+                && args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })))
+        {
             return self.check_typed_callable_call_with_checked_argument(
                 arena,
                 source,
@@ -1170,9 +1173,30 @@ impl Checker {
         if let Some(signature) = &signature {
             self.record_function_call_target(span, signature.definition_target);
         }
+        let typed_callable = if signature.is_none() {
+            self.typed_callable_local_callee(arena, source, callee)
+        } else {
+            None
+        };
         let parameters = signature
             .as_ref()
             .map(|signature| signature.params.clone())
+            .or_else(|| {
+                typed_callable.as_ref().map(|callable| {
+                    callable
+                        .sig
+                        .params
+                        .iter()
+                        .map(|parameter| super::FunctionParamSig {
+                            name: parameter.name,
+                            ty: parameter.ty.clone(),
+                            schema_expectation: None,
+                            defaulted: parameter.defaulted,
+                            rest: parameter.rest,
+                        })
+                        .collect()
+                })
+            })
             .or_else(|| {
             let definition = self.record_constructors.constructor_definition(
                 &arena.arena,
@@ -1250,7 +1274,8 @@ impl Checker {
                 return Type::Invalid;
             }
         };
-        let statically_named = self.resolve_callable_alias_call(arena, callee).is_some()
+        let statically_named = typed_callable.is_some()
+            || self.resolve_callable_alias_call(arena, callee).is_some()
             || match arena.arena.expr(callee).kind {
                 ArenaExprKind::Ident(name) => {
                     name == "Err"

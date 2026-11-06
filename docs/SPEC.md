@@ -2451,6 +2451,10 @@ A record spread supplies exactly the fields visible in its checked record
 type; `Any`, open `Record`, `Map`, `Optional`, and `Result` operands must be
 narrowed or unwrapped first. A `null` field is supplied (it does not select the
 parameter's default). Unknown names and parameters supplied twice are errors.
+A record spread may target any callable whose parameter names the checker knows,
+including a local that holds a declaration-derived callable value; a final rest
+parameter still takes positional `@` splices beside it. A call through an authored
+fixed-arity callable type rejects spreads (9.4).
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 

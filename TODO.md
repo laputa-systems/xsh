@@ -118,16 +118,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** S
 
-### XSH-74 · P4 · Accept a record spread into a returned callable
-
-- **Area:** Checker
-- **Where:** `src/sema/check/` (splice target resolution)
-- **Problem:** `integer(...{first: 7}, @tail)`, where `integer` is the callable returned by `keep_rest`, is rejected with `check.splice-target`. A record spread currently requires a statically named callable, and the diagnostic does not say so.
-- **Recommendation:** Decide from the SPEC whether a record spread may target a callable value with a known signature. If so, resolve parameter names from its type; if not, make the diagnostic state the named-callable rule.
-- **Acceptance:** Either the call checks and runs, or the diagnostic names the rule and the SPEC states it.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
 - **Area:** Performance

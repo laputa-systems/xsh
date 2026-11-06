@@ -69,3 +69,9 @@ test test_one_generic_callback_returned_for_two_instantiations_keeps_each_signat
   assert counter(10, 20, 30) == 12
   assert joiner("+", "p", "q") == "p+q"
 }
+
+test test_record_spread_and_rest_splice_into_returned_callable {
+  let integer = keep_rest(count_ints, 1, 2, 3)
+  let tail = [4, 5]
+  assert integer(...{first: 7}, @tail) == 9
+}
