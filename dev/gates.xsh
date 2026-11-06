@@ -735,7 +735,7 @@ proc execute_full(ctx: context.Context, profile: tests.TestProfile, plan: Catalo
       ManualCommand(spec) => tests.run_commands([spec])
       RunCommand(_) | DocumentationCheck => execute_plan(ctx, profile,
         CatalogPlan(tier: entry.tier, cases: [entry], products: [], unresolved: [], available_scenarios: []), [], null)
-      ManualNative => tests.native(ctx, profile, ["--jobs", "4"])
+      ManualNative => tests.native(ctx, profile, ["--jobs", "8"])
       ManualDocumentation => docs_gate(ctx, profile)
       ManualFull | Alias => {}
     }

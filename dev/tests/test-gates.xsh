@@ -1121,12 +1121,12 @@ p"{observed}".write(args.join("|"))?
 
   if unix.id()?.euid == 0 {
     env ({HOST_UID: "1000", HOST_GID: "1000"}) {
-      tests.native(workflow_context, tests.Verification, ["--jobs", "4"])
+      tests.native(workflow_context, tests.Verification, ["--jobs", "8"])
     }
   } else {
-    tests.native(workflow_context, tests.Verification, ["--jobs", "4"])
+    tests.native(workflow_context, tests.Verification, ["--jobs", "8"])
   }
-  assert observed.read_text()? == "test|--jobs|4"
+  assert observed.read_text()? == "test|--jobs|8"
 }
 
 test test_docker_gate_evaluates_context_root_path_expression { |ctx|
