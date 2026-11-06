@@ -1034,8 +1034,55 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   fit one coherent commit beside the focused gates on a shared host. First
   probe: add the recursive `BaseType.result` and the three expression forms
   with the boundary frame, and count the broken cases in the base proofs before
-  touching the Vertical files. The per-expression checker types, calls, local
-  declarations and typed whole-function execution slices stay behind it.
+  touching the Vertical files. Per-expression checker types, calls, local
+  declarations and typed whole-function execution are separate slices; the
+  first of them is scheduled ahead of this one.
+
+  Brief for the dedicated session. Files, in dependency order:
+  `Semantics/BaseMachine.lean` (expressions, frames, `step`, `wellFormed`),
+  `Semantics/BaseInvariant.lean`, `Proofs/BaseMachine.lean`,
+  `Proofs/BaseInvariant.lean`, `Proofs/Base/{Env,Num,Step,Progress,Runner}.lean`
+  (the five G1 roots; fragment roots, so their statements stay),
+  `Proofs/BaseMachineComposition`, `BaseHostTrace`, `BaseHostRunnerLaws`,
+  `Semantics/Foundation/{ObservedMachine,ResolvedBinding}` and their proofs,
+  then `Conformance/Vertical/{Meaning,Reading,Lowering,LoweringSound,Facts,
+  FactsDocument,Documents,Certificate,CallsCertificate,AssignmentsCertificate,
+  FactsCertificate}` and the Rust side `formal_bridge/arithmetic.rs` (1,561
+  lines, exporter and decoder) and `facts.rs` (checked-fact projection).
+  Probe order: (1) BaseMachine definitions only, then `lake build` each module
+  in the order above and count failures per file before fixing any; (2) base
+  semantics and the five G1 theorems; (3) `Meaning`/`Reading` (what a row
+  means); (4) `Lowering` and `LoweringSound` (a read lemma per row form and the
+  state invariant); (5) Rust exporter, facts projection, documents and
+  certificates last, since documents are size-capped. Rust facts for the
+  fixture: `pure f(r: Result[Int, Str]) -> Result[Int, Str] { return Ok(r?) }`
+  and `pure g() -> Result[Int, Str] { return Err("no") }` lower to
+  `ExprParam`/`ExprTry`(107, payload `[value, location]`)/`ExprOk`(104,
+  `[value]`)/`StmtReturn`(150, `[value]`) and `ExprStr`/`ExprErr`(105,
+  `[value, 0]`); a generic or Error-typed `Ok` does not export through the
+  scheme-body facts, and `Ok(1)?` in a `Str`-error function is a Rust error
+  (SPEC 8.5), so the base machine must give a bare `Ok` the error `Error`.
+  Pitfalls found: put Lean 4.35.0 on PATH inside the script that runs Lake
+  (the shell environment does not persist, and a 4.34.1 build rewrites the
+  traces); `Expr`, `Statement`, `TypeExpr`, `SourceFunction` and `SourceUnit`
+  have no `DecidableEq`, so unit equality needs `rfl`, which exhausts memory on
+  a source of a few hundred characters; `decodeType` and similar well-founded
+  decoders do not reduce in the kernel, so write structural decoders with fuel;
+  lean4lean has a per-declaration deterministic timeout and failed every
+  declaration that admitted the 330-character source by evaluation (about 140
+  characters is the longest that passes), so keep sources short, put each
+  mutation in its own theorem, and make controls run on literals plus one
+  theorem tying the literal to the exported bytes; a standalone `lake env lean`
+  of a heavy `decide +kernel` can exhaust memory where the Lake build does not,
+  so measure through Lake with `ulimit -v` and `set_option profiler true`; the
+  `check-fresh.py` run takes 20 to 25 minutes at low load and a load near 10
+  exceeds its cap, so run it when `perf-gate-ready` is clean and treat a cap
+  hit as inconclusive; `cargo dev gate` aborts with "selection source changed"
+  if tracked files change while it runs; never use `pkill -f` or `pgrep -f`
+  with a pattern that appears in your own command line, wait on a pid instead.
+  Gate for the Rust side: `cargo dev gate <file>` runs the lowering cases, the
+  type-agreement case and the native lowering-coverage cases; run a single
+  exporter test in the pinned container with `cargo test --lib <path>`.
 
 - 2026-11-06: The nested-`Ok` model looseness is closed for the positions the
   generator can tell apart. `expressionIn` now constrains a bare `Ok`
