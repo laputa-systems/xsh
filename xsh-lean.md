@@ -63,8 +63,9 @@ the Result of a user call (`Ok(wrap(1)?)`): the callee's published signature
 types the call in the caller's derivation, the direct call row reads as a call
 of the callee's function entry, and the checker's selected call target must be
 the function the validated node calls; the connected machine runs that caller
-node through the callee's frame to `Ok(1)`, and propagates a failing callee's
-error to the caller's caller. Local declarations, recursion, the base machine
+node through the callee's frame to `Ok(1)` for any machine that holds the
+certified program and satisfies the activation invariant, and propagates a
+failing callee's error to the caller's caller. Local declarations, recursion, the base machine
 and its lowerer, and typed whole-function execution of Result bodies remain
 open.
 
@@ -1213,6 +1214,32 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   self-test pass. The fresh check is deferred: the canonical replay was
   running, and the coordinator held multi-kernel runs until it ends; it is not
   a pass.
+
+- 2026-11-06: The call-world hypotheses are derived
+  (`Semantics/Connected/SafetyResultProgram.lean`). `CertifiedResultProgram`
+  states what loading the certified call fixture means: every function's global
+  binder (20 + its position) reads as a scheme function at the monomorphic type
+  of its published signature, its table entry has that scheme, its parameter
+  binders and its certified candidate body, and `Ok` is bound to the Ok
+  builtin. With the existing `ActivationInvariant` (which makes the callee's
+  parameter cell fresh) and the caller at top level (cells are the globals),
+  `certified_call_program_gives_the_call_world` yields the slice-4 call world,
+  and `a_certified_call_program_runs_lift_through_wrap` runs the certified caller
+  to `Ok(1)`. The call world now needs only the Ok builtin, since the call
+  source never names `Err`; the failure path takes `Err` as an extra hypothesis.
+  A concrete loaded machine (`programMachine`, both functions and Ok, empty
+  stack) satisfies the program and activation hypotheses and runs the caller;
+  a machine whose callee cell holds a scheme with a `Str` parameter is not the
+  certified program. Not covered: the program hypothesis is not derived from a
+  load of the Rust function rows; typed whole-function execution (statements
+  to return under the caller frame, preservation of the typed-scope invariant
+  across the call) is next; recursion, local declarations, and the base machine
+  and Vertical lowerer remain open. No Rust change, so the gate selects no case.
+  The Lake build (262 jobs), the inventory (1,093 roots) with its 71 tests, and
+  the axiom audit (28,533 declarations, zero closed roots) with its self-test
+  pass. The fresh check, for slices 4 and 5, is deferred: the canonical replay
+  container was running (`perf-gate-ready` exited 0, but a replay held the
+  host); it is not a pass.
 
 ## For the owner afterwards
 

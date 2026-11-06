@@ -12861,7 +12861,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The callee frame runs its certified body, constructs Ok of its argument and returns it to the caller frame, restoring the caller's cells, activation and solution.",
-      "boundary": "The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+      "boundary": "The call world is a hypothesis: the callee is bound to the published scheme, its table entry has the certified body, and the caller's Ok binding is global; SafetyResultProgram derives it from a certified program and the activation invariant. Rust execution of the rows is not shown."
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.lift_enters_the_wrap_call_frame",
@@ -12870,7 +12870,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The caller's certified returned node evaluates the Ok callee, starts the propagation, evaluates the call target and argument, and enters the callee frame.",
-      "boundary": "The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+      "boundary": "The call world is a hypothesis: the callee is bound to the published scheme, its table entry has the certified body, and the caller's Ok binding is global; SafetyResultProgram derives it from a certified program and the activation invariant. Rust execution of the rows is not shown."
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.lift_runs_the_wrap_call_frame_and_propagates_its_success",
@@ -12879,7 +12879,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The caller's certified returned node runs the callee's frame, propagates its Ok through `?` and wraps the value in Ok, in 22 internal steps.",
-      "boundary": "The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+      "boundary": "The call world is a hypothesis: the callee is bound to the published scheme, its table entry has the certified body, and the caller's Ok binding is global; SafetyResultProgram derives it from a certified program and the activation invariant. Rust execution of the rows is not shown."
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.a_refusing_call_frame_returns_the_error",
@@ -12897,7 +12897,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "When the callee returns an error, the caller's node propagates it through `?`, discards the pending Ok call and returns the error to the caller's own caller frame.",
-      "boundary": "The refusing body is not the certified callee. The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+      "boundary": "The refusing body is not the certified callee, and Err is an extra global hypothesis. Rust execution of the rows is not shown."
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.call_binders_are_distinct",
@@ -12934,6 +12934,114 @@
       "status": "fragment",
       "scope": "The executed caller node and callee body are the certified candidates of the call fixture, whose documents decode to the checked literals.",
       "boundary": "The candidates are hand-written and validated; the link to the Rust rows is the certificate's raw comparison."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ok_builtin_constructs",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.ok_builtin_constructs",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Ok of a read parameter executes with only the Ok builtin in scope.",
+      "boundary": "One parameter read; Err is not required."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_callee_scheme_is_the_published_signature",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_callee_scheme_is_the_published_signature",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scheme a certified program loads for the callee is the monomorphic type of its published signature.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_certified_callee_takes_one_parameter",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_certified_callee_takes_one_parameter",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A certified program's callee binds exactly the first parameter binder.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.fresh_activation_cell_is_empty",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.fresh_activation_cell_is_empty",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Under the activation invariant, no store cell exists at the next activation.",
+      "boundary": "General."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.certified_call_program_gives_the_call_world",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.certified_call_program_gives_the_call_world",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine that holds the certified call fixture's functions at their published schemes and certified bodies, satisfies the activation invariant and runs at top level satisfies the call-world hypotheses.",
+      "boundary": "The machine runs the caller's returned node only; the program hypothesis is stated over the global cells and function table, not derived from a load of the Rust rows."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_certified_call_program_runs_lift_through_wrap",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.a_certified_call_program_runs_lift_through_wrap",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any such machine, the certified caller node runs through the certified callee to Ok(1), and the fixture is certified.",
+      "boundary": "The machine runs the caller's returned node only; the program hypothesis is stated over the global cells and function table, not derived from a load of the Rust rows."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_program_signatures_are_the_published_ones",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_program_signatures_are_the_published_ones",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The call fixture's published signatures are the two literal signatures the program witness loads.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.program_identities_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.program_identities_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The program witness's binders and declarations are distinct.",
+      "boundary": "Witness data."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_program_machine_loads_the_certified_program",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_program_machine_loads_the_certified_program",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete machine over any base holds the certified call program.",
+      "boundary": "One witness machine with an empty stack."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_program_machine_satisfies_the_activation_invariant",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_program_machine_satisfies_the_activation_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete program machine satisfies the activation invariant.",
+      "boundary": "One witness machine."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_loaded_certified_program_runs_lift_through_wrap",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.the_loaded_certified_program_runs_lift_through_wrap",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete loaded program runs the certified caller through the certified callee to Ok(1).",
+      "boundary": "One witness machine."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_callee_loaded_at_a_forged_scheme_is_not_the_certified_program",
+      "module": "Xsh.Semantics.Connected.SafetyResultProgram",
+      "declaration": "Xsh.Semantics.Connected.a_callee_loaded_at_a_forged_scheme_is_not_the_certified_program",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A machine whose callee cell holds a scheme with a Str parameter does not satisfy the certified-program hypothesis.",
+      "boundary": "One forged scheme."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
