@@ -646,16 +646,16 @@ PIPELINE_STAGE_VARIANTS = {
 }
 
 LEAF_SCHEMA_TYPES = {
-    "Arc", "AssignOp", "BinaryOp", "BuildBoolId", "BuildExprId", "BuildIntId",
+    "Arc", "AssignOp", "BinaryOp", "BuildBoolId", "BuildExprId", "BuildIntId", "CallableKind", "DeferKind",
     "BuildPatternId", "BuildStmtId", "DurationValue", "FloatValue", "FunctionName",
     "LoweredCompTarget", "LoweredFunctionKey", "LoweredStrPredicate", "LoweredType",
-    "LoweredTypeCheck", "LoweredValue", "Name", "NameText", "PathValue",
+    "LoweredTypeCheck", "LoweredValue", "LoweredValueCheck", "Name", "NameText", "PathValue",
     "PreparedConstantValue", "QualifiedName", "RegexValue", "ReduceByOp", "RuntimeOp",
     "ScanBytes", "ScanCheck", "Span", "String", "Type", "bool", "i64", "str",
     "usize", "[u8]",
     "crate::runtime::eval::EndDistance", "crate::runtime::eval::ModuleCallPlan",
     "crate::sema::wire_enums::WireEnumMapping", "crate::syntax::arena::ContextScopeKind",
-    "crate::syntax::arena::RetrySchedule",
+    "crate::syntax::arena::RetrySchedule", "crate::syntax::arena::UnknownFields",
 }
 
 ARENA_SHAPE_CONTRACTS = {
@@ -672,7 +672,7 @@ ARENA_SHAPE_CONTRACTS = {
         "for_each_expr_child",
     ),
     "expr_list": (
-        "ArenaExprKind::List(items) | ArenaExprKind::Set(items) => { "
+        "ArenaExprKind::List(items) => { "
         "for expr in self.list_element_exprs(items) { visit(Child::Expr(expr)); } }",
         "for_each_expr_child",
     ),
@@ -989,8 +989,8 @@ def schema_child_paths(
     if generic is not None:
         name = generic.group(1)
         args = split_top_level_fields(generic.group(2))
-        if name in {"Option", "Box", "Arc"} and len(args) == 1:
-            suffix = "?" if name == "Option" else ""
+        if name in {"Option", "Box", "Arc", "crate::runtime::eval::IndexOperand"} and len(args) == 1:
+            suffix = "?" if name in {"Option", "crate::runtime::eval::IndexOperand"} else ""
             return schema_child_paths(args[0], prefix + suffix, pipeline_stage_paths)
         if name == "Vec" and len(args) == 1:
             return schema_child_paths(args[0], prefix + "[*]", pipeline_stage_paths)
