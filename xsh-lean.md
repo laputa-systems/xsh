@@ -1177,7 +1177,10 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   cases, the type-agreement case and the 12 native lowering-coverage cases; the
   two Result exporter tests passed in the pinned container. The Lake build (260
   jobs), the inventory (1,065 roots) with its 71 tests, and the axiom audit
-  (28,333 declarations, zero closed roots) with its self-test pass.
+  (28,333 declarations, zero closed roots) with its self-test pass. With
+  `perf-gate-ready` clean before and after, the fresh check passed: all six
+  kernels accepted 115,818 declarations using only `propext`, `Quot.sound` and
+  `Classical.choice`; lean4lean's slowest new declaration took 1.6 s.
 
 ## For the owner afterwards
 
