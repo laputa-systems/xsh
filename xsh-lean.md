@@ -1292,18 +1292,24 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   change, so the gate selects no case. The Lake build (264 jobs), the inventory
   (1,144 roots) with its 71 tests, and the axiom audit (28,736
   declarations, zero closed roots) with its self-test pass.
-  Fresh check for slices 4 to 7: inconclusive, not a pass, after three runs.
-  Each started with no replay container and `perf-gate-ready` clean. The first
-  two were cut off by canonical replays (`r11f`, `r11g`) that started mid-run.
-  The third (17:56 to 18:16 UTC) had no replay running at its start or end and
-  `perf-gate-ready` clean after it: the build passed, and the paranoid kernel,
-  lean4lean, nanoda, con-leche and con-ron accepted 116,164 declarations, but
-  the 1080-second paranoid cap again ended the Lean default kernel before it
-  finished; the 15-minute load average at the end was 5.9 from other sessions.
-  Five of six kernels accept the current tree. Whether the default kernel no
-  longer fits the cap on this tree or was slowed by that load is not settled;
-  the next probe is one run on an idle host (load near 1) that records each
-  kernel's wall time.
+  Fresh check for slices 4 to 7: inconclusive, not a pass, after four runs.
+  Two were cut off by canonical replays that started mid-run; a third, with no
+  replay, still hit the 1080-second cap shared by the six sequential paranoid
+  kernels. The fourth ran after `check-fresh.py` began streaming checker output
+  (so each kernel is timed): started at 21:42 UTC with load 1.6 and no replay;
+  build 271 s; paranoid stage export 19 s, Lean paranoid kernel 273 s,
+  lean4lean 294 s, nanoda 47 s, con-leche 78 s, con-ron 105 s, then the Lean
+  default kernel was cut off by the cap after 264 s. The host loaded up near
+  the end (load 57 when the cap hit, `perf-gate-ready -1` failed), so the last
+  two figures are upper bounds. Five kernels accept 116,164 declarations. The
+  cost is spread over the tree, not one declaration: against the slice 3 run
+  that passed, the only new declaration over a second in lean4lean is
+  `the_certified_scopes_are_the_typed_scopes` (1.6 s), and the slices 4 to 7
+  add 346 declarations; the slice 3 pass was already near the cap. A cap
+  change is the owner's decision. A separate `leanchecker` run of single
+  modules outside the fresh workspace rejects declarations from older, already
+  certified modules with kernel type mismatches, so it is not a usable timing
+  method.
 
 ## For the owner afterwards
 
