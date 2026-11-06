@@ -2001,7 +2001,11 @@ narrows it.
   otherwise it is `check.spread-hides-field`. Write the field after the spread
   (`{...r, TERM: 1}`) or name it in the operand's type. The type of a field is
   that of the last entry that names it, so a spread that names the field takes
-  its type, optional or not, from the operand.
+  its type, optional or not, from the operand. When the operand is the
+  parameter of an erased procedure, the overriding value of a field must take
+  its type from a parameter or an operation of the procedure; an override such
+  as `[]` that nothing determines is `check.local-inference` at the procedure,
+  and declaring the result type (`-> Parsed`) fixes it.
 - **Maps.** A computed key `[expr]: value` makes a brace literal a map, as does
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace

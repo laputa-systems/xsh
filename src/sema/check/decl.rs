@@ -703,6 +703,15 @@ impl Checker {
             )
             .ok()?,
         );
+        if let Some(field) = callable.undetermined_record_override_field() {
+            self.diagnostics.push(
+                crate::diagnostic::Diagnostic::error(format!("`{}` overrides field `{field}` with a type that nothing determines", def.name))
+                    .with_code(DiagnosticCode::CheckLocalInference)
+                    .with_label(crate::diagnostic::Label::primary(body_span, "the override leaves the field type free"))
+                    .with_note("declare the result type of the procedure so the override is checked against it"),
+            );
+            return None;
+        }
         let guard_scopes = (|| {
             let expressions = generalized_body_types.keys().chain(&noncompleting_expressions).filter_map(|&expression| self.guarded_nodes.get(&program.arena.expr(expression).span).map(|&guard| (expression, guard))).map(|(expression, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (expression, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
             let statements = local_statements.iter().filter_map(|&statement| self.guarded_nodes.get(&program.arena.stmt(statement).span).map(|&guard| (statement, guard))).map(|(statement, guard)| self.type_constraints.generalized_guard_scope(guard, &generalized.generalization_scope).map(|scope| scope.map(|scope| (statement, scope)))).collect::<Result<Vec<_>, crate::sema::constraints::SchemeOperationError>>()?.into_iter().flatten().collect();
