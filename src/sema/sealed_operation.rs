@@ -307,6 +307,37 @@ pub(crate) fn arithmetic_result(signature: ArithmeticSignature, left: &Type, rig
     })
 }
 
+pub(crate) fn membership_selection(container: &Type, needle: &Type) -> Option<MembershipDomain> {
+    use super::types::MembershipCheck;
+    if container.contains_inference() || needle.contains_inference() || container.contains_recovery() || needle.contains_recovery() { return None; }
+    match container.membership_needle_type(needle) {
+        MembershipCheck::Expected(required) | MembershipCheck::Compared(required) if needle.matches_expected(required) => {},
+        _ => return None,
+    }
+    membership_domain(container)
+}
+
+pub(crate) fn membership_domain(container: &Type) -> Option<MembershipDomain> {
+    Some(match container.unvalidated() {
+        Type::List(_) => MembershipDomain::List,
+        Type::Set(item) if item.is_map_key() => MembershipDomain::Set,
+        Type::Map(key, _) if key.is_map_key() => if **key == Type::UInt { MembershipDomain::UnsignedMap } else { MembershipDomain::Map },
+        Type::Record(_) | Type::ErasedRecord => MembershipDomain::Record,
+        Type::Str => MembershipDomain::Str,
+        Type::Bytes => MembershipDomain::Bytes,
+        Type::Path => MembershipDomain::Path,
+        Type::EnvPathList => MembershipDomain::EnvPath,
+        _ => return None,
+    })
+}
+
+pub(crate) fn equality_selection(left: &Type, right: &Type) -> bool {
+    if left.contains_inference() || right.contains_inference() || left.contains_recovery() || right.contains_recovery() || left.contains_any() || right.contains_any() { return false; }
+    let left = left.equality_operand_type();
+    let right = right.equality_operand_type();
+    left.matches_expected(&right) || right.matches_expected(&left)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,35 +372,4 @@ mod tests {
             assert_eq!(arithmetic_selection(ArithmeticOperator::Add, left, right), Some((ArithmeticSignature::ListConcatenation, nonempty.clone())));
         }
     }
-}
-
-pub(crate) fn membership_selection(container: &Type, needle: &Type) -> Option<MembershipDomain> {
-    use super::types::MembershipCheck;
-    if container.contains_inference() || needle.contains_inference() || container.contains_recovery() || needle.contains_recovery() { return None; }
-    match container.membership_needle_type(needle) {
-        MembershipCheck::Expected(required) | MembershipCheck::Compared(required) if needle.matches_expected(required) => {},
-        _ => return None,
-    }
-    membership_domain(container)
-}
-
-pub(crate) fn membership_domain(container: &Type) -> Option<MembershipDomain> {
-    Some(match container.unvalidated() {
-        Type::List(_) => MembershipDomain::List,
-        Type::Set(item) if item.is_map_key() => MembershipDomain::Set,
-        Type::Map(key, _) if key.is_map_key() => if **key == Type::UInt { MembershipDomain::UnsignedMap } else { MembershipDomain::Map },
-        Type::Record(_) | Type::ErasedRecord => MembershipDomain::Record,
-        Type::Str => MembershipDomain::Str,
-        Type::Bytes => MembershipDomain::Bytes,
-        Type::Path => MembershipDomain::Path,
-        Type::EnvPathList => MembershipDomain::EnvPath,
-        _ => return None,
-    })
-}
-
-pub(crate) fn equality_selection(left: &Type, right: &Type) -> bool {
-    if left.contains_inference() || right.contains_inference() || left.contains_recovery() || right.contains_recovery() || left.contains_any() || right.contains_any() { return false; }
-    let left = left.equality_operand_type();
-    let right = right.equality_operand_type();
-    left.matches_expected(&right) || right.matches_expected(&left)
 }

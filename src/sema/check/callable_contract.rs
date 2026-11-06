@@ -86,8 +86,9 @@ impl SchemeBinderCorrespondence {
             + self.guards.capacity() * std::mem::size_of::<SchemeGuardCorrespondence>()
             + self.guards.iter().map(|guard| std::mem::size_of::<Self>() + guard.bindings.retained_with(seen)).sum::<usize>()
             + self.calls.capacity() * std::mem::size_of::<SchemeCallCorrespondence>()
-            + self.calls.iter().filter_map(|call| seen.insert(Arc::as_ptr(&call.bindings) as usize)
-                .then(|| std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>() + call.bindings.retained_with(seen))).sum::<usize>()
+            + self.calls.iter().filter_map(|call| if seen.insert(Arc::as_ptr(&call.bindings) as usize) {
+                Some(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>() + call.bindings.retained_with(seen))
+            } else { None }).sum::<usize>()
     }
     pub(crate) fn types(&self) -> &BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId> { &self.types }
     pub(crate) fn rows(&self) -> &BTreeMap<SchemeRowParameterId, SchemeRowParameterId> { &self.rows }

@@ -952,7 +952,7 @@ impl TypeConstraints {
                 let indexed = self.operations.entries.get(operation).ok_or(ConstraintResolutionError::ForeignVariable)?;
                 let resolved = indexed.operation.try_map(|ty| self.resolve(ty))?;
                 let Some((receiver, key)) = resolved.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
-                if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+                if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                     contributions.push(WrapperCompletionContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(*operation)));
                 }
             }
@@ -1118,10 +1118,10 @@ impl TypeConstraints {
         let operation = operation_entry.operation.try_map(|ty| self.resolve(ty)).map_err(WrapperConstraintError::Resolution)?;
         let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
         if receiver.contains_inference() || key.contains_inference() { return Ok(None); }
-        if !crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+        if !crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
             return Ok(Some(None));
         }
-        if !crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
+        if !crate::sema::sealed_operation::requires_uint_key_validation(receiver, key) {
             return Ok(None);
         }
         let escaped = match boundary {
@@ -1162,9 +1162,9 @@ impl TypeConstraints {
                     if entry.owner != owner { return Err(ConstraintResolutionError::ForeignVariable.into()); }
                     let operation = entry.operation.try_map(|ty| self.resolve(ty)).map_err(WrapperConstraintError::Resolution)?;
                     let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()) };
-                    if crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
+                    if crate::sema::sealed_operation::requires_uint_key_validation(receiver, key) {
                         errors.push(Type::Error);
-                    } else if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+                    } else if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                         return Ok(None);
                     }
                 }
@@ -1194,8 +1194,8 @@ impl TypeConstraints {
                     let operation = entry.operation.try_map(|ty| self.resolve(ty)).map_err(WrapperConstraintError::Resolution)?;
                     let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
                     if receiver.contains_inference() || key.contains_inference() { return Ok(None); }
-                    if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
-                        if crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) { errors.push(Type::Error); }
+                    if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
+                        if crate::sema::sealed_operation::requires_uint_key_validation(receiver, key) { errors.push(Type::Error); }
                         else { return Ok(None); }
                     }
                 }
@@ -1335,8 +1335,8 @@ impl TypeConstraints {
                         let operation = operation_entry.operation.try_map(|ty| this.resolve_with_changes(ty, 0, changes).map_err(WrapperConstraintError::Resolution))?;
                         let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
                         let unsettled = receiver.contains_inference() || key.contains_inference();
-                        if unsettled && crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) { continue; }
-                        if !unsettled && crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key) {
+                        if unsettled && crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) { continue; }
+                        if !unsettled && crate::sema::sealed_operation::requires_uint_key_validation(receiver, key) {
                             match boundary {
                                 WrapperBoundary::Return(returned) | WrapperBoundary::ErrorReturn(returned) => {
                                     let returned = this.resolve_with_changes(returned, 0, changes)?;
@@ -1545,7 +1545,7 @@ impl TypeConstraints {
                         let Some((receiver, key)) = operation.key_operands() else {
                             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
                         };
-                        if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+                        if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                             let ordinal = generalization.operations.get(operation_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
                             retained.push(crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)));
                         }
@@ -1565,7 +1565,7 @@ impl TypeConstraints {
                         let Some((receiver, key)) = operation.key_operands() else {
                             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
                         };
-                        if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+                        if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                             let ordinal = generalization.wrappers.get(requirement_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedWrapper))?;
                             retained.push(crate::sema::wrapper_operation::WrapperErrorContribution::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal)));
                         }
@@ -1587,7 +1587,7 @@ impl TypeConstraints {
                         let Some((receiver, key)) = operation.key_operands() else {
                             return Err(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation));
                         };
-                        if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+                        if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                             let ordinal = generalization.operations.get(operation_id).copied().ok_or(SchemeOperationError::Build(crate::sema::schemes::SchemeBuildError::UnresolvedSealedOperation))?;
                             retained.push(crate::sema::wrapper_operation::WrapperCompletionContribution::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal)));
                         }
