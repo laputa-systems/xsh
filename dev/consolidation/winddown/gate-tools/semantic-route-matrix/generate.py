@@ -3233,7 +3233,12 @@ def validate_field_index_inventory(
         raise EvidenceError("field/index metadata differs from the schema contract")
     expected_fields = {
         "ExprField": [("base", "BuildExprId"), ("name", "NameText"), ("span", "Span")],
-        "ExprIndex": [("base", "BuildExprId"), ("index", "BuildExprId"), ("span", "Span")],
+        "ExprIndex": [
+            ("base", "BuildExprId"),
+            ("index", "crate::runtime::eval::IndexOperand<BuildExprId>"),
+            ("span", "Span"),
+            ("key_span", "Span"),
+        ],
         "ExprIndexFromEnd": [
             ("base", "BuildExprId"),
             ("distance", "crate::runtime::eval::EndDistance"),
@@ -3297,8 +3302,8 @@ def validate_field_index_inventory(
     }
     expected_forced = {
         "ExprField": "try_record_field_chain_then_schedule_base",
-        "ExprIndex": "schedule_base_then_index_continuation",
-        "ExprIndexFromEnd": "schedule_base_then_from_end_continuation",
+        "ExprIndex": "schedule_base_then_index_or_literal_continuation",
+        "ExprIndexFromEnd": "schedule_base_then_from_end_literal_continuation",
     }
     for key, behaviors in (("normal_arms", expected_normal), ("forced_arms", expected_forced)):
         arms = inventory.get(key, [])

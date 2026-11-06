@@ -1079,7 +1079,12 @@ def call_frame_fixture() -> tuple[list[dict], dict]:
 def field_index_fixture() -> tuple[list[dict], dict]:
     fields = {
         "ExprField": [("base", "BuildExprId"), ("name", "NameText"), ("span", "Span")],
-        "ExprIndex": [("base", "BuildExprId"), ("index", "BuildExprId"), ("span", "Span")],
+        "ExprIndex": [
+            ("base", "BuildExprId"),
+            ("index", "crate::runtime::eval::IndexOperand<BuildExprId>"),
+            ("span", "Span"),
+            ("key_span", "Span"),
+        ],
         "ExprIndexFromEnd": [
             ("base", "BuildExprId"),
             ("distance", "crate::runtime::eval::EndDistance"),
@@ -1143,8 +1148,8 @@ def field_index_fixture() -> tuple[list[dict], dict]:
             {"tag": tag, "variant": variant, "behavior": behavior, "line": line, "arm_index": arm_index}
             for tag, variant, behavior, line, arm_index in [
                 ("ExprField", "Field", "try_record_field_chain_then_schedule_base", 7149, 32),
-                ("ExprIndex", "Index", "schedule_base_then_index_continuation", 7184, 33),
-                ("ExprIndexFromEnd", "IndexFromEnd", "schedule_base_then_from_end_continuation", 7205, 34),
+                ("ExprIndex", "Index", "schedule_base_then_index_or_literal_continuation", 7184, 33),
+                ("ExprIndexFromEnd", "IndexFromEnd", "schedule_base_then_from_end_literal_continuation", 7205, 34),
             ]
         ],
         "forced_view_fallbacks": [

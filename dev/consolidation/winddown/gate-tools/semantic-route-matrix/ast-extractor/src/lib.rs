@@ -4227,7 +4227,8 @@ fn field_index_normal_behavior(variant: &str, body: &Expr) -> Result<String, Str
             "try_record_field_chain_then_evaluate_base_and_lookup_field"
         }
         "Index" => {
-            if !top_level_local_is_raw_field(body, "index", "index")
+            if !normal_index_operand_is_ordinary(body)
+                || !top_level_local_is_raw_field(body, "index", "index")
                 || !normal_index_access_dataflow(body)
             {
                 return Err("normal index arm changed its base/index evaluation or lookup".into());
@@ -4386,7 +4387,10 @@ fn normal_child_results_are_live(
         .collect::<BTreeSet<_>>();
     if variant != "Field"
         && child_binding_indices.iter().min().is_some_and(|first_child| {
-            block.stmts.iter().take(*first_child).any(statement_contains_return)
+            block.stmts.iter().take(*first_child).any(|statement| {
+                statement_contains_return(statement)
+                    && !(variant == "Index" && is_rejected_literal_index_operand(statement))
+            })
         })
     {
         return Err(format!("normal {variant} arm can return before evaluating its children"));
@@ -4540,15 +4544,15 @@ fn field_index_view_let_else<'ast>(
         return Err(format!("{variant} route must have one typed-view let-else"));
     };
     let span_binding = if explicit { "value_span" } else { "span" };
-    let index_binding = if explicit { "instruction" } else { "index" };
-    let expected_fields: &[(&str, &str)] = match variant {
-        "Field" => &[("base", "base"), ("name", "name"), ("span", span_binding)],
-        "Index" => &[("base", "base"), ("index", index_binding), ("span", span_binding)],
-        "IndexFromEnd" => &[("base", "base"), ("distance", "distance"), ("span", span_binding)],
+    let expected_fields: &[(&str, &str)] = match (variant, explicit) {
+        ("Field", _) => &[("base", "base"), ("name", "name"), ("span", span_binding)],
+        ("Index", false) => &[("base", "base"), ("index", "index"), ("span", "span")],
+        ("Index", true) => &[("base", "base"), ("index", "operand"), ("span", "value_span"), ("key_span", "key_span")],
+        ("IndexFromEnd", _) => &[("base", "base"), ("distance", "distance"), ("span", span_binding)],
         _ => return Err(format!("unknown field/index variant {variant}")),
     };
-    let enum_path = if explicit { "ExprView" } else { "ExprView" };
-    if !struct_view_pattern_matches(candidate.pattern, enum_path, variant, expected_fields) {
+    let ignores_key_span = variant == "Index" && !explicit;
+    if !struct_view_pattern_matches_with_rest(candidate.pattern, "ExprView", variant, expected_fields, ignores_key_span) {
         return Err(format!("{variant} route decodes an unexpected typed view"));
     }
     if !is_unconditional_unreachable(candidate.fallback, field_index_unreachable_message(variant)) {
@@ -4568,15 +4572,16 @@ fn field_index_view_let_else<'ast>(
     Ok(*candidate)
 }
 
-fn struct_view_pattern_matches(
+fn struct_view_pattern_matches_with_rest(
     pattern: &Pat,
     enum_name: &str,
     variant: &str,
     expected_fields: &[(&str, &str)],
+    rest: bool,
 ) -> bool {
     let Pat::Struct(pattern) = pattern else { return false; };
     if !path_ends_with_segments(&pattern.path, &[enum_name, variant])
-        || pattern.rest.is_some()
+        || pattern.rest.is_some() != rest
         || pattern.fields.len() != expected_fields.len()
     {
         return false;
@@ -4646,6 +4651,108 @@ fn normal_field_access_dataflow(body: &Expr) -> bool {
         && path_is_ident(&lookup[0].args[0], "base")
         && path_is_ident(&lookup[0].args[1], "name")
         && path_is_ident(&lookup[0].args[2], "span")
+}
+
+fn normal_index_operand_is_ordinary(body: &Expr) -> bool {
+    let Expr::Block(block) = body else { return false; };
+    let candidates = block.block.stmts.iter().filter_map(|statement| match statement {
+        Stmt::Local(local) => match &local.pat {
+            Pat::TupleStruct(pattern)
+                if path_ends_with_segments(&pattern.path, &["IndexOperand", "Ordinary"])
+                    && matches!(pattern.elems.first(), Some(Pat::Ident(binding)) if binding.ident == "index")
+                    && pattern.elems.len() == 1 =>
+            {
+                local.init.as_ref()
+            }
+            _ => None,
+        },
+        _ => None,
+    }).collect::<Vec<_>>();
+    let [initializer] = candidates.as_slice() else { return false; };
+    let Some((_, fallback)) = initializer.diverge.as_ref() else { return false; };
+    path_is_ident(&initializer.expr, "index") && literal_index_operand_is_rejected(fallback)
+}
+
+fn is_rejected_literal_index_operand(statement: &Stmt) -> bool {
+    let Stmt::Local(local) = statement else { return false; };
+    matches!(&local.pat, Pat::TupleStruct(pattern)
+        if path_ends_with_segments(&pattern.path, &["IndexOperand", "Ordinary"]))
+        && local.init.as_ref().is_some_and(|initializer| {
+            path_is_ident(&initializer.expr, "index")
+                && initializer.diverge.as_ref().is_some_and(|(_, fallback)| literal_index_operand_is_rejected(fallback))
+        })
+}
+
+fn literal_index_operand_is_rejected(fallback: &Expr) -> bool {
+    let Expr::Block(block) = fallback else { return false; };
+    let [Stmt::Expr(Expr::Return(returned), _)] = block.block.stmts.as_slice() else { return false; };
+    let Some(Expr::Call(error)) = returned.expr.as_deref() else { return false; };
+    if !path_is_ident(&error.func, "Err") || error.args.len() != 1 {
+        return false;
+    }
+    let Expr::MethodCall(with_span) = &error.args[0] else { return false; };
+    if with_span.method != "with_span" || with_span.args.len() != 1 || !path_is_ident(&with_span.args[0], "span") {
+        return false;
+    }
+    let Some(runtime) = exact_call(&with_span.receiver, &["RuntimeError", "new"]) else { return false; };
+    runtime.args.len() == 2
+        && matches!(&runtime.args[0], Expr::Lit(literal)
+            if matches!(&literal.lit, syn::Lit::Str(kind) if kind.value() == "indexed-ir"))
+}
+
+fn index_operand_arm_tail(arm: &syn::Arm) -> Option<&Expr> {
+    match &*arm.body {
+        Expr::Block(block) => match block.block.stmts.as_slice() {
+            [Stmt::Local(_), Stmt::Expr(tail, None)] => Some(tail),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn forced_index_operand_continuation(body: &Expr) -> bool {
+    let Expr::Block(block) = body else { return false; };
+    let candidates = block.block.stmts.iter().filter_map(|statement| match statement {
+        Stmt::Local(local) if matches!(&local.pat, Pat::Ident(binding) if binding.ident == "continuation") =>
+            local.init.as_ref().map(|init| init.expr.as_ref()),
+        _ => None,
+    }).collect::<Vec<_>>();
+    let [Expr::Match(operand_match)] = candidates.as_slice() else { return false; };
+    if !path_is_ident(&operand_match.expr, "operand") || operand_match.arms.len() != 2 {
+        return false;
+    }
+    let arm_binding = |arm: &syn::Arm, variant: &str, binding: &str| matches!(&arm.pat, Pat::TupleStruct(pattern)
+        if path_ends_with_segments(&pattern.path, &["IndexOperand", variant])
+            && pattern.elems.len() == 1
+            && matches!(pattern.elems.first(), Some(Pat::Ident(name)) if name.ident == binding));
+    let [ordinary, literal] = [&operand_match.arms[0], &operand_match.arms[1]];
+    if ordinary.guard.is_some() || literal.guard.is_some()
+        || !arm_binding(ordinary, "Ordinary", "key")
+        || !arm_binding(literal, "NegativeLiteral", "distance")
+    {
+        return false;
+    }
+    let ordinary_key = index_operand_arm_tail(ordinary).and_then(|tail| continuation_struct(tail, "IndexBase")).is_some_and(|fields| {
+        struct_expr_has_exact_fields(fields, &[
+            ("instruction", |value| method_on_ident(value, "key", "raw")),
+            ("check", |value| path_is_ident(value, "check")),
+            ("span", |value| path_is_ident(value, "value_span")),
+            ("key_span", |value| path_is_ident(value, "key_span")),
+            ("next", is_boxed_next),
+        ])
+    });
+    let literal_mode = index_operand_arm_tail(literal).and_then(|tail| continuation_struct(tail, "IndexLiteral")).is_some_and(|fields| {
+        struct_expr_has_exact_fields(fields, &[
+            ("mode", |value| path_is_ident(value, "mode")),
+            ("span", |value| path_is_ident(value, "value_span")),
+            ("key_span", |value| path_is_ident(value, "key_span")),
+            ("next", is_boxed_next),
+        ])
+    });
+    ordinary_key
+        && literal_mode
+        && method_call_nodes_in_expr(&ordinary.body, "index_key_check").len() == 1
+        && method_call_nodes_in_expr(&literal.body, "index_literal_mode").len() == 1
 }
 
 fn normal_index_access_dataflow(body: &Expr) -> bool {
@@ -4819,6 +4926,8 @@ fn field_index_forced_behavior(
                 && path_is_ident(&fast_push[0].args[2], "next");
             let continuation_shape = continuation.is_some_and(|fields| {
                 struct_expr_has_exact_fields(fields, &[
+                    ("instruction", |value| path_is_ident(value, "instruction")),
+                    ("mode", |value| path_is_ident(value, "mode")),
                     ("name", |value| path_is_ident(value, "name")),
                     ("span", |value| path_is_ident(value, "value_span")),
                     ("next", is_boxed_next),
@@ -4848,24 +4957,22 @@ fn field_index_forced_behavior(
             ("try_record_field_chain_then_schedule_base".to_string(), valid)
         }
         "Index" => {
-            let continuation = continuation_struct(&push.args[3], "IndexBase");
-            let valid = matches!(continuation, Some(fields)
-                if struct_expr_has_exact_fields(fields, &[
-                    ("instruction", |value| method_on_ident(value, "instruction", "raw")),
-                    ("span", |value| path_is_ident(value, "value_span")),
-                    ("next", is_boxed_next),
-                ]));
-            ("schedule_base_then_index_continuation".to_string(), valid)
+            let valid = path_is_ident(&push.args[3], "continuation") && forced_index_operand_continuation(body);
+            ("schedule_base_then_index_or_literal_continuation".to_string(), valid)
         }
         "IndexFromEnd" => {
-            let continuation = continuation_struct(&push.args[3], "IndexFromEnd");
+            let continuation = continuation_struct(&push.args[3], "IndexLiteral");
             let valid = matches!(continuation, Some(fields)
                 if struct_expr_has_exact_fields(fields, &[
-                    ("distance", |value| method_on_ident(value, "distance", "get")),
+                    ("mode", |value| matches!(value, Expr::Call(call)
+                        if matches!(&*call.func, Expr::Path(path) if path_ends_with_segments(&path.path, &["PreparedIndexLiteral", "FromEnd"]))
+                            && call.args.len() == 1
+                            && method_on_ident(&call.args[0], "distance", "get"))),
                     ("span", |value| path_is_ident(value, "value_span")),
+                    ("key_span", |value| path_is_ident(value, "value_span")),
                     ("next", is_boxed_next),
                 ]));
-            ("schedule_base_then_from_end_continuation".to_string(), valid)
+            ("schedule_base_then_from_end_literal_continuation".to_string(), valid)
         }
         _ => return Err(format!("unknown field/index view {variant}")),
     };
@@ -4905,7 +5012,7 @@ fn field_index_forced_sources_live(
     let statements = &block.block.stmts[view_index + 1..push_index];
     let protected: &[&str] = match variant {
         "Field" => &["base", "name", "value_span"],
-        "Index" => &["base", "instruction", "value_span"],
+        "Index" => &["base", "operand", "value_span", "key_span"],
         "IndexFromEnd" => &["base", "distance", "value_span"],
         _ => return Err(format!("unknown forced field/index variant {variant}")),
     };
@@ -5020,12 +5127,20 @@ fn field_fast_path_push_precedes_return(statement: &Stmt) -> bool {
 }
 
 fn field_fast_path_if_is_valid(expression: &syn::ExprIf) -> bool {
-    let [
-        Stmt::Expr(Expr::MethodCall(push), Some(_)),
-        Stmt::Expr(Expr::Return(returned), Some(_)),
-    ] = expression.then_branch.stmts.as_slice() else {
-        return false;
+    let (push, returned) = match expression.then_branch.stmts.as_slice() {
+        [
+            Stmt::Local(materialized),
+            Stmt::Expr(Expr::MethodCall(push), Some(_)),
+            Stmt::Expr(Expr::Return(returned), Some(_)),
+        ] if field_fast_path_materializes_invocation(materialized) => (push, returned),
+        _ => return false,
     };
+    if !method_call_nodes_in_expr(&expression.cond, "is_none")
+        .iter()
+        .any(|call| path_is_ident(&call.receiver, "mode"))
+    {
+        return false;
+    }
     if push.method != "push_value"
         || !path_is_ident(&push.receiver, "self")
         || push.args.len() != 3
@@ -5049,6 +5164,22 @@ fn field_fast_path_if_is_valid(expression: &syn::ExprIf) -> bool {
     let value = segment.ident.to_string();
     field_fast_path_return_matches(returned)
         && field_fast_path_condition_binds(expression, &value)
+}
+
+fn field_fast_path_materializes_invocation(local: &syn::Local) -> bool {
+    if !matches!(&local.pat, Pat::Ident(binding) if binding.ident == "value") {
+        return false;
+    }
+    let Some(Expr::If(selection)) = local.init.as_ref().map(|init| init.expr.as_ref()) else { return false; };
+    let calls = method_call_nodes_in_expr(&selection.cond, "has_invocation");
+    let [Stmt::Expr(Expr::Try(materialized), None)] = selection.then_branch.stmts.as_slice() else { return false; };
+    let Some((_, otherwise)) = &selection.else_branch else { return false; };
+    calls.len() == 1
+        && calls[0].args.len() == 1
+        && path_is_ident(&calls[0].args[0], "instruction")
+        && exact_call(&materialized.expr, &["super", "materialize_indexed_callable"]).is_some()
+        && matches!(otherwise.as_ref(), Expr::Block(block)
+            if matches!(block.block.stmts.as_slice(), [Stmt::Expr(value, None)] if path_is_ident(value, "value")))
 }
 
 fn field_fast_path_return_matches(returned: &syn::ExprReturn) -> bool {
@@ -14855,8 +14986,8 @@ mod field_index_tests {
         assert_eq!(inventory.normal_arms[1].behavior, "evaluate_base_then_index_and_lookup");
         assert_eq!(inventory.normal_arms[2].behavior, "evaluate_base_then_lookup_from_end_distance");
         assert_eq!(inventory.forced_arms[0].behavior, "try_record_field_chain_then_schedule_base");
-        assert_eq!(inventory.forced_arms[1].behavior, "schedule_base_then_index_continuation");
-        assert_eq!(inventory.forced_arms[2].behavior, "schedule_base_then_from_end_continuation");
+        assert_eq!(inventory.forced_arms[1].behavior, "schedule_base_then_index_or_literal_continuation");
+        assert_eq!(inventory.forced_arms[2].behavior, "schedule_base_then_from_end_literal_continuation");
         assert!(inventory.normal_arms.iter().all(|arm| arm.arm_index < inventory.normal_fallback.arm_index));
         assert!(inventory.forced_arms.iter().all(|arm| arm.arm_index < inventory.explicit_error_group.arm_index));
         assert!(inventory.forced_route.frame_apply_statement_index < inventory.forced_route.view_kind_statement_index);
