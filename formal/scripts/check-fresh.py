@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import tomllib
 from pathlib import Path
 
@@ -150,6 +151,12 @@ def prepare_workspace(formal_dir: Path, workspace: Path) -> None:
         shutil.copyfile(source, destination)
 
 
+def relay_lines(stream) -> None:
+    for line in stream:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+
 def run_guarded(
     command: list[str], cwd: Path, env: dict[str, str], label: str,
     *, wall_limit_seconds: int = WALL_LIMIT_SECONDS,
@@ -204,19 +211,17 @@ def run_guarded(
                 if process is not None:
                     if interrupted_by is not None:
                         raise FreshCheckCancelled(interrupted_by)
-                    output, _ = process.communicate(timeout=wall_limit_seconds)
-                    sys.stdout.write(output)
+                    relay = threading.Thread(target=relay_lines, args=(process.stdout,), daemon=True)
+                    relay.start()
+                    process.wait(timeout=wall_limit_seconds)
+                    relay.join()
                     if process.returncode == 0:
                         print(f"{label} passed")
                     result = process.returncode
                     completed = True
                     cleaning_up = True
-            except subprocess.TimeoutExpired as error:
+            except subprocess.TimeoutExpired:
                 cleaning_up = True
-                if error.output:
-                    output = error.output.decode(process.encoding or "utf-8", errors="replace") if isinstance(error.output, bytes) else error.output
-                    sys.stdout.write(output)
-                    sys.stdout.flush()
                 print(f"{label} exceeded {wall_limit_seconds}s and was terminated", file=sys.stderr)
                 result = 124
             except BaseException:
