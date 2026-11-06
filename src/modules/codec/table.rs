@@ -247,11 +247,9 @@ impl EncodeGuard {
             }
         }
         if self.row_open && depth == 1 && matches!(event, Event::MapEnd) {
-            if !self.collecting_columns && self.columns.is_some() {
-                if let Some((index, _)) = self.seen.iter().enumerate().find(|(_, seen)| !**seen) {
-                    let name = self.columns.as_ref().expect("table columns").iter().find_map(|(key, value)| (*value == index).then_some(key)).expect("column index");
-                    return Err(Error::new(ErrorKind::UnsupportedType, format!("record is missing column `{name}`")));
-                }
+            if !self.collecting_columns && let Some(columns) = &self.columns && let Some((index, _)) = self.seen.iter().enumerate().find(|(_, seen)| !**seen) {
+                let name = columns.iter().find_map(|(key, value)| (*value == index).then_some(key)).expect("column index");
+                return Err(Error::new(ErrorKind::UnsupportedType, format!("record is missing column `{name}`")));
             }
             self.collecting_columns = false;
             self.row_open = false;
