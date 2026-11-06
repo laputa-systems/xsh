@@ -6,6 +6,6 @@ allow-print-in-tests = true
 allow-unwrap-in-tests = true
 allow-useless-vec-in-tests = true
 disallowed-types = [
-    "std::collections::HashMap",
-    "std::collections::HashSet",
+    { path = "std::collections::HashMap", reason = "use rustc_hash::FxHashMap, the repo's hash map convention" },
+    { path = "std::collections::HashSet", reason = "use rustc_hash::FxHashSet, the repo's hash set convention" },
 ]
