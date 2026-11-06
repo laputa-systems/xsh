@@ -91,9 +91,9 @@ fn narrowed_enum_field_read_needs_its_dominating_null_test() {
     let words = program.store.data[tested].range().bounds(program.store.extra.len()).unwrap();
     let ordering = program.store.extra[words.start + 1];
     let previous = (0..program.store.extra.len() as u32)
-        .find(|&id| program.store.string(id.into()).ok() == Some("previous"))
+        .find(|&id| program.store.string(id).ok() == Some("previous"))
         .expect("the fixture reads the previous field elsewhere");
-    assert_eq!(program.store.string(ordering.into()).unwrap(), "ordering");
+    assert_eq!(program.store.string(ordering).unwrap(), "ordering");
     let mut forged = program.clone();
     forged.store.extra[words.start + 1] = previous;
     assert_eq!(
