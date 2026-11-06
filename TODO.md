@@ -119,6 +119,16 @@ out of scope.
 - **Fix with:** architect
 - **Effort:** M
 
+### XSH-78 · P4 · Resolve arithmetic in an erased proc returning an open spread through a generic call
+
+- **Area:** Checker
+- **Where:** `src/sema/check/local_inference.rs`, `tests/xsh/full-inference-argument-closure.xsh`
+- **Problem:** With `pure same(value) { value }`, the fully erased `pure reset(state) { same({...state, code: []}) }` checks, but a caller that does arithmetic on a field of its result fails with `sealed arithmetic operation remains unresolved`. XSH-72 fixed the argument-position override, so the erased `width` form now checks; `reset` stays annotated in `test_full_inference_erased_open_spread_record_argument_closes_a_generic_call`.
+- **Recommendation:** Reduce the erased `reset` caller to a native test, then find why the returned open-spread row does not reach the sealed arithmetic resolution at the call site.
+- **Acceptance:** The test's `reset` drops its annotation and checks, lowers and runs with the same result.
+- **Fix with:** root-cause
+- **Effort:** S
+
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
 - **Area:** Performance
