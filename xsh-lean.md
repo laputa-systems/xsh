@@ -1266,7 +1266,13 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   lowerer remain open. No Rust change, so the gate selects no case. The Lake
   build (263 jobs), the inventory (1,119 roots) with its 71 tests, and the
   axiom audit (28,652 declarations, zero closed roots) with its self-test
-  pass.
+  pass. The fresh check for slices 4 to 6 is inconclusive: it started with no
+  replay container running and `perf-gate-ready` clean, and the build passed and
+  lean4lean, nanoda and con-leche accepted 116,108 declarations, but a new
+  canonical replay (`xsh-canonical-replay-r11f`) started during the run and the
+  paranoid check hit its 1080-second cap while con-ron ran, so con-ron and the
+  Lean default kernel did not finish. It is not a pass; re-run it when the host
+  is quiet.
 
 ## For the owner afterwards
 
