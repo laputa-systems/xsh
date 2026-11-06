@@ -109,16 +109,6 @@ out of scope.
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-72 · P3 · Generalize an erased proc that passes an open spread to a generic call
-
-- **Area:** Checker
-- **Where:** `src/sema/check/local_inference.rs` (`materialize_open_override`), `src/sema/check/expr.rs`
-- **Problem:** With `pure same(value) { value }`, the fully erased `pure width(state) { let reset = same({...state, code: []}); show(reset) }` fails in sema with `callable generalization failed: Build(RecoveryType)`. A record literal nested in a call argument inside a binding initializer gets no aggregate scope, so the open-spread override that XSH-65 added does not fire. Treating the argument-position scope as a binding initializer was tried and reverted.
-- **Recommendation:** Reduce to a native test, then give a record literal in argument position the same open-spread materialization a binding initializer gets, without widening other argument inference.
-- **Acceptance:** The erased form checks, lowers and runs with the same result as the annotated form; forged IR with a disagreeing field type is rejected.
-- **Fix with:** root-cause
-- **Effort:** S
-
 ### XSH-77 · P4 · Accept a record spread into a returned callable without a rest parameter
 
 - **Area:** Checker
