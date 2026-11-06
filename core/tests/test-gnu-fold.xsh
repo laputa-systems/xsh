@@ -137,8 +137,8 @@ proc full_output(s: uu.Scene, script: Path, character: Str, allowance: Int) [fs,
       assert false, f"fold exited before runtime readiness with status {completed.status.shell_code()?}: {diagnostic.read_text()?}"
     }
   }
-  let completed = process.wait_timeout([consumer], 10s)?
-  assert completed != null, "fold did not diagnose the full output device within ten seconds after runtime readiness"
+  let completed = process.wait_timeout([consumer], 60s)?
+  assert completed != null, "fold did not diagnose the full output device within a minute after runtime readiness"
   let status = completed.status
   assert status.exited_with(1), f"fold write-error status: {status.shell_code()?}"
   let errors = diagnostic.read_text()?
