@@ -422,3 +422,31 @@ pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
   assert generic.stdout == monomorphic.stdout
   assert generic.stdout == "closed\n"
 }
+
+test test_full_inference_erased_open_spread_record_argument_closes_a_generic_call { |ctx|
+  let checks = r"""
+let start: Parsed = {code: [7], at: 4}
+assert width(start) == 4
+assert reset(start).code.len() == 0
+assert reset(start).at == 4
+print "closed"
+"""
+  let erased = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure same(value) { value }
+pure show(value: Parsed) -> Int { value.at }
+pure width(state) { let cleared = same({...state, code: []}); show(cleared) }
+pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
+""" + checks)?
+  let annotated = test.run_xsh(ctx, r"""
+type Parsed = {code: List[Int], at: Int}
+pure same(value) { value }
+pure show(value: Parsed) -> Int { value.at }
+pure width(state: Parsed) -> Int { let cleared = same({...state, code: []}); show(cleared) }
+pure reset(state: Parsed) -> Parsed { same({...state, code: []}) }
+""" + checks)?
+  assert annotated.success, annotated.stderr
+  assert erased.success, erased.stderr
+  assert erased.stdout == annotated.stdout
+  assert erased.stdout == "closed\n"
+}

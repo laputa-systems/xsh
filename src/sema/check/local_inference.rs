@@ -85,7 +85,7 @@ enum FreshAggregateOrigin {
 struct AggregateSeedScope {
     initializer: Span,
     origins: BTreeMap<Span, FreshAggregateOrigin>,
-    binding_initializer: bool,
+    open_spread_override: bool,
 }
 
 fn prepare_record_payloads(
@@ -718,7 +718,7 @@ impl Checker {
             self.local_inference.aggregate_scopes.push(AggregateSeedScope {
                 initializer: super::expr::expr_or_run_span_arena(program, initializer),
                 origins: BTreeMap::new(),
-                binding_initializer: true,
+                open_spread_override: true,
             });
         }
         if let Some(inference) = self.local_inference.bindings.get(&span) {
@@ -760,7 +760,7 @@ impl Checker {
             || !matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_))
             || self.local_inference.aggregate_scopes.last().is_some_and(|scope| scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end())
         { return false; }
-        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new(), binding_initializer: false });
+        self.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer: span, origins: BTreeMap::new(), open_spread_override: false });
         true
     }
 
@@ -857,7 +857,7 @@ impl Checker {
         self.local_inference.aggregate_scopes.push(AggregateSeedScope {
             initializer: program.arena.expr(expression).span,
             origins: BTreeMap::new(),
-            binding_initializer: false,
+            open_spread_override: true,
         });
         true
     }
@@ -950,7 +950,7 @@ impl Checker {
 
     pub(super) fn materialize_open_override(&mut self, program: &ArenaProgram, value: ExprId, ty: &Type) -> Type {
         let span = program.arena.expr(value).span;
-        let Some(scope) = self.local_inference.aggregate_scopes.last().filter(|scope| scope.binding_initializer) else { return ty.clone() };
+        let Some(scope) = self.local_inference.aggregate_scopes.last().filter(|scope| scope.open_spread_override) else { return ty.clone() };
         if !(scope.initializer.source_id == span.source_id && scope.initializer.start() <= span.start() && span.end() <= scope.initializer.end()) { return ty.clone(); }
         let origins = scope.origins.clone();
         self.materialize_fresh_aggregate(program, value, ty, std::slice::from_ref(ty), &origins, &mut Vec::new())
@@ -2275,7 +2275,7 @@ mod tests {
             for index in 1..256 {
                 origins.insert(Span::new(initializer.source_id, index, index + 1), FreshAggregateOrigin::Record(BTreeMap::new()));
             }
-            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins, binding_initializer: false });
+            checker.local_inference.aggregate_scopes.push(AggregateSeedScope { initializer, origins, open_spread_override: false });
             let probe = checker.constraint_probe();
             assert!(probe.local_inference.aggregate_scopes.is_empty());
             assert_eq!(checker.local_inference.aggregate_scopes[0].origins.len(), 255);
