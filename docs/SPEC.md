@@ -2451,6 +2451,10 @@ A record spread supplies exactly the fields visible in its checked record
 type; `Any`, open `Record`, `Map`, `Optional`, and `Result` operands must be
 narrowed or unwrapped first. A `null` field is supplied (it does not select the
 parameter's default). Unknown names and parameters supplied twice are errors.
+A record spread may target a named function or alias, a record constructor, or a
+local that holds a callable value, including one of an authored callable type
+(9.4); it binds by parameter label, and a final rest parameter still takes
+positional `@` splices beside it.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
@@ -2496,7 +2500,11 @@ let merged = {...defaults, ...overrides}
   otherwise it is `check.spread-hides-field`. Write the field after the spread
   (`{...r, TERM: 1}`) or name it in the operand's type. The type of a field is
   that of the last entry that names it, so a spread that names the field takes
-  its type, optional or not, from the operand.
+  its type, optional or not, from the operand. When the operand is the
+  parameter of an erased procedure, the overriding value of a field must take
+  its type from a parameter or an operation of the procedure; an override such
+  as `[]` that nothing determines is `check.local-inference` at the procedure,
+  and declaring the result type (`-> Parsed`) fixes it.
 - **Maps.** A computed key `[expr]: value` makes a brace literal a map, as does
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace
@@ -4742,7 +4750,9 @@ effect clause is charged to the caller exactly as a named proc's clause is
 (9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
 any proc, and a caller with a declared or `without` bound cannot call it. A
 call through an authored fixed-arity type passes each argument explicitly;
-`@` splices and `...` spreads are rejected. A stream stage's callable is still a function name; a value of a
+`@` splices are rejected. A `...` record spread binds by label, because a
+function fits the type only when its labels match, and reports unknown or
+repeated labels as `check.named-arg`. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was

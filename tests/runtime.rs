@@ -30,6 +30,8 @@ mod unix_connect_stream;
 mod poll_fds;
 #[path = "runtime/process.rs"]
 mod process;
+#[path = "runtime/root_install.rs"]
+mod root_install;
 #[path = "runtime/run.rs"]
 mod run;
 #[cfg(target_os = "linux")]

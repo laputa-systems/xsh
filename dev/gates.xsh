@@ -591,6 +591,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
         rust_gate(ctx, profile, "test-archive-reading", ["-p", "xsh-archive", "--test", "reading"], debug: true)?,
         rust_gate(ctx, profile, "test-archive-publication", ["-p", "xsh-archive", "--test", "publication"], debug: true)?,
         rust_gate(ctx, profile, "test-archive-rooted", ["-p", "xsh-archive", "--test", "rooted"], debug: true)?,
+        rust_gate(ctx, profile, "test-archive-interrupted", ["-p", "xsh-archive", "--test", "interrupted"], debug: true)?,
       ]
       compile_gates
     }

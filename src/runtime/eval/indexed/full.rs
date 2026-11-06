@@ -24430,14 +24430,14 @@ assert read(Err("absent"), "replacement") == 0
             let mut foreign_binding = (*program).clone();
             foreign_binding.store.extra[binding.start] = 0;
             let error = FullVerifier::verify(&foreign_binding).unwrap_err();
-            assert_eq!(error.message, "generic call argument has no closed checked type");
+            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
             assert!(matches!(error.context, Some(super::super::VerifyContext::Instruction(_))), "{error:?}");
             let patterns = program.store.patterns.iter().enumerate().filter_map(|(index, tag)| (*tag == FullPatternTag::ResultOk).then_some(index)).collect::<Vec<_>>();
             assert_eq!(patterns.len(), 1);
             let mut wrong_pattern = (*program).clone();
             wrong_pattern.store.patterns[patterns[0]] = FullPatternTag::ResultErr;
             let error = FullVerifier::verify(&wrong_pattern).unwrap_err();
-            assert_eq!(error.message, "generic call argument has no closed checked type");
+            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
         });
     }
 
@@ -24465,7 +24465,7 @@ assert read(b"", "ignored") == 0
             let mut foreign_binding = (*program).clone();
             foreign_binding.store.extra[binding.start] = 1;
             let error = FullVerifier::verify(&foreign_binding).unwrap_err();
-            assert_eq!(error.message, "generic call argument has no closed checked type");
+            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
         });
     }
 
@@ -33507,6 +33507,43 @@ pure use_list_build(tail: List[Int]) -> List[Int] {
     }
 
     #[test]
+    fn full_verifier_authenticates_erased_open_spread_record_arguments() {
+        let source = "type Parsed = {code: List[Int], at: Int}\n\
+                      pure same(value) { value }\n\
+                      pure show(value: Parsed) -> Int { value.at }\n\
+                      pure width(state) {\n\
+                        let reset = same({...state, code: []})\n\
+                        show(reset)\n\
+                      }\n\
+                      let start: Parsed = {code: [7], at: 4}\n\
+                      assert width(start) == 4\n";
+        let program = fixture("generic-erased-open-spread-record-argument.xsh", source);
+        let _symbols = program.symbol_owner().enter();
+        FullVerifier::verify(&program).unwrap();
+        let call = scheme_fixture_call_in_function(&program, "same", "width");
+        let arguments = program.store.call_instantiations.iter()
+            .find(|row| row.instruction == call)
+            .expect("the generic call has a substitution")
+            .arguments.type_arguments
+            .bounds(program.store.call_type_arguments.len())
+            .unwrap();
+        assert_eq!(arguments.len(), 1);
+        let record = program.store.call_type_arguments[arguments.start].ty;
+        let node = program.store.scheme_types[record.index()];
+        assert_eq!(node.tag, schema::FullSchemeTypeTag::Record);
+        assert_eq!(node.first, IR_NONE);
+        let fields = node.children.bounds(program.store.scheme_fields.len()).unwrap();
+        let field = |name: &str| fields.clone().find(|&index| program.store.string(program.store.scheme_fields[index].name).unwrap() == name).unwrap();
+        let at_type = program.store.scheme_fields[field("at")].ty;
+        assert_eq!(program.store.scheme_types[at_type.index()].tag, schema::FullSchemeTypeTag::Ground);
+        let mut forged = program.clone();
+        let wrong = SemanticPoolBuilder::default().intern_type(&mut forged.store.semantic, &Type::Str).unwrap();
+        forged.store.scheme_types[at_type.index()].first = wrong.raw();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
+    }
+
+    #[test]
     fn full_verifier_authenticates_driver_scalar_temporary_generic_arguments() {
         let program = fixture(
             "generic-driver-scalar-temporary.xsh",
@@ -33922,7 +33959,7 @@ assert nullable_name == null
             let mut forged = program.clone();
             scheme_fixture_erase_local_as_any(&mut forged, caller, slot);
             let error = FullVerifier::verify(&forged).unwrap_err();
-            assert_eq!(error.message, "generic call argument has no closed checked type");
+            assert_eq!(error.message, "generic call argument does not match its checked scheme fact");
         }
 
         reject_erased_field(

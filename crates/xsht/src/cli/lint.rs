@@ -2426,6 +2426,12 @@ mod tests {
         config
     }
 
+    fn configless_fixture() -> TempDir {
+        let fixture = TempDir::new().unwrap();
+        fs::write(fixture.path().join("xsht-config.ini"), "").unwrap();
+        fixture
+    }
+
     #[test]
     fn explicit_directory_discovery_does_not_expand_parent_includes() {
         let root = TempDir::new().expect("create temp root");
@@ -2566,7 +2572,7 @@ mod tests {
 
     #[test]
     fn lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes() {
-        let fixture = TempDir::new().unwrap();
+        let fixture = configless_fixture();
         let module = fixture.path().join("helper.xsh");
         let module_source =
             "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
@@ -2620,7 +2626,7 @@ mod tests {
 
     #[test]
     fn lint_workspace_reports_shared_import_diagnostics_under_stable_root() {
-        let fixture = TempDir::new().unwrap();
+        let fixture = configless_fixture();
         let module = fixture.path().join("helper.xsh");
         let module_source =
             "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
@@ -2693,7 +2699,7 @@ mod tests {
 
     #[test]
     fn lint_workspace_falls_back_after_earlier_root_check_error() {
-        let fixture = TempDir::new().unwrap();
+        let fixture = configless_fixture();
         let module = fixture.path().join("helper.xsh");
         let module_source =
             "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
@@ -2763,7 +2769,7 @@ mod tests {
 
     #[test]
     fn lint_workspace_falls_back_after_earlier_root_source_diagnostic() {
-        let fixture = TempDir::new().unwrap();
+        let fixture = configless_fixture();
         let module = fixture.path().join("helper.xsh");
         let module_source =
             "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";

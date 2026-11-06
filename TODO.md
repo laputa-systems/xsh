@@ -59,7 +59,8 @@ out of scope.
 - **Area:** Host authority
 - **Where:** `crates/xsh-root/`, `crates/xsh-archive/`, `src/modules/fs.rs`, `src/modules/archive/`, `tests/`
 - **Problem:** `xsh-root` confines pathname resolution, but lexical Path validation and an `fs` effect are not filesystem authorization. Archive extraction (`archive.extract` and `FsRoot.extract`, one engine), `patch.apply`, `FsRoot.rename`/`fsync` and `fs.root_install_file` acquire one anchor and resolve beneath it; Path-taking extraction and publication acquire that anchor from the path. Rooted file reads in archive creation, patch and `FsRoot.fsync` open non-blocking and refuse a non-regular file, but `FsRoot.read` of a FIFO still blocks by design.
-- **Recommendation:** Test interrupted rooted extraction by process kill (staging left behind, no partial destination). Add `FsRoot` hard-link and special-file creation only if Laputa LAP-33 shows a need.
+- **Recommendation:** Add `FsRoot` hard-link and special-file creation only if Laputa LAP-33 shows a need.
+- **Status:** The Linux acceptance is met. `crates/xsh-archive/tests/interrupted.rs` (`test-archive-interrupted`) SIGKILLs a child mid-extraction (path and retained-root destinations, and over an existing destination), mid-creation, and during repeated publication. `tests/runtime/root_install.rs` SIGKILLs a script mid-`fs.root_install_file`, fresh and replacing. In every case staging is left behind and no partial destination or replaced file becomes visible. `rooted.rs` and `publication.rs` cover ancestor and symlink replacement of a retained root. Only the owner-deferred macOS work and the items conditional on Laputa LAP-33 (`FsRoot` hard-link and special-file creation) remain; the ticket stays open for those.
 - **Acceptance:** Adversarial fixtures cover extraction into a retained root under ancestor and symlink replacement, and interrupted publication by process kill. Power-loss durability stays unclaimed; atomic visibility and durability stay tested as separate contracts. macOS enforcement is owner-deferred and must fail explicitly until qualified.
 - **Coordination:** Laputa LAP-33 owns package adoption; LAP-28 owns build-process isolation; XSH-47 owns any process sandbox claim.
 - **Fix with:** isolate-effects
@@ -107,26 +108,6 @@ out of scope.
 - **Unmet:** (1) First-party clippy debt above; `AGENTS.md` bars autofixers, so the fixes are by hand or need an explicit decision. (2) `check.py functional --check` needs a skip review and a semantic review bundle bound to the source trees; both are agent reviews and are not yet written. (3) The scheduler reference arm is re-derived (`native-scheduler-reference-rederived.patch`, pinned in `compare.py`); its pairs have not run.
 - **Fix with:** orchestrate
 - **Effort:** M
-
-### XSH-72 · P3 · Generalize an erased proc that passes an open spread to a generic call
-
-- **Area:** Checker
-- **Where:** `src/sema/check/local_inference.rs` (`materialize_open_override`), `src/sema/check/expr.rs`
-- **Problem:** With `pure same(value) { value }`, the fully erased `pure width(state) { let reset = same({...state, code: []}); show(reset) }` fails in sema with `callable generalization failed: Build(RecoveryType)`. A record literal nested in a call argument inside a binding initializer gets no aggregate scope, so the open-spread override that XSH-65 added does not fire. Treating the argument-position scope as a binding initializer was tried and reverted.
-- **Recommendation:** Reduce to a native test, then give a record literal in argument position the same open-spread materialization a binding initializer gets, without widening other argument inference.
-- **Acceptance:** The erased form checks, lowers and runs with the same result as the annotated form; forged IR with a disagreeing field type is rejected.
-- **Fix with:** root-cause
-- **Effort:** S
-
-### XSH-74 · P4 · Accept a record spread into a returned callable
-
-- **Area:** Checker
-- **Where:** `src/sema/check/` (splice target resolution)
-- **Problem:** `integer(...{first: 7}, @tail)`, where `integer` is the callable returned by `keep_rest`, is rejected with `check.splice-target`. A record spread currently requires a statically named callable, and the diagnostic does not say so.
-- **Recommendation:** Decide from the SPEC whether a record spread may target a callable value with a known signature. If so, resolve parameter names from its type; if not, make the diagnostic state the named-callable rule.
-- **Acceptance:** Either the call checks and runs, or the diagnostic names the rule and the SPEC states it.
-- **Fix with:** root-cause
-- **Effort:** S
 
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
