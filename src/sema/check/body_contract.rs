@@ -854,13 +854,10 @@ impl Capture<'_> {
     }
 
     fn binary_operators(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) -> Result<(), BodyContractError> {
-        match self.program.arena.expr(expression).kind {
-            ArenaExprKind::Binary { op, left, right } => {
-                let result = self.expression_type(expression);
-                let elaboration = self.binary_elaboration(expression, op, left, right, result)?;
-                self.bodies.get_mut(owner).unwrap().selections.get_mut(path).unwrap().binary = Some(elaboration);
-            }
-            _ => {}
+        if let ArenaExprKind::Binary { op, left, right } = self.program.arena.expr(expression).kind {
+            let result = self.expression_type(expression);
+            let elaboration = self.binary_elaboration(expression, op, left, right, result)?;
+            self.bodies.get_mut(owner).unwrap().selections.get_mut(path).unwrap().binary = Some(elaboration);
         }
         Ok(())
     }
@@ -1359,7 +1356,7 @@ mod tests {
         let ArenaExprKind::NullSafeField { base, .. } = program.arena.expr(callee).kind else { panic!("checked safe byte method receiver") };
         assert!(matches!(checked.expr_types.get(&program.arena.expr(base).span), Some(Type::Result(ok, _)) if **ok == Type::Bytes));
         let contracts = PendingBodyContracts::capture(&checked, &program, &sources).unwrap().into_contracts();
-        let operations = contracts.iter().flat_map(|body| body.operations.values()).map(|operation| operation).collect::<Vec<_>>();
+        let operations = contracts.iter().flat_map(|body| body.operations.values()).collect::<Vec<_>>();
         let bytes = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Bytes)).unwrap();
         let map = operations.iter().find(|selection| selection.receiver == Some(MethodReceiver::Map)).unwrap();
         assert!(bytes.argument_checks.is_empty());

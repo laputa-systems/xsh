@@ -746,7 +746,7 @@ impl TypeConstraints {
                         let needle = this.resolve_with_changes(&needle, 0, changes)?;
                         if needle.contains_inference() || container.contains_inference() { continue; }
                         let selected = crate::sema::sealed_operation::membership_selection(&container, &needle)
-                            .ok_or_else(|| SealedOperationError::UnsupportedMembership { container, needle })?;
+                            .ok_or(SealedOperationError::UnsupportedMembership { container, needle })?;
                         let selected = SealedOperationSignature::Membership(selected);
                         let previous = this.operations.entries.get_mut(&id).unwrap().selection.replace(selected);
                         if previous != Some(selected) { changes.push(ConstraintChange::Operation(OperationChange::Selection(id, previous))); }
@@ -1098,7 +1098,7 @@ impl TypeConstraints {
         let mut replacements = Vec::new();
         for replacement in sources {
             let replacement = self.resolve(&replacement)?;
-            if replacement.contains_recovery() || replacement.contains_any() || !self.variable_ids(&expected)?.is_disjoint(&self.variable_ids(&replacement)?) { return Ok(None); }
+            if replacement.contains_recovery() || replacement.contains_any() || !self.variable_ids(expected)?.is_disjoint(&self.variable_ids(&replacement)?) { return Ok(None); }
             if replacement == Type::Null { continue; }
             replacements.push(replacement.clone());
             let replacement = if matches!(replacement, Type::Optional(_)) { replacement } else { Type::Optional(Box::new(replacement)) };
@@ -1343,7 +1343,7 @@ impl TypeConstraints {
             }
             let operation = operation_entry.operation.try_map(|ty| self.resolve(ty))?;
             let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable); };
-            if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+            if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                 requirements.push(wrapper);
             }
         }
@@ -1396,7 +1396,7 @@ impl TypeConstraints {
                 let indexed = self.operations.entries.get(&id).ok_or(ConstraintResolutionError::ForeignVariable)?;
                 let operation = indexed.operation.try_map(|ty| self.resolve(ty))?;
                 let Some((receiver, key)) = operation.key_operands() else { return Err(ConstraintResolutionError::ForeignVariable.into()); };
-                if crate::sema::sealed_operation::may_require_uint_key_validation(&receiver, &key) {
+                if crate::sema::sealed_operation::may_require_uint_key_validation(receiver, key) {
                     wrapper_operations.insert(id);
                 }
             }

@@ -940,7 +940,7 @@ impl ProducerDemand {
         program: &'a crate::syntax::arena::ArenaProgram,
         declarations: &'a crate::sema::check::CompactDeclOutput,
     ) -> impl Iterator<Item = Span> + 'a {
-        declarations.bodies.expr_types.iter().filter_map(move |(expression, _)| {
+        declarations.bodies.expr_types.keys().filter_map(move |expression| {
             let expression = program.arena.expr(*expression);
             matches!(expression.kind, crate::syntax::arena::ArenaExprKind::Spawn(_) | crate::syntax::arena::ArenaExprKind::Wait(_)).then_some(expression.span)
         })

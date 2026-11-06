@@ -46,7 +46,7 @@ fn write_symbols(symbols: &[String], root: &Path) {
         symbols.len()
     ));
     output.push_str(&format!(
-        "pub(crate) const PRELOADED_SYMBOL_TEXT: AlignedSymbolBytes<{}> = AlignedSymbolBytes(*b\"",
+        "pub(crate) static PRELOADED_SYMBOL_TEXT: AlignedSymbolBytes<{}> = AlignedSymbolBytes(*b\"",
         blob.len()
     ));
     for byte in &blob {

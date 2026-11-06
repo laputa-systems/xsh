@@ -48,28 +48,28 @@ struct Entry {
 
 impl Entry {
     fn op(&self) -> &str {
-        (&self.value).get("op").and_then(|value| value.as_str()).unwrap_or("")
+        self.value.get("op").and_then(|value| value.as_str()).unwrap_or("")
     }
 
     fn uint(&self, key: &str, default: u64) -> u64 {
-        (&self.value).get(key).and_then(|value| value.as_u64()).unwrap_or(default)
+        self.value.get(key).and_then(|value| value.as_u64()).unwrap_or(default)
     }
 
     fn bytes(&self, key: &str) -> Vec<u8> {
-        (&self.value).get(key)
+        self.value.get(key)
             .and_then(|value| value.as_str())
             .map(|text| base64_decode(text).unwrap_or_default())
             .unwrap_or_default()
     }
 
     fn errno(&self) -> Option<i32> {
-        (&self.value).get("errno")
+        self.value.get("errno")
             .and_then(|value| value.as_u64())
             .map(|errno| errno as i32)
     }
 
     fn matches_transfer(&self, transfer: Transfer<'_>) -> bool {
-        let direction = (&self.value).get("direction")
+        let direction = self.value.get("direction")
             .and_then(|value| value.as_str())
             .unwrap_or("none");
         if direction != transfer.direction() {
@@ -104,10 +104,10 @@ fn load(path: &Path, span: Span) -> Result<Vec<Entry>, RuntimeError> {
         }
         let line = index + 1;
         let value = xsh::host::json::parse(text).map_err(|error| fault(path, line, error, span))?;
-        let Some(object) = (&value).as_map() else {
+        let Some(object) = value.as_map() else {
             return Err(fault(path, line, "each line must be a JSON object", span));
         };
-        let op = (&value).get("op")
+        let op = value.get("op")
             .and_then(|value| value.as_str())
             .ok_or_else(|| fault(path, line, "missing `op`", span))?;
         let allowed = match op {

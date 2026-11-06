@@ -378,7 +378,7 @@ mod tests {
         struct FailedSource;
         impl Read for FailedSource {
             fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-                Err(io::Error::new(io::ErrorKind::Other, stream::Error::MemLimit))
+                Err(io::Error::other(stream::Error::MemLimit))
             }
         }
         let source = std::io::Cursor::new([0xfd, b'7', b'z', b'X', b'Z', 0, 0, 4, 0xe6, 0xd6, 0xb4, 0x46]).chain(FailedSource);

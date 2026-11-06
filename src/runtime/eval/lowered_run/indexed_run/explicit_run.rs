@@ -6968,7 +6968,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     && let Some(value) = super::lowered_record_field_value(base, &name)
                 {
                     let value = if matches!(value, LoweredValue::Callable(_)) && execution.program().has_invocation(instruction) {
-                        super::materialize_indexed_callable(self.evaluator, &execution, &self.calls[index].applications, instruction, value, span)?
+                        super::materialize_indexed_callable(self.evaluator, execution, &self.calls[index].applications, instruction, value, span)?
                     } else { value };
                     self.push_value(index, FrameValue::Value(value), next);
                     return Ok(());

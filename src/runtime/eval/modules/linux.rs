@@ -207,7 +207,7 @@ pub(super) fn append_fake_log_with_bytes(
         json_fields.push((
             (*name).to_string(),
             (
-                bytes.iter().map(|byte| JsonValue::from(u64::from(*byte)))).into_iter().collect::<JsonValue>(),
+                bytes.iter().map(|byte| JsonValue::from(u64::from(*byte)))).collect::<JsonValue>(),
         ));
     }
     let line =

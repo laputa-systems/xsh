@@ -112,7 +112,7 @@ impl CoverageCollector {
             }
             let value = xsh::host::json::parse(line)
                 .map_err(|err| format!("failed to parse trace JSONL line {}: {err}", index + 1))?;
-            let kind = (&value).get("kind")
+            let kind = value.get("kind")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
             if kind == "source.file" {
@@ -124,23 +124,23 @@ impl CoverageCollector {
                     || kind.ends_with(".start")
                     || kind.ends_with(".enter")
                     || kind == "cwd.enter")
-                && let Some(api_id) = (&value).get("api_id").and_then(|value| value.as_str())
+                && let Some(api_id) = value.get("api_id").and_then(|value| value.as_str())
             {
                 self.api_hits.entry(api_id.to_string()).or_default().tests += 1;
             }
-            if let Some(span) = (&value).get("source_span") {
+            if let Some(span) = value.get("source_span") {
                 self.ingest_source_span(
                     kind,
-                    (&value).get("name").and_then(|value| value.as_str()),
+                    value.get("name").and_then(|value| value.as_str()),
                     span,
-                    (&value).get("definition_span").is_none(),
+                    value.get("definition_span").is_none(),
                 );
             }
             if (kind == "proc.enter" || kind == "pure.enter")
-                && let Some(span) = (&value).get("definition_span")
+                && let Some(span) = value.get("definition_span")
             {
                 self.ingest_proc_definition(
-                    (&value).get("name").and_then(|value| value.as_str()),
+                    value.get("name").and_then(|value| value.as_str()),
                     span,
                 );
             }
@@ -175,7 +175,7 @@ impl CoverageCollector {
         let mut fields = vec![
             (
                 "source_coverage".to_string(),
-                (source_files.iter().cloned().map(source_file_json)).into_iter().collect::<JsonValue>(),
+                (source_files.iter().cloned().map(source_file_json)).collect::<JsonValue>(),
             ),
             (
                 "source_scope".to_string(),
@@ -193,12 +193,12 @@ impl CoverageCollector {
                 ("api_hits".to_string(), self.api_hits_json()),
                 (
                     "standard_apis".to_string(),
-                    (standard_api_ids().into_iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
+                    (standard_api_ids().into_iter().map(JsonValue::from)).collect::<JsonValue>(),
                 ),
                 ("totals".to_string(), (self.api_totals_json()).into_iter().collect::<JsonValue>()),
                 (
                     "uncovered".to_string(),
-                    (self.uncovered_apis().into_iter().map(JsonValue::from)).into_iter().collect::<JsonValue>(),
+                    (self.uncovered_apis().into_iter().map(JsonValue::from)).collect::<JsonValue>(),
                 ),
                 (
                     "covered".to_string(),
@@ -464,7 +464,7 @@ impl CoverageCollector {
                 api_id.clone(),
                 ([("tests".to_string(), JsonValue::from(hits.tests))]).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>(),
             )
-        })).into_iter().collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
+        })).collect::<std::collections::BTreeMap<String, JsonValue>>().into_iter().collect::<JsonValue>()
     }
 
     fn api_totals_json(&self) -> Vec<JsonValue> {

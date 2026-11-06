@@ -2865,8 +2865,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         // The check is removed — it was an early indexed-lowering safety measure that is no longer needed.
         // Parameter slots exist at entry, but their names are hidden while
         // lowering defaults so every default resolves in the outer environment.
-        let mut slots = SlotScope::default();
-        slots.plain_pure_return = callable_kind == CallableKind::Pure && matches!(return_kind, LoweredReturnKind::Plain(_));
+        let mut slots = SlotScope {
+            plain_pure_return: callable_kind == CallableKind::Pure && matches!(return_kind, LoweredReturnKind::Plain(_)),
+            ..SlotScope::default()
+        };
         for _ in &params {
             slots.reserve("parameter");
         }

@@ -1,3 +1,289 @@
+use super::{Decoded, EncodeLimits, Format, INPUT_LIMIT, OUTPUT_LIMIT, Output, failure, runtime_error};
+use crate::map_key::MapKey;
+use crate::runtime::value::{LiveStream, PathValue, ResultValue, RuntimeError, StreamValue, Value};
+use crate::source::Span;
+use deser::de::{DeserializeDriver, Frame, Progress, StreamDeserializer};
+use deser::{Error, ErrorKind, Serialize};
+use std::io::{Read, Cursor};
+use std::sync::Arc;
+
+const STREAM_INPUT_LIMIT: usize = 256 * 1024 * 1024;
+const ITEM_LIMIT: usize = 1_000_000;
+const FRAME_LOOKAHEAD: usize = 16;
+
+struct TextInput { text: Arc<str>, position: usize }
+impl Read for TextInput {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let count = output.len().min(self.text.len() - self.position);
+        output[..count].copy_from_slice(&self.text.as_bytes()[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
+    }
+}
+
+pub(crate) fn decode_text(format: Format, text: Arc<str>, span: Span) -> Result<StreamValue, RuntimeError> {
+    if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+    from_reader(format, TextInput { text, position: 0 }, None, span)
+}
+
+pub(crate) fn decode_bytes(format: Format, bytes: Arc<[u8]>, span: Span) -> Result<StreamValue, RuntimeError> {
+    if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+    from_reader(format, Cursor::new(bytes), None, span)
+}
+
+pub(crate) fn read_all(format: Format, file: std::fs::File, path: PathValue, span: Span) -> Result<StreamValue, RuntimeError> {
+    from_reader(format, file, Some(path), span)
+}
+
+struct CountedInput<R> { inner: R, bytes: usize, exceeded: bool, io_error: Option<std::io::Error> }
+impl<R: Read> Read for CountedInput<R> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        if output.is_empty() { return Ok(0); }
+        if self.exceeded { return Err(std::io::Error::other("codec input limit")); }
+        let remaining = STREAM_INPUT_LIMIT - self.bytes;
+        let mut sentinel = [0u8; 1];
+        let result = if remaining == 0 {
+            self.inner.read(&mut sentinel)
+        } else {
+            let allowed = output.len().min(8192).min(remaining);
+            self.inner.read(&mut output[..allowed])
+        };
+        match result {
+            Ok(count) => {
+                self.bytes += count;
+                if self.bytes > STREAM_INPUT_LIMIT { self.exceeded = true; Err(std::io::Error::other("codec input limit")) } else { Ok(count) }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Err(error),
+            Err(error) => { self.io_error = Some(error); Err(std::io::Error::other("codec input read failed")) }
+        }
+    }
+}
+
+struct Framed<D> { inner: D, fatal: bool, encoding: bool, value_start: Option<usize>, items: usize }
+impl<D: StreamDeserializer> StreamDeserializer for Framed<D> {
+    fn context(&self) -> deser::Context { self.inner.context() }
+    fn is_text(&self) -> bool { self.inner.is_text() }
+    fn frame(&mut self, input: &[u8], eof: bool) -> Result<Frame, Error> {
+        self.encoding = false;
+        let result = self.inner.frame(input, eof);
+        let frame = match result {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.fatal = true;
+                self.encoding = self.is_text() && std::error::Error::source(&error)
+                    .is_some_and(|source| source.is::<std::str::Utf8Error>());
+                return Err(error);
+            }
+        };
+        if matches!(frame, Frame::Value { .. }) {
+            self.items += 1;
+            if self.items > ITEM_LIMIT { self.fatal = true; return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
+        }
+        let (length, consumed) = match &frame {
+            Frame::Value { start, end, consumed } => (end - start, *consumed),
+            Frame::Incomplete { consumed } if *consumed > 0 => (*consumed, *consumed),
+            Frame::Incomplete { .. } => (input.len().saturating_sub(FRAME_LOOKAHEAD), 0),
+            Frame::End => (0, input.len()),
+        };
+        if length > INPUT_LIMIT { self.fatal = true; return Err(Error::new(ErrorKind::LimitExceeded, "codec frame exceeds 64 MiB")); }
+        if self.is_text() && consumed > 0 && !matches!(frame, Frame::Value { .. }) && let Err(error) = std::str::from_utf8(&input[..consumed]) {
+            self.encoding = true;
+            self.fatal = true;
+            return Err(Error::with_offset(ErrorKind::Syntax, "invalid UTF-8", error.valid_up_to()));
+        }
+        Ok(frame)
+    }
+    fn drive_frame<'de>(&mut self, frame: &'de [u8], driver: &mut DeserializeDriver<'_, 'de>) -> Result<(), Error> {
+        if self.is_text() && let Err(error) = std::str::from_utf8(frame) {
+            self.encoding = true;
+            return Err(Error::with_offset(ErrorKind::Syntax, "invalid UTF-8", error.valid_up_to()));
+        }
+        self.inner.drive_frame(frame, driver)
+    }
+    fn supports_partial(&self) -> bool { self.inner.supports_partial() }
+    fn peek(&mut self, input: &[u8], eof: bool) -> Result<Option<Progress>, Error> { self.inner.peek(input, eof) }
+    fn drive_partial(&mut self, input: &[u8], offset: usize, eof: bool, driver: &mut DeserializeDriver<'_, '_>) -> Result<Progress, Error> {
+        if self.value_start.is_none() && !input.is_empty() {
+            self.items += 1;
+            if self.items > ITEM_LIMIT { self.fatal = true; return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
+            self.value_start = Some(offset);
+        }
+        let start = self.value_start.unwrap_or(offset);
+        let progress = self.inner.drive_partial(input, offset, eof, driver)?;
+        let consumed = match progress { Progress::Done { consumed } | Progress::NeedMore { consumed } => consumed, Progress::End => 0 };
+        if offset + consumed - start > INPUT_LIMIT {
+            self.fatal = true;
+            return Err(Error::new(ErrorKind::LimitExceeded, "codec value exceeds 64 MiB"));
+        }
+        if matches!(progress, Progress::Done { .. } | Progress::End) { self.value_start = None; }
+        Ok(progress)
+    }
+}
+
+struct Sequence<R, D: StreamDeserializer> {
+    reader: Option<deser::io::Reader<CountedInput<R>, Framed<D>>>,
+    format: Format,
+    path: Option<PathValue>,
+    items: usize,
+    budget: EmittedBudget,
+}
+
+fn from_reader<R: Read + Send + 'static>(format: Format, input: R, path: Option<PathValue>, span: Span) -> Result<StreamValue, RuntimeError> {
+    fn source<D: StreamDeserializer + Send + 'static>(format: Format, input: Box<dyn Read + Send>, path: Option<PathValue>, parser: D, span: Span) -> StreamValue {
+        let input = CountedInput { inner: input, bytes: 0, exceeded: false, io_error: None };
+        let mut reader = deser::io::Reader::new(input, Framed { inner: parser, fatal: false, encoding: false, value_start: None, items: 0 });
+        reader.set_input_buffer_limit(INPUT_LIMIT + FRAME_LOOKAHEAD);
+        let budget = EmittedBudget::new(format, path.as_ref(), span);
+        StreamValue::from_live("codec sequence", Sequence { reader: Some(reader), format, path, items: 0, budget })
+    }
+    let input: Box<dyn Read + Send> = Box::new(input);
+    Ok(match format {
+        Format::Json => {
+            let config = deser_json::DeserializerConfig::builder().trailing(deser_json::Trailing::Newline).context(super::decode_context(format)).build();
+            source(format, input, path, deser_json::StreamDeserializer::with_config(config), span)
+        }
+        Format::Yaml => source(format, input, path, deser_yaml::StreamDeserializer::with_config(super::config::yaml_sequence_config()), span),
+        Format::Csv | Format::Tsv => source(format, input, path, deser_csv::StreamDeserializer::with_config(super::table::decode_config(format, super::table::DecodeOptions::defaults(format))), span),
+        _ => return Err(failure("UnsupportedFormat", format.identifier(), "format does not support sequences", span)),
+    })
+}
+
+impl<R: Read + Send + 'static, D: StreamDeserializer + Send + 'static> LiveStream for Sequence<R, D> {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some(reader) = self.reader.as_mut() else { return Ok(None) };
+        let format = self.format;
+        let result = reader.read_with::<Decoded, _>(|driver| match format {
+            Format::Yaml => super::config::setup_decode(format, driver),
+            Format::Csv | Format::Tsv => super::table::setup_decode(driver),
+            _ => {}
+        });
+        if matches!(result, Ok(None)) { self.reader.take(); return Ok(None); }
+        self.items += 1;
+        let mut terminal = format == Format::Yaml;
+        let item = if reader.get_ref().exceeded {
+            terminal = true;
+            self.budget.limit_error(self.items)
+        } else if let Some(error) = reader.get_mut().io_error.take() {
+            self.reader.take();
+            return Err(match self.path.as_ref() {
+                Some(path) => {
+                    use std::os::unix::ffi::OsStrExt;
+                    super::input_io_error(std::path::Path::new(std::ffi::OsStr::from_bytes(&path.bytes)), error, span)
+                }
+                None => RuntimeError::host("read", &error).with_span(span),
+            });
+        } else if self.items > ITEM_LIMIT {
+            terminal = true;
+            self.budget.limit_error(self.items)
+        } else {
+            match result {
+                Ok(Some(value)) => { terminal = false; Value::ok(value.0) }
+                Err(error) => {
+                    terminal |= reader.deserializer().fatal || error.kind() == ErrorKind::LimitExceeded;
+                    let encoding = reader.deserializer().encoding;
+                    let mut error = runtime_error(error, format.identifier(), span);
+                    if encoding {
+                        error = RuntimeError::structured("CodecError", "Encoding", error.payload, vec!["InvalidData".into()], error.message).with_span(span);
+                    }
+                    attribute(&mut error, self.path.as_ref(), self.items);
+                    Value::err(Value::Error(Box::new(error)))
+                }
+                Ok(None) => unreachable!("exhaustion handled"),
+            }
+        };
+        let item = if self.budget.accept(&item) { item } else { terminal = true; self.budget.limit_error(self.items) };
+        if terminal { self.reader.take(); }
+        Ok(Some(item))
+    }
+}
+
+fn attribute(error: &mut RuntimeError, path: Option<&PathValue>, item: usize) {
+    if let Some(path) = path { error.payload.insert("input_path".into(), Value::Path(path.clone())); }
+    error.payload.insert("value_path".into(), Value::Str(format!("[{item}]").into()));
+}
+
+struct EmittedBudget { used: u64, reserve: u64, format: Format, path: Option<PathValue>, span: Span }
+impl EmittedBudget {
+    fn new(format: Format, path: Option<&PathValue>, span: Span) -> Self {
+        let mut budget = Self { used: 0, reserve: 0, format, path: path.cloned(), span };
+        budget.reserve = emitted_cost(&budget.limit_error(ITEM_LIMIT + 1));
+        budget
+    }
+    fn limit_error(&self, item: usize) -> Value {
+        let mut error = failure("Limit", self.format.identifier(), "codec stream resource limit exceeded", self.span);
+        attribute(&mut error, self.path.as_ref(), item);
+        Value::err(Value::Error(Box::new(error)))
+    }
+    fn accept(&mut self, value: &Value) -> bool {
+        match self.used.checked_add(emitted_cost(value)) {
+            Some(total) if total <= OUTPUT_LIMIT as u64 - self.reserve => { self.used = total; true }
+            _ => false,
+        }
+    }
+}
+
+fn emitted_cost(value: &Value) -> u64 {
+    fn text(value: &str) -> u64 { 9 + value.len() as u64 }
+    fn key(key: &MapKey) -> u64 {
+        match key {
+            MapKey::Str(value) => text(value),
+            MapKey::Bytes(value) | MapKey::Path(value) => 9 + value.len() as u64,
+            MapKey::Bool(_) => 2,
+            MapKey::Int(_) | MapKey::Duration(_) => 9,
+        }
+    }
+    fn record(record: &crate::runtime::value::RecordMap) -> u64 {
+        9 + record.iter().map(|(name, value)| text(name) + emitted_cost(value)).sum::<u64>()
+    }
+    match value {
+        Value::Null | Value::Unit => 1,
+        Value::Bool(_) => 2,
+        Value::Int(_) | Value::Float(_) | Value::Duration(_) => 9,
+        Value::Str(value) => text(value),
+        Value::Bytes(value) => 9 + value.len() as u64,
+        Value::Path(value) => 9 + value.bytes.len() as u64,
+        Value::List(values) => 9 + values.iter().map(emitted_cost).sum::<u64>(),
+        Value::Map(values) => 9 + values.iter().map(|(name, value)| key(name) + emitted_cost(value)).sum::<u64>(),
+        Value::Record(value) => record(value),
+        Value::Result(ResultValue::Ok(value) | ResultValue::Err(value)) => 1 + emitted_cost(value),
+        Value::Error(error) => 1 + text(&error.family) + text(&error.variant) + text(&error.kind) + text(&error.message) + record(&error.payload) + 9 + error.facets.iter().map(|facet| text(facet)).sum::<u64>(),
+        _ => unreachable!("decoded codec value domain"),
+    }
+}
+
+pub(crate) fn encode_all<I, T>(format: Format, values: I, span: Span) -> Result<Vec<u8>, RuntimeError>
+where I: IntoIterator<Item = T>, T: Serialize {
+    fn encode<I, T, S>(format: Format, values: I, serializer: S, span: Span) -> Result<Vec<u8>, RuntimeError>
+    where I: IntoIterator<Item = T>, T: Serialize, S: deser::ser::StreamSerializer {
+        let mut output = Output::new();
+        let result = (|| {
+            let mut writer = deser::io::Writer::new(&mut output, serializer);
+            for (index, value) in values.into_iter().enumerate() {
+                if index >= ITEM_LIMIT { return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
+                writer.write_with(&value, |driver| {
+                    if format == Format::Yaml { super::config::setup_encode(format, driver); }
+                    else { driver.push_guard(EncodeLimits::default()); }
+                })?;
+            }
+            Ok(())
+        })();
+        output.finish_bytes(result).map_err(|error| runtime_error(error, format.identifier(), span))
+    }
+    match format {
+        Format::Json => {
+            let config = deser_json::SerializerConfig::builder().trailing(deser_json::Trailing::Newline).build();
+            encode(format, values, deser_json::Serializer::with_config(config), span)
+        }
+        Format::Yaml => {
+            let mut config = deser_yaml::SerializerConfig::new();
+            config.set_end_documents(true);
+            encode(format, values, deser_yaml::Serializer::with_config(config), span)
+        }
+        Format::Csv | Format::Tsv => super::table::encode_all(format, values, span),
+        _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support sequences", span)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,13 +418,12 @@ mod tests {
     fn sequence_terminal_errors_drop_readers_before_the_error_is_published() {
         let symbols = crate::symbol::SymbolOwner::new();
         let _scope = symbols.enter();
-        for (format, bytes) in [(Format::Yaml, &b"--- [broken\n--- 2\n"[..])] {
+        let (format, bytes) = (Format::Yaml, &b"--- [broken\n--- 2\n"[..]);
             let drops = Arc::new(AtomicUsize::new(0));
             let stream = from_reader(format, Probe { input: Cursor::new(bytes.to_vec()), reads: Arc::new(AtomicUsize::new(0)), drops: drops.clone(), chunk: 1 }, None, span()).unwrap();
             assert!(matches!(stream.next_live(span()).unwrap(), Some(Value::Result(ResultValue::Err(_)))));
             assert_eq!(drops.load(Ordering::SeqCst), 1);
             assert_eq!(stream.next_live(span()).unwrap(), None);
-        }
     }
 
     #[test]
@@ -370,294 +655,4 @@ match values[1] {
         assert_eq!(stream.next_live(span()).unwrap(), None);
     }
 
-}
-
-use super::{Decoded, EncodeLimits, Format, INPUT_LIMIT, OUTPUT_LIMIT, Output, failure, runtime_error};
-use crate::map_key::MapKey;
-use crate::runtime::value::{LiveStream, PathValue, ResultValue, RuntimeError, StreamValue, Value};
-use crate::source::Span;
-use deser::de::{DeserializeDriver, Frame, Progress, StreamDeserializer};
-use deser::{Error, ErrorKind, Serialize};
-use std::io::{Read, Cursor};
-use std::sync::Arc;
-
-const STREAM_INPUT_LIMIT: usize = 256 * 1024 * 1024;
-const ITEM_LIMIT: usize = 1_000_000;
-const FRAME_LOOKAHEAD: usize = 16;
-
-struct TextInput { text: Arc<str>, position: usize }
-impl Read for TextInput {
-    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        let count = output.len().min(self.text.len() - self.position);
-        output[..count].copy_from_slice(&self.text.as_bytes()[self.position..self.position + count]);
-        self.position += count;
-        Ok(count)
-    }
-}
-
-pub(crate) fn decode_text(format: Format, text: Arc<str>, span: Span) -> Result<StreamValue, RuntimeError> {
-    if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
-    from_reader(format, TextInput { text, position: 0 }, None, span)
-}
-
-pub(crate) fn decode_bytes(format: Format, bytes: Arc<[u8]>, span: Span) -> Result<StreamValue, RuntimeError> {
-    if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
-    from_reader(format, Cursor::new(bytes), None, span)
-}
-
-pub(crate) fn read_all(format: Format, file: std::fs::File, path: PathValue, span: Span) -> Result<StreamValue, RuntimeError> {
-    from_reader(format, file, Some(path), span)
-}
-
-struct CountedInput<R> { inner: R, bytes: usize, exceeded: bool, io_error: Option<std::io::Error> }
-impl<R: Read> Read for CountedInput<R> {
-    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        if output.is_empty() { return Ok(0); }
-        if self.exceeded { return Err(std::io::Error::other("codec input limit")); }
-        let remaining = STREAM_INPUT_LIMIT - self.bytes;
-        let mut sentinel = [0u8; 1];
-        let result = if remaining == 0 {
-            self.inner.read(&mut sentinel)
-        } else {
-            let allowed = output.len().min(8192).min(remaining);
-            self.inner.read(&mut output[..allowed])
-        };
-        match result {
-            Ok(count) => {
-                self.bytes += count;
-                if self.bytes > STREAM_INPUT_LIMIT { self.exceeded = true; Err(std::io::Error::other("codec input limit")) } else { Ok(count) }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Err(error),
-            Err(error) => { self.io_error = Some(error); Err(std::io::Error::other("codec input read failed")) }
-        }
-    }
-}
-
-struct Framed<D> { inner: D, fatal: bool, encoding: bool, value_start: Option<usize>, items: usize }
-impl<D: StreamDeserializer> StreamDeserializer for Framed<D> {
-    fn context(&self) -> deser::Context { self.inner.context() }
-    fn is_text(&self) -> bool { self.inner.is_text() }
-    fn frame(&mut self, input: &[u8], eof: bool) -> Result<Frame, Error> {
-        self.encoding = false;
-        let result = self.inner.frame(input, eof);
-        let frame = match result {
-            Ok(frame) => frame,
-            Err(error) => {
-                self.fatal = true;
-                self.encoding = self.is_text() && std::error::Error::source(&error)
-                    .is_some_and(|source| source.is::<std::str::Utf8Error>());
-                return Err(error);
-            }
-        };
-        if matches!(frame, Frame::Value { .. }) {
-            self.items += 1;
-            if self.items > ITEM_LIMIT { self.fatal = true; return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
-        }
-        let (length, consumed) = match &frame {
-            Frame::Value { start, end, consumed } => (end - start, *consumed),
-            Frame::Incomplete { consumed } if *consumed > 0 => (*consumed, *consumed),
-            Frame::Incomplete { .. } => (input.len().saturating_sub(FRAME_LOOKAHEAD), 0),
-            Frame::End => (0, input.len()),
-        };
-        if length > INPUT_LIMIT { self.fatal = true; return Err(Error::new(ErrorKind::LimitExceeded, "codec frame exceeds 64 MiB")); }
-        if self.is_text() && consumed > 0 && !matches!(frame, Frame::Value { .. }) {
-            if let Err(error) = std::str::from_utf8(&input[..consumed]) {
-                self.encoding = true;
-                self.fatal = true;
-                return Err(Error::with_offset(ErrorKind::Syntax, "invalid UTF-8", error.valid_up_to()));
-            }
-        }
-        Ok(frame)
-    }
-    fn drive_frame<'de>(&mut self, frame: &'de [u8], driver: &mut DeserializeDriver<'_, 'de>) -> Result<(), Error> {
-        if self.is_text() {
-            if let Err(error) = std::str::from_utf8(frame) {
-                self.encoding = true;
-                return Err(Error::with_offset(ErrorKind::Syntax, "invalid UTF-8", error.valid_up_to()));
-            }
-        }
-        self.inner.drive_frame(frame, driver)
-    }
-    fn supports_partial(&self) -> bool { self.inner.supports_partial() }
-    fn peek(&mut self, input: &[u8], eof: bool) -> Result<Option<Progress>, Error> { self.inner.peek(input, eof) }
-    fn drive_partial(&mut self, input: &[u8], offset: usize, eof: bool, driver: &mut DeserializeDriver<'_, '_>) -> Result<Progress, Error> {
-        if self.value_start.is_none() && !input.is_empty() {
-            self.items += 1;
-            if self.items > ITEM_LIMIT { self.fatal = true; return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
-            self.value_start = Some(offset);
-        }
-        let start = self.value_start.unwrap_or(offset);
-        let progress = self.inner.drive_partial(input, offset, eof, driver)?;
-        let consumed = match progress { Progress::Done { consumed } | Progress::NeedMore { consumed } => consumed, Progress::End => 0 };
-        if offset + consumed - start > INPUT_LIMIT {
-            self.fatal = true;
-            return Err(Error::new(ErrorKind::LimitExceeded, "codec value exceeds 64 MiB"));
-        }
-        if matches!(progress, Progress::Done { .. } | Progress::End) { self.value_start = None; }
-        Ok(progress)
-    }
-}
-
-struct Sequence<R, D: StreamDeserializer> {
-    reader: Option<deser::io::Reader<CountedInput<R>, Framed<D>>>,
-    format: Format,
-    path: Option<PathValue>,
-    items: usize,
-    budget: EmittedBudget,
-}
-
-fn from_reader<R: Read + Send + 'static>(format: Format, input: R, path: Option<PathValue>, span: Span) -> Result<StreamValue, RuntimeError> {
-    fn source<D: StreamDeserializer + Send + 'static>(format: Format, input: Box<dyn Read + Send>, path: Option<PathValue>, parser: D, span: Span) -> StreamValue {
-        let input = CountedInput { inner: input, bytes: 0, exceeded: false, io_error: None };
-        let mut reader = deser::io::Reader::new(input, Framed { inner: parser, fatal: false, encoding: false, value_start: None, items: 0 });
-        reader.set_input_buffer_limit(INPUT_LIMIT + FRAME_LOOKAHEAD);
-        let budget = EmittedBudget::new(format, path.as_ref(), span);
-        StreamValue::from_live("codec sequence", Sequence { reader: Some(reader), format, path, items: 0, budget })
-    }
-    let input: Box<dyn Read + Send> = Box::new(input);
-    Ok(match format {
-        Format::Json => {
-            let config = deser_json::DeserializerConfig::builder().trailing(deser_json::Trailing::Newline).context(super::decode_context(format)).build();
-            source(format, input, path, deser_json::StreamDeserializer::with_config(config), span)
-        }
-        Format::Yaml => source(format, input, path, deser_yaml::StreamDeserializer::with_config(super::config::yaml_sequence_config()), span),
-        Format::Csv | Format::Tsv => source(format, input, path, deser_csv::StreamDeserializer::with_config(super::table::decode_config(format, super::table::DecodeOptions::defaults(format))), span),
-        _ => return Err(failure("UnsupportedFormat", format.identifier(), "format does not support sequences", span)),
-    })
-}
-
-impl<R: Read + Send + 'static, D: StreamDeserializer + Send + 'static> LiveStream for Sequence<R, D> {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
-        let Some(reader) = self.reader.as_mut() else { return Ok(None) };
-        let format = self.format;
-        let result = reader.read_with::<Decoded, _>(|driver| match format {
-            Format::Yaml => super::config::setup_decode(format, driver),
-            Format::Csv | Format::Tsv => super::table::setup_decode(driver),
-            _ => {}
-        });
-        if matches!(result, Ok(None)) { self.reader.take(); return Ok(None); }
-        self.items += 1;
-        let mut terminal = format == Format::Yaml;
-        let item = if reader.get_ref().exceeded {
-            terminal = true;
-            self.budget.limit_error(self.items)
-        } else if let Some(error) = reader.get_mut().io_error.take() {
-            self.reader.take();
-            return Err(match self.path.as_ref() {
-                Some(path) => {
-                    use std::os::unix::ffi::OsStrExt;
-                    super::input_io_error(std::path::Path::new(std::ffi::OsStr::from_bytes(&path.bytes)), error, span)
-                }
-                None => RuntimeError::host("read", &error).with_span(span),
-            });
-        } else if self.items > ITEM_LIMIT {
-            terminal = true;
-            self.budget.limit_error(self.items)
-        } else {
-            match result {
-                Ok(Some(value)) => { terminal = false; Value::ok(value.0) }
-                Err(error) => {
-                    terminal |= reader.deserializer().fatal || error.kind() == ErrorKind::LimitExceeded;
-                    let encoding = reader.deserializer().encoding;
-                    let mut error = runtime_error(error, format.identifier(), span);
-                    if encoding {
-                        error = RuntimeError::structured("CodecError", "Encoding", error.payload, vec!["InvalidData".into()], error.message).with_span(span);
-                    }
-                    attribute(&mut error, self.path.as_ref(), self.items);
-                    Value::err(Value::Error(Box::new(error)))
-                }
-                Ok(None) => unreachable!("exhaustion handled"),
-            }
-        };
-        let item = if self.budget.accept(&item) { item } else { terminal = true; self.budget.limit_error(self.items) };
-        if terminal { self.reader.take(); }
-        Ok(Some(item))
-    }
-}
-
-fn attribute(error: &mut RuntimeError, path: Option<&PathValue>, item: usize) {
-    if let Some(path) = path { error.payload.insert("input_path".into(), Value::Path(path.clone())); }
-    error.payload.insert("value_path".into(), Value::Str(format!("[{item}]").into()));
-}
-
-struct EmittedBudget { used: u64, reserve: u64, format: Format, path: Option<PathValue>, span: Span }
-impl EmittedBudget {
-    fn new(format: Format, path: Option<&PathValue>, span: Span) -> Self {
-        let mut budget = Self { used: 0, reserve: 0, format, path: path.cloned(), span };
-        budget.reserve = emitted_cost(&budget.limit_error(ITEM_LIMIT + 1));
-        budget
-    }
-    fn limit_error(&self, item: usize) -> Value {
-        let mut error = failure("Limit", self.format.identifier(), "codec stream resource limit exceeded", self.span);
-        attribute(&mut error, self.path.as_ref(), item);
-        Value::err(Value::Error(Box::new(error)))
-    }
-    fn accept(&mut self, value: &Value) -> bool {
-        match self.used.checked_add(emitted_cost(value)) {
-            Some(total) if total <= OUTPUT_LIMIT as u64 - self.reserve => { self.used = total; true }
-            _ => false,
-        }
-    }
-}
-
-fn emitted_cost(value: &Value) -> u64 {
-    fn text(value: &str) -> u64 { 9 + value.len() as u64 }
-    fn key(key: &MapKey) -> u64 {
-        match key {
-            MapKey::Str(value) => text(value),
-            MapKey::Bytes(value) | MapKey::Path(value) => 9 + value.len() as u64,
-            MapKey::Bool(_) => 2,
-            MapKey::Int(_) | MapKey::Duration(_) => 9,
-        }
-    }
-    fn record(record: &crate::runtime::value::RecordMap) -> u64 {
-        9 + record.iter().map(|(name, value)| text(name) + emitted_cost(value)).sum::<u64>()
-    }
-    match value {
-        Value::Null | Value::Unit => 1,
-        Value::Bool(_) => 2,
-        Value::Int(_) | Value::Float(_) | Value::Duration(_) => 9,
-        Value::Str(value) => text(value),
-        Value::Bytes(value) => 9 + value.len() as u64,
-        Value::Path(value) => 9 + value.bytes.len() as u64,
-        Value::List(values) => 9 + values.iter().map(emitted_cost).sum::<u64>(),
-        Value::Map(values) => 9 + values.iter().map(|(name, value)| key(name) + emitted_cost(value)).sum::<u64>(),
-        Value::Record(value) => record(value),
-        Value::Result(ResultValue::Ok(value) | ResultValue::Err(value)) => 1 + emitted_cost(value),
-        Value::Error(error) => 1 + text(&error.family) + text(&error.variant) + text(&error.kind) + text(&error.message) + record(&error.payload) + 9 + error.facets.iter().map(|facet| text(facet)).sum::<u64>(),
-        _ => unreachable!("decoded codec value domain"),
-    }
-}
-
-pub(crate) fn encode_all<I, T>(format: Format, values: I, span: Span) -> Result<Vec<u8>, RuntimeError>
-where I: IntoIterator<Item = T>, T: Serialize {
-    fn encode<I, T, S>(format: Format, values: I, serializer: S, span: Span) -> Result<Vec<u8>, RuntimeError>
-    where I: IntoIterator<Item = T>, T: Serialize, S: deser::ser::StreamSerializer {
-        let mut output = Output::new();
-        let result = (|| {
-            let mut writer = deser::io::Writer::new(&mut output, serializer);
-            for (index, value) in values.into_iter().enumerate() {
-                if index >= ITEM_LIMIT { return Err(Error::new(ErrorKind::LimitExceeded, "codec sequence exceeds 1000000 items")); }
-                writer.write_with(&value, |driver| {
-                    if format == Format::Yaml { super::config::setup_encode(format, driver); }
-                    else { driver.push_guard(EncodeLimits::default()); }
-                })?;
-            }
-            Ok(())
-        })();
-        output.finish_bytes(result).map_err(|error| runtime_error(error, format.identifier(), span))
-    }
-    match format {
-        Format::Json => {
-            let config = deser_json::SerializerConfig::builder().trailing(deser_json::Trailing::Newline).build();
-            encode(format, values, deser_json::Serializer::with_config(config), span)
-        }
-        Format::Yaml => {
-            let mut config = deser_yaml::SerializerConfig::new();
-            config.set_end_documents(true);
-            encode(format, values, deser_yaml::Serializer::with_config(config), span)
-        }
-        Format::Csv | Format::Tsv => super::table::encode_all(format, values, span),
-        _ => Err(failure("UnsupportedFormat", format.identifier(), "format does not support sequences", span)),
-    }
 }

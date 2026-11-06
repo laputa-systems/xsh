@@ -115,7 +115,7 @@ fn verify_managed_release_scope(decoder: &FullDecoder<'_>, parent: usize) -> Res
         let schema::ExprView::Param(slot) = decoder.expression_view(argument.raw() as usize)? else { return Err(invalid()) };
         Ok((op, slot))
     };
-    for resource in body[1..resources_end].chunks_exact(2) {
+    for resource in body[1..resources_end].as_chunks::<2>().0 {
         let schema::StmtView::Let { slot, .. } = decoder.statement_view(resource[0])? else { return Err(invalid()) };
         let schema::StmtView::Defer { value, kind: DeferKind::ManagedRelease } = decoder.statement_view(resource[1])? else { return Err(invalid()) };
         let schema::ExprView::IfExpr { mut branches, else_value, .. } = decoder.expression_view(value.raw() as usize)? else { return Err(invalid()) };

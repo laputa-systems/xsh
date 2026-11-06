@@ -123,11 +123,11 @@ fn resolve_key_validation_boundary(
     let encoded_operation = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(operation as usize).ok_or_else(|| IrVerifyError::new("capture index operation ordinal is out of scope"))?;
     let operation = super::operations::decode(store, scope, encoded_operation, substitution, budget)?;
     let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("capture index boundary names another operation")); };
-    if !super::operations::may_require_uint_key_validation(&receiver, &key) { return Ok(None); }
+    if !super::operations::may_require_uint_key_validation(receiver, key) { return Ok(None); }
     if receiver.closed_ground_type().is_none() || key.closed_ground_type().is_none() {
         return Ok(Some(C::KeyValidationBoundary(crate::sema::wrapper_operation::WrapperRequirementRef::Ordinal(ordinal))));
     }
-    if !super::operations::requires_uint_key_validation(&receiver, &key) { return Ok(None); }
+    if !super::operations::requires_uint_key_validation(receiver, key) { return Ok(None); }
     match boundary {
         B::Captured | B::ProcCompletion { .. } => Ok(None),
         B::Producer | B::TopLevel => Ok(Some(C::Explicit(SchemeType::Ground(Type::Error)))),
@@ -153,7 +153,7 @@ fn resolve_key_validation(
         return Ok(crate::sema::sealed_operation::requires_uint_key_validation(&receiver, &key)
             .then_some(C::Explicit(SchemeType::Ground(Type::Error))));
     }
-    Ok(super::operations::may_require_uint_key_validation(&receiver, &key)
+    Ok(super::operations::may_require_uint_key_validation(receiver, key)
         .then_some(C::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Ordinal(ordinal))))
 }
 
@@ -288,10 +288,10 @@ fn validate_key_validation_boundary(
     let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(ordinal as usize).ok_or_else(|| IrVerifyError::new("index validation operation ordinal is out of scope"))?;
     let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
     let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("index validation wrapper names another operation")); };
-    if !super::operations::may_require_uint_key_validation(&receiver, &key) { return Ok(true); }
+    if !super::operations::may_require_uint_key_validation(receiver, key) { return Ok(true); }
     if receiver.closed_ground_type().is_none()
         || key.closed_ground_type().is_none()
-        || !super::operations::requires_uint_key_validation(&receiver, &key)
+        || !super::operations::requires_uint_key_validation(receiver, key)
     { return Ok(false); }
     if let B::Return(returned) | B::ErrorReturn(returned) = boundary
         && super::operations::result_error_type(returned).is_some_and(|error| error.is_none_or(|error| !Type::Error.matches_expected(&error)))
@@ -608,9 +608,9 @@ fn completion_error_join(store: &FullStore, scope: &SchemeScope, contributions: 
                 let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation ordinal is out of scope"))?;
                 let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
                 let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("completion index contribution names another operation")); };
-                if super::operations::may_require_uint_key_validation(&receiver, &key) {
+                if super::operations::may_require_uint_key_validation(receiver, key) {
                     if receiver.closed_ground_type().is_none() || key.closed_ground_type().is_none() { return Ok(None); }
-                    if super::operations::requires_uint_key_validation(&receiver, &key) { errors.push(SchemeType::Ground(Type::Error)); }
+                    if super::operations::requires_uint_key_validation(receiver, key) { errors.push(SchemeType::Ground(Type::Error)); }
                 }
             }
             PC::KeyValidation(crate::sema::wrapper_operation::WrapperOperationRef::Source(_)) => return Err(IrVerifyError::new("source operation reference appears in a verified scheme")),
@@ -879,7 +879,7 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
                         let Some(key_ground) = key.closed_ground_type() else { return Ok(Vec::new()) };
                         if crate::sema::sealed_operation::requires_uint_key_validation(&receiver_ground, &key_ground) {
                             errors.push(Type::Error);
-                        } else if super::operations::may_require_uint_key_validation(&receiver, &key) {
+                        } else if super::operations::may_require_uint_key_validation(receiver, key) {
                             return Ok(Vec::new());
                         }
                         continue;
@@ -945,9 +945,9 @@ fn output_projections(store: &FullStore, scope: &SchemeScope, encoded: FullWrapp
                         let encoded = *bounded(scope.operations, &store.scheme_operations, "scheme operation range is invalid")?.get(*ordinal as usize).ok_or_else(|| IrVerifyError::new("completion index operation ordinal is out of scope"))?;
                         let operation = super::operations::decode(store, scope, encoded, substitution, budget)?;
                         let Some((receiver, key)) = operation.key_operands() else { return Err(IrVerifyError::new("completion index contribution names another operation")); };
-                        if super::operations::may_require_uint_key_validation(&receiver, &key) {
+                        if super::operations::may_require_uint_key_validation(receiver, key) {
                             if receiver.closed_ground_type().is_none() || key.closed_ground_type().is_none() { return Ok(Vec::new()); }
-                            if super::operations::requires_uint_key_validation(&receiver, &key) {
+                            if super::operations::requires_uint_key_validation(receiver, key) {
                                 outputs.push((returned_error, SchemeType::Ground(Type::Error)));
                             }
                         }
