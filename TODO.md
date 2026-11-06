@@ -109,16 +109,6 @@ out of scope.
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-77 · P4 · Accept a record spread into a returned callable without a rest parameter
-
-- **Area:** Checker
-- **Where:** `src/sema/types.rs` (`TypedCallable`), `src/sema/check/typed_callable.rs` (`check_callable_contract_call_with_checked_argument`), `src/sema/check/call.rs`
-- **Problem:** A local holding a declaration-derived callable keeps its parameter names, but `TypedCallable` does not record whether the value came from a declaration or from an authored fixed-arity type, so a call through any callable without a rest parameter rejects `...` spreads with `check.callable-mismatch`. Only callables with a rest parameter, which an authored type cannot have, take the record-spread path.
-- **Recommendation:** Owner decision between two designs. (a) Drop the authored-type rejection in SPEC 9.4: authored callable types already carry labels and a function fits one only when its labels match, so a record spread can bind by label through any callable value; no new state, and the rest-parameter special case in `call.rs` goes away. (b) Add a `CallableOrigin` to `TypedCallable` with equality ignoring it; origin cannot live on the binding (`let g = f` copies an authored type) or be derived (an authored `pure(value: Int) -> Int` equals a declaration's type field for field), and about 25 IR and verifier construction sites plus `SchemeType::Callable` would need it, so the IR must encode it.
-- **Acceptance:** `...{first: 7}` into a returned callable without a rest parameter checks and runs, and SPEC 6.3 and 9.4 state the chosen rule.
-- **Fix with:** architect
-- **Effort:** M
-
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
 - **Area:** Performance

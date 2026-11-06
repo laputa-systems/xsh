@@ -2452,9 +2452,9 @@ type; `Any`, open `Record`, `Map`, `Optional`, and `Result` operands must be
 narrowed or unwrapped first. A `null` field is supplied (it does not select the
 parameter's default). Unknown names and parameters supplied twice are errors.
 A record spread may target a named function or alias, a record constructor, or a
-local that holds a declaration-derived callable value with a rest parameter; the
-rest parameter still takes positional `@` splices beside it. A call through a
-local callable value without a rest parameter rejects spreads (9.4).
+local that holds a callable value, including one of an authored callable type
+(9.4); it binds by parameter label, and a final rest parameter still takes
+positional `@` splices beside it.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
@@ -4750,7 +4750,9 @@ effect clause is charged to the caller exactly as a named proc's clause is
 (9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
 any proc, and a caller with a declared or `without` bound cannot call it. A
 call through an authored fixed-arity type passes each argument explicitly;
-`@` splices and `...` spreads are rejected. A stream stage's callable is still a function name; a value of a
+`@` splices are rejected. A `...` record spread binds by label, because a
+function fits the type only when its labels match, and reports unknown or
+repeated labels as `check.named-arg`. A stream stage's callable is still a function name; a value of a
 callable type is called from the stage's block, as in `map { scale(.) }`.
 
 At run time a value of a callable type is the `Proc` or `Pure` handle it was

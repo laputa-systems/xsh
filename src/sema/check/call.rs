@@ -327,8 +327,7 @@ impl Checker {
             }
         }
         if let Some(callable) = self.typed_callable_local_callee(arena, source, callee)
-            && !(callable.sig.params.iter().any(|parameter| parameter.rest)
-                && args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })))
+            && !args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }))
         {
             return self.check_typed_callable_call_with_checked_argument(
                 arena,

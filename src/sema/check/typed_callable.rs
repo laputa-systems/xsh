@@ -544,7 +544,6 @@ mod inferred_callable_tests {
             "type Action = pure(root: Path) -> Path\npure identity(root: Path) -> Path { root }\npure invoke(roots: List[Path]) -> Path { let action: Action = identity; action(@roots) }\n",
             "type Action = pure(root: Path) -> Path\npure invoke(action: Action, roots: List[Path]) -> Path { action(@roots) }\n",
             "type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path { action(@[p\".\"]) }\n",
-            "type Action = pure(root: Path) -> Path\ntype Fields = {root: Path}\npure invoke(action: Action, fields: Fields) -> Path { action(...fields) }\n",
             "type Action = pure(root: Path) -> Path\ntype Holder = {action: Action}\npure invoke(holder: Holder, roots: List[Path]) -> Path { holder.action(@roots) }\n",
             "type Action = pure() -> Int\npure target() -> Int { 7 }\npure wrong() -> Int { let action: Action = target; action(@[]) }\n",
         ] {
@@ -558,7 +557,7 @@ mod inferred_callable_tests {
 
     #[test]
     fn fixed_arity_spread_recovery_retains_operand_errors() {
-        for (argument, operand) in [("@missing", "missing"), ("...missing", "missing")] {
+        for (argument, operand) in [("@missing", "missing")] {
             let source = format!("type Action = pure(root: Path) -> Path\npure invoke(action: Action) -> Path {{ action({argument}) }}\n");
             let output = checked(&source);
             let errors = output.diagnostics.iter().filter(|diagnostic| diagnostic.severity == Severity::Error).collect::<Vec<_>>();

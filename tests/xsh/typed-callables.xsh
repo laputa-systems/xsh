@@ -13,6 +13,7 @@ type Scale = pure(n: Int) -> Int
 type CallbackRecord = {double: Scale}
 
 type Join = pure(left: Str, right: Str) -> Str
+type JoinHolder = {join: Join}
 
 type Step = {name: Str, build: Builder, scale: Scale}
 type Holder = {callback: Scale}
@@ -941,8 +942,41 @@ proc main(roots: List[Path], fields: Fields) -> Result[Unit] {
   assert "err[check.arity]: incorrect function arity: expected 2 arguments, found 1" in stderr, stderr
   assert count(stderr, "err[check.type-mismatch]") == 2, stderr
   assert "err[check.named-arg]" in stderr, stderr
-  assert count(stderr, "err[check.callable-mismatch]: a call through a fixed-arity callable type requires explicit arguments") == 2, stderr
+  assert count(stderr, "err[check.callable-mismatch]: a call through a fixed-arity callable type requires explicit arguments") == 1, stderr
   assert "is called directly, as `name(...)`; it has no `.call` method" in stderr, stderr
+}
+
+pure spread_join(callback: Join) -> Str {
+  callback(...{right: "b", left: "a"})
+}
+
+test test_record_spread_binds_by_label_through_an_authored_callable_type {
+  let joined: Join = join
+  assert joined(...{right: "y", left: "x"}) == "x-y"
+  assert spread_join(joined) == "a-b"
+  assert joined("p", ...{right: "q"}) == "p-q"
+  let holder: JoinHolder = {join: joined}
+  assert holder.join(...{left: "h", right: "i"}) == "h-i"
+}
+
+test test_record_spread_through_an_authored_callable_type_rejects_unknown_and_duplicate_labels { |ctx|
+  let stderr = check_errors(
+    ctx,
+    r"""type Join = pure(left: Str, right: Str) -> Str
+
+pure join_labels(left: Str, right: Str) -> Str {
+  f"{left}-{right}"
+}
+
+pure invoke(join: Join) -> Str {
+  let a = join(...{left: "x", middle: "m", right: "y"})
+  let b = join("x", ...{left: "z", right: "y"})
+  a + b
+}
+""",
+  )?
+  assert "err[check.named-arg]: unknown named parameter `middle`" in stderr, stderr
+  assert count(stderr, "err[check.named-arg]") == 2, stderr
 }
 
 # A handle does not carry its signature, so nothing at run time can vouch for

@@ -75,3 +75,13 @@ test test_record_spread_and_rest_splice_into_returned_callable {
   let tail = [4, 5]
   assert integer(...{first: 7}, @tail) == 9
 }
+
+pure keep_plain(f, value) {
+  let _ = f(value)
+  f
+}
+
+test test_record_spread_into_returned_callable_without_a_rest_parameter {
+  let doubled = keep_plain(twice, 1)
+  assert doubled(...{value: 7}) == 14
+}
