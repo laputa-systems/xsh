@@ -568,22 +568,18 @@ test test_uu_tail_follow_descriptor_vs_rename2 { |ctx|
 # origin: uutils test_tail::test_follow_detects_file_truncation
 test test_uu_tail_follow_detects_file_truncation { |ctx|
   let s = uu.scene(ctx)?
-  if (env.get("CI") ?? "").lower() == "true" { test.skip("upstream skips tight timing under CI") }
-  for row in [{delay: 1000ms, extra: ["---disable-inotify"]}, {delay: 250ms, extra: []}] {
+  for extra in [["---disable-inotify"], []] {
     for mode in ["-f", "-F"] {
       uu.write(s, "data", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
-  let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "data", @row.extra, mode])?
-  let child = spawn plan ?
-  defer child.cancel(signal: "KILL", kill_after: 0ms)
-      time.sleep(row.delay)
+      let plan = follow(s, ["-s.1", "--max-unchanged-stats=1", "data", @extra, mode])?
+      let child = spawn plan ?
+      defer child.cancel(signal: "KILL", kill_after: 0ms)
+      wait_output(s, b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n", b"")
       alive(child)
       uu.write(s, "data", "11\n12\n13\n14\n15\n")
-      time.sleep(row.delay)
+      wait_output(s, b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n", b"tail: data: file truncated\n")
       alive(child)
-  child.cancel(signal: "KILL", kill_after: 0ms)
-      let r = streams(s)?
-      uu.stderr_is(r, "tail: data: file truncated\n")
-      uu.stdout_is(r, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n")
+      child.cancel(signal: "KILL", kill_after: 0ms)
     }
   }
 }
