@@ -307,7 +307,7 @@ impl StructEmitter for StatsFields<'_> {
     fn next(&mut self, _state: &mut State) -> Result<Option<(Cow<'_, str>, SerializeHandle<'_>)>, Error> {
         let (key, value) = match self.index {
             0 => ("blanks", CodecInput::Integer(self.stats.blanks)),
-            1 => ("blobs", self.stats.blobs.map_or(CodecInput::EmptyObject, |v| CodecInput::LoweredMap(v))),
+            1 => ("blobs", self.stats.blobs.map_or(CodecInput::EmptyObject, CodecInput::LoweredMap)),
             2 => ("code", CodecInput::Integer(self.stats.code)),
             3 => ("comments", CodecInput::Integer(self.stats.comments)),
             _ => return Ok(None),
@@ -429,7 +429,7 @@ mod tests {
             (vec![Value::Int(1), Value::Str("two\n\"".into()), Value::Null, Value::Bool(true)], "1\n\"two\\n\\\"\"\nnull\ntrue\n"),
         ] {
             let values = Value::List(items);
-            let encoded = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", &[values.clone()]).unwrap();
+            let encoded = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", std::slice::from_ref(&values)).unwrap();
             assert_eq!(encoded, Value::ok(Value::Str(expected.into())));
             let lowered = super::super::lowered_ops::lowered_value_from_runtime_any(&values).unwrap();
             assert_eq!(encode_lowered_lines_for_write(&lowered, span()).unwrap(), expected);
@@ -437,7 +437,7 @@ mod tests {
         let path = Value::Path(PathValue::from_text("src").unwrap());
         for items in [vec![path.clone(), Value::Int(1)], vec![Value::Int(1), path]] {
             let values = Value::List(items);
-            let result = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", &[values.clone()]).unwrap();
+            let result = super::super::Evaluator::probe_embedded_pure_call("json", "encode_lines", std::slice::from_ref(&values)).unwrap();
             let Value::Result(ResultValue::Err(error)) = result else { panic!("whole JSON Lines encoding must fail") };
             let Value::Error(error) = *error else { panic!("JSON Lines codec error") };
             assert_eq!(error.variant, "UnsupportedValue");

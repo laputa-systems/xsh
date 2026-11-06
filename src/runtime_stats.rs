@@ -407,14 +407,14 @@ print "once"
         let phases = report_fields.remove("wall_time_ns").expect("phase report adds wall times");
         let cpu = report_fields.remove("cpu_time_ns").expect("phase report adds CPU times");
         assert_eq!(xsh::host::json::encode(&report).expect("host JSON document must be encodable"), xsh::host::json::encode(&allocation).expect("host JSON document must be encodable"));
-        assert!((&allocation).get("wall_time_ns").is_none());
-        assert!((&allocation).get("cpu_time_ns").is_none());
-        assert!((&phases).get("preparation_inclusive").and_then(|value| value.as_u64()).is_some());
-        assert!((&phases).get("execution_finish_exclusive").and_then(|value| value.as_u64()).is_some());
+        assert!(allocation.get("wall_time_ns").is_none());
+        assert!(allocation.get("cpu_time_ns").is_none());
+        assert!(phases.get("preparation_inclusive").and_then(|value| value.as_u64()).is_some());
+        assert!(phases.get("execution_finish_exclusive").and_then(|value| value.as_u64()).is_some());
         assert!(phases.get("diagnostic_finish_exclusive").is_some_and(|value| value.is_null()));
         assert!(cpu.get("clock").and_then(|value| value.as_str()) == Some("process_cpu"));
         for key in ["preparation_inclusive", "project_parse_load_exclusive", "check_solve_fact_build_exclusive", "declaration_publication_exclusive", "lower_verify_install_exclusive", "preparation_other_exclusive", "execution_finish_exclusive"] {
-            assert!((&cpu).get(key).and_then(|value| value.as_u64()).is_some(), "{key}");
+            assert!(cpu.get(key).and_then(|value| value.as_u64()).is_some(), "{key}");
         }
         assert!(cpu.get("diagnostic_finish_exclusive").is_some_and(|value| value.is_null()));
     }

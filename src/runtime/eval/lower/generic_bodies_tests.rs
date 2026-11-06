@@ -174,11 +174,11 @@ proc missing(base: Path) [fs, error] -> Result[Str] { selected(9, base) }
         evaluator.indexed_program = Some(Arc::clone(&program));
         for (name, expected) in [("number", "number\n"), ("word", "word\n")] {
             let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern(name)));
-            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[base.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+            let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, std::slice::from_ref(&base), Span::at(source_id, 0)).unwrap().unwrap();
             assert_eq!(actual, Value::Result(ResultValue::Ok(Box::new(Value::Str(Arc::from(expected))))), "typed={typed} {name} frames={force_frames}");
         }
         let key = program.symbol_owner().with_current(|| LoweredFunctionKey::Name(Name::intern("missing")));
-        let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, &[base.clone()], Span::at(source_id, 0)).unwrap().unwrap();
+        let actual = evaluator.call_indexed_direct(key, CallableKind::Proc, std::slice::from_ref(&base), Span::at(source_id, 0)).unwrap().unwrap();
         let Value::Result(ResultValue::Err(error)) = actual else { panic!("the native missing-file error remains a Result") };
         let Value::Error(error) = *error else { panic!("the native error keeps its nominal family") };
         assert!(error.facets.iter().any(|facet| facet == "NotFound"), "{error:?}");
