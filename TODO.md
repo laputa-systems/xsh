@@ -114,8 +114,8 @@ out of scope.
 - **Area:** Checker
 - **Where:** `src/sema/types.rs` (`TypedCallable`), `src/sema/check/typed_callable.rs` (`check_callable_contract_call_with_checked_argument`), `src/sema/check/call.rs`
 - **Problem:** A local holding a declaration-derived callable keeps its parameter names, but `TypedCallable` does not record whether the value came from a declaration or from an authored fixed-arity type, so a call through any callable without a rest parameter rejects `...` spreads with `check.callable-mismatch`. Only callables with a rest parameter, which an authored type cannot have, take the record-spread path.
-- **Recommendation:** Record the origin on the callable type, or on the binding that holds it, and route declaration-derived locals through the spread path whether or not they have a rest parameter. Keep the authored-type rejection.
-- **Acceptance:** `...{first: 7}` into a returned callable without a rest parameter checks and runs; an authored `pure(Int) -> Int` type still rejects spreads; SPEC 6.3 and 9.4 state the rule.
+- **Recommendation:** Owner decision between two designs. (a) Drop the authored-type rejection in SPEC 9.4: authored callable types already carry labels and a function fits one only when its labels match, so a record spread can bind by label through any callable value; no new state, and the rest-parameter special case in `call.rs` goes away. (b) Add a `CallableOrigin` to `TypedCallable` with equality ignoring it; origin cannot live on the binding (`let g = f` copies an authored type) or be derived (an authored `pure(value: Int) -> Int` equals a declaration's type field for field), and about 25 IR and verifier construction sites plus `SchemeType::Callable` would need it, so the IR must encode it.
+- **Acceptance:** `...{first: 7}` into a returned callable without a rest parameter checks and runs, and SPEC 6.3 and 9.4 state the chosen rule.
 - **Fix with:** architect
 - **Effort:** M
 
