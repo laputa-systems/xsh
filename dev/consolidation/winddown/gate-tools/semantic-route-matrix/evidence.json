@@ -4712,6 +4712,16 @@
         "tests/xsh/operand-order-control-oracles.xsh::test_default_parameters_run_only_for_omitted_arguments_in_parameter_order"
       ],
       "scope": "The default expression rows run left-to-right for omitted arguments; supplied named argument effects retain authored right-before-left order."
+    },
+    "ExprCodecSchema": {
+      "fields": [
+        "format",
+        "input"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_codec_decode_as_evaluates_format_then_input_once"
+      ],
+      "scope": "The format and input markers print in written order before decoding, and an unsupported format is rejected only after both operands ran."
     }
   },
   "source_paths": [
