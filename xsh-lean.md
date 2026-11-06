@@ -58,9 +58,13 @@ evaluating the right operand (a node outside the fixture). Forged signatures,
 swapped Ok and Err (candidate and row), a dropped, misplaced or mistyped
 propagation, and forged rows and function tables are rejected. The checker
 facts give each function's signature and the type of every non-callee
-expression, matched against the validated nodes; calls (so `?` over a
-Result-returning call), local declarations, the base machine and its lowerer,
-and typed whole-function execution of Result bodies remain open.
+expression, matched against the validated nodes. A second fixture propagates
+the Result of a user call (`Ok(wrap(1)?)`): the callee's published signature
+types the call in the caller's derivation, the direct call row reads as a call
+of the callee's function entry, and the checker's selected call target must be
+the function the validated node calls. Local declarations, execution of user
+calls, the base machine and its lowerer, and typed whole-function execution of
+Result bodies remain open.
 
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
@@ -1131,6 +1135,49 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   kernels accepted 115,618 declarations using only `propext`, `Quot.sound` and
   `Classical.choice`. This run also covers the expected-position `Ok` commit,
   whose earlier fresh check was inconclusive.
+
+- 2026-11-06: Calls of user functions in the Result fixtures. A second
+  test-only fixture, `pure wrap(n: Int) -> Result[Int, Str] { return Ok(n) }`
+  and `pure lift() -> Result[Int, Str] { return Ok(wrap(1)?) }` (111
+  characters, kept under the lean4lean limit, so it is a separate source
+  rather than an extension of the first), lowers the call to
+  `ExprDirectPureCall` (109, `[function + 1, argument block, location]`, the
+  block `count :: [0, row]*`). The export schema is now
+  `xsh-connected-result-signatures-v3`: each function also lists, in
+  pre-order, the call-name site and name of the function the checker selected
+  for each call (`selected_function_calls`; the Ok and Err builtins have none).
+  The checker publishes no type for any callee name, so the call-name sites
+  are paired with the selected target rather than a type. In Lean, the value
+  tree gains `call` with an argument list, read from direct call rows only;
+  `ResultForm` became `CalleeForm` with a `function` index;
+  `validateResultFunction` and the row, type and call checks take the whole
+  signature list. Every function is bound at binder 20 + its position with the
+  monomorphic type of its published signature, so the caller's derivation uses
+  the callee's signature, which the callee's own validation checks against its
+  annotations. Builtins are bound only when the source names them (the call
+  fixture never names `Err`), parameters are limited to 10 so their binders
+  stay below the builtins, and the raw return check now also requires the
+  function entry's name to be the published name. `checkResultCallTargets`
+  requires the published targets to be the functions the validated nodes call;
+  certification includes it (`result_call_is_certified`). Controls: a forged
+  callee result or parameter type and a callee published under another name are
+  rejected at the caller; a call of an unbound binder is rejected by
+  validation, the rows and the call check; forged call-site and argument types;
+  a forged, dropped or shifted call target; call rows with another target, an
+  indirect tag or another argument; and a callee function entry with another
+  name. Each component alone accepts the caller. Like the earlier fixture, the
+  validation controls use the fixture's derivation steps, so they show
+  rejection for those steps, not for every derivation. The Rust test compares
+  both fixtures' documents and shows that a changed callee signature,
+  call-site type, call target or dropped selection changes the export. Not
+  covered: the connected machine does not execute user calls; recursion,
+  indirect calls, call arguments as expected positions for a bare `Ok`, local
+  declarations, the base machine and Vertical lowerer, and source-site binding
+  of call and propagation rows remain open. The gate passed the 1,695 lowering
+  cases, the type-agreement case and the 12 native lowering-coverage cases; the
+  two Result exporter tests passed in the pinned container. The Lake build (260
+  jobs), the inventory (1,065 roots) with its 71 tests, and the axiom audit
+  (28,333 declarations, zero closed roots) with its self-test pass.
 
 ## For the owner afterwards
 

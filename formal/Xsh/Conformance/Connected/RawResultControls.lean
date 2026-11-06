@@ -5,16 +5,13 @@ open Xsh.Foundation Xsh.Syntax Xsh.Typing.Connected Xsh.Conformance.Transport
 
 def validationAccepts (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode)
     (steps : List DerivationStep) : Bool :=
-  match admitSource 0 resultControlSource, signatures[index]? with
-  | .ok unit, some signature =>
-      match validateResultFunction unit signature index candidate steps with | .ok _ => true | .error _ => false
-  | _, _ => false
+  match admitSource 0 resultControlSource with
+  | .ok unit => match validateResultFunction unit signatures index candidate steps with | .ok _ => true | .error _ => false
+  | .error _ => false
 
 def rowsAccept (rows : RawInstructionRows) (functions : RawFunctionRows) (index : Nat)
     (candidate : List StatementNode) : Bool :=
-  match resultSignatures[index]? with
-  | some signature => rawResultReturnCheckFor resultSourceNames rows functions signature index candidate
-  | none => false
+  rawResultReturnCheckFor resultSourceNames rows functions resultSignatures index candidate
 
 set_option maxRecDepth 100000 in
 theorem source_validation_accepts_each_candidate :
@@ -94,9 +91,9 @@ theorem a_propagation_outside_the_constructor_is_rejected :
 
 def typesAccept (signatures : List ResultSignature) (index : Nat) (candidate : List StatementNode)
     (steps : List DerivationStep) : Bool :=
-  match admitSource 0 resultControlSource, signatures[index]? with
-  | .ok unit, some signature => checkResultExpressionTypes unit signature index candidate steps
-  | _, _ => false
+  match admitSource 0 resultControlSource with
+  | .ok unit => checkResultExpressionTypes unit signatures index candidate steps
+  | .error _ => false
 
 set_option maxRecDepth 100000 in
 theorem published_expression_types_match_each_candidate :

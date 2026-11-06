@@ -947,6 +947,11 @@ const RESULT_CONTROL_SOURCE: &str = concat!(
     "pure refuse() -> Result[Int, Str] { return Err(\"no\") }\n",
 );
 
+const RESULT_CALL_SOURCE: &str = concat!(
+    "pure wrap(n: Int) -> Result[Int, Str] { return Ok(n) }\n",
+    "pure lift() -> Result[Int, Str] { return Ok(wrap(1)?) }\n",
+);
+
 const LEAN_RAW_RESULT_DOCUMENTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
     "/formal/Xsh/Conformance/Connected/RawResultDocuments.lean"));
 
@@ -977,6 +982,7 @@ fn result_expression_types(
     published: &super::facts::PublishedFacts,
     expression: crate::syntax::arena::ExprId,
     output: &mut Vec<WireValue>,
+    calls: &mut Vec<WireValue>,
 ) -> Result<(), String> {
     use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind};
     let ast = &arena.arena;
@@ -991,17 +997,23 @@ fn result_expression_types(
             if !matches!(ast.expr(callee).kind, ArenaExprKind::Ident(_)) {
                 return Err("only a named callee is in the expression-type export".to_string());
             }
+            if let Some(target) = published.declarations.bodies.selected_function_calls.get(&expression) {
+                calls.push(wire_object([
+                    ("site", result_site_wire(ast.expr(callee).span)),
+                    ("function", wire_string(super::name_text(ast.function_def(target.definition).name))),
+                ]));
+            }
             for argument in ast.call_args(args) {
                 let ArenaCallArgKind::Positional(value) = argument.kind else {
                     return Err("only positional arguments are in the expression-type export".to_string());
                 };
-                result_expression_types(arena, published, value, output)?;
+                result_expression_types(arena, published, value, output, calls)?;
             }
         }
-        ArenaExprKind::Try(inner) => result_expression_types(arena, published, inner, output)?,
+        ArenaExprKind::Try(inner) => result_expression_types(arena, published, inner, output, calls)?,
         ArenaExprKind::Binary { left, right, .. } => {
-            result_expression_types(arena, published, left, output)?;
-            result_expression_types(arena, published, right, output)?;
+            result_expression_types(arena, published, left, output, calls)?;
+            result_expression_types(arena, published, right, output, calls)?;
         }
         ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Ident(_) => {}
         other => return Err(format!("expression {other:?} is outside the expression-type export")),
@@ -1024,12 +1036,13 @@ fn export_result_signatures(
         }
         let body = ast.span(ast.block(definition.body).span);
         let mut expressions = Vec::new();
+        let mut calls = Vec::new();
         for statement in ast.stmt_ids(ast.block(definition.body).statements) {
             let crate::syntax::arena::ArenaStmtKind::Return(Some(crate::syntax::arena::ArenaExprOrRun::Expr(value))) =
                 ast.stmt(statement).kind else {
                 return Err("only a returned expression is in the expression-type export".to_string());
             };
-            result_expression_types(arena, published, value, &mut expressions)?;
+            result_expression_types(arena, published, value, &mut expressions, &mut calls)?;
         }
         let parameters = parameters.iter().zip(&signature.params).map(|(parameter, published)| Ok(wire_object([
             ("name", wire_string(super::name_text(parameter.name))),
@@ -1045,10 +1058,11 @@ fn export_result_signatures(
             ("parameters", WireValue::Array(parameters)),
             ("result", result_signature_type(&signature.return_ty)?),
             ("expressions", WireValue::Array(expressions)),
+            ("calls", WireValue::Array(calls)),
         ]))
     }).collect::<Result<Vec<_>, String>>()?;
     let value = wire_object([
-        ("schema", wire_string("xsh-connected-result-signatures-v2")),
+        ("schema", wire_string("xsh-connected-result-signatures-v3")),
         ("functions", WireValue::Array(functions)),
     ]);
     deser_json::to_string(&value).map_err(|error| error.to_string())
@@ -1084,4 +1098,44 @@ fn result_control_rows_and_signatures_are_the_lean_documents() {
         .find(|&id| matches!(parsed.arena.arena.expr(id).kind, crate::syntax::arena::ArenaExprKind::Try(_))).unwrap();
     published.declarations.bodies.expr_types.insert(propagated, crate::sema::types::Type::Str);
     assert_ne!(signatures, export_result_signatures(&parsed.arena, &published).unwrap());
+}
+
+
+#[test]
+fn result_call_rows_and_signatures_are_the_lean_documents() {
+    let (_, _, parsed, published) = check_fixture(RESULT_CALL_SOURCE).unwrap();
+    let (_, _, program) = build_fixture(RESULT_CALL_SOURCE).unwrap();
+    let raw = RawFullProgram::capture(&program);
+    assert!(raw.rows.tags.contains(&FullTag::ExprDirectPureCall), "the caller lowers a direct call row");
+    let signatures = export_result_signatures(&parsed.arena, &published).unwrap();
+    let mut stale = Vec::new();
+    for (name, exported) in [
+        ("resultCallRawInstructionCodes", encode_instructions(&raw.rows).unwrap()),
+        ("resultCallRawFunctionCodes", encode_functions(&raw.rows).unwrap()),
+        ("resultCallSignatureCodes", signatures.clone()),
+    ] {
+        if lean_document_from(LEAN_RAW_RESULT_DOCUMENTS, name).as_deref() != Some(exported.as_str()) {
+            stale.push(lean_definition(name, &exported));
+        }
+    }
+    assert!(stale.is_empty(), "the Lean documents must hold the exported bytes; the current export is\n{}", stale.join("\n"));
+
+    let ast = &parsed.arena.arena;
+    let callee = ast.function_def(crate::syntax::arena::FunctionDefId::from_index(0));
+    let call = (0..ast.expr_tags.len()).map(crate::syntax::arena::ExprId::from_index)
+        .find(|id| published.declarations.bodies.selected_function_calls.contains_key(id)).unwrap();
+    let mut forged = published.clone();
+    forged.declarations.pures.get_mut(&callee.name).unwrap().return_ty =
+        crate::sema::types::Type::Result(Box::new(crate::sema::types::Type::Int), Box::new(crate::sema::types::Type::Int));
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+    let mut forged = published.clone();
+    forged.declarations.bodies.expr_types.insert(call, crate::sema::types::Type::Int);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+    let mut forged = published.clone();
+    forged.declarations.bodies.selected_function_calls.get_mut(&call).unwrap().definition =
+        crate::syntax::arena::FunctionDefId::from_index(1);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
+    let mut forged = published;
+    forged.declarations.bodies.selected_function_calls.remove(&call);
+    assert_ne!(signatures, export_result_signatures(&parsed.arena, &forged).unwrap());
 }

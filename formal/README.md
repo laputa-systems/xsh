@@ -106,9 +106,20 @@ function's return keeps the declared error type; witnesses reject the nested
 `Ok(Ok(1)? + 1)` at `Result[Int, Str]` and accept it at `Result[Int, Error]`.
 Call arguments and record fields are not yet expected positions in the model,
 so agreement is shown only for the
-fixture. The published facts also give the checker's type of every non-callee expression; Lean pairs them in pre-order with the validated nodes and requires the same types, and forged, shifted, dropped and extra entries are rejected. Calls, local declarations,
-the base machine and its lowerer, typed whole-function execution, and
-source-site binding of propagation rows remain open. The source is kept short
+fixture. The published facts also give the checker's type of every non-callee expression; Lean pairs them in pre-order with the validated nodes and requires the same types, and forged, shifted, dropped and extra entries are rejected.
+A second fixture adds a call of a user function whose Result the caller
+propagates: `wrap(n: Int)` returns `Ok(n)` and `lift()` returns `Ok(wrap(1)?)`.
+Every function is in scope at the type of its published signature, so the
+callee's signature feeds the caller's derivation. The direct call row reads as
+a call of the callee's function entry, whose name must be the published one.
+The checker publishes no type for a call-name site, so the export gives the
+function the checker selected for each call instead, and Lean requires it to
+be the function the validated node calls. Controls reject a forged callee
+signature, a forged call-site or argument type, a forged, dropped or shifted
+call target, a call of an unknown function, and call rows with another target,
+argument or tag. Local declarations, execution of user calls by the connected
+machine, the base machine and its lowerer, typed whole-function execution, and
+source-site binding of propagation and call rows remain open. The source is kept short
 because lean4lean exceeds its deterministic timeout when the kernel admits a
 source of a few hundred characters.
 A scoped fact certificate checks one Rust-exported generic mutable-local example

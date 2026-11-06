@@ -29,8 +29,8 @@ def certifyResultControl (unit : SourceUnit) (signatures : List ResultSignature)
   decide (unit.declarations.length = signatures.length) &&
     decide (functions.functions.length = signatures.length) &&
     decide (cases.length = signatures.length) &&
-    ((signatures.zip cases).zipIdx.all fun ((signature, candidate, steps), index) =>
-      certifyResultFunction unit rows functions signature index candidate steps)
+    (cases.zipIdx.all fun ((candidate, steps), index) =>
+      certifyResultFunction unit rows functions signatures index candidate steps)
 
 def resultControlCertified : Bool :=
   match admitSource 0 resultControlSource with

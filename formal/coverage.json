@@ -12671,8 +12671,8 @@
       "declaration": "Xsh.Conformance.Connected.raw_value_correspondence_with_sound",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A raw-versus-checked value comparison that accepts, with the given Ok and Err constructor binders, yields one value tree that the raw rows read as and the checked node translates to, including Ok and Err construction and propagation.",
-      "boundary": "The comparison supports Ok, Err without a cause, and propagation over scalar, read, binary, record, projection and conditional trees; calls, Err causes and annotated forms are rejected. Row locations are not tied to source sites."
+      "scope": "A raw-versus-checked value comparison that accepts, with the given callee binders, yields one value tree that the raw rows read as and the checked node translates to, including Ok and Err construction, propagation, and direct calls of user functions with their positional arguments.",
+      "boundary": "The comparison supports Ok, Err without a cause, propagation and direct pure calls over scalar, read, binary, record, projection and conditional trees; indirect calls, Err causes and annotated forms are rejected. The callee binder map is an input, and row locations are not tied to source sites."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.certified_result_function_components",
@@ -12680,7 +12680,7 @@
       "declaration": "Xsh.Conformance.Connected.certified_result_function_components",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A certified Result function splits into a validation against the Rust-published signature, a raw-row comparison of its returned value, and a check of the published per-expression types against the validated nodes.",
+      "scope": "A certified Result function splits into a validation against the Rust-published signatures, a raw-row comparison of its returned value, a check of the published per-expression types against the validated nodes, and a check of the published call targets against the functions the validated nodes call.",
       "boundary": "Only single-return pure functions whose parameters and result use Int, Str and Result."
     },
     {
@@ -12689,8 +12689,8 @@
       "declaration": "Xsh.Conformance.Connected.validated_result_function_is_typed",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "A validated Result function has a generated constraint set, a derivation that solves it, and a source block typed under the solution in a scope of its parameters and the Ok and Err constructors.",
-      "boundary": "The Ok and Err constructor schemes and binders are fixed by the Lean model; the Rust checker is not shown to agree beyond the fixture's published signatures."
+      "scope": "A validated Result function has a generated constraint set, a derivation that solves it, and a source block typed under the solution in a scope of its parameters, the Ok and Err constructors the source names, and every function at the type of its published signature.",
+      "boundary": "The Ok and Err constructor schemes and binders are fixed by the Lean model; a callee's type is its Rust-published signature, which certification checks against that callee's own annotations. The Rust checker is not shown to agree beyond the fixtures' published facts."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
@@ -12698,7 +12698,7 @@
       "declaration": "Xsh.Conformance.Connected.raw_result_return_check_matches_the_checked_node",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "An accepted raw return check, given the admitted source's name table, reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots.",
+      "scope": "An accepted raw return check, given the admitted source's name table, reads the function's single return row and the validated candidate's returned node as the same value tree, with parameters taking their positional slots, callees their function positions, and the function entry naming the published function.",
       "boundary": "The row layout and the exporter's function and block tables come from the Rust test-only export."
     },
     {
@@ -12708,7 +12708,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The admitted Result fixture source, the Rust-published signatures, the exported raw rows and two hand-written candidates are accepted together: each candidate validates against its source and signature, and each returned row reads as its candidate's returned node.",
-      "boundary": "Candidates and derivation steps are written by hand and validated; the checker facts are signatures only, not per-expression types; calls, local declarations and operations on a propagated value are outside the fixture."
+      "boundary": "Candidates and derivation steps are written by hand and validated; calls, local declarations and operations on a propagated value are outside this fixture."
     },
     {
       "id": "fragment.Xsh.Semantics.Connected.ok_scheme_instantiates",
@@ -12816,7 +12816,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "The exported Result signature facts decode to the literal signatures the Result fixture checks use.",
-      "boundary": "One document from the test-only export; signatures only, not per-expression types."
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.result_control_source_names_are_the_fixture_names",
@@ -13086,7 +13086,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "An accepted per-expression check pairs the source's non-callee expression sites, in pre-order, with the Rust-published sites and the types the Lean validator gives the aligned candidate nodes under the derived solution with the published types.",
-      "boundary": "Only calls of named callees, propagation, binary operations, literals and reads are aligned; the callee read itself has no published type."
+      "boundary": "Only calls of named callees, propagation, binary operations, literals and reads are aligned; the checker publishes no type for a callee name, whose call target is checked separately."
     },
     {
       "id": "fragment.Xsh.Conformance.Connected.mapM_validation_types_each",
@@ -13150,6 +13150,177 @@
       "status": "fragment",
       "scope": "An extra published expression type is rejected.",
       "boundary": "One case of the exported Result fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_is_certified",
+      "module": "Xsh.Conformance.Connected.RawResultCall",
+      "declaration": "Xsh.Conformance.Connected.result_call_is_certified",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted Result call fixture source, the Rust-published signatures, call targets and expression types, the exported raw rows and two hand-written candidates are accepted together: the caller's derivation uses the callee's published signature, its direct call row reads as a call of the callee's function entry, and the propagated call result keeps the caller's error type.",
+      "boundary": "Candidates and derivation steps are written by hand and validated; one zero-parameter caller and one single-parameter callee; recursion, indirect calls, local declarations and execution of the call are outside the fixture."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_rows_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_rows_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture instruction-row document decodes to the literal rows the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_functions_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_functions_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture function-row document decodes to the literal function and block tables the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_signatures_decode_to_the_fixture",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_signatures_decode_to_the_fixture",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exported call fixture Result signature facts decode to the literal signatures, expression types and call targets the call fixture checks use.",
+      "boundary": "One document from the test-only export; the Rust test compares the document with the exporter's bytes."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.result_call_source_names_are_the_fixture_names",
+      "module": "Xsh.Conformance.Connected.RawResultCallLiteralProofs",
+      "declaration": "Xsh.Conformance.Connected.result_call_source_names_are_the_fixture_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted call fixture source has exactly the name table the call row-mutation controls use.",
+      "boundary": "The row-mutation controls take the name table as a literal; they do not re-admit the source."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.each_call_fixture_component_accepts_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.each_call_fixture_component_accepts_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Validation, the raw-row comparison, the expression-type check and the call-target check each accept the caller alone.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_callee_result_type_is_rejected_at_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_callee_result_type_is_rejected_at_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee signature whose result has an Int error type makes the caller's validation fail.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_callee_parameter_type_is_rejected_at_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_callee_parameter_type_is_rejected_at_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee signature with a Str parameter makes the caller's validation fail.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_callee_published_under_another_name_is_rejected_at_the_caller",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_callee_published_under_another_name_is_rejected_at_the_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "When no published signature carries the called name, the caller's validation fails.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_call_of_an_unknown_function_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_call_of_an_unknown_function_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A candidate that calls a binder bound to no function is rejected by validation, the raw-row comparison and the call-target check.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_call_site_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_call_site_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published type with an Int error for the call expression is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_call_argument_type_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_call_argument_type_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published Str type for the call argument is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_forged_call_target_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_forged_call_target_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published call target naming the caller instead of the callee is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_dropped_call_target_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_dropped_call_target_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published call list without the call is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_shifted_call_name_site_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_shifted_call_name_site_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A published call target at a site other than the callee name is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_call_row_with_another_target_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_call_row_with_another_target_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call row that targets the caller's function entry is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.an_indirect_call_row_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.an_indirect_call_row_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call row tagged as an indirect call is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_call_row_with_another_argument_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_call_row_with_another_argument_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A call row whose argument block reads another row is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.a_callee_function_entry_with_another_name_is_rejected",
+      "module": "Xsh.Conformance.Connected.RawResultCallControls",
+      "declaration": "Xsh.Conformance.Connected.a_callee_function_entry_with_another_name_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee function entry that names the caller is rejected.",
+      "boundary": "One mutation or case of the exported Result call fixture, checked with the fixture's derivation steps."
     }
   ],
   "artifact_certificates": [

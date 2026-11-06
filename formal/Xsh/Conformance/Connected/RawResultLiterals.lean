@@ -22,7 +22,7 @@ def resultFunctions : RawFunctionRows :=
 
 def resultSignatures : List ResultSignature :=
   [⟨"through", ⟨0, 54, 17⟩, [("r", .result (.primitive .integer) (.primitive .string))], .result (.primitive .integer) (.primitive .string),
-    [(⟨0, 63, 6⟩, .result (.primitive .integer) (.primitive .string)), (⟨0, 66, 2⟩, .primitive .integer), (⟨0, 66, 1⟩, .result (.primitive .integer) (.primitive .string))]⟩, ⟨"refuse", ⟨0, 106, 20⟩, [], .result (.primitive .integer) (.primitive .string),
-    [(⟨0, 115, 9⟩, .result (.primitive .integer) (.primitive .string)), (⟨0, 119, 4⟩, .primitive .string)]⟩]
+    [(⟨0, 63, 6⟩, .result (.primitive .integer) (.primitive .string)), (⟨0, 66, 2⟩, .primitive .integer), (⟨0, 66, 1⟩, .result (.primitive .integer) (.primitive .string))], []⟩, ⟨"refuse", ⟨0, 106, 20⟩, [], .result (.primitive .integer) (.primitive .string),
+    [(⟨0, 115, 9⟩, .result (.primitive .integer) (.primitive .string)), (⟨0, 119, 4⟩, .primitive .string)], []⟩]
 
 end Xsh.Conformance.Connected
