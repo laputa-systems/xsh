@@ -139,3 +139,4 @@ import Xsh.Conformance.Connected.RawResultCall
 import Xsh.Conformance.Connected.RawResultCallLiteralProofs
 import Xsh.Conformance.Connected.RawResultCallControls
 import Xsh.Semantics.Connected.SafetyResultControl
+import Xsh.Semantics.Connected.SafetyResultCall

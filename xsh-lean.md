@@ -62,9 +62,11 @@ expression, matched against the validated nodes. A second fixture propagates
 the Result of a user call (`Ok(wrap(1)?)`): the callee's published signature
 types the call in the caller's derivation, the direct call row reads as a call
 of the callee's function entry, and the checker's selected call target must be
-the function the validated node calls. Local declarations, execution of user
-calls, the base machine and its lowerer, and typed whole-function execution of
-Result bodies remain open.
+the function the validated node calls; the connected machine runs that caller
+node through the callee's frame to `Ok(1)`, and propagates a failing callee's
+error to the caller's caller. Local declarations, recursion, the base machine
+and its lowerer, and typed whole-function execution of Result bodies remain
+open.
 
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
@@ -1181,6 +1183,36 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   `perf-gate-ready` clean before and after, the fresh check passed: all six
   kernels accepted 115,818 declarations using only `propext`, `Quot.sound` and
   `Classical.choice`; lean4lean's slowest new declaration took 1.6 s.
+
+- 2026-11-06: Execution of the propagated user call
+  (`Semantics/Connected/SafetyResultCall.lean`). Under a `ResultCallWorld`
+  hypothesis (the callee binder reads as the scheme function whose scheme is
+  the binding the certificate derives from `wrap`'s published signature, its
+  table entry has the certified body and one parameter, the caller's Ok and Err
+  bindings are global, and the callee's parameter cell is fresh), the
+  certified `lift` node runs in 22 internal steps to `Ok(1)`: it evaluates the
+  Ok callee, starts the propagation, evaluates the call target and argument,
+  enters the callee frame (`callFunction`, parameter bound in a fresh cell of
+  the next activation), runs the certified `wrap` body to `returned Ok(1)`,
+  returns to the caller frame restoring its cells, activation and solution,
+  and then `propagateOk` and the Ok call finish. The only state the call leaves
+  behind is the callee's parameter cell and the incremented activation
+  counter. With a callee body `return Err("no")` (not the certified callee),
+  the caller's `?` unwinds the pending Ok call and returns the error to the
+  caller's own caller frame. A concrete world (`callWorld`, over any base
+  machine) inhabits the hypothesis and runs both paths; a callee with a `Str`
+  parameter refuses to bind the `Int` argument. `result_call_return_is_the_executed_node`
+  ties the executed node and callee body to the certified candidates and the
+  decoded documents. Not covered: the hypothesis is not derived from the
+  certificate or from a typed-store invariant; Rust's execution of the rows,
+  recursion and multi-statement bodies, local declarations, and the base machine
+  and Vertical lowerer remain open. No Rust change, so the gate selects no case
+  (the bridge cases passed at the previous commit with `raw_full.rs`
+  unchanged). The Lake build (261 jobs), the inventory (1,081 roots) with its 71
+  tests, and the axiom audit (28,439 declarations, zero closed roots) with its
+  self-test pass. The fresh check is deferred: the canonical replay was
+  running, and the coordinator held multi-kernel runs until it ends; it is not
+  a pass.
 
 ## For the owner afterwards
 

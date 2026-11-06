@@ -12792,6 +12792,150 @@
       "boundary": "One fixture."
     },
     {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_scheme_is_the_published_signature",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_scheme_is_the_published_signature",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scheme the machine reads for the callee is the binding the call certificate derives from the callee's published signature.",
+      "boundary": "One fixture."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_scheme_instantiates",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_scheme_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee scheme instantiates to one Int parameter and a Result[Int, Str] result under any captured solution.",
+      "boundary": "One monomorphic scheme."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.call_one_is_an_integer",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.call_one_is_an_integer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The call argument value has the Int runtime type.",
+      "boundary": "One value."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_parameters_bind",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_parameters_bind",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Entering the callee binds its parameter in a fresh cell of the new activation.",
+      "boundary": "One parameter."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_callee_parameter_of_another_type_does_not_bind",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.a_callee_parameter_of_another_type_does_not_bind",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Entering a callee whose parameter is Str with the Int argument faults with wrong arguments instead of binding.",
+      "boundary": "One mistyped parameter."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.callee_reads_its_parameter",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.callee_reads_its_parameter",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Inside the callee frame the parameter reads as the argument.",
+      "boundary": "One parameter."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.callee_reads_a_caller_global",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.callee_reads_a_caller_global",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Inside the callee frame a global binding the caller sees still reads the same value.",
+      "boundary": "Only bindings visible through the globals."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.wrap_call_frame_returns_ok",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.wrap_call_frame_returns_ok",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The callee frame runs its certified body, constructs Ok of its argument and returns it to the caller frame, restoring the caller's cells, activation and solution.",
+      "boundary": "The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_enters_the_wrap_call_frame",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.lift_enters_the_wrap_call_frame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified returned node evaluates the Ok callee, starts the propagation, evaluates the call target and argument, and enters the callee frame.",
+      "boundary": "The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_runs_the_wrap_call_frame_and_propagates_its_success",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.lift_runs_the_wrap_call_frame_and_propagates_its_success",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The caller's certified returned node runs the callee's frame, propagates its Ok through `?` and wraps the value in Ok, in 22 internal steps.",
+      "boundary": "The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.a_refusing_call_frame_returns_the_error",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.a_refusing_call_frame_returns_the_error",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A callee frame whose body returns Err(\"no\") returns that error to the caller frame.",
+      "boundary": "The refusing body is not the certified callee; it shows the failure path."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.lift_propagates_a_failing_call_to_its_caller",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.lift_propagates_a_failing_call_to_its_caller",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "When the callee returns an error, the caller's node propagates it through `?`, discards the pending Ok call and returns the error to the caller's own caller frame.",
+      "boundary": "The refusing body is not the certified callee. The machine state is a hypothesis: the callee is bound to the published scheme, its function table entry has the certified body, and the caller's Ok and Err bindings are global. Rust execution of the rows is not shown."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.call_binders_are_distinct",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.call_binders_are_distinct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The witness world's builtin and callee binders and declarations are distinct.",
+      "boundary": "Witness data."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_call_world_runs_lift_through_wrap",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.the_call_world_runs_lift_through_wrap",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A concrete machine world inhabits the call hypotheses and runs the certified caller through the certified callee to Ok(1).",
+      "boundary": "One witness world over any base machine."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.the_call_world_propagates_a_refusing_callee",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.the_call_world_propagates_a_refusing_callee",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The concrete world with a refusing callee propagates its error to the caller's caller frame.",
+      "boundary": "One witness world; the caller frame is a premise."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.result_call_return_is_the_executed_node",
+      "module": "Xsh.Semantics.Connected.SafetyResultCall",
+      "declaration": "Xsh.Semantics.Connected.result_call_return_is_the_executed_node",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The executed caller node and callee body are the certified candidates of the call fixture, whose documents decode to the checked literals.",
+      "boundary": "The candidates are hand-written and validated; the link to the Rust rows is the certificate's raw comparison."
+    },
+    {
       "id": "fragment.Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",
       "module": "Xsh.Conformance.Connected.RawResultLiteralProofs",
       "declaration": "Xsh.Conformance.Connected.result_control_rows_decode_to_the_fixture",

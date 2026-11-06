@@ -117,8 +117,13 @@ function the checker selected for each call instead, and Lean requires it to
 be the function the validated node calls. Controls reject a forged callee
 signature, a forged call-site or argument type, a forged, dropped or shifted
 call target, a call of an unknown function, and call rows with another target,
-argument or tag. Local declarations, execution of user calls by the connected
-machine, the base machine and its lowerer, typed whole-function execution, and
+argument or tag. The connected machine runs the certified caller node: it
+enters the callee's frame with the parameter in a fresh cell, runs the
+certified callee body, returns `Ok(1)` to the caller frame, and the caller's
+`?` and `Ok` produce `Ok(1)`. With a callee body that returns an error instead,
+the caller's `?` unwinds the pending `Ok` call and returns the error to the
+caller's own caller frame. The machine hypotheses are inhabited by a concrete
+world. Local declarations, recursion, the base machine and its lowerer, typed whole-function execution, and
 source-site binding of propagation and call rows remain open. The source is kept short
 because lean4lean exceeds its deterministic timeout when the kernel admits a
 source of a few hundred characters.
