@@ -122,12 +122,12 @@ out of scope.
 ### XSH-78 · P4 · Resolve arithmetic in an erased proc returning an open spread through a generic call
 
 - **Area:** Checker
-- **Where:** `src/sema/check/local_inference.rs`, `tests/xsh/full-inference-argument-closure.xsh`
-- **Problem:** With `pure same(value) { value }`, the fully erased `pure reset(state) { same({...state, code: []}) }` checks, but a caller that does arithmetic on a field of its result fails with `sealed arithmetic operation remains unresolved`. XSH-72 fixed the argument-position override, so the erased `width` form now checks; `reset` stays annotated in `test_full_inference_erased_open_spread_record_argument_closes_a_generic_call`.
-- **Recommendation:** Reduce the erased `reset` caller to a native test, then find why the returned open-spread row does not reach the sealed arithmetic resolution at the call site.
-- **Acceptance:** The test's `reset` drops its annotation and checks, lowers and runs with the same result.
-- **Fix with:** root-cause
-- **Effort:** S
+- **Where:** `src/sema/constraints/operations.rs` (`SealedOperation::RecordOverride` selection), `src/runtime/eval/indexed/full/verify_schemes.rs`, `tests/xsh/full-inference-argument-closure.xsh`
+- **Problem:** The failure is not arithmetic. The erased `pure reset(state) { same({...state, code: []}) }` generalizes with a `RecordOverride` requirement whose override type is `List[a]`; nothing ties `a` to the caller's `code` field, because `state` is an open row. At every call site (`let r = reset(start)`, with or without a `Parsed` expectation) the instantiated `RecordOverride` keeps `a` free, and the selection step skips an operation whose override types contain inference, so the instantiation fails with `sealed arithmetic operation remains unresolved`. Selecting once the receiver is concrete turns that into `type argument remains unresolved` for `reset(start).code.len()`, the same policy that rejects `same([])`, and into `generic call substitution has no independently checked argument evidence` from the Full verifier for `let r: Parsed = reset(start)`. The test's `reset(start).code.len()` form therefore cannot check without a policy decision.
+- **Recommendation:** Decide whether an erased override of an existing field may leave the new value's type free and default it at the call site, or whether `reset` must keep its annotation; if the former, let `RecordOverride` select with a concrete receiver and give the Full verifier the checked argument evidence for the instantiated override, with a forge test beside `full_verifier_authenticates_erased_open_spread_record_arguments`.
+- **Acceptance:** Either the test's `reset` drops its annotation and checks, lowers and runs with the same result, or the SPEC states that an erased proc returning an open-spread override needs a declared result and the checker names that cause.
+- **Fix with:** architect
+- **Effort:** M
 
 ### XSH-68 · P3 · Recover the Deser JSON roundtrip regression
 
