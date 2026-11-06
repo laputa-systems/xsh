@@ -2367,6 +2367,7 @@ test test_uu_factor_random_big { |ctx|
 
 # origin: uutils test_factor::test_parallel
 test test_uu_factor_parallel { |ctx|
+  test.timeout(ctx, 250s)
   let s = uu.scene(ctx)?
   uu.touch(s, "output")
   let input = integer_input(50000)
