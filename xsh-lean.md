@@ -1292,14 +1292,18 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   change, so the gate selects no case. The Lake build (264 jobs), the inventory
   (1,144 roots) with its 71 tests, and the axiom audit (28,736
   declarations, zero closed roots) with its self-test pass.
-  Fresh check for slices 4 to 7: inconclusive, not a pass. Two runs started
-  with no replay container and `perf-gate-ready` clean, and each was cut off by
-  a canonical replay that started during the run. The first (`r11f`) hit the
-  1080-second paranoid cap while con-ron ran; the second, started at 16:58 UTC
-  after `r11f` ended, built cleanly and lean4lean, nanoda, con-leche and con-ron
-  accepted 116,164 declarations, but `r11g` started and the cap ended the Lean
-  default kernel before it finished. Five of the six kernels accept the current
-  tree; the Lean default kernel needs a quiet host.
+  Fresh check for slices 4 to 7: inconclusive, not a pass, after three runs.
+  Each started with no replay container and `perf-gate-ready` clean. The first
+  two were cut off by canonical replays (`r11f`, `r11g`) that started mid-run.
+  The third (17:56 to 18:16 UTC) had no replay running at its start or end and
+  `perf-gate-ready` clean after it: the build passed, and the paranoid kernel,
+  lean4lean, nanoda, con-leche and con-ron accepted 116,164 declarations, but
+  the 1080-second paranoid cap again ended the Lean default kernel before it
+  finished; the 15-minute load average at the end was 5.9 from other sessions.
+  Five of six kernels accept the current tree. Whether the default kernel no
+  longer fits the cap on this tree or was slowed by that load is not settled;
+  the next probe is one run on an idle host (load near 1) that records each
+  kernel's wall time.
 
 ## For the owner afterwards
 
