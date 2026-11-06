@@ -232,23 +232,6 @@
       "child_source": "proc terminate() { exit 23 }\nterminate()\n"
     },
     {
-      "tag": "ExprArchiveTarCreate",
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create",
-      "mode_expectations": {
-        "normal": {
-          "route_id": "explicit_frame_apply_path",
-          "status": "supported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": "generic_operand_apply_path",
-          "status": "supported_by_artifact_format"
-        }
-      },
-      "child_source": "let root = Path(args[0])\narchive.tar_create(fp\"{root}/payload.tar\", root, [p\"member\"])\nassert fp\"{root}/payload.tar\".exists()?\n"
-    },
-    {
       "tag": "ExprBinary",
       "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
@@ -351,23 +334,6 @@
       "child_source": "let raw: UInt = 17\nlet checked = raw\nassert checked == 17\n"
     },
     {
-      "tag": "ExprComparisonChain",
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_comparison_chain",
-      "mode_expectations": {
-        "normal": {
-          "route_id": "explicit_frame_control_path",
-          "status": "supported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": "explicit_frame_control_path",
-          "status": "supported_by_artifact_format"
-        }
-      },
-      "child_source": "let first = 1\nlet second = 2\nlet third = 3\nlet selected = first < second < third\nassert selected == true\n"
-    },
-    {
       "tag": "ExprContextScope",
       "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
@@ -383,6 +349,40 @@
         }
       },
       "child_source": "assert within 1s { 21 } == Ok(21)\n"
+    },
+    {
+      "tag": "ExprContextScope",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_context_scope_cwd",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = fs.cwd()?\ncd (root) {\n  print \"inside\"\n}\n"
+    },
+    {
+      "tag": "ExprContextScope",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_context_scope_env",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "env ({XSH_STMT_ROUTE_ORACLE: \"active\"}) {\n  print e\"XSH_STMT_ROUTE_ORACLE\"?\n}\n"
     },
     {
       "tag": "ExprDirectPureCall",
@@ -722,7 +722,7 @@
           "status": "supported_by_artifact_format"
         }
       },
-      "child_source": "let root = Path(args[0])\ncd root { let matches = g\"*.txt\"; assert matches == [p\"match.txt\"] }\n"
+      "child_source": "let root = Path(args[0])\ncd (root) { let matches = g\"*.txt\"; assert matches == [p\"match.txt\"] }\n"
     },
     {
       "tag": "ExprIf",
@@ -791,23 +791,6 @@
         }
       },
       "child_source": "let value: Any = 42\nprint ${value.require(Int)?}\n"
-    },
-    {
-      "tag": "ExprLastStatus",
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_last_status",
-      "mode_expectations": {
-        "normal": {
-          "route_id": "explicit_frame_apply_path",
-          "status": "supported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": "generic_operand_apply_path",
-          "status": "supported_by_artifact_format"
-        }
-      },
-      "child_source": "run.status false\nlet status = $?\nassert status.exited_with(1)\n"
     },
     {
       "tag": "ExprList",
@@ -926,7 +909,7 @@
           "status": "supported_by_artifact_format"
         }
       },
-      "child_source": "\nproc route_match_source() -> Int { return 2 }\nassert (match route_match_source() { 2 => 22, _ => 0 }) == 22\n"
+      "child_source": "\nproc route_match_source() -> Int { return 2 }\nassert (match route_match_source() { 2 => 22, else => 0 }) == 22\n"
     },
     {
       "tag": "ExprMethod",
@@ -961,6 +944,23 @@
         }
       },
       "child_source": "type RouteJson = {value: Int}\nassert json.decode(\"{\\\"value\\\":21}\")?.require(RouteJson)?.value == 21\n"
+    },
+    {
+      "tag": "ExprModuleCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_module_call_archive_create",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = Path(args[0])\narchive.create(fp\"{root}/payload.tar\", root, [p\"member\"], .Tar)\nassert fp\"{root}/payload.tar\".exists()?\n"
     },
     {
       "tag": "ExprNull",
@@ -1352,23 +1352,6 @@
         }
       },
       "child_source": "let command = process.command_argv(\"true\", [\"true\"])\nassert process.run(command)?.exited_with(0)\n"
-    },
-    {
-      "tag": "ExprProcessCommandBuilder",
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_builder",
-      "mode_expectations": {
-        "normal": {
-          "route_id": "explicit_frame_control_path",
-          "status": "supported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": "explicit_frame_control_path",
-          "status": "supported_by_artifact_format"
-        }
-      },
-      "child_source": "let command = process.command { run true }\nassert process.run(command)?.exited_with(0)\n"
     },
     {
       "tag": "ExprRange",
@@ -2019,22 +2002,6 @@
       }
     },
     {
-      "tag": "StmtCd",
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_cd",
-      "mode_expectations": {
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      }
-    },
-    {
       "tag": "StmtContinue",
       "source_file": "tests/xsh/statement-route-oracles.xsh",
       "mapping_kind": "statement_expression",
@@ -2071,22 +2038,6 @@
       "source_file": "tests/xsh/statement-route-oracles.xsh",
       "mapping_kind": "statement_expression",
       "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_defer",
-      "mode_expectations": {
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      }
-    },
-    {
-      "tag": "StmtEnv",
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_env",
       "mode_expectations": {
         "normal": {
           "route_id": null,
@@ -2307,6 +2258,22 @@
       }
     },
     {
+      "tag": "StmtMatch",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_match_result",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
       "tag": "StmtPatternIf",
       "source_file": "tests/xsh/statement-route-oracles.xsh",
       "mapping_kind": "statement_expression",
@@ -2499,22 +2466,6 @@
       }
     },
     {
-      "tag": "StmtWith",
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "mapping_kind": "statement_expression",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_with",
-      "mode_expectations": {
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      }
-    },
-    {
       "tag": "StmtYield",
       "source_file": "tests/xsh/statement-route-oracles.xsh",
       "mapping_kind": "statement_expression",
@@ -2578,10 +2529,61 @@
           "status": "supported_by_artifact_format"
         }
       },
-      "child_source": "\nassert (match 2 { 2 => 22, _ => 0 }) == 22\n"
+      "child_source": "\nassert (match 2 { 2 => 22, else => 0 }) == 22\n"
+    },
+    {
+      "tag": "ExprCodecSchema",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_codec_schema",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "type RouteService = {name: Str, port: Int}\nlet service = codec.decode_as(\"ini\", \"name=worker\\nport=8080\\n\", RouteService)?\nprint ${service.name} ${service.port}\n"
+    },
+    {
+      "tag": "ExprTargetVariant",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_target_variant",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "use route_choice\npure selected(event) -> Bool { event.action == .Same }\nprint ${selected({action: route_choice.Same})}\n"
+    },
+    {
+      "tag": "ExprUInt",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_u_int",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let value: UInt = 1KiB\nprint $value\n"
     }
   ],
-  "route_witness_source_commit": "1a5a1ffeda563bc872586b445bf17901bda0d5f2",
+  "route_witness_source_commit": "14033e273b385cd942a6bb73fa6c59dcf9320bfc",
   "runtime_oracles": {
     "BoolAnd": {
       "ids": [
@@ -2674,13 +2676,6 @@
       "proof_kind": "runtime",
       "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_abort exercises ExprAbort behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
-    "ExprArchiveTarCreate": {
-      "ids": [
-        "tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create exercises ExprArchiveTarCreate behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
-    },
     "ExprBinary": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_binary"
@@ -2722,13 +2717,6 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_checked_value is associated with ExprCheckedValue; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
-    },
-    "ExprComparisonChain": {
-      "ids": [
-        "tests/xsh/expression-route-oracles.xsh::test_expr_comparison_chain"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_comparison_chain is associated with ExprComparisonChain; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
     "ExprContextScope": {
       "ids": [
@@ -2904,13 +2892,6 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_expr_int is associated with ExprInt; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
-    },
-    "ExprLastStatus": {
-      "ids": [
-        "tests/xsh/expression-route-oracles.xsh::test_expr_last_status"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_last_status exercises ExprLastStatus behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprList": {
       "ids": [
@@ -3138,13 +3119,6 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_process_command_argv is associated with ExprProcessCommandArgv; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
-    },
-    "ExprProcessCommandBuilder": {
-      "ids": [
-        "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_builder"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_process_command_builder is associated with ExprProcessCommandBuilder; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
     "ExprRange": {
       "ids": [
@@ -3419,13 +3393,6 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_break_value is associated with StmtBreakValue; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
-    "StmtCd": {
-      "ids": [
-        "tests/xsh/statement-route-oracles.xsh::test_stmt_cd"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_cd is associated with StmtCd; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
-    },
     "StmtContinue": {
       "ids": [
         "tests/xsh/statement-route-oracles.xsh::test_stmt_continue"
@@ -3446,13 +3413,6 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_defer is associated with StmtDefer; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
-    },
-    "StmtEnv": {
-      "ids": [
-        "tests/xsh/statement-route-oracles.xsh::test_stmt_env"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_env is associated with StmtEnv; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
     "StmtExpr": {
       "ids": [
@@ -3629,13 +3589,6 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_while_bool is associated with StmtWhileBool; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
-    "StmtWith": {
-      "ids": [
-        "tests/xsh/statement-route-oracles.xsh::test_stmt_with"
-      ],
-      "proof_kind": "runtime",
-      "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_with is associated with StmtWith; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
-    },
     "StmtYield": {
       "ids": [
         "tests/xsh/statement-route-oracles.xsh::test_stmt_yield"
@@ -3649,6 +3602,27 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/statement-route-oracles.xsh::test_stmt_yield_delegate is associated with StmtYieldDelegate; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprCodecSchema": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_codec_schema"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_codec_schema exercises ExprCodecSchema behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprTargetVariant": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_target_variant"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_target_variant exercises ExprTargetVariant behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprUInt": {
+      "ids": [
+        "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_u_int"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/typed-scalar-route-oracles.xsh::test_expr_u_int exercises ExprUInt behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     }
   },
   "rust_oracle_files": [
@@ -3925,26 +3899,6 @@
       ],
       "scope": "Source review candidate for StmtAssignPath: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-simple-statements.xsh::test_path_assignment_evaluates_the_index_before_the_value asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
     },
-    "StmtCd": {
-      "fields": [
-        "target",
-        "body"
-      ],
-      "ids": [
-        "tests/xsh/operand-order-simple-statements.xsh::test_cd_statement_evaluates_its_target_before_its_body"
-      ],
-      "scope": "Source review candidate for StmtCd: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-simple-statements.xsh::test_cd_statement_evaluates_its_target_before_its_body asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
-    },
-    "StmtEnv": {
-      "fields": [
-        "env",
-        "body"
-      ],
-      "ids": [
-        "tests/xsh/operand-order-simple-statements.xsh::test_env_statement_evaluates_values_left_to_right_before_its_body"
-      ],
-      "scope": "Source review candidate for StmtEnv: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-simple-statements.xsh::test_env_statement_evaluates_values_left_to_right_before_its_body asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
-    },
     "StmtPrint": {
       "fields": [
         "args"
@@ -3962,15 +3916,6 @@
         "tests/xsh/operand-order-simple-statements.xsh::test_run_statement_evaluates_arguments_left_to_right_once"
       ],
       "scope": "Source review candidate for StmtRun: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-simple-statements.xsh::test_run_statement_evaluates_arguments_left_to_right_once asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
-    },
-    "ExprComparisonChain": {
-      "fields": [
-        "pairs"
-      ],
-      "ids": [
-        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
-      ],
-      "scope": "The chained comparison marks left, middle, and right; a false link suppresses the later failing operand. This covers pair traversal and short-circuiting only."
     },
     "ExprIf": {
       "fields": [
@@ -4065,15 +4010,6 @@
       ],
       "scope": "The stream pull precedes both map callbacks for each item, and stage callbacks retain written stage order across pulls."
     },
-    "ExprProcessCommandBuilder": {
-      "fields": [
-        "entries"
-      ],
-      "ids": [
-        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn_and_process_command_builder"
-      ],
-      "scope": "The builder's run entry prints the timeout, environment, target, then argument markers in source order."
-    },
     "ExprRunCapture": {
       "fields": [
         "value"
@@ -4085,7 +4021,7 @@
         "tests/xsh/stdlib/process_frames.xsh::test_run_operands_evaluate_in_source_order_before_conversion_stops_later_operands",
         "tests/xsh/stdlib/process_frames.xsh::test_run_target_conversion_fails_before_later_arguments_run",
         "tests/xsh/stdlib/process_frames.xsh::test_run_tail_arguments_and_redirections_keep_written_order",
-        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn_and_process_command_builder"
+        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn"
       ],
       "scope": "The tests observe run option, environment, target, argument, and redirection expressions in written order, including conversion failures that suppress later operands; the shared run status case also exercises this capture path."
     },
@@ -4103,7 +4039,7 @@
         "value"
       ],
       "ids": [
-        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn_and_process_command_builder"
+        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn"
       ],
       "scope": "The spawn test prints its timeout, environment, target, then argument markers in source order before waiting for the child."
     },
@@ -4348,16 +4284,6 @@
       ],
       "scope": "The inline marked receiver prints before the effectful missing_ok option; the test confirms removal."
     },
-    "ExprArchiveTarCreate": {
-      "fields": [
-        "overwrite",
-        "compression"
-      ],
-      "ids": [
-        "tests/xsh/stdlib/archive.xsh::test_archive_tar_create_evaluates_named_operands_in_written_order"
-      ],
-      "scope": "The only marked operands are the named options; stdout observes overwrite then compression as authored, and invalid compression prevents host creation."
-    },
     "ExprModuleCall": {
       "fields": [
         "args"
@@ -4512,18 +4438,6 @@
         "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
       ],
       "scope": "The guard initializer prints before the selected else body; the failed payload appears in that body."
-    },
-    "StmtWith": {
-      "fields": [
-        "bindings",
-        "body",
-        "else_body"
-      ],
-      "ids": [
-        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once",
-        "tests/xsh/with-resource.xsh::test_with_enters_left_to_right_and_releases_every_resource"
-      ],
-      "scope": "The failing form prints its first two binding producers in order, skips the third binding and body, then enters else; the successful Result binding prints two body statements in order. The resource form checks that the dependent inner root is opened and each bound resource is later released or closed."
     },
     "StmtLetInt": {
       "fields": [

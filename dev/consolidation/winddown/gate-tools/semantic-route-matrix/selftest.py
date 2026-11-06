@@ -403,11 +403,24 @@ def typed_scalar_source_fixture() -> tuple[str, list[dict]]:
     return source, view_arms
 
 
+def record_update_decode_line() -> int:
+    source = (generate.HERE.parents[4] / "src/runtime/eval/lowered_run/indexed_run/operands.rs").read_text().splitlines()
+    matches = [
+        index + 1
+        for index, line in enumerate(source)
+        if 'unreachable!("record-update tag has a matching borrowed expression view")' in line
+    ]
+    if len(matches) != 1:
+        raise AssertionError(f"expected one record-update decode fallback, found {matches}")
+    return matches[0]
+
+
 def eager_atom_fixture() -> tuple[list[dict], dict]:
     rows_by_variant = [
         ("Null", "ExprNull", 18),
         ("Unit", "ExprUnit", 19),
         ("Int", "ExprInt", 20),
+        ("UInt", "ExprUInt", 158),
         ("Float", "ExprFloat", 21),
         ("Duration", "ExprDuration", 22),
         ("Bool", "ExprBool", 23),
@@ -422,6 +435,7 @@ def eager_atom_fixture() -> tuple[list[dict], dict]:
         "Null": [],
         "Unit": [],
         "Int": [{"name": "value", "type": "i64"}],
+        "UInt": [{"name": "value", "type": "i64"}],
         "Float": [{"name": "value", "type": "FloatValue"}],
         "Duration": [{"name": "value", "type": "DurationValue"}],
         "Bool": [{"name": "value", "type": "bool"}],
@@ -494,7 +508,7 @@ def eager_atom_fixture() -> tuple[list[dict], dict]:
         "helper_fallback": {
             "scope": "non-eager ExprView reaches the eager atom helper",
             "outcome": "unreachable!: only eager atom tags reach this value helper",
-            "source": "normal_dispatch", "line": 327, "arm_index": 12,
+            "source": "normal_dispatch", "line": 327, "arm_index": 13,
         },
         "explicit_error_group": {
             "scope": "eager atoms misrouted to generic explicit expression-view dispatch",
@@ -835,7 +849,7 @@ def collection_construction_fixture() -> tuple[list[dict], dict]:
                 ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", helper_error_lines["indexed_list_literal_view"]),
                 ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", helper_error_lines["indexed_map_literal_view"]),
                 ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", helper_error_lines["indexed_record_literal_view"]),
-                ("decode_record_updates", "unreachable!: record-update tag has a matching borrowed expression view", 44),
+                ("decode_record_updates", "unreachable!: record-update tag has a matching borrowed expression view", record_update_decode_line()),
             ])
         ],
         "explicit_error_group": {
@@ -1627,8 +1641,8 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         config = json.loads(generate.CONFIG.read_text())
         expected = generate.scalar_route_oracle_ids()
         generate.validate_scalar_route_oracle_mappings(config)
-        self.assertEqual(len(expected), 30)
-        self.assertEqual(len(set(expected.values())), 30)
+        self.assertEqual(len(expected), 31)
+        self.assertEqual(len(set(expected.values())), 31)
 
         missing = copy.deepcopy(config)
         del missing["runtime_oracles"]["IntBinary"]
@@ -1676,11 +1690,11 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             mapping for mapping in mappings.values() if "child_source" in mapping
         ]
         unsupported = [mapping for mapping in mappings.values() if "child_source" not in mapping]
-        self.assertEqual(len(rows), 152)
+        self.assertEqual(len(rows), 148)
         self.assertEqual(len(mappings), 154)
         self.assertEqual({mapping["tag"] for mapping in mappings.values()}, {row["tag"] for row in rows})
-        self.assertEqual(len(expression_children), 94)
-        self.assertEqual(len(unsupported), 60)
+        self.assertEqual(len(expression_children), 96)
+        self.assertEqual(len(unsupported), 58)
         self.assertEqual(len(capabilities), 1)
         if_mappings = [mapping for mapping in mappings.values() if mapping["tag"] == "ExprIf"]
         self.assertEqual(
@@ -1724,7 +1738,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                 for mapping in mappings.values()
                 for expectation in mapping["mode_expectations"].values()
             ),
-            188,
+            192,
         )
 
         empty_map = capabilities[0]
@@ -2628,7 +2642,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
 
     def test_eager_atom_inventory_rejects_schema_metadata_and_route_drift(self) -> None:
         rows, inventory = eager_atom_fixture()
-        with self.assertRaisesRegex(generate.EvidenceError, "must contain 12 rows"):
+        with self.assertRaisesRegex(generate.EvidenceError, "must contain 13 rows"):
             generate.validate_eager_atom_inventory(rows + [dict(rows[0])], inventory)
 
         missing = copy.deepcopy(inventory)
@@ -2737,7 +2751,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         with self.assertRaisesRegex(generate.EvidenceError, "missing AST EagerAtom inventory"):
             generate.build_fallback_path_map(rows[0], {})
         checked = generate.validate_eager_atom_inventory(rows, inventory)
-        self.assertEqual(len(checked["schema_rows"]), 12)
+        self.assertEqual(len(checked["schema_rows"]), 13)
         path_map = generate.build_fallback_path_map(rows[0], {}, eager_atom_inventory=checked)
         branch = path_map["branches"][0]
         self.assertEqual(branch["normal_evaluator_fallback_ref"], "src/runtime/eval/lowered_run/indexed_run.rs:1470")
@@ -2955,17 +2969,15 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                         self.assertIn(helper_messages[item["outcome"]], cited_line)
                     if "record-update" in item["outcome"]:
                         self.assertIn("operands.rs", item["source_ref"])
+        decode_ref = f"src/runtime/eval/lowered_run/indexed_run/operands.rs:{record_update_decode_line()}"
         decode_fallback = next(
             item for item in path_map["fallbacks"] if item["scope"] == "a tag reaches the helper with a different typed ExprView"
-            and item["source_ref"] == "src/runtime/eval/lowered_run/indexed_run/operands.rs:44"
+            and item["source_ref"] == decode_ref
         )
         self.assertIn("indexed_run/operands.rs", decode_fallback["source_ref"])
-        self.assertEqual(
-            decode_fallback["source_ref"],
-            "src/runtime/eval/lowered_run/indexed_run/operands.rs:44",
-        )
+        self.assertEqual(decode_fallback["source_ref"], decode_ref)
         source_root = generate.HERE.parents[4]
-        cited_line = (source_root / "src/runtime/eval/lowered_run/indexed_run/operands.rs").read_text().splitlines()[43]
+        cited_line = (source_root / "src/runtime/eval/lowered_run/indexed_run/operands.rs").read_text().splitlines()[record_update_decode_line() - 1]
         self.assertIn("unreachable!(\"record-update tag has a matching borrowed expression view\")", cited_line)
 
     def test_collection_construction_inventory_rejects_source_drift(self) -> None:
@@ -4202,7 +4214,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             *generate.CALL_FRAME_ROWS,
             *generate.FIELD_INDEX_ROWS,
         }
-        self.assertEqual(len(expected_tags), 47)
+        self.assertEqual(len(expected_tags), 48)
         self.assertEqual(set(generate.RUNTIME_ERROR_CLASSIFICATIONS), expected_tags)
         self.assertEqual(set(generate.RUNTIME_ERROR_SOURCE_FUNCTIONS), expected_tags)
         for tag, outcomes in generate.RUNTIME_ERROR_CLASSIFICATIONS.items():
