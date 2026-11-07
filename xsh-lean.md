@@ -1319,6 +1319,12 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   modules outside the fresh workspace rejects declarations from older, already
   certified modules with kernel type mismatches, so it is not a usable timing
   method.
+  Fresh check for slices 4 to 7: passed under the owner's 1620-second cap.
+  Started at 05:03 UTC with load 1.9 and no replay, `perf-gate-ready -1`
+  clean afterwards; build 108 s, Lean paranoid kernel 270 s, lean4lean 291 s,
+  nanoda 45 s, con-leche 75 s, con-ron 103 s, Lean default kernel 265 s, so
+  the six kernels took 1,049 s. All six accept 116,164 declarations using only
+  `propext`, `Quot.sound` and `Classical.choice`.
 
 ## For the owner afterwards
 
