@@ -1110,15 +1110,20 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
 
   if rest.len() <= 2 {
     var value = big_to_int(rest)
+    var bound = isqrt_int(value)
 
     for p in small {
-      if p * p > value and value > 1 {
-        return {primes: primes, rest: big_from_int(value), proven: true}
+      if p > bound {
+        return {primes: primes, rest: big_from_int(value), proven: value > 1}
       }
 
-      while value > 1 and value % p == 0 {
-        primes += [f"{p}"]
-        value = value / p
+      if value % p == 0 {
+        while value % p == 0 {
+          primes += [f"{p}"]
+          value = value / p
+        }
+
+        bound = isqrt_int(value)
       }
     }
 
