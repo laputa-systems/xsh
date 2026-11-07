@@ -155,6 +155,9 @@ musl (`vfprintf`, the regex engine, the crypt functions); the `xshi` stub's
 | 2026-10-29 | `e0f3028ce` | `xshi` | 43,952 |
 | 2026-10-30 | `de0ed2606` | `xsh` | 23,704,272 |
 | 2026-10-30 | `de0ed2606` | `xsht` | 32,515,056 |
+| 2026-11-07 | `73ade365f` | `xsh` | 26,618,120 |
+| 2026-11-07 | `73ade365f` | `xsht` | 38,358,728 |
+| 2026-11-07 | `73ade365f` | `xshi` | 48,112 |
 
 The performance campaign's binary-size gate allows each release product at
 most 5% growth over its baseline; this record is the current baseline for that
