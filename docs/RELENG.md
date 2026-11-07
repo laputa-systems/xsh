@@ -133,6 +133,19 @@ it into compiler steps only, to speed up builds, and no product links it.
 Changing the product allocator needs a paired runtime and memory comparison
 first.
 
+## C toolchain
+
+`Dockerfile.test` installs the prebuilt musl LLVM 23.1.5 from
+`laputa-systems/llvm-prebuilt-musl` release `llvm-musl-23.1.5-2f0b039`. The
+Linux musl products are linked by its `clang-23` driving mold, so they take
+that bundle's static musl 1.2.6 `libc.a`, built by the bundle's clang, and
+LLVM's `libunwind.a`, rather than the GCC-built musl and unwinder in Rust's
+self-contained sysroot. Rust's crt objects are still used. Against the same
+source in the previous image this added 28,888 bytes to `xsh`, 29,016 to
+`xsht`, and 3,240 to the `xshi` stub, all `.text` from clang's codegen of
+musl (`vfprintf`, the regex engine, the crypt functions); the `xshi` stub's
+7.2% was accepted on 2026-11-07 as fixed libc cost in a 45 KB binary.
+
 ## Size record
 
 | Date | Source | Product | Stripped `dist` bytes |

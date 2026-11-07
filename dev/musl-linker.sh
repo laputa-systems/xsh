@@ -6,4 +6,4 @@ for argument in "$@"; do
     *) arguments+=("$argument") ;;
   esac
 done
-exec clang-23 --ld-path=/usr/local/bin/mold --target="$TARGET" -B"/usr/lib/xsh-crt/$TARGET" "${arguments[@]}"
+exec clang-23 --ld-path=/usr/local/bin/mold --target="$TARGET" "${arguments[@]}"

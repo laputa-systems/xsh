@@ -195,7 +195,7 @@ def image_identity():
     required_env = {
         "CC=/usr/bin/clang-23",
         "AR=/usr/local/bin/llvm-ar",
-        "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include",
+        "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -I/usr/include",
     }
     wrapper_text = RUNNER.read_text()
     if not required_env <= env or "RUSTC_WRAPPER=/usr/local/bin/kache" not in wrapper_text or "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker" not in wrapper_text:
