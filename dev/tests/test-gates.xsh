@@ -152,7 +152,7 @@ proc main() [fs, process, env, time, error, io] {{
 main()?
 """, status: 2, stdout: ["source changed"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-    XSH_DEV_BUILD_PRELOAD: "",
+    XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   assert ! marker.exists()?
 }
@@ -201,7 +201,7 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """, status: 2, stdout: ["incomplete"], args: [], env: {{
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
 }
 
@@ -235,7 +235,7 @@ main()?
   for status in [{raw: 1, expected: 1}, {raw: 2, expected: 2}, {raw: 130, expected: 130}, {raw: 143, expected: 130}] {
     let _ = test.expect(ctx, source, status: status.expected, stdout: [f"raw_status={status.raw}"], args: [], env: {
       PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      PIPELINE_STATUS: f"{status.raw}", XSH_DEV_BUILD_PRELOAD: "",
+      PIPELINE_STATUS: f"{status.raw}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
     })?
   }
 }
@@ -273,7 +273,7 @@ proc main() [fs, process, env, time, error, io] {{
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/line\nbreak.xsh".write("test required { assert true }\n")
   let newline_id = json.encode("native-tests/xsh/line\nbreak.xsh")?
   let newline_source = f"""
@@ -285,19 +285,19 @@ proc main() [fs, process, env, time, error, io] {{
 """
   let _ = test.expect(ctx, newline_source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { test.skip(\"missing fixture\") }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "missing fixture"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert false }\n")
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(r"""test required { |ctx|
   run sh -c "rmdir \"$1\"; : > \"$1\"" -- ${ctx.temp_root.display()}
   assert false
@@ -305,41 +305,41 @@ proc main() [fs, process, env, time, error, io] {{
 """)
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1", "cleanup_failure"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("pure nothing() { return }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let marker = fp"{root}/started"
   let runner = fp"{root}/target/x86_64-unknown-linux-musl/verification/xsht"
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then exit 7; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 1, stdout: ["raw_status=7"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then exit 130; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 130, stdout: ["raw_status=130"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then printf '\\377\\n'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "UTF-8"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/unrelated.xsh::other\"]'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write("#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/required.xsh::required\"]'; fi\nexit 0\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   runner.write("#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/required.xsh::required\"]'; exit 0; fi\nexit 1\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let many_ids = [f"tests/xsh/required.xsh::case_{index}_abcdefghijklmnopqrstuvwxyz0123456789" for index in range(2000)]
   let encoded_ids = json.encode(many_ids)?
   assert encoded_ids.byte_len() > 131072
@@ -348,7 +348,7 @@ proc main() [fs, process, env, time, error, io] {{
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then cat '{listing}'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert marker.exists()?
 }
 
@@ -385,28 +385,28 @@ proc main() [fs, process, env, time, error, io] {{
   let inherited = env.get_or("PATH", "")?
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert product.read_text()? == "changed"
   product.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ run sh -c \"printf changed > '{product}'\"; assert false }}\n")
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   product.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ run rm \"{product}\" }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   product.write("original\n", mode: 0o600)
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
 }
 
 test test_native_gate_rejects_source_changes_during_execution { |ctx|
@@ -447,38 +447,38 @@ proc main() [fs, process, env, time, error, io] {{
   let inherited = env.get_or("PATH", "")?
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "source"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert input.read_text()? == "changed\n"
   input.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ run git -C \"{root}\" update-index --assume-unchanged input.txt }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let _ = run.capture --text git -C $root update-index --no-assume-unchanged input.txt
   let untracked = fp"{root}/untracked.txt"
   untracked.write("before\n", mode: 0o666)
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{untracked}\".write(\"after\\n\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"staged\\n\")?; run git -C \"{root}\" add input.txt }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"changed\\n\")?; assert false }}\n")
   let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   input.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   fp"{root}/tools/cargo".write(f"#!/bin/sh\nprintf changed > '{input}'\n", mode: 0o755)
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let link = fp"{root}/source-link"
   link.symlink(to: p"input.txt")?
@@ -486,18 +486,18 @@ proc main() [fs, process, env, time, error, io] {{
     f"test required {{ p\"{link}\".unlink()?; p\"{link}\".symlink(to: p\"missing\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".unlink()? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   link.unlink()?
   link.symlink(to: p"/")?
   let marker = fp"{root}/leaf-started"
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{marker}\".write(\"started\")? }}\n")
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "escapes"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   link.unlink()?
   let _ = run.capture --text python3 -c "import os,sys; open(os.fsencode(sys.argv[1]) + b'/opaque-\\xff', 'wb').close()" $root
@@ -505,11 +505,11 @@ proc main() [fs, process, env, time, error, io] {{
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m opaque
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "utf-8"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable"], args: [],
     env: {PATH: fp"{root}/tools", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
 }
 
@@ -1517,7 +1517,7 @@ test test_evidence_recorded_in_the_container_is_current_on_the_host { |ctx|
     fp"{root}/target/x86_64-unknown-linux-musl/verification".mkdir(parents: true)?
     fp"{root}/{relative}".write("fixture\n", mode: 0o755)
   }
-  let environment = {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: ""}
+  let environment = {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"}
   let record = fp"{host}/record.json"
   let store = f"""
 use gates
@@ -1739,7 +1739,7 @@ proc main() [fs, process, env, time, error, io] {{
 main()?
 """
   let _ = test.expect(ctx, request_source, status: 0, args: [], env: {{PATH: f"{root}/tools:{inherited}",
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: ""}})?
+    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"}})?
   let compile_calls = cargo_calls.read_lines()? |> where .starts_with("test ")
   assert compile_calls.len() == 1
   assert "--no-run" in compile_calls[0]
@@ -1750,7 +1750,7 @@ p"{harness}".write("changed")?
 """, mode: 0o755)
   let _ = test.expect(ctx, request_source, status: 2, stdout: ["product changed", "prepared-test"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-    XSH_DEV_BUILD_PRELOAD: "",
+    XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   fp"{root}/tools/cargo".write(f"""#!{ctx.xsh_bin}
 if args[0] == "test" {{
@@ -1762,7 +1762,7 @@ if args[0] == "test" {{
 """, mode: 0o755)
   let failed = test.expect(ctx, request_source, status: 1, args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-    XSH_DEV_BUILD_PRELOAD: "",
+    XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   assert "error: distinct compiler diagnostic 0" in failed.stdout, failed.stdout
   assert "Cargo diagnostics limited to 16 messages" in failed.stdout, failed.stdout
@@ -1771,7 +1771,7 @@ if args[0] == "test" {{
   fp"{root}/dev/performance/results.py".write("import time\ntime.sleep(30)\n")
   let slow = test.expect(ctx, request_source, status: 1, args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-    XSH_DEV_BUILD_PRELOAD: "",
+    XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   assert "Cargo diagnostics could not be read" in slow.stdout, slow.stdout
   assert "raw_status=3" in slow.stdout, slow.stdout
@@ -1780,7 +1780,7 @@ if args[0] == "test" {{
   let stderr = fp"{root}/stderr"
   fp"{root}/dev/performance/results.py".write(f"import pathlib,time\npathlib.Path({json.encode(ready.display())?}).write_text('ready')\ntime.sleep(30)\n")
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, fp"{repository}/dev/main.xsh", "--", "internal", "gate-lane", "--case", "test-route-witness-unit"],
-    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
+    cwd: root, env: {{PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", CARGO_TARGET_DIR: fp"{root}/target".display()}}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {{
@@ -1795,12 +1795,12 @@ if args[0] == "test" {{
   fp"{root}/dev/gate_case.xsh".write("exit 130\n")
   let _ = test.expect(ctx, request_source, status: 130, stdout: ["raw_status=130"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-    XSH_DEV_BUILD_PRELOAD: "",
+    XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 7\n", mode: 0o755)
   let _ = test.expect(ctx, request_source, status: 1, stdout: ["execution_error=exit 7"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-    XSH_DEV_BUILD_PRELOAD: "",
+    XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   assert harness_calls.read_lines()?.len() == 2
 }
@@ -1859,7 +1859,7 @@ main()?
   for case in [{mode: "pass", status: 0}, {mode: "skip", status: 2}, {mode: "missing", status: 2}, {mode: "fail", status: 1}, {mode: "outside", status: 2}] {
     mode_file.write(case.mode)
     let _ = test.expect(ctx, request, status: case.status, args: [], env: {{
-      PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+      PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
     }})?
   }
   mode_file.write("excluded")
@@ -1871,7 +1871,7 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """, status: 2, args: [], env: {{
-    PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+    PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
 }
 
@@ -1898,7 +1898,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   let stderr = fp"{root}/stderr"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {
@@ -1944,7 +1944,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
   let script = fp"{repository}/dev/main.xsh"
   let command = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", "internal", "gate-lane", "--case", "showcase/tokei/correctness"],
     cwd: root, env: {XSH_MODULE_PATH: f"{repository}/dev:{repository}/dev/tests",
-      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
+      PATH: f"{root}/tools:{env.get_or("PATH", "")?}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification", CARGO_TARGET_DIR: fp"{root}/target"}, stdout: stdout, stderr: stderr, timeout: 60s)
   let handle = spawn command?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
   while ! ready.exists()? {
@@ -1992,7 +1992,7 @@ proc main() [fs, process, env, time, error, io] {{
   let inherited = env.get_or("PATH", "")?
   let _ = test.expect(ctx, source, status: 2, stdout: ["timed out"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_DEV_BUILD_PRELOAD: ""})?
+      XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
 }
 
 test test_gate_container_preserves_selected_failure_incomplete_and_cancel_statuses { |ctx|
@@ -2385,7 +2385,7 @@ proc main() [fs, process, env, time, error, io] {{
 main()?
 """
     let result = test.expect(ctx, source, status: 0, args: [], env: {{
-      XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+      XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
     }})?
     assert pair.id in result.stdout, result.stdout
     assert pair.other not in result.stdout, result.stdout
@@ -2398,7 +2398,7 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """, status: 2, stdout: ["known case ID"], args: [], env: {{
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   assert "laputa/pm.make/plan" not in invalid.stdout
 }
@@ -2853,7 +2853,7 @@ main()?
     let _ = test.expect(ctx, source, status: expected, args: [], env: {{
       PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
-      XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture",
+      XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture", DIST_PROFILE: "verification",
     }})?
     assert "laputa/pm.make/plan" not in invocation.read_lines()?
     assert "showcase/tokei/correctness" in invocation.read_lines()?
@@ -2865,7 +2865,7 @@ main()?
   invocation.remove()?
   preparation_invocation.remove()?
   let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [], env: {{
-    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
+    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_TEST_IMAGE_BUILD: "0",
     XSH_TEST_IMAGE: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   }})?
@@ -2875,7 +2875,7 @@ main()?
   desired.write("0")
   adapter_status.write("0")
   let _ = test.expect(ctx, source, status: 0, args: [], env: {{
-    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
+    PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
     XSH_TEST_IMAGE_BUILD: "1", XSH_TEST_IMAGE: "fixture",
   }})?
@@ -2885,7 +2885,7 @@ main()?
   preparation_invocation.remove()?
   for setup in [["0", "1", "2"], ["1", "1", "2"], ["0", "130", "130"], ["1", "130", "130"]] {
     let _ = test.expect(ctx, source, status: setup[2] as Int, args: [], env: {{
-      PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
+      PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TEST_IMAGE_BUILD: setup[0], IMAGE_SETUP_STATUS: setup[1], XSH_TEST_IMAGE: "fixture",
     }})?
@@ -3278,7 +3278,7 @@ if args[0] == "test" {{
   fp"{root}/tools/docker".write(f"#!/bin/sh\ntouch '{docker_marker}'\nexit 1\n", mode: 0o755)
   init_gate_repository(root, repository)?
   let inherited = env.get_or("PATH", "")?
-  let environment = {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: ""}
+  let environment = {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"}
   let run_source = f"""
 use gates
 use fixtures
@@ -3359,7 +3359,7 @@ exit 0
   init_gate_repository(root, repository)?
   let inherited = env.get_or("PATH", "")?
   let environment = {PATH: f"{root}/tools:{inherited}", CARGO_HOME: cargo_home,
-    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "",
+    XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
     XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture"}
   let id = "laputa/pm.make/plan"
   let request = f"""["--case", "{id}", "--laputa-root", "{laputa}"]"""
