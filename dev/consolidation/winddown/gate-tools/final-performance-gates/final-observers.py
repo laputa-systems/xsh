@@ -1320,10 +1320,10 @@ def run(args: argparse.Namespace) -> int:
 
             if receipt["selected_release_binaries_after_gate_batch"] != profile_before:
                 raise ObserverFailure("selected-release binaries changed during the canonical gate batch")
-            if len(receipt["gate_batch_docker_commands"] or []) != 2 or sum(
-                1 for item in receipt["gate_batch_docker_commands"] if item.get("instrumented") is True
-            ) != 1:
-                raise ObserverFailure("canonical gate batch did not use exactly one instrumented pinned Docker run")
+            docker_commands = receipt["gate_batch_docker_commands"] or []
+            instrumented_stages = [item.get("stage") for item in docker_commands if item.get("instrumented") is True]
+            if len(docker_commands) != 3 or instrumented_stages != ["canonical-gate-build", "canonical-gate-batch"]:
+                raise ObserverFailure("canonical gate did not use exactly one instrumented build run and one instrumented batch run")
             receipt["source_after"] = source_check(tree, source)
             receipt["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             receipt["state"] = "complete"

@@ -593,8 +593,9 @@ def assert_docker_shim_argv(scratch_dir: Path) -> None:
     image_at = transformed.index(docker_shim.NATIVE_IMAGE_ID)
     assert transformed[image_at + 1:] == [
         "/usr/bin/python3", "/work/observer.py", "/work/resource.json", "--",
-        "/root/.cargo/bin/cargo", *docker_shim.GATE_BATCH_TAIL[1:],
+        *docker_shim.GATE_BATCH_TAIL,
     ]
+    assert transformed[5:7] == ["--label", "org.xsh.final-performance.stage=canonical-gate-batch"]
     assert transformed[1:5] == [
         "--cidfile", "/evidence/container.cid", "--label", "org.xsh.final-performance.owner=synthetic-run",
     ]
@@ -626,6 +627,27 @@ def assert_docker_shim_argv(scratch_dir: Path) -> None:
 
     assert docker_shim.instrument_batch_argv(
         args[:-1] + ["gate-lane"], **common,
+    ) is None
+
+    build_args = [
+        "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
+        docker_shim.NATIVE_IMAGE_ID, *docker_shim.GATE_BUILD_TAIL,
+    ]
+    build_common = {key: common[key] for key in ("owner", "cpuset_cpus", "scratch_directory")}
+    build_cid = docker_shim.build_cidfile(common["cidfile"])
+    assert build_cid == "/evidence/build-container.cid"
+    built = docker_shim.instrument_build_argv(build_args, cidfile=build_cid, **build_common)
+    assert built is not None
+    assert built[1:7] == [
+        "--cidfile", build_cid, "--label", "org.xsh.final-performance.owner=synthetic-run",
+        "--label", "org.xsh.final-performance.stage=canonical-gate-build",
+    ]
+    assert built[7:17] == transformed[7:17]
+    assert built[built.index(docker_shim.NATIVE_IMAGE_ID) + 1:] == docker_shim.GATE_BUILD_TAIL
+    assert docker_shim.instrument_batch_argv(build_args, **common) is None
+    assert docker_shim.instrument_build_argv(args, cidfile=build_cid, **build_common) is None
+    assert docker_shim.instrument_build_argv(
+        build_args[:1] + ["--cpus", "2"] + build_args[1:], cidfile=build_cid, **build_common,
     ) is None
     for override in (
         ["--cpus", "2"], ["--cpus=2"], ["--cpu-quota=1200000"], ["--memory", "1g"],

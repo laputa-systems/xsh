@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Own and instrument the one Docker run used by the canonical gate batch."""
+"""Own and instrument the build and batch Docker runs of the canonical gate."""
 
 import csv
 import json
@@ -27,11 +27,11 @@ RESOURCE_FLAGS = {
     "--kernel-memory", "--memory", "--memory-reservation", "--memory-swap",
     "--memory-swappiness",
 }
-GATE_BATCH_TAIL = [
-    "cargo", "run", "--quiet", "--target", "x86_64-unknown-linux-musl",
-    "-p", "xsh", "--bin", "xsh", "--",
-    "dev/main.xsh", "--", "internal", "gate-full",
-]
+GATE_TARGET = "x86_64-unknown-linux-musl"
+GATE_BUILD_TAIL = ["cargo", "build", "--quiet", "--target", GATE_TARGET, "-p", "xsh", "--bin", "xsh"]
+GATE_BATCH_TAIL = [f"/work/target/{GATE_TARGET}/debug/xsh", "dev/main.xsh", "--", "internal", "gate-full"]
+GATE_BUILD_STAGE = "canonical-gate-build"
+GATE_BATCH_STAGE = "canonical-gate-batch"
 
 
 def scratch_target_conflicts(target: str) -> bool:
@@ -160,6 +160,41 @@ def image_index(arguments: list[str]) -> int | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def gate_run_options(
+    arguments: list[str],
+    tail: list[str],
+    *,
+    stage: str,
+    cidfile: str,
+    owner: str,
+    cpuset_cpus: str,
+    scratch_directory: str,
+) -> tuple[list[str], int] | None:
+    if not arguments or arguments[0] != "run":
+        return None
+    image_at = image_index(arguments)
+    if image_at is None or arguments[image_at + 1:] != tail:
+        return None
+    if (
+        has_resource_override(arguments[1:image_at])
+        or not valid_cpuset(cpuset_cpus)
+        or not valid_scratch_directory(scratch_directory)
+    ):
+        return None
+    return [
+        "--cidfile", cidfile,
+        "--label", f"org.xsh.final-performance.owner={owner}",
+        "--label", f"org.xsh.final-performance.stage={stage}",
+        "--cpuset-cpus", cpuset_cpus,
+        "--cpus", str(CPU_LIMIT),
+        "--memory", MEMORY_LIMIT,
+        "--memory-swap", MEMORY_LIMIT,
+        "-e", f"CARGO_BUILD_JOBS={CPU_LIMIT}",
+        "-v", f"{scratch_directory}:{SCRATCH_CONTAINER_PATH}:rw",
+        "-e", f"TMPDIR={SCRATCH_CONTAINER_PATH}",
+    ], image_at
+
+
 def instrument_batch_argv(
     arguments: list[str],
     *,
@@ -171,38 +206,42 @@ def instrument_batch_argv(
     scratch_directory: str,
     resources_only: bool = False,
 ) -> list[str] | None:
-    if not arguments or arguments[0] != "run":
+    prepared = gate_run_options(
+        arguments, GATE_BATCH_TAIL, stage=GATE_BATCH_STAGE, cidfile=cidfile, owner=owner,
+        cpuset_cpus=cpuset_cpus, scratch_directory=scratch_directory,
+    )
+    if prepared is None:
         return None
-    image_at = image_index(arguments)
-    if image_at is None or arguments[image_at + 1:] != GATE_BATCH_TAIL:
-        return None
-    if (
-        has_resource_override(arguments[1:image_at])
-        or not valid_cpuset(cpuset_cpus)
-        or not valid_scratch_directory(scratch_directory)
-    ):
-        return None
-    ownership_options = [
-        "--cidfile", cidfile,
-        "--label", f"org.xsh.final-performance.owner={owner}",
-        "--label", "org.xsh.final-performance.stage=canonical-gate-batch",
-    ]
-    resource_options = [
-        "--cpuset-cpus", cpuset_cpus,
-        "--cpus", str(CPU_LIMIT),
-        "--memory", MEMORY_LIMIT,
-        "--memory-swap", MEMORY_LIMIT,
-        "-e", f"CARGO_BUILD_JOBS={CPU_LIMIT}",
-        "-v", f"{scratch_directory}:{SCRATCH_CONTAINER_PATH}:rw",
-        "-e", f"TMPDIR={SCRATCH_CONTAINER_PATH}",
-    ]
+    options, image_at = prepared
     command = [
         "/usr/bin/python3", container_observer,
         *( ["--resources-only"] if resources_only else [] ),
         container_resource_file, "--",
-        "/root/.cargo/bin/cargo", *GATE_BATCH_TAIL[1:],
+        *GATE_BATCH_TAIL,
     ]
-    return arguments[:1] + ownership_options + resource_options + arguments[1:image_at + 1] + command
+    return arguments[:1] + options + arguments[1:image_at + 1] + command
+
+
+def instrument_build_argv(
+    arguments: list[str],
+    *,
+    cidfile: str,
+    owner: str,
+    cpuset_cpus: str,
+    scratch_directory: str,
+) -> list[str] | None:
+    prepared = gate_run_options(
+        arguments, GATE_BUILD_TAIL, stage=GATE_BUILD_STAGE, cidfile=cidfile, owner=owner,
+        cpuset_cpus=cpuset_cpus, scratch_directory=scratch_directory,
+    )
+    if prepared is None:
+        return None
+    options, _ = prepared
+    return arguments[:1] + options + arguments[1:]
+
+
+def build_cidfile(batch_cidfile: str) -> str:
+    return str(Path(batch_cidfile).with_name("build-container.cid"))
 
 
 def append_json_line(path: Path, value: dict[str, object]) -> None:
@@ -241,6 +280,16 @@ def main() -> int:
         scratch_directory=scratch_directory,
         resources_only=resources_only_value == "1",
     )
+    stage = GATE_BATCH_STAGE if instrumented is not None else None
+    if instrumented is None:
+        instrumented = instrument_build_argv(
+            original,
+            cidfile=build_cidfile(cidfile),
+            owner=owner,
+            cpuset_cpus=cpuset_cpus,
+            scratch_directory=scratch_directory,
+        )
+        stage = GATE_BUILD_STAGE if instrumented is not None else None
     if original[:1] == ["run"] and instrumented is None:
         print("unexpected Docker run during the canonical gate batch", file=sys.stderr)
         append_json_line(Path(log_path), {
@@ -258,6 +307,7 @@ def main() -> int:
         "effective_argv": [real_docker, *effective],
         "instrumented": instrumented is not None,
         "rejected": False,
+        "stage": stage,
     })
     os.execv(real_docker, [real_docker, *effective])
     return 127
