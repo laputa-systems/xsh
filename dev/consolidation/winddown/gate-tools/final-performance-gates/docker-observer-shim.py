@@ -11,12 +11,8 @@ import stat
 import sys
 from datetime import datetime, timezone
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
-from native_image import IMAGE_ID
-
-NATIVE_IMAGE_ID = IMAGE_ID
-IMAGE_REFERENCES = {NATIVE_IMAGE_ID, "xsh-test", "xsh-test:consolidation-native"}
+NATIVE_IMAGE_ID = os.environ.get("XSH_OBSERVER_IMAGE_ID", "")
+IMAGE_REFERENCES = {NATIVE_IMAGE_ID, "xsh-test", "xsh-test:consolidation-native"} if NATIVE_IMAGE_ID else set()
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"
 SCRATCH_CONTAINER_PATH = "/t"
@@ -263,7 +259,7 @@ def main() -> int:
     scratch_directory = os.environ.get("XSH_OBSERVER_SCRATCH_DIR")
     resources_only_value = os.environ.get("XSH_OBSERVER_RESOURCES_ONLY")
     if (
-        not all((real_docker, log_path, owner, cidfile, observer, resource_file, cpuset_cpus, scratch_directory))
+        not all((NATIVE_IMAGE_ID, real_docker, log_path, owner, cidfile, observer, resource_file, cpuset_cpus, scratch_directory))
         or resources_only_value not in ("0", "1")
     ):
         print("Docker observer configuration is incomplete", file=sys.stderr)

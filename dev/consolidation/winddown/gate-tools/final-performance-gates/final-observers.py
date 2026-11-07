@@ -1066,6 +1066,7 @@ def prepare_docker_shim(
     shim_path = shim_dir / "docker"
     shutil.copyfile(HERE / "docker-observer-shim.py", shim_path)
     shim_path.chmod(0o755)
+    environment["XSH_OBSERVER_IMAGE_ID"] = NATIVE_IMAGE_ID
     environment["XSH_OBSERVER_REAL_DOCKER"] = docker
     environment["XSH_OBSERVER_DOCKER_LOG"] = str(batch_stage / "docker-commands.jsonl")
     environment["XSH_OBSERVER_RUN_ID"] = run_id

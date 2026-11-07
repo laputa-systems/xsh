@@ -27,6 +27,7 @@ def load_module(name: str, path: Path):
 
 observer = load_module("final_observers", HERE / "final-observers.py")
 container_resources = load_module("capture_container_resources", HERE / "capture-container-resources.py")
+os.environ["XSH_OBSERVER_IMAGE_ID"] = observer.NATIVE_IMAGE_ID
 docker_shim = load_module("docker_observer_shim", HERE / "docker-observer-shim.py")
 profile = load_module("profile_cost", HERE / "profile-cost.py")
 forced = load_module("forced_frames", HERE / "forced-frames.py")
@@ -489,6 +490,7 @@ def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
         assert shim_path.is_file()
         assert environment["XSH_OBSERVER_CPUSET"] == cpuset
         assert environment["XSH_OBSERVER_REAL_DOCKER"] == "/usr/bin/docker"
+        assert environment["XSH_OBSERVER_IMAGE_ID"] == observer.NATIVE_IMAGE_ID
         assert environment["XSH_OBSERVER_RESOURCES_ONLY"] == "1"
         assert environment["XSH_OBSERVER_SCRATCH_DIR"] == str(scratch_dir)
         docker_args = [
