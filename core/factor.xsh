@@ -755,7 +755,7 @@ pure perfect_power(n: List[Int]) -> Power {
     let estimate = (logarithm / exponent.float()).exp().round() ?? 0
 
     for guess in [estimate - 1, estimate, estimate + 1] {
-      if guess > 1 {
+      if guess > 1 and (guess.float().pow(exponent.float()) / size - 1.0).abs() < 0.000000001 {
         let root = big_from_int(guess)
 
         return {root: root, exponent: exponent} when big_cmp(big_pow(root, exponent), n) == 0
