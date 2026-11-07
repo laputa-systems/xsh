@@ -177,8 +177,9 @@ def gate_run_options(
         or not valid_scratch_directory(scratch_directory)
     ):
         return None
+    supplied_cidfile = any(value == "--cidfile" or value.startswith("--cidfile=") for value in arguments[1:image_at])
     return [
-        "--cidfile", cidfile,
+        *( [] if supplied_cidfile else ["--cidfile", cidfile] ),
         "--label", f"org.xsh.final-performance.owner={owner}",
         "--label", f"org.xsh.final-performance.stage={stage}",
         "--cpuset-cpus", cpuset_cpus,

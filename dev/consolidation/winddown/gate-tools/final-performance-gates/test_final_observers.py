@@ -647,6 +647,11 @@ def assert_docker_shim_argv(scratch_dir: Path) -> None:
     assert built[7:17] == transformed[7:17]
     assert built[built.index(docker_shim.NATIVE_IMAGE_ID) + 1:] == docker_shim.GATE_BUILD_TAIL
     assert docker_shim.instrument_batch_argv(build_args, **common) is None
+    gate_cidfile = ["--cidfile", "/work/.work/tmp/gate-full.cid"]
+    supplied = docker_shim.instrument_batch_argv(args[:1] + gate_cidfile + args[1:], **common)
+    assert supplied is not None
+    assert [value for value in supplied if value == "--cidfile"] == ["--cidfile"]
+    assert supplied[supplied.index("--cidfile") + 1] == "/work/.work/tmp/gate-full.cid"
     assert docker_shim.instrument_build_argv(args, cidfile=build_cid, **build_common) is None
     assert docker_shim.instrument_build_argv(
         build_args[:1] + ["--cpus", "2"] + build_args[1:], cidfile=build_cid, **build_common,
