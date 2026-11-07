@@ -354,6 +354,8 @@ pure mod_info(m: Int) -> Mod {
 pure mulmod(a: Int, b: Int, info: Mod) -> Int {
   return a * b % info.m when info.shift == 0
 
+  let m = info.m
+  let shift = info.shift
   var result = 0
   var rest = b
   var scale = info.top
@@ -361,8 +363,8 @@ pure mulmod(a: Int, b: Int, info: Mod) -> Int {
   while scale > 0 {
     let digit = rest / scale
     rest = rest - digit * scale
-    result = (result * info.shift % info.m + a * digit % info.m) % info.m
-    scale = scale / info.shift
+    result = (result * shift % m + a * digit % m) % m
+    scale = scale / shift
   }
 
   result
@@ -1123,13 +1125,27 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
     return {primes: primes, rest: big_from_int(value), proven: value < 4194304 and value > 1}
   }
 
-  for p in small {
-    var division = big_div_small(rest, p)
+  if rest.len() == 3 {
+    var top = rest[2]
+    var low = big_to_int(rest)
 
-    while division.remainder.is_empty() {
-      primes += [f"{p}"]
-      rest = division.quotient
-      division = big_div_small(rest, p)
+    for p in small {
+      while (top * (1000000000000000000 % p) + low) % p == 0 {
+        primes += [f"{p}"]
+        rest = big_div_small(rest, p).quotient
+        top = if rest.len() > 2 { rest[2] } else { 0 }
+        low = big_to_int(rest)
+      }
+    }
+  } else {
+    for p in small {
+      var division = big_div_small(rest, p)
+
+      while division.remainder.is_empty() {
+        primes += [f"{p}"]
+        rest = division.quotient
+        division = big_div_small(rest, p)
+      }
     }
   }
 
