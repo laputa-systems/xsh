@@ -27,6 +27,11 @@ test test_factor_small_numbers { |ctx|
   assert factor_text(ctx, ["0012"])? == "12: 2 2 3\n", "the number prints in canonical form"
 }
 
+test test_factor_numbers_between_two_to_the_64_and_66 { |ctx|
+  assert factor_text(ctx, ["18446744073709551629", "36893488147419103363", "73786976294838206459"])? == "18446744073709551629: 18446744073709551629\n36893488147419103363: 36893488147419103363\n73786976294838206459: 73786976294838206459\n", "primes above 2^64 stay whole"
+  assert factor_text(ctx, ["36893488349282566399"])? == "36893488349282566399: 4294967311 8589934609\n", "a semiprime of two 33- and 34-bit primes splits"
+}
+
 test test_factor_exponents { |ctx|
   assert factor_text(ctx, ["-h", "1234", "10240"])? == "1234: 2 617\n10240: 2^11 5\n"
   assert factor_text(ctx, ["--exponents", "360"])? == "360: 2^3 3^2 5\n"
