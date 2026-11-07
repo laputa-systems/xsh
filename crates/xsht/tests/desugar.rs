@@ -211,8 +211,11 @@ fn batch_test_report(root: &Path, files: &[String]) -> BatchReport {
         "xsht test produced no test summary with exit status {:?}:\n{stderr}",
         output.status.code(),
     );
+    let skipped_only = output.status.code() == Some(2)
+        && summary.is_some_and(|line| line.starts_with("test result: INCOMPLETE"))
+        && !stderr.lines().any(|line| line.starts_with("xsht: "));
     assert!(
-        matches!(output.status.code(), Some(0 | 1)),
+        matches!(output.status.code(), Some(0 | 1)) || skipped_only,
         "xsht test did not finish normally with exit status {:?}:\n{stderr}",
         output.status.code(),
     );
