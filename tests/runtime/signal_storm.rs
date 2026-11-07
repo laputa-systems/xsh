@@ -213,6 +213,7 @@ struct Outcome {
     ready: bool,
     markers: Vec<String>,
     elapsed: Duration,
+    stderr: String,
 }
 
 fn tag_for(seed: u64) -> String {
@@ -303,7 +304,7 @@ fn execute(plan: &Plan, body: &str) -> Outcome {
         .env(TAG_VARIABLE, &tag)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(fs::File::create(dir.join("stderr")).expect("create xsh stderr"))
         .process_group(0)
         .spawn()
         .expect("start xsh");
@@ -381,6 +382,7 @@ fn execute(plan: &Plan, body: &str) -> Outcome {
         ready,
         markers: numbered.into_iter().map(|(_, label)| label).collect(),
         elapsed,
+        stderr: fs::read_to_string(dir.join("stderr")).unwrap_or_default(),
     };
     let _ = fs::remove_dir_all(&dir);
     outcome
@@ -519,7 +521,7 @@ fn signal_storm_oracle_rejects_a_descendant_that_escapes_cleanup() {
     let verdict = check_outcome(&plan, &tag_for(plan.seed), &outcome, &mut bystander);
     kill_tagged(&tag_for(plan.seed));
     let reason = verdict.expect_err("an escaped descendant must fail the oracle");
-    assert!(reason.contains("live processes"), "{reason}");
+    assert!(reason.contains("live processes"), "{reason}\noutcome {outcome:?}");
 }
 
 #[test]
