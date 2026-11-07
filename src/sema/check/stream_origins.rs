@@ -1043,7 +1043,7 @@ impl Checker {
                     }
                 }
             }
-            _ => None,
+            ArenaExprKind::Null | ArenaExprKind::Bool(..) | ArenaExprKind::Int(..) | ArenaExprKind::Float(..) | ArenaExprKind::Duration(..) | ArenaExprKind::Str(..) | ArenaExprKind::PathStr(..) | ArenaExprKind::GlobStr(..) | ArenaExprKind::FmtString(..) | ArenaExprKind::PathFmtString(..) | ArenaExprKind::Bytes(..) | ArenaExprKind::Regex(..) | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. } | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. } | ArenaExprKind::Unary { .. } | ArenaExprKind::Binary { .. } | ArenaExprKind::ValuePipelineCall { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(..) | ArenaExprKind::EnvPathList | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::Run(..) | ArenaExprKind::Spawn(..) | ArenaExprKind::Wait(..) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } | ArenaExprKind::ContextScope { .. } | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => None,
         };
         let mut origin = origin.unwrap_or(Self::opaque_stream_value(ty)?);
         if matches!(ty.unvalidated(), Type::Stream(_)) && self.latent_stream_error_spans.contains(&span) { origin.join(&StreamOrigins::error()); }
