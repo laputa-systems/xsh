@@ -214,7 +214,7 @@ class NativeImagePinTests(unittest.TestCase):
                     "Config": {"Env": [
                         "CC=/usr/bin/clang-23",
                         "AR=/usr/local/bin/llvm-ar",
-                        "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include",
+                        "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -I/usr/include",
                     ]},
                 }])
             if argv[-1:] == ["--version"] and argv[0].endswith("kache"):

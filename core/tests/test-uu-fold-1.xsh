@@ -578,7 +578,10 @@ test test_uu_fold_bytewise_read_from_pseudo_device { |ctx|
   let plan = uu.command(s, "fold", ["-b", "/dev/zero"], stdout: out, stderr: err)?
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  time.sleep(100ms)
+  for _ in range(1000) {
+    break when b"\x00\x0a" in out.read_bytes()?
+    time.sleep(10ms)
+  }
   assert process.wait_timeout([child], 0ms)? == null
   process.kill(child.pid, signal: "KILL")
   let done = process.wait_timeout([child], 2s)?

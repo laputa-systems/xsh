@@ -762,7 +762,6 @@ printf '%s\\n' "$@" > "$XSH_LINKER_ARGS"
   assert args_path.read_lines()? == [
     "--ld-path=/usr/local/bin/mold",
     "--target=x86_64-unknown-linux-musl",
-    "-B/usr/lib/xsh-crt/x86_64-unknown-linux-musl",
     "-Wl,--defsym=__isoc23_sscanf=sscanf",
     "a path with spaces",
     "-Wl,--defsym=already=passed",

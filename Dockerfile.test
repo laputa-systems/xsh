@@ -3,7 +3,6 @@ ARG TARGETARCH
 RUN apk add --no-cache bash make perl autoconf automake libtool gettext quilt gperf texinfo gawk help2man rsync \
     acl-dev libcap-dev openssl-dev \
     musl-dev linux-headers libgcc libunwind-dev git binutils tzdata zip strace \
-    clang23 clang23-libclang \
     findmnt lsblk lscpu util-linux util-linux-misc iproute2-minimal kmod pciutils usbutils cpupower \
     lm-sensors dmidecode
 # GNU test helpers link against the unversioned GCC runtime name.
@@ -29,28 +28,20 @@ RUN rustup toolchain install nightly-2026-09-15 \
     --target x86_64-unknown-linux-musl \
     --component llvm-tools-preview \
     --component rust-src
-# Clang and libclang are separate Alpine packages. The Rust nightly supplies
-# LLVM archive, strip, and linker tools, but not a C frontend. Copy those tools
-# out of root's rustup tree so unprivileged compatibility tests can execute them.
+# The prebuilt musl LLVM ships no C headers; musl-dev supplies them.
 RUN case "$TARGETARCH" in \
-        amd64) host=x86_64-unknown-linux-musl ;; \
-        arm64) host=aarch64-unknown-linux-musl ;; \
+        amd64) arch=x86_64 sha=baba8cf90dd957cf64fdca219f659ec6817b699037a15dfa97bb847a01a64219 host=x86_64-unknown-linux-musl ;; \
+        arm64) arch=aarch64 sha=48d1801c1ccc0197182231b7b465879cf7366336f282287bdd30aa7573725dda host=aarch64-unknown-linux-musl ;; \
         *) exit 1 ;; \
     esac \
-    && tool_bin="$(rustc --print sysroot)/lib/rustlib/$host/bin" \
-    && for tool in llvm-ar llvm-strip rust-lld; do \
-        test -x "$tool_bin/$tool" && install -m 0755 "$tool_bin/$tool" "/usr/local/bin/$tool"; \
-    done \
-    && test -f /usr/lib/llvm23/lib/libclang.so
-# musl-dev lacks crtbegin/crtend. The empty target-correct objects satisfy
-# Clang's C-linker inputs without bringing in GCC's runtime.
-RUN for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do \
-        stub_dir="/usr/lib/xsh-crt/$target"; \
-        mkdir -p "$stub_dir"; \
-        for obj in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
-            clang-23 --target="$target" -x c -c /dev/null -o "$stub_dir/$obj"; \
-        done; \
-    done
+    && wget -q -O /llvm.tar.xz "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-23.1.5-2f0b039/clang+llvm-23.1.5-$arch-linux-musl.tar.xz" \
+    && echo "$sha  /llvm.tar.xz" | sha256sum -c - \
+    && mkdir /opt/llvm \
+    && tar -xJf /llvm.tar.xz -C /opt/llvm --strip-components=1 \
+    && rm /llvm.tar.xz \
+    && for tool in clang clang++ clang-23; do ln -s "/opt/llvm/bin/$tool" "/usr/bin/$tool"; done \
+    && for tool in llvm-ar llvm-strip; do ln -s "/opt/llvm/bin/$tool" "/usr/local/bin/$tool"; done \
+    && install -m 0755 "$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld" /usr/local/bin/rust-lld
 # rust-lld may not support the debug-section compression used in Alpine's CRT.
 RUN for object in /usr/lib/crt*.o /usr/lib/[S]*.o; do \
         test -f "$object" || continue; \
@@ -59,13 +50,13 @@ RUN for object in /usr/lib/crt*.o /usr/lib/[S]*.o; do \
 ENV CC="/usr/bin/clang-23" \
     AR="/usr/local/bin/llvm-ar" \
     RANLIB="/usr/bin/ranlib" \
-    LIBCLANG_PATH="/usr/lib/llvm23/lib" \
+    LIBCLANG_PATH="/opt/llvm/lib" \
     CC_AARCH64_UNKNOWN_LINUX_MUSL="/usr/bin/clang-23" \
     CC_X86_64_UNKNOWN_LINUX_MUSL="/usr/bin/clang-23" \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
-    CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include" \
-    CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include"
+    CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -I/usr/include" \
+    CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -I/usr/include"
 # The build driver supplies the musl target Rust flags, including the
 # __isoc23_sscanf=sscanf and __isoc23_strtol=strtol aliases. Keep those flags
 # outside the image so local tests and the Linux package job use one link ABI.
