@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 78
+Next: 79
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -128,6 +128,16 @@ out of scope.
 - **Acceptance:** A module `const` read and a record field read cost within 2x of a local read on the same kernel, in readiness-qualified CPU time; native suite green.
 - **Fix with:** make-it-fast
 - **Effort:** M
+
+### XSH-78 · P4 · Build rm's child names only where they are shown
+
+- **Area:** Performance
+- **Where:** `core/rm.xsh` (`remove_target`)
+- **Problem:** `rm -r` with `-i`, `-v`, `-g`, `--one-file-system` or a terminal-driven prompt still walks each entry in XSH at about 57 µs per file. About 31 µs of that builds the child's display name with a byte-by-byte basename scan and `bytes.concat`, even when no message or prompt uses it. Unattended `rm -r` takes one native `Path.remove()` (`3.9 µs` per file) and is unaffected.
+- **Recommendation:** Build `child_name` only when a message, prompt or `-v` line needs it, and pass the parent name plus the entry name otherwise.
+- **Acceptance:** `rm -ri` and `rm -rv` on 100k entries cost at least 40% less CPU over readiness-qualified pairs, with byte-identical prompts and messages; rm tests green.
+- **Fix with:** make-it-fast
+- **Effort:** S
 
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
