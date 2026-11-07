@@ -485,7 +485,7 @@ fn run_seed(seed: u64) {
     let mut bystander = Bystander::start();
     let outcome = execute(&plan, plan.scenario.body());
     if let Err(reason) = check_outcome(&plan, &tag_for(seed), &outcome, &mut bystander) {
-        panic!("signal storm seed {seed} failed: {reason}\nplan {plan:?}\noutcome {outcome:?}");
+        panic!("signal storm seed {seed} failed: {reason}\nplan {plan:?}\noutcome {outcome:?}\nxsh stderr: {}", outcome.stderr);
     }
 }
 
@@ -521,7 +521,7 @@ fn signal_storm_oracle_rejects_a_descendant_that_escapes_cleanup() {
     let verdict = check_outcome(&plan, &tag_for(plan.seed), &outcome, &mut bystander);
     kill_tagged(&tag_for(plan.seed));
     let reason = verdict.expect_err("an escaped descendant must fail the oracle");
-    assert!(reason.contains("live processes"), "{reason}\noutcome {outcome:?}");
+    assert!(reason.contains("live processes"), "{reason}\nxsh stderr: {}", outcome.stderr);
 }
 
 #[test]
