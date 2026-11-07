@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 77
+Next: 78
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -116,6 +116,16 @@ out of scope.
 - **Problem:** On the same 20,000-record JSON, five alternating pinned Linux O2 pairs measured roundtrip median CPU of 59.065 ms on pre-Deser `e1b896dc` against 69.813 ms on `ad126a1e8`, above the 5% budget and the spread; decode alone stays within spread. Borrowed event guards later cut ten encodes by about 5%. Rejected without benefit above spread: small-record text vectors, direct compact-name accumulation, decoder sink inlining, an `#[inline]` encoder hint, per-container field emitters, and the parked primitive-handle prototype `fb3bc1712`. Profiles point at serializer event dispatch and field iteration. The products differ beyond the codec, so no single change is attributed.
 - **Recommendation:** Profile the current encode path against `e1b896dc` on matched products and fix the dominant cost; S6 runtime, startup and build CPU-time qualification on current source closes with it.
 - **Acceptance:** Roundtrip median CPU within `max(5%, paired spread)` of the pre-Deser baseline over five readiness-qualified alternating pairs with exact outputs; decode, JSONL and checker controls within budget.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-77 · P3 · Make module constants and record fields cheap to read
+
+- **Area:** Performance
+- **Where:** `src/runtime/eval/`, core commands written in XSH (`core/factor.xsh` and others)
+- **Problem:** Profiling `factor` on 2026-11-07 measured a function call at about 3 µs, and a record field read, list index or module `const` read at about 0.7 to 1 µs, against about 0.05 µs for arithmetic on locals. `perf` put 36% of the time in `memcpy` in the evaluator. Replacing a module `const` with a literal cut one `factor` kernel from 29 µs to 10 µs. The `factor` fix (`64788888b`) works around this by keeping limbs in `Int` locals; every other core command written in XSH pays the same cost.
+- **Recommendation:** Profile const, field and index reads on a small kernel, find where the copy happens, and make those reads borrow instead of clone. Re-measure `factor`, `test_uu_factor_parallel` and the `test_gnu_factor_*` cases (about 55 s each at `-j 8` against a 120 s budget).
+- **Acceptance:** A module `const` read and a record field read cost within 2x of a local read on the same kernel, in readiness-qualified CPU time; native suite green.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
