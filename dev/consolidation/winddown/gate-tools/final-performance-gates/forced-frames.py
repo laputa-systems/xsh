@@ -433,6 +433,11 @@ def container_command(
     cpus: str,
 ) -> list[str]:
     work = tree / ".work/consolidation"
+    gate_lease = git_common.parent / ".work/consolidation/infra"
+    gate_lease_mount = []
+    if not gate_lease.is_relative_to(work):
+        gate_lease.mkdir(parents=True, exist_ok=True)
+        gate_lease_mount = ["-v", f"{gate_lease}:{gate_lease}:rw"]
     xsh = profile_dir / "xsh"
     xsht = profile_dir / "xsht"
     path = os.pathsep.join((str(profile_dir), "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"))
@@ -467,6 +472,7 @@ def container_command(
         f"{work}:{work}",
         "-v",
         f"{git_common}:{git_common}:ro",
+        *gate_lease_mount,
         "-v",
         f"{laputa_corpus}:{laputa_corpus}:ro",
         "-v",
