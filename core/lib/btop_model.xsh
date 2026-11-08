@@ -281,36 +281,72 @@ export pure process_join(
   }
 }
 
+type ProcessFrame = {
+  at_ns: Int,
+  source_id: Str,
+  unmeasured_state: rates.RateState?,
+  total: rates.ProcessTotal?,
+  core_count: Int,
+  gap: Bool,
+  uptime_seconds: Float?,
+  clock_ticks_per_second: Int,
+}
+
+pure process_frame(current: Observation, previous: Observation?, gap: Bool) -> ProcessFrame {
+  let before = previous ?? current
+  let unmeasured_state: rates.RateState? = if previous == null {
+    rates.Warming
+  } else if current.at_ns <= before.at_ns {
+    rates.Invalid
+  } else if before.cpu.stat.aggregate == null or current.cpu.stat.aggregate == null {
+    rates.Warming
+  } else {
+    null
+  }
+  let total: rates.ProcessTotal? = if unmeasured_state == null and current.cpu.stat.aggregate != null and
+      before.cpu.stat.aggregate != null {
+    rates.process_total(current.cpu.stat.aggregate, before.cpu.stat.aggregate)
+  } else {
+    null
+  }
+  let core_count = current.cpu.stat.cores.len()
+  {
+    at_ns: current.at_ns,
+    source_id: current.source_id,
+    unmeasured_state: unmeasured_state,
+    total: total,
+    core_count: if core_count == 0 { 1 } else { core_count },
+    gap: gap,
+    uptime_seconds: current.cpu.uptime.seconds,
+    clock_ticks_per_second: current.clock_ticks_per_second,
+  }
+}
+
 pure process_rate(
-  current: Observation,
-  previous: Observation?,
+  frame: ProcessFrame,
   previous_process: processes.Process?,
   row: processes.Process,
-  gap: Bool,
   per_core = false,
 ) -> rates.Rate {
   return rate(rates.Unavailable) when row.cpu_ticks == null
 
-  return rate(rates.Warming) when previous == null
+  if let state = frame.unmeasured_state {
+    return rate(state)
+  }
 
-  let before = previous ?? current
-  return rate(rates.Invalid) when current.at_ns <= before.at_ns
-
-  if before.cpu.stat.aggregate == null or current.cpu.stat.aggregate == null {
+  guard let total = frame.total else {
     return rate(rates.Warming)
   }
 
   if let older = previous_process {
     return rate(rates.Warming) when older.cpu_ticks == null
-    return rate(rates.Gap) when gap
+    return rate(rates.Gap) when frame.gap
 
-    let core_count = current.cpu.stat.cores.len()
-    return rates.process_percent(
+    return rates.process_percent_of_total(
       row.cpu_ticks,
       older.cpu_ticks,
-      current.cpu.stat.aggregate,
-      before.cpu.stat.aggregate,
-      if core_count == 0 { 1 } else { core_count },
+      total,
+      frame.core_count,
       per_core:,
     )
   }
@@ -318,12 +354,12 @@ pure process_rate(
   rate(rates.Warming)
 }
 
-pure process_average_rate(current: Observation, row: processes.Process) -> rates.Rate {
-  if row.cpu_ticks == null or current.cpu.uptime.seconds == null or current.clock_ticks_per_second <= 0 {
+pure process_average_rate(frame: ProcessFrame, row: processes.Process) -> rates.Rate {
+  if row.cpu_ticks == null or frame.uptime_seconds == null or frame.clock_ticks_per_second <= 0 {
     return rate(rates.Unavailable)
   }
-  let ticks_per_second = current.clock_ticks_per_second.float()
-  let elapsed_seconds = current.cpu.uptime.seconds - row.start_ticks.float() / ticks_per_second
+  let ticks_per_second = frame.clock_ticks_per_second.float()
+  let elapsed_seconds = frame.uptime_seconds - row.start_ticks.float() / ticks_per_second
   return rate(rates.Invalid) when elapsed_seconds <= 0.0
   {
     state: rates.Observed,
@@ -331,19 +367,21 @@ pure process_average_rate(current: Observation, row: processes.Process) -> rates
   }
 }
 
-pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCache) -> UidResult {
+pure cached_uid(
+  row: processes.Process,
+  frame: ProcessFrame,
+  cached: Map[Int, ProcessMetadata],
+) -> UidResult {
   if let uid = row.uid {
-    let entry = {start_ticks: row.start_ticks, command: row.command, uid: uid, observed_at_ns: current.at_ns}
+    let entry = {start_ticks: row.start_ticks, command: row.command, uid: uid, observed_at_ns: frame.at_ns}
     return {uid: uid, state: .Fresh, entry: entry}
   }
 
-  if cache.source_id == current.source_id {
-    if let Ok(prior) = cache.by_pid.get(row.pid) {
-      let age = current.at_ns - prior.observed_at_ns
-      if prior.start_ticks == row.start_ticks and prior.command == row.command and
-          age >= 0 and age < PROCESS_METADATA_TTL_NS {
-        return {uid: prior.uid, state: .Stale, entry: prior}
-      }
+  if let Ok(prior) = cached.get(row.pid) {
+    let age = frame.at_ns - prior.observed_at_ns
+    if prior.start_ticks == row.start_ticks and prior.command == row.command and
+        age >= 0 and age < PROCESS_METADATA_TTL_NS {
+      return {uid: prior.uid, state: .Stale, entry: prior}
     }
   }
   {uid: null, state: .Unavailable, entry: null}
@@ -376,7 +414,8 @@ export pure step_cached(
     []
   }
   let process_matches = process_join(current.processes.processes, before_processes)
-  let cache = if metadata.source_id == current.source_id { metadata } else { {source_id: current.source_id, by_pid: {}} }
+  let cached_metadata: Map[Int, ProcessMetadata] = if metadata.source_id == current.source_id { metadata.by_pid } else { {} }
+  let frame = process_frame(current, baseline, gap)
   let storage_previous: disks.Source? = if let before = baseline { before.storage } else { null }
   let storage_previous_at: Int? = if let before = baseline { before.at_ns } else { null }
   let selected = observed_interface(current.network)
@@ -393,7 +432,7 @@ export pure step_cached(
   let process_updates: List[ProcessUpdate] = collect {
     for matched in process_matches {
       let process_row = matched.current
-      let uid = cached_uid(process_row, current, cache)
+      let uid = cached_uid(process_row, frame, cached_metadata)
       yield {
         row: {
           pid: process_row.pid,
@@ -403,9 +442,9 @@ export pure step_cached(
           uid: uid.uid,
           uid_state: uid.state,
           command: process_row.command,
-          cpu_percent: process_rate(current, baseline, matched.previous, process_row, gap),
-          cpu_percent_per_core: process_rate(current, baseline, matched.previous, process_row, gap, per_core: true),
-          cpu_average_percent: process_average_rate(current, process_row),
+          cpu_percent: process_rate(frame, matched.previous, process_row),
+          cpu_percent_per_core: process_rate(frame, matched.previous, process_row, per_core: true),
+          cpu_average_percent: process_average_rate(frame, process_row),
           rss_bytes: process_row.rss_bytes,
         },
         metadata: uid.entry,

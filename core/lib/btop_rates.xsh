@@ -110,17 +110,46 @@ export pure process_percent(
   if previous_ticks == null or previous_cpu == null {
     return {state: .Warming, value: null}
   }
+  process_percent_of_total(
+    current_ticks,
+    previous_ticks,
+    process_total(current_cpu, previous_cpu ?? current_cpu),
+    core_count,
+    per_core:,
+  )
+}
+
+## Holds the aggregate CPU ticks one interval offers to every process in it.
+export type ProcessTotal = {state: RateState, total_ticks: Int}
+
+## Derives the interval's aggregate ticks once so each process need not repeat it.
+export pure process_total(current_cpu: syscpu.CpuCounters, previous_cpu: syscpu.CpuCounters) -> ProcessTotal {
+  let delta = aggregate_delta(current_cpu, previous_cpu, false)
+  return {state: delta.state, total_ticks: 0} when delta.state != .Observed
+  let total = delta.total_ticks ?? 0
+  return {state: .Invalid, total_ticks: 0} when total <= 0
+  {state: .Observed, total_ticks: total}
+}
+
+## Computes one process share of a precomputed interval total.
+export pure process_percent_of_total(
+  current_ticks: Int,
+  previous_ticks: Int?,
+  total: ProcessTotal,
+  core_count: Int,
+  per_core = false,
+) -> Rate {
+  if previous_ticks == null {
+    return {state: .Warming, value: null}
+  }
   if current_ticks < 0 or (previous_ticks ?? -1) < 0 or current_ticks < previous_ticks {
     return {state: .Reset, value: null}
   }
   return {state: .Invalid, value: null} when core_count <= 0
-  let delta = aggregate_delta(current_cpu, previous_cpu ?? current_cpu, false)
-  return {state: delta.state, value: null} when delta.state != .Observed
-  let total = delta.total_ticks ?? 0
-  return {state: .Invalid, value: null} when total <= 0
+  return {state: total.state, value: null} when total.state != .Observed
   let ticks = current_ticks - previous_ticks
   let scale = if per_core { core_count.float() } else { 1.0 }
-  let raw = ticks.float() * scale * 100.0 / total.float()
+  let raw = ticks.float() * scale * 100.0 / total.total_ticks.float()
   let ceiling = 100.0 * core_count.float()
   let bounded = if raw < 0.0 { 0.0 } else if raw > ceiling { ceiling } else { raw }
   let rounded = (bounded * 10.0).round()
