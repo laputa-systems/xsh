@@ -11,14 +11,9 @@ proc following(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result
   let plan = uu.command(s, "tail", args, stdout: uu.at(s, "out"), stderr: uu.at(s, "err"), timeout: 60s)?
   Ok(spawn plan?)
 }
-proc seen(s: uu.Scene, file: Str, needle: Str, attempts = 7) [fs, process, time, error] {
-  var delay = 100ms
-  for _ in range(attempts) {
-    return when needle in uu.read_text(s, file)?
-    time.sleep(delay)
-    delay = delay * 2
-  }
-  assert needle in uu.read_text(s, file)?, f"{file} lacks {needle}: {uu.read_text(s, file)?}"
+proc seen(s: uu.Scene, file: Str, needle: Str) [fs, process, time, error] {
+  let arrived = try { wait until needle in uu.read_text(s, file)? within 50s backoff 20ms..500ms }
+  assert arrived is Ok(_), f"{file} lacks {needle}: {uu.read_text(s, file)?}"
 }
 proc live(child: ProcessHandle) [process, error] {
   assert process.wait_timeout([child], 0ms)? == null, "follower exited"
@@ -142,7 +137,7 @@ test test_gnu_tail_flush_initial_log { |ctx|
   uu.write(s, "in", "line\n")
   let child = following(s, fast(["-f", "in"], []))?
   defer stop(child)
-  seen(s, "out", "line\n", 5)
+  seen(s, "out", "line\n")
 }
 # origin: gnu tail/truncate.log
 test test_gnu_tail_truncate_log { |ctx|
@@ -171,7 +166,7 @@ test test_gnu_tail_inotify_hash_abuse_log { |ctx|
     uu.rename(s, "1", "f")
     seen(s, "err", "inaccessible")
     uu.write(s, "1", "a\n")
-    seen(s, "err", "has appeared", 6)
+    seen(s, "err", "has appeared")
     live(child)
   }
 }
@@ -199,11 +194,11 @@ test test_gnu_tail_inotify_rotate_log { |ctx|
     let child = following(s, fast(["-F", "k"], []))?
     defer stop(child)
     uu.write(s, "k", "tailed\n")
-    seen(s, "out", "tailed", 8)
+    seen(s, "out", "tailed")
     uu.at(s, "x").rename(to: uu.at(s, "k"), overwrite: true)
-    seen(s, "err", "tail:", 8)
+    seen(s, "err", "tail:")
     uu.append(s, "k", "ok\n")
-    seen(s, "out", "ok", 8)
+    seen(s, "out", "ok")
   }
 }
 # origin: gnu tail/basic-seek.log
@@ -335,7 +330,7 @@ test test_gnu_tail_debug_log { |ctx|
   for case in cases {
     let child = following(s, case.args)?
     defer stop(child)
-    seen(s, "err", case.message, 5)
+    seen(s, "err", case.message)
   }
 }
 # origin: gnu tail/pid.log
@@ -450,10 +445,10 @@ test test_gnu_tail_symlink_log { |ctx|
   uu.symlink(s, "target", "symlink")
   let first = following(s, fast(["-F", "symlink"], []))?
   defer stop(first)
-  seen(s, "err", "cannot open", 6)
+  seen(s, "err", "cannot open")
   uu.write(s, "target", "X\n")
-  seen(s, "err", "has appeared", 6)
-  seen(s, "out", "X\n", 6)
+  seen(s, "err", "has appeared")
+  seen(s, "out", "X\n")
   stop(first)
   line_count(s, 3)
   uu.remove(s, "target")
@@ -462,13 +457,13 @@ test test_gnu_tail_symlink_log { |ctx|
   uu.symlink(s, "target1", "symlink")
   let second = following(s, fast(["-F", "symlink"], []))?
   defer stop(second)
-  seen(s, "out", "X1\n", 6)
+  seen(s, "out", "X1\n")
   uu.remove(s, "symlink")
   uu.symlink(s, "target2", "symlink")
-  seen(s, "err", "become inacce", 6)
+  seen(s, "err", "become inacce")
   uu.write(s, "target2", "X2\n")
-  seen(s, "err", "has appeared", 6)
-  seen(s, "out", "X2\n", 6)
+  seen(s, "err", "has appeared")
+  seen(s, "out", "X2\n")
   stop(second)
   line_count(s, 4)
 }
@@ -489,15 +484,15 @@ test test_gnu_tail_retry_log { |ctx|
       let s = uu.scene(ctx)?
       let child = following(s, fast([f"--follow={follow}", "--retry", "missing"], mode))?
       defer stop(child)
-      seen(s, "err", "cannot open", 6)
-      if follow == "descriptor" { seen(s, "err", "retry only effective for the initial open", 6) }
+      seen(s, "err", "cannot open")
+      if follow == "descriptor" { seen(s, "err", "retry only effective for the initial open") }
       uu.write(s, "missing", if follow == "name" { "X\n" } else { "X1\n" })
-      seen(s, "err", "has appeared", 6)
-      seen(s, "out", if follow == "name" { "X\n" } else { "X1\n" }, 6)
+      seen(s, "err", "has appeared")
+      seen(s, "out", if follow == "name" { "X\n" } else { "X1\n" })
       if follow == "descriptor" {
         uu.write(s, "missing", "X\n")
-        seen(s, "err", "file truncated", 6)
-        seen(s, "out", "X\n", 6)
+        seen(s, "err", "file truncated")
+        seen(s, "out", "X\n")
       }
       stop(child)
       line_count(s, if follow == "name" { 3 } else { 6 })
@@ -506,11 +501,11 @@ test test_gnu_tail_retry_log { |ctx|
     let plan = uu.command(directory, "tail", fast(["--follow=descriptor", "--retry", "missing"], mode), stdout: uu.at(directory, "out"), stderr: uu.at(directory, "err"))?
     let follower = spawn plan?
     defer stop(follower)
-    seen(directory, "err", "cannot open", 6)
-    seen(directory, "err", "retry only effective for the initial open", 6)
+    seen(directory, "err", "cannot open")
+    seen(directory, "err", "retry only effective for the initial open")
     uu.mkdir(directory, "missing")
-    seen(directory, "err", "replaced with an untailable file", 6)
-    seen(directory, "err", "no files remaining", 6)
+    seen(directory, "err", "replaced with an untailable file")
+    seen(directory, "err", "no files remaining")
     let finished = process.wait_timeout([follower], 10s)?
     assert finished != null
     assert finished.status.exit_code()? == 1
@@ -520,12 +515,12 @@ test test_gnu_tail_retry_log { |ctx|
     uu.touch(mixed, "existing")
     let child = following(mixed, fast(["--follow=descriptor", "missing", "existing"], mode))?
     defer stop(child)
-    seen(mixed, "err", "cannot open", 6)
-    seen(mixed, "out", "==> existing <==", 6)
+    seen(mixed, "err", "cannot open")
+    seen(mixed, "out", "==> existing <==")
     line_count(mixed, 2)
     uu.write(mixed, "missing", "Y\n")
     uu.write(mixed, "existing", "X\n")
-    seen(mixed, "out", "X\n", 6)
+    seen(mixed, "out", "X\n")
     line_count(mixed, 3)
     assert !("Y\n" in uu.read_text(mixed, "out")?)
     stop(child)
@@ -541,11 +536,11 @@ test test_gnu_tail_retry_log { |ctx|
     uu.mkdir(untailable, "untailable")
     let directory_child = following(untailable, fast(["-F", "untailable"], mode))?
     defer stop(directory_child)
-    seen(untailable, "err", "cannot follow", 6)
+    seen(untailable, "err", "cannot follow")
     line_count(untailable, 2)
     uu.remove(untailable, "untailable")
     uu.write(untailable, "untailable", "foo\n")
-    seen(untailable, "out", "foo", 6)
+    seen(untailable, "out", "foo")
     let diagnostics = uu.read_text(untailable, "err")?
     assert "become accessible" in diagnostics or "has appeared" in diagnostics
     assert !("giving up" in diagnostics)

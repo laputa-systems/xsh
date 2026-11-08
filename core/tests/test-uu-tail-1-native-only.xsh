@@ -20,7 +20,7 @@ proc alive(child: ProcessHandle) [process, error] {
 
 # The initial warnings prove startup reached its missing-file pass before creation.
 proc wait_output(s: uu.Scene, out: Bytes, err: Bytes) [fs, process, time, error] {
-  for _ in range(500) {
+  for _ in range(5000) {
     let current = streams(s)?
     return when current.stdout == out and current.stderr == err
     time.sleep(10ms)

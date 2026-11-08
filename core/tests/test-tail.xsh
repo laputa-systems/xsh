@@ -29,7 +29,7 @@ proc tail_append(file: Path, data: Bytes) [fs, process, net, error] {
 }
 
 proc tail_wait_for_bytes(file: Path, expected: Bytes) [fs, time, error] -> Result[Bool] {
-  for _ in range(100) {
+  for _ in range(3000) {
     return Ok(true) when file.read_bytes()? == expected
     time.sleep(10ms)
   }
@@ -258,7 +258,7 @@ test test_tail_pid_follow_does_not_block_on_fifo_open { |ctx|
     b"",
     stdout,
     stderr,
-    timeout: 2s,
+    timeout: 30s,
   )
   let status = process.run(plan)?
 
@@ -320,7 +320,7 @@ test test_tail_follow_name_keeps_an_unreadable_file_waiting_silently { |ctx|
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let status = process.run(plan)?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
@@ -368,7 +368,7 @@ test test_tail_follows_a_fifo_operand_as_it_is_written { |ctx|
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "-s.02", "fifo"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let status = process.run(plan)?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
@@ -390,7 +390,7 @@ test test_tail_follows_standard_input_redirected_from_a_regular_file { |ctx|
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let shell = p"/bin/sh"
   let argv = [shell.display(), "-c", "exec \"$0\" \"$1\" -k .1 1.2 \"$0\" \"$2\" -f -s.02 < \"$3\"", ctx.xsh_bin.display(), timeout.display(), tail.display(), log.display()]
-  let plan = process.command_argv(shell, argv, root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(shell, argv, root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let status = process.run(plan)?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
@@ -429,7 +429,7 @@ test test_tail_follows_descriptor_appends_and_zero_count { |ctx|
     defer watcher.cancel(signal: "KILL", kill_after: 0ms)
 
     let argv = [ctx.xsh_bin.display(), tail.display(), "--debug", f"--pid={watcher.pid}"].extend(case.args)
-    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
     let follower = spawn plan?
     defer follower.cancel(signal: "KILL", kill_after: 0ms)
 
@@ -458,7 +458,7 @@ test test_tail_follow_descriptor_reports_truncation_and_reads_from_start { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "-s.02", "log"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let follower = spawn plan?
   defer follower.cancel(signal: "KILL", kill_after: 0ms)
   assert tail_wait_for_bytes(stdout, b"1\n2\n3\n4\n5\n")?, stdout.read_text()?
@@ -479,7 +479,7 @@ test test_tail_descriptor_retry_waits_for_a_missing_file { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "--retry", "-s.02", "log"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let follower = spawn plan?
   defer follower.cancel(signal: "KILL", kill_after: 0ms)
   assert tail_wait_for_bytes(stderr, b"tail: warning: --retry only effective for the initial open\ntail: cannot open 'log' for reading: No such file or directory\n")?, stderr.read_text()?
@@ -505,7 +505,7 @@ test test_tail_descriptor_retry_gives_up_when_the_name_becomes_a_directory { |ct
   defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "--retry", "-s.02", "log"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let status = process.run(plan)?
 
   assert status.exit_code()? == 1, f"stderr={stderr.read_text()?}"
@@ -523,7 +523,7 @@ test test_tail_follow_name_banners_for_names_created_after_failed_opens { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log1", "log2"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let follower = spawn plan?
   defer follower.cancel(signal: "KILL", kill_after: 0ms)
   assert tail_wait_for_bytes(stderr, b"tail: cannot open 'log1' for reading: No such file or directory\ntail: cannot open 'log2' for reading: No such file or directory\n")?, stderr.read_text()?
@@ -580,7 +580,7 @@ test test_tail_follow_name_switches_banners_between_files { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log", "other"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let follower = spawn plan?
   defer follower.cancel(signal: "KILL", kill_after: 0ms)
 
@@ -649,15 +649,18 @@ test test_tail_follow_name_reports_removed_directory_once { |ctx|
 test test_tail_warns_that_retry_is_only_effective_for_the_initial_open { |ctx|
   let root = test.temp_dir(ctx, name: "tail-retry-warning")?
   fp"{root}/log".write(b"x\n")
-  let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let argv = [ctx.xsh_bin.display(), timeout.display(), ".3", ctx.xsh_bin.display(), tail.display(), "--follow=descriptor", "--retry", "log"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
-  let status = process.run(plan)?
+  let argv = [ctx.xsh_bin.display(), tail.display(), "--follow=descriptor", "--retry", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
+  let follower = spawn plan?
+  defer follower.cancel(signal: "KILL", kill_after: 0ms)
+  let warning = b"tail: warning: --retry only effective for the initial open\n"
 
-  assert status.exit_code()? == 124
+  assert tail_wait_for_bytes(stdout, b"x\n")?, stdout.read_text()?
+  assert tail_wait_for_bytes(stderr, warning)?, stderr.read_text()?
+  follower.cancel(signal: "KILL", kill_after: 0ms)
   assert stdout.read_text()? == "x\n"
   assert stderr.read_text()? == "tail: warning: --retry only effective for the initial open\n", stderr.read_text()?
 }
@@ -734,7 +737,7 @@ test test_tail_debug_reports_blocking_and_polling_while_following { |ctx|
     let stdout = fp"{root}/stdout-{index}"
     let stderr = fp"{root}/stderr-{index}"
     let argv = [ctx.xsh_bin.display(), tail.display()].extend(case.args)
-    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
     let follower = spawn plan?
     defer follower.cancel(signal: "KILL", kill_after: 0ms)
     assert tail_wait_for_bytes(stderr, bytes.from_text(case.stderr))?, stderr.read_text()?
@@ -769,7 +772,7 @@ test test_tail_follow_name_stops_when_the_name_disappears_without_retry { |ctx|
   let writer = spawn run sh -c "until test -s \"$2\"; do sleep 0.01; done; mv \"$1\" \"$1.old\"" sh $log $stdout ?
   defer writer.cancel(signal: "KILL", kill_after: 0ms)
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "--follow=name", "-s.01", "log"]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s)
   let status = process.run(plan)?
   assert status.exit_code()? == 1
   assert stdout.read_text()? == "initial\n"

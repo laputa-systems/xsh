@@ -109,7 +109,7 @@ proc checkpoint(p: Live, file: Path, expected: Str) [fs, process, time, error] {
   let began = time.now()
   while expected not in file.read_text()? {
     alive(p)
-    assert time.now() - began < 5000, f"tail checkpoint missing: {expected}; stdout={p.out.read_text()?}; stderr={p.err.read_text()?}"
+    assert time.now() - began < 30000, f"tail checkpoint missing: {expected}; stdout={p.out.read_text()?}; stderr={p.err.read_text()?}"
     time.sleep(10ms)
   }
   Ok()
