@@ -186,7 +186,8 @@ XSH-53 and XSH-54 (supervised DHCPv4 and syslog) add APIs on `master` under the
 owner's campaign authorization. They are outside the frozen G0 candidate.
 
 A result counts only for the executable and source it ran. Any later executable
-change reruns the affected qualification.
+change reruns the affected qualification. A later commit whose diff touches only
+planning records carries XSH-3 stage results forward.
 
 ### Scope exclusions
 

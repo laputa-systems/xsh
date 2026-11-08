@@ -138,6 +138,43 @@ Only this explicit observer mode accepts an `artifact-qualified` profile
 receipt. Timed profile, forced-frame, scheduler, comparative, and observer gates
 still require a `complete` profile-cost receipt.
 
+### Correctness and timing gates
+
+One run gates correctness: the canonical replay's full native suite on the
+final commit, which must have no failed test. The three scheduler pairs and the
+forced-frame suite are measurements. A failed or timed-out test there does not
+fail the stage; its receipt lists it under `test_failures` (scheduler: round,
+arm, test ID, outcome; forced frames: test ID, outcome), and each entry must be
+ticketed. The stage still fails when any selected test lacks exactly one
+well-formed outcome, when a run is killed, cancelled, or crashes, when its exit
+code is not the one its outcomes imply (0 with no failures, 1 with failures),
+when `xsht` reports a runner or cleanup error, or when the scheduler arms differ
+in any pass or skip outcome. Readiness, foreign-CPU, cgroup, and cleanup
+checks are unchanged. `dev/performance/check.py` applies the same rules and
+requires the receipt to list every failure.
+
+Stray test output in a suite log is counted, not rejected; a result row whose
+start is prefixed by unterminated stray output is read by the ID before
+` ... `. Skip reasons are compared with the per-run scratch ID normalized.
+
+The final observer and profile-cost gates still fail on any native test
+failure. The observer's batch, `cargo dev gate --full`, stops at its first
+failing step, so a native failure leaves the repository and documentation
+checks unrun and the batch timing incomplete.
+
+### Carrying stage receipts forward
+
+`gate-tools/stage-reuse/stage_reuse.py --repo SOURCE --target COMMIT --stage
+STAGE=COMMIT ...` writes the acceptance listing: for every chain stage, the
+commit its passing receipt came from and the `git diff --no-renames` check that
+justified reuse. A receipt from an ancestor commit carries forward only when the
+diff touches nothing but `TODO.md`, `docs/ROADMAP.md`, or the campaign records
+`dev/consolidation/{CAMPAIGN,HANDOFF,ITEMS}.md` and this README. Any other path,
+including the gate tools, `Cargo.lock`, the image, `src/`, `crates/`, tests,
+documentation sources, and evidence, invalidates every stage. The stage tools
+still bind their upstream receipts to one commit, so a chain that reuses
+receipts must pass each tool the receipt commit, not the target.
+
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
 not needed to recover the committed source or these unfinished overlays.
