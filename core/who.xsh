@@ -278,7 +278,7 @@ pure idle_text(now: Int, last: Int) -> Str {
   f"{two(seconds / 3600)}:{two(seconds % 3600 / 60)}"
 }
 
-proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, process, env, time, error] -> Str {
+proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz, now: Int) [fs, process, env, time, error] -> Str {
   var state = "?"
   var last = 0
 
@@ -306,7 +306,6 @@ proc user_line(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, process, env, time, err
     comment = if colon != null { f"({host}:{display})" } else { f"({host})" }
   }
 
-  let now = time.now() / 1000
   let idle = if plan.idle { idle_text(now, last) } else { "" }
   let pid = if plan.idle { f"{entry.pid}" } else { "" }
 
@@ -329,10 +328,10 @@ pure chr(code: Int) -> Str {
 }
 
 # The selected line for one record, or null when the plan skips it.
-proc describe(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, process, env, time, error] -> Str? {
+proc describe(plan: Plan, entry: UnixUtmp, tz: Tz, now: Int) [fs, process, env, time, error] -> Str? {
   let stamp = time_string(entry.time_sec, tz, plan.hard_time)
 
-  return user_line(plan, entry, tz) when plan.users and is_user(entry)
+  return user_line(plan, entry, tz, now) when plan.users and is_user(entry)
 
   return run_level_line(plan, entry, tz) when plan.runlevel and entry.kind == "run_level"
 
@@ -459,11 +458,12 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   }
 
   let tz = load_tz()
+  let now = time.now() / 1000
 
   for entry in sessions {
     continue when plan.mine and entry.line != terminal
 
-    if let text = describe(plan, entry, tz) {
+    if let text = describe(plan, entry, tz, now) {
       gnu.write_text(text + "\n")
     }
   }
