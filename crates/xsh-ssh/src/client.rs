@@ -203,7 +203,14 @@ impl Connection {
         stdout: &mut dyn std::io::Write,
         stderr: &mut dyn std::io::Write,
     ) -> Result<ExecResult, Error> {
-        stream::exec_stream(self, command, options, stdin, stdout, stderr)
+        stream::exec_stream(
+            self,
+            command,
+            options,
+            stdin,
+            &mut stream::Unpolled(stdout),
+            &mut stream::Unpolled(stderr),
+        )
     }
 
     /// The host name the connection was made to.

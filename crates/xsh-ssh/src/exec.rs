@@ -1,15 +1,12 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::time::{Duration, Instant};
-
-use rustix::event::{PollFd, PollFlags, poll};
-use rustix::time::Timespec;
+use std::time::Duration;
 
 use crate::client::Connection;
 use crate::error::Error;
-use crate::stream::{self, InputSource, SinkStop, StreamOptions};
+use crate::stream::{self, InputSource, OutputSink, StreamOptions};
 use crate::wire::Interrupt;
 
 /// Bounded output capture limit for a single exec.
@@ -159,7 +156,7 @@ impl Read for Stdin<'_> {
 }
 
 impl InputSource for Stdin<'_> {
-    fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
         if self.head.is_empty() {
             self.tail.and_then(InputSource::descriptor)
         } else {
@@ -168,69 +165,29 @@ impl InputSource for Stdin<'_> {
     }
 }
 
-const PIPE_ATOMIC_WRITE: usize = 4096;
-const PACE_POLL: Duration = Duration::from_millis(50);
-
-struct Paced<'a> {
-    file: &'a File,
-    pace: bool,
-    deadline: Option<Instant>,
-    interrupt: Option<Interrupt>,
+impl OutputSink for Capture {
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
+        None
+    }
 }
 
-impl<'a> Paced<'a> {
-    fn new(file: &'a File, deadline: Option<Instant>, interrupt: Option<Interrupt>) -> Self {
-        let pace = file
+struct FileOutput<'a> {
+    file: &'a File,
+    polled: bool,
+}
+
+impl<'a> FileOutput<'a> {
+    fn new(file: &'a File) -> Self {
+        let polled = file
             .metadata()
             .map_or(true, |metadata| !metadata.file_type().is_file());
-        Self {
-            file,
-            pace,
-            deadline,
-            interrupt,
-        }
-    }
-
-    fn stop(kind: SinkStop) -> std::io::Error {
-        std::io::Error::other(kind)
-    }
-
-    fn await_room(&self) -> std::io::Result<()> {
-        loop {
-            if self.interrupt.as_ref().is_some_and(|interrupt| interrupt()) {
-                return Err(Self::stop(SinkStop::Cancelled));
-            }
-            let mut slice = PACE_POLL;
-            if let Some(deadline) = self.deadline {
-                let now = Instant::now();
-                if now >= deadline {
-                    return Err(Self::stop(SinkStop::Deadline));
-                }
-                slice = slice.min(deadline - now);
-            }
-            let descriptor = self.file.as_fd();
-            let mut polled = [PollFd::new(&descriptor, PollFlags::OUT)];
-            let timespec = Timespec {
-                tv_sec: slice.as_secs() as _,
-                tv_nsec: slice.subsec_nanos() as _,
-            };
-            match poll(&mut polled, Some(&timespec)) {
-                Ok(0) => {}
-                Ok(_) => return Ok(()),
-                Err(error) if error == rustix::io::Errno::INTR => {}
-                Err(error) => return Err(std::io::Error::from(error)),
-            }
-        }
+        Self { file, polled }
     }
 }
 
-impl Write for Paced<'_> {
+impl Write for FileOutput<'_> {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        if !self.pace {
-            return self.file.write(data);
-        }
-        self.await_room()?;
-        self.file.write(&data[..data.len().min(PIPE_ATOMIC_WRITE)])
+        self.file.write(data)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -238,20 +195,21 @@ impl Write for Paced<'_> {
     }
 }
 
+impl OutputSink for FileOutput<'_> {
+    fn descriptor(&self) -> Option<BorrowedFd<'_>> {
+        self.polled.then(|| self.file.as_fd())
+    }
+}
+
 enum Output<'a> {
     Capture(Capture),
-    File(Paced<'a>),
+    File(FileOutput<'a>),
 }
 
 impl<'a> Output<'a> {
-    fn new(
-        file: Option<&'a File>,
-        limit: usize,
-        deadline: Option<Instant>,
-        interrupt: Option<&Interrupt>,
-    ) -> Self {
+    fn new(file: Option<&'a File>, limit: usize) -> Self {
         match file {
-            Some(file) => Self::File(Paced::new(file, deadline, interrupt.cloned())),
+            Some(file) => Self::File(FileOutput::new(file)),
             None => Self::Capture(Capture {
                 bytes: Vec::new(),
                 limit,
@@ -259,7 +217,7 @@ impl<'a> Output<'a> {
         }
     }
 
-    fn sink(&mut self) -> &mut dyn Write {
+    fn sink(&mut self) -> &mut dyn OutputSink {
         match self {
             Self::Capture(capture) => capture,
             Self::File(file) => file,
@@ -279,10 +237,8 @@ pub(crate) fn exec(
     command: &str,
     options: &ExecOptions,
 ) -> Result<ExecResult, Error> {
-    let deadline = options.timeout.map(|timeout| Instant::now() + timeout);
-    let interrupt = options.interrupt.as_ref();
-    let mut stdout = Output::new(options.stdout_file.as_ref(), options.max_output, deadline, interrupt);
-    let mut stderr = Output::new(options.stderr_file.as_ref(), options.max_output, deadline, interrupt);
+    let mut stdout = Output::new(options.stdout_file.as_ref(), options.max_output);
+    let mut stderr = Output::new(options.stderr_file.as_ref(), options.max_output);
     let mut stdin = Stdin {
         head: options.stdin.as_deref().unwrap_or_default(),
         tail: options.stdin_file.as_ref(),

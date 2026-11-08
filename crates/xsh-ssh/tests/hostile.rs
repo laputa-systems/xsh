@@ -882,3 +882,106 @@ fn output_to_a_pipe_arrives_whole_when_the_pipe_is_drained() {
     drop(connection);
     peer.finish();
 }
+
+#[test]
+fn server_requests_are_answered_while_an_output_file_is_not_draining() {
+    let _guard = exclusive();
+    let (stalled, reader_may_start) = mpsc::channel();
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            link.send(&packet);
+        }
+        link.stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("read timeout");
+        link.send(&message(GLOBAL_REQUEST, &[&text(b"keepalive@openssh.com"), &[1]]));
+        let answered = loop {
+            match link.try_recv() {
+                Ok(frame) if frame.kind == CHANNEL_EOF => continue,
+                other => break other.map(|frame| frame.kind),
+            }
+        };
+        let _ = stalled.send(());
+        link.stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .expect("read timeout");
+        assert_eq!(
+            answered.expect("the client answers while its output file is full"),
+            REQUEST_FAILURE
+        );
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let (stdout_file, fifo, _directory) = silent_stdin();
+    let mut reader = std::fs::File::open(&fifo).expect("reader");
+    let drained = thread::spawn(move || {
+        let _ = reader_may_start.recv_timeout(Duration::from_secs(10));
+        let mut received = 0;
+        let mut chunk = vec![0u8; 65536];
+        while received < 8 * 32 * 1024 {
+            let read = reader.read(&mut chunk).expect("read");
+            assert!(read > 0, "the pipe closed early");
+            received += read;
+        }
+        received
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = within(Duration::from_secs(15), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdout_file: Some(stdout_file),
+                timeout: Some(Duration::from_secs(10)),
+                ..ExecOptions::default()
+            },
+        )
+    })
+    .expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert_eq!(drained.join().expect("drain"), 8 * 32 * 1024);
+    peer.finish();
+}
+
+#[test]
+fn output_held_for_a_full_pipe_is_written_after_the_server_hangs_up() {
+    let _guard = exclusive();
+    let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            link.send(&packet);
+        }
+        link.exit_status(channel, 0);
+        link.hangup();
+    });
+    let (stdout_file, fifo, _directory) = silent_stdin();
+    let mut reader = std::fs::File::open(&fifo).expect("reader");
+    let drained = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(500));
+        let mut received = 0;
+        let mut chunk = vec![0u8; 65536];
+        while received < 8 * 32 * 1024 {
+            let read = reader.read(&mut chunk).expect("read");
+            assert!(read > 0, "the pipe closed early");
+            received += read;
+        }
+        received
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = within(Duration::from_secs(15), move || {
+        connection.exec(
+            "command",
+            &ExecOptions {
+                stdout_file: Some(stdout_file),
+                timeout: Some(Duration::from_secs(10)),
+                ..ExecOptions::default()
+            },
+        )
+    })
+    .expect("exec");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+    assert_eq!(drained.join().expect("drain"), 8 * 32 * 1024);
+    peer.finish();
+}

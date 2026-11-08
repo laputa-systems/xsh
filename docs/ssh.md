@@ -200,9 +200,10 @@ it; a second signal cancels that too.
 `stdin_path` may name a pipe, FIFO or terminal: the client reads it only when
 it is readable, so a source with nothing to give does not stop the connection or
 its deadline. A `stdout_path` or `stderr_path` that is not a regular file is
-written only when it is writable, in pieces of at most 4096 bytes; if its reader
-stops draining, the command ends at its `timeout_ms` or on a signal, and while
-the client waits on it no connection traffic is served. Opening such a file
+written only when it is writable, in pieces of at most 4096 bytes. While its
+reader stops draining, the client holds what the server sent, returns no window
+for it, and keeps answering keepalives, key exchanges and other requests; the
+command ends at its `timeout_ms` or on a signal. Opening such a file
 does not block: a `stdin_path` FIFO opens at once without a writer, and a
 `stdout_path` or `stderr_path` FIFO without a reader fails with `SshError.Local`.
 

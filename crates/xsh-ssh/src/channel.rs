@@ -222,7 +222,8 @@ impl Channel {
         }
     }
 
-    /// Account for received payload against the local window.
+    /// Account for received payload against the local window. The window comes back to the
+    /// peer only once [`Self::release`] reports the bytes delivered.
     pub fn receive(&mut self, length: usize) -> Result<(), Error> {
         let length = u32::try_from(length)
             .ok()
@@ -232,13 +233,17 @@ impl Channel {
             .local_window
             .checked_sub(length)
             .ok_or_else(|| protocol_error("peer exceeded the advertised window"))?;
-        self.consumed += length;
         Ok(())
     }
 
-    /// Return consumed window to the peer once enough has accumulated.
+    /// Record received bytes that have left the client, so their window can be returned.
+    pub fn release(&mut self, length: usize) {
+        self.consumed += length as u32;
+    }
+
+    /// Return released window to the peer once enough has accumulated and the channel is open.
     pub fn replenish(&mut self, transport: &mut Transport) -> Result<(), Error> {
-        if self.consumed < LOCAL_WINDOW / 2 {
+        if self.consumed < LOCAL_WINDOW / 2 || self.close_received || self.close_sent {
             return Ok(());
         }
         let mut packet = Vec::new();
