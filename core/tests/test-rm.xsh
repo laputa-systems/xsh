@@ -339,3 +339,31 @@ test test_rm_verbose_preserves_one_operand_trailing_slash { |ctx|
   assert status.exited_with(0), err.read_text()?
   assert out.read_text()? == "removed 'a/x'\nremoved directory 'a/'\n"
 }
+
+test test_rm_nested_names_in_verbose_and_interactive_output { |ctx|
+  let root = test.temp_dir(ctx, name: "rm-nested-names")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/rm.xsh"
+  let inner = fp"{root}/outer/middle/inner"
+  fp"{root}/outer".mkdir()
+  fp"{root}/outer/middle".mkdir()
+  inner.mkdir()
+  fp"{inner}/file".write("remove")
+  fp"{root}/outer/top".write("remove")
+  let verbose = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, "-rv", "outer///"],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert verbose.exited_with(0), stderr.read_text()?
+  let lines = stdout.read_text()?.split("\n") |> sort
+  assert lines == ["", "removed 'outer/middle/inner/file'", "removed 'outer/top'", "removed directory 'outer/'", "removed directory 'outer/middle'", "removed directory 'outer/middle/inner'"]
+  fp"{root}/outer".mkdir()
+  fp"{root}/outer/middle".mkdir()
+  inner.mkdir()
+  fp"{inner}/file".write("remove")
+  let prompted = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, "-ri", "outer/middle"],
+    root, {LC_ALL: "C"}, b"y\ny\ny\ny\ny\n", stdout, stderr))?
+  assert prompted.exited_with(0), stderr.read_text()?
+  assert stderr.read_text()? == "rm: descend into directory 'outer/middle'? rm: descend into directory 'outer/middle/inner'? rm: remove regular file 'outer/middle/inner/file'? rm: remove directory 'outer/middle/inner'? rm: remove directory 'outer/middle'? "
+}
