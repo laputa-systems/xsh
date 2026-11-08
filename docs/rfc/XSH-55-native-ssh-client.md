@@ -28,7 +28,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Argv helper for a named shell, hostile values, NUL refused | M | D POSIX `sh` via `shlex.join` | `tests/xsh/ssh-argv.xsh` |
 | Successive commands on one connection; concurrent use of one session rejected; independent parallel sessions | P | D | `one_connection_serves_successive_commands`, `independent_sessions_run_in_parallel`, `ssh_exec_rejects_concurrent_use` |
 | Partial and fragmented I/O, simultaneous stdin/stdout/stderr and control traffic, window and packet limits, backpressure, per-direction EOF and close, unsupported requests answered | P blocking exec and no receive limits | D | `tests/protocol.rs`, `saturated_stderr_does_not_deadlock` |
-| Sessions in scope cleanup, deadlines and cancellation; nested scope, early return, worker cancellation | P | P signal cancellation is covered in Rust (`the_caller_can_cancel_a_running_command`, and since the review agent exchanges, pipe input and pipe output files), not by a native signal test | above, `tests/hostile.rs` |
+| Sessions in scope cleanup, deadlines and cancellation; nested scope, early return, worker cancellation | P | D a native SIGTERM test cancels a running exec (exit 3 within 5 s, defer run; 30 s without the adapter's interrupt) | above, `tests/hostile.rs`, `ssh_exec_running_when_sigterm_arrives_is_canceled_promptly` |
 | Guarantee about remote descendants documented | M | D | `docs/ssh.md` |
 | Graviola the only provider; no accept-all verifier | D | D | `scripts/check-ssh-crypto.sh` |
 | Hybrid KEX preferred, one classical alternative, Ed25519 | P classical only | D | `kex::tests`, `hybrid_post_quantum_exchange_is_negotiated` |
@@ -39,7 +39,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Unsupported CPU fails clearly before any instruction | M | D | `cpu::tests` |
 | Pinned fingerprint and `known_hosts`; unknown, changed, revoked fail before authentication; hashed and CA entries rejected; no TOFU, no automatic write | P pin only | D | `tests/connect.rs`, `known_hosts::tests`, `ssh_known_hosts_refuses_unknown_changed_and_revoked_keys` |
 | Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `encrypted_key_is_rejected_explicitly` |
-| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | P key file buffer, shared secret and decrypted payloads zeroized; Graviola's key memory, cipher state and process dumps are not | `debug_does_not_expose_payloads`, `docs/ssh.md` |
+| No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | D key file buffer, shared secret, decrypted payloads and stdin the client reads are wiped, and Graviola wipes its key and cipher state; its SHA-256 contexts and process dumps are not | `debug_does_not_expose_payloads`, `stdin_bytes_are_wiped_before_the_client_frees_them`, `docs/ssh.md` |
 | Required tests (pinned and `known_hosts`, auth, binary I/O, status and signal, absent status, premature disconnect, windows, stalled peers, reuse, both rekey directions, fragmented identification, malformed input, deadlines and cancellation, failure after submission) | P | D | `tests/connect.rs`, `exec.rs`, `stream.rs`, `protocol.rs`, `agent.rs`, `descriptors.rs` |
 | Feature-disabled and minimal builds | P they warned, which the distribution build denies | D | `cargo check -p xsh --no-default-features` and `--features net,tools`, warning-free |
 | Runnable examples: exec, transfer, reuse, errors, parallel hosts | P 1 of 5 | D | `examples/ssh/` |
@@ -47,7 +47,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Public API docs, compatibility matrix, threat model, residual limits | P | D | `docs/ssh.md` |
 | Provenance and dependency-graph checks; reproducible interop commands | P no Linux fixture | D | `scripts/check-ssh-crypto.sh`, `crates/xsh-ssh/fixture/ssh-fixture.sh` |
 | Before and after size, startup, memory and throughput | P macOS only | D build time deferred: host busy | [Measurements](#measurements) |
-| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P glibc host and musl gate cases executed; the `xsh-ssh` fixture suites also ran on `x86_64-unknown-linux-musl`; the native `tests/xsh/ssh-` suite on musl, macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements), [review](#protocol-and-security-review) |
+| Linux musl and macOS arm64 lanes, distinguishing cross-compilation from execution | P | P x86-64 musl executed: the `xsh-ssh` fixture suites and the native `tests/xsh/ssh-` suite; macOS arm64 and aarch64 cross-checked only | [Measurements](#measurements), [review](#protocol-and-security-review) |
 | Stage 1: host identity, pinned verification, changed key fails closed, no agent forwarding or secrets in logs | D | D | as above |
 | Stage 1: structured argv, environment, working directory, byte-preserving paths | M | P Laputa `run` takes a UTF-8 argv and a timeout; no environment, working directory or non-UTF-8 path | `tests/system/remote_guest.xsh` in Laputa |
 | Stage 1: fixed remote entrypoint with bounded versioned data; one audited quoting helper | M | D | Laputa `system/remote_guest.xsh`, `ssh-argv.xsh` |
@@ -89,6 +89,24 @@ Each defect below has a test that failed before its fix, except the zeroization 
 | Low | A server-opened channel arriving while the client waited for the channel-open, `env` or `exec` reply failed the session; replies queued while waiting (including a global request's `REQUEST_FAILURE`) were not flushed until the command loop ran; a channel-open failure was not checked against its recipient channel. | Channel opens are refused in the connection filter, the blocking receive flushes its queue, and the failure must name the local channel. `server_opened_channels_and_global_requests_are_refused_while_*`, `a_channel_open_failure_for_another_channel_is_refused` |
 | Low | A server that sent the exit status and closed the TCP connection without a channel close produced a transport error. | A clean end of stream after a recorded status or signal returns the result and marks the session unusable, as OpenSSH does; a reset, a failed write or an end without a status stays an error. `a_connection_closed_after_the_exit_status_still_returns_the_result` |
 | Low | The key-exchange shared secret, decrypted packet payloads, the receive buffer's consumed plaintext and outgoing data packets were freed unwiped. | `Zeroizing` buffers, and wiping at buffer compaction. No test: wiping is not observable through safe code. |
+
+### Third round: fixed
+
+2026-11-08, Linux x86-64 musl, an additional internal pass by the same
+tooling (not the independent review). Each row has a test that failed before
+its fix.
+
+| Severity | Defect | Fix and test |
+|---|---|---|
+| Medium | While a `stdout_path` or `stderr_path` pipe was not draining, the client waited inside the sink write and served no traffic, so a server keepalive (`ClientAliveInterval`) or key exchange went unanswered. | Output for a file that is not a regular file is held and written when its descriptor polls writable, from the loop that serves the socket; window is returned only for bytes that left the client. `server_requests_are_answered_while_an_output_file_is_not_draining`; `output_held_for_a_full_pipe_is_written_after_the_server_hangs_up` guards the end-of-stream path the change introduced |
+| Low | A packet whose length is not a whole number of cipher blocks (RFC 4253 section 6, RFC 5647 section 7.2) was accepted. Only an authenticated peer can send one. | Refused in the client transport, which keeps the vendored decoder a copy of ssh-build. `a_packet_length_off_the_cipher_block_is_refused` |
+| Low | The 64 KiB stdin read buffer was freed unwiped, and the send buffer could reallocate between copying a data payload in and sealing it. | `Zeroizing` read buffer; the transport reserves room for a whole packet first (`WriteState::reserve`, a local vendored change listed in `vendor/ORIGIN.md`). `stdin_bytes_are_wiped_before_the_client_frees_them`, a test allocator that inspects every block the client thread frees |
+| Low | A server identification line of 256 or 257 bytes with its CRLF was accepted (RFC 4253 section 4.2 allows 255). | `an_identification_line_past_255_bytes_with_its_crlf_is_refused` |
+
+Corrections to the earlier review: padding under 4 bytes was already refused by
+the vendored decoder (`padding_under_four_bytes_is_refused` now guards it), and
+Graviola already wipes its signing-key, key-agreement, AES, GHASH and ChaCha
+state on drop; the SHA-256 contexts are what it leaves.
 
 Two untested thresholds now have tests: the packet-count and elapsed-time
 rekey limits (`the_packet_count_alone_starts_a_rekey`,
@@ -132,17 +150,18 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 
 ### Risks supported by the code but not demonstrated
 
-- Packet framing accepts padding under 4 bytes and an AEAD `packet_length` that
-  is not a multiple of the block size, which OpenSSH refuses. Only an
-  authenticated peer can send either. Left as is: the check lives in the
-  vendored `oxish-proto` decoder.
-- While the client waits for a stalled output file it serves no connection
-  traffic, so a server that enforces its own timeout on a key-exchange answer
-  can drop the session.
-- Not zeroized: caller stdin bytes before they are packetized, Graviola's
-  private-key copy and the key state inside its ciphers and hash contexts, and
-  buffers a growing allocation leaves behind. Swap and core dumps are outside any
-  guarantee.
+- Not zeroized: the SHA-256 contexts that hash the shared secret into the
+  exchange hash and keys (Graviola's type, with no wipe on drop; changing it
+  needs an ssh-build patch), the caller's own `ExecOptions::stdin` buffer and
+  the XSH value it came from, the receive buffer while it grows, and the
+  writers a Rust caller passes to `exec_stream`. Swap and core dumps are outside
+  any guarantee.
+- Data, extended data or a completion that arrives before the `exec` reply
+  fails the command as a protocol error after submission. RFC 4254 does not
+  order them; OpenSSH and Dropbear reply first, and no other server was tested.
+- A writer passed to `Connection::exec_stream` is written synchronously: one
+  that blocks stops the connection as a stalled output file used to. Only
+  `ExecOptions` file sinks are polled.
 - An output FIFO whose reader opens later than the command start is refused
   (`ENXIO`) rather than waited for.
 - The session handle is a counter into a process-wide registry, and `ssh.exec`
@@ -186,8 +205,10 @@ OpenSSH 10.0, Dropbear 2026.94 served the Laputa KVM drill, and the pinned
 2026-11-05, after the review's fixes, all 113 `xsh-ssh` tests also passed on both
 the glibc host and `x86_64-unknown-linux-musl` against the loopback fixture
 (`crates/xsh-ssh/fixture/ssh-fixture.sh exec cargo test -p xsh-ssh [--target
-x86_64-unknown-linux-musl]`); the native `tests/xsh/ssh-` suite did not run on
-musl. Cross-checked only, not executed:
+x86_64-unknown-linux-musl]`). On 2026-11-08, on an x86-64 musl host, the
+third round's tree passed the whole `xsh-ssh` suite for
+`x86_64-unknown-linux-musl` and all 34 native `tests/xsh/ssh-` tests with
+`verification` products, both against the loopback fixture. Cross-checked only, not executed:
 `aarch64-apple-darwin` and `aarch64-unknown-linux-musl` (`cargo check -p xsh-ssh`).
 
 ## Open
@@ -196,9 +217,10 @@ musl. Cross-checked only, not executed:
   The code that already compiled there compiles by cross-check only.
 - An independent protocol and security review before any claim beyond
   experimental. The [source review](#protocol-and-security-review) above found and
-  fixed five defects, then a second round fixed seven more that it could only support from the code, and the risks that remain are listed; it is not the
-  independent review, and the tests, fuzz loops and fixtures are not formal
-  verification.
+  fixed five defects, a second round fixed seven more that it could only support
+  from the code, and a third internal pass fixed four with failing-first tests;
+  the risks that remain are listed. None of them is the independent review, and
+  the tests, fuzz loops and fixtures are not formal verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
   any failure; a timeout does not keep the transport reusable.
 - Hashed `known_hosts` names (Graviola has no SHA-1) and `@cert-authority` entries
