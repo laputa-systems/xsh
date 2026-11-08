@@ -138,6 +138,14 @@ Only this explicit observer mode accepts an `artifact-qualified` profile
 receipt. Timed profile, forced-frame, scheduler, comparative, and observer gates
 still require a `complete` profile-cost receipt.
 
+The observer and forced-frame gates refuse to start while any other container
+from the pinned native image runs, whatever the host load. Work that runs
+alongside a qualification must therefore not use that image. This includes
+Laputa package builds, which compile XSH inside it. Work that uses other images,
+or only edits files, can run beside the timed stages while `perf-gate-ready`
+still passes. The comparative gate and the scheduler pairs measure on one CPU
+and on all 32 CPUs respectively, so nothing else should run during them.
+
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
 not needed to recover the committed source or these unfinished overlays.
