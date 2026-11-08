@@ -771,3 +771,35 @@ fn the_elapsed_time_alone_starts_a_rekey() {
     };
     assert!(rekeyed_under(limits, 1, Duration::from_millis(500)));
 }
+
+fn framed_ignore_outcome(body: usize, padding: usize) -> Result<xsh_ssh::ExecResult, Error> {
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        let mut ignore = vec![IGNORE];
+        ignore.extend_from_slice(&text(&vec![0x2e; body]));
+        link.send_framed(&ignore, padding);
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+    });
+    let outcome = run(&peer);
+    peer.finish();
+    outcome
+}
+
+#[test]
+fn a_well_framed_packet_with_minimum_padding_is_accepted() {
+    let result = framed_ignore_outcome(6, 4).expect("1 + 11 + 4 bytes fill one block");
+    assert_eq!(result.status, ExecStatus::Exited(0));
+}
+
+#[test]
+fn a_packet_length_off_the_cipher_block_is_refused() {
+    let error = framed_ignore_outcome(0, 6).expect_err("1 + 5 + 6 bytes is not a whole block");
+    assert!(error.to_string().contains("block"), "{error:?}");
+}
+
+#[test]
+fn padding_under_four_bytes_is_refused() {
+    let error = framed_ignore_outcome(7, 3).expect_err("1 + 12 + 3 bytes has 3 bytes of padding");
+    assert!(error.to_string().contains("padding"), "{error:?}");
+}

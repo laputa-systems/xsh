@@ -438,6 +438,23 @@ impl Link {
         self.write.clear();
     }
 
+    /// Seal `payload` with exactly `padding` bytes of padding, whatever the block size requires.
+    pub fn send_framed(&mut self, payload: &[u8], padding: usize) {
+        let mut packet = ((1 + payload.len() + padding) as u32).to_be_bytes().to_vec();
+        packet.push(padding as u8);
+        packet.extend_from_slice(payload);
+        packet.extend(std::iter::repeat_n(0x5a, padding));
+        let sequence = self.write.sequence_number;
+        let sealer = self.write.sealer.as_mut().expect("keys are installed");
+        let mut tag = vec![0u8; sealer.tag_len()];
+        sealer
+            .seal_in_place(sequence, &mut packet, &mut tag)
+            .expect("seal");
+        self.write.sequence_number = sequence.wrapping_add(1);
+        packet.extend_from_slice(&tag);
+        self.stream.write_all(&packet).expect("peer write");
+    }
+
     pub fn try_send(&mut self, payload: &[u8]) -> bool {
         if self.write.encode(&Raw(payload)).is_err() {
             return false;

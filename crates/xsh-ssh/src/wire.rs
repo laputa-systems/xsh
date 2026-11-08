@@ -11,6 +11,7 @@ use zeroize::Zeroizing;
 
 use oxish_proto::crypto::{CryptoProvider, HandshakeBuffer, KeySourceSide};
 use oxish_proto::key_exchange::NewKeys;
+use oxish_proto::named::EncryptionAlgorithm;
 use oxish_proto::{
     Completion, Encode, IncomingPacket, MessageType, ProtoError, ReadState, WriteState,
 };
@@ -175,10 +176,40 @@ pub(crate) fn plain_text(text: &str) -> String {
     plain
 }
 
+/// How packets in the receive direction must align (RFC 4253 section 6, RFC 5647 section 7.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReceiveFraming {
+    /// Before keys: the whole packet, length field included, fills 8-byte blocks.
+    Plain,
+    /// AEAD: the length travels as associated data, so the rest alone fills cipher blocks.
+    Aead { block: u32 },
+}
+
+impl ReceiveFraming {
+    fn for_cipher(algorithm: &EncryptionAlgorithm<'_>) -> Result<Self, Error> {
+        match algorithm {
+            EncryptionAlgorithm::Aes128Gcm => Ok(Self::Aead { block: 16 }),
+            EncryptionAlgorithm::Chacha20Poly1305 => Ok(Self::Aead { block: 8 }),
+            EncryptionAlgorithm::Unknown(name) => Err(Error::UnsupportedAlgorithm {
+                category: "encryption",
+                name: name.to_string(),
+            }),
+        }
+    }
+
+    fn admits(self, packet_length: u32) -> bool {
+        match self {
+            Self::Plain => (packet_length + 4).is_multiple_of(8),
+            Self::Aead { block } => packet_length.is_multiple_of(block),
+        }
+    }
+}
+
 /// An SSH transport, nonblocking at the socket and bounded by deadlines.
 pub struct Transport {
     stream: TcpStream,
     read: ReadState,
+    framing: ReceiveFraming,
     write: WriteState,
     client_identification: Vec<u8>,
     server_identification: Vec<u8>,
@@ -229,6 +260,7 @@ impl Transport {
         Ok(Self {
             stream,
             read: ReadState::default(),
+            framing: ReceiveFraming::Plain,
             write: WriteState::new(provider.secure_random()),
             client_identification: Vec::new(),
             server_identification: Vec::new(),
@@ -466,6 +498,14 @@ impl Transport {
         match polled {
             Completion::Incomplete(_) => Ok(None),
             Completion::Complete((sequence, length)) => {
+                if !self.framing.admits(u32::from(length)) {
+                    return Err(Error::Protocol {
+                        detail: format!(
+                            "packet length {} is not a whole number of cipher blocks",
+                            u32::from(length)
+                        ),
+                    });
+                }
                 let packet: IncomingPacket<'_> = self.read.decode_packet(sequence, length)?;
                 let message_type = packet.message_type;
                 let payload = Zeroizing::new(packet.payload().to_vec());
@@ -683,7 +723,9 @@ impl Transport {
         keys: &KeySourceSide,
         provider: &dyn CryptoProvider,
     ) -> Result<(), Error> {
+        let framing = ReceiveFraming::for_cipher(&keys.algorithm)?;
         self.read.opener = Some(provider.opening_key(0, keys)?);
+        self.framing = framing;
         self.reset_kex_usage();
         Ok(())
     }
@@ -813,6 +855,12 @@ mod tests {
         assert!(reports_socket_failure(PollFlags::ERR));
         assert!(reports_socket_failure(PollFlags::NVAL));
         assert!(reports_socket_failure(PollFlags::IN | PollFlags::ERR));
+    }
+
+    #[test]
+    fn plaintext_packets_fill_eight_byte_blocks_including_the_length_field() {
+        assert!(ReceiveFraming::Plain.admits(12));
+        assert!(!ReceiveFraming::Plain.admits(16));
     }
 
     #[test]
