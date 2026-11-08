@@ -260,11 +260,13 @@ of 2026-11-05 is not that review and lists the risks it could not demonstrate.
   an identity the caller selected.
 - Private key file contents, and every copy this client makes while checking
   and parsing them, the key-exchange shared secret, the derived key material
-  held by the client, decrypted packet payloads and the receive buffer's consumed
-  bytes are wiped when dropped or compacted. The private-key copy inside
-  Graviola, key state inside its ciphers and hash contexts, buffers a growing
-  allocation leaves behind, caller stdin bytes before they are packetized,
-  process memory dumps and swap are outside that guarantee.
+  held by the client, decrypted packet payloads, the receive buffer's consumed
+  bytes, stdin bytes the client has read and output it holds for a full pipe
+  are wiped when dropped or compacted, and an outgoing packet is sealed before
+  its buffer can move. Graviola wipes its own signing-key, key-agreement and
+  cipher state on drop. The SHA-256 contexts that hash the shared secret into
+  the exchange hash and keys, the caller's own stdin buffer, process memory
+  dumps and swap are outside that guarantee.
 - Text the server supplies (a disconnect description, a channel-open failure
   reason, an exit-signal name, offered authentication methods and algorithm
   names) loses its control and bidirectional-override characters and is cut to

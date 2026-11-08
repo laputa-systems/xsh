@@ -317,6 +317,12 @@ impl WriteState {
         Ok(())
     }
 
+    /// Make room for `additional` more bytes, so a packet of that size is framed and sealed
+    /// without the buffer moving while it still holds plaintext
+    pub fn reserve(&mut self, additional: usize) {
+        self.buf.reserve(additional);
+    }
+
     /// Encode `payload` directly into the buffer, without packet framing
     pub fn encoded(&mut self, payload: &impl Encode) -> &[u8] {
         payload.encode(&mut self.buf);

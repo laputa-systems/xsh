@@ -28,9 +28,15 @@ changes: `IncomingPacket::payload()`, public `KeyDerivation` fields, public
 `WriteState::clear()` that also resets the partially-written offset. No protocol
 or cryptographic behavior changes.
 
+Two local hardening changes in `oxish-proto/src/io.rs` are not yet in
+ssh-build: `ReadState` wipes compacted and dropped plaintext and `WriteState`
+wipes its buffer on drop, and `WriteState::reserve()` lets the client make room
+for a packet before framing it, so the buffer never moves while it holds
+plaintext.
+
 ## Manifest normalization
 
-Source files are byte-for-byte from ssh-build. The two OxiSH manifests were
+Apart from the changes above, source files are byte-for-byte from ssh-build. The two OxiSH manifests were
 made standalone so this workspace does not need ssh-build's workspace fields:
 `edition` and `rust-version` replace their `.workspace` forms, workspace
 dependency versions are spelled out, the inherited lint table is replaced by

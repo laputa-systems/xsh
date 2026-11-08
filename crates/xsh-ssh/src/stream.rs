@@ -209,7 +209,7 @@ fn drain_after_disconnect(connection: &mut Connection, outputs: &mut [Drain<'_>;
 
 struct Input<'a> {
     reader: Option<&'a mut dyn InputSource>,
-    buffer: Vec<u8>,
+    buffer: Zeroizing<Vec<u8>>,
     position: usize,
     length: usize,
     eof: bool,
@@ -220,7 +220,7 @@ impl<'a> Input<'a> {
         let eof = reader.is_none();
         Self {
             reader,
-            buffer: vec![0; 64 * 1024],
+            buffer: Zeroizing::new(vec![0; 64 * 1024]),
             position: 0,
             length: 0,
             eof,

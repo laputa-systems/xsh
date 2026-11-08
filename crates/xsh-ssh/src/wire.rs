@@ -158,6 +158,7 @@ const INTERRUPT_POLL: Duration = Duration::from_millis(50);
 const READ_BUFFER_LIMIT: usize = 256 * 1024;
 const REPLY_HIGH_WATER: usize = 64 * 1024;
 const MAX_TEXT: usize = 512;
+const PACKET_FRAMING: usize = 4 + 1 + 255 + 16;
 
 /// Server-supplied text made safe to show: control and bidirectional-override characters are
 /// dropped and the length is bounded.
@@ -527,6 +528,7 @@ impl Transport {
     /// Encode a payload without flushing it.
     pub fn encode_raw(&mut self, payload: &[u8]) -> Result<(), Error> {
         self.note_enqueue();
+        self.write.reserve(PACKET_FRAMING + payload.len());
         self.write.encode(&RawPayload(payload))?;
         self.since_kex.packets += 1;
         Ok(())
