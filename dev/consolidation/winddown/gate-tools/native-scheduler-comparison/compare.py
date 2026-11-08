@@ -54,6 +54,7 @@ SUITE_ROUNDS = 3
 WORKERS = {"reference": 8, "candidate": 16}
 MAX_FOREIGN_CPU_CORES_ABOVE_IDLE = 0.5
 IDLE_SAMPLE_SECONDS = 10
+STAGE_LIFECYCLE_CPU_SECONDS = 1.0
 FOREIGN_CPU_CHECK_COMMAND = ["foreign-cpu-check"]
 BINARIES = ("xsht", "xsh", "xsh-test-helper")
 MOLD = Path("/usr/local/bin/mold")
@@ -824,13 +825,16 @@ def foreign_cpu_verdict(
     foreign_cores = foreign_cpu_seconds / wall_seconds
     throttled_delta = after["nr_throttled"] - before["nr_throttled"]
     max_foreign_cores = idle_host_cores + MAX_FOREIGN_CPU_CORES_ABOVE_IDLE
-    accepted = foreign_cores <= max_foreign_cores and throttled_delta == 0
+    max_foreign_seconds = max_foreign_cores * wall_seconds + STAGE_LIFECYCLE_CPU_SECONDS
+    accepted = foreign_cpu_seconds <= max_foreign_seconds and throttled_delta == 0
     return {
         "command": FOREIGN_CPU_CHECK_COMMAND,
         "exit_code": 0 if accepted else 1,
         "accepted": accepted,
         "idle_host_cores": idle_host_cores,
         "max_foreign_cpu_cores": max_foreign_cores,
+        "stage_lifecycle_cpu_seconds": STAGE_LIFECYCLE_CPU_SECONDS,
+        "max_foreign_cpu_seconds": max_foreign_seconds,
         "clock_ticks_per_second": clock_ticks_per_second,
         "host_before": host_before,
         "host_after": host_after,

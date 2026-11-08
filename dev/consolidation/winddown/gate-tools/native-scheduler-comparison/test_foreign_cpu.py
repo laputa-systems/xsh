@@ -63,6 +63,12 @@ class ForeignCpuTests(unittest.TestCase):
         result = verdict(host_busy_ticks=320_000 + 16_000, container_usec=3_200_000_000, idle=1.0)
         self.assertEqual(result["exit_code"], 1)
 
+    def test_a_short_stage_may_spend_its_container_lifecycle_cpu(self):
+        result = verdict(host_busy_ticks=24, container_usec=4_000, wall=0.11, idle=1.0)
+        self.assertEqual(result["exit_code"], 0)
+        result = verdict(host_busy_ticks=160, container_usec=4_000, wall=0.11, idle=1.0)
+        self.assertEqual(result["exit_code"], 1)
+
     def test_throttling_is_rejected_even_without_foreign_load(self):
         result = verdict(host_busy_ticks=320_000, container_usec=3_200_000_000, throttled=1)
         self.assertEqual(result["exit_code"], 1)
