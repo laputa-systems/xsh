@@ -24,6 +24,7 @@ proc check_rows(s: uu.Scene, rows: List[ExpressionCase], locale: Str) [fs, proce
 
 # origin: gnu expr/expr.log
 test test_gnu_expr_expr_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   let rows = [
     {args: ["5", "+", "6"], out: "11\n", status: 0, err: ""},

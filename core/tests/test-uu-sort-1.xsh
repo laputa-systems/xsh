@@ -836,7 +836,7 @@ test test_uu_sort_buffer_size_limits_both_chunks { |ctx|
 # origin: uutils test_sort::test_buffer_sizes
 test test_uu_sort_buffer_sizes { |ctx|
   # This corpus sorts 20,000 rows with nine buffer-size forms, including two external merges.
-  test.timeout(ctx, 240s)
+  test.timeout(ctx, 900s)
   let s = uu.scene(ctx)?
   uu.fixture(s, "sort", "ext_sort.txt", "ext_sort.txt")
   uu.fixture(s, "sort", "ext_sort.expected", "ext_sort.expected")

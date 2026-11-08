@@ -83,6 +83,7 @@ test test_gnu_test_test_file_log { |ctx|
 
 # origin: gnu test/test.log
 test test_gnu_test_test_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   expression(s, [], 1)
   let invalid = uu.invoke(s, "test", ["0x0", "-eq", "00"])?

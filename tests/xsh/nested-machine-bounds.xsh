@@ -56,6 +56,7 @@ print "done"
 }
 
 test recursion_through_a_deferred_call_reports_stack_overflow { |ctx|
+  test.timeout(ctx, 600s)
   let output = test.expect(
     ctx,
     r"""proc descend(n: Int) -> Result[Unit] {

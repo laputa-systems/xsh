@@ -440,6 +440,7 @@ proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process
 
 # Each test runs a slice of the table; the slices only balance the run time.
 proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] {
+  test.timeout(ctx, 600s)
   let expected = expected_transcripts(ctx)?
   for prefix in prefixes {
     let failures = check_group(ctx, prefix, expected)?

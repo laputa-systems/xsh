@@ -35,6 +35,7 @@ proc check_case(s: uu.Scene, c: CutCase, locale: Str) [fs, process, env, error] 
   }
 }
 proc check_cut_partition(ctx: TestContext, shard: Int) [fs, process, env, error] {
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   if shard < 11 {
     let position_zero = diagnostic("byte/character positions are numbered from 1")

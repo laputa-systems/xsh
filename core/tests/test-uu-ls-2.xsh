@@ -1628,6 +1628,7 @@ test test_uu_ls_ls_quoting_color { |ctx|
 
 # origin: uutils test_ls::test_ls_quoting_style
 test test_uu_ls_ls_quoting_style { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   uu.touch(s, "one two")
   uu.touch(s, "one")

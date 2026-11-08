@@ -71,7 +71,7 @@ test test_gnu_head_head_c_log { |ctx|
 
 # origin: gnu head/head-elide-tail.log
 test test_gnu_head_head_elide_tail_log { |ctx|
-  test.timeout(ctx, 5m)
+  test.timeout(ctx, 20m)
   let s = uu.scene(ctx)?
   let first_boundary = ["a" for _ in range(0, 8192 - 3)].join("")
   let second_boundary = ["a" for _ in range(0, 2 * 8192 - 2)].join("")

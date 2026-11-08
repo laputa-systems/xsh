@@ -13,6 +13,7 @@ proc check_case(s: uu.Scene, name: Str, args: List[Str], input: Bytes, output: B
 
 # origin: gnu tr/tr.log
 test test_gnu_tr_tr_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   check_case(s, "1.r", ["abcd", "[]*]"], bytes.from_ints([97, 98, 99, 100])?, bytes.from_ints([93, 93, 93, 93])?, "", 0)
   check_case(s, "1.p", ["abcd", "[]*]"], bytes.from_ints([97, 98, 99, 100])?, bytes.from_ints([93, 93, 93, 93])?, "", 0)

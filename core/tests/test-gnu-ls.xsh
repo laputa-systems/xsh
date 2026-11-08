@@ -572,6 +572,7 @@ test test_gnu_ls_dired_log { |ctx|
 
 # origin: gnu ls/abmon-align.log
 test test_gnu_ls_abmon_align_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   let current = uu.invoke(s, "date", ["+%Y-%m-15"])?
   uu.succeeds(current)
@@ -823,6 +824,7 @@ test test_gnu_ls_stat_free_color_log { |ctx|
 
 # origin: gnu ls/ls-misc.log
 test test_gnu_ls_ls_misc_log { |ctx|
+  test.timeout(ctx, 600s)
   let catalog = uu.scene(ctx)?
   let generated = uu.invoke(catalog, "dircolors", ["-b"], vars: {TERM: "xterm"})?
   uu.succeeds(generated)

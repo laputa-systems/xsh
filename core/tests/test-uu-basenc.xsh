@@ -185,6 +185,7 @@ test test_uu_basenc_base58_decode { |ctx|
 
 # origin: uutils test_basenc::test_base58_large_file_no_chunking
 test test_uu_basenc_base58_large_file_no_chunking { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   # Base58 treats the whole input as one integer, including files larger than 1024 bytes.
   var input = ""

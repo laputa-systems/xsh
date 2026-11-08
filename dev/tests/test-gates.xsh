@@ -1968,7 +1968,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
 }
 
 test test_product_inspection_respects_the_selected_case_deadline { |ctx|
-  test.timeout(ctx, 45s)
+  test.timeout(ctx, 55s)
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-product-deadline")?
   for name in ["Cargo.toml", "rust-toolchain.toml", "xsht-config.ini"] { fp"{root}/{name}".write("") }

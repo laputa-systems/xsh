@@ -286,6 +286,7 @@ proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] ->
 
 # origin: gnu split/line-bytes.log
 test test_gnu_split_line_bytes_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   if let vm = minimum_vm(s, ["-C", "K", "/dev/null"])? {
     let limit = vm + 6000

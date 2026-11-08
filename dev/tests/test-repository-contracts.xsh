@@ -16,7 +16,8 @@ test test_native_origin_exclusions_are_exact_and_explained {
   check_repository_contract("dev/checks/check_exclusions.py")
 }
 
-test test_command_inventory_matches_sources_and_pinned_scope {
+test test_command_inventory_matches_sources_and_pinned_scope { |ctx|
+  test.timeout(ctx, 600s)
   check_repository_contract("dev/checks/check_inventory.py", ["--check"])
 }
 

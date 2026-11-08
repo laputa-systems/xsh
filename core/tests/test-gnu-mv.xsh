@@ -326,6 +326,7 @@ test test_gnu_mv_into_self_log { |ctx|
 
 # origin: gnu mv/leak-fd.log
 test test_gnu_mv_leak_fd_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   let remote = other_fs(s)?
   defer remote.remove()

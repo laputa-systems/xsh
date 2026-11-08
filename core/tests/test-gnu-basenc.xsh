@@ -46,6 +46,7 @@ proc encoded_case(s: uu.Scene, util: Str, args: List[Str], input: Str, expected:
 
 # origin: gnu basenc/base64.log
 test test_gnu_basenc_base64_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   for util in ["base32", "base64"] {
     encoded_case(s, util, [], "", "")

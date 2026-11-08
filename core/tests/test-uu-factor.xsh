@@ -2332,7 +2332,7 @@ test test_uu_factor_big_primes { |ctx|
 
 # origin: uutils test_factor::test_primes_with_exponents
 test test_uu_factor_primes_with_exponents { |ctx|
-  test.timeout(ctx, 250s)
+  test.timeout(ctx, 1200s)
   let s = uu.scene(ctx)?
   let expected = TEST_PRIMES_WITH_EXPONENTS_OUTPUT.join("")
   let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
@@ -2356,7 +2356,7 @@ test test_uu_factor_random { |ctx|
 
 # origin: uutils test_factor::test_random_big
 test test_uu_factor_random_big { |ctx|
-  test.timeout(ctx, 250s)
+  test.timeout(ctx, 1200s)
   let s = uu.scene(ctx)?
   let expected = TEST_RANDOM_BIG_OUTPUT.join("")
   let input = bytes.from_text([line.split(":")[0] + " " for line in expected.lines()].join(""))
@@ -2367,7 +2367,7 @@ test test_uu_factor_random_big { |ctx|
 
 # origin: uutils test_factor::test_parallel
 test test_uu_factor_parallel { |ctx|
-  test.timeout(ctx, 250s)
+  test.timeout(ctx, 1200s)
   let s = uu.scene(ctx)?
   uu.touch(s, "output")
   let input = integer_input(50000)

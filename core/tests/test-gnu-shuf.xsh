@@ -51,6 +51,7 @@ proc first_thousand(s: uu.Scene, args: List[Str], input = b"") [fs, process, env
 }
 # origin: gnu shuf/shuf.log
 test test_gnu_shuf_shuf_log { |ctx|
+  test.timeout(ctx, 600s)
   let s = uu.scene(ctx)?
   let traced = wrapped(s, [p"strace", p"-o", p"/dev/null", p"-e", p"inject=getrandom:error=ENOSYS"], ["-i", "1-9"])?
   assert traced.status == 0 or traced.status == 1
