@@ -118,9 +118,10 @@ test test_pinky_names_select_sessions { |ctx|
 
 test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
-  let open_line = p"/tmp/xsh-pinky-open"
-  let shut_line = p"/tmp/xsh-pinky-shut"
-  let old_line = p"/tmp/xsh-pinky-old"
+  let tag = f"{process.current_pid()?:08}"
+  let open_line = fp"/tmp/x{tag}-open"
+  let shut_line = fp"/tmp/x{tag}-shut"
+  let old_line = fp"/tmp/x{tag}-old"
   for line in [open_line, shut_line, old_line] {
     line.write("")
   }
@@ -131,7 +132,8 @@ test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
   open_line.chmod(0o620)
   shut_line.chmod(0o600)
   old_line.chmod(0o660)
-  let now_ns = time.now() * 1000000
+  let started = time.now()
+  let now_ns = started * 1000000
   fs.set_times(open_line, atime_ns: now_ns - 10 * 1000000000)
   fs.set_times(shut_line, atime_ns: now_ns - 3000 * 1000000000)
   fs.set_times(old_line, atime_ns: now_ns - 200000 * 1000000000)
@@ -145,10 +147,12 @@ test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
     ],
   )?
   let lines = pinky_run(ctx, ["-f", "-w"], w)?.stdout.lines()
+  let elapsed_s = (time.now() - started) / 1000 + 1
   assert lines.len() == 3
-  assert lines[0] == "alice     /tmp/xsh-pinky-open        Nov 14 22:13", lines[0]
-  assert lines[1] == "bob      */tmp/xsh-pinky-shut 00:50  Nov 14 22:13", lines[1]
-  assert lines[2] == "blank     /tmp/xsh-pinky-old 2d     Nov 14 22:13", lines[2]
+  assert lines[0] == f"alice     {open_line.display()}        Nov 14 22:13", lines[0]
+  let shut_idles = [f"bob      *{shut_line.display()} 00:{50 + minute}  Nov 14 22:13" for minute in range((3000 + elapsed_s) / 60 - 49)]
+  assert lines[1] in shut_idles, lines[1]
+  assert lines[2] == f"blank     {old_line.display()} 2d     Nov 14 22:13", lines[2]
 }
 
 test test_pinky_time_follows_the_locale { |ctx|

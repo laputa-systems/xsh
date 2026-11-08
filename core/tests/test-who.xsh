@@ -249,15 +249,17 @@ test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
 test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   # A utmp line holds at most 32 bytes, so the terminal files get short names.
   let root = test.temp_dir(ctx, name: "who-tty")?
-  let writable = p"/tmp/xsh-who-writable"
-  let closed = p"/tmp/xsh-who-closed"
+  let tag = f"{process.current_pid()?}"
+  let writable = fp"/tmp/xsh-who-w{tag}"
+  let closed = fp"/tmp/xsh-who-c{tag}"
   defer writable.remove()
   defer closed.remove()
   writable.write("")
   closed.write("")
   writable.chmod(0o620)
   closed.chmod(0o600)
-  let now_ns = time.now() * 1000000
+  let started = time.now()
+  let now_ns = started * 1000000
   fs.set_times(writable, atime_ns: now_ns - 7200 * 1000000000)
   fs.set_times(closed, atime_ns: now_ns - 200000 * 1000000000)
 
@@ -272,10 +274,11 @@ test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   )
 
   let result = who_run(ctx, ["-T", "-u", file.display()])?
+  let elapsed_s = (time.now() - started) / 1000 + 1
   let lines = result.stdout.lines()
   assert lines.len() == 2
   assert lines[0].starts_with("bob      + "), lines[0]
-  assert "02:00" in lines[0], lines[0]
+  assert [f"02:{minute:02}" for minute in range(elapsed_s / 60 + 1)] |> any { |idle| idle in lines[0] }, lines[0]
   assert lines[1].starts_with("eve      - "), lines[1]
   assert " old " in lines[1], lines[1]
 }
