@@ -17,7 +17,7 @@ RUN cd /opt/comparators/build \
     && tar xzf ../source/oils.tar.gz \
     && cd oils-for-unix-0.37.0 \
     && ./configure --cxx-for-configure /usr/bin/clang-23 --without-readline --prefix /opt/comparators \
-    && OILS_PARALLEL_BUILD=0 _build/oils.sh --cxx clang++ --variant opt --without-readline
+    && CXXFLAGS='-include algorithm -include functional -include type_traits' OILS_PARALLEL_BUILD=0 _build/oils.sh --cxx clang++ --variant opt --without-readline
 RUN cd /opt/comparators/build/oils-for-unix-0.37.0 \
     && ./install _bin/clang++-opt-sh/oils-for-unix.stripped
 RUN cd /opt/comparators/build \
