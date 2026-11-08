@@ -6,6 +6,8 @@ use core.lib.sys_proc as sysproc
 use core.tests.support.btop as fixture
 use core.tests.support.btop_process_fixture as process_fixture
 
+const FRAME_BUDGET_NS = 1250000000
+
 proc measured_process_join(current: List[sysproc.Process], previous: List[sysproc.Process]) [time, error] -> Int {
   let started_ns = time.monotonic()?
   let joined = model.process_join(current, previous)
@@ -73,7 +75,8 @@ proc main() [fs, time, io, error] {
   let ordered = samples |> sort
   let p95_ns = ordered[(ordered.len() * 95 + 99) / 100 - 1]
   let p99_ns = ordered[(ordered.len() * 99 + 99) / 100 - 1]
-  print f"btop preloaded 1k model+render+diff: seed={process_fixture.process_seed} runner=Alpine_x86_64_musl_release size=120x40 samples={samples.len()} p95_ns={p95_ns} p99_ns={p99_ns}"
+  print f"btop preloaded 1k model+render+diff: seed={process_fixture.process_seed} runner=Alpine_x86_64_musl_release size=120x40 samples={samples.len()} p95_ns={p95_ns} p99_ns={p99_ns} budget_ns={FRAME_BUDGET_NS}"
+  assert p95_ns <= FRAME_BUDGET_NS, f"btop 1k frame p95 {p95_ns} ns exceeds the {FRAME_BUDGET_NS} ns budget"
 }
 
 main()
