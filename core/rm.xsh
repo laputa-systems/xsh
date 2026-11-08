@@ -77,16 +77,22 @@ pure nonexistent_errno(code: Int) -> Bool {
   code in [2, 20, 22, 84]
 }
 
+pure display_name(target: Path, prefix: Bytes, operand: Bool) -> Bytes {
+  return prefix when operand
+  let base = search.basename_bytes(target.bytes())
+  if prefix.ends_with(b"/") { bytes.concat([prefix, base]) } else { bytes.concat([prefix, b"/", base]) }
+}
+
 # Classify with lstat: a symbolic link to a directory is removed as a link,
 # and recursive traversal never crosses into its referent.
-proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, interactive: Bool, automatic: Bool, presume_input_tty: Bool) [fs, process, env, error, io] -> Removal {
+proc remove_target(target: Path, prefix: Bytes, operand: Bool, opts: RmOptions, device: Int, interactive: Bool, automatic: Bool, presume_input_tty: Bool) [fs, process, env, error, io] -> Removal {
   guard let meta = fs.stat(target) else { |failure|
     return {ok: true, removed: true, write_error: null} when opts.force and nonexistent_errno(gnu.errno(failure))
-    gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+    gnu.error(f"cannot remove {gnu.quote_bytes(display_name(target, prefix, operand))}: {gnu.strerror(failure)}")
     return {ok: false, removed: false, write_error: null}
   }
   if opts.one_file_system and meta.kind == "dir" and meta.dev != device {
-    gnu.error(f"skipping {gnu.quote_bytes(name)}, since it's on a different device")
+    gnu.error(f"skipping {gnu.quote_bytes(display_name(target, prefix, operand))}, since it's on a different device")
     return {ok: true, removed: false, write_error: null}
   }
   var success = true
@@ -96,7 +102,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
   if prompting and meta.kind != "symlink" {
     match fs.access(target, write: true) {
       Ok(writable) => protected = ! writable
-      Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+      Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(display_name(target, prefix, operand))}: {gnu.strerror(failure)}")
         return {ok: false, removed: false, write_error: null} }
     }
   }
@@ -105,9 +111,9 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
   # Once a subtree is that deep and nothing needs a prompt or a report per
   # entry, the native removal (descriptor-relative, no path length limit)
   # takes over the whole subtree and reports one failure for it.
-  if meta.kind == "dir" and opts.recursive and name.len() > DEEP_NAME_BYTES and ! interactive and ! protected and ! opts.verbose and ! opts.progress and ! opts.one_file_system {
+  if meta.kind == "dir" and opts.recursive and ! interactive and ! protected and ! opts.verbose and ! opts.progress and ! opts.one_file_system and display_name(target, prefix, operand).len() > DEEP_NAME_BYTES {
     if let Err(failure) = target.remove() {
-      gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+      gnu.error(f"cannot remove {gnu.quote_bytes(display_name(target, prefix, operand))}: {gnu.strerror(failure)}")
       return {ok: false, removed: false, write_error: null}
     }
     return {ok: true, removed: true, write_error: null}
@@ -117,6 +123,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     return {ok: true, removed: true, write_error: null}
   }
   if meta.kind == "dir" and opts.recursive {
+    let name = display_name(target, prefix, operand)
     guard let children = fs.children(target, stat: false) else { |failure|
       if gnu.errno(failure) == 13 {
         if interactive {
@@ -141,25 +148,23 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     }
     var retained = false
     for child in entries {
-      let base = search.basename_bytes(child.path.bytes())
-      let child_name = if name.ends_with(b"/") { bytes.concat([name, base]) } else { bytes.concat([name, b"/", base]) }
       let result: Removal = if opts.force and ! opts.one_file_system and ! interactive and ! opts.verbose and ! opts.progress and child.kind != "dir" {
         match child.path.unlink() {
           Ok(_) => {ok: true, removed: true, write_error: null}
           Err(failure) => {
             let became_directory = if let Ok(current) = fs.stat(child.path) { current.kind == "dir" } else { false }
             if became_directory {
-              remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+              remove_target(child.path, name, false, opts, device, interactive, automatic, presume_input_tty)
             } else if opts.force and nonexistent_errno(gnu.errno(failure)) {
               {ok: true, removed: true, write_error: null}
             } else {
-              gnu.error(f"cannot remove {gnu.quote_bytes(child_name)}: {gnu.strerror(failure)}")
+              gnu.error(f"cannot remove {gnu.quote_bytes(display_name(child.path, name, false))}: {gnu.strerror(failure)}")
               {ok: false, removed: false, write_error: null}
             }
           }
         }
       } else {
-        remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+        remove_target(child.path, name, false, opts, device, interactive, automatic, presume_input_tty)
       }
       if ! result.ok { success = false }
       if let failure = result.write_error { if write_error == null { write_error = failure } }
@@ -169,14 +174,14 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
 
   }
   if meta.kind == "dir" and ! opts.recursive and ! opts.directory {
-    gnu.error(f"cannot remove {gnu.quote_bytes(name)}: Is a directory")
+    gnu.error(f"cannot remove {gnu.quote_bytes(display_name(target, prefix, operand))}: Is a directory")
     return {ok: false, removed: false, write_error: null}
   }
   if interactive or protected {
-    var question = f"remove {protection}{file_kind(meta.kind, meta.size)} {gnu.quote_bytes(name)}"
+    var question = f"remove {protection}{file_kind(meta.kind, meta.size)} {gnu.quote_bytes(display_name(target, prefix, operand))}"
     if meta.kind == "dir" and ! opts.recursive {
       if let Ok(accessible) = fs.access(target, read: true, execute: true) {
-        if ! accessible { question = f"attempt removal of inaccessible directory {gnu.quote_bytes(name)}" }
+        if ! accessible { question = f"attempt removal of inaccessible directory {gnu.quote_bytes(display_name(target, prefix, operand))}" }
       }
     }
     return {ok: true, removed: false, write_error: write_error} when ! confirm(question)
@@ -185,17 +190,19 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
   match removed {
     Ok(_) => {
       if opts.verbose {
-        if let Err(failure) = report_removed(name, meta.kind == "dir") {
+        if let Err(failure) = report_removed(display_name(target, prefix, operand), meta.kind == "dir") {
           if write_error == null { write_error = failure }
         }
       }
-      if let Err(failure) = report_progress(name, opts) {
-        if write_error == null { write_error = failure }
+      if opts.progress and ! opts.verbose {
+        if let Err(failure) = report_progress(display_name(target, prefix, operand), opts) {
+          if write_error == null { write_error = failure }
+        }
       }
     }
     Err(failure) => {
       if ! (opts.force and nonexistent_errno(gnu.errno(failure))) {
-        gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+        gnu.error(f"cannot remove {gnu.quote_bytes(display_name(target, prefix, operand))}: {gnu.strerror(failure)}")
         success = false
       }
     }
@@ -329,7 +336,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
     }
     let device = if let Ok(meta) = fs.stat(target) { meta.dev } else { 0 }
-    let result = remove_target(target, operand_label(name), opts, device, prompt_mode == 2, automatic, prepared.presume_input_tty)
+    let result = remove_target(target, operand_label(name), true, opts, device, prompt_mode == 2, automatic, prepared.presume_input_tty)
     if ! result.ok { success = false }
     if let failure = result.write_error { if write_error == null { write_error = failure } }
   }
