@@ -114,8 +114,10 @@ not run `perf-gate-ready -1` afterward, because a 32-worker stage raises the
 load average itself. Instead the runner compares the host aggregate `cpu` line
 of `/proc/stat` (user, nice, system, irq, softirq, steal) with the container
 cgroup `usage_usec` over the same stage and accepts the timing only when the
-remainder, foreign CPU, is at most 0.5 core of wall time and `nr_throttled` did
-not move. A missing or unparseable snapshot discards the timing. The stage
+remainder, foreign CPU, is at most 0.5 core of wall time above the host's idle
+level and `nr_throttled` did not move. The idle level is the host's busy CPU
+over 10 seconds sampled just before the stage starts, because the desktop,
+daemons and agents keep about one core busy on an otherwise quiet host. A missing or unparseable snapshot discards the timing. The stage
 record keeps the inputs, the computed values, and the verdict under
 `performance_gate.after`, with `exit_code` 0 for accepted timing. Each stage
 also binds a private writable `/work/.work/tmp` and a private empty copy of the

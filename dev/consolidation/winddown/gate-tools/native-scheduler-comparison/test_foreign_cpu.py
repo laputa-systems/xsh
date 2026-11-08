@@ -31,13 +31,14 @@ def host_sample(busy_ticks, seconds):
     return {"monotonic_ns": int(seconds * 1e9), "busy_ticks": busy_ticks}
 
 
-def verdict(host_busy_ticks, container_usec, wall=100, throttled=0):
+def verdict(host_busy_ticks, container_usec, wall=100, throttled=0, idle=0.0):
     return compare.foreign_cpu_verdict(
         host_before=host_sample(1000, 0),
         host_after=host_sample(1000 + host_busy_ticks, wall),
         cgroup_before_text=cgroup_text(500_000),
         cgroup_after_text=cgroup_text(500_000 + container_usec, throttled),
         clock_ticks_per_second=TICKS,
+        idle_host_cores=idle,
     )
 
 
@@ -54,6 +55,13 @@ class ForeignCpuTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 1)
         self.assertFalse(result["accepted"])
         self.assertAlmostEqual(result["foreign_cpu_cores"], 0.6)
+
+    def test_the_host_idle_level_is_not_foreign(self):
+        result = verdict(host_busy_ticks=320_000 + 14_000, container_usec=3_200_000_000, idle=1.0)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertAlmostEqual(result["max_foreign_cpu_cores"], 1.5)
+        result = verdict(host_busy_ticks=320_000 + 16_000, container_usec=3_200_000_000, idle=1.0)
+        self.assertEqual(result["exit_code"], 1)
 
     def test_throttling_is_rejected_even_without_foreign_load(self):
         result = verdict(host_busy_ticks=320_000, container_usec=3_200_000_000, throttled=1)
@@ -84,17 +92,25 @@ class ForeignCpuTests(unittest.TestCase):
             for host_before, host_after in ((None, good), (good, None)):
                 result = compare.foreign_cpu_check(
                     host_before=host_before, host_after=host_after,
-                    cgroup_before_path=before, cgroup_after_path=after,
+                    cgroup_before_path=before, cgroup_after_path=after, idle_host_cores=0.0,
                 )
                 self.assertNotEqual(result["exit_code"], 0)
                 self.assertIn("missing", result["error"])
             after.unlink()
             result = compare.foreign_cpu_check(
                 host_before=good, host_after=host_sample(2, 2),
-                cgroup_before_path=before, cgroup_after_path=after,
+                cgroup_before_path=before, cgroup_after_path=after, idle_host_cores=0.0,
             )
             self.assertNotEqual(result["exit_code"], 0)
             self.assertIn("error", result)
+            before.write_text(cgroup_text(1))
+            after.write_text(cgroup_text(2))
+            result = compare.foreign_cpu_check(
+                host_before=good, host_after=host_sample(2, 2),
+                cgroup_before_path=before, cgroup_after_path=after, idle_host_cores=None,
+            )
+            self.assertEqual(result["exit_code"], 2)
+            self.assertIn("idle", result["error"])
 
 
 if __name__ == "__main__":

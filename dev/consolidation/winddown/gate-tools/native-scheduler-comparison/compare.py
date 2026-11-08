@@ -52,7 +52,8 @@ CPU_QUOTA = 32
 MEMORY_LIMIT = 40 * 1024**3
 SUITE_ROUNDS = 3
 WORKERS = {"reference": 8, "candidate": 16}
-MAX_FOREIGN_CPU_CORES = 0.5
+MAX_FOREIGN_CPU_CORES_ABOVE_IDLE = 0.5
+IDLE_SAMPLE_SECONDS = 10
 FOREIGN_CPU_CHECK_COMMAND = ["foreign-cpu-check"]
 BINARIES = ("xsht", "xsh", "xsh-test-helper")
 MOLD = Path("/usr/local/bin/mold")
@@ -768,6 +769,14 @@ def capture_host_cpu_sample() -> dict:
     return {"monotonic_ns": time.monotonic_ns(), "busy_ticks": parse_host_cpu_busy_ticks(text)}
 
 
+def measure_idle_host_cores() -> float:
+    before = capture_host_cpu_sample()
+    time.sleep(IDLE_SAMPLE_SECONDS)
+    after = capture_host_cpu_sample()
+    wall_seconds = (after["monotonic_ns"] - before["monotonic_ns"]) / 1e9
+    return (after["busy_ticks"] - before["busy_ticks"]) / os.sysconf("SC_CLK_TCK") / wall_seconds
+
+
 def parse_cgroup_cpu_counters(text: str) -> dict:
     counters: dict[str, int] | None = None
     for raw_line in text.splitlines():
@@ -798,7 +807,7 @@ def parse_cgroup_cpu_counters(text: str) -> dict:
 
 def foreign_cpu_verdict(
     *, host_before: dict, host_after: dict, cgroup_before_text: str,
-    cgroup_after_text: str, clock_ticks_per_second: int,
+    cgroup_after_text: str, clock_ticks_per_second: int, idle_host_cores: float,
 ) -> dict:
     wall_seconds = (host_after["monotonic_ns"] - host_before["monotonic_ns"]) / 1e9
     if wall_seconds <= 0 or clock_ticks_per_second <= 0:
@@ -814,12 +823,14 @@ def foreign_cpu_verdict(
     foreign_cpu_seconds = host_cpu_seconds - container_cpu_seconds
     foreign_cores = foreign_cpu_seconds / wall_seconds
     throttled_delta = after["nr_throttled"] - before["nr_throttled"]
-    accepted = foreign_cores <= MAX_FOREIGN_CPU_CORES and throttled_delta == 0
+    max_foreign_cores = idle_host_cores + MAX_FOREIGN_CPU_CORES_ABOVE_IDLE
+    accepted = foreign_cores <= max_foreign_cores and throttled_delta == 0
     return {
         "command": FOREIGN_CPU_CHECK_COMMAND,
         "exit_code": 0 if accepted else 1,
         "accepted": accepted,
-        "max_foreign_cpu_cores": MAX_FOREIGN_CPU_CORES,
+        "idle_host_cores": idle_host_cores,
+        "max_foreign_cpu_cores": max_foreign_cores,
         "clock_ticks_per_second": clock_ticks_per_second,
         "host_before": host_before,
         "host_after": host_after,
@@ -836,17 +847,20 @@ def foreign_cpu_verdict(
 
 def foreign_cpu_check(
     *, host_before: dict | None, host_after: dict | None,
-    cgroup_before_path: Path, cgroup_after_path: Path,
+    cgroup_before_path: Path, cgroup_after_path: Path, idle_host_cores: float | None,
 ) -> dict:
     try:
         if host_before is None or host_after is None:
             raise ValueError("host CPU snapshot is missing")
+        if idle_host_cores is None:
+            raise ValueError("idle host CPU sample is missing")
         return foreign_cpu_verdict(
             host_before=host_before,
             host_after=host_after,
             cgroup_before_text=cgroup_before_path.read_text(encoding="utf-8"),
             cgroup_after_text=cgroup_after_path.read_text(encoding="utf-8"),
             clock_ticks_per_second=os.sysconf("SC_CLK_TCK"),
+            idle_host_cores=idle_host_cores,
         )
     except (OSError, ValueError) as error:
         return {
@@ -921,7 +935,9 @@ def run_stage(
     host_before = None
     host_after = None
     host_cpu_error = None
+    idle_host_cores = None
     try:
+        idle_host_cores = measure_idle_host_cores()
         host_before = capture_host_cpu_sample()
     except (OSError, ValueError) as exc:
         host_cpu_error = str(exc)
@@ -993,6 +1009,7 @@ def run_stage(
         postcheck = foreign_cpu_check(
             host_before=host_before, host_after=host_after,
             cgroup_before_path=before_path, cgroup_after_path=after_path,
+            idle_host_cores=idle_host_cores,
         )
         if host_cpu_error is not None:
             postcheck = {**postcheck, "exit_code": 2, "accepted": False, "host_cpu_error": host_cpu_error}
