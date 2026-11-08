@@ -293,7 +293,7 @@ impl Evaluator {
     }
 
     pub(super) fn eval_lowered_fs_root_install_file_values(
-        &mut self, values: NativeArgumentValues, span: Span,
+        &mut self, op: RuntimeOp, values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let value = {
             let parents = lowered_bool_arg_or(
@@ -323,25 +323,32 @@ impl Evaluator {
             let source_root = values.first().cloned().expect("checked value length");
             let dest_rel = pathbuf_from_path_value(&dest);
             let source_rel = pathbuf_from_path_value(&source);
+            let options = fs_module::RootedInstallOptions {
+                mode,
+                parents,
+                overwrite,
+                span,
+            };
             let result = match (
                 lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &source_root, span),
                 lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &dest_root, span),
             ) {
+                (Ok(source_dir), Ok(dest_dir)) if op == RuntimeOp::FsRootInstallFileSha256 => {
+                    fs_module::rooted_install_file_sha256(
+                        source_dir, &source_rel, dest_dir, &dest_rel, options,
+                    )
+                    .map(|digest| LoweredValue::Digest(Box::new(digest)))
+                }
                 (Ok(source_dir), Ok(dest_dir)) => fs_module::rooted_install_file(
-                    source_dir,
-                    &source_rel,
-                    dest_dir,
-                    &dest_rel,
-                    fs_module::RootedInstallOptions {
-                        mode,
-                        parents,
-                        overwrite,
-                        span,
-                    },
-                ),
+                    source_dir, &source_rel, dest_dir, &dest_rel, options,
+                )
+                .map(|()| LoweredValue::Unit),
                 (Err(error), _) | (_, Err(error)) => Err(error),
             };
-            lowered_unit_result(result)
+            match result {
+                Ok(value) => lowered_result_ok(value),
+                Err(error) => lowered_result_err_value(error),
+            }
         };
         Ok(ControlFlow::Continue(value))
     }

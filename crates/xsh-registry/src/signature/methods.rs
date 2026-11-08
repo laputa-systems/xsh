@@ -1264,6 +1264,20 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::FsRootFsync,
                 ),
                 method(
+                    "syncfs",
+                    Vec::new(),
+                    result(Type::Unit),
+                    false,
+                    RuntimeOp::FsRootSyncfs,
+                ),
+                method(
+                    "tempdir",
+                    vec![default_param("prefix", Type::Str)],
+                    result(fs_root_type()),
+                    false,
+                    RuntimeOp::FsRootTempdir,
+                ),
+                method(
                     "extract",
                     vec![
                         param("source", archive_source_type()),

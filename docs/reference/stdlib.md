@@ -182,6 +182,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.rename_exchange(source: Path, dest: Path) -> Result[Unit, Error]` — Atomically exchanges two existing directory entries.
 - `fs.rename_noreplace(source: Path, dest: Path) -> Result[Unit, Error]` — Renames a path atomically without replacing an existing destination.
 - `fs.root_install_file(source_root: FsRoot, source: RelPath, dest_root: FsRoot, dest: RelPath, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `fs.root_install_file_sha256(source_root: FsRoot, source: RelPath, dest_root: FsRoot, dest: RelPath, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Digest, Error]` — Installs a file between rooted filesystem capabilities and returns the SHA-256 digest of the bytes it wrote.
 - `fs.set_owner(path: Path, uid: Int? = default, gid: Int? = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes a path's owner and group by numeric ID in one call.
 - `fs.set_times(path: Path, atime_ns: Int? = default, mtime_ns: Int? = default, atime_now: Bool = default, mtime_now: Bool = default, follow_symlinks: Bool = default, atime_sec: Int? = default, atime_nsec: Int? = default, mtime_sec: Int? = default, mtime_nsec: Int? = default) -> Result[Unit, Error]` — Sets access and modification times with nanosecond precision.
 - `fs.setgid(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
@@ -792,6 +793,8 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.rename(from: RelPath, to: RelPath, replace: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.stat(path: RelPath, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
 - `FsRoot.symlink(target: Path, path: RelPath, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
+- `FsRoot.syncfs() -> Result[Unit, Error]` — Flushes the whole filesystem that holds a rooted filesystem capability.
+- `FsRoot.tempdir(prefix: Str = default) -> Result[FsRoot, Error]` — Creates a private temporary directory below a rooted filesystem capability.
 - `FsRoot.write(path: RelPath, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
 - `FsRoot.write_atomic(path: RelPath, data: Bytes, mode: Int = default, replace: Str = default) -> Result[Unit, Error] (+1 overloads)` — Atomically replaces a file below a rooted filesystem capability.
 

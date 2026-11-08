@@ -5158,7 +5158,27 @@ impl Evaluator {
                         .and_then(|dir| fs_module::rooted_fsync(dir, &rel, span)),
                 )
             }
-            callable; RuntimeOp::FsRootInstallFile if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_root_install_file_values(values, span),
+            callable; RuntimeOp::FsRootSyncfs if values.len() == 1 => {
+                let root = values.pop().expect("checked value length");
+                lowered_unit_result(
+                    lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
+                        .and_then(|dir| fs_module::rooted_syncfs(dir, span)),
+                )
+            }
+            callable; RuntimeOp::FsRootTempdir if (1..=2).contains(&values.len()) => {
+                let prefix =
+                    lowered_str_arg_owned(values.get(1).cloned(), ".tmp-", "fs.root_tempdir", span)?;
+                let root = values.first().cloned().expect("checked value length");
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
+                    .and_then(|dir| {
+                        crate::modules::fs::TempRoot::create_in(dir, &prefix)
+                            .map_err(|error| RuntimeError::host("fs-root-tempdir", &error).with_span(span))
+                    }) {
+                    Ok(temp) => lowered_result_ok(self.push_lowered_fs_root(FsRootHandle::TempDir(temp))),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            callable; RuntimeOp::FsRootInstallFile | RuntimeOp::FsRootInstallFileSha256 if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_root_install_file_values(op, values, span),
             callable; RuntimeOp::FsCopy if values.len() == 2 || values.len() == 3 => {
                 let overwrite =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.copy", span)?;

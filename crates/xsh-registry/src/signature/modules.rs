@@ -1593,6 +1593,23 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
+            "root_install_file_sha256",
+            sig(
+                vec![
+                    param("source_root", fs_root_type()),
+                    param("source", Type::RelPath),
+                    param("dest_root", fs_root_type()),
+                    param("dest", Type::RelPath),
+                    param("mode", Type::Int),
+                    default_param("parents", Type::Bool),
+                    default_param("overwrite", Type::Bool),
+                ],
+                result(Type::Digest),
+                false,
+                RuntimeOp::FsRootInstallFileSha256,
+            ),
+        ),
+        (
             "copy_tree",
             sig(
                 vec![

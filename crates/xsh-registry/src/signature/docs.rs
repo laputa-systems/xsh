@@ -764,7 +764,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "root_children") => Some((
             "Enumerates child paths below a rooted filesystem capability.",
-            "Names stay lossless as RelPath values and are sorted by raw bytes by default; ordered: false preserves filesystem enumeration order, including partial entries. max_entries defaults to 65536 and accepts 0 through 65536. The result carries partial entries, stable error state, errno, and truncation status. Truncation retains the first max_entries paths in the selected order.",
+            "Each child is the listed path joined with the entry name (a bare name when listing `.`), kept lossless as a RelPath so it can be passed straight back to rooted operations; use .name() for the entry name. Children are sorted by raw bytes by default; ordered: false preserves filesystem enumeration order, including partial entries. max_entries defaults to 65536 and accepts 0 through 65536. The result carries partial entries, stable error state, errno, and truncation status. Truncation retains the first max_entries paths in the selected order.",
             &[
                 "filesystem",
                 "rooted",
@@ -815,6 +815,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Mutates a path below a rooted filesystem capability.",
             "Relative paths are validated against the root before the mutation and cannot address an outside destination.",
             &["filesystem", "rooted", "mutation"],
+        )),
+        ("fs", "root_syncfs") => Some((
+            "Flushes the whole filesystem that holds a rooted filesystem capability.",
+            "Linux only (syncfs); other hosts fail with ENOTSUP. It makes writes already issued durable but does not fsync directory entries by name; fsync the published file and its parent directory for that.",
+            &["filesystem", "rooted", "durability"],
+        )),
+        ("fs", "root_tempdir") => Some((
+            "Creates a private temporary directory below a rooted filesystem capability.",
+            "The directory is created through the root's descriptor with mode 0700 and a unique name that starts with prefix (default `.tmp-`; no slash or NUL). The returned FsRoot owns it and removes it with its contents when closed, through the same descriptor, so moving or closing the parent root first does not strand it.",
+            &["filesystem", "temporary", "ownership", "rooted"],
+        )),
+        ("fs", "root_install_file_sha256") => Some((
+            "Installs a file between rooted filesystem capabilities and returns the SHA-256 digest of the bytes it wrote.",
+            "Behaves as root_install_file, hashing the same copy that is staged and published, so the digest covers exactly the installed bytes without a second read. A failed install returns an error and no digest.",
+            &["filesystem", "rooted", "mutation", "hash"],
         )),
         ("fs", "root_fsync") => Some((
             "Flushes a file or directory below a rooted filesystem capability to stable storage.",
@@ -1963,6 +1978,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "chmod" => "root_chmod",
             "rename" => "root_rename",
             "fsync" => "root_fsync",
+            "syncfs" => "root_syncfs",
+            "tempdir" => "root_tempdir",
             _ => return None,
         };
         return function_doc("fs", legacy);

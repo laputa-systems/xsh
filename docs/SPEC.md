@@ -6670,18 +6670,28 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   `target` as `Path` because it records link contents; only its `path` is
   resolved beneath the root. `fs.root_install_file` takes `RelPath` source and
   destination names beneath its respective roots. `FsRoot.children` returns
-  `RelPath` child paths, sorted by raw bytes by default; `ordered: false`
+  `RelPath` child paths, each the listed path joined with the entry name (a bare
+  name when listing `.`) so it can be passed back to rooted operations, sorted by raw bytes by default; `ordered: false`
   preserves filesystem enumeration order, including partial results. `max_entries` defaults to
   65536 and accepts 0 through 65536; truncated results retain a prefix in
   the selected order and report `enumeration_succeeded: false`.
   `FsRoot.rename(from:, to:, replace:)` renames beneath one root and refuses an
   existing destination unless `replace: true`; `FsRoot.fsync(path)` flushes a
-  regular file or directory and refuses a symlink or special file. Both fail
+  regular file or directory and refuses a symlink or special file;
+  `FsRoot.syncfs()` flushes the whole filesystem holding the root (Linux only,
+  ENOTSUP elsewhere). Both fail
   when any parent component is a symlink. Publication by `rename`,
   `write_atomic` or `fs.root_install_file` is atomic for readers and never
   durable on its own: fsync the file and its parent directory. `fs.root_install_file`
   stages the destination and publishes it by rename, so a failed copy leaves
-  the prior destination intact.
+  the prior destination intact. `fs.root_install_file_sha256` takes the same
+  arguments and returns the `Digest` of the bytes it copied, so the installed
+  bytes can be checked against an expected digest without a second read.
+  `FsRoot.tempdir(prefix: Str = default)` creates a private (mode 0700) uniquely
+  named directory beneath the root and returns an owned `FsRoot` that removes it
+  and its contents on close through the descriptor of the parent, so the parent
+  tree may be moved first; `prefix` defaults to `.tmp-` and cannot contain a
+  slash or NUL.
   `FsRoot.extract(source, dest, format, ...)` takes the arguments of
   `archive.extract` with a `RelPath` destination: staging, per-entry
   publication and rollback of created directories resolve beneath the root's

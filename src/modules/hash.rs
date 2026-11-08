@@ -439,7 +439,7 @@ impl Blake2b {
     }
 }
 
-fn digest_value(algorithm: HashAlgorithm, bytes: &[u8]) -> DigestValue {
+pub(crate) fn digest_value(algorithm: HashAlgorithm, bytes: &[u8]) -> DigestValue {
     DigestValue {
         algorithm: algorithm.name().to_string(),
         bytes: bytes.to_vec(),

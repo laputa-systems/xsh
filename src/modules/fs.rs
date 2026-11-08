@@ -984,12 +984,71 @@ pub(crate) fn rooted_fsync(root: &Root, path: &Path, span: Span) -> Result<(), R
     }
 }
 
+pub(crate) fn rooted_syncfs(root: &Root, span: Span) -> Result<(), RuntimeError> {
+    let host = |error: std::io::Error| RuntimeError::host("fs-root-syncfs", &error).with_span(span);
+    let directory = root.open_readable_dir(".").map_err(host)?;
+    #[cfg(target_os = "linux")]
+    {
+        rfs::syncfs(&directory).map_err(|error| host(error.into()))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = directory;
+        Err(host(rustix::io::Errno::NOTSUP.into()))
+    }
+}
+
 pub(crate) fn rooted_install_file(
     source_root: &Root,
     source: &Path,
     dest_root: &Root,
     dest: &Path,
     options: RootedInstallOptions,
+) -> Result<(), RuntimeError> {
+    rooted_install(source_root, source, dest_root, dest, options, None)
+}
+
+pub(crate) fn rooted_install_file_sha256(
+    source_root: &Root,
+    source: &Path,
+    dest_root: &Root,
+    dest: &Path,
+    options: RootedInstallOptions,
+) -> Result<crate::runtime::value::DigestValue, RuntimeError> {
+    let mut digest = sha2::Sha256::default();
+    rooted_install(source_root, source, dest_root, dest, options, Some(&mut digest))?;
+    Ok(crate::modules::hash::digest_value(
+        crate::modules::hash::HashAlgorithm::Sha256,
+        sha2::Digest::finalize(digest).as_slice(),
+    ))
+}
+
+struct DigestingWriter<'a, W> {
+    inner: W,
+    digest: Option<&'a mut sha2::Sha256>,
+}
+
+impl<W: Write> Write for DigestingWriter<'_, W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buffer)?;
+        if let Some(digest) = self.digest.as_deref_mut() {
+            sha2::Digest::update(digest, &buffer[..written]);
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn rooted_install(
+    source_root: &Root,
+    source: &Path,
+    dest_root: &Root,
+    dest: &Path,
+    options: RootedInstallOptions,
+    digest: Option<&mut sha2::Sha256>,
 ) -> Result<(), RuntimeError> {
     let RootedInstallOptions {
         mode,
@@ -1025,7 +1084,7 @@ pub(crate) fn rooted_install_file(
             RootOpenOptions::new().write(true).create_new(true).no_symlinks(true).mode(0o600),
         )
         .map_err(host)?;
-    let published = std::io::copy(&mut input, &mut output)
+    let published = std::io::copy(&mut input, &mut DigestingWriter { inner: &mut output, digest })
         .and_then(|_| rooted_set_mode_file(&output, mode as u32))
         .and_then(|()| {
             parent.rename(
@@ -2318,9 +2377,14 @@ fn empty_directory_tree(root: std::fs::File) -> std::io::Result<()> {
 /// place.
 pub(crate) struct TempRoot {
     root: Root,
-    parent: PathBuf,
+    parent: TempParent,
     name: OsString,
     removed: bool,
+}
+
+enum TempParent {
+    Path(PathBuf),
+    Root(Root),
 }
 
 impl TempRoot {
@@ -2334,13 +2398,50 @@ impl TempRoot {
             .parent()
             .ok_or_else(|| std::io::Error::other("temporary directory has no parent"))?
             .to_path_buf();
-        let adopted = Self { root: Root::open(&path)?, parent, name, removed: false };
+        let adopted =
+            Self { root: Root::open(&path)?, parent: TempParent::Path(parent), name, removed: false };
         if adopted.named_parent()?.is_none() {
             return Err(std::io::Error::other(
                 "temporary directory changed while it was opened",
             ));
         }
         Ok(adopted)
+    }
+
+    pub(crate) fn create_in(parent: &Root, prefix: &str) -> std::io::Result<Self> {
+        if prefix.contains(['/', '\0']) {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "temporary directory prefix cannot contain a slash or NUL byte",
+            ));
+        }
+        let mut attempt = 0_u32;
+        let name = loop {
+            let name = OsString::from(format!(
+                "{prefix}{:x}{:x}{attempt:x}",
+                std::process::id(),
+                unix_time_nanos()
+            ));
+            match rooted_mkdir_at(parent, &name, 0o700) {
+                Ok(()) => break name,
+                Err(error) if error.kind() == ErrorKind::AlreadyExists && attempt < 64 => {
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        let created = Self {
+            root: parent.open_dir(Path::new(&name))?,
+            parent: TempParent::Root(parent.open_dir(".")?),
+            name,
+            removed: false,
+        };
+        if created.named_parent()?.is_none() {
+            return Err(std::io::Error::other(
+                "temporary directory changed while it was opened",
+            ));
+        }
+        Ok(created)
     }
 
     pub(crate) fn root(&self) -> &Root {
@@ -2353,10 +2454,15 @@ impl TempRoot {
     }
 
     fn named_parent(&self) -> std::io::Result<Option<std::fs::File>> {
-        let parent = match rfs::openat(CWD, &self.parent, OPEN_TREE_DIRECTORY, rfs::Mode::empty()) {
-            Ok(parent) => std::fs::File::from(parent),
-            Err(rustix::io::Errno::NOENT | rustix::io::Errno::NOTDIR) => return Ok(None),
-            Err(error) => return Err(error.into()),
+        let parent = match &self.parent {
+            TempParent::Path(path) => {
+                match rfs::openat(CWD, path, OPEN_TREE_DIRECTORY, rfs::Mode::empty()) {
+                    Ok(parent) => std::fs::File::from(parent),
+                    Err(rustix::io::Errno::NOENT | rustix::io::Errno::NOTDIR) => return Ok(None),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            TempParent::Root(root) => root.open_readable_dir(".")?,
         };
         let owned = file_identity(&rfs::fstat(&self.root).map_err(std::io::Error::from)?);
         match rfs::statat(&parent, &self.name, AtFlags::SYMLINK_NOFOLLOW) {

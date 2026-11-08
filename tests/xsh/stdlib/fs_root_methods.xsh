@@ -267,6 +267,47 @@ test fs_root_mkdir_with_parents_accepts_an_existing_directory_only { |ctx|
   assert root.mkdir(p"escape", parents: true) is Err(_)
 }
 
+test fs_root_install_file_sha256_returns_the_digest_of_the_installed_bytes { |ctx|
+  let source = fs.open_root(test.temp_dir(ctx, name: "root-install-source")?)?
+  let dest = fs.open_root(test.temp_dir(ctx, name: "root-install-dest")?)?
+  source.write(p"payload", "abc")
+  let digest = fs.root_install_file_sha256(source, p"payload", dest, p"out/payload", 0o640)?
+  assert digest.hex() == hash.sha256(b"abc").hex()
+  assert dest.read_text(p"out/payload")? == "abc"
+  assert dest.metadata(p"out/payload")?.mode % 512 == 0o640
+  assert fs.root_install_file_sha256(source, p"payload", dest, p"out/payload", 0o640) is Err(_)
+  source.write(p"payload", "abcd")
+  let replaced = fs.root_install_file_sha256(source, p"payload", dest, p"out/payload", 0o640, overwrite: true)?
+  assert replaced.hex() == hash.sha256(b"abcd").hex()
+  assert fs.root_install_file_sha256(source, p"missing", dest, p"out/missing", 0o640) is Err(_)
+}
+
+test fs_root_tempdir_is_private_owned_and_removed_after_the_parent_moves { |ctx|
+  let base = fs.open_root(test.temp_dir(ctx, name: "root-tempdir")?)?
+  base.mkdir(p"publication")
+  let publication = base.open_root(p"publication")?
+  let work = publication.tempdir(prefix: "work-")?
+  let plain = publication.tempdir()?
+  assert (publication.children(p".")?.children |> count()) == 2
+  assert publication.children(p".")?.children |> all { |entry| entry.name().starts_with("work-") or entry.name().starts_with(".tmp-") }
+  work.write(p"chunk", "data")
+  work.mkdir(p"nested/deep", parents: true)
+  base.rename(from: p"publication", to: p"moved")
+  work.close()?
+  plain.close()?
+  assert (base.children(p"moved")?.children |> count()) == 0
+  test.error_kind(publication.tempdir(prefix: "a/b"), "fs-root-tempdir")
+}
+
+test fs_root_syncfs_flushes_the_containing_filesystem { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-syncfs")?)?
+  root.write(p"file", "data")
+  if let Err(failure) = root.syncfs() {
+    if failure.errno == 95 { test.skip("syncfs is Linux only"); return }
+    test.fail(failure.message)
+  }
+}
+
 test fs_root_rename_refuses_to_clobber_unless_asked { |ctx|
   let root = fs.open_root(test.temp_dir(ctx, name: "root-rename")?)?
   root.mkdir(p"sub")
