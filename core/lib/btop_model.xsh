@@ -322,36 +322,35 @@ pure process_frame(current: Observation, previous: Observation?, gap: Bool) -> P
   }
 }
 
-pure process_rate(
+pure process_rates(
   frame: ProcessFrame,
   previous_process: processes.Process?,
   row: processes.Process,
-  per_core = false,
-) -> rates.Rate {
-  return rate(rates.Unavailable) when row.cpu_ticks == null
+) -> rates.ProcessPercents {
+  if row.cpu_ticks == null {
+    return {share: {state: .Unavailable, value: null}, per_core: {state: .Unavailable, value: null}}
+  }
 
   if let state = frame.unmeasured_state {
-    return rate(state)
+    return {share: {state: state, value: null}, per_core: {state: state, value: null}}
   }
 
   guard let total = frame.total else {
-    return rate(rates.Warming)
+    return {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
   }
 
   if let older = previous_process {
-    return rate(rates.Warming) when older.cpu_ticks == null
-    return rate(rates.Gap) when frame.gap
+    if older.cpu_ticks == null {
+      return {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
+    }
+    if frame.gap {
+      return {share: {state: .Gap, value: null}, per_core: {state: .Gap, value: null}}
+    }
 
-    return rates.process_percent_of_total(
-      row.cpu_ticks,
-      older.cpu_ticks,
-      total,
-      frame.core_count,
-      per_core:,
-    )
+    return rates.process_percents(row.cpu_ticks, older.cpu_ticks, total, frame.core_count)
   }
 
-  rate(rates.Warming)
+  {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
 }
 
 pure process_average_rate(frame: ProcessFrame, row: processes.Process) -> rates.Rate {
@@ -387,16 +386,15 @@ pure cached_uid(
   {uid: null, state: .Unavailable, entry: null}
 }
 
-pure process_sort_rate_tenths(row: ProcessRow) -> Int {
-  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null {
-    if let Ok(tenth) = (row.cpu_percent.value * 10.0).round() { -tenth } else { 0 }
-  } else {
-    0
-  }
-}
+type ProcessRank = {availability: Int, rate_order: Int, tie: Int}
 
-pure process_sort_availability(row: ProcessRow) -> Int {
-  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null { 0 } else { 1 }
+pure process_rank(row: ProcessRow) -> ProcessRank {
+  if row.cpu_percent.state == .Observed and row.cpu_percent.value != null {
+    let tenth = if let Ok(rounded) = (row.cpu_percent.value * 10.0).round() { -rounded } else { 0 }
+    {availability: 0, rate_order: tenth, tie: row.pid}
+  } else {
+    {availability: 1, rate_order: 0, tie: row.pid}
+  }
 }
 
 ## Applies one source observation and retains only current process metadata.
@@ -433,6 +431,7 @@ export pure step_cached(
     for matched in process_matches {
       let process_row = matched.current
       let uid = cached_uid(process_row, frame, cached_metadata)
+      let process_percents = process_rates(frame, matched.previous, process_row)
       yield {
         row: {
           pid: process_row.pid,
@@ -442,8 +441,8 @@ export pure step_cached(
           uid: uid.uid,
           uid_state: uid.state,
           command: process_row.command,
-          cpu_percent: process_rate(frame, matched.previous, process_row),
-          cpu_percent_per_core: process_rate(frame, matched.previous, process_row, per_core: true),
+          cpu_percent: process_percents.share,
+          cpu_percent_per_core: process_percents.per_core,
           cpu_average_percent: process_average_rate(frame, process_row),
           rss_bytes: process_row.rss_bytes,
         },
@@ -485,10 +484,7 @@ export pure step_cached(
         interfaces: interface_metrics,
       },
       process_state: current.processes.state,
-      processes: process_rows
-        |> sort-by .pid
-        |> sort-by(process_sort_rate_tenths)
-        |> sort-by(process_sort_availability),
+      processes: process_rows |> sort-by(process_rank),
       storage: disks.step(current.storage, storage_previous, current.at_ns, storage_previous_at, gap),
     },
     metadata: {

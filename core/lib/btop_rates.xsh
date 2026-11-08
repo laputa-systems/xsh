@@ -110,17 +110,20 @@ export pure process_percent(
   if previous_ticks == null or previous_cpu == null {
     return {state: .Warming, value: null}
   }
-  process_percent_of_total(
+  let percents = process_percents(
     current_ticks,
     previous_ticks,
     process_total(current_cpu, previous_cpu ?? current_cpu),
     core_count,
-    per_core:,
   )
+  if per_core { percents.per_core } else { percents.share }
 }
 
 ## Holds the aggregate CPU ticks one interval offers to every process in it.
 export type ProcessTotal = {state: RateState, total_ticks: Int}
+
+## Holds one process CPU rate as a share of all CPUs and as a share of one core.
+export type ProcessPercents = {share: Rate, per_core: Rate}
 
 ## Derives the interval's aggregate ticks once so each process need not repeat it.
 export pure process_total(current_cpu: syscpu.CpuCounters, previous_cpu: syscpu.CpuCounters) -> ProcessTotal {
@@ -131,32 +134,44 @@ export pure process_total(current_cpu: syscpu.CpuCounters, previous_cpu: syscpu.
   {state: .Observed, total_ticks: total}
 }
 
-## Computes one process share of a precomputed interval total.
-export pure process_percent_of_total(
+## Computes both process CPU rates from a precomputed interval total.
+export pure process_percents(
   current_ticks: Int,
   previous_ticks: Int?,
   total: ProcessTotal,
   core_count: Int,
-  per_core = false,
-) -> Rate {
+) -> ProcessPercents {
   if previous_ticks == null {
-    return {state: .Warming, value: null}
+    return {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
   }
   if current_ticks < 0 or (previous_ticks ?? -1) < 0 or current_ticks < previous_ticks {
-    return {state: .Reset, value: null}
+    return {share: {state: .Reset, value: null}, per_core: {state: .Reset, value: null}}
   }
-  return {state: .Invalid, value: null} when core_count <= 0
-  return {state: total.state, value: null} when total.state != .Observed
-  let ticks = current_ticks - previous_ticks
-  let scale = if per_core { core_count.float() } else { 1.0 }
-  let raw = ticks.float() * scale * 100.0 / total.total_ticks.float()
-  let ceiling = 100.0 * core_count.float()
-  let bounded = if raw < 0.0 { 0.0 } else if raw > ceiling { ceiling } else { raw }
-  let rounded = (bounded * 10.0).round()
-  if let Ok(tenth) = rounded {
-    {state: .Observed, value: tenth.float() / 10.0}
-  } else {
-    {state: .Invalid, value: null}
+  if core_count <= 0 {
+    return {share: {state: .Invalid, value: null}, per_core: {state: .Invalid, value: null}}
+  }
+  if total.state != .Observed {
+    return {share: {state: total.state, value: null}, per_core: {state: total.state, value: null}}
+  }
+  let ticks = (current_ticks - previous_ticks).float()
+  let cores = core_count.float()
+  let divisor = total.total_ticks.float()
+  let ceiling = 100.0 * cores
+  let raw_share = ticks * 1.0 * 100.0 / divisor
+  let raw_per_core = ticks * cores * 100.0 / divisor
+  let share_tenths = ((if raw_share < 0.0 { 0.0 } else if raw_share > ceiling { ceiling } else { raw_share }) * 10.0).round()
+  let per_core_tenths = ((if raw_per_core < 0.0 { 0.0 } else if raw_per_core > ceiling { ceiling } else { raw_per_core }) * 10.0).round()
+  {
+    share: if let Ok(tenth) = share_tenths {
+      {state: .Observed, value: tenth.float() / 10.0}
+    } else {
+      {state: .Invalid, value: null}
+    },
+    per_core: if let Ok(tenth) = per_core_tenths {
+      {state: .Observed, value: tenth.float() / 10.0}
+    } else {
+      {state: .Invalid, value: null}
+    },
   }
 }
 
