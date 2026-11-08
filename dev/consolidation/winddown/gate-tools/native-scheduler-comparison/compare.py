@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 import re
 import secrets
 import shutil
+import signal
 import stat
 import subprocess
 import sys
