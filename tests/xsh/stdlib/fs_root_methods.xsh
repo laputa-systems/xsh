@@ -253,6 +253,20 @@ print (root.read_text(p"data")?)
   assert "FsRoot.read_text" in output.stderr
 }
 
+test fs_root_mkdir_with_parents_accepts_an_existing_directory_only { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-mkdir-parents")?)?
+  root.mkdir(p"x")
+  assert root.mkdir(p"x") is Err(_)
+  root.mkdir(p"x", parents: true)
+  root.mkdir(p"x/y/z", parents: true)
+  root.mkdir(p"x/y/z", parents: true)
+  root.write(p"file", "data")
+  assert root.mkdir(p"file", parents: true) is Err(_)
+  assert root.mkdir(p"file/sub", parents: true) is Err(_)
+  root.symlink(target: test.temp_path(ctx, name: "root-mkdir-outside"), path: p"escape")
+  assert root.mkdir(p"escape", parents: true) is Err(_)
+}
+
 test fs_root_rename_refuses_to_clobber_unless_asked { |ctx|
   let root = fs.open_root(test.temp_dir(ctx, name: "root-rename")?)?
   root.mkdir(p"sub")

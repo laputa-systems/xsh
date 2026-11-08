@@ -809,8 +809,7 @@ pub(crate) fn rooted_mkdir(
         return Err(RuntimeError::new("fs-root-mkdir", "mode is out of range").with_span(span));
     }
     if parents {
-        let parent = rooted_parent_path(path);
-        rooted_create_dir_all(root, parent, mode as u32, "fs-root-mkdir", span)?;
+        return rooted_create_dir_all(root, path, mode as u32, "fs-root-mkdir", span);
     }
     let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-mkdir", span)?;
     rooted_mkdir_at(&parent, &leaf, mode as u32)
