@@ -729,13 +729,45 @@ fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
 }
 
 fn default_test_jobs() -> usize {
-    default_test_jobs_for(std::thread::available_parallelism().map_or(1, usize::from))
+    let logical = std::thread::available_parallelism().map_or(1, usize::from);
+    default_test_jobs_for(logical.min(allowed_physical_cores().unwrap_or(logical)))
 }
 
-/// Use every visible logical CPU up to a fixed cap to scale large test runs
+/// Use one worker per visible core up to a fixed cap to scale large test runs
 /// while bounding evaluator stacks and nested test subprocesses.
-fn default_test_jobs_for(cpus: usize) -> usize {
-    cpus.clamp(1, 32)
+fn default_test_jobs_for(cores: usize) -> usize {
+    cores.clamp(1, 32)
+}
+
+#[cfg(target_os = "linux")]
+fn allowed_physical_cores() -> Option<usize> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let allowed = status.lines().find_map(|line| line.strip_prefix("Cpus_allowed_list:"))?;
+    distinct_cores(allowed.trim(), |cpu| {
+        std::fs::read_to_string(format!("/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list")).ok()
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn allowed_physical_cores() -> Option<usize> {
+    None
+}
+
+fn distinct_cores(allowed: &str, siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
+    let mut cores = std::collections::BTreeSet::new();
+    for range in allowed.split(',') {
+        let (start, end) = match range.split_once('-') {
+            Some((start, end)) => (start.parse::<usize>().ok()?, end.parse::<usize>().ok()?),
+            None => {
+                let cpu = range.parse::<usize>().ok()?;
+                (cpu, cpu)
+            }
+        };
+        for cpu in start..=end {
+            cores.insert(siblings(cpu)?.trim().to_string());
+        }
+    }
+    (!cores.is_empty()).then_some(cores.len())
 }
 
 fn run_test_cases_parallel<F>(
@@ -2417,7 +2449,7 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        Duration, ParallelTestQueue, TestCase, default_test_jobs_for, format_test_duration,
+        Duration, ParallelTestQueue, TestCase, default_test_jobs_for, distinct_cores, format_test_duration,
     };
 
     fn invalid_case(id: &str) -> TestCase {
@@ -2689,6 +2721,17 @@ mod tests {
         assert_eq!(modules.len(), 2);
         let programs = modules.values().collect::<Vec<_>>();
         assert!(!std::sync::Arc::ptr_eq(programs[0], programs[1]));
+    }
+
+    #[test]
+    fn allowed_cpus_that_share_a_core_count_once() {
+        let siblings = |cpu: usize| Some(format!("{},{}\n", cpu % 16, cpu % 16 + 16));
+        assert_eq!(distinct_cores("0-31", siblings), Some(16));
+        assert_eq!(distinct_cores("0-11", siblings), Some(12));
+        assert_eq!(distinct_cores("0-3,16-19", siblings), Some(4));
+        assert_eq!(distinct_cores("5", siblings), Some(1));
+        assert_eq!(distinct_cores("0-3", |_| None), None);
+        assert_eq!(distinct_cores("x", siblings), None);
     }
 
     #[test]

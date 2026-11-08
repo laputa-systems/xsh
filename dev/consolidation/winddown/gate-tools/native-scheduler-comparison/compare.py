@@ -51,7 +51,7 @@ CPUSETS = "0-31"
 CPU_QUOTA = 32
 MEMORY_LIMIT = 40 * 1024**3
 SUITE_ROUNDS = 3
-WORKERS = {"reference": 8, "candidate": 32}
+WORKERS = {"reference": 8, "candidate": 16}
 MAX_FOREIGN_CPU_CORES = 0.5
 FOREIGN_CPU_CHECK_COMMAND = ["foreign-cpu-check"]
 BINARIES = ("xsht", "xsh", "xsh-test-helper")
@@ -69,7 +69,7 @@ VALIDATOR = HERE / "validator.py"
 REFERENCE_AGGREGATE_PATCH_RELATIVE = Path(
     "dev/consolidation/winddown/unfinished/native-scheduler-reference-rederived.patch"
 )
-REFERENCE_AGGREGATE_PATCH_SHA256 = "412f7946181e70b42142f0af7fca02fff2f415d1e854e44f190c0085b0ad181e"
+REFERENCE_AGGREGATE_PATCH_SHA256 = "ee5572e86a7dd02e963e49d152675a09431143dc1d8bd7e7b1ab6c5f5f9c427b"
 REFERENCE_SCHEDULER_COMMITS = (
     ("bounded-admission", "7205a0", "7205a0b6afce7d9a0072b6727cae36a0b8301963"),
     ("default-width", "aa5aca3", "aa5aca3acbd2dafd03bf3b5a4fb2cb63f399f896"),
@@ -1324,7 +1324,7 @@ def run_comparison(args: argparse.Namespace) -> int:
         "expected_default_workers": WORKERS,
         "default_worker_formulas": {
             "reference": "(available_parallelism / 2).clamp(1, 8)",
-            "candidate": "available_parallelism.clamp(1, 32)",
+            "candidate": "min(available_parallelism, allowed physical cores).clamp(1, 32)",
         },
         "suite_round_count": SUITE_ROUNDS,
         "suite_execution_order": [],
@@ -1457,7 +1457,7 @@ def run_comparison(args: argparse.Namespace) -> int:
 
         for pair, expected_text in (
             ("reference", "default: half the CPUs"),
-            ("candidate", "default: all CPUs capped at 32; max 8 per file"),
+            ("candidate", "default: one per CPU core capped at 32; max 8 per file"),
         ):
             stage = _help_stage(
                 pair=pair,
@@ -1501,7 +1501,7 @@ def run_comparison(args: argparse.Namespace) -> int:
         receipt["source_after_help"] = source_summary(source_after_help)
         receipt["default_policy_help"] = {
             "reference_expected_text": "default: half the CPUs",
-            "candidate_expected_text": "default: all CPUs capped at 32; max 8 per file",
+            "candidate_expected_text": "default: one per CPU core capped at 32; max 8 per file",
             "both_matched": True,
         }
         write_json(receipt_path, receipt)
