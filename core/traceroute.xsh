@@ -107,6 +107,10 @@ type Resolved = {addr: Str, v6: Bool}
 # time; `last` ends the trace after the hop's remaining probes.
 type Reply = {from: Str, rtt_ms: Float, mark: Str, last: Bool}
 
+# A probe instant on both clocks: the precise wall reading and the monotonic
+# reading that bounds any round trip computed from it.
+type Mark = {wall_ns: Int, mono: monotonic.Stamp}
+
 type Control = {data: Bytes, level: Int, type: Int}
 
 # A source of nanosecond timestamps. The runtime's own clock counts
@@ -329,8 +333,8 @@ proc remaining_ms(deadline: monotonic.Deadline) [time, error] -> Result[Int, Err
   Ok(monotonic.remaining_ms(deadline, monotonic.now()?))
 }
 
-pure span_ms(start_ns: Int, end_ns: Int) -> Float {
-  (end_ns - start_ns).float() / 1000000.0
+pure span_ms(start: Mark, end: Mark) -> Float {
+  monotonic.round_trip_ns(start.wall_ns, end.wall_ns, start.mono, end.mono).float() / 1000000.0
 }
 
 # The kernel receive timestamp (SCM_TIMESTAMPNS, a timespec) among a
@@ -384,12 +388,27 @@ proc stamp_ns(clock: Clock) [process, net, time, error] -> Int {
   if stamped == 0 { coarse } else { stamped }
 }
 
-# The receive time of a message: its kernel stamp, or a fresh clock reading.
-proc receive_ns(clock: Clock, control: List[Control]) [process, net, time, error] -> Int {
-  let c = linux.net_constants()
-  let stamped = control_stamp(control, c.SOL_SOCKET, c.SO_TIMESTAMPNS)
+# The instant a probe leaves; the monotonic reading comes first so it never
+# trails the wall one.
+proc mark(clock: Clock) [process, net, time, error] -> Result[Mark] {
+  let mono = monotonic.stamp()?
 
-  if stamped == 0 { stamp_ns(clock) } else { stamped }
+  Ok(Mark(wall_ns: stamp_ns(clock), mono: mono))
+}
+
+# The instant an answer arrived: the kernel stamp when there is one, else a
+# fresh reading; the monotonic reading comes last so it never precedes it.
+proc arrived(clock: Clock, kernel_ns: Int) [process, net, time, error] -> Result[Mark] {
+  let wall_ns = if kernel_ns != 0 { kernel_ns } else { stamp_ns(clock) }
+
+  Ok(Mark(wall_ns: wall_ns, mono: monotonic.stamp()?))
+}
+
+# The receive time of a message: its kernel stamp, or a fresh clock reading.
+proc receive_mark(clock: Clock, control: List[Control]) [process, net, time, error] -> Result[Mark] {
+  let c = linux.net_constants()
+
+  arrived(clock, control_stamp(control, c.SOL_SOCKET, c.SO_TIMESTAMPNS))
 }
 
 proc resolve_one(name: Str, family: Str) [net, error] -> Result[Str] {
@@ -581,7 +600,7 @@ proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms:
   set_ttl(s, fd, ttl)
   connect_target(s, fd, port)
 
-  let start = stamp_ns(clock)
+  let start = mark(clock)?
 
   if let Err(failure) = linux.sendto(fd, pattern(s.payload_len)) {
     return Err(describe("sendto", failure))
@@ -597,7 +616,7 @@ proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms:
         let verdict = classify(s.v6, queued.kind, queued.code, queued.info)
 
         if queued.port == port and verdict.known {
-          let end = if queued.stamp != 0 { queued.stamp } else { stamp_ns(clock) }
+          let end = arrived(clock, queued.stamp)?
 
           return Ok({from: queued.offender, rtt_ms: span_ms(start, end), mark: verdict.mark, last: verdict.last})
         }
@@ -642,7 +661,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
   set_ttl(s, fd, ttl)
   connect_target(s, fd, 0)
 
-  let start = stamp_ns(clock)
+  let start = mark(clock)?
   let request = echo_request(s.v6, seq, 0, false, pattern(s.payload_len))
 
   if let Err(failure) = linux.sendto(fd, request) {
@@ -660,7 +679,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
         let verdict = classify(s.v6, queued.kind, queued.code, queued.info)
 
         if verdict.known {
-          let end = if queued.stamp != 0 { queued.stamp } else { stamp_ns(clock) }
+          let end = arrived(clock, queued.stamp)?
 
           return Ok({from: queued.offender, rtt_ms: span_ms(start, end), mark: verdict.mark, last: verdict.last})
         }
@@ -672,7 +691,7 @@ proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: In
         Err(failure) => return Err(describe("recvmsg", failure)) when (failure.errno ?? 0) != 11
         Ok(message) => {
           if (message.data.byte_at(0) ?? -1) == reply_type and (bytes.unpack_be(message.data, 2, 6) ?? -1) == seq {
-            let end = receive_ns(clock, message.control)
+            let end = receive_mark(clock, message.control)?
 
             return Ok({from: message.address.address, rtt_ms: span_ms(start, end), mark: "", last: true})
           }
@@ -709,7 +728,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
 
   set_ttl(s, fd, ttl)
 
-  let start = stamp_ns(clock)
+  let start = mark(clock)?
   let request = echo_request(s.v6, seq, ident, ! s.v6, pattern(s.payload_len))
 
   if let Err(failure) = linux.sendto(fd, request, address) {
@@ -733,7 +752,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
           let code = data.byte_at(at + 1) ?? 0
 
           if kind == reply_type and echo_matches(data, at, reply_type, ident, seq) {
-            let end = receive_ns(clock, message.control)
+            let end = receive_mark(clock, message.control)?
 
             return Ok({from: message.address.address, rtt_ms: span_ms(start, end), mark: "", last: true})
           }
@@ -744,7 +763,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
             let quoted = quoted_start(s.v6, data, at)
 
             if quoted >= 0 and echo_matches(data, quoted, echo_type, ident, seq) {
-              let end = receive_ns(clock, message.control)
+              let end = receive_mark(clock, message.control)?
 
               return Ok({from: message.address.address, rtt_ms: span_ms(start, end), mark: verdict.mark, last: verdict.last})
             }
@@ -772,13 +791,13 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
   set_ttl(s, fd, ttl)
 
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: port}
-  let start = stamp_ns(clock)
+  let start = mark(clock)?
 
   if let Err(failure) = linux.connect(fd, address) {
     let errno = failure.errno ?? 0
 
     if errno == 111 {
-      return Ok({from: s.target, rtt_ms: span_ms(start, stamp_ns(clock)), mark: "", last: true})
+      return Ok({from: s.target, rtt_ms: span_ms(start, arrived(clock, 0)?), mark: "", last: true})
     }
 
     return Err(describe("connect", failure)) when errno != 115
@@ -794,11 +813,11 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
       let pending = linux.getsockopt_int(fd, c.SOL_SOCKET, c.SO_ERROR)?
 
       if pending == 0 and "writable" in events {
-        return Ok({from: s.target, rtt_ms: span_ms(start, stamp_ns(clock)), mark: "", last: true})
+        return Ok({from: s.target, rtt_ms: span_ms(start, arrived(clock, 0)?), mark: "", last: true})
       }
 
       if pending == 111 {
-        return Ok({from: s.target, rtt_ms: span_ms(start, stamp_ns(clock)), mark: "", last: true})
+        return Ok({from: s.target, rtt_ms: span_ms(start, arrived(clock, 0)?), mark: "", last: true})
       }
     }
 
@@ -817,7 +836,7 @@ proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait
             let quoted = quoted_start(s.v6, data, at)
 
             if quoted >= 0 and (bytes.unpack_be(data, 2, quoted) ?? -1) == local and (bytes.unpack_be(data, 2, quoted + 2) ?? -1) == port {
-              let end = receive_ns(clock, message.control)
+              let end = receive_mark(clock, message.control)?
 
               return Ok({from: message.address.address, rtt_ms: span_ms(start, end), mark: verdict.mark, last: verdict.last})
             }

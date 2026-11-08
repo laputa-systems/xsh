@@ -257,11 +257,15 @@ pure isqrt(value: Int) -> Int {
   root
 }
 
+# An instant on both clocks: the precise wall reading and the monotonic stamp
+# that bounds any interval measured from it.
+type Instant = {wall_ns: Int, mono: monotonic.Stamp}
+
 # Running totals of one ping run, in microseconds, in the units iputils keeps.
 type Stats = {
   sent: Int, received: Int, duplicates: Int, errors: Int, corrupted: Int,
   rtt_min: Int, rtt_max: Int, rtt_sum: Int, rtt_sum2: Int, pipe: Int, ewma8: Int,
-  first_ns: Int, last_ns: Int
+  first: Instant, last: Instant
 }
 
 pure percent_loss(stats: Stats) -> Int {
@@ -276,7 +280,7 @@ pure summary_text(given: Str, stats: Stats, adaptive: Bool, interval_ms: Int) ->
   if stats.corrupted > 0 { text += f", +{stats.corrupted} corrupted" }
   if stats.errors > 0 { text += f", +{stats.errors} errors" }
   # Whole milliseconds, rounded, between the first probe and the last event.
-  let elapsed_us = (stats.last_ns - stats.first_ns) / 1000
+  let elapsed_us = monotonic.round_trip_ns(stats.first.wall_ns, stats.last.wall_ns, stats.first.mono, stats.last.mono) / 1000
   if stats.sent > 0 {
     text += f", {percent_loss(stats)}% packet loss, time {(elapsed_us + 500) / 1000}ms"
   }
@@ -528,7 +532,6 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
       exit 2
     }
   }
-  let clock = icmp.open_clock()?
   let identifier = plan.identifier ?? process.current_pid()? % 65536
   let fill = icmp.echo_fill(size, plan.pattern)?
   let checksummed = sock.raw and ! v6
@@ -548,14 +551,16 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
   let show_names = (target.named or opts.resolve) and ! opts.numeric
   var names: Map[Str] = {}
   let destination = {family: target.family, address: target.address, port: 0}
-  let started_ms = monotonic.now()?.ms
-  var stats: Stats = Stats(sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first_ns: 0, last_ns: 0)
+  let clock = icmp.open_clock()?
+  let started = monotonic.now()?
+  let run_deadline: monotonic.Deadline? = if plan.deadline_s > 0 { monotonic.deadline_after(started, monotonic.seconds_ms(plan.deadline_s)) } else { null }
+  var stats: Stats = Stats(sent: 0, received: 0, duplicates: 0, errors: 0, corrupted: 0, rtt_min: 0, rtt_max: 0, rtt_sum: 0, rtt_sum2: 0, pipe: 0, ewma8: 0, first: Instant(wall_ns: 0, mono: monotonic.Stamp(ns: 0)), last: Instant(wall_ns: 0, mono: monotonic.Stamp(ns: 0)))
   var seen: Set[Int] = set.empty()
-  var sent_at: Map[Int, Int] = {}
-  var next_send_ms = started_ms
+  var sent_at: Map[Int, Instant] = {}
+  var next_send = monotonic.deadline_after(started, 0)
   var sending = true
-  var drain_deadline_ms = -1
-  var last_sent_ms = started_ms
+  var drain: monotonic.Deadline? = null
+  var last_sent = started
   var queued_copies = 0
   var delivered = 0
   var finished = false
@@ -567,12 +572,14 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
   # environment, which it can read: 1 until the first reply, then 0.
   e"XSH_PING_STATUS" = "1"
   while ! finished {
-    let now = monotonic.now()?.ms
-    if plan.deadline_s > 0 and now - started_ms >= plan.deadline_s * 1000 {
-      finished = true
-      continue
+    let now = monotonic.now()?
+    if let limit = run_deadline {
+      if monotonic.expired(limit, now) {
+        finished = true
+        continue
+      }
     }
-    if sending and now >= next_send_ms {
+    if sending and monotonic.expired(next_send, now) {
       let burst = if stats.sent == 0 { plan.preload } else { 1 }
       for _ in range(burst) {
         let sequence = (stats.sent + 1) % 65536
@@ -582,11 +589,13 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         let stamp_ms = time.now()
         let stamp = bytes.concat([bytes.pack_le(stamp_ms / 1000, 8)?, bytes.pack_le(stamp_ms % 1000 * 1000, 8)?])
         let message = icmp.echo_request(target.family, identifier, sequence, icmp.echo_stamped(fill, stamp), checksummed)?
+        let departed = monotonic.stamp()?
         let marked = icmp.clock_mark(clock)?
         let sent = linux.sendto(sock.fd, message, destination)
         let sent_ns = icmp.clock_collect(clock, marked)?
-        let first_ns = if stats.sent == 0 { sent_ns } else { stats.first_ns }
-        stats = {...stats, sent: stats.sent + 1, first_ns: first_ns, last_ns: sent_ns}
+        let left = Instant(wall_ns: sent_ns, mono: departed)
+        let first = if stats.sent == 0 { left } else { stats.first }
+        stats = {...stats, sent: stats.sent + 1, first: first, last: left}
         if let Err(failure) = sent {
           stats = {...stats, errors: stats.errors + 1}
           gnu.error(f"sendmsg: {gnu.strerror(failure)}")
@@ -594,13 +603,13 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           # own failure above is the report, so the queued copy is dropped.
           queued_copies += 1
         } else {
-          sent_at = sent_at.set(sequence, sent_ns)
+          sent_at = sent_at.set(sequence, left)
           seen = seen.remove(sequence)
           delivered += 1
         }
       }
-      last_sent_ms = now
-      next_send_ms = now + plan.interval_ms
+      last_sent = now
+      next_send = monotonic.deadline_after(now, plan.interval_ms)
       if plan.count > 0 and stats.sent >= plan.count and plan.deadline_s == 0 {
         sending = false
       }
@@ -616,19 +625,21 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
         finished = true
         continue
       }
-      if drain_deadline_ms < 0 {
+      if drain == null {
         let wait_ms = if stats.received > 0 { min_int(plan.linger_ms, max_int(2 * stats.rtt_max / 1000, 1)) } else { plan.linger_ms }
-        drain_deadline_ms = now + wait_ms
+        drain = monotonic.deadline_after(now, wait_ms)
       }
-      if now >= drain_deadline_ms {
-        finished = true
-        continue
+      if let limit = drain {
+        if monotonic.expired(limit, now) {
+          finished = true
+          continue
+        }
       }
     }
     var pause_ms = 1000
-    if sending { pause_ms = max_int(next_send_ms - now, 0) }
-    if drain_deadline_ms >= 0 { pause_ms = min_int(pause_ms, max_int(drain_deadline_ms - now, 0)) }
-    if plan.deadline_s > 0 { pause_ms = min_int(pause_ms, max_int(started_ms + plan.deadline_s * 1000 - now, 0)) }
+    if sending { pause_ms = monotonic.remaining_ms(next_send, now) }
+    if let limit = drain { pause_ms = min_int(pause_ms, monotonic.remaining_ms(limit, now)) }
+    if let limit = run_deadline { pause_ms = min_int(pause_ms, monotonic.remaining_ms(limit, now)) }
     let events = unix.poll_fd(sock.fd, ["readable"], pause_ms)?
     if "error" in events {
       loop {
@@ -638,7 +649,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           queued_copies -= 1
           continue
         }
-        stats = {...stats, errors: stats.errors + 1, last_ns: icmp.clock_ns(clock)?}
+        stats = {...stats, errors: stats.errors + 1, last: Instant(wall_ns: icmp.clock_ns(clock)?, mono: monotonic.stamp()?)}
         continue when opts.quiet
         report_error(failure, target, names, show_names, v6)
       }
@@ -646,6 +657,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
     if "readable" in events {
       loop {
         let arrived = icmp.receive(sock.fd, c.MSG_DONTWAIT)
+        let arrival = monotonic.stamp()?
         guard let got = arrived else { break }
         let offset = if sock.raw and ! v6 { icmp.ip_header_length(got.data) } else { 0 }
         let message = got.data.slice(offset)
@@ -657,12 +669,12 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           stats = {...stats, corrupted: stats.corrupted + 1}
           continue
         }
-        let arrival_ns = got.stamp_ns ?? icmp.clock_ns(clock)?
-        let departed_ns = sent_at.get(echo.sequence)?
-        let rtt = max_int((arrival_ns - departed_ns) / 1000, 0)
+        let wall_ns = got.stamp_ns ?? icmp.clock_ns(clock)?
+        let departed = sent_at.get(echo.sequence)?
+        let rtt = monotonic.round_trip_ns(departed.wall_ns, wall_ns, departed.mono, arrival) / 1000
         let duplicate = echo.sequence in seen
         seen = seen.add(echo.sequence)
-        stats = {...stats, last_ns: arrival_ns}
+        stats = {...stats, last: Instant(wall_ns: wall_ns, mono: arrival)}
         if duplicate {
           stats = {...stats, duplicates: stats.duplicates + 1}
         } else {
@@ -670,7 +682,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           e"XSH_PING_STATUS" = "0"
           if opts.adaptive {
             # The next probe leaves as soon as the round trip has been seen.
-            next_send_ms = last_sent_ms + max_int(rtt / 1000, MIN_USER_INTERVAL_MS)
+            next_send = monotonic.deadline_after(last_sent, max_int(rtt / 1000, MIN_USER_INTERVAL_MS))
           }
         }
         let total = stats.received + stats.duplicates
@@ -684,7 +696,7 @@ proc ping_target(target: Target, plan: Plan, opts: Options) [net, process, env, 
           names = names.set(got.address, reverse_name(got.address))
         }
         let ttl_text = if let hops = got.ttl { f" ttl={hops}" } else if sock.raw and ! v6 { f" ttl={got.data.byte_at(8) ?? 0}" } else { "" }
-        let stamp_text = if opts.timestamps { f"[{arrival_ns / 1000000000}.{arrival_ns / 1000 % 1000000:06}] " } else { "" }
+        let stamp_text = if opts.timestamps { f"[{wall_ns / 1000000000}.{wall_ns / 1000 % 1000000:06}] " } else { "" }
         let bell = if opts.audible { "\u{7}" } else { "" }
         let dup_text = if duplicate { " (DUP!)" } else { "" }
         gnu.write_text(f"{bell}{stamp_text}{message.len()} bytes from {label(got.address, names, show_names)}: icmp_seq={echo.sequence}{ttl_text} time={reply_time_text(rtt)} ms{dup_text}\n")

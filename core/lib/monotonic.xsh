@@ -11,6 +11,14 @@ export nominal type Reading = {ms: Int}
 ## Holds the monotonic millisecond at which a budget runs out.
 export nominal type Deadline = {at_ms: Int}
 
+## Holds nanoseconds on the process monotonic clock, for round trips too short for a Reading.
+export nominal type Stamp = {ns: Int}
+
+## Reads the monotonic clock in nanoseconds.
+export proc stamp() [time, error] -> Result[Stamp, Error] {
+  Ok(Stamp(ns: time.monotonic()?))
+}
+
 ## Reads the monotonic clock in milliseconds.
 export proc now() [time, error] -> Result[Reading, Error] {
   Ok(Reading(ms: time.monotonic()? / 1000000))
@@ -40,4 +48,19 @@ export pure expired(deadline: Deadline, now: Reading) -> Bool {
 ## Reports the milliseconds since a reading, never below zero.
 export pure since_ms(start: Reading, now: Reading) -> Int {
   if now.ms <= start.ms { 0 } else { now.ms - start.ms }
+}
+
+## Reports the nanoseconds between two stamps, never below zero.
+export pure elapsed_ns(start: Stamp, end: Stamp) -> Int {
+  if end.ns <= start.ns { 0 } else { end.ns - start.ns }
+}
+
+## Reports a round trip in nanoseconds from two precise wall readings, kept inside what the monotonic stamps allow.
+## The wall readings resolve microseconds but a clock step moves them; the stamps taken around the same events cannot
+## step and bound the true round trip from above. A wall difference that is negative or longer than that bound proves a
+## step, and the bound answers instead.
+export pure round_trip_ns(wall_sent_ns: Int, wall_received_ns: Int, sent: Stamp, received: Stamp) -> Int {
+  let bound = elapsed_ns(sent, received)
+  let wall = wall_received_ns - wall_sent_ns
+  if wall < 0 or wall > bound { bound } else { wall }
 }

@@ -57,3 +57,41 @@ let wall: Int = time.now()
 let spent = monotonic.expired(deadline, wall)
 """, status: 2, stderr: ["[check.type-mismatch]"])?
 }
+
+test test_elapsed_nanoseconds_between_stamps_never_go_negative {
+  let sent = monotonic.Stamp(ns: 5000000000)
+  assert monotonic.elapsed_ns(sent, monotonic.Stamp(ns: 5000250000)) == 250000
+  assert monotonic.elapsed_ns(sent, sent) == 0
+  assert monotonic.elapsed_ns(sent, monotonic.Stamp(ns: 4999999999)) == 0
+}
+
+pure rtt(wall_sent: Int, wall_received: Int) -> Int {
+  monotonic.round_trip_ns(wall_sent, wall_received, monotonic.Stamp(ns: 5000000000), monotonic.Stamp(ns: 5000300000))
+}
+
+test test_a_round_trip_keeps_the_precise_wall_gap_when_no_step_intervened {
+  assert rtt(1700000000000000000, 1700000000000120000) == 120000
+}
+
+test test_a_forward_wall_step_during_a_probe_falls_back_to_the_monotonic_bound {
+  assert rtt(1700000000000000000, 1700003600000120000) == 300000
+}
+
+test test_a_backward_wall_step_during_a_probe_falls_back_to_the_monotonic_bound {
+  assert rtt(1700000000000000000, 1699996400000120000) == 300000
+}
+
+test test_the_live_stamp_does_not_run_backwards {
+  let first = monotonic.stamp()?
+  let second = monotonic.stamp()?
+  assert second.ns >= first.ns
+  assert monotonic.elapsed_ns(first, second) < 60000000000
+}
+
+test test_a_wall_clock_value_is_not_a_stamp { |ctx|
+  test.expect(ctx, r"""use core.lib.monotonic
+let sent = monotonic.stamp()?
+let wall: Int = time.now() * 1000000
+let gap = monotonic.elapsed_ns(sent, wall)
+""", status: 2, stderr: ["[check.type-mismatch]"])?
+}
