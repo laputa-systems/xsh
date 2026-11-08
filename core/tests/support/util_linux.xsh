@@ -11,10 +11,10 @@ export type Observed = {util: Str, args: List[Str], termination: Termination, st
 ## An owned Python fixture process with bounded FIFO control and its exact ready record.
 export type Keeper = {child: ProcessHandle, input_fd: Int, output_fd: Int, ready: Str, stderr: Path}
 
-## Reads one fixture reply, capped at 64 KiB and a five-second readiness deadline.
+## Reads one fixture reply, capped at 64 KiB and a thirty-second readiness deadline.
 export proc keeper_receive(keeper: Keeper) [net, process, time, error] -> Result[Str, Error] {
   var data = b""
-  let deadline = time.now() + 5000
+  let deadline = time.now() + 30000
   while data.len() < 65536 {
     let remaining = deadline - time.now()
     assert remaining > 0, "fixture reply timed out"

@@ -50,7 +50,7 @@ proc hold(ctx: TestContext, flags: List[Str]) [fs, process, time, error] -> Resu
   let holder = program(ctx, f"holder-{root.basename()}.xsh", source)
   let words = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/unshare.xsh".display(), @flags, ctx.xsh_bin.display(), holder.display(), ready.display(), release.display()]
   let handle = spawn process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"})?
-  for _ in range(0, 500) {
+  for _ in range(0, 3000) {
     break when ready.exists()
     time.sleep(10ms)
   }

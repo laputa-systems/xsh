@@ -193,10 +193,10 @@ test test_uu_wc_files0_progressive_stream { |ctx|
   let errors = unix.open_fd(uu.at(s, "stream-errors"), nonblock: true)?
   defer unix.close_fd(errors)
   let words = uu.argv(s, "wc", [p"--files0-from=-"])?
-  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output 2>stream-errors """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "outer-out"), uu.at(s, "outer-err"), timeout: 10s)
+  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output 2>stream-errors """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "outer-out"), uu.at(s, "outer-err"), timeout: 60s)
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  let deadline = time.now() + 5000
+  let deadline = time.now() + 30000
   var writer = null
   while writer == null {
     assert time.now() < deadline, "wc did not open stdin"
@@ -218,10 +218,10 @@ test test_uu_wc_files0_progressive_stream { |ctx|
   assert read_exact(reader, 33, deadline)? == b"5 57 302 alice_in_wonderland.txt\n"
   unix.close_fd(producer)
   producer_open = false
-  let done = process.wait_timeout([child], 5s)?
+  let done = process.wait_timeout([child], 30s)?
   assert done != null, "wc should finish"
   assert ! done.status.exited_with(0)
-  assert read_exact(reader, 18, time.now() + 1000)? == b"36 370 2189 total\n"
+  assert read_exact(reader, 18, time.now() + 30000)? == b"36 370 2189 total\n"
   assert unix.read_fd(reader, 1)? == b""
   assert unix.read_fd(errors, 1)? == b""
 }

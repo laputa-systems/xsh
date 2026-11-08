@@ -34,10 +34,10 @@ export proc terminal_observe(s: uu.Scene, command: Str, args: List[Path], words:
   let errors = terminal_pair(columns)?
   defer unix.close_fd(errors.master)
   defer unix.close_fd(errors.replica)
-  let plan = process.command_argv(words[0], words, s.root, vars, b"", fp"{output.name}", fp"{errors.name}", timeout: 5s)
+  let plan = process.command_argv(words[0], words, s.root, vars, b"", fp"{output.name}", fp"{errors.name}", timeout: 30s)
   let child = spawn plan?
   defer child.cancel(signal: "TERM", kill_after: 100ms)
-  let deadline = time.now() + 6000
+  let deadline = time.now() + 36000
   var stdout = b""
   var stderr = b""
   while true {

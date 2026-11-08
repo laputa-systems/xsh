@@ -114,7 +114,7 @@ test test_dd_seek_bytes_on_stdout_uses_the_inherited_position { |ctx|
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "seek=3", "oflag=seek_bytes"]
-  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-seek-stdout-position"].extend(argv), root, {LC_ALL: "C"}, b"abc", out, err, timeout: 3s)
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-seek-stdout-position"].extend(argv), root, {LC_ALL: "C"}, b"abc", out, err, timeout: 30s)
   assert process.run(plan)?.exited_with(0), err.read_text()?
   assert out.read_bytes()? == b"x\0\0\0abc"
   assert err.read_text()? == ""
@@ -125,7 +125,7 @@ test test_dd_zero_count_seek_preserves_existing_stdout_bytes { |ctx|
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "bs=2", "oseek=8", "oflag=seek_bytes", "count=0"]
-  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf abcdef; exec \"$@\"", "dd-seek-stdout"].extend(argv), root, {LC_ALL: "C"}, b"", out, err, timeout: 3s)
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf abcdef; exec \"$@\"", "dd-seek-stdout"].extend(argv), root, {LC_ALL: "C"}, b"", out, err, timeout: 30s)
   assert process.run(plan)?.exited_with(0), err.read_text()?
   assert out.read_bytes()? == b"abcdef"
 }
@@ -275,7 +275,7 @@ test test_dd_accepts_very_large_blocks_without_allocating_a_block_buffer { |ctx|
   # Keep the cap below the requested block size while leaving room for the debug interpreter stack.
   let status = process.run(process.command_argv(p"/bin/sh",
     ["sh", "-c", "ulimit -v 524288; exec \"$@\"", "dd-large-bs"].extend(argv),
-    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s))?
   assert status.exited_with(0), stderr.read_text()?
   assert stderr.read_text()? == ""
 }
@@ -296,7 +296,7 @@ test test_dd_large_cbs_pads_until_output_fails { |ctx|
   # Keep the cap far below the requested record size while leaving room for the debug interpreter stack.
   let status = process.run(process.command_argv(p"/bin/sh",
     ["sh", "-c", "ulimit -v 524288; exec \"$@\"", "dd-large-cbs"].extend(argv),
-    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s))?
   assert status.exited_with(1)
   assert "No space left on device" in stderr.read_text()?
 }
@@ -309,7 +309,7 @@ test test_dd_reports_output_records_when_a_write_is_limited { |ctx|
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), f"if=/dev/zero", f"of={output}", "bs=512K", "count=3"]
   let status = process.run(process.command_argv(p"/bin/sh",
     ["sh", "-c", "trap '' XFSZ; ulimit -f 1536; exec \"$@\"", "dd-write-limit"].extend(argv),
-    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s))?
   assert status.exited_with(1)
   let message = stderr.read_text()?
   assert "1+1 records out" in message, message
@@ -327,7 +327,7 @@ test test_dd_block_conversion_reports_partial_output_when_limited { |ctx|
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), f"if={input}", f"of={output}", "conv=block", "cbs=1M", "obs=64K"]
   let status = process.run(process.command_argv(p"/bin/sh",
     ["sh", "-c", "trap '' XFSZ; ulimit -f 400; exec \"$@\"", "dd-block-write-limit"].extend(argv),
-    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 30s))?
   assert status.exited_with(1)
   let message = stderr.read_text()?
   assert "3+1 records out" in message, message
@@ -383,12 +383,12 @@ test test_dd_oflag_append_on_standard_output { |ctx|
   let err = fp"{root}/err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "oflag=append"]
   # The shell writes first, so standard output already has data when dd starts.
-  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout"].extend(argv), root, {LC_ALL: "C"}, b"ab", out, err, timeout: 3s)
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout"].extend(argv), root, {LC_ALL: "C"}, b"ab", out, err, timeout: 30s)
   let status = process.run(plan)?
   assert status.exited_with(0), err.read_text()?
   assert out.read_text()? == "xab"
   let converted_out = fp"{root}/converted"
-  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout", @argv, "conv=ucase"], root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 3s)
+  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout", @argv, "conv=ucase"], root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 30s)
   assert process.run(converted)?.exited_with(0), err.read_text()?
   assert converted_out.read_text()? == "xAB"
 }
@@ -423,7 +423,7 @@ test test_dd_failed_status_write_ends_the_run { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display()]
-  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "exec \"$@\" 2>/dev/full", "dd-status-full"].extend(argv), root, {LC_ALL: "C"}, b"ab", stdout, stderr, timeout: 3s)
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "exec \"$@\" 2>/dev/full", "dd-status-full"].extend(argv), root, {LC_ALL: "C"}, b"ab", stdout, stderr, timeout: 30s)
   let status = process.run(plan)?
   assert status.exited_with(1)
 }

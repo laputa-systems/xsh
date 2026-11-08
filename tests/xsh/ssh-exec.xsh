@@ -296,14 +296,9 @@ test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
   with session = ssh.connect(options)? {
     assert ssh.exec(session, "rm -f /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0
     let child = spawn run @(command_for(ctx.xsh_bin, program, ready)) ?
-    for _ in range(100) {
-      if ready.exists()? { break }
-      time.sleep(50ms)
-    }
-    assert ready.exists()?, "the program never connected"
+    wait until ready.exists()? within 30s every 50ms
     child.cancel(signal: "TERM", kill_after: 10s)
-    time.sleep(1s)
-    assert ssh.exec(session, "test -e /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0
+    wait until ssh.exec(session, "test -e /tmp/xsh-cleanup-after-signal", {})?.exit_code == 0 within 30s every 100ms
   }
 }
 

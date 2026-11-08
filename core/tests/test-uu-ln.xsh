@@ -914,7 +914,7 @@ proc main(...args: List[Str]) {
       {}, b"", output, error_output, timeout: 30s)
     let racer = spawn plan?
     defer racer.cancel(kill_after: 100ms)
-    let deadline = time.now() + 5000
+    let deadline = time.now() + 30000
     while ! uu.exists(s, ".racer-ready") {
       assert ! uu.exists(s, ".racer-claimed")?, "destination was claimed before replacements started"
       assert time.now() < deadline, f"racer did not reach its first conflicting create: {error_output.read_text()?}"

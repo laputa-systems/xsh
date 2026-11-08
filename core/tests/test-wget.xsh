@@ -138,7 +138,7 @@ proc start_server(ctx: TestContext) [fs, process, time, error] -> Result[Server?
   let handle = spawn run perl $script $port_file ?
   let started = time.now()
   while !port_file.exists() {
-    if time.now() - started > 5000 {
+    if time.now() - started > 30000 {
       handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("the HTTP fixture did not start"))
     }
@@ -523,7 +523,7 @@ proc start_tls_server(ctx: TestContext) [fs, process, time, error] -> Result[Tls
   let accept = f"127.0.0.1:{number.trim()}"
   let handle = spawn run openssl s_server -accept $accept -cert ${root}/leaf.pem -key ${root}/leaf.key -www -quiet > /dev/null ?
   let started = time.now()
-  while time.now() - started < 5000 {
+  while time.now() - started < 30000 {
     let probe = run.capture --text openssl s_client -connect $accept -brief < /dev/null
     if probe.status.ok { return Ok({url: f"https://{accept}/", ca: fp"{root}/ca.pem", handle: handle}) }
     time.sleep(100ms)

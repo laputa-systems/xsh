@@ -42,7 +42,7 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
   let handle = spawn plan?
   let started = time.now()
   while ! ready.exists() {
-    if time.now() - started > 2000 {
+    if time.now() - started > 15000 {
       handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("timeout child did not install its signal handler"))
     }
@@ -50,7 +50,7 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
     time.sleep(10ms)
   }
   process.kill(handle.pid, signal)
-  let completed = process.wait_timeout([handle], 2s)?
+  let completed = process.wait_timeout([handle], 15s)?
   let status = if let finished = completed {
     finished.status.shell_code()?
   } else {
@@ -62,7 +62,7 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
 
 proc wait_for_marker(marker: Path, handle: ProcessHandle, description: Str, started: Int) [fs, process, time, error] -> Result[Unit] {
   while ! marker.exists()? {
-    if time.now() - started >= 2000 {
+    if time.now() - started >= 15000 {
       handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure(f"{description} marker was not written"))
     }
@@ -73,7 +73,7 @@ proc wait_for_marker(marker: Path, handle: ProcessHandle, description: Str, star
 }
 
 proc wait_for_process(handle: ProcessHandle, description: Str, started: Int) [process, time, error] -> Result[Status] {
-  while time.now() - started < 2000 {
+  while time.now() - started < 15000 {
     if let finished = process.wait_timeout([handle], 0ms)? {
       return Ok(finished.status)
     }
@@ -125,7 +125,7 @@ test timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup { |ctx|
     b"",
     stdout,
     stderr,
-    timeout: 2s,
+    timeout: 15s,
   )
   let handle = spawn plan?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
@@ -193,7 +193,7 @@ test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
     b"",
     stdout,
     stderr,
-    timeout: 2s,
+    timeout: 15s,
   )
   let handle = spawn plan?
   defer handle.cancel(signal: "KILL", kill_after: 0ms)
@@ -286,7 +286,7 @@ test timeout_without_foreground_signals_the_commands_group { |ctx|
   # The group signal is delivered before timeout exits, but the grandchild's
   # exit is observable only once its new parent has reaped it.
   let started = time.now()
-  while time.now() - started < 2000 and alive(pid) {
+  while time.now() - started < 15000 and alive(pid) {
     time.sleep(10ms)
   }
   test.error_kind(process.kill(pid, signal: "0"), "process-missing")

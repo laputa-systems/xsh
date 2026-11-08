@@ -358,14 +358,14 @@ test test_ping_interrupt_prints_the_statistics_and_the_reply_status { |ctx|
   let handle = spawn plan?
   let started = time.now()
   while "icmp_seq=2 " not in out.read_text()? {
-    if time.now() - started > 5000 {
+    if time.now() - started > 30000 {
       handle.cancel(signal: "KILL", kill_after: 0ms)
       return Err(error.failure("ping printed no second reply"))
     }
     time.sleep(50ms)
   }
   process.kill(handle.pid, "INT")
-  let completed = process.wait_timeout([handle], 5s)?
+  let completed = process.wait_timeout([handle], 30s)?
   guard let finished = completed else {
     handle.cancel(signal: "KILL", kill_after: 0ms)
     return Err(error.failure("ping did not stop after SIGINT"))

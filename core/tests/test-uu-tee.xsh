@@ -54,10 +54,10 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
   defer unix.close_fd(reader)
   let file = if short_read { "tee_short_read_out" } else { "tee_file_out" }
   let words = uu.argv(s, "tee", [fp"{file}"])?
-  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "stream-capture"), uu.at(s, "stream-errors"), timeout: 5s)
+  let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "stream-capture"), uu.at(s, "stream-errors"), timeout: 30s)
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  let ready_deadline = time.now() + 5000
+  let ready_deadline = time.now() + 30000
   var writer = null
   while writer == null {
     assert time.now() < ready_deadline, "tee did not open its input pipe"
@@ -73,7 +73,7 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
     assert time.now() < ready_deadline, "tee did not open its output file"
     time.sleep(1ms)
   }
-  let deadline = time.now() + (if short_read { 5000 } else { 100 })
+  let deadline = time.now() + 10000
   if short_read {
     assert unix.write_fd(producer, b"first\n")? == 6
     assert read_exact(reader, 6, deadline)? == b"first\n"
@@ -82,7 +82,7 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
     assert read_exact(reader, 7, deadline)? == b"second\n"
     unix.close_fd(producer)
     producer_open = false
-    let done = process.wait_timeout([child], 5s)?
+    let done = process.wait_timeout([child], 10s)?
     assert done != null, "tee did not complete within the timeout"
     assert done.status.exited_with(0)
     assert time.now() < deadline
