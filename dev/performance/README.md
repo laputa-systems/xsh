@@ -109,6 +109,18 @@ The scheduler bridge validates the existing reference build and captured Docker
 command before publishing a receipt. Use the same run ID for bridge and
 scheduler comparison outputs.
 
+Each scheduler comparison stage runs `perf-gate-ready` before launch. It does
+not run `perf-gate-ready -1` afterward, because a 32-worker stage raises the
+load average itself. Instead the runner compares the host aggregate `cpu` line
+of `/proc/stat` (user, nice, system, irq, softirq, steal) with the container
+cgroup `usage_usec` over the same stage and accepts the timing only when the
+remainder, foreign CPU, is at most 0.5 core of wall time and `nr_throttled` did
+not move. A missing or unparseable snapshot discards the timing. The stage
+record keeps the inputs, the computed values, and the verdict under
+`performance_gate.after`, with `exit_code` 0 for accepted timing. Each stage
+also binds a private writable `/work/.work/tmp` and a private empty copy of the
+shared infra directory; the source tree stays read-only.
+
 Forced frames require `--network none`, a loopback `xsh-test` hostname, and the
 `mold` executable qualified by the release profile. Preserve failed output and
 use a fresh attempt directory for each run.
