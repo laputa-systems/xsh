@@ -4,10 +4,13 @@
 //! semantic walker that matches statement kinds with a wildcard arm can miss
 //! the sugar node and treat the statement as inert. Nothing in the type
 //! system catches that. This test does: every file of the native test corpus
-//! that holds a sugar statement is checked and run as written and again after
+//! that holds a sugar statement is checked as written and again after
 //! desugaring, in a copy of the workspace, and the two must report the same
-//! diagnostics (by file, code, and message; positions move) and the same
-//! result for every test.
+//! diagnostics (by file, code, and message; positions move) and list the same
+//! tests. The desugared files then run once. The native suite already holds
+//! the written corpus to passing, so a file whose desugared tests all pass
+//! agrees with it; any other file runs again as written and as desugared, and
+//! the two must report the same result for every test.
 //!
 //! It spawns `xsht`, so it runs on release binaries only. The unit tests in
 //! `crates/xsht/src/desugar_tests.rs` hold a handful of inline programs to
@@ -173,7 +176,7 @@ fn test_id_file(id: &str) -> &str {
     id.split_once("::").map_or(id, |(file, _)| file)
 }
 
-fn batch_test_report(root: &Path, files: &[String]) -> BatchReport {
+fn listed_test_ids(root: &Path, files: &[String]) -> Vec<String> {
     let listed = xsht(root, &["test", "--list-json"]);
     assert!(
         listed.status.success(),
@@ -181,11 +184,15 @@ fn batch_test_report(root: &Path, files: &[String]) -> BatchReport {
         String::from_utf8_lossy(&listed.stderr)
     );
     let listed = String::from_utf8(listed.stdout).expect("UTF-8 test list");
-    let ids = deser_json::from_str::<Vec<String>>(&listed)
+    deser_json::from_str::<Vec<String>>(&listed)
         .expect("parse test list")
         .into_iter()
         .filter(|id| files.iter().any(|file| file == test_id_file(id)))
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn batch_test_report(root: &Path, files: &[String]) -> BatchReport {
+    let ids = listed_test_ids(root, files);
     let scratch = TempDir::new().expect("create test id directory");
     let ids_file = scratch.path().join("ids.json");
     fs::write(&ids_file, deser_json::to_string(&ids).expect("encode test ids"))
@@ -315,21 +322,7 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         sugared.len()
     );
     let written_check = check_report(root, &sugared);
-    eprintln!(
-        "desugared corpus: checking written tests ({} files, {} jobs)",
-        sugared.len(),
-        test_jobs()
-    );
-    let written_tests = batch_test_report(root, &sugared);
-    assert!(
-        written_tests
-            .files
-            .values()
-            .map(|report| report.outcomes.len())
-            .sum::<usize>()
-            > sugared.len(),
-        "the sugared corpus files ran almost no tests"
-    );
+    let written_ids = listed_test_ids(root, &sugared);
 
     eprintln!(
         "desugared corpus: desugaring all {} files",
@@ -366,42 +359,57 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         sugared.len(),
         test_jobs()
     );
+    assert_eq!(
+        written_ids,
+        listed_test_ids(root, &sugared),
+        "the desugared corpus lists different tests"
+    );
     let desugared_tests = batch_test_report(root, &sugared);
-    let differing = sugared
+    assert!(
+        desugared_tests
+            .files
+            .values()
+            .map(|report| report.outcomes.len())
+            .sum::<usize>()
+            > sugared.len(),
+        "the sugared corpus files ran almost no tests"
+    );
+    let non_passing = sugared
         .iter()
-        .filter(|file| written_tests.files[*file].outcomes != desugared_tests.files[*file].outcomes)
+        .filter(|file| {
+            desugared_tests.files[*file]
+                .outcomes
+                .iter()
+                .any(|outcome| !outcome.ends_with(" ... ok"))
+        })
         .cloned()
         .collect::<Vec<_>>();
-    if differing.is_empty() {
+    if non_passing.is_empty() {
         return;
     }
 
     eprintln!(
-        "desugared corpus: rerunning {} differing files: {differing:?}",
-        differing.len()
+        "desugared corpus: rerunning {} files with non-passing tests: {non_passing:?}",
+        non_passing.len()
     );
-    for file in &differing {
+    for file in &non_passing {
         fs::write(root.join(file), &sources[file].0).expect("restore written file");
     }
-    let written_rerun = batch_test_report(root, &differing);
-    for file in &differing {
+    let written_rerun = batch_test_report(root, &non_passing);
+    for file in &non_passing {
         fs::write(root.join(file), &sources[file].1).expect("write desugared file");
     }
-    let desugared_rerun = batch_test_report(root, &differing);
-    for file in &differing {
+    let desugared_rerun = batch_test_report(root, &non_passing);
+    for file in &non_passing {
         assert_eq!(
             &written_rerun.files[file].outcomes,
             &desugared_rerun.files[file].outcomes,
-            "{file} tests differently once desugared, on both attempts\n\
-             first attempt written outcomes: {:?}\nfirst attempt desugared outcomes: {:?}\n\
-             first attempt written stdout:\n{}\nfirst attempt written stderr:\n{}\n\
-             first attempt desugared stdout:\n{}\nfirst attempt desugared stderr:\n{}\n\
-             rerun written stdout:\n{}\nrerun written stderr:\n{}\n\
+            "{file} tests differently once desugared\n\
+             first desugared outcomes: {:?}\n\
+             first desugared stdout:\n{}\nfirst desugared stderr:\n{}\n\
+             written stdout:\n{}\nwritten stderr:\n{}\n\
              rerun desugared stdout:\n{}\nrerun desugared stderr:\n{}",
-            written_tests.files[file].outcomes,
             desugared_tests.files[file].outcomes,
-            written_tests.files[file].stdout,
-            written_tests.stderr,
             desugared_tests.files[file].stdout,
             desugared_tests.stderr,
             written_rerun.files[file].stdout,
