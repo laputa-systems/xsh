@@ -985,3 +985,34 @@ fn output_held_for_a_full_pipe_is_written_after_the_server_hangs_up() {
     assert_eq!(drained.join().expect("drain"), 8 * 32 * 1024);
     peer.finish();
 }
+
+fn identification_outcome(line_length: usize) -> Result<Connection, Error> {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let port = listener.local_addr().expect("address").port();
+    thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        let mut line = b"SSH-2.0-".to_vec();
+        line.resize(line_length - 2, b'x');
+        line.extend_from_slice(b"\r\n");
+        let _ = stream.write_all(&line);
+        thread::sleep(Duration::from_secs(2));
+    });
+    let config = drip_config(port);
+    within(Duration::from_secs(8), move || Connection::connect(&config))
+}
+
+#[test]
+fn an_identification_line_of_255_bytes_with_its_crlf_is_read_whole() {
+    let _guard = exclusive();
+    let error = identification_outcome(255).expect_err("the peer sends no key exchange");
+    assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
+}
+
+#[test]
+fn an_identification_line_past_255_bytes_with_its_crlf_is_refused() {
+    let _guard = exclusive();
+    let error = identification_outcome(256).expect_err("too long");
+    assert!(error.to_string().contains("too long"), "{error:?}");
+}

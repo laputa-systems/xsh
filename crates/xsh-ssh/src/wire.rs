@@ -158,6 +158,7 @@ const INTERRUPT_POLL: Duration = Duration::from_millis(50);
 const READ_BUFFER_LIMIT: usize = 256 * 1024;
 const REPLY_HIGH_WATER: usize = 64 * 1024;
 const MAX_TEXT: usize = 512;
+const MAX_IDENTIFICATION_LINE: usize = 255;
 const PACKET_FRAMING: usize = 4 + 1 + 255 + 16;
 
 /// Server-supplied text made safe to show: control and bidirectional-override characters are
@@ -630,7 +631,7 @@ impl Transport {
         let mut line = Vec::with_capacity(128);
         while !line.ends_with(b"\r\n") {
             line.push(self.read_byte()?);
-            if line.len() > 255 + 2 {
+            if line.len() > MAX_IDENTIFICATION_LINE {
                 return Err(Error::Protocol {
                     detail: "identification line too long".to_owned(),
                 });
