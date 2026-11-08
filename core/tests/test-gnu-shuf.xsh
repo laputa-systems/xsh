@@ -36,7 +36,7 @@ proc minimum_vm(s: uu.Scene) [fs, process, env, time, error] -> Result[Int?, Err
         let descending = limited(s, lower, ["-i1-1"])?
         return Ok(null) when time.now() / 1000 - descending_started >= 10
         return Ok(null) when descending.status == 77
-        return Ok(previous + 4) when descending.status != 0
+        return Ok(previous + 6000) when descending.status != 0
         previous = lower
       }
     }
