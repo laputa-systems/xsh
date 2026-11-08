@@ -1,10 +1,18 @@
 # XSH-56: xsh-infra, configuration management written in XSH
 
 Status: implemented in the local `xsh-infra` repository over the native
-client, against Alpine 3.22 OpenSSH containers, with XSH pinned at
-`84ee78f06`. Open: native macOS (deferred), a full-init Alpine VM, a
-Laputa/xinit adapter and pyinfra differential coverage beyond directory, file,
-symlink, user and group. Parallel connection setup uses `ssh.connect_all`.
+client. Qualification scenarios pass against disposable Alpine 3.22 OpenSSH
+containers with XSH at `9f5477a6f`: every resource kind, command conditions
+and failing commands, unreachable and unauthenticated hosts, a host failing
+midway beside a healthy one, an unavailable package, package and service drift,
+and a failed validation that never restarts a service. The pyinfra 3.5
+differential covers files, packages (apk), services (OpenRC), commands and
+failures, and agrees on resulting state, change and no-op behavior, and
+success. pyinfra has no `creates`-style command guard, and it stops at "No
+hosts remaining" with exit 1 where xsh-infra reports per-resource outcomes and
+exits 3. Open: native macOS (deferred), a full-init Alpine VM, a Laputa/xinit
+adapter, and two-process cancellation at every mutation boundary. Parallel
+connection setup uses `ssh.connect_all`.
 See the [roadmap](../ROADMAP.md#sequence).
 
 ## Summary
