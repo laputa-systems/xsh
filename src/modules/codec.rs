@@ -378,6 +378,74 @@ impl deser::ser::EventGuard for EncodeLimits {
     }
 }
 
+pub(crate) fn decode_text_into<T: DecodeValue>(format: Format, text: &str, span: Span) -> Result<T, RuntimeError> {
+    if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+    match format {
+        Format::Json => decode_json_into(text, span),
+        Format::Yaml | Format::Toml | Format::Ini => config::decode_into(format, text, span),
+        Format::Csv | Format::Tsv => decode_table_into(format, text, span),
+    }
+}
+
+pub(crate) fn decode_bytes_into<T: DecodeValue>(format: Format, bytes: &[u8], span: Span) -> Result<T, RuntimeError> {
+    if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
+    let text = std::str::from_utf8(bytes).map_err(|error| {
+        codec_error("Encoding", format.identifier(), "invalid UTF-8".into(), None, None, Some(error.valid_up_to()), span)
+    })?;
+    decode_text_into(format, text, span)
+}
+
+pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<String, RuntimeError> {
+    match format {
+        Format::Json => {
+            let mut output = Output::new();
+            let result = deser_json::SerializerConfig::new().writer(&mut output).write_with(value, |driver| driver.push_guard(EncodeLimits::default()));
+            output.finish(result).map_err(|error| runtime_error(error, "json", span))
+        }
+        Format::Yaml | Format::Toml | Format::Ini => config::encode(format, value, span),
+        Format::Csv | Format::Tsv => encode_table(format, value, span),
+    }
+}
+
+pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    encode_text(format, value, span).map(String::into_bytes)
+}
+
+fn input_io_error(path: &std::path::Path, error: std::io::Error, span: Span) -> RuntimeError {
+    let mut failure = RuntimeError::host("fs-read", &error).with_span(span);
+    failure.message = format!("{}: {}", path.display(), failure.message);
+    failure
+}
+
+pub(crate) fn open_input(path: &std::path::Path, span: Span) -> Result<std::fs::File, RuntimeError> {
+    std::fs::File::open(path).map_err(|error| input_io_error(path, error, span))
+}
+
+pub(crate) fn read_input(path: &std::path::Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    use std::io::Read;
+    let file = open_input(path, span)?;
+    let mut bytes = Vec::new();
+    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes).map_err(|error| input_io_error(path, error, span))?;
+    Ok(bytes)
+}
+
+pub(crate) fn read_into<T: DecodeValue>(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<T, RuntimeError> {
+    let bytes = read_input(path, span)?;
+    decode_bytes_into(format, &bytes, span).map_err(|mut error| {
+        error.payload.insert("input_path".into(), Value::Path(input_path.clone()));
+        error
+    })
+}
+
+pub(crate) fn formats() -> Value {
+    Value::List(FORMATS.iter().map(|info| Value::Record(RecordMap::from([
+        ("identifier".into(), Value::Str(info.identifier.into())),
+        ("single".into(), Value::Bool(true)),
+        ("sequence".into(), Value::Bool(info.format.supports_sequence())),
+        ("lexical_typing".into(), Value::Bool(info.format.supports_lexical())),
+    ]))).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,72 +583,4 @@ mod tests {
         let Some(Value::List(flags)) = fields.get("flags") else { panic!("flags"); };
         assert!(matches!(flags.as_slice(), [Value::Bool(true), Value::Int(2)]));
     }
-}
-
-pub(crate) fn decode_text_into<T: DecodeValue>(format: Format, text: &str, span: Span) -> Result<T, RuntimeError> {
-    if text.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
-    match format {
-        Format::Json => decode_json_into(text, span),
-        Format::Yaml | Format::Toml | Format::Ini => config::decode_into(format, text, span),
-        Format::Csv | Format::Tsv => decode_table_into(format, text, span),
-    }
-}
-
-pub(crate) fn decode_bytes_into<T: DecodeValue>(format: Format, bytes: &[u8], span: Span) -> Result<T, RuntimeError> {
-    if bytes.len() > INPUT_LIMIT { return Err(failure("Limit", format.identifier(), "codec input exceeds 64 MiB", span)); }
-    let text = std::str::from_utf8(bytes).map_err(|error| {
-        codec_error("Encoding", format.identifier(), "invalid UTF-8".into(), None, None, Some(error.valid_up_to()), span)
-    })?;
-    decode_text_into(format, text, span)
-}
-
-pub(crate) fn encode_text<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<String, RuntimeError> {
-    match format {
-        Format::Json => {
-            let mut output = Output::new();
-            let result = deser_json::SerializerConfig::new().writer(&mut output).write_with(value, |driver| driver.push_guard(EncodeLimits::default()));
-            output.finish(result).map_err(|error| runtime_error(error, "json", span))
-        }
-        Format::Yaml | Format::Toml | Format::Ini => config::encode(format, value, span),
-        Format::Csv | Format::Tsv => encode_table(format, value, span),
-    }
-}
-
-pub(crate) fn encode_bytes<T: deser::Serialize + ?Sized>(format: Format, value: &T, span: Span) -> Result<Vec<u8>, RuntimeError> {
-    encode_text(format, value, span).map(String::into_bytes)
-}
-
-fn input_io_error(path: &std::path::Path, error: std::io::Error, span: Span) -> RuntimeError {
-    let mut failure = RuntimeError::host("fs-read", &error).with_span(span);
-    failure.message = format!("{}: {}", path.display(), failure.message);
-    failure
-}
-
-pub(crate) fn open_input(path: &std::path::Path, span: Span) -> Result<std::fs::File, RuntimeError> {
-    std::fs::File::open(path).map_err(|error| input_io_error(path, error, span))
-}
-
-pub(crate) fn read_input(path: &std::path::Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
-    use std::io::Read;
-    let file = open_input(path, span)?;
-    let mut bytes = Vec::new();
-    file.take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes).map_err(|error| input_io_error(path, error, span))?;
-    Ok(bytes)
-}
-
-pub(crate) fn read_into<T: DecodeValue>(format: Format, path: &std::path::Path, input_path: &crate::runtime::value::PathValue, span: Span) -> Result<T, RuntimeError> {
-    let bytes = read_input(path, span)?;
-    decode_bytes_into(format, &bytes, span).map_err(|mut error| {
-        error.payload.insert("input_path".into(), Value::Path(input_path.clone()));
-        error
-    })
-}
-
-pub(crate) fn formats() -> Value {
-    Value::List(FORMATS.iter().map(|info| Value::Record(RecordMap::from([
-        ("identifier".into(), Value::Str(info.identifier.into())),
-        ("single".into(), Value::Bool(true)),
-        ("sequence".into(), Value::Bool(info.format.supports_sequence())),
-        ("lexical_typing".into(), Value::Bool(info.format.supports_lexical())),
-    ]))).collect())
 }

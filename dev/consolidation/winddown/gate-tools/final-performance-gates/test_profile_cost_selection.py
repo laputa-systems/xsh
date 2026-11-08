@@ -82,6 +82,29 @@ def docker_base_command(tree, *, laputa_corpus=None, user=False, candidate_xsh=N
         )
 
 
+def test_profile_linked_worktree_mounts_the_shared_gate_lease_directory():
+    with make_working_tree() as (tree, _close_record, _commit):
+        linked = tree.parent / "linked"
+        subprocess.run(
+            ["git", "-C", str(tree), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "fixture"],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(tree), "worktree", "add", "--quiet", "--detach", str(linked)], check=True)
+        lease = tree / ".work/consolidation/infra"
+
+        command = docker_base_command(linked)
+
+        assert f"{lease}:{lease}:rw" in command
+        assert lease.is_dir()
+
+
+def test_profile_main_checkout_needs_no_separate_gate_lease_mount():
+    with make_working_tree() as (tree, _close_record, _commit):
+        command = docker_base_command(tree)
+
+        assert not any(argument.startswith(f"{tree / '.work/consolidation/infra'}:") for argument in command)
+
+
 def test_profile_build_context_has_no_baseline_xsh_dependency():
     with make_working_tree() as (tree, _close_record, _commit):
         command = docker_base_command(tree)
@@ -735,6 +758,8 @@ if __name__ == "__main__":
     test_container_build_reowns_outputs_after_success_failure_and_signal()
     test_container_build_escalates_when_child_ignores_sigterm()
     test_profile_build_uses_the_container_output_owner()
+    test_profile_linked_worktree_mounts_the_shared_gate_lease_directory()
+    test_profile_main_checkout_needs_no_separate_gate_lease_mount()
     test_profile_build_context_has_no_baseline_xsh_dependency()
     test_profile_build_mounts_selected_source_work_directory()
     test_profile_runtime_context_requires_explicit_candidate_xsh()

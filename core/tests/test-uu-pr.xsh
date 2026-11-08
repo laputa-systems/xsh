@@ -20,7 +20,10 @@ proc expected_during_run(s: uu.Scene, r: uu.Ran, fixture: Str, started: Int) [fs
     if r.stdout == bytes.from_text(pattern.replace("{last_modified_time}", with: stamp)) { found = true; break }
     current += 60000
   }
-  assert found, "stdout differs from every fixture rendered within the run's minute interval"
+  if ! found {
+    let first = time.format(started * 1000000, "%Y-%m-%d %H:%M", utc: true)?
+    uu.stdout_is(r, pattern.replace("{last_modified_time}", with: first))
+  }
 }
 
 # origin: uutils test_pr::test_without_any_options

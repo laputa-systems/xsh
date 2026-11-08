@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 77
+Next: 81
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -103,9 +103,9 @@ out of scope.
 
 - **Area:** Tests
 - **Where:** `dev/consolidation/final_canonical_replay.py`, `dev/performance/check.py`, `dev/consolidation/winddown/gate-tools/`
-- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13 (`0dfebb001`); nothing is qualified on current source. The scheduler failures there are fixed (`e3179f233`, `a758be15e`, `2515907c8`, `0836935e3`). The frozen reference `perf/reference-9d-qualification` cannot continue: its pinned test image is gone and `Dockerfile.test` builds from `alpine:edge`; master pins the present `xsh-test` image in `bench/consolidation/versions.lock.json`. On `perf/reference-10-qualification` (`eb94b57d7` plus the fixes below) the tooling now runs: observer, supplemental-plan and owned-container pins are re-pinned or requalified, the replay mounts `.work/gate`, and root-run gate fixtures are handed to the native user. Bootstrap passes. The latest canonical replay (`replay-r10f` on `eb94b57d7`, 2026-11-05) passed every Rust stage and the full native suite finished with 15,270 passed, 54 failed, 181 skipped. Fixes since: 51 lint-fix and tooling failures came from the repository `xsht-config.ini` reaching fixtures under the native scratch (`8546e8fe5`), one from a stale API surface fixture (`05d1aef79`), and one from a formatter fixture that spliced a list into fixed parameters (`6551176d1`); each file passes in the pinned image. The replay has not been rerun on the fixed tree.
+- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13 (`0dfebb001`). On `perf/reference-11-qualification` at `4e2b87561`, on the prebuilt musl LLVM 23.1.5 image, the supplemental gates, the canonical replay (native suite 15,335 passed, 0 failed, 181 skipped), the route replay (422 of 422 steps) and `check.py functional --check` passed. The functional close used a skip review, in which the 40 privileged and 27 SSH-fixture skips passed when run as root and against the OpenSSH fixture, and a nine-row semantic bundle. That source still had five wide arena wildcards, which `final-close` rejects; `0d6931e80` names every variant at those sites, so the matrix restarts on that commit.
 - **Recommendation:** On one frozen source, in order: `dev/performance/check.py functional --check`; a fresh normal profile (`profile-cost.py`) and `dev/perf/btop-profile.xsh` in a readiness-bracketed window; `final-observers.py --execute`; forced frames, the comparative profile and three scheduler pairs; util-linux `resources --check` and `close --check` (XSH-1). Bootstrap first with `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`. Validate each tool's `--plan` before an expensive run. Then publish the accepted baseline and retire the infrastructure under XSH-19.
-- **Unmet:** (1) `tests/xsh/pattern-tests.xsh::test_pattern_predicate_dynamic_facets_retain_the_error_api` fails: the full IR verifier rejects `error_message(value)` after `value is NotFound` (`ground producer value disagrees with its checked contract`) because `tested_read_type` takes only types that `runtime_complete_check_type` calls complete, and that excludes `ErrorFamily`, `ErrorVariant` and `ErrorFacet`. Accepting them (`type_view.rs` decides all three completely) and letting a tested error type fit `Error` was not enough in two attempts; the draft patch and its tests are not committed. (2) The scheduler reference arm cannot be derived: the pinned `dev/consolidation/winddown/unfinished/475-native-scheduler-reference-*.patch` no longer applies to `crates/xsht/src/xsht/test.rs`, which has been rewritten since, and reverting the three reference scheduler commits conflicts in five regions. (3) `check.py functional --check` needs a skip review and a semantic review bundle (`ReviewEvidenceBundle`) bound to the source trees; none exists for this source, and every later step takes the functional-close record. (4) No supplemental, functional, profile, observer, forced, comparative, scheduler or util-linux step has run on this source. The checker also accepts a positional list splice into fixed parameters that docs/SPEC.md forbids (positional splices fill only the final rest parameter).
+- **Unmet:** (1) The canonical, supplemental, route and functional steps must be repeated on the wildcard-free commit. (2) The timed steps, observers, forced frames, comparative profile and the three scheduler pairs (reference arm `native-scheduler-reference-rederived.patch`, pinned in `compare.py`) have not run on current source. (3) util-linux `resources --check` and `close --check` (XSH-1) remain.
 - **Fix with:** orchestrate
 - **Effort:** M
 
@@ -118,6 +118,46 @@ out of scope.
 - **Acceptance:** Roundtrip median CPU within `max(5%, paired spread)` of the pre-Deser baseline over five readiness-qualified alternating pairs with exact outputs; decode, JSONL and checker controls within budget.
 - **Fix with:** make-it-fast
 - **Effort:** M
+
+### XSH-79 · P3 · Spawn without forking when signals start ignored
+
+- **Area:** Performance
+- **Where:** `src/runtime/process.rs` (`child_signals_start_as_defaults`, `configure_process_group`, `configure_managed_child`)
+- **Problem:** When xsh or xsht starts with any of the child-reset signals ignored, every spawn installs a `pre_exec` closure, which makes the standard library fork instead of `posix_spawn`. A POSIX shell ignores SIGINT and SIGQUIT for every background job, so `xsht test &` starts that way. xsht installs its own SIGINT handler, but SIGQUIT stays ignored. The fork holds the address-space lock while it copies page tables. In the r11x scheduler pairs at 16 workers, about 8 of xsht's 50 threads were waiting for that lock at any moment. Tests that take 46 ms took 2 minutes, and four tests hit the 120 s timeout. The gate runner now resets the two signals itself (`a59cc658f`), but any user who backgrounds a suite still hits this.
+- **Recommendation:** Reset the ignored signals in the child without a fork: `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, or a spawn path that applies the defaults through spawn attributes. Keep the same child signal contract.
+- **Acceptance:** Started as `sh -c 'xsht test --jobs 16 & wait'`, the suite has the same wall time and outcome counts as a foreground run, within the observed spread. Children still start with the reset signals at their defaults. Process and signal tests green.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-80 · P3 · Make a btop frame for 1,000 processes interactive
+
+- **Area:** Performance
+- **Where:** `core/lib/btop_model.xsh`, the btop render and diff path, `dev/perf/btop-profile.xsh`
+- **Problem:** The release `btop-profile` run on `32aad8b7a` (2026-11-07) put the p95 time for one frame (model, render and diff) at 2.08 s with 1,000 processes. btop refreshes about once a second, so every frame at that size overruns its interval. The profile asserts only that the process join scales linearly (2.02 times from 1k to 2k processes) and sets no frame budget. No earlier figure exists to compare against.
+- **Recommendation:** Profile one 1k-process frame, find which of model, render or diff dominates, and fix that stage. Then add a frame-time budget to `btop-profile.xsh`.
+- **Acceptance:** p95 frame time for 1,000 processes under 250 ms in a readiness-qualified release run, with the profile enforcing that budget; btop tests green.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-77 · P3 · Make module constants and record fields cheap to read
+
+- **Area:** Performance
+- **Where:** `src/runtime/eval/`, core commands written in XSH (`core/factor.xsh` and others)
+- **Problem:** Profiling `factor` on 2026-11-07 measured a function call at about 3 µs, and a record field read, list index or module `const` read at about 0.7 to 1 µs, against about 0.05 µs for arithmetic on locals. `perf` put 36% of the time in `memcpy` in the evaluator. Replacing a module `const` with a literal cut one `factor` kernel from 29 µs to 10 µs. The `factor` fix (`64788888b`) works around this by keeping limbs in `Int` locals; every other core command written in XSH pays the same cost.
+- **Recommendation:** Profile const, field and index reads on a small kernel, find where the copy happens, and make those reads borrow instead of clone. Re-measure `factor`, `test_uu_factor_parallel` and the `test_gnu_factor_*` cases (about 55 s each at `-j 8` against a 120 s budget).
+- **Acceptance:** A module `const` read and a record field read cost within 2x of a local read on the same kernel, in readiness-qualified CPU time; native suite green.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-78 · P4 · Build rm's child names only where they are shown
+
+- **Area:** Performance
+- **Where:** `core/rm.xsh` (`remove_target`)
+- **Problem:** `rm -r` with `-i`, `-v`, `-g`, `--one-file-system` or a terminal-driven prompt still walks each entry in XSH at about 57 µs per file. About 31 µs of that builds the child's display name with a byte-by-byte basename scan and `bytes.concat`, even when no message or prompt uses it. Unattended `rm -r` takes one native `Path.remove()` (`3.9 µs` per file) and is unaffected.
+- **Recommendation:** Build `child_name` only when a message, prompt or `-v` line needs it, and pass the parent name plus the entry name otherwise.
+- **Acceptance:** `rm -ri` and `rm -rv` on 100k entries cost at least 40% less CPU over readiness-qualified pairs, with byte-identical prompts and messages; rm tests green.
+- **Fix with:** make-it-fast
+- **Effort:** S
 
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 

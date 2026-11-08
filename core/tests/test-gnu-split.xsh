@@ -287,7 +287,11 @@ proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] ->
 # origin: gnu split/line-bytes.log
 test test_gnu_split_line_bytes_log { |ctx|
   let s = uu.scene(ctx)?
-  if let vm = minimum_vm(s, ["-C", "K", "/dev/null"])? { assert vm_status(s, ["-C", "G", "/dev/null"], vm)? == 0 }
+  if let vm = minimum_vm(s, ["-C", "K", "/dev/null"])? {
+    let limit = vm + 6000
+    let status = vm_status(s, ["-C", "G", "/dev/null"], limit)?
+    assert status == 0, f"minimum {vm} KiB; limit {limit} KiB; status {status}; stderr {uu.read_text(s, "vm-err")?}"
+  }
   uu.write(s, "in", "1\n2222\n3\n4")
   uu.write(s, "no_eol_in", "0123456789")
   let expected = [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [2, 2, 2, 1, 2, 1], [2, 3, 2, 2, 1], [2, 4, 3, 1], [2, 5, 3], [2, 5, 3], [7, 3], [7, 3], [9, 1], [9, 1], [10]]

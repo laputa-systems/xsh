@@ -33,8 +33,8 @@ LOWERED_RUN_SOURCE_PATH = pathlib.Path("src/runtime/eval/lowered_run.rs")
 TYPED_SCALAR_VALUES_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/values.rs")
 OPERANDS_HELPER_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/operands.rs")
 OPERAND_MANIFEST = HERE / "operand-order-manifest.tsv"
-ORDINAL_HOLES = [50, 64, 95, 97, 98, 147]
-EXPECTED_LIVE_COUNT = 152
+ORDINAL_HOLES = [32, 43, 50, 64, 95, 96, 97, 98, 101, 117, 145, 146, 147]
+EXPECTED_LIVE_COUNT = 148
 EXPRESSION_FORCED_FRAME_ENTRY_PREDICATE = (
     "forced path takes the false arm of in_place, guarded by "
     "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)"
@@ -87,6 +87,7 @@ EAGER_ATOM_PROVENANCE = {
     "Null": ("ExprNull", "none", "construct", "LoweredValue::Null"),
     "Unit": ("ExprUnit", "none", "construct", "LoweredValue::Unit"),
     "Int": ("ExprInt", "value", "copy", "LoweredValue::Int"),
+    "UInt": ("ExprUInt", "value", "copy", "LoweredValue::Int"),
     "Float": ("ExprFloat", "value", "copy", "LoweredValue::Float"),
     "Duration": ("ExprDuration", "value", "copy", "LoweredValue::Duration"),
     "Bool": ("ExprBool", "value", "copy", "LoweredValue::Bool"),
@@ -485,14 +486,8 @@ for _tag in ("ExprCall", "ExprDirectPureCall", "ExprExternalCall", "ExprDynamicC
         (_EXPLICIT_DISPATCH, "push_resolved_call"),
         (_EXPLICIT_DISPATCH, "resolve_active_call"),
     ]
-RUNTIME_ERROR_SOURCE_FUNCTIONS["ExprCall"].extend([
-    (_EXPLICIT_DISPATCH, "function_kind"),
-    (_EXPLICIT_DISPATCH, "push_static_arguments"),
-])
-RUNTIME_ERROR_SOURCE_FUNCTIONS["ExprDirectPureCall"].extend([
-    (_EXPLICIT_DISPATCH, "function_kind"),
-    (_EXPLICIT_DISPATCH, "push_static_arguments"),
-])
+RUNTIME_ERROR_SOURCE_FUNCTIONS["ExprCall"].append((_EXPLICIT_DISPATCH, "push_static_arguments"))
+RUNTIME_ERROR_SOURCE_FUNCTIONS["ExprDirectPureCall"].append((_EXPLICIT_DISPATCH, "push_static_arguments"))
 RUNTIME_ERROR_SOURCE_FUNCTIONS["ExprExternalCall"].extend([
     (_EXPLICIT_DISPATCH, "external_kind"),
     (_EXPLICIT_DISPATCH, "resolve_active_external"),
@@ -534,23 +529,6 @@ RUN_OPERAND_ENUM_SCHEMA = {
     "LoweredRunTailOperand": [
         {"name": "Argument", "fields": [{"name": "value", "type": "LoweredRunArg"}]},
         {"name": "Redirection", "fields": [{"name": "value", "type": "LoweredRunRedirection"}]},
-    ],
-    "LoweredProcessCommandBuilderEntry": [
-        {
-            "name": "Field",
-            "fields": [
-                {"name": "name", "type": "Name"},
-                {"name": "value", "type": "BuildExprId"},
-                {"name": "span", "type": "Span"},
-            ],
-        },
-        {
-            "name": "Run",
-            "fields": [
-                {"name": "operands", "type": "LoweredRunOperands"},
-                {"name": "span", "type": "Span"},
-            ],
-        },
     ],
 }
 RUN_OPERAND_ENUM_VARIANTS = {
@@ -625,10 +603,6 @@ CUSTOM_CHILD_PATHS = {
         ".detach?", ".new_session?", ".ignore_hup?", ".cpu_max?",
         ".accept?", ".same_group?",
     ],
-    "LoweredProcessCommandBuilderEntry": [
-        ".Field.value",
-        *[f".Run.operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
-    ],
     "LoweredRecordEntry": [".Field.value", ".Spread.value"],
     "LoweredRecordUpdates": ["[*].value"],
     "LoweredRunCapture": [f".operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
@@ -651,27 +625,22 @@ PIPELINE_STAGE_VARIANTS = {
 }
 
 LEAF_SCHEMA_TYPES = {
-    "Arc", "AssignOp", "BinaryOp", "BuildBoolId", "BuildExprId", "BuildIntId",
+    "Arc", "AssignOp", "BinaryOp", "BuildBoolId", "BuildExprId", "BuildIntId", "CallableKind", "DeferKind",
     "BuildPatternId", "BuildStmtId", "DurationValue", "FloatValue", "FunctionName",
     "LoweredCompTarget", "LoweredFunctionKey", "LoweredStrPredicate", "LoweredType",
-    "LoweredTypeCheck", "LoweredValue", "Name", "NameText", "PathValue",
+    "LoweredTypeCheck", "LoweredValue", "LoweredValueCheck", "Name", "NameText", "PathValue",
     "PreparedConstantValue", "QualifiedName", "RegexValue", "ReduceByOp", "RuntimeOp",
     "ScanBytes", "ScanCheck", "Span", "String", "Type", "bool", "i64", "str",
     "usize", "[u8]",
     "crate::runtime::eval::EndDistance", "crate::runtime::eval::ModuleCallPlan",
     "crate::sema::wire_enums::WireEnumMapping", "crate::syntax::arena::ContextScopeKind",
-    "crate::syntax::arena::RetrySchedule",
+    "crate::syntax::arena::RetrySchedule", "crate::syntax::arena::UnknownFields",
 }
 
 ARENA_SHAPE_CONTRACTS = {
     "expr_binary": (
         "ArenaExprKind::Binary { left, right, .. } => { "
         "visit(Child::Expr(left)); visit(Child::Expr(right)); }",
-        "for_each_expr_child",
-    ),
-    "expr_comparison_chain": (
-        "ArenaExprKind::ComparisonChain(pairs) => { "
-        "for expr in self.comparison_chain_operands(pairs) { visit(Child::Expr(expr)); } }",
         "for_each_expr_child",
     ),
     "expr_if": (
@@ -682,7 +651,7 @@ ARENA_SHAPE_CONTRACTS = {
         "for_each_expr_child",
     ),
     "expr_list": (
-        "ArenaExprKind::List(items) | ArenaExprKind::Set(items) => { "
+        "ArenaExprKind::List(items) => { "
         "for expr in self.list_element_exprs(items) { visit(Child::Expr(expr)); } }",
         "for_each_expr_child",
     ),
@@ -999,8 +968,8 @@ def schema_child_paths(
     if generic is not None:
         name = generic.group(1)
         args = split_top_level_fields(generic.group(2))
-        if name in {"Option", "Box", "Arc"} and len(args) == 1:
-            suffix = "?" if name == "Option" else ""
+        if name in {"Option", "Box", "Arc", "crate::runtime::eval::IndexOperand"} and len(args) == 1:
+            suffix = "?" if name in {"Option", "crate::runtime::eval::IndexOperand"} else ""
             return schema_child_paths(args[0], prefix + suffix, pipeline_stage_paths)
         if name == "Vec" and len(args) == 1:
             return schema_child_paths(args[0], prefix + "[*]", pipeline_stage_paths)
@@ -1203,8 +1172,6 @@ def operand_policy(tag: str, field: str, field_type: str, child_paths: list[str]
         return "not_applicable"
     if tag in {"BoolAnd", "BoolOr"}:
         return "short_circuit"
-    if tag == "ExprComparisonChain":
-        return "short_circuit"
     if (tag, field) in {
         ("ExprResultFallback", "right"),
         ("ExprIf", "branches"), ("ExprIf", "else_value"),
@@ -1213,7 +1180,6 @@ def operand_policy(tag: str, field: str, field_type: str, child_paths: list[str]
         ("ExprStrMatch", "fallback"), ("ExprTagMatch", "arms"),
         ("ExprTagMatch", "fallback"), ("ExprRetry", "pattern"),
         ("StmtAssert", "message"), ("StmtGuard", "else_body"),
-        ("StmtWith", "body"), ("StmtWith", "else_body"),
         ("StmtIf", "branches"), ("StmtIf", "else_body"),
         ("StmtIfBool", "branches"), ("StmtIfBool", "else_body"),
         ("StmtPatternIf", "branches"), ("StmtPatternIf", "else_body"),
@@ -2550,7 +2516,7 @@ def validate_frame_constructor_inventory(
         "EmptyMap": "no_child",
     }
     expected_value = {
-        "FunctionRef": "indexed_function_ref_value",
+        "FunctionRef": "materialize_indexed_callable(indexed_function_ref_value)",
         "PathFrom": "indexed_path_from_value",
         "EmptyMap": "indexed_empty_map_value",
     }
@@ -3267,7 +3233,12 @@ def validate_field_index_inventory(
         raise EvidenceError("field/index metadata differs from the schema contract")
     expected_fields = {
         "ExprField": [("base", "BuildExprId"), ("name", "NameText"), ("span", "Span")],
-        "ExprIndex": [("base", "BuildExprId"), ("index", "BuildExprId"), ("span", "Span")],
+        "ExprIndex": [
+            ("base", "BuildExprId"),
+            ("index", "crate::runtime::eval::IndexOperand<BuildExprId>"),
+            ("span", "Span"),
+            ("key_span", "Span"),
+        ],
         "ExprIndexFromEnd": [
             ("base", "BuildExprId"),
             ("distance", "crate::runtime::eval::EndDistance"),
@@ -3331,8 +3302,8 @@ def validate_field_index_inventory(
     }
     expected_forced = {
         "ExprField": "try_record_field_chain_then_schedule_base",
-        "ExprIndex": "schedule_base_then_index_continuation",
-        "ExprIndexFromEnd": "schedule_base_then_from_end_continuation",
+        "ExprIndex": "schedule_base_then_index_or_literal_continuation",
+        "ExprIndexFromEnd": "schedule_base_then_from_end_literal_continuation",
     }
     for key, behaviors in (("normal_arms", expected_normal), ("forced_arms", expected_forced)):
         arms = inventory.get(key, [])
@@ -3750,8 +3721,8 @@ def validate_eager_atom_inventory(
     inventory: dict[str, Any],
 ) -> dict[str, Any]:
     expected_rows = [row for row in rows if row["eager_atom"]]
-    if len(expected_rows) != 12:
-        raise EvidenceError(f"EagerAtom matrix cohort must contain 12 rows, found {len(expected_rows)}")
+    if len(expected_rows) != len(EAGER_ATOM_PROVENANCE):
+        raise EvidenceError(f"EagerAtom matrix cohort must contain {len(EAGER_ATOM_PROVENANCE)} rows, found {len(expected_rows)}")
     if any(
         row["kind"] != "Expr"
         or row["effects"] != "0"
@@ -3836,7 +3807,7 @@ def validate_eager_atom_inventory(
     helper_variants = [arm.get("variant") for arm in helper_arms]
     if len(helper_variants) != len(set(helper_variants)) or set(helper_variants) != expected_variants:
         raise EvidenceError("EagerAtom helper view arms differ from schema")
-    if len(helper_arms) != 12 or any(
+    if len(helper_arms) != len(EAGER_ATOM_PROVENANCE) or any(
         not isinstance(arm.get("line"), int) or arm["line"] < 1 for arm in helper_arms
     ):
         raise EvidenceError("EagerAtom helper view arm inventory is incomplete")
@@ -3913,7 +3884,7 @@ def validate_eager_atom_inventory(
     value_contract = inventory.get("value_contract", {})
     for name, expected in {
         "decode_error": "indexed_error(error, span)",
-        "path_error": "indexed_error(IrVerifyError { message: error.message }, span)",
+        "path_error": "indexed_error(IrVerifyError::at(None, error.message), span)",
         "slot_bounds": "slot >= decoder.slot_count",
         "freeze": "before slots[slot].clone()",
     }.items():
@@ -6596,8 +6567,8 @@ def final_correctness_receipts(
 
 DIRECT_IR_TEST_ID = "runtime::eval::indexed::full::tests::direct_if_children_are_marked_and_selected"
 DIRECT_IR_FUNCTION_HASHES = {
-    "direct_if_fixture": "544dfe4876f4a42f1369b6fb8ebbde2b69415fc910aa5705ef406dd35487fd73",
-    "direct_if_children_are_marked_and_selected": "012b152df87ea9154885b5286bdb73eb7adb0395a0f1b5ad9606f8ba1a523e3f",
+    "direct_if_fixture": "731509e7548cb1edafea19ac1de2f3c84a94210a2dabeab0a46e4e069314aaee",
+    "direct_if_children_are_marked_and_selected": "688be82c2f9426e1da3a505ac2ef30d80ba922ae706ac8743822917abeb55145",
 }
 
 
@@ -6743,8 +6714,8 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
     if len(rows) != EXPECTED_LIVE_COUNT:
         raise EvidenceError(f"expected {EXPECTED_LIVE_COUNT} live rows, found {len(rows)}")
     ordinals = {row["ordinal"] for row in rows}
-    if sorted(set(range(158)) - ordinals) != ORDINAL_HOLES:
-        raise EvidenceError("instruction ordinal holes differ from the six retired ordinals")
+    if sorted(set(range(max(ordinals) + 1)) - ordinals) != ORDINAL_HOLES:
+        raise EvidenceError("instruction ordinal holes differ from the retired ordinals")
     arena_text = (root / ARENA_PATH).read_text()
     pipeline_stage_source = (root / PIPELINE_STAGE_SOURCE_PATH).read_text()
     operand_inventory = validate_operand_inventory(

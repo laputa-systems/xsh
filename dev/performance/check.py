@@ -725,7 +725,7 @@ def check_supplemental_stage_step(step, receipt, plan, config):
         and qualification.get('profile_name') == 'verification'
         and isinstance(harness_features, list)
         and all(type(feature) is str for feature in harness_features)
-        and set(harness_features) == {'default', 'native-tests', 'net', 'tools'}
+        and set(harness_features) == {'default', 'native-tests', 'net', 'ssh', 'tools'}
         and len(harness_features) == len(set(harness_features))
         and qualification.get('source') == {'clean': True, 'commit': config.commit, 'tree': config.tree},
         'supplemental harness xsh qualification mismatch',

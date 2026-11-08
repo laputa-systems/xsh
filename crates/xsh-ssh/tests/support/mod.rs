@@ -9,7 +9,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use tempfile::TempDir;
-use xsh_ssh::oxish_proto::crypto::{CryptoProvider, HandshakeBuffer};
+use xsh_ssh::oxish_proto::crypto::HandshakeBuffer;
 use xsh_ssh::oxish_proto::{HostKeys, SessionHostKey};
 use xsh_ssh::oxish_proto::key_exchange::{
     Established, Identities, InitialKeyExchangeState, KeyExchangeOutput, RekeyState,
@@ -276,23 +276,22 @@ impl Link {
         let mut state = InitialKeyExchangeState::new(exchange, identities, host_keys);
         let mut step = 0;
         let established = loop {
-            let mut finished = None;
-            match link.read.poll_packet() {
+            let finished = match link.read.poll_packet() {
                 Ok(Completion::Complete((sequence, length))) => {
                     let packet = link
                         .read
                         .decode_packet(sequence, length)
                         .expect("decode key exchange packet");
-                    finished = state
+                    state
                         .handle(packet, &mut link.write, provider)
-                        .expect("server key exchange step");
+                        .expect("server key exchange step")
                 }
                 Ok(Completion::Incomplete(_)) | Err(ProtoError::Incomplete(_)) => {
                     link.pump_in().expect("key exchange input");
                     continue;
                 }
                 Err(error) => panic!("key exchange read: {error}"),
-            }
+            };
             step += 1;
             if step == 2 && behavior.corrupt_signature {
                 let packet_length =

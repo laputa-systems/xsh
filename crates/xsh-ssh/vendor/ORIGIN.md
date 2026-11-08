@@ -33,8 +33,9 @@ or cryptographic behavior changes.
 Source files are byte-for-byte from ssh-build. The two OxiSH manifests were
 made standalone so this workspace does not need ssh-build's workspace fields:
 `edition` and `rust-version` replace their `.workspace` forms, workspace
-dependency versions are spelled out, the inherited lint table is replaced by an
-empty `[lints]`, and `oxish-graviola` names its sibling `graviola` by path. The
+dependency versions are spelled out, the inherited lint table is replaced by
+`[lints.clippy] all = "allow"` so the repository clippy gate (`-D warnings`,
+root `clippy.toml`) does not apply to vendored source, and `oxish-graviola` names its sibling `graviola` by path. The
 Graviola manifest drops its non-root resolver and inferable readme fields. The
 workspace also patches crates.io `graviola` to this same path so one copy serves
 XSH and xsh-ssh.
@@ -48,3 +49,9 @@ XSH and xsh-ssh.
    the manifest normalization.
 4. Run `cargo build --release --target aarch64-apple-darwin -p xsh-ssh` and
    `scripts/check-ssh-crypto.sh`.
+
+The Graviola manifest also gains `keywords = ["cryptography"]`, which the
+repository `clippy::cargo` lint requires of every workspace package. The
+supplemental clippy gate excludes `graviola` from `--all-features` because its
+`__ctgrind` feature builds `crabgrind` with bindgen and libclang, which a static
+musl build script cannot load.

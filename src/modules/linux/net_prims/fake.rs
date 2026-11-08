@@ -114,15 +114,15 @@ struct Entry {
 
 impl Entry {
     fn op(&self) -> &str {
-        (&self.value).get("op").and_then(|value| value.as_str()).unwrap_or("")
+        self.value.get("op").and_then(|value| value.as_str()).unwrap_or("")
     }
 
     fn uint(&self, key: &str) -> Option<u64> {
-        (&self.value).get(key).and_then(|value| value.as_u64())
+        self.value.get(key).and_then(|value| value.as_u64())
     }
 
     fn text(&self, key: &str) -> Option<&str> {
-        (&self.value).get(key).and_then(|value| value.as_str())
+        self.value.get(key).and_then(|value| value.as_str())
     }
 
     fn bytes(&self, key: &str) -> Option<Vec<u8>> {
@@ -145,10 +145,10 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
         }
         let line = index + 1;
         let value = xsh::host::json::parse(text).map_err(|error| fault(path, line, error, args))?;
-        let Some(object) = (&value).as_map() else {
+        let Some(object) = value.as_map() else {
             return Err(fault(path, line, "each line must be a JSON object", args));
         };
-        let op = (&value).get("op")
+        let op = value.get("op")
             .and_then(|value| value.as_str())
             .ok_or_else(|| fault(path, line, "missing `op`", args))?;
         let allowed = match op {
@@ -377,7 +377,7 @@ fn route_request(args: &Args<'_>, fixture: &Path, log: &mut Log<'_>) -> Result<V
     if let Some(errno) = entry.errno() {
         return Err(os_error(args, errno));
     }
-    let mut datagrams = (&entry.value)
+    let mut datagrams = entry.value
         .get("datagrams")
         .and_then(|value| value.as_seq())
         .map(|items| {

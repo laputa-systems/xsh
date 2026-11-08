@@ -92,7 +92,8 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
   var success = true
   var write_error = null
   var protected = false
-  if ! opts.force and meta.kind != "symlink" and (interactive or (automatic and (unix.isatty(0) or presume_input_tty))) {
+  let prompting = ! opts.force and (interactive or (automatic and (unix.isatty(0) or presume_input_tty)))
+  if prompting and meta.kind != "symlink" {
     match fs.access(target, write: true) {
       Ok(writable) => protected = ! writable
       Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
@@ -109,6 +110,10 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
       gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
       return {ok: false, removed: false, write_error: null}
     }
+    return {ok: true, removed: true, write_error: null}
+  }
+  let unattended = ! prompting and ! opts.verbose and ! opts.progress and ! opts.one_file_system
+  if meta.kind == "dir" and opts.recursive and unattended and target.remove() is Ok(_) {
     return {ok: true, removed: true, write_error: null}
   }
   if meta.kind == "dir" and opts.recursive {

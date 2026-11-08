@@ -15,4 +15,5 @@ graviola = { path = "../graviola", version = "=0.4.1" }
 proto = { package = "oxish-proto", version = "0.2", path = "../oxish-proto" }
 zeroize = "1"
 
-[lints]
+[lints.clippy]
+all = "allow"

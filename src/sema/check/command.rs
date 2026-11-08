@@ -508,7 +508,7 @@ impl Checker {
             self.report_unknown_module_api(module, name, span);
             return Type::Unknown;
         };
-        let rewrite = module_call_rewrite(arena, source, module, name, arena.arena.command_args(args), &overloads);
+        let rewrite = module_call_rewrite(arena, source, module, name, arena.arena.command_args(args), overloads);
         self.diagnostics.push(
             Diagnostic::error(format!("`{module}.{name}` is an expression call, not a command"))
                 .with_code(DiagnosticCode::CheckModuleCommandSyntax)

@@ -8,16 +8,6 @@ enum RouteOracleTagMatch { Ready, Busy }
 
 proc route_oracle_match_tag() -> RouteOracleTagMatch { Ready }
 
-test test_expr_joined_comparison { |ctx|
-  assert 1 < 2 and 2 < 3
-  test.expect(ctx, r"""let first = 1
-let second = 2
-let third = 3
-let selected = first < second and second < third
-assert selected == true
-""", status: 0)?
-}
-
 test test_expr_binary { |ctx|
   test.expect(ctx, r"""assert "route " + "binary" == "route binary"
 """, status: 0)?
@@ -288,6 +278,58 @@ test test_expr_context_scope { |ctx|
   test.expect(ctx, "assert within 1s { 21 } == Ok(21)\n", status: 0)?
 }
 
+test test_expr_context_scope_cwd { |ctx|
+  test.expect(
+    ctx,
+    r"""let root = fs.cwd()?
+cd (root) {
+  print "inside"
+}
+""",
+    status: 0,
+    stdout: ["inside"],
+  )?
+}
+
+test test_expr_context_scope_env { |ctx|
+  test.expect(
+    ctx,
+    r"""env ({XSH_STMT_ROUTE_ORACLE: "active"}) {
+  print e"XSH_STMT_ROUTE_ORACLE"?
+}
+""",
+    status: 0,
+    stdout: ["active"],
+  )?
+}
+
+test test_expr_target_variant { |ctx|
+  let root = test.temp_dir(ctx, name: "route-target-variant")?
+  fp"{root}/route_choice.xsh".write_atomic("##! Route choices.\n## Route choice.\nexport enum Choice { Same, Other }\n")
+  let output = test.expect(
+    ctx,
+    r"""use route_choice
+pure selected(event) -> Bool { event.action == .Same }
+print ${selected({action: route_choice.Same})}
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert output.stdout == "true\n"
+}
+
+test test_expr_codec_schema { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type RouteService = {name: Str, port: Int}
+let service = codec.decode_as("ini", "name=worker\nport=8080\n", RouteService)?
+print ${service.name} ${service.port}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "worker 8080\n"
+}
+
 test test_expr_loop { |ctx|
   test.expect(ctx, "let value = loop { break 21 }\nassert value == 21\n", status: 0)?
 }
@@ -410,7 +452,7 @@ test test_expr_abort { |ctx|
   )?
 }
 
-test test_expr_archive_tar_create { |ctx|
+test test_expr_module_call_archive_create { |ctx|
   let root = test.temp_dir(ctx, name: "route-archive-create")?
   fp"{root}/member".write("payload")
   let archive_file = fp"{root}/payload.tar"
@@ -534,15 +576,6 @@ test test_expr_index_from_end { |ctx|
     ctx,
     "proc last(values: List[Str]) -> Str { return values[-1] }\nassert last([\"first\", \"last\"]) == \"last\"\n",
     status: 0,
-  )?
-}
-
-test test_last_status_expression_is_removed { |ctx|
-  test.expect(
-    ctx,
-    "run.status false\nlet status = $?\n",
-    status: 2,
-    stderr: ["[parse.last-status]", "let status = run.status COMMAND"],
   )?
 }
 

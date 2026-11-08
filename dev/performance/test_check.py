@@ -732,7 +732,7 @@ class PolicyTests(unittest.TestCase):
         destination.chmod(0o755)
         source_hash = check.owned_digest(source)
         harness_xsh_hash = check.owned_digest(harness_xsh)
-        features = ['default', 'native-tests', 'net', 'tools']
+        features = ['default', 'native-tests', 'net', 'ssh', 'tools']
         harness = {
             'target_variant': 'harness',
             'target_dir': str(harness_root),

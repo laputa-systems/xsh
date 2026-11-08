@@ -920,8 +920,8 @@ impl FullBuilder {
         let type_parameters_start = self.store.scheme_type_parameters.len();
         for id in type_ids.iter().copied() {
             let iteration = requirements.iteration_parameters.get(&id).map(|iteration| {
-                let item = self.intern_scheme_type(&iteration.item, &type_parameters, &row_parameters, &effect_parameters)?;
-                let policy = iteration.policy.try_map(|error| self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters))?;
+                let item = self.intern_scheme_type(&iteration.item, type_parameters, row_parameters, effect_parameters)?;
+                let policy = iteration.policy.try_map(|error| self.intern_scheme_type(error, type_parameters, row_parameters, effect_parameters))?;
                 Ok::<_, IrBuildError>(crate::sema::schemes::IterationRequirement { item, policy, source_kind: iteration.source_kind })
             }).transpose()?;
             self.store.scheme_type_parameters.push(FullSchemeTypeParameter {
@@ -973,7 +973,7 @@ impl FullBuilder {
     ) -> Result<FullRequirementRanges, IrBuildError> {
         let effect_predicates_start = self.store.scheme_effect_predicates.len();
         for predicate in &requirements.effect_predicates {
-            let predicate = self.intern_effect_predicate(predicate, &effect_parameters)?;
+            let predicate = self.intern_effect_predicate(predicate, effect_parameters)?;
             self.store.scheme_effect_predicates.push(predicate);
         }
         let effect_predicates = super::table_range(effect_predicates_start, self.store.scheme_effect_predicates.len())?;
@@ -984,7 +984,7 @@ impl FullBuilder {
                 for parameter in application.parameters.iter() {
                     parameters.push(FullSchemeCallableParameter {
                         name: self.intern_string(parameter.layout.name.as_str().as_str())?.raw(),
-                        ty: self.intern_scheme_type(&parameter.ty, &type_parameters, &row_parameters, &effect_parameters)?,
+                        ty: self.intern_scheme_type(&parameter.ty, type_parameters, row_parameters, effect_parameters)?,
                         schema: None,
                         flags: u8::from(parameter.layout.rest) | u8::from(parameter.layout.defaulted) << 1,
                         reserved: [0; 3],
@@ -995,7 +995,7 @@ impl FullBuilder {
                 let parameters = super::table_range(start, self.store.scheme_callable_parameters.len())?;
                 let mut arguments = Vec::new();
                 for argument in application.arguments.iter() {
-                    let ty = self.intern_scheme_type(&argument.ty, &type_parameters, &row_parameters, &effect_parameters)?;
+                    let ty = self.intern_scheme_type(&argument.ty, type_parameters, row_parameters, effect_parameters)?;
                     let kind = match argument.kind {
                         crate::sema::arguments::StaticArgumentKind::Positional => FullApplicationArgumentKind::Positional,
                         crate::sema::arguments::StaticArgumentKind::Named(name) => FullApplicationArgumentKind::Named(self.intern_string(name.as_str().as_str())?.raw()),
@@ -1010,12 +1010,12 @@ impl FullBuilder {
                 continue;
             }
             let crate::sema::callable_application::CallableApplication::Invocation(application) = application else { unreachable!() };
-            let callee = self.intern_scheme_type(&application.callee, &type_parameters, &row_parameters, &effect_parameters)?;
-            let result = self.intern_scheme_type(&application.result, &type_parameters, &row_parameters, &effect_parameters)?;
-            let effects = self.intern_effect_contract(&application.effects, &effect_parameters)?;
+            let callee = self.intern_scheme_type(&application.callee, type_parameters, row_parameters, effect_parameters)?;
+            let result = self.intern_scheme_type(&application.result, type_parameters, row_parameters, effect_parameters)?;
+            let effects = self.intern_effect_contract(&application.effects, effect_parameters)?;
             let mut arguments = Vec::new();
             for argument in application.arguments.iter() {
-                let ty = self.intern_scheme_type(&argument.ty, &type_parameters, &row_parameters, &effect_parameters)?;
+                let ty = self.intern_scheme_type(&argument.ty, type_parameters, row_parameters, effect_parameters)?;
                 let kind = match argument.kind {
                     crate::sema::arguments::StaticArgumentKind::Positional => FullApplicationArgumentKind::Positional,
                     crate::sema::arguments::StaticArgumentKind::Named(name) => FullApplicationArgumentKind::Named(self.intern_string(name.as_str().as_str())?.raw()),
@@ -1028,10 +1028,10 @@ impl FullBuilder {
             let arguments = super::table_range(arguments_start, self.store.scheme_application_arguments.len())?;
             let mut proc_returns = Vec::new();
             for envelope in application.proc_returns.iter() {
-                let result = self.intern_scheme_type(&envelope.result, &type_parameters, &row_parameters, &effect_parameters)?;
+                let result = self.intern_scheme_type(&envelope.result, type_parameters, row_parameters, effect_parameters)?;
                 let mut errors = Vec::new();
                 for error in envelope.propagated_errors.iter() {
-                    errors.push(self.intern_scheme_type(error, &type_parameters, &row_parameters, &effect_parameters)?);
+                    errors.push(self.intern_scheme_type(error, type_parameters, row_parameters, effect_parameters)?);
                 }
                 let errors_start = self.store.scheme_children.len();
                 self.store.scheme_children.extend(errors);
@@ -1048,7 +1048,7 @@ impl FullBuilder {
         let applications = super::table_range(applications_start, self.store.scheme_applications.len())?;
         let operations_start = self.store.scheme_operations.len();
         for operation in &requirements.operations {
-            let operation = operation.try_map(|ty| self.intern_scheme_type(ty, &type_parameters, &row_parameters, &effect_parameters))?;
+            let operation = operation.try_map(|ty| self.intern_scheme_type(ty, type_parameters, row_parameters, effect_parameters))?;
             let encoded = match operation {
                 crate::sema::sealed_operation::SealedOperation::TargetVariant { subject, result, name, families, .. } => {
                     let name = self.intern_string(name.as_str().as_str())?.raw();
@@ -1081,14 +1081,14 @@ impl FullBuilder {
         let operations = super::table_range(operations_start, self.store.scheme_operations.len())?;
         let methods_start = self.store.scheme_methods.len();
         for method in &requirements.methods {
-            let receiver = self.intern_scheme_type(&method.receiver, &type_parameters, &row_parameters, &effect_parameters)?;
-            let result = self.intern_scheme_type(&method.result, &type_parameters, &row_parameters, &effect_parameters)?;
+            let receiver = self.intern_scheme_type(&method.receiver, type_parameters, row_parameters, effect_parameters)?;
+            let result = self.intern_scheme_type(&method.result, type_parameters, row_parameters, effect_parameters)?;
             let argument_slots_start = self.store.scheme_method_slots.len();
             self.store.scheme_method_slots.extend(method.argument_slots.iter().copied());
             let argument_slots = super::table_range(argument_slots_start, self.store.scheme_method_slots.len())?;
             let arguments_start = self.store.scheme_method_arguments.len();
             for argument in &method.arguments {
-                let argument = self.intern_scheme_type(argument, &type_parameters, &row_parameters, &effect_parameters)?;
+                let argument = self.intern_scheme_type(argument, type_parameters, row_parameters, effect_parameters)?;
                 self.store.scheme_method_arguments.push(argument);
             }
             let arguments = super::table_range(arguments_start, self.store.scheme_method_arguments.len())?;
@@ -1104,7 +1104,7 @@ impl FullBuilder {
         let wrappers_start = self.store.scheme_wrappers.len();
         for (ordinal, requirement) in requirements.wrappers.iter().enumerate() {
             let ordinal = u32::try_from(ordinal).map_err(|_| IrBuildError::format("wrapper_group_overflow", None, 0, ordinal))?;
-            let encoded = self.intern_wrapper(requirement, ordinal, &type_parameters, &row_parameters, &effect_parameters)?;
+            let encoded = self.intern_wrapper(requirement, ordinal, type_parameters, row_parameters, effect_parameters)?;
             self.store.scheme_wrappers.push(encoded);
         }
         let wrappers = super::table_range(wrappers_start, self.store.scheme_wrappers.len())?;

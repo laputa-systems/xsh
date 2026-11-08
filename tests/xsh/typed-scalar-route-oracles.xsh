@@ -312,6 +312,17 @@ print ${value.require(Int)?}
   assert output.stdout == "42\n"
 }
 
+test test_expr_u_int { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""let value: UInt = 1KiB
+print $value
+""",
+    status: 0,
+  )?
+  assert output.stdout == "1024\n"
+}
+
 test test_expr_float { |ctx|
   let output = test.expect(
     ctx,

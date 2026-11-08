@@ -150,20 +150,38 @@ pure display_columns(data: Bytes, start = 0) -> Int {
 }
 
 pure expansion_overflows(data: Bytes, tab_width: Int, tab_byte: Int) -> Bool {
+  let widest_step = if tab_width > 8 { tab_width } else { 8 }
+  for line in data.lines() {
+    continue when line.len() <= 2147483647 / widest_step
+    return true when line_expansion_overflows(line, tab_width, tab_byte)
+  }
+  false
+}
+
+pure line_expansion_overflows(line: Bytes, tab_width: Int, tab_byte: Int) -> Bool {
+  let runs = if tab_byte == 9 { regex.find_bytes("\t+|[ -~]+", line, extended: true) ?? [] } else { [] }
   var column = 0
   var at = 0
-  while at < data.len() {
-    let unit = text.character(data, at)
-    let byte = data.byte_at(at) ?? 0
-    if byte == tab_byte or byte == 9 {
-      let width = if byte == 9 and tab_byte != 9 { 8 - column % 8 } else { tab_width - column % tab_width }
-      return true when column > 2147483647 - width
-      column += width
-    } else if byte == 10 { column = 0 } else if byte == 8 { if column > 0 { column -= 1 } } else {
-      return true when column > 2147483647 - unit.width
-      column += unit.width
+  for span in [@runs, {start: line.len(), end: line.len()}] {
+    while at < span.start {
+      let byte = line.byte_at(at) ?? 0
+      let unit = if byte < 128 { {size: 1, width: if byte < 32 or byte == 127 { 0 } else { 1 }} } else { text.character(line, at) }
+      if byte == tab_byte or byte == 9 {
+        let width = if byte == 9 and tab_byte != 9 { 8 - column % 8 } else { tab_width - column % tab_width }
+        return true when column > 2147483647 - width
+        column += width
+      } else if byte == 8 { if column > 0 { column -= 1 } } else {
+        return true when column > 2147483647 - unit.width
+        column += unit.width
+      }
+      at += unit.size
     }
-    at += unit.size
+    continue when span.end == span.start
+    let count = span.end - span.start
+    let width = if line.byte_at(span.start) == 9 { tab_width - column % tab_width + (count - 1) * tab_width } else { count }
+    return true when column > 2147483647 - width
+    column += width
+    at = span.end
   }
   false
 }
@@ -316,6 +334,7 @@ proc main(...argv: List[Str]) {
     labels += [if name == "-" { "" } else { name }]
     timestamps += [if name == "-" { time.now() * 1000000 } else { fs.stat(fp"{name}", true)?.mtime_ns }]
   }
+  let merged_at = time.now() * 1000000
   var groups = inputs.len()
   if opts.merge { groups = if inputs.is_empty() { 0 } else { 1 } }
   for batch in range(groups) {
@@ -340,7 +359,7 @@ proc main(...argv: List[Str]) {
       let row_count = if opts.merge { take } else { (take + count - 1) / count }
       let shown = page >= first_page.value and page <= last_page.value
       if shown and headers {
-        let date = time.format(if opts.merge { time.now() * 1000000 } else { timestamps[batch] }, format: date_format)?
+        let date = time.format(if opts.merge { merged_at } else { timestamps[batch] }, format: date_format)?
         let label = opts.header ?? (if opts.merge { "" } else { labels[batch] })
         let page_text = f"Page {page}"
         let spare = width - date.byte_len() - label.byte_len() - page_text.byte_len()

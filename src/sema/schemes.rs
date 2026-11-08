@@ -1055,7 +1055,7 @@ impl CallableRequirements {
             guard.view.map_ground_types(map);
             if let Some(output) = &mut guard.output { output.outward.map_ground_types(map); output.present.map_ground_types(map); output.absent.map_ground_types(map); }
             for read in &mut guard.reads { read.source.map_ground_types(map); read.view.map_ground_types(map); }
-            guard.requirements = Box::new(guard.requirements.map_ground_types(map));
+            *guard.requirements = guard.requirements.map_ground_types(map);
         }
         for operation in &mut mapped.operations {
             for ty in operation.types_mut() { ty.map_ground_types(map); }

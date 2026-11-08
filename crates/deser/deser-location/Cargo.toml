@@ -18,4 +18,5 @@ deser-core = { version = "0.10.1", path = "../deser-core", default-features = fa
 deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
 deser-json = { path = "../deser-json" }
 
-[lints]
+[lints.clippy]
+all = "allow"

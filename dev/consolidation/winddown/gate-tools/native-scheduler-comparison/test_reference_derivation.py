@@ -172,7 +172,7 @@ def test_exact_derived_overlay_and_rejected_source_mutations():
         unrelated.write_text("sealed unrelated content\n")
         commands = candidate / "crates/xsht/src/commands.rs"
         commands.write_text(commands.read_text().replace(
-            "Run N tests concurrently (default: all CPUs capped at 32; max 8 per file)",
+            "Run N tests concurrently (default: one per CPU core capped at 32; max 8 per file)",
             "unrelated replacement help",
         ))
         subprocess.run(["git", "-C", str(candidate), "add", "."], check=True)

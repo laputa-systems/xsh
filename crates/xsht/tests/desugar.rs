@@ -4,10 +4,13 @@
 //! semantic walker that matches statement kinds with a wildcard arm can miss
 //! the sugar node and treat the statement as inert. Nothing in the type
 //! system catches that. This test does: every file of the native test corpus
-//! that holds a sugar statement is checked and run as written and again after
+//! that holds a sugar statement is checked as written and again after
 //! desugaring, in a copy of the workspace, and the two must report the same
-//! diagnostics (by file, code, and message; positions move) and the same
-//! result for every test.
+//! diagnostics (by file, code, and message; positions move) and list the same
+//! tests. The desugared files then run once. The native suite already holds
+//! the written corpus to passing, so a file whose desugared tests all pass
+//! agrees with it; any other file runs again as written and as desugared, and
+//! the two must report the same result for every test.
 //!
 //! It spawns `xsht`, so it runs on release binaries only. The unit tests in
 //! `crates/xsht/src/desugar_tests.rs` hold a handful of inline programs to
@@ -15,11 +18,8 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Mutex;
 use std::thread;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -158,182 +158,135 @@ fn check_report(root: &Path, files: &[String]) -> BTreeMap<String, usize> {
 struct TestReport {
     outcomes: Vec<String>,
     stdout: String,
+}
+
+struct BatchReport {
+    files: BTreeMap<String, TestReport>,
     stderr: String,
 }
 
-fn test_report(root: &Path, file: &str) -> TestReport {
-    let output = xsht(root, &["test", file]);
+fn test_jobs() -> String {
+    thread::available_parallelism()
+        .map_or(1, usize::from)
+        .clamp(1, 8)
+        .to_string()
+}
+
+fn test_id_file(id: &str) -> &str {
+    id.split_once("::").map_or(id, |(file, _)| file)
+}
+
+fn listed_test_ids(root: &Path, files: &[String]) -> Vec<String> {
+    let listed = xsht(root, &["test", "--list-json"]);
+    assert!(
+        listed.status.success(),
+        "xsht test --list-json failed:\n{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let listed = String::from_utf8(listed.stdout).expect("UTF-8 test list");
+    deser_json::from_str::<Vec<String>>(&listed)
+        .expect("parse test list")
+        .into_iter()
+        .filter(|id| files.iter().any(|file| file == test_id_file(id)))
+        .collect()
+}
+
+fn batch_test_report(root: &Path, files: &[String]) -> BatchReport {
+    let ids = listed_test_ids(root, files);
+    let scratch = TempDir::new().expect("create test id directory");
+    let ids_file = scratch.path().join("ids.json");
+    fs::write(&ids_file, deser_json::to_string(&ids).expect("encode test ids"))
+        .expect("write test ids");
+
+    let output = xsht(
+        root,
+        &[
+            "test",
+            "--jobs",
+            &test_jobs(),
+            "--exact-ids-file",
+            &ids_file.to_string_lossy(),
+        ],
+    );
     let stdout = String::from_utf8(output.stdout).expect("UTF-8 test report");
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    let mut report = stdout
+    let summary = stdout
         .lines()
-        .filter(|line| line.contains(" ... ") || line.starts_with("test result:"))
-        .map(|line| {
-            match line.split_once(" ... ") {
-                Some((name, outcome)) => format!(
-                    "{name} ... {}",
-                    outcome.split_whitespace().next().unwrap_or("")
-                ),
-                None => line.to_string(),
-            }
-        })
-        .collect::<Vec<_>>();
-    report.sort();
-    let summary = report
-        .iter()
         .find(|line| line.starts_with("test result:"));
     assert!(
         summary.is_some(),
-        "xsht test {file} produced no test summary with exit status {:?}:\n{}",
+        "xsht test produced no test summary with exit status {:?}:\n{stderr}",
         output.status.code(),
-        stderr
     );
+    let skipped_only = output.status.code() == Some(2)
+        && summary.is_some_and(|line| line.starts_with("test result: INCOMPLETE"))
+        && !stderr.lines().any(|line| line.starts_with("xsht: "));
     assert!(
-        matches!(output.status.code(), Some(0 | 1)),
-        "xsht test {file} did not finish normally with exit status {:?}:\n{}",
+        matches!(output.status.code(), Some(0 | 1)) || skipped_only,
+        "xsht test did not finish normally with exit status {:?}:\n{stderr}",
         output.status.code(),
-        stderr
     );
     assert_eq!(
         output.status.code() == Some(1),
         summary.is_some_and(|line| line.starts_with("test result: FAILED")),
-        "xsht test {file} exit status disagrees with its summary: {summary:?}\n{}",
-        stderr
+        "xsht test exit status disagrees with its summary: {summary:?}\n{stderr}",
     );
-    TestReport {
-        outcomes: report,
-        stdout,
+
+    let mut reports = files
+        .iter()
+        .map(|file| {
+            (
+                file.clone(),
+                TestReport {
+                    outcomes: Vec::new(),
+                    stdout: String::new(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut in_failures = false;
+    let mut owner: Option<String> = None;
+    for line in stdout.lines() {
+        if line.starts_with("test result:") {
+            break;
+        }
+        if line == "failures:" {
+            in_failures = true;
+            owner = None;
+            continue;
+        }
+        let id = if in_failures {
+            line.strip_prefix("---- ")
+                .and_then(|rest| rest.strip_suffix(" ----"))
+        } else {
+            line.split_once(" ... ").map(|(id, _)| id)
+        };
+        if let Some(id) = id {
+            owner = reports
+                .contains_key(test_id_file(id))
+                .then(|| test_id_file(id).to_string());
+        } else if !in_failures {
+            owner = None;
+        }
+        let Some(report) = owner.as_deref().and_then(|file| reports.get_mut(file)) else {
+            continue;
+        };
+        report.stdout.push_str(line);
+        report.stdout.push('\n');
+        if !in_failures && let Some((name, outcome)) = line.split_once(" ... ") {
+            report.outcomes.push(format!(
+                "{name} ... {}",
+                outcome.split_whitespace().next().unwrap_or("")
+            ));
+        }
+    }
+    for report in reports.values_mut() {
+        report.outcomes.sort();
+    }
+    BatchReport {
+        files: reports,
         stderr,
     }
-}
-
-fn report_worker_count() -> usize {
-    (thread::available_parallelism().map_or(1, usize::from) / 8).clamp(1, 4)
-}
-
-fn parallel_map_ordered<T, R, F>(items: &[T], worker_count: usize, map: F) -> Vec<R>
-where
-    T: Sync,
-    R: Send,
-    F: Fn(usize, &T) -> R + Sync,
-{
-    if items.is_empty() {
-        return Vec::new();
-    }
-
-    let worker_count = worker_count.clamp(1, items.len());
-    let next = AtomicUsize::new(0);
-    let cancelled = AtomicBool::new(false);
-    let results = Mutex::new(
-        std::iter::repeat_with(|| None)
-            .take(items.len())
-            .collect::<Vec<Option<R>>>(),
-    );
-
-    thread::scope(|scope| {
-        let mut workers = Vec::with_capacity(worker_count);
-        for _ in 0..worker_count {
-            workers.push(scope.spawn(|| {
-                loop {
-                    if cancelled.load(Ordering::Acquire) {
-                        break None;
-                    }
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(item) = items.get(index) else {
-                        break None;
-                    };
-                    let mapped = catch_unwind(AssertUnwindSafe(|| map(index, item)));
-                    let value = match mapped {
-                        Ok(value) => value,
-                        Err(payload) => {
-                            cancelled.store(true, Ordering::Release);
-                            break Some(payload);
-                        }
-                    };
-                    let mut results = results
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    results[index] = Some(value);
-                }
-            }));
-        }
-
-        let mut failure = None;
-        for worker in workers {
-            match worker.join() {
-                Ok(Some(payload)) | Err(payload) => {
-                    if failure.is_none() {
-                        failure = Some(payload);
-                    }
-                }
-                Ok(None) => {}
-            }
-        }
-        if let Some(payload) = failure {
-            resume_unwind(payload);
-        }
-    });
-
-    results
-        .into_inner()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .into_iter()
-        .enumerate()
-        .map(|(index, result)| {
-            result.unwrap_or_else(|| panic!("report worker skipped item {index}"))
-        })
-        .collect()
-}
-
-#[test]
-fn report_workers_preserve_order_and_visit_each_file_once() {
-    let files = ["first", "second", "third", "fourth"];
-    let calls = files
-        .iter()
-        .map(|_| AtomicUsize::new(0))
-        .collect::<Vec<_>>();
-
-    let reports = parallel_map_ordered(&files, 3, |index, file| {
-        calls[index].fetch_add(1, Ordering::Relaxed);
-        format!("{file}:{index}")
-    });
-
-    assert_eq!(
-        reports,
-        vec![
-            "first:0".to_string(),
-            "second:1".to_string(),
-            "third:2".to_string(),
-            "fourth:3".to_string()
-        ]
-    );
-    assert!(calls.iter().all(|count| count.load(Ordering::Relaxed) == 1));
-}
-
-#[test]
-fn report_workers_join_started_items_before_propagating_a_failure() {
-    let files = [0, 1, 2, 3];
-    let rendezvous = std::sync::Barrier::new(2);
-    let started = AtomicUsize::new(0);
-    let finished = AtomicUsize::new(0);
-
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        parallel_map_ordered(&files, 2, |_, file| {
-            started.fetch_add(1, Ordering::Relaxed);
-            if *file < 2 {
-                rendezvous.wait();
-            }
-            assert_ne!(*file, 0, "report worker failure");
-            finished.fetch_add(1, Ordering::Relaxed);
-            *file
-        })
-    }));
-
-    assert!(result.is_err());
-    assert_eq!(
-        started.load(Ordering::Relaxed),
-        finished.load(Ordering::Relaxed) + 1
-    );
 }
 
 #[test]
@@ -363,34 +316,21 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         sugared.len()
     );
 
-    let workers = report_worker_count();
     eprintln!("desugared corpus: selected {} files", sugared.len());
     eprintln!(
         "desugared corpus: checking written diagnostics ({} files)",
         sugared.len()
     );
     let written_check = check_report(root, &sugared);
-    eprintln!(
-        "desugared corpus: checking written tests ({} files, {workers} workers)",
-        sugared.len()
-    );
-    let written_tests = parallel_map_ordered(&sugared, workers, |_, file| {
-        test_report(root, file)
-    });
-    assert!(
-        written_tests
-            .iter()
-            .map(|report| report.outcomes.len())
-            .sum::<usize>()
-            > sugared.len(),
-        "the sugared corpus files ran almost no tests"
-    );
+    let written_ids = listed_test_ids(root, &sugared);
 
     eprintln!(
         "desugared corpus: desugaring all {} files",
         sugared.len()
     );
+    let mut sources = BTreeMap::new();
     for file in &sugared {
+        let written = fs::read(root.join(file)).expect("read written file");
         let output = xsht(root, &["desugar", file]);
         assert!(
             output.status.success(),
@@ -398,6 +338,7 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
             String::from_utf8_lossy(&output.stderr)
         );
         fs::write(root.join(file), &output.stdout).expect("write desugared file");
+        sources.insert(file.clone(), (written, output.stdout));
         assert!(
             !holds_sugar(&root.join(file)),
             "xsht desugar {file} left sugar in its output"
@@ -414,19 +355,67 @@ fn the_desugared_corpus_checks_and_tests_like_the_corpus() {
         "the desugared corpus checks differently"
     );
     eprintln!(
-        "desugared corpus: checking desugared tests ({} files, {workers} workers)",
-        sugared.len()
+        "desugared corpus: checking desugared tests ({} files, {} jobs)",
+        sugared.len(),
+        test_jobs()
     );
-    let _ = parallel_map_ordered(&sugared, workers, |index, file| {
-        let desugared = test_report(root, file);
+    assert_eq!(
+        written_ids,
+        listed_test_ids(root, &sugared),
+        "the desugared corpus lists different tests"
+    );
+    let desugared_tests = batch_test_report(root, &sugared);
+    assert!(
+        desugared_tests
+            .files
+            .values()
+            .map(|report| report.outcomes.len())
+            .sum::<usize>()
+            > sugared.len(),
+        "the sugared corpus files ran almost no tests"
+    );
+    let non_passing = sugared
+        .iter()
+        .filter(|file| {
+            desugared_tests.files[*file]
+                .outcomes
+                .iter()
+                .any(|outcome| !outcome.ends_with(" ... ok"))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if non_passing.is_empty() {
+        return;
+    }
+
+    eprintln!(
+        "desugared corpus: rerunning {} files with non-passing tests: {non_passing:?}",
+        non_passing.len()
+    );
+    for file in &non_passing {
+        fs::write(root.join(file), &sources[file].0).expect("restore written file");
+    }
+    let written_rerun = batch_test_report(root, &non_passing);
+    for file in &non_passing {
+        fs::write(root.join(file), &sources[file].1).expect("write desugared file");
+    }
+    let desugared_rerun = batch_test_report(root, &non_passing);
+    for file in &non_passing {
         assert_eq!(
-            &written_tests[index].outcomes,
-            &desugared.outcomes,
-            "{file} tests differently once desugared\nwritten stdout:\n{}\nwritten stderr:\n{}\ndesugared stdout:\n{}\ndesugared stderr:\n{}",
-            written_tests[index].stdout,
-            written_tests[index].stderr,
-            desugared.stdout,
-            desugared.stderr
+            &written_rerun.files[file].outcomes,
+            &desugared_rerun.files[file].outcomes,
+            "{file} tests differently once desugared\n\
+             first desugared outcomes: {:?}\n\
+             first desugared stdout:\n{}\nfirst desugared stderr:\n{}\n\
+             written stdout:\n{}\nwritten stderr:\n{}\n\
+             rerun desugared stdout:\n{}\nrerun desugared stderr:\n{}",
+            desugared_tests.files[file].outcomes,
+            desugared_tests.files[file].stdout,
+            desugared_tests.stderr,
+            written_rerun.files[file].stdout,
+            written_rerun.stderr,
+            desugared_rerun.files[file].stdout,
+            desugared_rerun.stderr
         );
-    });
+    }
 }

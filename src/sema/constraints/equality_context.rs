@@ -98,7 +98,7 @@ mod tests {
         }).unwrap();
         let actual = Type::Result(Box::new(hole.clone()), Box::new(Type::Str));
         let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Str));
-        constraints.contextualize_equality_holes(scope, &BTreeSet::from([owner]), &[header.clone()], &[(hole.clone(), span(2))], &actual, &expected, span(4)).unwrap();
+        constraints.contextualize_equality_holes(scope, &BTreeSet::from([owner]), std::slice::from_ref(&header), &[(hole.clone(), span(2))], &actual, &expected, span(4)).unwrap();
         assert_eq!(constraints.resolve(&hole).unwrap(), hole);
         assert_eq!(constraints.resolve(&header).unwrap(), header);
     }

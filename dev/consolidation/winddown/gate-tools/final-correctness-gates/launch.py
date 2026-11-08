@@ -49,7 +49,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "2a3eaf846d3a1e2acd0687dadca25ef22d08005a0ce105250a8883d540480b24"
+APPROVED_MANIFEST_BODY_SHA256 = "11f8e3e11802a89043de6b3448c975cd87df35e3e33145f6cdd4eefd5c3fa861"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -1083,7 +1083,7 @@ class Launch:
             or harness_xsh != expected_harness_xsh
             or qualification.get("target_variant") != "harness"
             or qualification.get("profile_name") != "verification"
-            or set(qualification.get("features", [])) != {"default", "native-tests", "net", "tools"}
+            or set(qualification.get("features", [])) != {"default", "native-tests", "net", "ssh", "tools"}
             or qualified_source.get("commit") != self.expected_commit
             or qualified_source.get("tree") != self.expected_tree
             or qualified_source.get("clean") is not True

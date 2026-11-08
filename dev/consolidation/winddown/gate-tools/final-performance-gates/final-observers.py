@@ -1066,6 +1066,7 @@ def prepare_docker_shim(
     shim_path = shim_dir / "docker"
     shutil.copyfile(HERE / "docker-observer-shim.py", shim_path)
     shim_path.chmod(0o755)
+    environment["XSH_OBSERVER_IMAGE_ID"] = NATIVE_IMAGE_ID
     environment["XSH_OBSERVER_REAL_DOCKER"] = docker
     environment["XSH_OBSERVER_DOCKER_LOG"] = str(batch_stage / "docker-commands.jsonl")
     environment["XSH_OBSERVER_RUN_ID"] = run_id
@@ -1320,10 +1321,15 @@ def run(args: argparse.Namespace) -> int:
 
             if receipt["selected_release_binaries_after_gate_batch"] != profile_before:
                 raise ObserverFailure("selected-release binaries changed during the canonical gate batch")
-            if len(receipt["gate_batch_docker_commands"] or []) != 2 or sum(
-                1 for item in receipt["gate_batch_docker_commands"] if item.get("instrumented") is True
-            ) != 1:
-                raise ObserverFailure("canonical gate batch did not use exactly one instrumented pinned Docker run")
+            docker_commands = receipt["gate_batch_docker_commands"] or []
+            runs = [item for item in docker_commands if item.get("argv", [None, None])[1:2] == ["run"]]
+            others = [item for item in docker_commands if item not in runs]
+            if (
+                [item.get("stage") for item in runs] != ["canonical-gate-build", "canonical-gate-batch"]
+                or not all(item.get("instrumented") is True for item in runs)
+                or any(item.get("instrumented") or item.get("rejected") for item in others)
+            ):
+                raise ObserverFailure("canonical gate did not use exactly one instrumented build run and one instrumented batch run")
             receipt["source_after"] = source_check(tree, source)
             receipt["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             receipt["state"] = "complete"

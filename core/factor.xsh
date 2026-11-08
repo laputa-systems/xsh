@@ -354,6 +354,8 @@ pure mod_info(m: Int) -> Mod {
 pure mulmod(a: Int, b: Int, info: Mod) -> Int {
   return a * b % info.m when info.shift == 0
 
+  let m = info.m
+  let shift = info.shift
   var result = 0
   var rest = b
   var scale = info.top
@@ -361,8 +363,8 @@ pure mulmod(a: Int, b: Int, info: Mod) -> Int {
   while scale > 0 {
     let digit = rest / scale
     rest = rest - digit * scale
-    result = (result * info.shift % info.m + a * digit % info.m) % info.m
-    scale = scale / info.shift
+    result = (result * shift % m + a * digit % m) % m
+    scale = scale / shift
   }
 
   result
@@ -566,6 +568,8 @@ pure gcd_big(a: List[Int], b: List[Int]) -> List[Int] {
   var y = b
 
   while ! y.is_empty() {
+    return big_from_int(gcd_int(big_to_int(x), big_to_int(y))) when x.len() <= 2 and y.len() <= 2
+
     let rest = big_divmod(x, y).remainder
     x = y
     y = rest
@@ -629,6 +633,331 @@ pure rho_big(n: List[Int], c: Int, limit: Int) -> List[Int] {
     loop {
       ys = rho_step_big(ys, c, n)
       g = gcd_big(distance(x, ys), n)
+
+      break when ! big_is_one(g)
+    }
+  }
+
+  if big_cmp(g, n) == 0 { [] } else { g }
+}
+
+const WIDE_LIMB = 8388608
+
+const WIDE_LIMIT = [838206464, 786976294, 73]
+
+const WIDE_RHO_STEPS = 8000
+
+type WideLimbs = {low: Int, mid: Int, high: Int}
+
+type Montgomery = {n: WideLimbs, twice: WideLimbs, inverse: Int, one: WideLimbs, square: WideLimbs}
+
+pure is_wide(n: List[Int]) -> Bool {
+  big_cmp(n, WIDE_LIMIT) < 0
+}
+
+pure wide_from(a: List[Int]) -> WideLimbs {
+  let limb = WIDE_LIMB
+  let top = if a.len() > 2 { a[2] } else { 0 }
+  let low = top * (1000000000000000000 % limb) + big_to_int(a)
+  let shifted = top * (1000000000000000000 / limb) + low / limb
+
+  {low: low % limb, mid: shifted % limb, high: shifted / limb}
+}
+
+pure wide_big(a: WideLimbs) -> List[Int] {
+  big_add(big_mul_small(big_from_int(WIDE_LIMB * WIDE_LIMB), a.high), big_from_int(a.mid * WIDE_LIMB + a.low))
+}
+
+pure wide_below(a: WideLimbs, b: WideLimbs) -> Bool {
+  if a.high != b.high { a.high < b.high } else if a.mid != b.mid { a.mid < b.mid } else { a.low < b.low }
+}
+
+pure wide_sub(a: WideLimbs, b: WideLimbs) -> WideLimbs {
+  let limb = WIDE_LIMB
+  let low = a.low - b.low + limb
+  let mid = a.mid - b.mid + low / limb + limb - 1
+
+  {low: low % limb, mid: mid % limb, high: a.high - b.high + mid / limb - 1}
+}
+
+pure mont_mul(a: WideLimbs, b: WideLimbs, m: Montgomery) -> WideLimbs {
+  let limb = WIDE_LIMB
+  let inverse = m.inverse
+  let n0 = m.n.low
+  let n1 = m.n.mid
+  let n2 = m.n.high
+  let a0 = a.low
+  let a1 = a.mid
+  let a2 = a.high
+  let b0 = b.low
+  let b1 = b.mid
+  let b2 = b.high
+  var t = a0 * b0
+  let m0 = t % limb * inverse % limb
+
+  t = (t + m0 * n0) / limb + a0 * b1 + a1 * b0 + m0 * n1
+
+  let m1 = t % limb * inverse % limb
+
+  t = (t + m1 * n0) / limb + a0 * b2 + a1 * b1 + a2 * b0 + m0 * n2 + m1 * n1
+
+  let m2 = t % limb * inverse % limb
+
+  t = (t + m2 * n0) / limb + a1 * b2 + a2 * b1 + m1 * n2 + m2 * n1
+
+  let low = t % limb
+
+  t = t / limb + a2 * b2 + m2 * n2
+
+  {low: low, mid: t % limb, high: t / limb}
+}
+
+pure wide_gap(a: WideLimbs, b: WideLimbs, m: Montgomery) -> WideLimbs {
+  let limb = WIDE_LIMB
+  let low = a.low - b.low + m.twice.low + limb + limb
+  let mid = a.mid - b.mid + m.twice.mid + low / limb + limb - 2
+
+  {low: low % limb, mid: mid % limb, high: a.high - b.high + m.twice.high + mid / limb - 1}
+}
+
+pure gcd_wide(a: WideLimbs, b: WideLimbs) -> List[Int] {
+  let limb = WIDE_LIMB
+  var high = a.high * limb + a.mid
+  var low = a.low
+  var other_high = b.high * limb + b.mid
+  var other_low = b.low
+
+  while other_high >= 131072 {
+    let quotient = ((high.float() * 8388608.0 + low.float()) / (other_high.float() * 8388608.0 + other_low.float())).floor() ?? 0
+    var rest_high = high - quotient * other_high
+    var rest_low = low - quotient * other_low
+
+    if rest_low < 0 {
+      let borrow = (limb - 1 - rest_low) / limb
+
+      rest_high -= borrow
+      rest_low += borrow * limb
+    }
+
+    while rest_high < 0 {
+      rest_high += other_high + (rest_low + other_low) / limb
+      rest_low = (rest_low + other_low) % limb
+    }
+
+    while rest_high > other_high or (rest_high == other_high and rest_low >= other_low) {
+      rest_high -= other_high + (if rest_low < other_low { 1 } else { 0 })
+      rest_low = (rest_low - other_low + limb) % limb
+    }
+
+    high = other_high
+    low = other_low
+    other_high = rest_high
+    other_low = rest_low
+  }
+
+  let divisor = other_high * limb + other_low
+
+  return wide_big({low: low, mid: high % limb, high: high / limb}) when divisor == 0
+
+  big_from_int(gcd_int(divisor, (high % divisor * limb + low) % divisor))
+}
+
+pure wide_reduced(a: WideLimbs, m: Montgomery) -> WideLimbs {
+  if wide_below(a, m.n) { a } else { wide_sub(a, m.n) }
+}
+
+pure montgomery(n: List[Int]) -> Montgomery {
+  let limb = WIDE_LIMB
+  let wide = wide_from(n)
+  var inverse = wide.low
+
+  for _ in range(4) {
+    inverse = inverse * (2 + limb - wide.low * inverse % limb) % limb
+  }
+
+  let square = big_divmod(big_pow(big_from_int(WIDE_LIMB * WIDE_LIMB), 3), n).remainder |> wide_from(_)
+  let partial = {n: wide, twice: wide_from(big_add(n, n)), inverse: limb - inverse, one: square, square: square}
+
+  {...partial, one: wide_reduced(mont_mul(square, {low: 1, mid: 0, high: 0}, partial), partial)}
+}
+
+pure wide_pow(base: WideLimbs, exponent: WideLimbs, m: Montgomery) -> WideLimbs {
+  var result = m.one
+
+  for part in [exponent.high, exponent.mid, exponent.low] {
+    var bit = WIDE_LIMB / 2
+
+    while bit > 0 {
+      result = mont_mul(result, result, m)
+
+      if part / bit % 2 == 1 {
+        result = mont_mul(result, base, m)
+      }
+
+      bit = bit / 2
+    }
+  }
+
+  result
+}
+
+pure is_prime_wide(n: List[Int]) -> Bool {
+  let m = montgomery(n)
+  let below = big_sub(n, [1])
+  let minus_one = wide_sub(m.n, m.one)
+  let zero = {low: 0, mid: 0, high: 0}
+  var odd = below
+  var twos = 0
+
+  while odd[0] % 2 == 0 {
+    odd = big_div_small(odd, 2).quotient
+    twos += 1
+  }
+
+  let exponent = wide_from(odd)
+  let bases = if big_float(n) < 18446744073709551616.0 {
+    [2, 325, 9375, 28178, 450775, 9780504, 1795265022]
+  } else {
+    [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+  }
+
+  for base in bases {
+    let start = mont_mul(wide_from(big_from_int(base)), m.square, m)
+    var x = wide_reduced(wide_pow(start, exponent, m), m)
+
+    if x != zero and x != m.one and x != minus_one {
+      var witness = true
+
+      for _ in range(twos - 1) {
+        x = wide_reduced(mont_mul(x, x, m), m)
+
+        if x == minus_one {
+          witness = false
+          break
+        }
+      }
+
+      return false when witness
+    }
+  }
+
+  true
+}
+
+pure rho_wide(n: List[Int], c: Int, limit: Int) -> List[Int] {
+  let m = montgomery(n)
+  let limb = WIDE_LIMB
+  let inverse = m.inverse
+  let n0 = m.n.low
+  let n1 = m.n.mid
+  let n2 = m.n.high
+  let twice0 = m.twice.low
+  let twice1 = m.twice.mid
+  let twice2 = m.twice.high
+  var y0 = 2
+  var y1 = 0
+  var y2 = 0
+  var x0 = 2
+  var x1 = 0
+  var x2 = 0
+  var back: WideLimbs = {low: 2, mid: 0, high: 0}
+  var q0 = 1
+  var q1 = 0
+  var q2 = 0
+  var g = [1]
+  var r = 1
+  var steps = 0
+
+  while big_is_one(g) and steps < limit {
+    x0 = y0
+    x1 = y1
+    x2 = y2
+
+    for _ in range(r) {
+      var t = y0 * y0
+      let m0 = t % limb * inverse % limb
+
+      t = (t + m0 * n0) / limb + 2 * y0 * y1 + m0 * n1
+
+      let m1 = t % limb * inverse % limb
+
+      t = (t + m1 * n0) / limb + 2 * y0 * y2 + y1 * y1 + m0 * n2 + m1 * n1
+
+      let m2 = t % limb * inverse % limb
+
+      t = (t + m2 * n0) / limb + 2 * y1 * y2 + m1 * n2 + m2 * n1
+      y0 = t % limb + c
+      t = t / limb + y2 * y2 + m2 * n2
+      y1 = t % limb
+      y2 = t / limb
+    }
+
+    var k = 0
+
+    while k < r and big_is_one(g) {
+      back = {low: y0, mid: y1, high: y2}
+
+      let count = if r - k < 128 { r - k } else { 128 }
+
+      for _ in range(count) {
+        var t = y0 * y0
+        let m0 = t % limb * inverse % limb
+
+        t = (t + m0 * n0) / limb + 2 * y0 * y1 + m0 * n1
+
+        let m1 = t % limb * inverse % limb
+
+        t = (t + m1 * n0) / limb + 2 * y0 * y2 + y1 * y1 + m0 * n2 + m1 * n1
+
+        let m2 = t % limb * inverse % limb
+
+        t = (t + m2 * n0) / limb + 2 * y1 * y2 + m1 * n2 + m2 * n1
+        y0 = t % limb + c
+        t = t / limb + y2 * y2 + m2 * n2
+        y1 = t % limb
+        y2 = t / limb
+
+        let d0 = x0 - y0 + twice0 + limb + limb
+        let d1 = x1 - y1 + twice1 + d0 / limb + limb - 2
+        let b0 = d0 % limb
+        let b1 = d1 % limb
+        let b2 = x2 - y2 + twice2 + d1 / limb - 1
+        var u = q0 * b0
+        let k0 = u % limb * inverse % limb
+
+        u = (u + k0 * n0) / limb + q0 * b1 + q1 * b0 + k0 * n1
+
+        let k1 = u % limb * inverse % limb
+
+        u = (u + k1 * n0) / limb + q0 * b2 + q1 * b1 + q2 * b0 + k0 * n2 + k1 * n1
+
+        let k2 = u % limb * inverse % limb
+
+        u = (u + k2 * n0) / limb + q1 * b2 + q2 * b1 + k1 * n2 + k2 * n1
+        q0 = u % limb
+        u = u / limb + q2 * b2 + k2 * n2
+        q1 = u % limb
+        q2 = u / limb
+      }
+
+      g = gcd_wide(m.n, {low: q0, mid: q1, high: q2})
+      k += 128
+      steps += count
+    }
+
+    r = r * 2
+  }
+
+  return [] when big_is_one(g)
+
+  let x: WideLimbs = {low: x0, mid: x1, high: x2}
+
+  if big_cmp(g, n) == 0 {
+    loop {
+      let square = mont_mul(back, back, m)
+
+      back = {...square, low: square.low + c}
+      g = gcd_wide(m.n, wide_gap(x, back, m))
 
       break when ! big_is_one(g)
     }
@@ -755,7 +1084,7 @@ pure perfect_power(n: List[Int]) -> Power {
     let estimate = (logarithm / exponent.float()).exp().round() ?? 0
 
     for guess in [estimate - 1, estimate, estimate + 1] {
-      if guess > 1 {
+      if guess > 1 and (guess.float().pow(exponent.float()) / size - 1.0).abs() < 0.000000001 {
         let root = big_from_int(guess)
 
         return {root: root, exponent: exponent} when big_cmp(big_pow(root, exponent), n) == 0
@@ -781,28 +1110,47 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
 
   if rest.len() <= 2 {
     var value = big_to_int(rest)
+    var bound = isqrt_int(value)
 
     for p in small {
-      if p * p > value and value > 1 {
-        return {primes: primes, rest: big_from_int(value), proven: true}
+      if p > bound {
+        return {primes: primes, rest: big_from_int(value), proven: value > 1}
       }
 
-      while value > 1 and value % p == 0 {
-        primes += [f"{p}"]
-        value = value / p
+      if value % p == 0 {
+        while value % p == 0 {
+          primes += [f"{p}"]
+          value = value / p
+        }
+
+        bound = isqrt_int(value)
       }
     }
 
     return {primes: primes, rest: big_from_int(value), proven: value < 4194304 and value > 1}
   }
 
-  for p in small {
-    var division = big_div_small(rest, p)
+  if rest.len() == 3 {
+    var top = rest[2]
+    var low = big_to_int(rest)
 
-    while division.remainder.is_empty() {
-      primes += [f"{p}"]
-      rest = division.quotient
-      division = big_div_small(rest, p)
+    for p in small {
+      while (top * (1000000000000000000 % p) + low) % p == 0 {
+        primes += [f"{p}"]
+        rest = big_div_small(rest, p).quotient
+        top = if rest.len() > 2 { rest[2] } else { 0 }
+        low = big_to_int(rest)
+      }
+    }
+  } else {
+    for p in small {
+      var division = big_div_small(rest, p)
+
+      while division.remainder.is_empty() {
+        primes += [f"{p}"]
+        rest = division.quotient
+        division = big_div_small(rest, p)
+      }
     }
   }
 
@@ -868,29 +1216,29 @@ pure close_factor(n: List[Int]) -> List[Int] {
 
 # One nontrivial factor of an odd composite with no factor below 2048, as
 # limbs, or [] when none was found. Small cofactors take Pollard's rho (a long
-# run below 2^50, a short one above) and anything below about 2^72 then takes
-# square forms factorization, whose cost grows with the fourth root of n.
+# run below 2^50, a short one above), cofactors from 10^18 to 2^66 a short
+# Montgomery rho, and anything below about 2^72 then takes square forms
+# factorization, whose cost grows with the fourth root of n.
 # Factors of similar size are tried at the k-th roots before rho, because a
 # multiprecision rho step costs about a millisecond, far more than a window scan.
 pure find_factor(n: List[Int]) -> List[Int] {
-  if n.len() <= 2 {
+  if n.len() <= 2 and big_to_int(n) < 1125899906842624 {
     let value = big_to_int(n)
+    var c = 1
 
-    if value < 1125899906842624 {
-      var c = 1
+    while c < 20 {
+      let found = if value < 2147483648 { big_from_int(rho_int(value, c, 400000)) } else { rho_wide(n, c, 400000) }
 
-      while c < 20 {
-        let found = rho_int(value, c, 400000)
+      return found when ! found.is_empty()
 
-        return big_from_int(found) when found != 0
-
-        c += 1
-      }
-    } else {
-      let found = rho_int(value, 1, 1500)
-
-      return big_from_int(found) when found != 0
+      c += 1
     }
+  }
+
+  if is_wide(n) {
+    let found = rho_wide(n, 1, WIDE_RHO_STEPS)
+
+    return found when ! found.is_empty()
   }
 
   if n.len() <= 3 and big_float(n) < 4.7e21 {
@@ -918,6 +1266,7 @@ pure find_factor(n: List[Int]) -> List[Int] {
 
 pure is_prime(n: List[Int]) -> Bool {
   return big_to_int(n) |> is_prime_int(_) when n.len() <= 2
+  return is_prime_wide(n) when is_wide(n)
 
   is_prime_big(n)
 }

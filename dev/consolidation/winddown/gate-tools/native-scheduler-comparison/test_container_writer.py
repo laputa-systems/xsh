@@ -64,5 +64,33 @@ def test_container_writer_preserves_status_and_parseable_snapshots():
     print("actual scheduler writer preserves zero/nonzero status and parseable before/after cgroups")
 
 
+def test_container_writer_starts_xsht_with_interrupt_and_quit_at_their_defaults():
+    scratch = ROOT / ".work/tmp"
+    scratch.mkdir(parents=True, exist_ok=True)
+    case = Path(tempfile.mkdtemp(prefix="scheduler-signals-", dir=scratch))
+    binaries = case / "bin"
+    results = case / "results"
+    binaries.mkdir()
+    results.mkdir()
+    xsht = binaries / "xsht"
+    xsht.write_text("#!/bin/sh\nexec awk '/^SigIgn:/ { print $2 }' /proc/self/status\n")
+    xsht.chmod(0o755)
+    command = [
+        "docker", "run", "--rm", "--init", "--platform=linux/amd64", "--network=none",
+        "--cpus=2", "--memory=4g", "--memory-swap=4g", "--user", f"{os.getuid()}:{os.getgid()}",
+        "-v", f"{HERE / 'container-run.sh'}:/container-run.sh:ro", "-v", f"{binaries}:/opt/reference:ro",
+        "-v", f"{results}:/results:rw", "-e", "HOME=/results", "-e", "XSH_BIN=/opt/reference/xsh",
+        "-e", "XSH_MODULE_PATH=/work", compare.PINNED_IMAGE.removeprefix("xsh-test@"),
+        "/bin/sh", "/container-run.sh", "suite", "reference", "signals",
+    ]
+    observed, stdout, stderr = owner.checked_docker(command, case, timeout_seconds=20)
+    assert observed == 0, (observed, stdout, stderr)
+    ignored = int((results / "signals.log").read_text().strip(), 16)
+    for signal in (2, 3):
+        assert not ignored >> (signal - 1) & 1, f"xsht starts with signal {signal} ignored: {ignored:#x}"
+    print("actual scheduler writer starts xsht with SIGINT and SIGQUIT at their defaults")
+
+
 if __name__ == "__main__":
     test_container_writer_preserves_status_and_parseable_snapshots()
+    test_container_writer_starts_xsht_with_interrupt_and_quit_at_their_defaults()

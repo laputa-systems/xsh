@@ -471,12 +471,10 @@ pub(super) fn verify_ground_bindings(
         for (&id, binding) in children.iter().zip(bindings) {
             let metadata = census.scope(id)?.metadata;
             let local = verify_ground_slot(store, root, scope, id, metadata, *binding, Arc::clone(&parent), type_coverage, row_coverage, field_coverage, budget)?;
-            if let Some(output) = metadata.output {
-                if owner == original_owner && parent_id.is_none() {
-                    let (types, rows) = super::scheme_type_binders(store, output.outward, budget)?;
-                    computed.types.extend(types);
-                    computed.rows.extend(rows);
-                }
+            if let Some(output) = metadata.output && owner == original_owner && parent_id.is_none() {
+                let (types, rows) = super::scheme_type_binders(store, output.outward, budget)?;
+                computed.types.extend(types);
+                computed.rows.extend(rows);
             }
             if let Some((arguments, local, evidence)) = local { pending.push((owner, Some(id), arguments, local, Some(evidence))); }
         }

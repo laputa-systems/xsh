@@ -2873,10 +2873,10 @@ driver()?
         }).unwrap();
         assert_eq!(program.store.tags[returned.1], super::super::super::FullTag::ExprValueBlock);
         assert!(!super::super::super::indexed_expr_can_complete(&decoder, returned.1, 0).unwrap());
-        let failure = range.clone().find_map(|instruction| match decoder.statement_view(instruction) {
-            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprErr => Some(instruction),
-            _ => None,
-        }).unwrap();
+        let failure = range.clone().find(|&instruction| matches!(
+            decoder.statement_view(instruction),
+            Ok(schema::StmtView::Return { value }) if program.store.tags[value.raw() as usize] == super::super::super::FullTag::ExprErr
+        )).unwrap();
         let message = range.clone().find_map(|instruction| match decoder.expression_view(instruction) {
             Ok(schema::ExprView::ModuleCall { op: super::super::super::RuntimeOp::ErrorFailure, mut args, .. }) => Some(args.next().unwrap().unwrap().unwrap().raw() as usize),
             _ => None,
@@ -7432,8 +7432,8 @@ let rewritten = rewrite(narrowed)
         }).unwrap();
         let claimed = |function: usize, binder: Option<u32>| {
             let call = program.store.call_instantiations.iter().find(|instance| program.store.checked_call_targets.iter().any(|site| site.instruction == instance.instruction && site.function.index() == function)).unwrap();
-            let arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
-            arguments.filter(|&index| binder.is_none_or(|binder| program.store.call_type_arguments[index].binder == binder)).next().unwrap()
+            let mut arguments = call.arguments.type_arguments.bounds(program.store.call_type_arguments.len()).unwrap();
+            arguments.find(|&index| binder.is_none_or(|binder| program.store.call_type_arguments[index].binder == binder)).unwrap()
         };
         let (rewrite_argument, keep_argument) = (claimed(rewrite, Some(stored)), claimed(keep, None));
         let (wider, narrowed) = (program.store.call_type_arguments[rewrite_argument].ty, program.store.call_type_arguments[keep_argument].ty);
@@ -7510,9 +7510,9 @@ pure label(name) -> Str {
         let mut wrong_storage = program.clone();
         wrong_storage.store.scheme_body_facts[assignment_fact].value = super::super::super::schemes::FullSchemeBodyFactValue::Assignment(wrong);
         assert!(FullVerifier::verify(&wrong_storage).is_err());
-        let operations = program.store.schemes[scheme.index()].operations.bounds(program.store.scheme_operations.len()).unwrap();
-        let index = operations.clone().filter(|index| matches!(program.store.scheme_operations[*index], super::super::super::schemes::FullSealedOperation::IndexStore { .. })).next().unwrap();
-        let store = operations.filter(|index| matches!(program.store.scheme_operations[*index], super::super::super::schemes::FullSealedOperation::StoreValue { .. })).next().unwrap();
+        let mut operations = program.store.schemes[scheme.index()].operations.bounds(program.store.scheme_operations.len()).unwrap();
+        let index = operations.clone().find(|index| matches!(program.store.scheme_operations[*index], super::super::super::schemes::FullSealedOperation::IndexStore { .. })).unwrap();
+        let store = operations.find(|index| matches!(program.store.scheme_operations[*index], super::super::super::schemes::FullSealedOperation::StoreValue { .. })).unwrap();
         let mut wrong_value = program.clone();
         let super::super::super::schemes::FullSealedOperation::StoreValue { replacement, .. } = &mut wrong_value.store.scheme_operations[store] else { unreachable!() };
         *replacement = wrong_receiver;
@@ -8315,9 +8315,9 @@ proc selected(raw: Result[Str, Str], other: Result[Int, Str], bad: Int) -> Str {
         let mut premature = cold();
         let body = IrBlockId::from_raw(premature.store.functions[owner].body).unwrap();
         let words = premature.store.blocks[body.index()].instructions.bounds(premature.store.extra.len()).unwrap();
-        let statements = (words.start + 1)..words.end;
+        let mut statements = (words.start + 1)..words.end;
         let guard_word = statements.clone().find(|word| premature.store.extra[*word] == guard as u32).unwrap();
-        let return_word = statements.filter(|word| premature.store.tags[premature.store.extra[*word] as usize] == FullTag::StmtReturn).last().unwrap();
+        let return_word = statements.rfind(|word| premature.store.tags[premature.store.extra[*word] as usize] == FullTag::StmtReturn).unwrap();
         premature.store.extra.swap(guard_word, return_word);
         let error = FullVerifier::verify(&premature).unwrap_err();
         assert_eq!(error.message, "ground producer use has no visible lexical declaration");
@@ -9868,7 +9868,7 @@ observe()?
         };
         let ((left_owner, left_id), (_, right_id), (_, relay_id)) = (scheme(&program, "left"), scheme(&program, "right"), scheme(&program, "relay"));
         let range = program.store.function_instruction_range(left_owner).unwrap();
-        let call = program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 2).unwrap().clone();
+        let call = *program.store.call_instantiations.iter().find(|instance| range.contains(&(instance.instruction as usize)) && instance.arguments.guard_bindings.len == 2).unwrap();
         assert!(program.store.call_guard_bindings[call.arguments.guard_bindings.bounds(program.store.call_guard_bindings.len()).unwrap()].iter().all(|binding| *binding == FullGuardBinding::Recursive));
         let relay_calls = program.store.schemes[relay_id.index()].guard_calls;
         assert_eq!(relay_calls.len, 1);
@@ -10211,9 +10211,9 @@ observe()?
             values[0]
         };
         let outer_view = program.store.scheme_types[outer.view.index()];
-        let reads = inner.reads.bounds(program.store.scheme_guard_reads.len()).unwrap();
+        let mut reads = inner.reads.bounds(program.store.scheme_guard_reads.len()).unwrap();
         let working = reads.clone().find(|index| program.store.scheme_types[program.store.scheme_guard_reads[*index].source.index()] == outer_view).unwrap();
-        let stale = reads.filter(|index| program.store.scheme_types[program.store.scheme_guard_reads[*index].source.index()] == first).last().unwrap();
+        let stale = reads.rfind(|index| program.store.scheme_types[program.store.scheme_guard_reads[*index].source.index()] == first).unwrap();
         let working = raw_read(program.store.scheme_guard_reads[working].instruction);
         let stale = raw_read(program.store.scheme_guard_reads[stale].instruction);
         let schema::ExprView::Param(working_slot) = decoder.expression_view(working).unwrap() else { unreachable!() };
@@ -11031,7 +11031,7 @@ pure foreign(marker) -> Int {{ let ignored = [1] |> map {{ |item| return 2 }}; l
         let mut foreign_callback = program;
         foreign_callback.store.in_place.take();
         assert!(foreign_callback.store.in_place.get().is_none());
-        foreign_callback.store.extra[stage_range.start as usize + 1] = foreign_value as u32;
+        foreign_callback.store.extra[stage_range.start + 1] = foreign_value as u32;
         super::super::prepare_tables(&foreign_callback.store).unwrap();
         let foreign_denial = FullVerifier::verify(&foreign_callback).expect_err("a map stage cannot borrow a callback value from another function");
         assert_eq!(foreign_denial.message, "full IR instruction belongs to another function");

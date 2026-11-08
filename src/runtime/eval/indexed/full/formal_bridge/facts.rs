@@ -761,8 +761,7 @@ mod tests {
             let parameter = bindings.expressions[&identifier(0)];
             let last = (0..ast.expr_tags.len())
                 .map(ExprId::from_index)
-                .filter(|id| bindings.expressions.contains_key(id))
-                .last()
+                .rfind(|id| bindings.expressions.contains_key(id))
                 .unwrap();
             bindings.expressions.insert(last, parameter);
         });

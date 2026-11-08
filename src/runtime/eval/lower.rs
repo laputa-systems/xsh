@@ -2865,8 +2865,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         // The check is removed — it was an early indexed-lowering safety measure that is no longer needed.
         // Parameter slots exist at entry, but their names are hidden while
         // lowering defaults so every default resolves in the outer environment.
-        let mut slots = SlotScope::default();
-        slots.plain_pure_return = callable_kind == CallableKind::Pure && matches!(return_kind, LoweredReturnKind::Plain(_));
+        let mut slots = SlotScope {
+            plain_pure_return: callable_kind == CallableKind::Pure && matches!(return_kind, LoweredReturnKind::Plain(_)),
+            ..SlotScope::default()
+        };
         for _ in &params {
             slots.reserve("parameter");
         }
@@ -3571,7 +3573,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 lowered_types.insert(value, join);
                 Some(value)
             }
-            _ => None,
+            ArenaStmtKind::Use(..) | ArenaStmtKind::Export(..) | ArenaStmtKind::TypeDef(..) | ArenaStmtKind::ErrorDef(..) | ArenaStmtKind::Const { .. } | ArenaStmtKind::ProcDef(..) | ArenaStmtKind::CliMain(..) | ArenaStmtKind::PureDef(..) | ArenaStmtKind::StreamDef(..) | ArenaStmtKind::SignalHook(..) | ArenaStmtKind::Return(..) | ArenaStmtKind::Yield(..) | ArenaStmtKind::YieldDelegate(..) | ArenaStmtKind::Defer(..) | ArenaStmtKind::If { .. } | ArenaStmtKind::While { .. } | ArenaStmtKind::For { .. } | ArenaStmtKind::Loop { .. } | ArenaStmtKind::Guard { .. } | ArenaStmtKind::Sugar { .. } | ArenaStmtKind::Assert { .. } | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue | ArenaStmtKind::Exit(..) | ArenaStmtKind::Command(..) => None,
         }
     }
 
@@ -4015,7 +4017,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     condition: self.lower_scheme_lazy_expression(condition, slots, current_function, facts, visited, lowered_types)?,
                     body: self.lower_scheme_statement_block(block, slots, current_function, facts, visited, lowered_types)?,
                 },
-                _ => return None,
+                ArenaStmtKind::Use(..) | ArenaStmtKind::Export(..) | ArenaStmtKind::TypeDef(..) | ArenaStmtKind::ErrorDef(..) | ArenaStmtKind::Const { .. } | ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. } | ArenaStmtKind::ProcDef(..) | ArenaStmtKind::CliMain(..) | ArenaStmtKind::PureDef(..) | ArenaStmtKind::StreamDef(..) | ArenaStmtKind::SignalHook(..) | ArenaStmtKind::Yield(..) | ArenaStmtKind::YieldDelegate(..) | ArenaStmtKind::Defer(..) | ArenaStmtKind::Guard { .. } | ArenaStmtKind::Sugar { .. } | ArenaStmtKind::TailBareIdent(..) => return None,
             };
             let lowered = push_build_row!(self, stmt, row);
             if let Some(ty) = assignment_type { slots.scheme_assignment_types.insert(lowered, ty); }
@@ -5905,7 +5907,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 } else { return self.block_scheme_lowering_expr(expression); }
             }
-            _ => return self.block_scheme_lowering_expr(expression),
+            ArenaExprKind::GlobStr(..) | ArenaExprKind::Binary { .. } | ArenaExprKind::Pipeline { .. } => return self.block_scheme_lowering_expr(expression),
         };
         if let Some(plan) = registered { self.scratch.borrow_mut().registered_calls[lowered.index()] = Some(plan); }
         if matches!(self.program.arena.expr(expression).kind, ArenaExprKind::Field { .. } | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::Record(_))
@@ -8084,7 +8086,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Try(value) | ArenaExprKind::Match { value, .. } | ArenaExprKind::PatternTest { value, .. } => Some(value),
             ArenaExprKind::Pipeline { input, .. } | ArenaExprKind::StructuredPipeline { input, .. } => Some(input),
             ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, .. } => Some(left),
-            _ => None,
+            ArenaExprKind::Null | ArenaExprKind::Bool(..) | ArenaExprKind::Int(..) | ArenaExprKind::Float(..) | ArenaExprKind::Duration(..) | ArenaExprKind::Str(..) | ArenaExprKind::PathStr(..) | ArenaExprKind::GlobStr(..) | ArenaExprKind::FmtString(..) | ArenaExprKind::PathFmtString(..) | ArenaExprKind::Bytes(..) | ArenaExprKind::Regex(..) | ArenaExprKind::Ident(..) | ArenaExprKind::Item | ArenaExprKind::List(..) | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. } | ArenaExprKind::Record(..) | ArenaExprKind::If { .. } | ArenaExprKind::PatternCondition { .. } | ArenaExprKind::Unary { .. } | ArenaExprKind::Binary { .. } | ArenaExprKind::ValuePipelineCall { .. } | ArenaExprKind::NullSafeField { .. } | ArenaExprKind::EnvString(..) | ArenaExprKind::EnvPathList | ArenaExprKind::Run(..) | ArenaExprKind::Spawn(..) | ArenaExprKind::Wait(..) | ArenaExprKind::Capture(..) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. } | ArenaExprKind::Convert { .. } | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } | ArenaExprKind::ValueBlock(..) | ArenaExprKind::ErrorContext { .. } | ArenaExprKind::ContextScope { .. } | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => None,
         };
         let Some(source) = source else { return Some(()) };
         let input = match self.scratch.borrow().expressions.get(lowered.index())? {

@@ -434,8 +434,8 @@ impl Checker {
         for &statement in &local_statements {
             let (ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. } | ArenaStmtKind::Var { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }) = program.arena.stmt(statement).kind else { continue };
             let Some(seeded) = self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span) else { continue };
-            if self.prepared_nullable_seed(seeded).is_some() && body_types.contains_key(&value) {
-                if let Ok(resolved) = self.type_constraints.resolve(seeded) && resolved.contains_inference() { body_types.insert(value, resolved); }
+            if self.prepared_nullable_seed(seeded).is_some() && body_types.contains_key(&value) && let Ok(resolved) = self.type_constraints.resolve(seeded) && resolved.contains_inference() {
+                body_types.insert(value, resolved);
             }
         }
         let inferred_success = self.function_return_types.get(&body_span).and_then(|ty| match ty {

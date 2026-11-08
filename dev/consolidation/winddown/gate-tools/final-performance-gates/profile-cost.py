@@ -364,6 +364,11 @@ def docker_base(tree, target_dir, cpus, native_image, repository_tmp, *, laputa_
     elif candidate_xsh is not None:
         raise ValueError("build profile container does not accept a candidate XSH executable")
     work = tree / ".work/consolidation"
+    gate_lease = git_common.parent / ".work/consolidation/infra"
+    gate_lease_mount = []
+    if not gate_lease.is_relative_to(work):
+        gate_lease.mkdir(parents=True, exist_ok=True)
+        gate_lease_mount = ["-v", f"{gate_lease}:{gate_lease}:rw"]
     uid, gid = os.getuid(), os.getgid()
     path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
     command = [
@@ -371,6 +376,7 @@ def docker_base(tree, target_dir, cpus, native_image, repository_tmp, *, laputa_
         "--cpuset-cpus", cpus, "--cpus", str(CPU_LIMIT), "--memory", MEMORY_LIMIT,
         "--memory-swap", MEMORY_LIMIT, "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777",
         "-v", f"{tree}:{tree}", "-v", f"{work}:{work}", "-v", f"{git_common}:{git_common}:ro",
+        *gate_lease_mount,
         "-v", f"{repository_tmp}:/t:rw",
         "-v", f"{laputa_corpus}:{laputa_corpus}:ro",
         "-v", f"{KACHE}:/usr/local/bin/kache:ro", "-v", f"{MOLD}:/usr/local/bin/mold:ro",

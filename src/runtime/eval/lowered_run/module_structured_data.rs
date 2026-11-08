@@ -92,7 +92,7 @@ impl Evaluator {
             table::encode(Format::Csv, &value, table::EncodeOptions { headers, delimiter, columns, escape_formulas }, span)
         } else {
             let input_path = context_path;
-            let bytes = match &input_path { Some(path) => Some(codec::read_input(&self.host_path(path), span)), None => None };
+            let bytes = input_path.as_ref().map(|path| codec::read_input(&self.host_path(path), span));
             let result = (|| {
                 let owned;
                 let text = match bytes { Some(bytes) => {

@@ -2216,7 +2216,7 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
 }
 
 fn file_identity(stat: &rfs::Stat) -> (u64, u64) {
-    (stat.st_dev as u64, stat.st_ino as u64)
+    (stat.st_dev, stat.st_ino)
 }
 
 /// Empties the directory open as `root` without recursion and with a constant
@@ -2383,7 +2383,7 @@ impl TempRoot {
     fn temporary_root_unlinked(&self) -> std::io::Result<bool> {
         #[cfg(target_os = "linux")]
         {
-            return Ok(rfs::fstat(&self.root).map_err(std::io::Error::from)?.st_nlink == 0);
+            Ok(rfs::fstat(&self.root).map_err(std::io::Error::from)?.st_nlink == 0)
         }
         // APFS keeps the link count of an unlinked open directory, so ask the
         // kernel for the descriptor's current path and test that name.

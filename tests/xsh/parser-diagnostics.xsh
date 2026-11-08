@@ -303,3 +303,12 @@ test test_grouped_run_tails_end_at_the_closer { |ctx|
 test test_context_scope_requires_an_expression_operator_or_terminator { |ctx|
   expect_rejected(ctx, "env (x) { } next\n", "parse.expected-terminator")
 }
+
+test test_last_status_expression_is_removed { |ctx|
+  test.expect(
+    ctx,
+    "run.status false\nlet status = $?\n",
+    status: 2,
+    stderr: ["[parse.last-status]", "let status = run.status COMMAND"],
+  )?
+}

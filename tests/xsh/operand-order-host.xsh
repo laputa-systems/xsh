@@ -165,3 +165,23 @@ direct-second
 direct-first
 """
 }
+
+test test_codec_decode_as_evaluates_format_then_input_once { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type OrderService = {name: Str, port: Int}
+proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+let service = codec.decode_as(mark("format", "ini"), mark("input", "name=worker\nport=8080\n"), OrderService)?
+print ${service.name} ${service.port}
+match codec.decode_as(mark("bad-format", "cbor"), mark("bad-input", "name=worker\n"), OrderService) {
+  Ok(_) => print "unexpected"
+  Err(_) => print "rejected"
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "format\ninput\nworker 8080\nbad-format\nbad-input\nrejected\n"
+}

@@ -367,56 +367,6 @@ pub fn assertion_error_family() -> ErrorFamily {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn facet_names_round_trip() {
-        for facet in ErrorFacet::ALL {
-            assert_eq!(ErrorFacet::from_name(facet.name()), Some(*facet));
-        }
-        assert_eq!(ErrorFacet::from_name("Missing"), None);
-    }
-
-    #[test]
-    fn every_facet_is_implemented_by_a_builtin_source() {
-        for facet in ErrorFacet::ALL {
-            let by_variant = builtin_error_families().iter().any(|family| {
-                family
-                    .variants
-                    .iter()
-                    .any(|variant| variant.facets.contains(facet))
-            });
-            let by_host = *facet == ErrorFacet::HostIo || facet.host_io_kinds().next().is_some();
-            // A failed module contract check raises a plain `Error`, not a
-            // family variant, so its facets name that check as their source.
-            let by_contract_check = facet.contract_check_source().is_some();
-            assert!(
-                by_variant || by_host || by_contract_check,
-                "{} has no built-in source",
-                facet.name()
-            );
-        }
-    }
-
-    #[test]
-    fn host_io_errors_map_onto_one_facet() {
-        assert_eq!(
-            ErrorFacet::of_host_io(std::io::ErrorKind::NotFound),
-            ErrorFacet::NotFound
-        );
-        assert_eq!(
-            ErrorFacet::of_host_io(std::io::ErrorKind::TimedOut),
-            ErrorFacet::Timeout
-        );
-        assert_eq!(
-            ErrorFacet::of_host_io(std::io::ErrorKind::AlreadyExists),
-            ErrorFacet::HostIo
-        );
-    }
-}
-
 pub fn codec_error_family() -> ErrorFamily {
     ErrorFamily {
         name: "CodecError",
@@ -519,3 +469,53 @@ const HOST_IO_VARIANT_FACETS: &[ErrorFacet] = &[
     ErrorFacet::InvalidData,
     ErrorFacet::HostIo,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn facet_names_round_trip() {
+        for facet in ErrorFacet::ALL {
+            assert_eq!(ErrorFacet::from_name(facet.name()), Some(*facet));
+        }
+        assert_eq!(ErrorFacet::from_name("Missing"), None);
+    }
+
+    #[test]
+    fn every_facet_is_implemented_by_a_builtin_source() {
+        for facet in ErrorFacet::ALL {
+            let by_variant = builtin_error_families().iter().any(|family| {
+                family
+                    .variants
+                    .iter()
+                    .any(|variant| variant.facets.contains(facet))
+            });
+            let by_host = *facet == ErrorFacet::HostIo || facet.host_io_kinds().next().is_some();
+            // A failed module contract check raises a plain `Error`, not a
+            // family variant, so its facets name that check as their source.
+            let by_contract_check = facet.contract_check_source().is_some();
+            assert!(
+                by_variant || by_host || by_contract_check,
+                "{} has no built-in source",
+                facet.name()
+            );
+        }
+    }
+
+    #[test]
+    fn host_io_errors_map_onto_one_facet() {
+        assert_eq!(
+            ErrorFacet::of_host_io(std::io::ErrorKind::NotFound),
+            ErrorFacet::NotFound
+        );
+        assert_eq!(
+            ErrorFacet::of_host_io(std::io::ErrorKind::TimedOut),
+            ErrorFacet::Timeout
+        );
+        assert_eq!(
+            ErrorFacet::of_host_io(std::io::ErrorKind::AlreadyExists),
+            ErrorFacet::HostIo
+        );
+    }
+}

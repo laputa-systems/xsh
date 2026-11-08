@@ -511,8 +511,8 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
                         return Err(IrVerifyError::new("guard source or comparison leaves its callable"));
                     }
                 }
-                if let Some(output) = metadata.output {
-                    if !instruction_range.contains(&(output.instruction as usize)) || store.tags[output.instruction as usize].kind() != schema::InstructionKind::Expr { return Err(IrVerifyError::new("guard output leaves its callable")); }
+                if let Some(output) = metadata.output && (!instruction_range.contains(&(output.instruction as usize)) || store.tags[output.instruction as usize].kind() != schema::InstructionKind::Expr) {
+                    return Err(IrVerifyError::new("guard output leaves its callable"));
                 }
                 for read in reads {
                     if !instruction_range.contains(&(read.instruction as usize)) || store.tags[read.instruction as usize].kind() != schema::InstructionKind::Expr {
@@ -545,8 +545,8 @@ fn verify_function_schemes(store: &FullStore, effects: &mut effects::EffectCover
             for pack in &guard_packs {
                 let parent = if pack.metadata.parent == IR_NONE { None } else { Some(crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.parent as usize).map_err(|_| IrVerifyError::new("guard parent id is invalid"))?) };
                 let id = crate::sema::guarded_requirements::GuardScopeId::from_index(pack.metadata.id as usize).map_err(|_| IrVerifyError::new("guard scope id is invalid"))?;
-                if let Some(output) = pack.metadata.output.filter(|_| pack.metadata.has_body()) {
-                    if memberships.get(&(output.instruction as usize)).copied() != parent || outputs.insert(output.instruction as usize, id).is_some() { return Err(IrVerifyError::new("guard output has another parent or duplicate ownership")); }
+                if let Some(output) = pack.metadata.output.filter(|_| pack.metadata.has_body()) && (memberships.get(&(output.instruction as usize)).copied() != parent || outputs.insert(output.instruction as usize, id).is_some()) {
+                    return Err(IrVerifyError::new("guard output has another parent or duplicate ownership"));
                 }
                 let children = children.entry(parent).or_default();
                 if pack.metadata.binding_ordinal as usize != children.len() { return Err(IrVerifyError::new("guard binding ordinal disagrees with its lexical parent")); }
@@ -2537,10 +2537,7 @@ fn verify_body_expression(
                 actual.clone()
             } else if guards::authenticates_read(store, decoder, scheme_scope, instruction, actual, ty,
                 producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?.as_ref(), budget)?
-            {
-                budget.charge_scheme_clone(ty)?;
-                ty.clone()
-            } else if guards::authenticates_record_read(store, decoder, scheme_scope, instruction, actual, ty,
+                || guards::authenticates_record_read(store, decoder, scheme_scope, instruction, actual, ty,
                 producer_index.prefix_context(decoder.owner, &decoder.instruction_range)?.as_ref(), budget)?
             {
                 budget.charge_scheme_clone(ty)?;

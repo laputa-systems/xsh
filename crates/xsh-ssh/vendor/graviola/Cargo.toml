@@ -21,6 +21,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "graviola is a modern, fast cryptography library"
+keywords = ["cryptography"]
 categories = [
     "network-programming",
     "cryptography",
@@ -45,6 +46,9 @@ optional = true
 
 [dependencies.getrandom]
 version = "0.3"
+
+[lints.clippy]
+all = "allow"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

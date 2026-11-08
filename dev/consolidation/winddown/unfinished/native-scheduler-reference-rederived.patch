@@ -1,0 +1,235 @@
+diff --git a/crates/xsht/src/commands.rs b/crates/xsht/src/commands.rs
+index 675909e14b2307438a8b3d8110a533f6816a9966..204fa25f7912ebd2ab89137f65fb5b31c656fe8d 100644
+--- a/crates/xsht/src/commands.rs
++++ b/crates/xsht/src/commands.rs
+@@ -552,7 +552,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
+                 names: &["-j", "--jobs"],
+                 arg: OptionArg::value("N"),
+                 repeatable: false,
+-                description: "Run N tests concurrently (default: one per CPU core capped at 32; max 8 per file)",
++                description: "Run N tests concurrently (default: half the CPUs)",
+             },
+             OptionSpec {
+                 names: &["--timeout"],
+diff --git a/crates/xsht/src/xsht/test.rs b/crates/xsht/src/xsht/test.rs
+index 67c529f06e959aa6e26a9ab67f2e9483118da582..8ddcae12900eb80bbd3acca957bddd9252b23cfc 100755
+--- a/crates/xsht/src/xsht/test.rs
++++ b/crates/xsht/src/xsht/test.rs
+@@ -729,45 +729,11 @@ fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
+ }
+ 
+ fn default_test_jobs() -> usize {
+-    let logical = std::thread::available_parallelism().map_or(1, usize::from);
+-    default_test_jobs_for(logical.min(allowed_physical_cores().unwrap_or(logical)))
++    default_test_jobs_for(std::thread::available_parallelism().map_or(1, usize::from))
+ }
+ 
+-/// Use one worker per visible core up to a fixed cap to scale large test runs
+-/// while bounding evaluator stacks and nested test subprocesses.
+-fn default_test_jobs_for(cores: usize) -> usize {
+-    cores.clamp(1, 32)
+-}
+-
+-#[cfg(target_os = "linux")]
+-fn allowed_physical_cores() -> Option<usize> {
+-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+-    let allowed = status.lines().find_map(|line| line.strip_prefix("Cpus_allowed_list:"))?;
+-    distinct_cores(allowed.trim(), |cpu| {
+-        std::fs::read_to_string(format!("/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list")).ok()
+-    })
+-}
+-
+-#[cfg(not(target_os = "linux"))]
+-fn allowed_physical_cores() -> Option<usize> {
+-    None
+-}
+-
+-fn distinct_cores(allowed: &str, siblings: impl Fn(usize) -> Option<String>) -> Option<usize> {
+-    let mut cores = std::collections::BTreeSet::new();
+-    for range in allowed.split(',') {
+-        let (start, end) = match range.split_once('-') {
+-            Some((start, end)) => (start.parse::<usize>().ok()?, end.parse::<usize>().ok()?),
+-            None => {
+-                let cpu = range.parse::<usize>().ok()?;
+-                (cpu, cpu)
+-            }
+-        };
+-        for cpu in start..=end {
+-            cores.insert(siblings(cpu)?.trim().to_string());
+-        }
+-    }
+-    (!cores.is_empty()).then_some(cores.len())
++fn default_test_jobs_for(cpus: usize) -> usize {
++    (cpus / 2).clamp(1, 8)
+ }
+ 
+ fn run_test_cases_parallel<F>(
+@@ -844,9 +810,7 @@ fn test_panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
+     else { "non-string panic payload".to_owned() }
+ }
+ 
+-/// Limit each file's admitted test cases so a large fixture file cannot starve
+-/// other files or overwhelm short child-process deadlines.
+-const MAX_ACTIVE_TESTS_PER_FILE: usize = 8;
++const MAX_ACTIVE_TESTS_PER_FILE: usize = usize::MAX;
+ 
+ struct ActiveTestLease<'queue> {
+     queue: &'queue Arc<(Mutex<ParallelTestQueue>, Condvar)>,
+@@ -879,27 +843,11 @@ struct ParallelTestQueue {
+ 
+ impl ParallelTestQueue {
+     fn new(cases: Vec<TestCase>) -> Self {
+-        let mut files: Vec<TestFileQueue> = Vec::new();
+-        let mut current_file = None;
+-        for (index, case) in cases.into_iter().enumerate() {
+-            let file = case
+-                .id()
+-                .split_once("::")
+-                .map_or(case.id(), |(file, _)| file);
+-            if current_file.as_deref() != Some(file) {
+-                files.push(TestFileQueue {
+-                    cases: VecDeque::new(),
+-                    active: 0,
+-                    ready: false,
+-                });
+-                current_file = Some(file.to_string());
+-            }
+-            files
+-                .last_mut()
+-                .expect("the current test file queue must exist")
+-                .cases
+-                .push_back((index, case));
+-        }
++        let files = vec![TestFileQueue {
++            cases: cases.into_iter().enumerate().collect(),
++            active: 0,
++            ready: false,
++        }];
+ 
+         let pending = files
+             .iter()
+@@ -2449,7 +2397,7 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
+ #[cfg(test)]
+ mod tests {
+     use super::{
+-        Duration, ParallelTestQueue, TestCase, default_test_jobs_for, distinct_cores, format_test_duration,
++        Duration, ParallelTestQueue, TestCase, default_test_jobs_for, format_test_duration,
+     };
+ 
+     fn invalid_case(id: &str) -> TestCase {
+@@ -2724,102 +2672,27 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn allowed_cpus_that_share_a_core_count_once() {
+-        let siblings = |cpu: usize| Some(format!("{},{}\n", cpu % 16, cpu % 16 + 16));
+-        assert_eq!(distinct_cores("0-31", siblings), Some(16));
+-        assert_eq!(distinct_cores("0-11", siblings), Some(12));
+-        assert_eq!(distinct_cores("0-3,16-19", siblings), Some(4));
+-        assert_eq!(distinct_cores("5", siblings), Some(1));
+-        assert_eq!(distinct_cores("0-3", |_| None), None);
+-        assert_eq!(distinct_cores("x", siblings), None);
+-    }
+-
+-    #[test]
+-    fn default_test_jobs_use_visible_cpus_up_to_32() {
++    fn default_test_jobs_leave_half_the_cpus_free() {
+         assert_eq!(default_test_jobs_for(1), 1);
+-        assert_eq!(default_test_jobs_for(2), 2);
+-        assert_eq!(default_test_jobs_for(8), 8);
+-        assert_eq!(default_test_jobs_for(11), 11);
+-        assert_eq!(default_test_jobs_for(32), 32);
+-        assert_eq!(default_test_jobs_for(64), 32);
++        assert_eq!(default_test_jobs_for(2), 1);
++        assert_eq!(default_test_jobs_for(8), 4);
++        assert_eq!(default_test_jobs_for(11), 5);
++        assert_eq!(default_test_jobs_for(64), 8);
+     }
+ 
+     #[test]
+-    fn parallel_queue_fairly_admits_files_with_per_file_cap_and_stable_order() {
+-        let cases = vec![
+-            invalid_case("core/a.xsh::test_a1"),
+-            invalid_case("core/a.xsh::test_a2"),
+-            invalid_case("core/a.xsh::test_a3"),
+-            invalid_case("core/a.xsh::test_a4"),
+-            invalid_case("core/a.xsh::test_a5"),
+-            invalid_case("core/a.xsh::test_a6"),
+-            invalid_case("core/a.xsh::test_a7"),
+-            invalid_case("core/a.xsh::test_a8"),
+-            invalid_case("core/a.xsh::test_a9"),
+-            invalid_case("core/a.xsh::test_a10"),
+-            invalid_case("core/b.xsh::test_b1"),
+-            invalid_case("core/b.xsh::test_b2"),
+-            invalid_case("core/b.xsh::test_b3"),
+-            invalid_case("core/b.xsh::test_b4"),
+-            invalid_case("core/b.xsh::test_b5"),
+-            invalid_case("core/b.xsh::test_b6"),
+-            invalid_case("core/b.xsh::test_b7"),
+-            invalid_case("core/b.xsh::test_b8"),
+-            invalid_case("core/b.xsh::test_b9"),
+-            invalid_case("core/b.xsh::test_b10"),
+-            invalid_case("core/c.xsh::test_c1"),
+-            invalid_case("core/c.xsh::test_c2"),
+-        ];
+-
++    fn parallel_queue_admits_cases_in_order_without_a_per_file_cap() {
++        let cases = (0..22)
++            .map(|index| invalid_case(&format!("core/{}.xsh::test_{index}", index / 10)))
++            .collect::<Vec<_>>();
+         let mut queue = ParallelTestQueue::new(cases);
+         let mut scheduled = Vec::new();
+-        while let Some((file_index, index, case)) = queue.take_next() {
+-            scheduled.push((file_index, index, case.id().to_string()));
++        while let Some((_, index, case)) = queue.take_next() {
++            scheduled.push((index, case.id().to_string()));
+         }
+-
+-        assert_eq!(
+-            scheduled
+-                .iter()
+-                .map(|(_, index, id)| (*index, id.as_str()))
+-                .collect::<Vec<_>>(),
+-            vec![
+-                (0, "core/a.xsh::test_a1"),
+-                (10, "core/b.xsh::test_b1"),
+-                (20, "core/c.xsh::test_c1"),
+-                (1, "core/a.xsh::test_a2"),
+-                (11, "core/b.xsh::test_b2"),
+-                (21, "core/c.xsh::test_c2"),
+-                (2, "core/a.xsh::test_a3"),
+-                (12, "core/b.xsh::test_b3"),
+-                (3, "core/a.xsh::test_a4"),
+-                (13, "core/b.xsh::test_b4"),
+-                (4, "core/a.xsh::test_a5"),
+-                (14, "core/b.xsh::test_b5"),
+-                (5, "core/a.xsh::test_a6"),
+-                (15, "core/b.xsh::test_b6"),
+-                (6, "core/a.xsh::test_a7"),
+-                (16, "core/b.xsh::test_b7"),
+-                (7, "core/a.xsh::test_a8"),
+-                (17, "core/b.xsh::test_b8"),
+-            ]
+-        );
+-        assert_eq!(scheduled.len(), 18);
++        assert_eq!(scheduled.len(), 22);
++        assert!(scheduled.iter().enumerate().all(|(position, (index, _))| position == *index));
+         assert!(!queue.is_complete());
+-
+-        queue.finish(0);
+-        assert_eq!(
+-            queue
+-                .take_next()
+-                .map(|(_, index, case)| (index, case.id().to_string())),
+-            Some((8, "core/a.xsh::test_a9".to_string()))
+-        );
+-        queue.finish(1);
+-        assert_eq!(
+-            queue
+-                .take_next()
+-                .map(|(_, index, case)| (index, case.id().to_string())),
+-            Some((18, "core/b.xsh::test_b9".to_string()))
+-        );
+     }
+ 
+     #[test]

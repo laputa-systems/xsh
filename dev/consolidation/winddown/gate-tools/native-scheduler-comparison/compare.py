@@ -11,6 +11,8 @@ from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import secrets
+import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -49,7 +51,11 @@ CPUSETS = "0-31"
 CPU_QUOTA = 32
 MEMORY_LIMIT = 40 * 1024**3
 SUITE_ROUNDS = 3
-WORKERS = {"reference": 8, "candidate": 32}
+WORKERS = {"reference": 8, "candidate": 16}
+MAX_FOREIGN_CPU_CORES_ABOVE_IDLE = 0.5
+IDLE_SAMPLE_SECONDS = 10
+STAGE_LIFECYCLE_CPU_SECONDS = 1.0
+FOREIGN_CPU_CHECK_COMMAND = ["foreign-cpu-check"]
 BINARIES = ("xsht", "xsh", "xsh-test-helper")
 MOLD = Path("/usr/local/bin/mold")
 LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
@@ -63,9 +69,9 @@ CONTAINER_RUNNER = HERE / "container-run.sh"
 OUTCOMES_MODULE = HERE / "outcomes.py"
 VALIDATOR = HERE / "validator.py"
 REFERENCE_AGGREGATE_PATCH_RELATIVE = Path(
-    "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
+    "dev/consolidation/winddown/unfinished/native-scheduler-reference-rederived.patch"
 )
-REFERENCE_AGGREGATE_PATCH_SHA256 = "b9b1d14e53bda60cd57523936f0a7a0fcc3c021fad5465edb05d85269076b26c"
+REFERENCE_AGGREGATE_PATCH_SHA256 = "ee5572e86a7dd02e963e49d152675a09431143dc1d8bd7e7b1ab6c5f5f9c427b"
 REFERENCE_SCHEDULER_COMMITS = (
     ("bounded-admission", "7205a0", "7205a0b6afce7d9a0072b6727cae36a0b8301963"),
     ("default-width", "aa5aca3", "aa5aca3acbd2dafd03bf3b5a4fb2cb63f399f896"),
@@ -676,15 +682,21 @@ def environment_for(pair: str) -> dict[str, str]:
     }
 
 
+def common_git_dir(source_root: Path) -> Path:
+    return Path(git(source_root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True)
+
+
 def docker_command(
     *, source_root: Path, binary_dir: Path, output_dir: Path, image: str,
     mode: str, pair: str, label: str, container_name: str,
 ) -> list[str]:
     uid, gid = os.getuid(), os.getgid()
-    common_git = Path(git(source_root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True)
+    scratch_tmp, scratch_infra, scratch_gate = stage_scratch_paths(output_dir, label)
+    common_git = common_git_dir(source_root)
     tool_common_git = Path(git(ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True)
     if common_git != tool_common_git:
         raise ValueError("scheduler source must share the controller's common Git directory")
+    infra_mount = stage_infra_mount_path(common_git)
     command = [
         "docker", "run", "--rm", "--init", "--pull=never", "--platform", "linux/amd64",
         "--network", "none", "--hostname", "xsh-test", "--add-host", "xsh-test:127.0.0.1",
@@ -698,6 +710,9 @@ def docker_command(
         "-v", f"{MOLD}:{MOLD}:ro",
         "-v", f"{binary_dir}:/opt/{pair}:ro",
         "-v", f"{output_dir}:/results:rw",
+        "-v", f"{scratch_tmp}:{STAGE_TMP_MOUNT}:rw",
+        "-v", f"{scratch_gate}:{STAGE_GATE_MOUNT}:rw",
+        "-v", f"{scratch_infra}:{infra_mount}:rw",
         "-v", f"{CONTAINER_RUNNER}:/bench/container-run.sh:ro",
         "-w", "/work",
     ]
@@ -707,10 +722,165 @@ def docker_command(
     return command
 
 
-def perf_gate_check(after: bool = False) -> dict:
+STAGE_TMP_MOUNT = "/work/.work/tmp"
+STAGE_GATE_MOUNT = "/work/.work/gate"
+
+
+def stage_scratch_paths(output_dir: Path, label: str) -> tuple[Path, Path, Path]:
+    scratch = output_dir / f"{label}.scratch"
+    return scratch / "tmp", scratch / "infra", scratch / "gate"
+
+
+def stage_infra_mount_path(common_git: Path) -> Path:
+    return common_git.parent / ".work/consolidation/infra"
+
+
+def prepare_stage_scratch(source_root: Path, output_dir: Path, label: str) -> None:
+    scratch_tmp, scratch_infra, scratch_gate = stage_scratch_paths(output_dir, label)
+    scratch_tmp.parent.mkdir(exist_ok=False)
+    scratch_tmp.mkdir()
+    scratch_infra.mkdir()
+    scratch_gate.mkdir()
+    (source_root / ".work/tmp").mkdir(parents=True, exist_ok=True)
+    (source_root / ".work/gate").mkdir(parents=True, exist_ok=True)
+
+
+def remove_stage_scratch(output_dir: Path, label: str) -> str | None:
+    scratch = stage_scratch_paths(output_dir, label)[0].parent
+    try:
+        shutil.rmtree(scratch)
+    except OSError as error:
+        return str(error)
+    return None
+
+
+def parse_host_cpu_busy_ticks(text: str) -> int:
+    for line in text.splitlines():
+        fields = line.split()
+        if fields and fields[0] == "cpu":
+            if len(fields) < 9:
+                raise ValueError(f"host /proc/stat cpu line is too short: {line!r}")
+            try:
+                values = [int(field) for field in fields[1:9]]
+            except ValueError as error:
+                raise ValueError(f"host /proc/stat cpu line is not numeric: {line!r}") from error
+            user, nice, system, _idle, _iowait, irq, softirq, steal = values
+            return user + nice + system + irq + softirq + steal
+    raise ValueError("host /proc/stat has no aggregate cpu line")
+
+
+def capture_host_cpu_sample() -> dict:
+    text = Path("/proc/stat").read_text(encoding="utf-8")
+    return {"monotonic_ns": time.monotonic_ns(), "busy_ticks": parse_host_cpu_busy_ticks(text)}
+
+
+def measure_idle_host_cores() -> float:
+    before = capture_host_cpu_sample()
+    time.sleep(IDLE_SAMPLE_SECONDS)
+    after = capture_host_cpu_sample()
+    wall_seconds = (after["monotonic_ns"] - before["monotonic_ns"]) / 1e9
+    return (after["busy_ticks"] - before["busy_ticks"]) / os.sysconf("SC_CLK_TCK") / wall_seconds
+
+
+def parse_cgroup_cpu_counters(text: str) -> dict:
+    counters: dict[str, int] | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("["):
+            if line.endswith("/cpu.stat]"):
+                if counters is not None:
+                    raise ValueError("duplicate cpu.stat section in cgroup snapshot")
+                counters = {}
+            else:
+                if counters is not None:
+                    break
+            continue
+        if counters is not None and line:
+            fields = line.split()
+            if len(fields) == 2:
+                try:
+                    counters[fields[0]] = int(fields[1])
+                except ValueError as error:
+                    raise ValueError(f"invalid cpu.stat value: {line!r}") from error
+    if counters is None:
+        raise ValueError("cgroup snapshot has no cpu.stat section")
+    for key in ("usage_usec", "nr_throttled"):
+        if key not in counters:
+            raise ValueError(f"cpu.stat is missing {key}")
+    return {"usage_usec": counters["usage_usec"], "nr_throttled": counters["nr_throttled"]}
+
+
+def foreign_cpu_verdict(
+    *, host_before: dict, host_after: dict, cgroup_before_text: str,
+    cgroup_after_text: str, clock_ticks_per_second: int, idle_host_cores: float,
+) -> dict:
+    wall_seconds = (host_after["monotonic_ns"] - host_before["monotonic_ns"]) / 1e9
+    if wall_seconds <= 0 or clock_ticks_per_second <= 0:
+        raise ValueError("foreign CPU check needs a positive wall time and clock tick rate")
+    before = parse_cgroup_cpu_counters(cgroup_before_text)
+    after = parse_cgroup_cpu_counters(cgroup_after_text)
+    if after["usage_usec"] < before["usage_usec"] or after["nr_throttled"] < before["nr_throttled"]:
+        raise ValueError("container cpu.stat counters moved backwards")
+    if host_after["busy_ticks"] < host_before["busy_ticks"]:
+        raise ValueError("host /proc/stat busy ticks moved backwards")
+    host_cpu_seconds = (host_after["busy_ticks"] - host_before["busy_ticks"]) / clock_ticks_per_second
+    container_cpu_seconds = (after["usage_usec"] - before["usage_usec"]) / 1e6
+    foreign_cpu_seconds = host_cpu_seconds - container_cpu_seconds
+    foreign_cores = foreign_cpu_seconds / wall_seconds
+    throttled_delta = after["nr_throttled"] - before["nr_throttled"]
+    max_foreign_cores = idle_host_cores + MAX_FOREIGN_CPU_CORES_ABOVE_IDLE
+    max_foreign_seconds = max_foreign_cores * wall_seconds + STAGE_LIFECYCLE_CPU_SECONDS
+    accepted = foreign_cpu_seconds <= max_foreign_seconds and throttled_delta == 0
+    return {
+        "command": FOREIGN_CPU_CHECK_COMMAND,
+        "exit_code": 0 if accepted else 1,
+        "accepted": accepted,
+        "idle_host_cores": idle_host_cores,
+        "max_foreign_cpu_cores": max_foreign_cores,
+        "stage_lifecycle_cpu_seconds": STAGE_LIFECYCLE_CPU_SECONDS,
+        "max_foreign_cpu_seconds": max_foreign_seconds,
+        "clock_ticks_per_second": clock_ticks_per_second,
+        "host_before": host_before,
+        "host_after": host_after,
+        "container_cpu_before": before,
+        "container_cpu_after": after,
+        "wall_seconds": wall_seconds,
+        "host_cpu_seconds": host_cpu_seconds,
+        "container_cpu_seconds": container_cpu_seconds,
+        "foreign_cpu_seconds": foreign_cpu_seconds,
+        "foreign_cpu_cores": foreign_cores,
+        "nr_throttled_delta": throttled_delta,
+    }
+
+
+def foreign_cpu_check(
+    *, host_before: dict | None, host_after: dict | None,
+    cgroup_before_path: Path, cgroup_after_path: Path, idle_host_cores: float | None,
+) -> dict:
+    try:
+        if host_before is None or host_after is None:
+            raise ValueError("host CPU snapshot is missing")
+        if idle_host_cores is None:
+            raise ValueError("idle host CPU sample is missing")
+        return foreign_cpu_verdict(
+            host_before=host_before,
+            host_after=host_after,
+            cgroup_before_text=cgroup_before_path.read_text(encoding="utf-8"),
+            cgroup_after_text=cgroup_after_path.read_text(encoding="utf-8"),
+            clock_ticks_per_second=os.sysconf("SC_CLK_TCK"),
+            idle_host_cores=idle_host_cores,
+        )
+    except (OSError, ValueError) as error:
+        return {
+            "command": FOREIGN_CPU_CHECK_COMMAND,
+            "exit_code": 2,
+            "accepted": False,
+            "error": str(error),
+        }
+
+
+def perf_gate_check() -> dict:
     command = ["perf-gate-ready"]
-    if after:
-        command.append("-1")
     result = subprocess.run(command, text=True, capture_output=True, check=False)
     return {
         "command": command,
@@ -769,6 +939,16 @@ def run_stage(
         }
         write_json(output_dir / f"{label}.stage.json", report)
         return report
+    prepare_stage_scratch(source_root, output_dir, label)
+    host_before = None
+    host_after = None
+    host_cpu_error = None
+    idle_host_cores = None
+    try:
+        idle_host_cores = measure_idle_host_cores()
+        host_before = capture_host_cpu_sample()
+    except (OSError, ValueError) as exc:
+        host_cpu_error = str(exc)
     started_ns = time.monotonic_ns()
     interrupted = False
     signal_name = None
@@ -778,6 +958,7 @@ def run_stage(
     process = None
     ended_ns = started_ns
     postcheck = None
+    stage_completed = False
     stage_validation = None
     validation_error = None
     cgroup_validation = None
@@ -795,7 +976,11 @@ def run_stage(
                 lambda: cleanup_cidfile_container(cidfile, owner=run_id, stage=label),
             )
         ended_ns = time.monotonic_ns()
-        postcheck = perf_gate_check(after=True)
+        try:
+            host_after = capture_host_cpu_sample()
+        except (OSError, ValueError) as exc:
+            host_cpu_error = str(exc)
+        stage_completed = True
         if verify_after is not None:
             try:
                 stage_validation = verify_after()
@@ -824,12 +1009,19 @@ def run_stage(
     except OSError as exc:
         launch_error = str(exc)
         ended_ns = time.monotonic_ns()
-    if not interrupted and postcheck is not None:
+    if not interrupted and stage_completed:
         with cleanup_window():
             cleanup = cleanup_cidfile_container(cidfile, owner=run_id, stage=label)
+        before_path = output_dir / f"{label}.cgroup-before.txt"
+        after_path = output_dir / f"{label}.cgroup-after.txt"
+        postcheck = foreign_cpu_check(
+            host_before=host_before, host_after=host_after,
+            cgroup_before_path=before_path, cgroup_after_path=after_path,
+            idle_host_cores=idle_host_cores,
+        )
+        if host_cpu_error is not None:
+            postcheck = {**postcheck, "exit_code": 2, "accepted": False, "host_cpu_error": host_cpu_error}
         try:
-            before_path = output_dir / f"{label}.cgroup-before.txt"
-            after_path = output_dir / f"{label}.cgroup-after.txt"
             cgroup_validation = validate_cgroup_snapshots(
                 before_path.read_text(encoding="utf-8"),
                 after_path.read_text(encoding="utf-8"),
@@ -844,8 +1036,10 @@ def run_stage(
         )
     else:
         timing_accepted = False
+    scratch_cleanup_error = None
     if cleanup["resolved"]:
         cidfile.unlink(missing_ok=True)
+        scratch_cleanup_error = remove_stage_scratch(output_dir, label)
 
     exit_code_path = output_dir / f"{label}.exit-code"
     container_exit_code = None
@@ -868,6 +1062,16 @@ def run_stage(
         "timing_claim_eligible": True,
         "timing_discarded": not timing_accepted,
         "performance_gate": {"before": precheck, "after": postcheck},
+        "writable_scratch": {
+            "tmp": {"host": str(stage_scratch_paths(output_dir, label)[0]), "container": STAGE_TMP_MOUNT},
+            "infra": {
+                "host": str(stage_scratch_paths(output_dir, label)[1]),
+                "container": str(stage_infra_mount_path(common_git_dir(source_root))),
+            },
+            "gate": {"host": str(stage_scratch_paths(output_dir, label)[2]), "container": STAGE_GATE_MOUNT},
+            "removed": cleanup["resolved"] and scratch_cleanup_error is None,
+            "cleanup_error": scratch_cleanup_error,
+        },
         "host_monotonic_start_ns": started_ns,
         "host_monotonic_end_ns": ended_ns,
         "interrupted": interrupted,
@@ -967,7 +1171,7 @@ def record_stage(stage: dict, receipt: dict, receipt_path: Path, ownership_lock)
     if not stage.get("timing_accepted"):
         terminal_receipt(
             receipt, receipt_path, ownership_lock, receipt["container_run_id"],
-            "failed", f"{stage['label']} timing was discarded because the performance readiness check failed", cleanup,
+            "failed", f"{stage['label']} timing was discarded because the performance readiness or foreign-CPU check failed", cleanup,
         )
         return 1
     return None
@@ -1146,7 +1350,7 @@ def run_comparison(args: argparse.Namespace) -> int:
         "expected_default_workers": WORKERS,
         "default_worker_formulas": {
             "reference": "(available_parallelism / 2).clamp(1, 8)",
-            "candidate": "available_parallelism.clamp(1, 32)",
+            "candidate": "min(available_parallelism, allowed physical cores).clamp(1, 32)",
         },
         "suite_round_count": SUITE_ROUNDS,
         "suite_execution_order": [],
@@ -1279,7 +1483,7 @@ def run_comparison(args: argparse.Namespace) -> int:
 
         for pair, expected_text in (
             ("reference", "default: half the CPUs"),
-            ("candidate", "default: all CPUs capped at 32; max 8 per file"),
+            ("candidate", "default: one per CPU core capped at 32; max 8 per file"),
         ):
             stage = _help_stage(
                 pair=pair,
@@ -1323,7 +1527,7 @@ def run_comparison(args: argparse.Namespace) -> int:
         receipt["source_after_help"] = source_summary(source_after_help)
         receipt["default_policy_help"] = {
             "reference_expected_text": "default: half the CPUs",
-            "candidate_expected_text": "default: all CPUs capped at 32; max 8 per file",
+            "candidate_expected_text": "default: one per CPU core capped at 32; max 8 per file",
             "both_matched": True,
         }
         write_json(receipt_path, receipt)

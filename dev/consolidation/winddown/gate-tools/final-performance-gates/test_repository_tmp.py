@@ -156,6 +156,8 @@ def test_forced_frames_uses_the_selected_source_tmp_root():
                     )
                     assert f"{tree / '.work/consolidation'}:{tree / '.work/consolidation'}" in command
                     assert f"{root / '.work/consolidation'}:{root / '.work/consolidation'}" not in command
+                    lease = root / ".work/consolidation/infra"
+                    assert f"{lease}:{lease}:rw" in command
                     assert "/laputa:/laputa:ro" in command
                     assert command[command.index("--network") + 1] == "none"
                     assert command[command.index("--hostname") + 1] == "xsh-test"

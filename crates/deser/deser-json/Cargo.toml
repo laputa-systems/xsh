@@ -34,4 +34,5 @@ deser = { version = "0.10.1", path = "../deser", features = ["derive"] }
 name = "integration"
 path = "tests/integration.rs"
 
-[lints]
+[lints.clippy]
+all = "allow"

@@ -259,8 +259,8 @@ fn close_rights(buffer: &[u8], mut close: impl FnMut(i32)) -> Result<usize, usiz
         let level = i32::from_ne_bytes(buffer[offset + WORD..offset + WORD + 4].try_into().unwrap());
         let kind = i32::from_ne_bytes(buffer[offset + WORD + 4..offset + HEADER].try_into().unwrap());
         if level == SOL_SOCKET && kind == SCM_RIGHTS {
-            for slot in buffer[offset + HEADER..end].chunks_exact(size_of::<i32>()) {
-                close(i32::from_ne_bytes(slot.try_into().unwrap()));
+            for slot in buffer[offset + HEADER..end].as_chunks::<{ size_of::<i32>() }>().0 {
+                close(i32::from_ne_bytes(*slot));
                 closed += 1;
             }
         }
@@ -439,7 +439,7 @@ mod tests {
         buffer.extend_from_slice(&level.to_ne_bytes());
         buffer.extend_from_slice(&kind.to_ne_bytes());
         buffer.extend_from_slice(data);
-        while buffer.len() % WORD != 0 {
+        while !buffer.len().is_multiple_of(WORD) {
             buffer.push(0);
         }
     }

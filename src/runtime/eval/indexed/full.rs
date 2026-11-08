@@ -8996,8 +8996,8 @@ impl<'a> FullDecoder<'a> {
                     };
                     for qualifier in qualifiers {
                         charge(1)?;
-                        if let decode::CompQualifierView::For { target, .. } = qualifier? {
-                            if comprehension_target_binds(&target.materialize()?, slot) { return Ok(true); }
+                        if let decode::CompQualifierView::For { target, .. } = qualifier? && comprehension_target_binds(&target.materialize()?, slot) {
+                            return Ok(true);
                         }
                     }
                 }
@@ -21770,10 +21770,8 @@ fn verify_node_metadata(
         }
         let plan =
             Option::<Arc<crate::runtime::eval::ModuleCallPlan>>::decode(decoder, &mut metadata)?;
-        if let Some(plan) = plan {
-            if !plan.matches_operation(op) {
-                return Err(IrVerifyError::new("prepared module call plan operation policy does not match its instruction"));
-            }
+        if let Some(plan) = plan && !plan.matches_operation(op) {
+            return Err(IrVerifyError::new("prepared module call plan operation policy does not match its instruction"));
         }
     }
     if tag == FullTag::ExprFsList {
@@ -24458,9 +24456,9 @@ assert read(b"", "ignored") == 0
             FullVerifier::verify(&program).unwrap();
             let params = function_instruction_indices(&program, "read", FullTag::ExprParam);
             let decoder = function_view_decoder(&program.store, scheme_fixture_root_function(&program, "read"));
-            let fallback_slots = params.iter().copied().filter_map(|param| {
+            let fallback_slots = params.iter().copied().filter(|&param| {
                 let schema::ExprView::Param(slot) = decoder.expression_view(param).unwrap() else { unreachable!() };
-                (slot >= 2).then_some(param)
+                slot >= 2
             }).collect::<Vec<_>>();
             assert_eq!(fallback_slots.len(), 1);
             let binding = program.store.data[fallback_slots[0]].range().bounds(program.store.extra.len()).unwrap();

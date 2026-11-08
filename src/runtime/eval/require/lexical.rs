@@ -40,15 +40,14 @@ impl PreparedSchema {
     }
 
     pub(super) fn lexical_atom(&self, text: &str) -> Option<LoweredValue> {
-        let parsed = match self {
+        match self {
             Self::Optional(_) if text.is_empty() => Some(LoweredValue::Null),
-            Self::Optional(schema) | Self::Validated(_, schema) => return schema.lexical_atom(text),
+            Self::Optional(schema) | Self::Validated(_, schema) => schema.lexical_atom(text),
             Self::Validate(Type::Int | Type::UInt) if decimal(text, false) => text.parse::<i64>().ok().map(LoweredValue::Int),
             Self::Validate(Type::Float) if decimal(text, true) => text.parse::<f64>().ok().filter(|value| value.is_finite()).map(|value| LoweredValue::Float(crate::runtime::value::FloatValue::new(value))),
             Self::Validate(Type::Bool) => match text { "true" => Some(LoweredValue::Bool(true)), "false" => Some(LoweredValue::Bool(false)), _ => None },
             _ => None,
-        };
-        parsed
+        }
     }
 
     fn child(&self, key: Option<&str>) -> Option<Arc<Self>> {

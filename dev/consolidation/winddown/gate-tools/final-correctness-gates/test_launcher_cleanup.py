@@ -177,7 +177,7 @@ class CoverageTests(unittest.TestCase):
             r"tests\.native\(ctx,\s*profile,\s*(\[[^\]]*\])\)",
             execute_full,
         )
-        self.assertEqual([re.sub(r"\s+", "", filters) for filters in native_filters], ['["--jobs","4"]'])
+        self.assertEqual([re.sub(r"\s+", "", filters) for filters in native_filters], ['["--jobs","8"]'])
         self.assertRegex(native.group(0), r'xsht\.display\(\),\s*"test",\s*@filters')
         self.assertNotIn("tests.full(", execute_full)
         self.assertEqual(execute_full.count("docs_gate(ctx, profile)"), 1)
@@ -358,7 +358,7 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(
             self.plan["warning_deny"],
             [[
-                "cargo", "clippy", "--locked", "--offline", "--workspace", "--target", LAUNCHER.TARGET,
+                "cargo", "clippy", "--locked", "--offline", "--workspace", "--exclude", "graviola", "--target", LAUNCHER.TARGET,
                 "--all-targets", "--all-features", "--quiet", "--", "-D", "warnings",
             ]],
         )
@@ -777,7 +777,7 @@ class ArtifactQualificationTests(unittest.TestCase):
                 "overflow_checks": False,
                 "test": False,
             },
-            "features": ["default", "native-tests", "net", "tools"] if features is None else features,
+            "features": ["default", "native-tests", "net", "ssh", "tools"] if features is None else features,
             "executable": str(binary_path) if executable is None else executable,
             "fresh": fresh,
         }
@@ -876,7 +876,7 @@ class ArtifactQualificationTests(unittest.TestCase):
         }
         privileged, _ = self.qualify(
             target_variant="linux-priv",
-            features=["default", "linux-priv-tests", "native-tests", "net", "tools"],
+            features=["default", "linux-priv-tests", "native-tests", "net", "ssh", "tools"],
             required_features=["linux-priv-tests"],
         )
         self.assertNotEqual(default_product_hash, privileged["sha256"])
@@ -953,7 +953,7 @@ class HarnessSiblingArtifactStagingTests(unittest.TestCase):
                         "qualification": {
                             "profile_name": "verification",
                             "target_variant": "harness",
-                            "features": ["default", "native-tests", "net", "tools"],
+                            "features": ["default", "native-tests", "net", "ssh", "tools"],
                             "source": {"clean": True, "commit": "a" * 40, "tree": "b" * 40},
                         },
                     },
@@ -998,6 +998,14 @@ class HarnessSiblingArtifactStagingTests(unittest.TestCase):
         volumes = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "-v"]
         self.assertIn(f"{self.products}:{self.products}:ro", volumes)
         self.assertIn(f"{self.harness}:{self.harness}:rw", volumes)
+
+    def test_rejects_a_harness_xsh_built_without_the_current_default_features(self):
+        features = self.gate.receipt["harnesses"]["core-compat-extra"]["xsh_variant"]["qualification"]["features"]
+        for stale in (["default", "native-tests", "net", "tools"], [*features, "linux-priv-tests"]):
+            features[:] = stale
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "does not match the qualified default harness"):
+                self.gate.stage_core_compat_extra_xsht()
+        self.gate.run.assert_not_called()
 
     def test_rejects_a_different_existing_sibling_without_overwriting_it(self):
         destination = self.harness_xsh.with_name("xsht")

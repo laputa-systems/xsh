@@ -1475,9 +1475,8 @@ impl ProducerOwner {
                             conditions.push((value.raw() as usize, true, false, 0));
                         }
                         schema::StmtView::Guard { value, else_body, optional: true, .. }
-                            if !self.block_can_complete[&else_body.block_identity().index()] => {
-                            if proves(BindingReadGuard::OptionalPresence { source: value.raw() as usize, anchor: at, roots: &self.block_statements[&block][index + 1..position] }, charge)? { return Ok(true); }
-                        }
+                            if !self.block_can_complete[&else_body.block_identity().index()]
+                            && proves(BindingReadGuard::OptionalPresence { source: value.raw() as usize, anchor: at, roots: &self.block_statements[&block][index + 1..position] }, charge)? => return Ok(true),
                         _ => {}
                     }
                     if let Some(condition) = self.joined_assertion_condition(decoder, preceding, charge)? {
@@ -3751,7 +3750,7 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap =>
                     if self.declared_type(decoder, instruction)?.is_none() { return Ok(true); },
-                schema::ExprView::ModuleCall { .. } => if decoder.is_empty_map_module_call(instruction)? { return Ok(true); },
+                schema::ExprView::ModuleCall { .. } if decoder.is_empty_map_module_call(instruction)? => return Ok(true),
                 _ => {}
             }
         }
@@ -9079,6 +9078,10 @@ fn function_owner(index: usize) -> Result<u32, IrVerifyError> {
     IrFunctionId::new(index).map(IrFunctionId::raw).map_err(|_| IrVerifyError::new("ground producer function index is invalid"))
 }
 
+fn is_nominal_error_type(ty: &Type) -> bool {
+    matches!(ty, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_))
+}
+
 #[cfg(test)]
 mod declared_producer_fact_tests {
     use super::*;
@@ -9191,8 +9194,4 @@ mod declared_producer_fact_tests {
             assert_eq!(error.message, "declared producer fact belongs to another expression");
         }
     }
-}
-
-fn is_nominal_error_type(ty: &Type) -> bool {
-    matches!(ty, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_))
 }
