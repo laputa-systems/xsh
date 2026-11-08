@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run paired native-suite lists and correctness gates against one sealed tree."""
+"""Time paired native suites against one sealed tree with complete outcome accounting."""
 from __future__ import annotations
 
 import argparse
@@ -1610,6 +1610,7 @@ def run_comparison(args: argparse.Namespace) -> int:
                 "sha256": sha256_file(output_dir / f"pair-validation-round-{round_index + 1}.json"),
                 "accepted": pair_report["accepted"],
                 "issues": pair_report["issues"],
+                "test_failures": pair_report["test_failures"],
             })
 
         pair_report = {"accepted": all(item["accepted"] for item in round_validations), "rounds": round_validations}
@@ -1619,6 +1620,11 @@ def run_comparison(args: argparse.Namespace) -> int:
             "sha256": sha256_file(output_dir / "pair-validation.json"),
             "accepted": pair_report["accepted"],
         }
+        receipt["test_failures"] = [
+            {"round": item["round"], **failure}
+            for item in round_validations
+            for failure in item["test_failures"]
+        ]
         receipt["wall_time_min_spread_seconds"] = {
             pair: summarize_suite_samples(samples)
             for pair, samples in receipt["suite_time_samples_seconds"].items()
@@ -1631,7 +1637,7 @@ def run_comparison(args: argparse.Namespace) -> int:
         print(
             f"interleaved native suites: accepted={pair_report['accepted']}; rounds={SUITE_ROUNDS}; "
             f"reference={reference_result.counts}; candidate={candidate_result.counts}; "
-            f"IDs={len(reference_ids)}"
+            f"IDs={len(reference_ids)}; test failures to ticket={len(receipt['test_failures'])}"
         )
         print(f"receipt: {receipt_path}")
         return 0 if pair_report["accepted"] else 1

@@ -1939,6 +1939,7 @@ class BaselineTests(unittest.TestCase):
                 log.write_text('running 1 tests\ntests/example.xsh::test_output ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n')
                 record['stages'].append({'mode': 'suite', 'pair': arm, 'label': label, 'timing_accepted': True, 'timing_discarded': False, 'performance_gate': {'before': {'exit_code': 0}, 'after': {'exit_code': 0}}, 'container_cleanup': {'resolved': True}, 'exit_code': 0, 'container_exit_code': 0, 'result_log': str(log), 'result_log_sha256': check.owned_digest(log), 'cgroup_before': str(cgroup), 'cgroup_after': str(cgroup), 'post_stage_validation': {'source': compare.source_summary(source), 'binaries': binaries, 'unchanged': True}})
         record['expected_default_workers'] = compare.WORKERS
+        record['test_failures'] = []
         record['default_policy_help'] = {}
         for arm in ('reference', 'candidate'):
             text = f'{arm} worker policy'
@@ -1974,7 +1975,18 @@ class BaselineTests(unittest.TestCase):
                 path.write_text(json.dumps(value))
                 return check.validate_scheduler(self.config, path, profile, compare)
             self.assertEqual(validate(record), record)
-            for mutation in ('missing_round', 'duplicate_round', 'dirty_source', 'product', 'reference_build', 'candidate_build', 'reference_xsh', 'reference_xsh-test-helper', 'candidate_xsh', 'candidate_xsh-test-helper', 'cleanup', 'readiness', 'failed', 'wrong_output'):
+            failing = deepcopy(record)
+            failed_stage = next(stage for stage in failing['stages'] if stage['label'] == 'round-2-candidate-suite')
+            failed_log = root / 'failed.log'
+            failed_log.write_text('running 1 tests\ntests/example.xsh::test_output ... FAILED 1ms\n\nfailures:\n\n---- tests/example.xsh::test_output ----\nassertion failed\n\ntest result: FAILED. 0 passed; 1 failed; 0 skipped\n')
+            failed_stage.update(result_log=str(failed_log), result_log_sha256=check.owned_digest(failed_log), exit_code=1, container_exit_code=1)
+            failing['test_failures'] = [{'round': 2, 'arm': 'candidate', 'id': 'tests/example.xsh::test_output', 'status': 'failed'}]
+            self.assertEqual(validate(failing), failing)
+            unreported = deepcopy(failing)
+            unreported['test_failures'] = []
+            with self.assertRaises(check.CheckError):
+                validate(unreported)
+            for mutation in ('missing_round', 'duplicate_round', 'dirty_source', 'product', 'reference_build', 'candidate_build', 'reference_xsh', 'reference_xsh-test-helper', 'candidate_xsh', 'candidate_xsh-test-helper', 'cleanup', 'readiness', 'failed', 'exit_without_failure', 'killed', 'wrong_output'):
                 invalid = deepcopy(record)
                 changed_file = None
                 if mutation == 'missing_round':
@@ -2005,6 +2017,12 @@ class BaselineTests(unittest.TestCase):
                     invalid['stages'][0]['performance_gate']['after']['exit_code'] = 1
                 elif mutation == 'failed':
                     invalid['stages'][0]['container_exit_code'] = 2
+                elif mutation == 'exit_without_failure':
+                    invalid['stages'][0].update(exit_code=1, container_exit_code=1)
+                elif mutation == 'killed':
+                    log = root / 'killed.log'
+                    log.write_text('running 1 tests\n')
+                    invalid['stages'][0].update(result_log=str(log), result_log_sha256=check.owned_digest(log), exit_code=137, container_exit_code=137)
                 else:
                     log = root / 'wrong.log'
                     log.write_text('running 1 tests\ntests/example.xsh::test_other ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n')

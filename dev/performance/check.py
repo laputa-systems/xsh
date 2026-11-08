@@ -1065,7 +1065,8 @@ def validate_scheduler(config, path, profile, compare):
         runs[label] = stage
         accepted_timing(stage, label)
         check_cleanup(stage.get('container_cleanup', {}))
-        require(type(stage.get('exit_code')) is int and stage['exit_code'] == 0 and type(stage.get('container_exit_code')) is int and stage['container_exit_code'] == 0, f'{label}: suite failed')
+        require(type(stage.get('exit_code')) is int and type(stage.get('container_exit_code')) is int and stage['exit_code'] == stage['container_exit_code'], f'{label}: host and container exit codes differ')
+        require(stage.get('mode') == 'suite' or stage['exit_code'] == 0, f'{label}: stage failed')
         bound_file({'path': stage['result_log'], 'sha256': stage['result_log_sha256']}, path.parent)
         for boundary in ('before', 'after'):
             cgroup_path = canonical(stage[f'cgroup_{boundary}'])
@@ -1081,13 +1082,19 @@ def validate_scheduler(config, path, profile, compare):
         require(compare.read_manifest(Path(runs[f'{arm}-list']['result_log'])) == ids, f'scheduler {arm} list differs from manifest')
         text = value.get('default_policy_help', {}).get(f'{arm}_expected_text')
         require(isinstance(text, str) and text and text in Path(runs[f'{arm}-help']['result_log']).read_text(), f'scheduler {arm} help policy mismatch')
+    test_failures = []
     for index in range(compare.SUITE_ROUNDS):
         pair = []
+        exit_codes = []
         for arm in ('reference', 'candidate'):
             matches = [stage for stage in runs.values() if stage['pair'] == arm and stage['label'] == f'round-{index + 1}-{arm}-suite']
             require(len(matches) == 1, f'scheduler missing round {index + 1} {arm}')
             pair.append(compare.validate_log(Path(matches[0]['result_log']), ids))
-        require(compare.compare_pair(*pair, 0, 0)['accepted'] is True, f'scheduler round {index + 1} outcomes rejected')
+            exit_codes.append(matches[0]['exit_code'])
+        report = compare.compare_pair(*pair, *exit_codes)
+        require(report['accepted'] is True, f'scheduler round {index + 1} outcomes rejected')
+        test_failures.extend({'round': index + 1, **failure} for failure in report['test_failures'])
+    require(value.get('test_failures') == test_failures, 'scheduler receipt does not report every test failure')
     return value
 
 
@@ -1181,7 +1188,7 @@ def baseline_receipts(config):
     require(laputa_mounts == [f'{config.laputa_root}:{config.laputa_root}:ro'], 'forced-frame executed Laputa mount differs from explicit configuration')
     environment = [docker_command[index + 1] for index, argument in enumerate(docker_command[:-1]) if argument == '-e']
     require([item for item in environment if item.startswith('XSH_LAPUTA_CORPUS=')] == [f'XSH_LAPUTA_CORPUS={config.laputa_root}'], 'forced-frame executed Laputa environment differs from explicit configuration')
-    require(type(stage.get('status')) is int and stage['status'] == 0 and stage.get('cleanup_resolved') is True and stage.get('error') is None and stage.get('interrupted_signal') is None, 'forced-frame suite failed or cleanup unresolved')
+    require(type(stage.get('status')) is int and stage.get('cleanup_resolved') is True and stage.get('error') is None and stage.get('interrupted_signal') is None, 'forced-frame suite did not finish or cleanup unresolved')
     check_cleanup(stage.get('container_cleanup', {}))
     require(framed.get('command') == [str(Path(profile['directory']) / 'xsht'), 'test', '--force-frames'], 'forced-frame command mismatch')
     final = completed_receipt(paths['comparative'], 'schema', source)
@@ -1203,7 +1210,9 @@ def baseline_receipts(config):
     comparative.verify_report(read_json(report_path), config.commit, final['comparative_image'], read_json(lock_path), owned_digest(lock_path), final['fixtures_sha256'], profile['binaries']['xsh']['sha256'], close)
     scheduler = validate_scheduler(config, paths['scheduler'], profile, compare)
     ids = compare.read_manifest(Path(scheduler['manifest_path']))
-    require(compare.validate_log(Path(stage['log']), ids).accepted, 'forced-frame outcomes rejected')
+    forced_outcomes = compare.validate_log(Path(stage['log']), ids)
+    require(forced_outcomes.complete and stage['status'] == forced_outcomes.expected_exit_code, 'forced-frame outcomes are not completely accounted')
+    require(framed.get('test_failures') == [{'id': test_id, 'status': forced_outcomes.outcomes[test_id].status} for test_id in forced_outcomes.test_failures], 'forced-frame receipt does not report every test failure')
     require(compare.validate_log(paths['profile'].parent / 'opt3/native-suite.log', ids).accepted, 'profile native outcomes rejected')
     require(source_identity(config) == source, 'baseline source changed during receipt validation')
     require(validate_laputa_corpus(profile_receipt['laputa_corpus'], config) == laputa and validate_laputa_corpus(framed['laputa_corpus'], config) == laputa, 'Laputa corpus changed during baseline receipt validation')

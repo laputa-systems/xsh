@@ -26,7 +26,8 @@ def _require(condition: bool, message: str) -> None:
 def _case_ids_from_log(path: Path) -> list[str]:
     ids = set()
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        test_id, separator, _result = line.partition(" ... ")
+        row, separator, _result = line.partition(" ... ")
+        test_id = row.rpartition(" ")[2]
         if separator and CASE_ID_RE.fullmatch(test_id):
             ids.add(test_id)
     return sorted(ids)
