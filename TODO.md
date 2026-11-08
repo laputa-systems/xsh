@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 80
+Next: 81
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -126,6 +126,16 @@ out of scope.
 - **Problem:** When xsh or xsht starts with any of the child-reset signals ignored, every spawn installs a `pre_exec` closure, which makes the standard library fork instead of `posix_spawn`. A POSIX shell ignores SIGINT and SIGQUIT for every background job, so `xsht test &` starts that way. xsht installs its own SIGINT handler, but SIGQUIT stays ignored. The fork holds the address-space lock while it copies page tables. In the r11x scheduler pairs at 16 workers, about 8 of xsht's 50 threads were waiting for that lock at any moment. Tests that take 46 ms took 2 minutes, and four tests hit the 120 s timeout. The gate runner now resets the two signals itself (`a59cc658f`), but any user who backgrounds a suite still hits this.
 - **Recommendation:** Reset the ignored signals in the child without a fork: `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, or a spawn path that applies the defaults through spawn attributes. Keep the same child signal contract.
 - **Acceptance:** Started as `sh -c 'xsht test --jobs 16 & wait'`, the suite has the same wall time and outcome counts as a foreground run, within the observed spread. Children still start with the reset signals at their defaults. Process and signal tests green.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-80 · P3 · Make a btop frame for 1,000 processes interactive
+
+- **Area:** Performance
+- **Where:** `core/lib/btop_model.xsh`, the btop render and diff path, `dev/perf/btop-profile.xsh`
+- **Problem:** The release `btop-profile` run on `32aad8b7a` (2026-11-07) put the p95 time for one frame (model, render and diff) at 2.08 s with 1,000 processes. btop refreshes about once a second, so every frame at that size overruns its interval. The profile asserts only that the process join scales linearly (2.02 times from 1k to 2k processes) and sets no frame budget. No earlier figure exists to compare against.
+- **Recommendation:** Profile one 1k-process frame, find which of model, render or diff dominates, and fix that stage. Then add a frame-time budget to `btop-profile.xsh`.
+- **Acceptance:** p95 frame time for 1,000 processes under 250 ms in a readiness-qualified release run, with the profile enforcing that budget; btop tests green.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
