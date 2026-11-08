@@ -137,7 +137,8 @@ pure promote_cpu_spikes(rows: List[model.ProcessRow], state: State) -> List[mode
   var ordered = rows
   for index in range(ordered.len()) {
     let row = ordered[index]
-    let value = cpu_value(displayed_cpu(row, state))
+    let displayed = if state.process_cpu_per_core { row.cpu_percent_per_core } else { row.cpu_percent }
+    let value = if displayed.state == .Observed and displayed.value != null { displayed.value ?? 0.0 } else { 0.0 }
     if index <= 5 and value > maximum {
       maximum = value
     } else if index == 6 {
@@ -170,7 +171,19 @@ pure ranked_key(missing: Bool, value: Int, pid: Int, reverse: Bool) -> RankedKey
 }
 
 pure cpu_ranked_key(value: rates.Rate, scale: Int, pid: Int, reverse: Bool) -> RankedKey {
-  ranked_key(!rate_available(value), cpu_sort_value(value, scale), pid, reverse)
+  if value.state == .Observed and value.value != null {
+    let scaled = (value.value ?? 0.0) * scale.float()
+    let units = if let Ok(rounded) = scaled.round() {
+      rounded
+    } else if scaled < 0.0 {
+      -9223372036854775807
+    } else {
+      9223372036854775807
+    }
+    {missing: 0, order: if reverse { units } else { -units }, tie: if reverse { pid } else { -pid }}
+  } else {
+    {missing: 1, order: 0, tie: if reverse { pid } else { -pid }}
+  }
 }
 
 pure sort_processes(
@@ -331,6 +344,7 @@ export pure visible_processes(
 }
 
 pure active_collapses(state: State, value: model.Model) -> Set[Str] {
+  return state.collapsed when state.collapsed.len() == 0
   var identities: Set[Str] = set.empty()
   for row in value.processes { identities = identities.add(identity_key(identity(row))) }
   var retained: Set[Str] = set.empty()
