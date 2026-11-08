@@ -307,6 +307,68 @@ test ssh_work_in_a_defer_after_sigterm_still_reaches_the_host { |ctx|
   }
 }
 
+const CANCEL_PROGRAM = """
+proc main(...argv: List[Str]) [env, fs, net, error] {
+let outcome = fp"{argv[0]}"
+let options = {
+  host: env.get("XINFRA_FIXTURE_A_HOST")?,
+  port: env.get("XINFRA_FIXTURE_A_PORT")?.parse_int()?,
+  user: env.get("XINFRA_FIXTURE_USER")?,
+  key: fp"{env.get("XINFRA_FIXTURE_KEY")?}",
+  host_key: env.get("XINFRA_FIXTURE_A_HOST_KEY")?,
+  timeout_ms: 10000,
+}
+let session = ssh.connect(options)?
+defer { outcome.write("cleanup ran") }
+let _ = ssh.exec(session, "touch /tmp/xsh-exec-before-signal; sleep 30", {})
+outcome.write("the command was not cancelled")?
+}
+"""
+
+test ssh_exec_running_when_sigterm_arrives_is_canceled_promptly { |ctx|
+  let fixture = match open_fixture("A") {
+    Ok(value) => value,
+    Err(_) => {
+      test.skip("fixture environment is absent")?
+      return
+    }
+  }
+  let options = {
+    host: fixture.host,
+    port: fixture.port,
+    user: fixture.username,
+    key: fixture.key,
+    host_key: fixture.host_key,
+    timeout_ms: fixture.timeout_ms,
+  }
+  let root = test.temp_dir(ctx, name: "cancel-exec")?
+  let program = fp"{root}/cancel.xsh"
+  let outcome = fp"{root}/outcome"
+  program.write(CANCEL_PROGRAM)?
+  with session = ssh.connect(options)? {
+    assert ssh.exec(session, "rm -f /tmp/xsh-exec-before-signal", {})?.exit_code == 0
+    let child = spawn run @([ctx.xsh_bin.display(), program.display(), outcome.display()]) ?
+    var submitted = false
+    for _ in range(200) {
+      if ssh.exec(session, "test -e /tmp/xsh-exec-before-signal", {})?.exit_code == 0 {
+        submitted = true
+        break
+      }
+      time.sleep(50ms)
+    }
+    assert submitted, "the remote command never started"
+    let started = time.now()
+    process.kill(child.pid, signal: "TERM")?
+    let status = wait child?
+    let elapsed = time.now() - started
+    assert elapsed < 5000, f"cancellation took {elapsed} ms"
+    let code = status.exit_code() ?? -1
+    assert code == 3, f"exit {code}"
+    let reported = outcome.read_text()?
+    assert reported == "cleanup ran", reported
+  }
+}
+
 test ssh_exec_sends_inline_bytes_before_a_streamed_file { |ctx|
   let fixture = match open_fixture("A") {
     Ok(value) => value,
