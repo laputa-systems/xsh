@@ -1225,3 +1225,34 @@ proc tail_capture() -> Result[Str] {
 test test_tail_run_text_supplies_the_proc_value {
   assert tail_capture()? == "tail"
 }
+
+test test_inherited_run_returns_when_the_child_exits {
+  var inherited = 0
+  var captured = 0
+  for _ in range(64) {
+    let started = time.monotonic()?
+    run true
+    let between = time.monotonic()?
+    let _ = run.text true ?
+    let finished = time.monotonic()?
+    inherited += between - started
+    captured += finished - between
+  }
+  assert inherited < 3 * captured, f"inherited {inherited}ns, captured {captured}ns"
+}
+
+test test_inherited_pipeline_returns_when_its_children_exit {
+  var piped = 0
+  var captured = 0
+  for _ in range(32) {
+    let started = time.monotonic()?
+    run true | run true
+    let between = time.monotonic()?
+    let _ = run.text true ?
+    let _ = run.text true ?
+    let finished = time.monotonic()?
+    piped += between - started
+    captured += finished - between
+  }
+  assert piped < 3 * captured, f"piped {piped}ns, captured {captured}ns"
+}

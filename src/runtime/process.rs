@@ -2919,6 +2919,7 @@ pub fn wait_managed(
 ) -> Result<(ChildWaitOutcome, Option<Cancellation>), RunError> {
     policy.before_shared_stdio();
     let mut cancellation = None;
+    let mut exit_fd: Option<Option<OwnedFd>> = None;
     loop {
         let outcome = waitpid_managed(child, mode)?;
         match outcome {
@@ -2956,7 +2957,34 @@ pub fn wait_managed(
             return Err(RunError::new("timeout", "process timed out").with_status(status));
         }
         check_cancellation(child.process_group(), &mut cancellation, policy);
+        let exit_fd = exit_fd.get_or_insert_with(|| open_child_exit_fd(child.pid));
+        await_child_exit(exit_fd.iter());
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_child_exit_fd(pid: u32) -> Option<OwnedFd> {
+    let pid = rprocess::Pid::from_raw(i32::try_from(pid).ok()?)?;
+    rprocess::pidfd_open(pid, rprocess::PidfdFlags::empty()).ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_child_exit_fd(_pid: u32) -> Option<OwnedFd> {
+    None
+}
+
+fn await_child_exit<'fd>(exit_fds: impl Iterator<Item = &'fd OwnedFd>) {
+    let mut pollfds: Vec<revent::PollFd<'fd>> = exit_fds
+        .map(|fd| revent::PollFd::new(fd, revent::PollFlags::IN))
+        .collect();
+    if pollfds.is_empty() {
         std::thread::sleep(WAIT_POLL);
+        return;
+    }
+    let timeout = revent::Timespec::try_from(WAIT_POLL).expect("WAIT_POLL fits Timespec");
+    match revent::poll(&mut pollfds, Some(&timeout)) {
+        Ok(_) | Err(rustix::io::Errno::INTR) => {}
+        Err(_) => std::thread::sleep(WAIT_POLL),
     }
 }
 
@@ -3125,6 +3153,7 @@ fn wait_children(
     policy: &mut dyn CancellationPolicy,
 ) -> Result<Option<Cancellation>, RunError> {
     let mut cancellation = None;
+    let mut exit_fds: Option<Vec<Option<OwnedFd>>> = None;
     let mut remaining = children.len();
     while remaining > 0 {
         for started in children.iter_mut() {
@@ -3170,7 +3199,25 @@ fn wait_children(
             return Err(RunError::new("timeout", "process pipeline timed out").with_status(status));
         }
         check_cancellation(group, &mut cancellation, policy);
-        std::thread::sleep(WAIT_POLL);
+        let exit_fds = exit_fds.get_or_insert_with(|| {
+            children
+                .iter()
+                .map(|started| {
+                    if segment_statuses[started.index].is_none() {
+                        open_child_exit_fd(started.child.id())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+        await_child_exit(
+            children
+                .iter()
+                .zip(exit_fds.iter())
+                .filter(|(started, _)| segment_statuses[started.index].is_none())
+                .filter_map(|(_, exit_fd)| exit_fd.as_ref()),
+        );
     }
     policy.process_group_finished(group);
     Ok(cancellation)
