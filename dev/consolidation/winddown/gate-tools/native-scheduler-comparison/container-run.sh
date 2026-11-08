@@ -52,7 +52,7 @@ forward_interrupt() {
 }
 
 run_xsht() {
-  "$@" >"$output" 2>&1 &
+  (trap - INT QUIT; exec "$@") >"$output" 2>&1 &
   child_pid=$!
   wait "$child_pid"
   status=$?
