@@ -24,6 +24,7 @@ out of scope.
 
 ### XSH-1 · P2 · Complete private and resource baseline acceptance
 
+- **Deferred:** Runs with XSH-3 after the rest of the backlog; see XSH-3.
 - **Area:** Performance
 - **Where:** `dev/util-linux/resources.py:1632`, `dev/util-linux/acceptance.py:926`
 - **Problem:** Final private/resource qualification remains open on current source. The historical scheduler comparison failed, so composed baseline close cannot proceed.
@@ -101,11 +102,12 @@ out of scope.
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
+- **Deferred:** The owner put product work first and defers timed performance gates. Exclude this ticket and XSH-1 from the active backlog run until the rest of the backlog is done.
 - **Area:** Tests
 - **Where:** `dev/consolidation/final_canonical_replay.py`, `dev/performance/check.py`, `dev/consolidation/winddown/gate-tools/`
-- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13 (`0dfebb001`). On `perf/reference-11-qualification` at `4e2b87561`, on the prebuilt musl LLVM 23.1.5 image, the supplemental gates, the canonical replay (native suite 15,335 passed, 0 failed, 181 skipped), the route replay (422 of 422 steps) and `check.py functional --check` passed. The functional close used a skip review, in which the 40 privileged and 27 SSH-fixture skips passed when run as root and against the OpenSSH fixture, and a nine-row semantic bundle. That source still had five wide arena wildcards, which `final-close` rejects; `0d6931e80` names every variant at those sites, so the matrix restarts on that commit.
-- **Recommendation:** On one frozen source, in order: `dev/performance/check.py functional --check`; a fresh normal profile (`profile-cost.py`) and `dev/perf/btop-profile.xsh` in a readiness-bracketed window; `final-observers.py --execute`; forced frames, the comparative profile and three scheduler pairs; util-linux `resources --check` and `close --check` (XSH-1). Bootstrap first with `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`. Validate each tool's `--plan` before an expensive run. Then publish the accepted baseline and retire the infrastructure under XSH-19.
-- **Unmet:** (1) The canonical, supplemental, route and functional steps must be repeated on the wildcard-free commit. (2) The timed steps, observers, forced frames, comparative profile and the three scheduler pairs (reference arm `native-scheduler-reference-rederived.patch`, pinned in `compare.py`) have not run on current source. (3) util-linux `resources --check` and `close --check` (XSH-1) remain.
+- **Problem:** On `e8c526960`, every stage then in the matrix passed: supplemental, bootstrap, canonical replay, route replay (422 of 422 steps), privileged and SSH skips, functional close, profile cost, observers, forced frames and the comparative profile. The three scheduler pairs, added afterwards, failed on every later commit, never for a timing regression: a fork stall from inherited ignored SIGQUIT (`a59cc658f`, product follow-up XSH-79), a read-only gate record directory (`45dc38d69`), a split memory probe with one page of headroom (`77cdb05a1`), a pr overflow check that walked every byte (`21fd840bc`), and a pr merge header that read the clock per page (`29995f89d`). Round 1 reference passed 15,268 of 15,268 on both `d956f9f8d` and `45dc38d69`. A chain takes about nine hours and runs the native suite about nine times, and any one failure voids it.
+- **Recommendation:** When resumed, gate correctness once, on the canonical replay, and treat the scheduler pairs, observers and forced frames as timing measurements that report and ticket test failures. Reuse a stage's receipt across commits whose diff touches none of its inputs. Branch `fix/gate-correctness-once` holds that change, unverified against a full chain. Before any timed run, sweep the native suite four times concurrently to surface load-sensitive failures at once. Bootstrap and plan as before: `final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN`, then `execute --bootstrap-receipt .work/tmp/bootstrap-RUN/bootstrap-receipt.json`, validating each tool's `--plan` first.
+- **Unmet:** (1) The full matrix, including the three scheduler pairs, on one current commit. (2) util-linux `resources --check` and `close --check` (XSH-1). (3) Publishing the accepted baseline and retiring the infrastructure under XSH-19.
 - **Fix with:** orchestrate
 - **Effort:** M
 
