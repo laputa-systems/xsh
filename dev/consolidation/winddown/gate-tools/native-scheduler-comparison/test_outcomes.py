@@ -5,6 +5,7 @@ import unittest
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
+SCRATCH = HERE.parents[4] / ".work/tmp"
 sys.path.insert(0, str(HERE))
 import outcomes
 
@@ -42,7 +43,8 @@ def failed_log(status="FAILED", skip_scratch="2222"):
 
 class PairAccountingTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH)
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 
@@ -103,7 +105,8 @@ class PairAccountingTests(unittest.TestCase):
 
 class CountedRunTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH)
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

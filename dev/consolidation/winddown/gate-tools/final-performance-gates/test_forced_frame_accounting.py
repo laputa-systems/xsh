@@ -6,6 +6,7 @@ import unittest
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
+SCRATCH = HERE.parents[4] / ".work/tmp"
 sys.path.insert(0, str(HERE))
 spec = spec_from_file_location("accounting_forced", HERE / "forced-frames.py")
 forced = module_from_spec(spec)
@@ -25,7 +26,8 @@ ONE_FAILURE = (
 
 class ForcedFrameAccountingTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH)
         self.addCleanup(self.temporary.cleanup)
         self.log = Path(self.temporary.name) / "native-suite.log"
 
