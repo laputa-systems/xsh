@@ -285,6 +285,7 @@ pure history_rows(
 pure process_content(
   value: model.Model,
   state: ui.State,
+  rows: List[ui.VisibleRow],
   capacity: Int,
   width: Int,
   local_display: List[processes.LocalProcessDisplay],
@@ -318,7 +319,6 @@ pure process_content(
   } else if value.processes.is_empty() {
     lines += ["No visible processes"]
   } else {
-    let rows = ui.visible_tree_rows(value, state, local_display)
     if rows.is_empty() {
       lines += ["No matching processes"]
     } else {
@@ -549,7 +549,7 @@ pure disk_panel_content(
 
 ## Renders a default process view at the injected window size.
 export pure render(value: model.Model, width: Int, height: Int) -> Result[Screen, Error] {
-  render_view(value, ui.initial(value, process_capacity(height)), width, height, [])
+  render_view(value, ui.start(value, process_capacity(height)), width, height, [])
 }
 
 ## Renders current selection, sort, filter, and scroll state without I/O.
@@ -597,8 +597,13 @@ export pure render_view_with_graphs(
     |> split_panel(memory_width, memory_height, "Memory / Disks", memory_left, _)
   let network_rows = network_panel_content(value, state, histories, capabilities, memory_width - 2)?
     |> panel(memory_width, network_height, "Network", _)
-  let view = ui.resize(state, value, process_capacity(height))
-  let process_rows = process_content(value, view, process_capacity(height), process_width - 2, local_display)
+  let view = ui.resize_view(state, value, process_capacity(height))
+  let visible_rows = if local_display.is_empty() {
+    view.rows
+  } else {
+    ui.visible_tree_rows(value, view.state, local_display)
+  }
+  let process_rows = process_content(value, view.state, visible_rows, process_capacity(height), process_width - 2, local_display)
     |> panel(
       process_width,
       lower_height,

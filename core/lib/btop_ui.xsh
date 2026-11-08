@@ -159,31 +159,41 @@ pure promote_cpu_spikes(rows: List[model.ProcessRow], state: State) -> List[mode
   ordered
 }
 
+type RankedKey = {missing: Int, order: Int, tie: Int}
+
+pure ranked_key(missing: Bool, value: Int, pid: Int, reverse: Bool) -> RankedKey {
+  {
+    missing: if missing { 1 } else { 0 },
+    order: if reverse { value } else { -value },
+    tie: if reverse { pid } else { -pid },
+  }
+}
+
+pure cpu_ranked_key(value: rates.Rate, scale: Int, pid: Int, reverse: Bool) -> RankedKey {
+  ranked_key(!rate_available(value), cpu_sort_value(value, scale), pid, reverse)
+}
+
 pure sort_processes(
   rows: List[model.ProcessRow],
   state: State,
   values: LocalDisplayIndex,
 ) -> List[model.ProcessRow] {
-  let by_pid = rows |> sort-by { |row| row.pid }
+  let reverse = state.reverse
   let ordered = match state.sort {
-    Pid => by_pid |> sort-by(desc: !state.reverse) { |row| row.pid }
-    Name => by_pid |> sort-by(desc: state.reverse) { |row| row.command }
-    Cmd => by_pid |> sort-by(desc: state.reverse) { |row| command_text(row, values) }
-    ThreadCount => by_pid
-      |> sort-by(desc: !state.reverse) { |row| row.thread_count ?? 0 }
-      |> sort-by { |row| if row.thread_count == null { 1 } else { 0 } }
-    UserName => by_pid |> sort-by(desc: state.reverse) { |row| user_text(row, values) }
-    Memory => by_pid
-      |> sort-by(desc: !state.reverse) { |row| row.rss_bytes ?? 0 }
-      |> sort-by { |row| if row.rss_bytes == null { 1 } else { 0 } }
-    CpuDirect => by_pid
-      |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(displayed_cpu(row, state), 10) }
-      |> sort-by { |row| if rate_available(displayed_cpu(row, state)) { 0 } else { 1 } }
-    CpuLazy => by_pid
-      |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(row.cpu_average_percent, 1000000) }
-      |> sort-by { |row| if rate_available(row.cpu_average_percent) { 0 } else { 1 } }
+    Pid => rows |> sort-by(desc: !reverse) .pid
+    Name => rows |> sort-by(desc: reverse) { |row| {command: row.command, pid: row.pid} }
+    Cmd => rows |> sort-by(desc: reverse) { |row| {command: command_text(row, values), pid: row.pid} }
+    ThreadCount => rows
+      |> sort-by { |row| ranked_key(row.thread_count == null, row.thread_count ?? 0, row.pid, reverse) }
+    UserName => rows |> sort-by(desc: reverse) { |row| {account: user_text(row, values), pid: row.pid} }
+    Memory => rows
+      |> sort-by { |row| ranked_key(row.rss_bytes == null, row.rss_bytes ?? 0, row.pid, reverse) }
+    CpuDirect => rows
+      |> sort-by { |row| cpu_ranked_key(displayed_cpu(row, state), 10, row.pid, reverse) }
+    CpuLazy => rows
+      |> sort-by { |row| cpu_ranked_key(row.cpu_average_percent, 1000000, row.pid, reverse) }
   }
-  if state.sort == CpuLazy and !state.reverse { promote_cpu_spikes(ordered, state) } else { ordered }
+  if state.sort == CpuLazy and !reverse { promote_cpu_spikes(ordered, state) } else { ordered }
 }
 
 pure local_display_index(values: List[processes.LocalProcessDisplay]) -> LocalDisplayIndex {
@@ -204,6 +214,7 @@ pure filter_matches(
   values: LocalDisplayIndex,
 ) -> List[model.ProcessRow] {
   let filter = filter_text(state)
+  return rows when filter == ""
   let visible: List[model.ProcessRow] = collect {
     for row in rows {
       yield row when matches(row, filter, values)
@@ -487,24 +498,36 @@ pure bounded_scroll(state: State, rows: List[model.ProcessRow], selected: Identi
   current
 }
 
-pure reconcile(
+## Pairs a reconciled view state with the visible rows it was reconciled against.
+export type ProcessView = {state: State, rows: List[VisibleRow]}
+
+pure reconciled(
   state: State,
   value: model.Model,
   display_metadata: List[processes.LocalProcessDisplay] = [],
-) -> State {
+) -> ProcessView {
   let current = {
     ...state,
     collapsed: active_collapses(state, value),
     network_interface: active_network_interface(state, value),
   }
-  let rows = visible_processes(value, current, display_metadata)
-  return {...current, selected: null, scroll: 0} when rows.is_empty()
+  let entries = visible_tree_rows(value, current, display_metadata)
+  let rows = [entry.row for entry in entries]
+  return {state: {...current, selected: null, scroll: 0}, rows: entries} when rows.is_empty()
   let selected = if selected_index(rows, current.selected) != null {
     current.selected
   } else {
     identity(rows[0])
   }
-  {...current, selected: selected, scroll: bounded_scroll(current, rows, selected)}
+  {state: {...current, selected: selected, scroll: bounded_scroll(current, rows, selected)}, rows: entries}
+}
+
+pure reconcile(
+  state: State,
+  value: model.Model,
+  display_metadata: List[processes.LocalProcessDisplay] = [],
+) -> State {
+  reconciled(state, value, display_metadata).state
 }
 
 ## Keeps a view attached to live process lifetimes after each completed sample.
@@ -521,9 +544,9 @@ export pure is_selected(state: State, row: model.ProcessRow) -> Bool {
   same_identity(state.selected, identity(row))
 }
 
-## Starts a CPU-sorted view and selects the first process lifetime.
-export pure initial(value: model.Model, visible_rows: Int) -> State {
-  reconcile({
+## Builds the default view state before any process is selected.
+export pure start(value: model.Model, visible_rows: Int) -> State {
+  {
     selected: null,
     sort: if defaults.process_sorting() == "cpu lazy" { .CpuLazy } else { .Pid },
     reverse: defaults.process_reversed(),
@@ -546,7 +569,22 @@ export pure initial(value: model.Model, visible_rows: Int) -> State {
     network_tx_offset: null,
     show_disks: defaults.disks_enabled(),
     disk_io_mode: defaults.disk_io_mode_enabled(),
-  }, value)
+  }
+}
+
+## Starts a CPU-sorted view and selects the first process lifetime.
+export pure initial(value: model.Model, visible_rows: Int) -> State {
+  reconcile(start(value, visible_rows), value)
+}
+
+## Keeps the selected identity visible and returns the rows it was checked against.
+export pure resize_view(
+  state: State,
+  value: model.Model,
+  visible_rows: Int,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> ProcessView {
+  reconciled({...state, visible_rows: if visible_rows < 0 { 0 } else { visible_rows }}, value, local_display)
 }
 
 ## Keeps the selected identity visible after terminal geometry changes.
@@ -556,7 +594,7 @@ export pure resize(
   visible_rows: Int,
   local_display: List[processes.LocalProcessDisplay] = [],
 ) -> State {
-  reconcile({...state, visible_rows: if visible_rows < 0 { 0 } else { visible_rows}}, value, local_display)
+  resize_view(state, value, visible_rows, local_display).state
 }
 
 pure next_sort(sort: Sort) -> Sort {
