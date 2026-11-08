@@ -42,7 +42,6 @@ export type ProcessRow = {
   cpu_average_percent: rates.Rate,
   rss_bytes: Int?,
 }
-type ProcessUpdate = {row: ProcessRow, metadata: ProcessMetadata?}
 
 ## Retains one sparse Linux logical CPU identifier and interval utilization.
 export type CoreUsage = {id: Int, utilization: rates.Rate}
@@ -56,7 +55,6 @@ export enum MetadataState: Str {
 
 ## Retains one process UID only while its identity and command remain stable.
 export type ProcessMetadata = {start_ticks: Int, command: Str, uid: Int, observed_at_ns: Int}
-type MetadataIndexEntry = {pid: Int, entry: ProcessMetadata}
 ## Bounds metadata reuse to one source session and the current process inventory.
 export type MetadataCache = {source_id: Str, by_pid: Map[Int, ProcessMetadata]}
 ## Associates a current process with the same PID lifetime from the prior sample.
@@ -233,7 +231,7 @@ export pure network_metric(value: NetworkPanel, name: Str?) -> NetworkMetric? {
   find_network_metric(value.interfaces, if name == null { value.interface_name } else { name })
 }
 
-type UidResult = {uid: Int?, state: MetadataState, entry: ProcessMetadata?}
+type UidResult = {uid: Int?, state: MetadataState}
 
 pure core_index(previous: Observation?) -> Map[Int, syscpu.CpuCounters] {
   if let before = previous {
@@ -362,10 +360,19 @@ pure retained_uid(
     let age = frame.at_ns - prior.observed_at_ns
     if prior.start_ticks == row.start_ticks and prior.command == row.command and
         age >= 0 and age < PROCESS_METADATA_TTL_NS {
-      return {uid: prior.uid, state: .Stale, entry: prior}
+      return {uid: prior.uid, state: .Stale}
     }
   }
-  {uid: null, state: .Unavailable, entry: null}
+  {uid: null, state: .Unavailable}
+}
+
+pure retained_metadata(row: ProcessRow, at_ns: Int, cached: Map[Int, ProcessMetadata]) -> ProcessMetadata {
+  if let uid = row.uid {
+    if row.uid_state == .Fresh {
+      return {start_ticks: row.start_ticks, command: row.command, uid: uid, observed_at_ns: at_ns}
+    }
+  }
+  cached[row.pid]
 }
 
 type ProcessRank = {availability: Int, rate_order: Int, tie: Int}
@@ -409,20 +416,11 @@ export pure step_cached(
       yield {id: core.id, utilization: core_rate(current, baseline, prior_cores, core, gap)}
     }
   }
-  let process_updates: List[ProcessUpdate] = collect {
+  let process_rows: List[ProcessRow] = collect {
     for matched in process_matches {
       let process_row = matched.current
       let uid: UidResult = if let observed_uid = process_row.uid {
-        {
-          uid: observed_uid,
-          state: .Fresh,
-          entry: {
-            start_ticks: process_row.start_ticks,
-            command: process_row.command,
-            uid: observed_uid,
-            observed_at_ns: frame.at_ns,
-          },
-        }
+        {uid: observed_uid, state: .Fresh}
       } else {
         retained_uid(process_row, frame, cached_metadata)
       }
@@ -440,34 +438,24 @@ export pure step_cached(
         }
       }
       yield {
-        row: {
-          pid: process_row.pid,
-          parent_pid: process_row.parent_pid,
-          start_ticks: process_row.start_ticks,
-          thread_count: process_row.thread_count,
-          uid: uid.uid,
-          uid_state: uid.state,
-          command: process_row.command,
-          cpu_percent: process_percents.share,
-          cpu_percent_per_core: process_percents.per_core,
-          cpu_average_percent: average_percent,
-          rss_bytes: process_row.rss_bytes,
-        },
-        metadata: uid.entry,
-      }
-    }
-  }
-  let process_rows: List[ProcessRow] = [update.row for update in process_updates]
-  let next_metadata_entries: List[MetadataIndexEntry] = collect {
-    for update in process_updates {
-      if let entry = update.metadata {
-        yield {pid: update.row.pid, entry: entry}
+        pid: process_row.pid,
+        parent_pid: process_row.parent_pid,
+        start_ticks: process_row.start_ticks,
+        thread_count: process_row.thread_count,
+        uid: uid.uid,
+        uid_state: uid.state,
+        command: process_row.command,
+        cpu_percent: process_percents.share,
+        cpu_percent_per_core: process_percents.per_core,
+        cpu_average_percent: average_percent,
+        rss_bytes: process_row.rss_bytes,
       }
     }
   }
   let next_metadata: Map[Int, ProcessMetadata] = {
-    item.pid: item.entry
-    for item in next_metadata_entries
+    row.pid: retained_metadata(row, current.at_ns, cached_metadata)
+    for row in process_rows
+    if row.uid_state != .Unavailable
   }
 
   {
