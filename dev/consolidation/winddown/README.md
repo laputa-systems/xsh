@@ -145,6 +145,9 @@ Laputa package builds, which compile XSH inside it. Work that uses other images,
 or only edits files, can run beside the timed stages while `perf-gate-ready`
 still passes. The comparative gate and the scheduler pairs measure on one CPU
 and on all 32 CPUs respectively, so nothing else should run during them.
+The profile-cost receipt also binds the Laputa corpus checkout by path, commit,
+and tree. Forced frames refuses the receipt if that checkout moves, so do not
+merge or check out anything in it until forced frames has finished.
 
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
