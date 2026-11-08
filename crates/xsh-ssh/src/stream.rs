@@ -8,7 +8,7 @@ use rustix::event::{PollFd, PollFlags, poll};
 use rustix::time::Timespec;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::channel::{Channel, validate_environment};
+use crate::channel::{Channel, LOCAL_MAX_PACKET, LOCAL_WINDOW, validate_environment};
 use crate::client::Connection;
 use crate::error::{Certainty, Error};
 use crate::exec::{ExecResult, ExecStatus};
@@ -80,6 +80,7 @@ impl OutputSink for Unpolled<'_> {
 
 const PIPE_ATOMIC_WRITE: usize = 4096;
 const COMPACT_AFTER: usize = 64 * 1024;
+const HOLD_CAPACITY: usize = LOCAL_WINDOW as usize + COMPACT_AFTER + LOCAL_MAX_PACKET as usize;
 const DRAIN_POLL: Duration = Duration::from_millis(50);
 
 fn ready(descriptor: BorrowedFd<'_>, events: PollFlags, wait: Duration) -> Result<bool, Error> {
@@ -99,7 +100,8 @@ fn ready(descriptor: BorrowedFd<'_>, events: PollFlags, wait: Duration) -> Resul
 }
 
 /// One output stream: bytes the sink has not taken yet stay here, and their window stays with
-/// the client, so at most the receive window is ever held.
+/// the client, so at most the receive window is ever held. The hold is allocated whole the first
+/// time it is needed, so it never moves while it holds output.
 struct Drain<'a> {
     sink: &'a mut dyn OutputSink,
     stream: &'static str,
@@ -129,42 +131,30 @@ impl<'a> Drain<'a> {
         }
     }
 
-    /// Hand `data` to the sink and return how many held bytes left the client.
+    /// Hand `data` to the sink and return how many of the received bytes left the client.
     fn accept(&mut self, data: &[u8]) -> Result<usize, Error> {
         if self.sink.descriptor().is_none() {
             sink(self.sink, data, self.stream)?;
             return Ok(data.len());
         }
-        self.held.extend_from_slice(data);
-        self.pump()
+        if self.waiting() {
+            self.held.extend_from_slice(data);
+            return self.pump();
+        }
+        let written = write_ready(self.sink, data, self.stream)?;
+        if written < data.len() {
+            if self.held.capacity() < HOLD_CAPACITY {
+                self.held.reserve_exact(HOLD_CAPACITY);
+            }
+            self.held.extend_from_slice(&data[written..]);
+        }
+        Ok(written)
     }
 
     /// Write held bytes while the sink is writable and return how many left the client.
     fn pump(&mut self) -> Result<usize, Error> {
-        let mut written = 0;
-        while self.waiting() {
-            let Some(descriptor) = self.sink.descriptor() else {
-                break;
-            };
-            if !ready(descriptor, PollFlags::OUT, Duration::ZERO)? {
-                break;
-            }
-            let end = self.held.len().min(self.taken + PIPE_ATOMIC_WRITE);
-            match self.sink.write(&self.held[self.taken..end]) {
-                Ok(0) => {
-                    return Err(Error::Submitted {
-                        detail: format!("{} write accepted no bytes", self.stream),
-                    });
-                }
-                Ok(count) => {
-                    self.taken += count;
-                    written += count;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(error) => return Err(sink_error(error, self.stream)),
-            }
-        }
+        let written = write_ready(self.sink, &self.held[self.taken..], self.stream)?;
+        self.taken += written;
         if !self.waiting() || self.taken >= COMPACT_AFTER {
             let kept = self.held.len() - self.taken;
             self.held.copy_within(self.taken.., 0);
@@ -174,6 +164,33 @@ impl<'a> Drain<'a> {
         }
         Ok(written)
     }
+}
+
+/// Write `bytes` while `sink` polls writable, at most `PIPE_BUF` at a time, and return how many
+/// it took.
+fn write_ready(sink: &mut dyn OutputSink, bytes: &[u8], stream: &'static str) -> Result<usize, Error> {
+    let mut written = 0;
+    while written < bytes.len() {
+        let Some(descriptor) = sink.descriptor() else {
+            break;
+        };
+        if !ready(descriptor, PollFlags::OUT, Duration::ZERO)? {
+            break;
+        }
+        let end = bytes.len().min(written + PIPE_ATOMIC_WRITE);
+        match sink.write(&bytes[written..end]) {
+            Ok(0) => {
+                return Err(Error::Submitted {
+                    detail: format!("{stream} write accepted no bytes"),
+                });
+            }
+            Ok(count) => written += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => return Err(sink_error(error, stream)),
+        }
+    }
+    Ok(written)
 }
 
 /// Write what the outputs still hold after the connection ended, bounded by the operation's
