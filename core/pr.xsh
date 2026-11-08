@@ -334,6 +334,7 @@ proc main(...argv: List[Str]) {
     labels += [if name == "-" { "" } else { name }]
     timestamps += [if name == "-" { time.now() * 1000000 } else { fs.stat(fp"{name}", true)?.mtime_ns }]
   }
+  let merged_at = time.now() * 1000000
   var groups = inputs.len()
   if opts.merge { groups = if inputs.is_empty() { 0 } else { 1 } }
   for batch in range(groups) {
@@ -358,7 +359,7 @@ proc main(...argv: List[Str]) {
       let row_count = if opts.merge { take } else { (take + count - 1) / count }
       let shown = page >= first_page.value and page <= last_page.value
       if shown and headers {
-        let date = time.format(if opts.merge { time.now() * 1000000 } else { timestamps[batch] }, format: date_format)?
+        let date = time.format(if opts.merge { merged_at } else { timestamps[batch] }, format: date_format)?
         let label = opts.header ?? (if opts.merge { "" } else { labels[batch] })
         let page_text = f"Page {page}"
         let spare = width - date.byte_len() - label.byte_len() - page_text.byte_len()
