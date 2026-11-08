@@ -552,8 +552,10 @@ fn exec_redirections(
             input = Some(file);
         }
     }
-    crate::runtime::process::inherit_standard_streams(command, 7, &redirections);
-    apply_redirections(command, &redirections).map_err(map_error)?;
+    let mut setup = crate::runtime::spawn::Command::new("");
+    crate::runtime::process::inherit_standard_streams(&mut setup, 7, &redirections);
+    apply_redirections(&mut setup, &redirections).map_err(map_error)?;
+    setup.transfer_setup_to(command);
     drop(input);
     Ok(())
 }

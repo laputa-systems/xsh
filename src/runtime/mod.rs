@@ -5,5 +5,6 @@ pub mod namespace;
 pub mod process;
 pub mod run;
 pub(crate) mod signal;
+pub(crate) mod spawn;
 pub mod text_bytes;
 pub mod value;

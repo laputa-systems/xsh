@@ -1,6 +1,5 @@
 use std::io;
 use std::sync::{LazyLock, atomic::{AtomicU8, Ordering}};
-use std::os::unix::process::CommandExt;
 
 unsafe extern "C" {
     fn xsh_absent_standard_descriptors() -> libc::c_uint;
@@ -28,7 +27,7 @@ pub(crate) fn replaced(fd: i32) {
 
 // Run before ordered child redirections: inherited reservations must be
 // absent, while a later explicit redirection may reopen that standard stream.
-pub(crate) fn inherit(command: &mut std::process::Command, inherited: u8) {
+pub(crate) fn inherit(command: &mut crate::runtime::spawn::Command, inherited: u8) {
     let absent = ABSENT.load(Ordering::Acquire) & inherited;
     if absent == 0 { return; }
     // SAFETY: close is async-signal-safe and only addresses inherited standard

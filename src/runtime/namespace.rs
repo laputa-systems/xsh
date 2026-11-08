@@ -243,9 +243,9 @@ fn strerror(error: &std::io::Error) -> String {
 }
 
 #[cfg(target_os = "linux")]
-pub use linux::prepare;
+pub(crate) use linux::prepare;
 #[cfg(not(target_os = "linux"))]
-pub use unsupported::prepare;
+pub(crate) use unsupported::prepare;
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -260,13 +260,12 @@ mod linux {
     use rustix::thread::UnshareFlags;
     use std::os::fd::{AsFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::process::CommandExt;
     use std::path::Path;
-    use std::process::Command;
+    use crate::runtime::spawn::Command;
 
     /// Opens what the child needs in the caller's namespaces and arranges for
     /// the child to apply `entry` between fork and exec.
-    pub fn prepare(entry: &NamespaceEntry, command: &mut Command) -> Result<(), RunError> {
+    pub(crate) fn prepare(entry: &NamespaceEntry, command: &mut Command) -> Result<(), RunError> {
         let plan = ChildPlan::open(entry)?;
         // SAFETY: `ChildPlan::apply` calls only async-signal-safe functions and
         // allocates nothing; every buffer and descriptor it uses was created
@@ -524,10 +523,10 @@ mod linux {
 #[cfg(not(target_os = "linux"))]
 mod unsupported {
     use super::NamespaceEntry;
+    use crate::runtime::spawn::Command;
     use crate::runtime::value::RunError;
-    use std::process::Command;
 
-    pub fn prepare(_entry: &NamespaceEntry, _command: &mut Command) -> Result<(), RunError> {
+    pub(crate) fn prepare(_entry: &NamespaceEntry, _command: &mut Command) -> Result<(), RunError> {
         Err(RunError::new(
             "unsupported-platform",
             "namespaces are only available on Linux",

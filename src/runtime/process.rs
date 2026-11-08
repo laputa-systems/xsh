@@ -13,10 +13,10 @@ use std::num::NonZeroI32;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::CommandExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdout, Command, Stdio};
+use crate::runtime::spawn::{Child, ChildStdio, Command, SignalReset};
+use std::process::ChildStdout;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -976,7 +976,7 @@ struct InputDelivery {
 
 impl InputDelivery {
     fn start(
-        child: &mut std::process::Child,
+        child: &mut Child,
         invocation: &ProcessInvocation,
         group: ProcessGroup,
     ) -> Result<Option<Self>, RunError> {
@@ -992,7 +992,7 @@ impl InputDelivery {
     }
 
     fn start_stream(
-        child: &mut std::process::Child,
+        child: &mut Child,
         invocation: &ProcessInvocation,
     ) -> Result<Option<Self>, RunError> {
         let Some(bytes) = invocation.redirections.iter().find_map(|item| match item {
@@ -1049,7 +1049,7 @@ fn feed_input(input: &mut Option<InputDelivery>) -> Result<(), RunError> {
 
 #[allow(dead_code)]
 pub struct ManagedChild {
-    child: std::process::Child,
+    child: Child,
     pub pid: u32,
     group: ProcessGroup,
     pub target: Vec<u8>,
@@ -1242,26 +1242,26 @@ fn start_pipeline(
         };
 
         let stdin = if index == 0 {
-            Stdio::inherit()
+            ChildStdio::Inherit
         } else if let Some(stdout) = previous_stdout.take() {
-            Stdio::from(stdout)
+            ChildStdio::from(stdout)
         } else {
-            Stdio::null()
+            ChildStdio::Null
         };
         let stdout = if last && !capture_stdout {
-            Stdio::inherit()
+            ChildStdio::Inherit
         } else {
-            Stdio::piped()
+            ChildStdio::Piped
         };
         let stderr_stdio = match stderr {
-            Some(writer) => Stdio::from(writer.try_clone().map_err(map_spawn_error)?),
-            None => Stdio::inherit(),
+            Some(writer) => ChildStdio::from(writer.try_clone().map_err(map_spawn_error)?),
+            None => ChildStdio::Inherit,
         };
 
         let group_config = process_group
             .map(|group: ProcessGroup| ProcessGroupConfig::Join(group.pgid))
             .unwrap_or(ProcessGroupConfig::NewRoot);
-        let mut command = command_with_stdio(
+        let command = command_with_stdio(
             invocation,
             executable,
             stdin,
@@ -1511,15 +1511,15 @@ fn run_capture_stdio(
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-run").map_err(map_cgroup_error)?;
     policy.before_shared_stdio();
     let stderr = if capture_stderr {
-        Stdio::piped()
+        ChildStdio::Piped
     } else {
-        Stdio::inherit()
+        ChildStdio::Inherit
     };
     let mut child = command_with_stdio(
         invocation,
         executable,
-        Stdio::inherit(),
-        Stdio::piped(),
+        ChildStdio::Inherit,
+        ChildStdio::Piped,
         stderr,
         ProcessGroupConfig::NewRoot,
         1 | if capture_stderr { 0 } else { 4 },
@@ -1744,7 +1744,7 @@ fn spawn_managed_inner(
     }
     let executable = resolve_executable(invocation)?;
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-spawn").map_err(map_cgroup_error)?;
-    let mut command = command_with_managed_stdio(invocation, executable, options)?;
+    let command = command_with_managed_stdio(invocation, executable, options)?;
     let timed_stream = watch_stream_timeout && invocation.timeout.is_some();
     let mut launch_authority = if timed_stream {
         Some(begin_timed_child_launch().map_err(map_wait_error)?)
@@ -1927,7 +1927,7 @@ fn timeout_outcome_identity_lost(outcome: &ProcessTimeoutOutcome) -> bool {
 
 fn cleanup_stream_spawn_failure(
     mut primary: RunError,
-    child: &mut std::process::Child,
+    child: &mut Child,
     pid: u32,
     group: ProcessGroup,
     identity: Option<&TimedChildIdentity>,
@@ -2416,7 +2416,7 @@ fn signal_process_checked(pid: u32, signal: i32) -> Result<(), RunError> {
 }
 
 fn terminate_stream_child(
-    child: &mut std::process::Child,
+    child: &mut Child,
     pid: u32,
     group: ProcessGroup,
     identity: Option<&TimedChildIdentity>,
@@ -2535,7 +2535,7 @@ fn terminate_stream_child(
 pub(crate) struct ProcessStream {
     child: ManagedChild,
     identity: Option<TimedChildIdentity>,
-    stdout: Option<std::process::ChildStdout>,
+    stdout: Option<ChildStdout>,
     timeout: Option<ProcessStreamTimeout>,
     status: Option<ProcessStatus>,
     cancellation: Option<Cancellation>,
@@ -3028,7 +3028,7 @@ struct StartedChild {
     index: usize,
     target: Vec<u8>,
     pid: Option<u32>,
-    child: std::process::Child,
+    child: Child,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3040,7 +3040,7 @@ pub struct ProcessGroup {
 }
 
 impl ProcessGroup {
-    fn from_child(child: &std::process::Child) -> Self {
+    fn from_child(child: &Child) -> Self {
         Self {
             pgid: child.id() as libc::pid_t,
             pid_only: false,
@@ -3415,26 +3415,15 @@ fn signal_process_group_owned(
 }
 
 fn configure_process_group(command: &mut Command, group: ProcessGroupConfig) {
-    if child_signals_start_as_defaults() {
-        place_in_process_group(command, group);
-    } else {
-        reset_signals_and_place_in_process_group(command, group);
-    }
+    reset_ignored_signals(command);
+    place_in_process_group(command, group);
 }
 
-fn reset_signals_and_place_in_process_group(command: &mut Command, group: ProcessGroupConfig) {
-    unsafe {
-        command.pre_exec(move || {
-            reset_child_signal_handlers();
-            match group {
-                ProcessGroupConfig::Inherit => Ok(()),
-                ProcessGroupConfig::NewRoot => {
-                    rprocess::setpgid(None, None).map_err(io::Error::from)
-                }
-                ProcessGroupConfig::Join(pgid) => {
-                    rprocess::setpgid(None, rprocess::Pid::from_raw(pgid)).map_err(io::Error::from)
-                }
-            }
+fn reset_ignored_signals(command: &mut Command) {
+    if !child_signals_start_as_defaults() {
+        command.reset_signals(SignalReset {
+            signals: &CHILD_RESET_SIGNALS,
+            sigpipe_ignored: sigpipe_ignored(),
         });
     }
 }
@@ -3487,7 +3476,7 @@ fn signal_ignored(signal: libc::c_int) -> bool {
     queried && action.sa_sigaction == libc::SIG_IGN
 }
 
-fn assign_child_to_process_group(child: &std::process::Child, group: ProcessGroup) {
+fn assign_child_to_process_group(child: &Child, group: ProcessGroup) {
     if let Err(err) = rprocess::setpgid(
         rprocess::Pid::from_raw(child.id() as i32),
         rprocess::Pid::from_raw(group.pgid),
@@ -3586,21 +3575,12 @@ fn change_process_signal_action(
     Ok(())
 }
 
-fn reset_child_signal_handlers() {
-    for signal in CHILD_RESET_SIGNALS {
-        unsafe {
-            libc::signal(signal, libc::SIG_DFL);
-        }
-    }
-    apply_sigpipe_disposition_to_child();
-}
-
 fn command_with_stdio(
     invocation: &ProcessInvocation,
     executable: PathBuf,
-    stdin: Stdio,
-    stdout: Stdio,
-    stderr: Stdio,
+    stdin: ChildStdio,
+    stdout: ChildStdio,
+    stderr: ChildStdio,
     group: ProcessGroupConfig,
     inherited: u8,
 ) -> Result<Command, RunError> {
@@ -3616,7 +3596,6 @@ fn command_with_stdio(
         .stdin(stdin)
         .stdout(stdout)
         .stderr(stderr);
-    command.env_clear();
     for (name, value) in &invocation.env {
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
     }
@@ -3646,7 +3625,6 @@ fn command_with_managed_stdio(
         .stdin(managed_stdio(options.stdin))
         .stdout(managed_stdio(options.stdout))
         .stderr(managed_stdio(options.stderr));
-    command.env_clear();
     for (name, value) in &invocation.env {
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
     }
@@ -3662,11 +3640,11 @@ fn command_with_managed_stdio(
     Ok(command)
 }
 
-fn managed_stdio(stdio: ManagedStdio) -> Stdio {
+fn managed_stdio(stdio: ManagedStdio) -> ChildStdio {
     match stdio {
-        ManagedStdio::Inherit => Stdio::inherit(),
-        ManagedStdio::Null => Stdio::null(),
-        ManagedStdio::Piped => Stdio::piped(),
+        ManagedStdio::Inherit => ChildStdio::Inherit,
+        ManagedStdio::Null => ChildStdio::Null,
+        ManagedStdio::Piped => ChildStdio::Piped,
     }
 }
 
@@ -3734,45 +3712,32 @@ pub fn resolve_executable(invocation: &ProcessInvocation) -> Result<PathBuf, Run
 }
 
 fn configure_managed_child(command: &mut Command, options: SpawnManagedOptions) {
-    let signals_ready = !options.reset_signals || child_signals_start_as_defaults();
-    if signals_ready && !options.spawn.ignore_hup && !options.spawn.new_session {
-        place_in_process_group(
-            command,
-            match options.group {
-                ProcessGroupConfig::Inherit if options.spawn.detach => ProcessGroupConfig::NewRoot,
-                group => group,
-            },
-        );
+    if options.reset_signals {
+        reset_ignored_signals(command);
+    }
+    if options.spawn.ignore_hup {
+        // SAFETY: signal is async-signal-safe.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGHUP, libc::SIG_IGN);
+                Ok(())
+            });
+        }
+    }
+    if options.spawn.new_session {
+        // SAFETY: setsid is async-signal-safe.
+        unsafe {
+            command.pre_exec(|| rprocess::setsid().map(drop).map_err(io::Error::from));
+        }
         return;
     }
-    unsafe {
-        command.pre_exec(move || {
-            if options.reset_signals {
-                reset_child_signal_handlers();
-            }
-            if options.spawn.ignore_hup {
-                libc::signal(libc::SIGHUP, libc::SIG_IGN);
-            }
-            if options.spawn.new_session {
-                rprocess::setsid().map_err(io::Error::from)?;
-            } else {
-                match options.group {
-                    ProcessGroupConfig::Inherit if options.spawn.detach => {
-                        rprocess::setpgid(None, None).map_err(io::Error::from)?;
-                    }
-                    ProcessGroupConfig::Inherit => {}
-                    ProcessGroupConfig::NewRoot => {
-                        rprocess::setpgid(None, None).map_err(io::Error::from)?;
-                    }
-                    ProcessGroupConfig::Join(pgid) => {
-                        rprocess::setpgid(None, rprocess::Pid::from_raw(pgid))
-                            .map_err(io::Error::from)?;
-                    }
-                }
-            }
-            Ok(())
-        });
-    }
+    place_in_process_group(
+        command,
+        match options.group {
+            ProcessGroupConfig::Inherit if options.spawn.detach => ProcessGroupConfig::NewRoot,
+            group => group,
+        },
+    );
 }
 
 fn validate_executable(path: &Path) -> Result<(), RunError> {
@@ -3941,7 +3906,7 @@ pub(crate) fn apply_redirections(
     for redirection in child_side {
         match redirection {
             ProcessRedirection::Input { .. } => {
-                command.stdin(Stdio::piped());
+                command.stdin(ChildStdio::Piped);
             }
             ProcessRedirection::File { stream, mode, path } => {
                 let file = file_redirection_file(path, *mode)?;
@@ -3992,8 +3957,8 @@ fn apply_parent_redirections(
         {
             let file = file_redirection_file(first_path, *first_mode)?;
             let cloned = file.try_clone().map_err(map_redirection_error)?;
-            apply_file_stdio(command, *first_stream, Stdio::from(file));
-            apply_file_stdio(command, *second_stream, Stdio::from(cloned));
+            apply_file_stdio(command, *first_stream, ChildStdio::from(file));
+            apply_file_stdio(command, *second_stream, ChildStdio::from(cloned));
             index += 2;
             continue;
         }
@@ -4001,7 +3966,7 @@ fn apply_parent_redirections(
         let redirection = &redirections[index];
         match redirection {
             ProcessRedirection::Input { .. } => {
-                command.stdin(Stdio::piped());
+                command.stdin(ChildStdio::Piped);
             }
             ProcessRedirection::File { stream, mode, path } => {
                 let stdio = file_redirection(path, *mode)?;
@@ -4031,7 +3996,6 @@ fn stream_fd(stream: RedirectionStream) -> i32 {
 /// Registers a `dup2(fd, stream)` to run in the child once its standard streams
 /// are in place. Duplications run in the order they were registered.
 fn child_dup(command: &mut Command, stream: RedirectionStream, fd: i32) -> Result<(), RunError> {
-    use std::os::unix::process::CommandExt;
     if fd < 0 {
         return Err(RunError::new(
             "redirection",
@@ -4050,7 +4014,6 @@ fn child_dup(command: &mut Command, stream: RedirectionStream, fd: i32) -> Resul
 /// until the command is dropped, so it stays open across the spawn.
 fn child_dup_owned(command: &mut Command, stream: RedirectionStream, source: rustix::fd::OwnedFd) {
     use std::os::fd::AsRawFd;
-    use std::os::unix::process::CommandExt;
     let target = stream_fd(stream);
     // SAFETY: the closure only calls dup2 and fcntl, both async-signal-safe.
     unsafe {
@@ -4089,7 +4052,7 @@ fn stdout_stderr_pair(first: RedirectionStream, second: RedirectionStream) -> bo
     )
 }
 
-fn apply_file_stdio(command: &mut Command, stream: RedirectionStream, stdio: Stdio) {
+fn apply_file_stdio(command: &mut Command, stream: RedirectionStream, stdio: ChildStdio) {
     match stream {
         RedirectionStream::Stdin => {
             command.stdin(stdio);
@@ -4125,11 +4088,11 @@ fn file_redirection_file(
     options.open(path).map_err(map_redirection_error)
 }
 
-fn file_redirection(path: &Path, mode: FileRedirectionMode) -> Result<Stdio, RunError> {
-    file_redirection_file(path, mode).map(Stdio::from)
+fn file_redirection(path: &Path, mode: FileRedirectionMode) -> Result<ChildStdio, RunError> {
+    file_redirection_file(path, mode).map(ChildStdio::from)
 }
 
-fn duplicate_fd(fd: i32) -> Result<Stdio, RunError> {
+fn duplicate_fd(fd: i32) -> Result<ChildStdio, RunError> {
     if fd < 0 {
         return Err(RunError::new(
             "redirection",
@@ -4140,7 +4103,7 @@ fn duplicate_fd(fd: i32) -> Result<Stdio, RunError> {
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     let duplicated = rio::fcntl_dupfd_cloexec(borrowed, 0)
         .map_err(|error| map_redirection_error(error.into()))?;
-    Ok(Stdio::from(duplicated))
+    Ok(ChildStdio::from(duplicated))
 }
 
 fn set_nonblocking(fd: BorrowedFd<'_>) -> Result<(), RunError> {
@@ -4328,35 +4291,76 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    fn spawned_identity_and_group(configure: impl FnOnce(&mut Command)) -> (i32, i32) {
+    fn spawn_shell(script: &str, configure: impl FnOnce(&mut Command)) -> String {
+        use std::io::Read;
         let mut command = Command::new("/bin/sh");
         command
-            .args(["-c", r#"echo $$ $(cut -d' ' -f5 /proc/$$/stat)"#])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped());
+            .args(["-c", script])
+            .stdin(ChildStdio::Null)
+            .stdout(ChildStdio::Piped);
         configure(&mut command);
-        let output = command.output().expect("the shell starts");
-        assert!(output.status.success());
-        let text = String::from_utf8(output.stdout).expect("numbers are text");
+        let mut child = command.spawn().expect("the shell starts");
+        let mut text = String::new();
+        child
+            .stdout
+            .take()
+            .expect("piped stdout")
+            .read_to_string(&mut text)
+            .expect("shell output is text");
+        assert!(child.wait().expect("the shell exits").success());
+        text
+    }
+
+    #[cfg(target_os = "linux")]
+    fn with_sigquit_ignored<T>(body: impl FnOnce() -> T) -> T {
+        static SERIAL: Mutex<()> = Mutex::new(());
+        let _serial = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = unsafe { libc::signal(libc::SIGQUIT, libc::SIG_IGN) };
+        let result = catch_unwind(AssertUnwindSafe(body));
+        unsafe { libc::signal(libc::SIGQUIT, previous) };
+        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn spawned_identity_and_group(configure: impl FnOnce(&mut Command)) -> (i32, i32) {
+        let text = spawn_shell(r#"echo $$ $(cut -d' ' -f5 /proc/$$/stat)"#, configure);
         let mut fields = text.split_whitespace().map(|field| field.parse::<i32>().expect("a number"));
         (fields.next().expect("pid"), fields.next().expect("pgrp"))
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn spawn_and_pre_exec_paths_place_children_in_the_same_group() {
+    fn spawn_paths_place_children_in_the_same_group() {
         let own_group = rprocess::getpgrp().as_raw_nonzero().get();
-        for place in [place_in_process_group, reset_signals_and_place_in_process_group] {
-            let (pid, group) = spawned_identity_and_group(|command| place(command, ProcessGroupConfig::NewRoot));
-            assert_eq!(group, pid, "a new root leads its own group");
-            let (_, group) = spawned_identity_and_group(|command| place(command, ProcessGroupConfig::Inherit));
-            assert_eq!(group, own_group, "an inheriting child stays in the caller's group");
-            let (pid, joined) = spawned_identity_and_group(|command| {
-                place(command, ProcessGroupConfig::Join(own_group));
-            });
-            assert_ne!(pid, 0);
-            assert_eq!(joined, own_group, "a joining child lands in the requested group");
+        for group in [ProcessGroupConfig::NewRoot, ProcessGroupConfig::Inherit, ProcessGroupConfig::Join(own_group)] {
+            for sigquit_ignored in [false, true] {
+                let place = || spawned_identity_and_group(|command| configure_process_group(command, group));
+                let (pid, placed) = if sigquit_ignored { with_sigquit_ignored(place) } else { place() };
+                match group {
+                    ProcessGroupConfig::NewRoot => assert_eq!(placed, pid, "a new root leads its own group"),
+                    ProcessGroupConfig::Inherit | ProcessGroupConfig::Join(_) => {
+                        assert_eq!(placed, own_group, "{group:?} lands in the caller's group")
+                    }
+                }
+            }
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn ignored_signals_reset_in_the_child_without_forking() {
+        let mut spawns_directly = false;
+        let ignored = with_sigquit_ignored(|| {
+            spawn_shell(r"sed -n 's/^SigIgn:\t//p' /proc/$$/status", |command| {
+                configure_process_group(command, ProcessGroupConfig::NewRoot);
+                spawns_directly = command.spawns_directly();
+            })
+        });
+        let ignored = u64::from_str_radix(ignored.trim(), 16).expect("a hexadecimal signal mask");
+        for signal in CHILD_RESET_SIGNALS {
+            assert_eq!(ignored & (1 << (signal - 1)), 0, "signal {signal} starts at its default");
+        }
+        assert!(spawns_directly || !cfg!(all(target_os = "linux", target_env = "musl")));
     }
 
     #[test]
