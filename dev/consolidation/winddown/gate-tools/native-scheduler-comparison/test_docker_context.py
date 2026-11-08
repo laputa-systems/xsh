@@ -34,6 +34,7 @@ class DockerContextTests(unittest.TestCase):
                 scratch_infra = Path("/results/unit.scratch/infra")
                 self.assertIn(f"{scratch_tmp}:/work/.work/tmp:rw", mounts)
                 self.assertIn(f"{scratch_infra}:{common.parent}/.work/consolidation/infra:rw", mounts)
+                self.assertIn("/results/unit.scratch/gate:/work/.work/gate:rw", mounts)
                 self.assertNotIn(f"{source}:/work:rw", mounts)
                 self.assertIn("--cpus=32", options)
                 self.assertIn("--memory=40g", options)

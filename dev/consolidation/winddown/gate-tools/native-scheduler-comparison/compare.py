@@ -691,7 +691,7 @@ def docker_command(
     mode: str, pair: str, label: str, container_name: str,
 ) -> list[str]:
     uid, gid = os.getuid(), os.getgid()
-    scratch_tmp, scratch_infra = stage_scratch_paths(output_dir, label)
+    scratch_tmp, scratch_infra, scratch_gate = stage_scratch_paths(output_dir, label)
     common_git = common_git_dir(source_root)
     tool_common_git = Path(git(ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True)
     if common_git != tool_common_git:
@@ -711,6 +711,7 @@ def docker_command(
         "-v", f"{binary_dir}:/opt/{pair}:ro",
         "-v", f"{output_dir}:/results:rw",
         "-v", f"{scratch_tmp}:{STAGE_TMP_MOUNT}:rw",
+        "-v", f"{scratch_gate}:{STAGE_GATE_MOUNT}:rw",
         "-v", f"{scratch_infra}:{infra_mount}:rw",
         "-v", f"{CONTAINER_RUNNER}:/bench/container-run.sh:ro",
         "-w", "/work",
@@ -722,11 +723,12 @@ def docker_command(
 
 
 STAGE_TMP_MOUNT = "/work/.work/tmp"
+STAGE_GATE_MOUNT = "/work/.work/gate"
 
 
-def stage_scratch_paths(output_dir: Path, label: str) -> tuple[Path, Path]:
+def stage_scratch_paths(output_dir: Path, label: str) -> tuple[Path, Path, Path]:
     scratch = output_dir / f"{label}.scratch"
-    return scratch / "tmp", scratch / "infra"
+    return scratch / "tmp", scratch / "infra", scratch / "gate"
 
 
 def stage_infra_mount_path(common_git: Path) -> Path:
@@ -734,11 +736,13 @@ def stage_infra_mount_path(common_git: Path) -> Path:
 
 
 def prepare_stage_scratch(source_root: Path, output_dir: Path, label: str) -> None:
-    scratch_tmp, scratch_infra = stage_scratch_paths(output_dir, label)
+    scratch_tmp, scratch_infra, scratch_gate = stage_scratch_paths(output_dir, label)
     scratch_tmp.parent.mkdir(exist_ok=False)
     scratch_tmp.mkdir()
     scratch_infra.mkdir()
+    scratch_gate.mkdir()
     (source_root / ".work/tmp").mkdir(parents=True, exist_ok=True)
+    (source_root / ".work/gate").mkdir(parents=True, exist_ok=True)
 
 
 def remove_stage_scratch(output_dir: Path, label: str) -> str | None:
@@ -1064,6 +1068,7 @@ def run_stage(
                 "host": str(stage_scratch_paths(output_dir, label)[1]),
                 "container": str(stage_infra_mount_path(common_git_dir(source_root))),
             },
+            "gate": {"host": str(stage_scratch_paths(output_dir, label)[2]), "container": STAGE_GATE_MOUNT},
             "removed": cleanup["resolved"] and scratch_cleanup_error is None,
             "cleanup_error": scratch_cleanup_error,
         },
