@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 79
+Next: 80
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -116,6 +116,16 @@ out of scope.
 - **Problem:** On the same 20,000-record JSON, five alternating pinned Linux O2 pairs measured roundtrip median CPU of 59.065 ms on pre-Deser `e1b896dc` against 69.813 ms on `ad126a1e8`, above the 5% budget and the spread; decode alone stays within spread. Borrowed event guards later cut ten encodes by about 5%. Rejected without benefit above spread: small-record text vectors, direct compact-name accumulation, decoder sink inlining, an `#[inline]` encoder hint, per-container field emitters, and the parked primitive-handle prototype `fb3bc1712`. Profiles point at serializer event dispatch and field iteration. The products differ beyond the codec, so no single change is attributed.
 - **Recommendation:** Profile the current encode path against `e1b896dc` on matched products and fix the dominant cost; S6 runtime, startup and build CPU-time qualification on current source closes with it.
 - **Acceptance:** Roundtrip median CPU within `max(5%, paired spread)` of the pre-Deser baseline over five readiness-qualified alternating pairs with exact outputs; decode, JSONL and checker controls within budget.
+- **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-79 · P3 · Spawn without forking when signals start ignored
+
+- **Area:** Performance
+- **Where:** `src/runtime/process.rs` (`child_signals_start_as_defaults`, `configure_process_group`, `configure_managed_child`)
+- **Problem:** When xsh or xsht starts with any of the child-reset signals ignored, every spawn installs a `pre_exec` closure, which makes the standard library fork instead of `posix_spawn`. A POSIX shell ignores SIGINT and SIGQUIT for every background job, so `xsht test &` starts that way. xsht installs its own SIGINT handler, but SIGQUIT stays ignored. The fork holds the address-space lock while it copies page tables. In the r11x scheduler pairs at 16 workers, about 8 of xsht's 50 threads were waiting for that lock at any moment. Tests that take 46 ms took 2 minutes, and four tests hit the 120 s timeout. The gate runner now resets the two signals itself (`a59cc658f`), but any user who backgrounds a suite still hits this.
+- **Recommendation:** Reset the ignored signals in the child without a fork: `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, or a spawn path that applies the defaults through spawn attributes. Keep the same child signal contract.
+- **Acceptance:** Started as `sh -c 'xsht test --jobs 16 & wait'`, the suite has the same wall time and outcome counts as a foreground run, within the observed spread. Children still start with the reset signals at their defaults. Process and signal tests green.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
