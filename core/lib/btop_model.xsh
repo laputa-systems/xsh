@@ -353,29 +353,11 @@ pure process_rates(
   {share: {state: .Warming, value: null}, per_core: {state: .Warming, value: null}}
 }
 
-pure process_average_rate(frame: ProcessFrame, row: processes.Process) -> rates.Rate {
-  if row.cpu_ticks == null or frame.uptime_seconds == null or frame.clock_ticks_per_second <= 0 {
-    return rate(rates.Unavailable)
-  }
-  let ticks_per_second = frame.clock_ticks_per_second.float()
-  let elapsed_seconds = frame.uptime_seconds - row.start_ticks.float() / ticks_per_second
-  return rate(rates.Invalid) when elapsed_seconds <= 0.0
-  {
-    state: rates.Observed,
-    value: row.cpu_ticks.float() / ticks_per_second / elapsed_seconds * 100.0,
-  }
-}
-
-pure cached_uid(
+pure retained_uid(
   row: processes.Process,
   frame: ProcessFrame,
   cached: Map[Int, ProcessMetadata],
 ) -> UidResult {
-  if let uid = row.uid {
-    let entry = {start_ticks: row.start_ticks, command: row.command, uid: uid, observed_at_ns: frame.at_ns}
-    return {uid: uid, state: .Fresh, entry: entry}
-  }
-
   if let Ok(prior) = cached.get(row.pid) {
     let age = frame.at_ns - prior.observed_at_ns
     if prior.start_ticks == row.start_ticks and prior.command == row.command and
@@ -430,8 +412,33 @@ export pure step_cached(
   let process_updates: List[ProcessUpdate] = collect {
     for matched in process_matches {
       let process_row = matched.current
-      let uid = cached_uid(process_row, frame, cached_metadata)
+      let uid: UidResult = if let observed_uid = process_row.uid {
+        {
+          uid: observed_uid,
+          state: .Fresh,
+          entry: {
+            start_ticks: process_row.start_ticks,
+            command: process_row.command,
+            uid: observed_uid,
+            observed_at_ns: frame.at_ns,
+          },
+        }
+      } else {
+        retained_uid(process_row, frame, cached_metadata)
+      }
       let process_percents = process_rates(frame, matched.previous, process_row)
+      let average_percent: rates.Rate = if frame.uptime_seconds == null or process_row.cpu_ticks == null or
+          frame.clock_ticks_per_second <= 0 {
+        {state: .Unavailable, value: null}
+      } else {
+        let ticks_per_second = frame.clock_ticks_per_second.float()
+        let elapsed_seconds = frame.uptime_seconds - process_row.start_ticks.float() / ticks_per_second
+        if elapsed_seconds <= 0.0 {
+          {state: .Invalid, value: null}
+        } else {
+          {state: .Observed, value: process_row.cpu_ticks.float() / ticks_per_second / elapsed_seconds * 100.0}
+        }
+      }
       yield {
         row: {
           pid: process_row.pid,
@@ -443,7 +450,7 @@ export pure step_cached(
           command: process_row.command,
           cpu_percent: process_percents.share,
           cpu_percent_per_core: process_percents.per_core,
-          cpu_average_percent: process_average_rate(frame, process_row),
+          cpu_average_percent: average_percent,
           rss_bytes: process_row.rss_bytes,
         },
         metadata: uid.entry,
