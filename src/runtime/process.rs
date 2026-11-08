@@ -3957,8 +3957,8 @@ fn apply_parent_redirections(
         {
             let file = file_redirection_file(first_path, *first_mode)?;
             let cloned = file.try_clone().map_err(map_redirection_error)?;
-            apply_file_stdio(command, *first_stream, ChildStdio::from(file));
-            apply_file_stdio(command, *second_stream, ChildStdio::from(cloned));
+            apply_file_stdio(command, *first_stream, ChildStdio::from(OwnedFd::from(file)));
+            apply_file_stdio(command, *second_stream, ChildStdio::from(OwnedFd::from(cloned)));
             index += 2;
             continue;
         }
@@ -4089,7 +4089,7 @@ fn file_redirection_file(
 }
 
 fn file_redirection(path: &Path, mode: FileRedirectionMode) -> Result<ChildStdio, RunError> {
-    file_redirection_file(path, mode).map(ChildStdio::from)
+    file_redirection_file(path, mode).map(|file| ChildStdio::from(OwnedFd::from(file)))
 }
 
 fn duplicate_fd(fd: i32) -> Result<ChildStdio, RunError> {

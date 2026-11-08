@@ -1,5 +1,5 @@
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
+use rustix::process::{self as rprocess, Pid, Signal, WaitOptions};
 use std::io;
 use std::os::fd::OwnedFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -11,12 +11,6 @@ pub(crate) enum ChildStdio {
     Null,
     Piped,
     Fd(OwnedFd),
-}
-
-impl From<File> for ChildStdio {
-    fn from(file: File) -> Self {
-        Self::Fd(file.into())
-    }
 }
 
 impl From<OwnedFd> for ChildStdio {
@@ -254,62 +248,47 @@ impl Child {
         self.pid
     }
 
+    fn pid(&self) -> io::Result<Pid> {
+        Pid::from_raw(self.pid as i32)
+            .ok_or_else(|| io::Error::from_raw_os_error(libc::ESRCH))
+    }
+
+    fn reap(&mut self, options: WaitOptions) -> io::Result<Option<ExitStatus>> {
+        let pid = self.pid()?;
+        loop {
+            match rprocess::waitpid(Some(pid), options) {
+                Ok(None) => return Ok(None),
+                Ok(Some((_, status))) => {
+                    let status = ExitStatus::from_raw(status.as_raw());
+                    self.status = Some(status);
+                    return Ok(Some(status));
+                }
+                Err(rustix::io::Errno::INTR) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
     pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
         drop(self.stdin.take());
         if let Some(status) = self.status {
             return Ok(status);
         }
-        let mut raw = 0;
-        loop {
-            // SAFETY: waitpid writes one c_int through a valid pointer.
-            let waited = unsafe { libc::waitpid(self.pid as libc::pid_t, &mut raw, 0) };
-            if waited >= 0 {
-                break;
-            }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::EINTR) {
-                return Err(error);
-            }
-        }
-        let status = ExitStatus::from_raw(raw);
-        self.status = Some(status);
-        Ok(status)
+        Ok(self.reap(WaitOptions::empty())?.expect("a blocking wait returns a status"))
     }
 
     pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         if let Some(status) = self.status {
             return Ok(Some(status));
         }
-        let mut raw = 0;
-        loop {
-            // SAFETY: waitpid writes one c_int through a valid pointer.
-            let waited = unsafe { libc::waitpid(self.pid as libc::pid_t, &mut raw, libc::WNOHANG) };
-            if waited == 0 {
-                return Ok(None);
-            }
-            if waited > 0 {
-                break;
-            }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::EINTR) {
-                return Err(error);
-            }
-        }
-        let status = ExitStatus::from_raw(raw);
-        self.status = Some(status);
-        Ok(Some(status))
+        self.reap(WaitOptions::NOHANG)
     }
 
     pub(crate) fn kill(&mut self) -> io::Result<()> {
         if self.status.is_some() {
             return Ok(());
         }
-        // SAFETY: kill takes plain integers.
-        if unsafe { libc::kill(self.pid as libc::pid_t, libc::SIGKILL) } == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
+        rprocess::kill_process(self.pid()?, Signal::KILL).map_err(io::Error::from)
     }
 }
 
@@ -318,7 +297,7 @@ mod direct {
     use super::{Child, ChildStdio, Command, SignalReset};
     use std::ffi::{CString, OsStr};
     use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::process::{ChildStderr, ChildStdin, ChildStdout};
 
@@ -375,13 +354,7 @@ mod direct {
     }
 
     fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
-        let mut fds = [0 as libc::c_int; 2];
-        // SAFETY: pipe2 fills two descriptors.
-        if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: pipe2 returned two descriptors this function now owns.
-        Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
+        rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(io::Error::from)
     }
 
     fn signal_set(signals: &[libc::c_int]) -> libc::sigset_t {
