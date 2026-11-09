@@ -87,6 +87,7 @@ pub struct CompactFunctionSig {
 pub struct CompactBodyFacts {
     pub resolved_type_expressions: super::ResolvedTypeExpressions<ExprId>,
     pub resolved_bindings: std::sync::Arc<super::ResolvedBindings>,
+    pub binding_reads: BindingReadSites,
     pub expr_types: FxHashMap<ExprId, Type>,
     pub projections: FxHashSet<ExprId>,
     /// Optional receivers whose checked presence proof makes their fallback unreachable.
@@ -150,6 +151,49 @@ pub struct CompactBodyFacts {
     pub text_patterns: FxHashMap<crate::syntax::arena::PatternId, super::TextPattern>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct BindingReadSites {
+    by_span: Vec<(Span, super::BindingId)>,
+    expressions_by_binding: FxHashMap<super::BindingId, Vec<(Span, ExprId)>>,
+}
+
+impl BindingReadSites {
+    fn collect(program: &ArenaProgram, bindings: &super::ResolvedBindings) -> Self {
+        let arena = &program.arena;
+        let mut by_span = Vec::with_capacity(
+            bindings.value_sites.len() + bindings.expressions.len() + bindings.tails.len(),
+        );
+        let mut expressions_by_binding = FxHashMap::<_, Vec<_>>::default();
+        by_span.extend(bindings.value_sites.iter().map(|(&(span, _), &binding)| (span, binding)));
+        for (&expression, &binding) in &bindings.expressions {
+            let span = arena.expr(expression).span;
+            by_span.push((span, binding));
+            expressions_by_binding.entry(binding).or_default().push((span, expression));
+        }
+        by_span.extend(bindings.tails.iter().map(|(&statement, &binding)| (arena.stmt(statement).span, binding)));
+        by_span.sort_unstable();
+        for expressions in expressions_by_binding.values_mut() {
+            expressions.sort_unstable();
+        }
+        Self { by_span, expressions_by_binding }
+    }
+
+    pub fn read_within(&self, within: Span) -> impl Iterator<Item = super::BindingId> + '_ {
+        let first = self
+            .by_span
+            .partition_point(|(span, _)| *span < Span::at(within.source_id, within.start()));
+        self.by_span[first..]
+            .iter()
+            .take_while(move |(span, _)| span.source_id == within.source_id && span.start() <= within.end())
+            .filter(move |(span, _)| span.end() <= within.end())
+            .map(|&(_, binding)| binding)
+    }
+
+    pub fn expressions_reading(&self, binding: super::BindingId) -> &[(Span, ExprId)] {
+        self.expressions_by_binding.get(&binding).map_or(&[], Vec::as_slice)
+    }
+}
+
 impl CompactBodyFacts {
     pub fn resource_transfer(&self, site: super::ResourceTransferSite) -> Option<bool> {
         self.resource_transfers.get(&site).copied()
@@ -167,6 +211,7 @@ impl CompactBodyFacts {
                 instantiations: FxHashMap::default(),
             },
             resolved_bindings: checked.resolved_bindings.clone(),
+            binding_reads: BindingReadSites::collect(program, &checked.resolved_bindings),
             argument_bindings: checked.argument_bindings.clone(),
             resource_transfers: checked.resource_transfers.clone(),
             checked_control_flow: checked.checked_control_flow.clone(),
