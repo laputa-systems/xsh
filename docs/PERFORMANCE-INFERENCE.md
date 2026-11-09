@@ -199,6 +199,14 @@ annotation below is kept. Btop's 39 sites remain unmeasured.
 `sort`, `awk` and Laputa `pm/generation.xsh`) passes every site alone and all
 four joint views. Laputa's exported `write_generation_plan.path_value` stays.
 
+Rerun on 2026-11-09 with an unqualified, interleaved rough measurement: joint-erased
+`wc`, `sort` and `awk` print byte-identical output to the annotated sources. Erased `sort`
+costs about 2.5 times the CPU because the checker solves the constraints of every generalized
+private callable on each launch (`xsht check core/sort.xsh` 0.65 s to 2.7 s); the sort loop
+itself is unchanged. `xsht check --compare-with` reports the generalized private callables
+as contract mismatches. XSH-66 tracks the checker cost and the host-consumer guest drill,
+which has no written procedure.
+
 **Retained source contracts.** Four sites keep their annotations because the
 source gives the type no other anchor:
 

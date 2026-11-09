@@ -271,13 +271,13 @@ out of scope.
 - **Fix with:** single-source-of-truth
 - **Effort:** S
 
-### XSH-66 · P3 · Compare practical joint views and close erased sort's CPU gap
+### XSH-66 · P3 · Cut the checker cost of jointly erased private callables
 
 - **Area:** Inference performance
-- **Where:** `core/wc.xsh`, `core/sort.xsh`, `core/awk.xsh`, Laputa `pm/generation.xsh`, `docs/PERFORMANCE-INFERENCE.md`
-- **Problem:** The four practical joint views pass, but their joint behavior and interfaces have not been compared with the annotated sources, and the host-consumer guest drill has not been rerun on them. Joint-erased `sort.xsh` produces identical output at about 2.3 times the annotated source's CPU on the faster sort build.
-- **Recommendation:** Diff joint-view interfaces and outputs against the annotated sources, rerun the guest drill, then profile erased `sort` to find which inferred types cost the extra CPU.
-- **Acceptance:** Interfaces and outputs match or each difference is explained; the CPU gap is attributed and either removed or recorded with its cause under the performance campaign's sampling rules.
+- **Where:** `src/sema/constraints/`, `core/sort.xsh`
+- **Problem:** Erasing all 298 private parameter annotations of `core/sort.xsh` (all pass alone and jointly) produces byte-identical output on 100,000-line text and numeric inputs, but about 2.5 times the annotated source's user CPU (unqualified, shared host: 3.3 s against 8.3 s on `nums`; 0.9 s against 2.7 s on one line). The extra CPU is checker work on every launch, not sort runtime: `xsht check core/sort.xsh` goes from about 0.65 s to about 2.7 s, and a sampled run moves `sema::constraints` self time from 14% to 33% (`TypeConstraints::input_bound_variables`, `unresolved_input_variables`, `CallableApplicationScope` lookups, `Type::clone`). Each erased private callable becomes a `forall` signature with row-polymorphic records and field, method-family and iterable constraints, and every call instantiates and solves them. No single site accounts for it; grouped erasures add up (176 scalar sites about +0.8 s, 69 `SortOptions` sites about +0.5 s). `wc.xsh` (57 sites, 0.74 s to 1.06 s) and `awk.xsh` (9 sites) show the same shape at lower cost, and Laputa `pm/generation.xsh` (47 sites) is unchanged at 0.96 s against 0.98 s. Interface qualification (`xsht check --compare-with`) reports 66 callable and 90 checked-body contract mismatches for erased `sort` (every one a private callable generalized from its concrete signature; the `main` CLI contract does not mismatch), two body mismatches for `awk` (`find_program`, `read_program`), many for `pm/generation.xsh`, and for `wc` the candidate cannot capture a checked body fact at `wc.xsh:390` (`byte_count(0)`: no canonical body site). The self-compare of `wc` passes.
+- **Recommendation:** Profile the constraint solver on the erased `sort` candidate with frame pointers (the verification build has none) and remove the repeated `input_bound_variables` and `unresolved_input_variables` recomputation, or cache solved instantiations per callable. Decide whether the body-contract mismatches on generalized private callables are expected qualification output for erased views or should be reported separately from public interface drift, and fix the `wc` body-site capture. Rerun the host-consumer guest drill, which has no written procedure in the tree.
+- **Acceptance:** Erased `sort` check CPU is within the observed spread of the annotated source's, or the remaining gap is recorded with its cause; the qualification tool distinguishes expected generalization from interface drift; the guest drill is run or its procedure is written down.
 - **Fix with:** make-it-fast, benchmark-checklist
 - **Effort:** M
 
