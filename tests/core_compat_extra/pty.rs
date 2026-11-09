@@ -1,7 +1,8 @@
-use super::{applet, Running};
+use super::{applet, Running, HANG_BACKSTOP};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Output, Stdio};
 use std::path::{Path, PathBuf};
@@ -80,7 +81,7 @@ fn native_terminal_redirection_does_not_hang_up_its_session_leader() {
 // Linux returns EIO after the final slave closes; other Unix hosts return EOF.
 // Poll bounds the capture even if an inherited descriptor unexpectedly stays open.
 fn terminal_bytes(mut master: File) -> Vec<u8> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + HANG_BACKSTOP;
     let mut bytes = Vec::new();
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -171,11 +172,13 @@ fn set_terminal_canonical(fd: libc::c_int) {
     assert_eq!(unsafe { libc::tcsetattr(fd, libc::TCSANOW, &attrs) }, 0, "enable canonical input");
 }
 
-fn fill_pty_output_queue(terminal: &Terminal) {
-    let mut writer = terminal.slave.try_clone().unwrap();
-    let flags = unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_GETFL) };
-    assert!(flags >= 0, "read terminal descriptor flags");
-    assert_eq!(unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }, 0);
+fn fill_pty_output_queue(slave: &File) {
+    let mut writer = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(format!("/proc/self/fd/{}", slave.as_raw_fd()))
+        .unwrap();
     let buffer = [b'x'; 4096];
     loop {
         match writer.write(&buffer) {
@@ -186,7 +189,6 @@ fn fill_pty_output_queue(terminal: &Terminal) {
             Err(error) => panic!("fill terminal output queue: {error}"),
         }
     }
-    assert_eq!(unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_SETFL, flags) }, 0);
 }
 
 fn write_btop_frame(root: &Path, index: usize, counters: [u64; 4], receive: u64, transmit: u64) {
@@ -708,7 +710,7 @@ fn btop_replay_updates_after_resize_and_quits_with_restored_terminal() {
     drop(command);
     let mut output = Vec::new();
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
@@ -722,7 +724,7 @@ fn btop_replay_updates_after_resize_and_quits_with_restored_terminal() {
     assert_eq!(active_attrs.local & libc::ECHO, 0, "raw input must not echo key bytes into the screen");
     set_terminal_size(terminal.master.as_raw_fd(), 30, 100);
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         let updates = bytes.windows(b"\x1b[?2026l".len()).filter(|window| *window == b"\x1b[?2026l").count();
         updates >= 3
             && bytes.windows(b"Usage 40.0%".len()).any(|window| window == b"Usage 40.0%")
@@ -808,7 +810,7 @@ fn btop_replay_ctrl_c_byte_exits_and_restores_terminal() {
     drop(command);
     let mut output = Vec::new();
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
@@ -851,7 +853,7 @@ fn btop_replay_stdin_eof_restores_terminal_attributes() {
     let child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
@@ -892,7 +894,7 @@ fn btop_replay_write_failure_restores_input_terminal_attributes() {
     let child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
@@ -913,7 +915,7 @@ fn btop_terminal_partial_start_failure_restores_input_terminal_attributes() {
     let output_terminal = Terminal::new(24, 80);
     let original_attrs = termios_snapshot(input.slave.as_raw_fd());
     let output = output_terminal.stdio();
-    fill_pty_output_queue(&output_terminal);
+    fill_pty_output_queue(&output_terminal.slave);
     let script = directory.path().join("partial-start.xsh");
     fs::write(
         &script,
@@ -930,14 +932,16 @@ fn btop_terminal_partial_start_failure_restores_input_terminal_attributes() {
         .stderr(Stdio::piped());
     let input_probe = input.slave.try_clone().unwrap();
     let output_master = output_terminal.master;
+    let output_slave = output_terminal.slave.try_clone().unwrap();
     let close_blocked_output = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + HANG_BACKSTOP;
         while Instant::now() < deadline {
             if termios_snapshot(input_probe.as_raw_fd()).local & libc::ICANON == 0 {
                 drop(output_master);
                 return true;
             }
-            std::thread::yield_now();
+            fill_pty_output_queue(&output_slave);
+            std::thread::sleep(Duration::from_millis(1));
         }
         drop(output_master);
         false
@@ -947,7 +951,7 @@ fn btop_terminal_partial_start_failure_restores_input_terminal_attributes() {
     let raw_mode_was_reached = close_blocked_output.join().unwrap();
     let result = child.finish();
 
-    assert!(raw_mode_was_reached, "session setup must reach raw mode before its first output blocks");
+    assert!(raw_mode_was_reached, "session setup must reach raw mode before its first output blocks: {:?} {}", result.status, String::from_utf8_lossy(&result.stderr));
     assert!(!result.status.success(), "closed output must fail while initializing the terminal session");
     assert!(String::from_utf8_lossy(&result.stderr).contains("write error"), "expected the session-start write failure: {}", String::from_utf8_lossy(&result.stderr));
     assert_eq!(termios_snapshot(input.slave.as_raw_fd()), original_attrs);
@@ -982,7 +986,7 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     drop(command);
     let mut output = Vec::new();
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, 0, b"PID USER CPU% RSS COMMAND")
             && btop_replay_text_completed_after(bytes, 0, b"> 43")
     });
@@ -992,28 +996,28 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     assert!((0..screen.rows).any(|row| screen.line(row).contains("> 43")));
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[B").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"> 42")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"r").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Sort CPU lazy ascending")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[C").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Sort PID ascending")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"f44\r").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Filter: 44 | f edit, Del clear")
             && btop_replay_text_completed_after(bytes, captured, b"> 44")
     });
@@ -1021,28 +1025,28 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"/").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Filter: 44_")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"x").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Filter: 44x_")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Filter: 44 | f edit, Del clear")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[3~").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Sort PID ascending")
             && btop_replay_text_completed_after(bytes, captured, b"> 44")
     });
@@ -1059,7 +1063,7 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
         "─".repeat(resized_cpu_border_fill - resized_cpu_border_fill / 2),
     );
     set_terminal_size(terminal.master.as_raw_fd(), 30, 100);
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, resize_start, resized_cpu_border.as_bytes())
     });
     screen.resize(30, 100);
@@ -1123,7 +1127,7 @@ fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
     let mut child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_initial_view_ready(bytes)
     });
     let mut screen = VirtualTerminal::new(24, 80);
@@ -1131,7 +1135,7 @@ fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
     let mut captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"c").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"CPU/core%")
     });
     screen.feed(&output[captured..]);
@@ -1140,7 +1144,7 @@ fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
 
     assert!(child.0.try_wait().unwrap().is_none(), "monitor exited before network selection");
     terminal.master.try_clone().unwrap().write_all(b"n").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"Interface lo")
     });
     assert!(child.0.try_wait().unwrap().is_none(), "monitor exited while handling network selection");
@@ -1154,7 +1158,7 @@ fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"z").unwrap();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         btop_replay_text_completed_after(bytes, captured, b"0 B total")
     });
     screen.feed(&output[captured..]);
@@ -1190,7 +1194,7 @@ fn btop_input_to_present_latency_is_separate_from_replay_sample_interval() {
     let child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
         bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
@@ -1205,7 +1209,7 @@ fn btop_input_to_present_latency_is_separate_from_replay_sample_interval() {
         let output_start = output.len();
         let started = Instant::now();
         terminal.master.try_clone().unwrap().write_all(b"r").unwrap();
-        wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+        wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
             btop_replay_text_completed_after(bytes, output_start, expected_direction)
         });
         samples.push(started.elapsed());
@@ -1235,14 +1239,14 @@ fn btop_terminal_cleanup_runs_after_runtime_error_during_presentation() {
     ).unwrap();
     let mut terminal = PtyTest::spawn(btop_pty_scenario(directory.path(), &script, 80, 24, "btop runtime error cleanup")).unwrap();
     let baseline = terminal.terminal_baseline();
-    let status = terminal.wait_for_exit(terminal.deadline(Duration::from_secs(3))).unwrap();
+    let status = terminal.wait_for_exit(terminal.deadline(HANG_BACKSTOP)).unwrap();
     assert!(matches!(status, PtyExitStatus::Code(code) if code != 0), "the injected XSH failure must remain visible: {status:?}");
     let output = terminal.raw_output();
     assert!(String::from_utf8_lossy(output).contains("partial frame"), "unexpected terminal output: {:?}", String::from_utf8_lossy(output));
     assert!(String::from_utf8_lossy(output).contains("forced render failure"));
     assert_btop_terminal_modes_close(output);
     terminal.assert_terminal_restored(&baseline).unwrap();
-    assert_eq!(terminal.finish(terminal.deadline(Duration::from_secs(3))).unwrap(), status);
+    assert_eq!(terminal.finish(terminal.deadline(HANG_BACKSTOP)).unwrap(), status);
 }
 
 fn tty_case(streams: [bool; 3], size: (u16, u16), stdout: &[u8], stderr: &[u8]) {

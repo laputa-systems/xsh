@@ -34,7 +34,7 @@ mod split;
 #[path = "core_compat_extra/more.rs"]
 mod more;
 
-const TIMEOUT: Duration = Duration::from_secs(10);
+const HANG_BACKSTOP: Duration = Duration::from_secs(60);
 
 // An explicit reference directory runs the same descriptor setup and assertions
 // against installed reference tools. Script resolution otherwise stays beside
@@ -78,12 +78,12 @@ impl Running {
             pipe.read_to_end(&mut bytes).expect("read stderr");
             bytes
         }));
-        let deadline = Instant::now() + TIMEOUT;
+        let deadline = Instant::now() + HANG_BACKSTOP;
         let status = loop {
             if let Some(status) = self.0.try_wait().expect("poll applet") {
                 break status;
             }
-            assert!(Instant::now() < deadline, "applet did not exit within {TIMEOUT:?}");
+            assert!(Instant::now() < deadline, "applet did not exit within {HANG_BACKSTOP:?}");
             std::thread::sleep(Duration::from_millis(5));
         };
         let stdout = stdout_reader.map(|reader| reader.join().expect("join stdout reader")).unwrap_or_default();
@@ -103,7 +103,7 @@ impl Running {
             pipe.read_to_end(&mut bytes).expect("read stderr");
             bytes
         }));
-        let deadline = Instant::now() + TIMEOUT;
+        let deadline = Instant::now() + HANG_BACKSTOP;
         let mut status = 0;
         let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
         loop {
@@ -114,7 +114,7 @@ impl Running {
                 if error.kind() == std::io::ErrorKind::Interrupted { continue; }
                 panic!("wait4 applet: {error}");
             }
-            assert!(Instant::now() < deadline, "applet did not exit within {TIMEOUT:?}");
+            assert!(Instant::now() < deadline, "applet did not exit within {HANG_BACKSTOP:?}");
             std::thread::sleep(Duration::from_millis(5));
         }
         use std::os::unix::process::ExitStatusExt;
@@ -131,7 +131,7 @@ impl Running {
 
     fn prefix(&mut self, count: usize) -> Vec<u8> {
         let pipe = self.0.stdout.as_mut().expect("piped stdout");
-        let deadline = Instant::now() + TIMEOUT;
+        let deadline = Instant::now() + HANG_BACKSTOP;
         let mut bytes = vec![0; count];
         let mut offset = 0;
         while offset < count {

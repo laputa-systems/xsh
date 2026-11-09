@@ -122,15 +122,15 @@ out of scope.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-81 · P3 · Make the btop PTY replay tests hold under load
+### XSH-82 · P3 · Cut the module load cost of btop and the system report
 
-- **Area:** Tests
-- **Where:** `tests/core_compat_extra/pty.rs`, `tests/core_compat_extra.rs`
-- **Problem:** Under host load of about 15 to 50, the btop PTY tests in `test-core-compat-extra` time out with empty terminal output (`pty.rs:329`, `core_compat_extra.rs:86` "applet did not exit within 10s"), and `btop_terminal_partial_start_failure_restores_input_terminal_attributes` misses its 2 s raw-mode deadline (`pty.rs:908`). Three interleaved runs each on `29995f89d` and on the XSH-79 branch failed 9 of 58 once on the base and 1 of 58 once on the branch; the other four runs passed 58 of 58. An `strace` of a failing replay showed the xsh child busy with memory work, not blocked on a spawn.
-- **Recommendation:** Find where a btop replay spends its first seconds under load (startup, model build, first render) and whether the deadlines measure btop or the host. Wait on the observable event the test needs instead of fixed wall-clock budgets where the contract allows it.
-- **Acceptance:** Ten consecutive `cargo dev gate --case test-core-compat-extra` runs at load above 20 pass 58 of 58, with each deadline justified by what it guards.
-- **Fix with:** root-cause
-- **Effort:** S
+- **Area:** Performance
+- **Where:** module parse and check path (`src/sema/`), `core/lib/system_report.xsh`, `core/lib/system_report_live.xsh`
+- **Problem:** Starting `core/btop.xsh` spends about 7 s of user CPU loading its import tree before the first frame (verification profile, 2026-11-09). `use core.lib.system_report` alone takes 1.1 s for 3,757 lines, `system_report_live` 4.2 s for 5,456 lines, `btop_render` 6.0 s, against 0.04 s for `--startup` and for `btop_terminal`. `perf` shows the time spread over type checking and stream-origin analysis (`stream_origins::ProjectionPath` map clones, `Type::contains_inference`, `Name` comparison), not one hot spot. Every btop PTY test pays this, so about 17 tests start 7 s of CPU each in parallel.
+- **Recommendation:** Profile `use core.lib.system_report_live` with `perf` and rank the check phases. Consider whether btop needs to load the system report at all, or whether checked modules can be cached.
+- **Acceptance:** `btop.xsh --replay` reaches its first frame in under 1 s of user CPU, or the load cost is attributed to specific check phases with a plan.
+- **Fix with:** make-it-fast
+- **Effort:** M
 
 ### XSH-80 · P3 · Make a btop frame for 1,000 processes interactive
 
