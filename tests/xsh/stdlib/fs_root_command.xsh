@@ -31,6 +31,16 @@ test fs_root_command_runs_with_argv_env_and_cwd { |ctx|
   assert wait handle ?.ok
 }
 
+test fs_root_command_takes_a_mixed_str_and_path_argv_beside_named_options { |ctx|
+  return unless linux_only()
+  let base = test.temp_dir(ctx, name: "root-command-mixed-argv")?
+  install_shell(base)
+  let root = fs.open_root(fp"{base}/root")?
+  let plan = root.command(p"bin/sh", ["sh", "-c", "printf '%s|%s' \"$0\" \"$MARK\"", p"word/path"], env: {MARK: "marked"}, stdout: fp"{base}/out")?
+  assert process.run(plan)?.ok
+  assert fp"{base}/out".read_text()? == "word/path|marked"
+}
+
 test fs_root_command_runs_the_opened_file_after_its_path_is_swapped { |ctx|
   return unless linux_only()
   let base = test.temp_dir(ctx, name: "root-command-swap")?
