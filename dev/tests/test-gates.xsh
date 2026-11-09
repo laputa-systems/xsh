@@ -732,6 +732,7 @@ const harnesses_run_outside_change_cases = [
   {package: "xsh-ssh", harness: "hostile"},
   {package: "xsh-ssh", harness: "known_hosts"},
   {package: "xsh-ssh", harness: "protocol"},
+  {package: "xsh-ssh", harness: "wipe"},
   {package: "xsh-archive", harness: "interop"},
   {package: "deser-csv", harness: "papaparse_test_suite"},
   {package: "deser-ini", harness: "corpus"},
