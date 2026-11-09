@@ -1995,6 +1995,7 @@ fn is_typed_int_tag(tag: FullTag) -> bool {
             | FullTag::IntStrByteLenSlot
             | FullTag::IntStrCountLinesSlot
             | FullTag::IntStrByteAtSlot
+            | FullTag::IntFieldSlot
     )
 }
 

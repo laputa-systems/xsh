@@ -836,6 +836,11 @@ instruction_schema! {
             default: Option<BuildIntId>,
             span: Span,
         } => IntStrByteAtSlot = 5 [0; Operands; FrameApply];
+        FieldSlot {
+            slot: usize,
+            field: NameText,
+            span: Span,
+        } => IntFieldSlot = 161 [0; Operands; FrameApply];
     }
     BuildBoolRow => BoolView [Bool] {
         Bool(value: bool) => BoolBool = 6 [0; Operands; FrameApply];
@@ -1576,6 +1581,7 @@ mod tests {
             IntStrByteLenSlot
             IntStrCountLinesSlot
             IntStrByteAtSlot
+            IntFieldSlot
             BoolBool
             BoolSlot
             BoolNot
@@ -1623,7 +1629,7 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 51);
+        assert_eq!(names.len(), 52);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
@@ -1703,6 +1709,7 @@ mod tests {
                 "IntStrByteLenSlot",
                 "IntStrCountLinesSlot",
                 "IntStrByteAtSlot",
+                "IntFieldSlot",
                 "BoolBool",
                 "BoolSlot",
                 "BoolNot",
@@ -1875,6 +1882,7 @@ mod tests {
             FullTag::IntStrByteLenSlot,
             FullTag::IntStrCountLinesSlot,
             FullTag::IntStrByteAtSlot,
+            FullTag::IntFieldSlot,
             FullTag::BoolBool,
             FullTag::BoolSlot,
             FullTag::BoolNot,

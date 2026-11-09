@@ -24601,17 +24601,16 @@ assert nested({end: 7}, {end: -1}) == 7
             }
             let owner = scheme_fixture_root_function(&program, "read");
             let decoder = function_view_decoder(&program.store, owner);
-            let fields = function_instruction_indices(&program, "read", FullTag::ExprField);
+            assert!(function_instruction_indices(&program, "read", FullTag::ExprField).is_empty());
+            let fields = function_instruction_indices(&program, "read", FullTag::IntFieldSlot);
             assert_eq!(fields.len(), 1);
-            let field = fields[0];
-            let schema::ExprView::Field { name, .. } = decoder.expression_view(field).unwrap() else { unreachable!() };
-            assert_eq!(name, "end");
-            let replacement = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
+            let field_words = program.store.data[fields[0]].range().bounds(program.store.extra.len()).unwrap();
+            assert_eq!(program.store.extra[field_words.start], 0);
+            assert!(program.store.function_instruction_range(owner).unwrap().any(|instruction| {
                 matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(1)))
-            }).unwrap();
+            }));
             let mut lying_writer = (*program).clone();
-            lying_writer.store.tags.swap(field, replacement);
-            lying_writer.store.data.swap(field, replacement);
+            lying_writer.store.extra[field_words.start] = 1;
             assert!(FullVerifier::verify(&lying_writer).is_err());
             let read = program.store.function_instruction_range(owner).unwrap().find(|&instruction| {
                 matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(slot)) if slot >= 2)
@@ -37920,6 +37919,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             IntStrByteLenSlot
             IntStrCountLinesSlot
             IntStrByteAtSlot
+            IntFieldSlot
             BoolBool
             BoolSlot
             BoolNot
@@ -38065,7 +38065,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
         let dead_ordinals = [32, 43, 50, 64, 95, 96, 97, 98, 101, 117, 145, 146, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 148);
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 149);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -38074,6 +38074,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
                 "ExprUInt" => 158,
                 "ExprCodecSchema" => 159,
                 "ExprTargetVariant" => 160,
+                "IntFieldSlot" => 161,
                 _ => existing_ordinals.next().expect("existing tag has an ordinal"),
             };
             assert_eq!(*tag as usize, ordinal);

@@ -25,6 +25,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(push_build_row!(self, int, BuildIntRow::Int(*value)))
             }
             BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::Slot(*slot))),
+            BuildExprRow::Field { base, name, span }
+                if self.scratch.borrow().int_record_slot_field_reads.contains(&expr.index()) =>
+            {
+                let BuildExprRow::Param(slot) = self.scratch.borrow().expressions[base.index()] else {
+                    return None;
+                };
+                Some(push_build_row!(
+                    self,
+                    int,
+                    BuildIntRow::FieldSlot { slot, field: name.clone(), span: *span }
+                ))
+            }
             BuildExprRow::Binary {
                 op, left, right, ..
             } if matches!(
@@ -397,7 +409,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             | BuildIntRow::Binary { .. }
             | BuildIntRow::StrByteLenSlot { .. }
             | BuildIntRow::StrCountLinesSlot { .. }
-            | BuildIntRow::StrByteAtSlot { .. } => false,
+            | BuildIntRow::StrByteAtSlot { .. }
+            | BuildIntRow::FieldSlot { .. } => false,
         }
     }
 

@@ -9145,6 +9145,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let lowered_base = self.lower_producer_input_expr(base, slots, current_function, item_slot)?;
                 let value = push_build_row!(self, expr, BuildExprRow::Field { base: lowered_base, name: name.as_str(), span });
                 if check.is_none()
+                    && matches!(self.checked_expr_type(id), Some(Type::Int))
+                    && matches!(self.checked_expr_type(base), Some(ref record @ Type::Record(ref fields)) if fields.get(&name) == Some(&Type::Int) && !record.contains_any())
+                    && matches!(self.scratch.borrow().expressions[lowered_base.index()], BuildExprRow::Param(_))
+                {
+                    self.scratch.borrow_mut().int_record_slot_field_reads.insert(value.index());
+                }
+                if check.is_none()
                     && let Some(checked @ Type::Callable(_)) = self.bodies.expr_types.get(&id)
                     && let Some(target) = self.bodies.selected_function_calls.get(&id).copied()
                     && target.name == name

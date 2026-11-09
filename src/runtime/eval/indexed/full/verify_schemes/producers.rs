@@ -8066,6 +8066,13 @@ impl<'a> ProducerProof<'a> {
         match tag.kind() {
             schema::InstructionKind::Int => match schema::IntView::decode_from_decoder(decoder, tag, payload)? {
                 schema::IntView::Slot(slot) => self.slot(decoder.owner, instruction, slot, Arc::new(Type::Int))?,
+                schema::IntView::FieldSlot { slot, field, .. } => {
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar field read has no slot contract"))?;
+                    ensure_substitution_type(&ty)?;
+                    let Type::Record(fields) = ty.unvalidated() else { return Err(IrVerifyError::new("scalar field read has a non-record slot")); };
+                    if fields.get(&Name::intern(field)) != Some(&Type::Int) { return Err(IrVerifyError::new("scalar field read has no Int field")); }
+                    self.slot(decoder.owner, instruction, slot, ty)?;
+                }
                 schema::IntView::StrByteLenSlot { slot, .. } | schema::IntView::StrCountLinesSlot { slot, .. } | schema::IntView::StrByteAtSlot { slot, .. } => {
                     let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar string producer has no slot contract"))?;
                     ensure_substitution_type(&ty)?;

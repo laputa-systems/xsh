@@ -636,6 +636,22 @@ fn eval_indexed_typed_scalar(
                             &slots[slot], span,
                         )?));
                     }
+                    IntView::FieldSlot { slot, field, span } => {
+                        let value = match lowered_record_field_value(&slots[slot], field) {
+                            Some(LoweredValue::Int(value)) => value,
+                            Some(_) => {
+                                return Err(RuntimeError::new(
+                                    "type-error",
+                                    "lowered expression expected Int",
+                                )
+                                .with_span(span));
+                            }
+                            None => {
+                                return Err(RuntimeError::new("missing-field", field).with_span(span));
+                            }
+                        };
+                        values.push(TypedScalarValue::Int(value));
+                    }
                     IntView::StrByteAtSlot {
                         slot,
                         index,
