@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 85
+Next: 86
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -121,6 +121,16 @@ out of scope.
 - **Acceptance:** Started as `sh -c 'xsht test --jobs 16 & wait'`, the suite has the same wall time and outcome counts as a foreground run, within the observed spread. Children still start with the reset signals at their defaults. Process and signal tests green.
 - **Progress:** On musl, a spawn with child-reset signals ignored and no child hook now calls `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, `SETPGROUP` and file actions, so it no longer forks; `strace` shows `clone(CLONE_VM|CLONE_VFORK)`. Redirections through `ChildDup`, namespaces, closed standard descriptors, `ignore_hup`, `new_session` and non-musl targets keep the fork path. Runtime, runtime-unit, modules, root, SSH, archive, API and core gate cases pass. Only the background-versus-foreground wall-time comparison remains, deferred with the timing gates.
 - **Fix with:** make-it-fast
+- **Effort:** M
+
+### XSH-85 · P2 · Start a process from an executable opened beneath an FsRoot
+
+- **Area:** Host authority
+- **Where:** `src/runtime/process.rs`, `src/modules/fs.rs`, `crates/xsh-registry/src/signature/methods.rs`
+- **Problem:** Laputa LAP-33's pm checks a selected root's `makewhatis` tool through `FsRoot` but starts it with `process.command_argv` on `output.host_path()`. Swapping an ancestor or the tool for a symlink between the check and the exec runs a binary outside the root, because no XSH primitive starts a process from a descriptor.
+- **Recommendation:** Add `FsRoot.command(path, argv, ...)` returning a `Command` plan whose executable is resolved beneath the root's anchor and opened when the plan is built; the child starts it with `execveat(fd, "", argv, envp, AT_EMPTY_PATH)`. Refuse `#!` scripts, whose interpreter the kernel resolves by host path. Linux only, failing loudly elsewhere and in consumers that resolve a pathname.
+- **Acceptance:** A plan built before its path is swapped for a symlink to an outside binary runs the in-root file while the path-exec equivalent runs the outside one; argv, env and cwd behave as for `process.command_argv`; scripts are refused. SPEC, stdlib reference and API surface fixture updated.
+- **Fix with:** os-boundaries
 - **Effort:** M
 
 ### XSH-83 · P3 · Cut the remaining module load cost of btop
