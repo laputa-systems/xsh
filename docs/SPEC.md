@@ -7208,6 +7208,21 @@ that cannot be written raises `unix-fake-log`), and `tty`, `event_kind`,
 `signal`, `pid`, `child_pid`, `status_kind`, `status_code`, and `ready` choose
 the values faked entries report; unknown settings fail with `test-unix-fake`.
 
+The `replay` setting names a text file that replaces those fixed values with an
+ordered, complete, redacted script, one line per expected faked call:
+`OP [KEY=VALUE]... [?KEY=VALUE]...`. Plain pairs are the results that call
+reports (any value setting except `log`); `?` pairs must equal the call's
+logged field. Calls must arrive in line order, each line must carry the results
+its call needs, no value defaults, and the entries the fake does not cover
+(`unix.kill_all`, `unix.daemon_start`, `unix.connect_stream`, `unix.poll_fds`,
+`unix.signal_setup`, `unix.take_signals`) fail with `unix-fake-replay` instead
+of reaching the host. A call that is not the next line, a mismatched check, or a
+call past the last line fails with `unix-fake-replay`; a script run under the
+fake that ends with lines unconsumed exits non-zero. Keys and values use
+`[A-Za-z0-9_.,-]` and at most 32 bytes, so paths, hostnames, and free text are
+refused when the fake is installed, as are a missing file and any other value
+setting. Lines starting with `#` are comments.
+
 ## 18. Not In XSH
 
 These are deliberately absent:

@@ -80,6 +80,107 @@ test test_unix_fake_rejects_unknown_settings { |ctx|
   test.error_kind(test.unix_fake(ctx, {log: true}), "test-unix-fake")
 }
 
+const crashed_leader_script = r"""unix.pid1_setup(["TERM", "INT"], subreaper: true, allow_non_pid1: true)
+let leader = unix.spawn_process_group(process.command_argv("demo", ["demo"]))?
+let event = unix.wait_pid1_event()?
+assert event.children[0].pid == leader.pid
+let _ = unix.shutdown_process_groups([leader.pid], 200ms, kill_timeout: 100ms)?
+let replacement = unix.spawn_process_group(process.command_argv("demo", ["demo"]))?
+print $replacement.pid
+"""
+
+const crashed_leader_replay = """pid1_setup ?signals=TERM,INT ?allow_non_pid1=true
+spawn_process_group ?pid=1000 ?command=demo
+wait_pid1_event event_kind=child pid=1000 status_kind=exit status_code=137
+pid1_shutdown ?groups=1000
+spawn_process_group ?pid=1001
+"""
+
+type ReplayRun = {success: Bool, stdout: Str, stderr: Str}
+
+proc run_replay(ctx: TestContext, name: Str, replay: Str, script: Str) [fs, process, error] -> Result[ReplayRun] {
+  let root = test.temp_dir(ctx, name: name)?
+  let file = fp"{root}/replay.txt"
+  file.write(replay)
+  test.unix_fake(ctx, {replay: file})?
+  let result = test.run_script(ctx, script)?
+  {success: result.success, stdout: result.stdout, stderr: result.stderr}
+}
+
+test test_unix_fake_replay_reproduces_a_crashed_leader_offline [fs, process, error] { |ctx|
+  let result = run_replay(ctx, "replay-ok", crashed_leader_replay, crashed_leader_script)?
+  assert result.success, result.stderr
+  assert result.stdout == """1001
+"""
+}
+
+test test_unix_fake_replay_rejects_a_cleanup_that_skips_the_leader_group [fs, process, error] { |ctx|
+  let broken = crashed_leader_script.replace("shutdown_process_groups([leader.pid]", with: "shutdown_process_groups([]")
+  assert broken != crashed_leader_script
+  let result = run_replay(ctx, "replay-broken", crashed_leader_replay, broken)?
+  assert ! result.success
+  assert "unix-fake-replay" in result.stderr, result.stderr
+  assert "replay line 4" in result.stderr, result.stderr
+  assert "field `groups` expected `1000`, observed ``" in result.stderr, result.stderr
+}
+
+test test_unix_fake_replay_rejects_reordered_exhausted_and_incomplete_runs [fs, process, error] { |ctx|
+  let reordered = crashed_leader_script.replace("unix.pid1_setup([\"TERM\", \"INT\"], subreaper: true, allow_non_pid1: true)\n", with: "")
+  let skipped_setup = run_replay(ctx, "replay-reordered", crashed_leader_replay, reordered)?
+  assert ! skipped_setup.success
+  assert "replay line 1: expected `pid1_setup`, observed `spawn_process_group`" in skipped_setup.stderr, skipped_setup.stderr
+
+  let extra = run_replay(ctx, "replay-exhausted", crashed_leader_replay, crashed_leader_script + "let _ = unix.shutdown_process_groups([1001], 1ms)?\n")?
+  assert ! extra.success
+  assert "after all 5 replayed observations were consumed" in extra.stderr, extra.stderr
+
+  let early = run_replay(ctx, "replay-incomplete", crashed_leader_replay, """unix.pid1_setup(["TERM", "INT"], subreaper: true, allow_non_pid1: true)
+""")?
+  assert ! early.success
+  assert "replay incomplete: line 2 `spawn_process_group` and 3 later observations" in early.stderr, early.stderr
+}
+
+test test_unix_fake_replay_rejects_missing_results_and_mismatched_fields [fs, process, error] { |ctx|
+  let no_status = crashed_leader_replay.replace(" status_kind=exit status_code=137", with: "")
+  let missing = run_replay(ctx, "replay-missing", no_status, crashed_leader_script)?
+  assert ! missing.success
+  assert "replay line 3: `wait_pid1_event` needs result `status_kind`" in missing.stderr, missing.stderr
+
+  let wrong_command = crashed_leader_replay.replace("?command=demo", with: "?command=other")
+  let mismatched = run_replay(ctx, "replay-mismatch", wrong_command, crashed_leader_script)?
+  assert ! mismatched.success
+  assert "field `command` expected `other`, observed `demo`" in mismatched.stderr, mismatched.stderr
+}
+
+test test_unix_fake_replay_refuses_the_host_and_unredacted_input [fs, process, error] { |ctx|
+  let host = run_replay(ctx, "replay-host", "pid1_setup\n", "unix.signal_setup([\"USR1\"])?")?
+  assert ! host.success
+  assert "would reach the host" in host.stderr, host.stderr
+
+  var long = ""
+  while long.byte_len() < 33 {
+    long = long + "A"
+  }
+  let root = test.temp_dir(ctx, name: "replay-redaction")?
+  let file = fp"{root}/replay.txt"
+  for line in [
+    "set_hostname ?hostname=builder.example.com/x",
+    "tty tty=/dev/pts/3",
+    "exec ?command=/home/alice/bin/run",
+    "wait_pid1_event event_kind=signal signal=TERM token=abc",
+    "pid1_setup ?signals=" + long,
+    "pid1_setup log=anything",
+    "pid1_setup ?signals",
+    "",
+  ] {
+    file.write(line)
+    test.error_kind(test.unix_fake(ctx, {replay: file}), "test-unix-fake")
+  }
+  test.error_kind(test.unix_fake(ctx, {replay: fp"{root}/absent.txt"}), "test-unix-fake")
+  file.write("pid1_setup\n")
+  test.error_kind(test.unix_fake(ctx, {replay: file, signal: "TERM"}), "test-unix-fake")
+}
+
 test test_unix_fake_covers_scripts_the_test_runs { |ctx|
   let root = test.temp_dir(ctx, name: "unix-fake-script")?
   let log = fp"{root}/unix.jsonl"

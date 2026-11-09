@@ -79,6 +79,9 @@ macro_rules! with_unix_call_rows {
             unix_rows {
                 first_callable {
             callable; RuntimeOp::UnixKillAll => {
+                if $this.unix_fake_replay_active() {
+                    return Ok(module_error("unix-fake-replay", "this unix entry is not covered by the replay and would reach the host", $span));
+                }
                 let name =
                     lowered_str_arg_owned($values.first().cloned(), "", "unix.kill_all", $span)?;
                 let signal =
@@ -87,6 +90,16 @@ macro_rules! with_unix_call_rows {
             }
                 }
                 internal {
+            internal; RuntimeOp::UnixDaemonStart
+            | RuntimeOp::UnixConnectStream
+            | RuntimeOp::UnixPollFds
+            | RuntimeOp::UnixSignalSetup
+            | RuntimeOp::UnixTakeSignals
+            | RuntimeOp::UnixUptimeSeconds
+                if $this.unix_fake_replay_active() =>
+            {
+                Ok(module_error("unix-fake-replay", "this unix entry is not covered by the replay and would reach the host", $span))
+            }
             internal; RuntimeOp::UnixTty if $this.unix_fake_active() => {
                 let tty = $this.unix_fake_value("tty", "/dev/tty");
                 $this.unix_fake_log("tty", &[("tty", tty.clone())], $span)?;
@@ -636,10 +649,11 @@ impl Evaluator {
     ) -> Result<Value, RuntimeError> {
         match op {
             RuntimeOp::UnixReapChildEvents => {
+                let events = self.unix_fake_child_events();
                 self.unix_fake_log("reap_child_events", &[], span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_values_live(
                     "unix.reap_child_events",
-                    self.unix_fake_child_events(),
+                    events,
                 ))))
             }
             RuntimeOp::UnixPid1Setup => {
@@ -664,6 +678,7 @@ impl Evaluator {
                 let kind = self.unix_fake_value("event_kind", "signal");
                 let signal = self.unix_fake_value("signal", "TERM");
                 let pid = self.unix_fake_wait_pid();
+                let children = self.unix_fake_wait_children(pid);
                 self.unix_fake_log(
                     "wait_pid1_event",
                     &[
@@ -673,7 +688,6 @@ impl Evaluator {
                     ],
                     span,
                 )?;
-                let children = self.unix_fake_wait_children(pid);
                 let kind = if kind == "children" || kind == "child" {
                     "children"
                 } else if kind == "poll" {

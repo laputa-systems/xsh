@@ -15,17 +15,179 @@ use std::num::NonZeroI32;
 /// `log`. Only the test harness installs it (`test.unix_fake` and the scripts
 /// that test runs); no environment variable or production flag reaches it.
 #[cfg(feature = "native-tests")]
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct UnixFake {
     values: BTreeMap<&'static str, String>,
+    replay: Option<std::sync::Arc<Replay>>,
+}
+
+/// An ordered, complete, redacted observation script for the fake. Each line
+/// names one expected `unix` call, optionally followed by `key=value` results
+/// the call returns (any fake setting except `log` and `replay`) and
+/// `?key=value` checks against the call's logged fields. The k-th fake call
+/// must be the k-th line, every result the call needs must be on its line, and
+/// every line must be consumed. Values are limited to `[A-Za-z0-9_.,-]` and 32
+/// bytes, so paths, hostnames, and free text cannot enter a fixture. While a
+/// replay is installed no setting supplies a default and the `unix` entries
+/// the fake does not cover fail instead of reaching the host.
+#[cfg(feature = "native-tests")]
+#[derive(Debug)]
+struct Replay {
+    entries: Vec<ReplayEntry>,
+    next: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(feature = "native-tests")]
+#[derive(Debug)]
+struct ReplayEntry {
+    line: usize,
+    op: String,
+    results: BTreeMap<&'static str, String>,
+    checks: Vec<(String, String)>,
+}
+
+#[cfg(feature = "native-tests")]
+const REPLAY_VALUE_LIMIT: usize = 32;
+
+#[cfg(feature = "native-tests")]
+fn replay_token_is_redacted(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= REPLAY_VALUE_LIMIT
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b',' | b'-'))
+}
+
+#[cfg(feature = "native-tests")]
+impl Replay {
+    fn parse(text: &str) -> Result<Self, String> {
+        let mut entries = Vec::new();
+        for (index, raw) in text.lines().enumerate() {
+            let line = index + 1;
+            let raw = raw.trim();
+            if raw.is_empty() || raw.starts_with('#') {
+                continue;
+            }
+            let mut tokens = raw.split_whitespace();
+            let op = tokens.next().unwrap_or_default();
+            if !replay_token_is_redacted(op) {
+                return Err(format!("replay line {line}: `{op}` is not a redacted operation name"));
+            }
+            let mut results = BTreeMap::new();
+            let mut checks: Vec<(String, String)> = Vec::new();
+            for token in tokens {
+                let (checked, pair) = match token.strip_prefix('?') {
+                    Some(rest) => (true, rest),
+                    None => (false, token),
+                };
+                let Some((key, value)) = pair.split_once('=') else {
+                    return Err(format!("replay line {line}: `{token}` is not KEY=VALUE"));
+                };
+                if !replay_token_is_redacted(key) || !replay_token_is_redacted(value) {
+                    return Err(format!(
+                        "replay line {line}: `{key}` is not a redacted key and value; keys and values use [A-Za-z0-9_.,-] and at most {REPLAY_VALUE_LIMIT} bytes"
+                    ));
+                }
+                if checked {
+                    if checks.iter().any(|(known, _)| known == key) {
+                        return Err(format!("replay line {line}: duplicate check `{key}`"));
+                    }
+                    checks.push((key.to_string(), value.to_string()));
+                } else {
+                    let Some(known) = UnixFake::KEYS
+                        .into_iter()
+                        .find(|known| *known == key && !matches!(*known, "log" | "replay"))
+                    else {
+                        return Err(format!("replay line {line}: `{key}` is not a replayable result"));
+                    };
+                    if results.insert(known, value.to_string()).is_some() {
+                        return Err(format!("replay line {line}: duplicate result `{key}`"));
+                    }
+                }
+            }
+            entries.push(ReplayEntry { line, op: op.to_string(), results, checks });
+        }
+        if entries.is_empty() {
+            return Err("replay has no observations".to_string());
+        }
+        Ok(Self { entries, next: std::sync::atomic::AtomicUsize::new(0) })
+    }
+
+    fn consumed(&self) -> usize {
+        self.next.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn current(&self) -> Option<&ReplayEntry> {
+        self.entries.get(self.consumed())
+    }
+
+    fn step(&self, op: &str, fields: &[(&str, String)]) -> Result<(), String> {
+        let Some(entry) = self.current() else {
+            return Err(format!(
+                "unexpected `{op}` after all {} replayed observations were consumed",
+                self.entries.len()
+            ));
+        };
+        let at = format!("replay line {}", entry.line);
+        if entry.op != op {
+            return Err(format!("{at}: expected `{}`, observed `{op}`", entry.op));
+        }
+        for key in replay_required_results(op, &entry.results) {
+            if !entry.results.contains_key(key) {
+                return Err(format!("{at}: `{op}` needs result `{key}`"));
+            }
+        }
+        for (key, expected) in &entry.checks {
+            match fields.iter().find(|(name, _)| name == key) {
+                Some((_, observed)) if observed == expected => {}
+                Some((_, observed)) => {
+                    return Err(format!("{at}: `{op}` field `{key}` expected `{expected}`, observed `{observed}`"));
+                }
+                None => return Err(format!("{at}: `{op}` has no field `{key}`")),
+            }
+        }
+        self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn finish(&self) -> Result<(), String> {
+        match self.current() {
+            None => Ok(()),
+            Some(entry) => Err(format!(
+                "replay incomplete: line {} `{}` and {} later observations were never consumed",
+                entry.line,
+                entry.op,
+                self.entries.len() - self.consumed() - 1
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "native-tests")]
+fn replay_required_results(op: &str, results: &BTreeMap<&'static str, String>) -> Vec<&'static str> {
+    match op {
+        "tty" => vec!["tty"],
+        "notify_ready" => vec!["ready"],
+        "reap_child_events" => match results.get("child_pid").map(String::as_str) {
+            Some("0") | None => vec!["child_pid"],
+            Some(_) => vec!["child_pid", "status_kind", "status_code"],
+        },
+        "wait_pid1_event" => match results.get("event_kind").map(String::as_str) {
+            Some("child" | "children") => vec!["event_kind", "pid", "status_kind", "status_code"],
+            Some("signal") => vec!["event_kind", "signal"],
+            _ => vec!["event_kind"],
+        },
+        _ => Vec::new(),
+    }
 }
 
 #[cfg(feature = "native-tests")]
 impl UnixFake {
     /// Settings a fake accepts: the call log path and the fixed values some
     /// entries report.
-    pub const KEYS: [&'static str; 9] = [
+    pub const KEYS: [&'static str; 10] = [
         "log",
+        "replay",
         "tty",
         "event_kind",
         "signal",
@@ -43,8 +205,28 @@ impl UnixFake {
                 Self::KEYS.join(", ")
             ));
         };
-        self.values.insert(key, value.into());
+        let value = value.into();
+        if key == "replay" {
+            if self.values.keys().any(|known| *known != "log") {
+                return Err("unix fake replay cannot be combined with fixed result settings".to_string());
+            }
+            let text = std::fs::read_to_string(&value)
+                .map_err(|error| format!("unix fake replay `{value}` is unreadable: {error}"))?;
+            self.replay = Some(std::sync::Arc::new(Replay::parse(&text)?));
+        } else if self.replay.is_some() && key != "log" {
+            return Err(format!("unix fake setting `{key}` cannot be combined with a replay"));
+        }
+        self.values.insert(key, value);
         Ok(())
+    }
+
+    /// Fails when a replay is installed and some observation was never
+    /// consumed by the run.
+    pub fn finish_replay(&self) -> Result<(), String> {
+        match &self.replay {
+            Some(replay) => replay.finish(),
+            None => Ok(()),
+        }
     }
 
     pub fn settings(&self) -> impl Iterator<Item = (&'static str, &str)> {
@@ -65,12 +247,15 @@ impl Evaluator {
     /// `native-tests` have no fake at all.
     fn unix_fake_setting(&self, key: &str) -> Option<&str> {
         #[cfg(feature = "native-tests")]
-        return self
-            .unix_fake
-            .as_deref()?
-            .values
-            .get(key)
-            .map(String::as_str);
+        {
+            let fake = self.unix_fake.as_deref()?;
+            if key != "log"
+                && let Some(replay) = &fake.replay
+            {
+                return replay.current()?.results.get(key).map(String::as_str);
+            }
+            return fake.values.get(key).map(String::as_str);
+        }
         #[cfg(not(feature = "native-tests"))]
         {
             let _ = key;
@@ -85,6 +270,16 @@ impl Evaluator {
         false
     }
 
+    pub(in crate::runtime::eval) fn unix_fake_replay_active(&self) -> bool {
+        #[cfg(feature = "native-tests")]
+        return self
+            .unix_fake
+            .as_deref()
+            .is_some_and(|fake| fake.replay.is_some());
+        #[cfg(not(feature = "native-tests"))]
+        false
+    }
+
     pub(in crate::runtime::eval) fn unix_fake_value(&self, key: &str, default: &str) -> String {
         self.unix_fake_setting(key).unwrap_or(default).to_string()
     }
@@ -95,6 +290,12 @@ impl Evaluator {
         fields: &[(&str, String)],
         span: Span,
     ) -> Result<(), RuntimeError> {
+        #[cfg(feature = "native-tests")]
+        if let Some(replay) = self.unix_fake.as_deref().and_then(|fake| fake.replay.as_ref()) {
+            replay
+                .step(op, fields)
+                .map_err(|message| RuntimeError::new("unix-fake-replay", message).with_span(span))?;
+        }
         let Some(path) = self.unix_fake_setting("log") else {
             return Ok(());
         };

@@ -184,6 +184,7 @@ pub fn run_script_with_test_fakes(
     linux: Option<crate::runtime::eval::LinuxFake>,
     unix: Option<crate::runtime::eval::UnixFake>,
 ) -> ScriptOutput {
+    let replay = unix.clone();
     let attempt = match try_prepare_program(&options) {
         Ok(Ok(mut prepared)) => {
             let mut evaluator = prepared.evaluator.with_shared_stdio();
@@ -199,7 +200,16 @@ pub fn run_script_with_test_fakes(
         Ok(Err(attempt)) => attempt,
         Err(err) => return read_error_output(&options, err),
     };
-    finish_run_attempt(&options, attempt)
+    let mut output = finish_run_attempt(&options, attempt);
+    if let Some(fake) = replay
+        && let Err(message) = fake.finish_replay()
+    {
+        output.status = output.status.max(1);
+        output
+            .stderr
+            .extend(text_bytes(format!("xsh: unix-fake-replay: {message}\n")));
+    }
+    output
 }
 
 /// Dynamic names reserved before a measured run, so growth of the process symbol
