@@ -72,6 +72,9 @@ mod lint_size_literal;
 mod lint_optional_binding;
 #[path = "lint_run_argv.rs"]
 mod lint_run_argv;
+#[path = "lint_command_signature.rs"]
+mod lint_command_signature;
+pub use lint_command_signature::CommandSignature;
 
 #[path = "lint_redundant_propagation.rs"]
 mod lint_redundant_propagation;
@@ -355,6 +358,9 @@ pub struct LintOptions {
     pub return_proof: Option<ReturnProofContext>,
     pub runless: bool,
     pub runless_except: Vec<String>,
+    /// Signatures for statically named external commands; none leaves
+    /// `lint.command-signature` off.
+    pub command_signatures: Vec<CommandSignature>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     #[cfg(test)]
     pub function_return_types: BTreeMap<Span, Type>,
@@ -483,6 +489,7 @@ impl Default for LintOptions {
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
+            command_signatures: Vec::new(),
             interactive_command_replacement: None,
             #[cfg(test)]
             function_return_types: BTreeMap::default(),
@@ -581,6 +588,7 @@ pub struct Linter<'a> {
     format_line_width: usize,
     source_cst: std::sync::OnceLock<xsh::frontend::syntax::cst::SyntaxTree>,
     runless_except: Vec<String>,
+    command_signatures: Vec<CommandSignature>,
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
     module_callable_names: FxHashSet<String>,
@@ -1035,6 +1043,7 @@ impl<'a> Linter<'a> {
             format_line_width: line_width,
             source_cst: std::sync::OnceLock::new(),
             runless_except: options.runless_except,
+            command_signatures: options.command_signatures,
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
             module_callable_names: FxHashSet::default(),
