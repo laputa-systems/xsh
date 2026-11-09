@@ -1834,7 +1834,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     GuardInput {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         else_param_slot: Option<usize>,
         else_body: u32,
         span: Span,
@@ -1843,7 +1843,7 @@ enum FrameContinuation {
     },
     Store(usize),
     StoreTarget {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         span: Span,
     },
     ParameterDefault {
@@ -1860,8 +1860,8 @@ enum FrameContinuation {
         span: Span,
         transfers_resource: bool,
     },
-    AssignSelector(AssignPathState),
-    AssignPath(AssignPathState),
+    AssignSelector(Box<AssignPathState>),
+    AssignPath(Box<AssignPathState>),
     Return { transfers_resource: bool, application: Option<crate::runtime::eval::indexed::full::PreparedProcReturn> },
     BlockValue { transfers_resource: bool },
     ErrorContextEntry {
@@ -1876,7 +1876,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     CleanupAction,
-    PrintArgument(FramePrintState),
+    PrintArgument(Box<FramePrintState>),
     Discard(Span),
     Field {
         instruction: u32,
@@ -1975,16 +1975,16 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
-    AssertionValue(FrameAssertionState),
+    AssertionValue(Box<FrameAssertionState>),
     AssertionComparisonLeft {
-        state: FrameAssertionState,
+        state: Box<FrameAssertionState>,
         instruction: u32,
         op: BinaryOp,
         right: u32,
         span: Span,
     },
     AssertionComparisonRight {
-        state: FrameAssertionState,
+        state: Box<FrameAssertionState>,
         instruction: u32,
         op: BinaryOp,
         left: LoweredValue,
@@ -2038,7 +2038,7 @@ enum FrameContinuation {
         span: Span,
     },
     ForItems {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         body: u32,
         span: Span,
     },
@@ -2046,11 +2046,11 @@ enum FrameContinuation {
         slot: usize,
         body: u32,
         span: Span,
-        stages: smallvec::SmallVec<[IndexedLiveSerialStage; 4]>,
+        stages: Box<smallvec::SmallVec<[IndexedLiveSerialStage; 4]>>,
     },
     StageValueInput {
         span: Span,
-        stages: smallvec::SmallVec<[IndexedLiveSerialStage; 4]>,
+        stages: Box<smallvec::SmallVec<[IndexedLiveSerialStage; 4]>>,
         next: Box<FrameContinuation>,
     },
     StageResult,
@@ -2180,7 +2180,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     FmtValue {
-        state: FmtState,
+        state: Box<FmtState>,
         span: Span,
         spec: Option<FormatSpec>,
         next: Box<FrameContinuation>,
@@ -2192,11 +2192,11 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     ListItems {
-        state: ListItemsState,
+        state: Box<ListItemsState>,
         next: Box<FrameContinuation>,
     },
     MapLiteralItems {
-        state: MapLiteralState,
+        state: Box<MapLiteralState>,
         next: Box<FrameContinuation>,
     },
     RecordUpdateBase {
@@ -2216,7 +2216,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     RecordItems {
-        state: RecordItemsState,
+        state: Box<RecordItemsState>,
         next: Box<FrameContinuation>,
     },
     ListCompIter {
@@ -2579,25 +2579,25 @@ enum FrameWork {
         span: Span,
         next: FrameContinuation,
     },
-    Assertion(FrameAssertionState),
+    Assertion(Box<FrameAssertionState>),
     Value {
         value: FrameValue,
         next: FrameContinuation,
     },
     ForScalars {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         cursor: LoweredScalarCursor,
         body: u32,
         span: Span,
     },
     ForMap {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         cursor: LoweredMapCursor,
         body: u32,
         span: Span,
     },
     ForItems {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         items: Vec<LoweredValue>,
         index: usize,
         body: u32,
@@ -2606,7 +2606,7 @@ enum FrameWork {
     /// A loop over a script producer: each step pulls one item and re-arms
     /// itself, so the loop never holds the whole stream.
     ForStream {
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         stream: StreamValue,
         body: u32,
         span: Span,
@@ -3547,7 +3547,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         ProducerStep::Finished(self.result.take().expect("indexed frame result"))
     }
 
-    fn step_print(&mut self, index: usize, mut state: FramePrintState) -> Result<(), RuntimeError> {
+    fn step_print(&mut self, index: usize, mut state: Box<FramePrintState>) -> Result<(), RuntimeError> {
         if !state.position.is_exhausted() {
             let (instruction, position) = statement_print_argument(
                 &self.calls[index].execution,
@@ -5426,7 +5426,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 self.step_print(
                     index,
-                    FramePrintState {
+                    Box::new(FramePrintState {
                         statement: instruction,
                         position,
                         stderr,
@@ -5435,7 +5435,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         span,
                         line: String::new(),
                         argv,
-                    },
+                    }),
                 )
             }
             StmtView::Run {
@@ -5460,7 +5460,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => {
                 let condition = value.raw();
                 let message = message.map(|value| value.raw());
-                self.calls[index].work.push(FrameWork::Assertion(FrameAssertionState {
+                self.calls[index].work.push(FrameWork::Assertion(Box::new(FrameAssertionState {
                     condition,
                     message,
                     span: assertion_span,
@@ -5468,7 +5468,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     passed: true,
                     reached: None,
                     failure: None,
-                }));
+                })));
                 Ok(())
             }
             StmtView::DefaultParameter {
@@ -5517,7 +5517,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     source.raw(),
                     span,
                     FrameContinuation::StoreTarget {
-                        target,
+                        target: Box::new(target),
                         span: value_span,
                     },
                 );
@@ -5539,7 +5539,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value.raw(),
                     span,
                     FrameContinuation::GuardInput {
-                        target,
+                        target: Box::new(target),
                         else_param_slot,
                         else_body: else_body.block_id(),
                         span,
@@ -5611,7 +5611,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
                 self.advance_assign_path(
                     index,
-                    AssignPathState {
+                    Box::new(AssignPathState {
                         slot,
                         path: AssignPathCursor::DirectField(Name::intern(field)),
                         selectors: Vec::new(),
@@ -5621,7 +5621,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         check: None,
                         span: value_span,
                         transfers_resource,
-                    },
+                    }),
                 )?;
                 Ok(())
             }
@@ -5640,7 +5640,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
                 self.advance_assign_path(
                     index,
-                    AssignPathState {
+                    Box::new(AssignPathState {
                         slot,
                         path: AssignPathCursor::DirectField(Name::intern(field)),
                         selectors: Vec::new(),
@@ -5650,7 +5650,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         check: None,
                         span: value_span,
                         transfers_resource,
-                    },
+                    }),
                 )?;
                 Ok(())
             }
@@ -5724,7 +5724,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     )?;
                 self.advance_assign_path(
                     index,
-                    AssignPathState {
+                    Box::new(AssignPathState {
                         slot,
                         path: AssignPathCursor::Encoded {
                             statement: instruction,
@@ -5737,7 +5737,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         check,
                         span: value_span,
                         transfers_resource,
-                    },
+                    }),
                 )?;
                 Ok(())
             }
@@ -6085,7 +6085,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     slot,
                     body,
                     span: pipeline_span,
-                    stages,
+                    stages: Box::new(stages),
                 },
             );
             return Ok(());
@@ -6095,7 +6095,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             iter,
             span,
             FrameContinuation::ForItems {
-                target,
+                target: Box::new(target),
                 body,
                 span,
             },
@@ -6303,7 +6303,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     pipeline_span,
                     FrameContinuation::StageValueInput {
                         span: pipeline_span,
-                        stages,
+                        stages: Box::new(stages),
                         next: Box::new(next),
                     },
                 );
@@ -6557,14 +6557,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         operand,
                         item_span,
                         FrameContinuation::ListItems {
-                            state: ListItemsState {
+                            state: Box::new(ListItemsState {
                                 instruction,
                                 position,
                                 splice,
                                 item_span,
                                 values,
                                 span,
-                            },
+                            }),
                             next: Box::new(next),
                         },
                     );
@@ -6589,14 +6589,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let position = entries.position();
                 self.step_map_literal(
                     index,
-                    MapLiteralState {
+                    Box::new(MapLiteralState {
                         instruction,
                         position,
                         fields: BTreeMap::new(),
                         key: None,
                         reading_key: false,
                         span,
-                    },
+                    }),
                     Box::new(next),
                 )?;
             }
@@ -6633,12 +6633,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let position = entries.position();
                 self.step_record_items(
                     index,
-                    RecordItemsState {
+                    Box::new(RecordItemsState {
                         instruction,
                         position,
                         fields: Vec::with_capacity(capacity),
                         span,
-                    },
+                    }),
                     Box::new(next),
                 )?;
             }
@@ -6708,12 +6708,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let position = parts.position();
                 self.step_fmt(
                     index,
-                    FmtState {
+                    Box::new(FmtState {
                         instruction,
                         position,
                         fmt,
                         span,
-                    },
+                    }),
                     Box::new(next),
                 )?;
             }
@@ -7177,7 +7177,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_assertion(
         &mut self,
         index: usize,
-        mut state: FrameAssertionState,
+        mut state: Box<FrameAssertionState>,
     ) -> Result<(), RuntimeError> {
         let execution = self.calls[index].execution.thread_local();
         while let Some(item) = state.work.pop() {
@@ -8548,7 +8548,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(input) => {
                     let pipeline = IndexedSerialPipeline::new_frame(
                         input,
-                        stages,
+                        *stages,
                         span,
                     )?;
                     match pipeline {
@@ -8572,7 +8572,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::StageValueInput { span, stages, next } => match value {
                 FrameValue::Value(input) => {
                     let pipeline = IndexedStageEngine::new_frame(
-                        input, stages, span,
+                        input, *stages, span,
                     )?;
                     self.calls[index].work.push(FrameWork::StageValue {
                         pipeline: Box::new(pipeline),
@@ -10160,7 +10160,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_list_literal(
         &mut self,
         index: usize,
-        mut state: ListItemsState,
+        mut state: Box<ListItemsState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut items = indexed_list_literal_view_at(
@@ -10183,7 +10183,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
-            let ListItemsState { values, .. } = state;
+            let ListItemsState { values, .. } = *state;
             self.push_value(index, FrameValue::Value(LoweredValue::List(values)), *next);
         }
         Ok(())
@@ -10192,7 +10192,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_map_literal(
         &mut self,
         index: usize,
-        mut state: MapLiteralState,
+        mut state: Box<MapLiteralState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut entries = indexed_map_literal_view_at(
@@ -10224,7 +10224,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
-            let MapLiteralState { fields, .. } = state;
+            let MapLiteralState { fields, .. } = *state;
             self.push_value(
                 index,
                 FrameValue::Value(LoweredValue::Map(Arc::new(fields))),
@@ -10237,7 +10237,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_record_items(
         &mut self,
         index: usize,
-        mut state: RecordItemsState,
+        mut state: Box<RecordItemsState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut entries = indexed_record_literal_view_at(
@@ -10268,7 +10268,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
-            let RecordItemsState { fields, .. } = state;
+            let RecordItemsState { fields, .. } = *state;
             self.push_value(
                 index,
                 FrameValue::Value(finish_record_entries(fields)),
@@ -10281,7 +10281,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_fmt(
         &mut self,
         index: usize,
-        mut state: FmtState,
+        mut state: Box<FmtState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut parts = indexed_fmt_parts_view_at(
@@ -11082,7 +11082,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_for_items(
         &mut self,
         index: usize,
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         items: Vec<LoweredValue>,
         item_index: usize,
         body: u32,
@@ -11522,7 +11522,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_for_stream(
         &mut self,
         index: usize,
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         mut stream: StreamValue,
         body: u32,
         span: Span,
@@ -11847,7 +11847,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn advance_assign_path(
         &mut self,
         index: usize,
-        mut state: AssignPathState,
+        mut state: Box<AssignPathState>,
     ) -> Result<(), RuntimeError> {
         let next_selector = match state.path {
             AssignPathCursor::DirectField(name) => {
