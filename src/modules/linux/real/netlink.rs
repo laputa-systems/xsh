@@ -584,6 +584,56 @@ pub(crate) fn network_dump(_span: Span) -> Result<Value, RuntimeError> {
     Ok(Value::ok(snapshot_value(collect_snapshot(&ALL_DUMPS))))
 }
 
+pub(crate) enum ReplayedDump {
+    Datagrams(Vec<Vec<u8>>),
+    Errno(i32),
+}
+
+pub(crate) fn replayed_network_dump(replies: [ReplayedDump; 4], local_port: u32) -> Value {
+    let mut snapshot = Snapshot::default();
+    for (index, (kind, reply)) in ALL_DUMPS.into_iter().zip(replies).enumerate() {
+        let sequence = u32::try_from(index + 1).expect("four netlink requests fit in u32");
+        match replay_dump(sequence, local_port, kind, reply) {
+            Ok(messages) => {
+                snapshot.successful_dumps += 1;
+                snapshot.add_messages(kind, &messages);
+            }
+            Err(error) => snapshot.add_error(kind.name(), error),
+        }
+    }
+    snapshot_value(snapshot)
+}
+
+fn replay_dump(
+    sequence: u32,
+    local_port: u32,
+    kind: DumpKind,
+    reply: ReplayedDump,
+) -> Result<Vec<NetlinkMessage>, DumpError> {
+    let datagrams = match reply {
+        ReplayedDump::Errno(errno) => {
+            return Err(DumpError::Io(io::Error::from_raw_os_error(errno)));
+        }
+        ReplayedDump::Datagrams(datagrams) => datagrams,
+    };
+    let mut accumulator = DumpAccumulator::new(
+        sequence,
+        local_port,
+        kind.request_type(),
+        kind.response_type(),
+    );
+    for datagram in &datagrams {
+        accumulator.push_datagram(datagram)?;
+    }
+    if !accumulator.complete {
+        return Err(DumpError::Io(io::Error::from_raw_os_error(libc::ETIMEDOUT)));
+    }
+    if accumulator.interrupted {
+        return Err(DumpError::Interrupted);
+    }
+    Ok(accumulator.messages)
+}
+
 const ALL_DUMPS: [DumpKind; 4] = [
     DumpKind::Links,
     DumpKind::Addresses,
