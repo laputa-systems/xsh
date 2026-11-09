@@ -80,6 +80,8 @@ export const namespace_tests = [
   "core/tests/test-lsns.xsh::test_lsns_raw_format_escapes_blanks_and_keeps_headings",
   "core/tests/test-lsns.xsh::test_lsns_reports_owner_namespaces",
   "core/tests/test-lsns.xsh::test_lsns_task_limits_the_listing_to_one_process",
+  "core/tests/test-net-state.xsh::test_a_notification_overrun_is_reported_as_lost_so_the_caller_reobserves",
+  "core/tests/test-net-state.xsh::test_changes_converge_on_a_veth_pair_and_leave_foreign_state_alone",
   "core/tests/test-nsenter.xsh::test_nsenter_enters_the_user_and_network_namespaces_of_a_process",
   "core/tests/test-nsenter.xsh::test_nsenter_fork_puts_the_command_in_the_entered_pid_namespace",
   "core/tests/test-nsenter.xsh::test_nsenter_relays_exit_status_and_signal",
