@@ -235,7 +235,7 @@ pub(crate) fn fake_call(
 /// Answers the next observation of an ordered network replay at `fixture`:
 /// a `netlink_route_request` call or `network_dump`. `next` counts the
 /// observations consumed so far.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "native-tests"))]
 pub(crate) fn replay_call(
     op: RuntimeOp,
     values: &[Option<Value>],
@@ -253,10 +253,10 @@ pub(crate) fn replay_call(
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "native-tests"))]
 pub(crate) use fake::unconsumed as replay_unconsumed;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), feature = "native-tests"))]
 pub(crate) fn replay_call(
     _op: RuntimeOp,
     _values: &[Option<Value>],
@@ -268,7 +268,7 @@ pub(crate) fn replay_call(
     Err(RuntimeError::new("linux-netlink-replay", "network replay is Linux-only".to_string()).with_span(span))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), feature = "native-tests"))]
 pub(crate) fn replay_unconsumed(_fixture: &std::path::Path, _consumed: usize) -> Result<(), String> {
     Ok(())
 }

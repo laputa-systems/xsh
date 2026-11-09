@@ -560,11 +560,13 @@ pub(crate) fn network_dump(_span: Span) -> Result<Value, RuntimeError> {
     Ok(Value::ok(snapshot_value(collect_snapshot(&ALL_DUMPS))))
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) enum ReplayedDump {
     Datagrams(Vec<Vec<u8>>),
     Errno(i32),
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn replayed_network_dump(replies: [ReplayedDump; 4], local_port: u32) -> Value {
     let mut snapshot = Snapshot::default();
     for (index, (kind, reply)) in ALL_DUMPS.into_iter().zip(replies).enumerate() {
@@ -580,6 +582,7 @@ pub(crate) fn replayed_network_dump(replies: [ReplayedDump; 4], local_port: u32)
     snapshot_value(snapshot)
 }
 
+#[cfg(feature = "native-tests")]
 fn replay_dump(
     sequence: u32,
     local_port: u32,

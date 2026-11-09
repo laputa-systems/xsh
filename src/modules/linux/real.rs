@@ -187,7 +187,9 @@ pub(crate) use net::{
     add_default_ipv4_route, del_default_ipv4_route, flush_ipv4_addresses, link_down, link_up,
     set_ipv4_address,
 };
-pub(crate) use netlink::{ReplayedDump, network_dump, replayed_network_dump};
+pub(crate) use netlink::network_dump;
+#[cfg(feature = "native-tests")]
+pub(crate) use netlink::{ReplayedDump, replayed_network_dump};
 pub(crate) use route_request::{
     Acknowledgement, RouteRequest, RouteRequestError, acknowledge, route_request,
 };

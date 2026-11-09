@@ -59,6 +59,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::Mutex;
+#[cfg(feature = "native-tests")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const KIND: &str = "linux-netlink-fake";
@@ -517,12 +518,15 @@ fn timeout(args: &Args<'_>, fd: i32, log: &mut Log<'_>) -> Result<Value, Runtime
     ok(Value::Unit)
 }
 
+#[cfg(feature = "native-tests")]
 const REPLAY_KIND: &str = "linux-netlink-replay";
 
+#[cfg(feature = "native-tests")]
 fn replay_fault(args: &Args<'_>, message: String) -> RuntimeError {
     RuntimeError::new(REPLAY_KIND, message).with_span(args.span)
 }
 
+#[cfg(feature = "native-tests")]
 fn next_observation(
     fixture: &Path,
     next: &AtomicUsize,
@@ -551,6 +555,7 @@ fn next_observation(
     Ok(entry)
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn replay_call(
     op: RuntimeOp,
     args: &Args<'_>,
@@ -583,6 +588,7 @@ pub(super) fn replay_call(
     route_reply(&entry, &request, args)
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn replay_network_dump(
     args: &Args<'_>,
     fixture: &Path,
@@ -613,6 +619,7 @@ pub(super) fn replay_network_dump(
     ))
 }
 
+#[cfg(feature = "native-tests")]
 pub(crate) fn unconsumed(fixture: &Path, consumed: usize) -> Result<(), String> {
     let text = std::fs::read_to_string(fixture).map_err(|error| format!("{}: {error}", fixture.display()))?;
     let total = text.lines().filter(|line| !line.trim().is_empty()).count();
