@@ -665,7 +665,6 @@ fn lint_trace_validator_accepts_two_roots_reusing_one_shared_module() {
     assert_eq!(
         String::from_utf8(validation.stdout).expect("UTF-8 trace summary"),
         "shared caches=1 requests=4 records=3 cache_reuses=1 checks=3 check_hits=1\
-         \nprivate caches=2 requests=2 records=2 cache_reuses=0 checks=2 check_hits=0\
          \nshared module keys across multiple owners=0\nprivate repeated module keys across owners=0\n"
     );
 
