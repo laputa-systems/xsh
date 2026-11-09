@@ -239,6 +239,7 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
         cpu_max: None,
         accepted_exit_codes: None,
         namespaces: None,
+        confinement: None,
     })
 }
 

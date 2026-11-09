@@ -177,6 +177,7 @@ pub enum RuntimeOp {
     LinuxStorageCandidates,
     LinuxNamespaces,
     LinuxRunInNamespaces,
+    LinuxRunConfined,
     LinuxNetConstants,
     LinuxSocket,
     LinuxConnect,

@@ -58,6 +58,7 @@ use tempfile::TempDir;
 use xsh_root::Root;
 
 pub(in crate::runtime::eval) mod indexed_run;
+mod confined;
 mod namespaces;
 mod module_accounts;
 mod module_archive;
@@ -6357,18 +6358,19 @@ impl Evaluator {
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
                 self.run_process_invocation(invocation, span)
             }
-            callable; RuntimeOp::LinuxRunInNamespaces | RuntimeOp::LinuxNamespaces
+            callable; RuntimeOp::LinuxRunInNamespaces | RuntimeOp::LinuxNamespaces | RuntimeOp::LinuxRunConfined
                 if self.linux_fake_active() =>
             {
                 lowered_result_err_value(
                     RuntimeError::new(
                         "linux-fake-unsupported",
-                        "namespace operations have no Linux fake implementation",
+                        "namespace and confinement operations have no Linux fake implementation",
                     )
                     .with_span(span),
                 )
             }
             callable; RuntimeOp::LinuxRunInNamespaces => self.eval_run_in_namespaces(values, span)?,
+            callable; RuntimeOp::LinuxRunConfined => self.eval_run_confined(values, span)?,
             callable; RuntimeOp::LinuxNamespaces => {
                 let pid = lowered_optional_int_arg(values.get(0), "linux.namespaces", span)?;
                 lowered_runtime_result(linux_module::namespaces(pid, span), span)?

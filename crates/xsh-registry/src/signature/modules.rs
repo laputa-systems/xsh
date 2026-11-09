@@ -2447,6 +2447,20 @@ fn linux_module() -> ModuleSig {
                 RuntimeOp::LinuxRunInNamespaces,
             ),
         ),
+        (
+            "run_confined",
+            sig(
+                vec![
+                    param("command", Type::Command),
+                    default_param("read", list_path()),
+                    default_param("write", list_path()),
+                    default_param("tcp", Type::Bool),
+                ],
+                Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+                false,
+                RuntimeOp::LinuxRunConfined,
+            ),
+        ),
 
         (
             "write_device",

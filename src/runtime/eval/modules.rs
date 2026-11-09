@@ -106,6 +106,7 @@ impl Evaluator {
             cpu_max: plan.cpu_max,
             accepted_exit_codes: plan.accepted_exit_codes,
             namespaces: None,
+            confinement: None,
         })
     }
 }
