@@ -289,32 +289,47 @@ fn format_time(mtime: i64, now: i64) -> String {
 }
 
 fn username(uid: u32) -> String {
-    // rustix does not expose passwd database lookups.
-    // SAFETY: getpwuid returns a pointer to a static struct (or NULL).
-    // We immediately copy pw_name into an owned String. Single-threaded
-    // shell so no concurrent getpwuid calls can invalidate the pointer.
-    unsafe {
-        let pw = libc::getpwuid(uid);
-        if pw.is_null() {
+    let mut buffer = vec![0u8; 1024];
+    loop {
+        let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut result = std::ptr::null_mut();
+        // SAFETY: passwd, buffer and result outlive the call, and the length
+        // passed is the buffer's real length.
+        let rc = unsafe {
+            libc::getpwuid_r(uid, &mut passwd, buffer.as_mut_ptr().cast(), buffer.len(), &mut result)
+        };
+        if rc == libc::ERANGE {
+            buffer.resize(buffer.len() * 2, 0);
+            continue;
+        }
+        if rc != 0 || result.is_null() {
             return uid.to_string();
         }
-        std::ffi::CStr::from_ptr((*pw).pw_name)
-            .to_string_lossy()
-            .into_owned()
+        // SAFETY: on success pw_name points at a NUL-terminated name inside
+        // `buffer`, which is still alive here.
+        return unsafe { std::ffi::CStr::from_ptr(passwd.pw_name) }.to_string_lossy().into_owned();
     }
 }
 
 fn groupname(gid: u32) -> String {
-    // rustix does not expose group database lookups.
-    // SAFETY: getgrgid returns a pointer to a static struct (or NULL).
-    // We immediately copy gr_name into an owned String. Single-threaded.
-    unsafe {
-        let gr = libc::getgrgid(gid);
-        if gr.is_null() {
+    let mut buffer = vec![0u8; 1024];
+    loop {
+        let mut group: libc::group = unsafe { std::mem::zeroed() };
+        let mut result = std::ptr::null_mut();
+        // SAFETY: group, buffer and result outlive the call, and the length
+        // passed is the buffer's real length.
+        let rc = unsafe {
+            libc::getgrgid_r(gid, &mut group, buffer.as_mut_ptr().cast(), buffer.len(), &mut result)
+        };
+        if rc == libc::ERANGE {
+            buffer.resize(buffer.len() * 2, 0);
+            continue;
+        }
+        if rc != 0 || result.is_null() {
             return gid.to_string();
         }
-        std::ffi::CStr::from_ptr((*gr).gr_name)
-            .to_string_lossy()
-            .into_owned()
+        // SAFETY: on success gr_name points at a NUL-terminated name inside
+        // `buffer`, which is still alive here.
+        return unsafe { std::ffi::CStr::from_ptr(group.gr_name) }.to_string_lossy().into_owned();
     }
 }
