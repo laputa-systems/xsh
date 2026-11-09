@@ -27,11 +27,11 @@ pure refuse(message: Str) -> Error {
 }
 
 pure anchored(dir: Int, name: Str) -> Path {
-  Path(f"/proc/self/fd/{dir}/{name}")
+  fp"/proc/self/fd/{dir}/{name}"
 }
 
 proc inspect_parent(dir: Int, parent: Path) [fs, process, error] -> Result[Bool, Error] {
-  let info = fs.stat(Path(f"/proc/self/fd/{dir}"), follow_symlinks: true)?
+  let info = fs.stat(fp"/proc/self/fd/{dir}", follow_symlinks: true)?
   let owner = unix.id()?.euid
   if info.kind != "dir" or (info.uid != 0 and info.uid != owner) or info.mode.bit_and(GROUP_OR_WORLD_WRITABLE) != 0 {
     return Err(refuse(f"{parent} must be a directory owned by root or the service user and writable by no one else"))

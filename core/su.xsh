@@ -65,7 +65,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] -> Result[Int] {
         }
       }
 
-      let shell = if options.shell == "" { null } else { Path(options.shell) }
+      let shell = if options.shell == "" { null } else { fp"{options.shell}" }
       applet.su_session(
         typed_entry,
         options.login,

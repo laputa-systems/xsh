@@ -161,7 +161,7 @@ export proc send_with(ctx: TestContext, lay: Layout, scenario: Str, args: List[S
 
 ## Open descriptors of a process.
 export proc open_descriptors(pid: Int) [fs, error] -> Result[Int, Error] {
-  Ok([entry.name for entry in fs.children(Path(f"/proc/{pid}/fd"))?].len())
+  Ok([entry.name for entry in fs.children(fp"/proc/{pid}/fd")?].len())
 }
 
 ## One `name=value` counter from an event line.

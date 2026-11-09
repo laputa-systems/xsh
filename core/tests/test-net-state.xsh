@@ -375,7 +375,7 @@ proc replayed(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error
   file.write(json.encode_lines(lines)?)
   let log = fp"{root}/calls.jsonl"
   test.linux_fake(ctx, {network_replay: file, log})
-  let ran = test.run_script(ctx, f"use lib.net_state\n\n{OBSERVE_CHANGE_OBSERVE}", [], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", name)?
+  let ran = test.run_script(ctx, f"use lib.net_state\n\n{OBSERVE_CHANGE_OBSERVE}", [], {XSH_MODULE_PATH: ctx.core_dir}, b"", name)?
   {success: ran.success, stdout: ran.stdout, stderr: ran.stderr, calls: if log.exists()? { log.read_text()? } else { "" }}
 }
 

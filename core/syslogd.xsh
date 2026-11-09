@@ -147,10 +147,10 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
     complain("syslogd: --state DIR is required")
     exit 2
   }
-  let socket_path = Path(opts.socket)
+  let socket_path = fp"{opts.socket}"
   process.set_signal_action("HUP", "ignore")
-  let state_dir = Path(state ?? "/")
-  let lock_path = Path(f"{state_dir}/syslog.lock")
+  let state_dir = fp"{state ?? "/"}"
+  let lock_path = fp"{state_dir}/syslog.lock"
   let lock = match fs.lock(lock_path, nonblocking: true) {
     Ok(held) => held
     Err(failure) => {
@@ -191,7 +191,7 @@ proc main(...argv: List[Str]) [fs, process, net, io, time, env, error] {
   let kmsg_fd = match opts.kmsg {
     null => -1
     else => {
-      let opened = unix.open_fd(Path(opts.kmsg ?? ""), nonblock: true)
+      let opened = unix.open_fd(fp"{opts.kmsg ?? ""}", nonblock: true)
       if opened is Err(_) {
         complain(f"syslogd: cannot open {opts.kmsg ?? ""}")
         exit 1
