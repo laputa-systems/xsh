@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 81
+Next: 82
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -128,8 +128,19 @@ out of scope.
 - **Problem:** When xsh or xsht starts with any of the child-reset signals ignored, every spawn installs a `pre_exec` closure, which makes the standard library fork instead of `posix_spawn`. A POSIX shell ignores SIGINT and SIGQUIT for every background job, so `xsht test &` starts that way. xsht installs its own SIGINT handler, but SIGQUIT stays ignored. The fork holds the address-space lock while it copies page tables. In the r11x scheduler pairs at 16 workers, about 8 of xsht's 50 threads were waiting for that lock at any moment. Tests that take 46 ms took 2 minutes, and four tests hit the 120 s timeout. The gate runner now resets the two signals itself (`a59cc658f`), but any user who backgrounds a suite still hits this.
 - **Recommendation:** Reset the ignored signals in the child without a fork: `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, or a spawn path that applies the defaults through spawn attributes. Keep the same child signal contract.
 - **Acceptance:** Started as `sh -c 'xsht test --jobs 16 & wait'`, the suite has the same wall time and outcome counts as a foreground run, within the observed spread. Children still start with the reset signals at their defaults. Process and signal tests green.
+- **Progress:** On musl, a spawn with child-reset signals ignored and no child hook now calls `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, `SETPGROUP` and file actions, so it no longer forks; `strace` shows `clone(CLONE_VM|CLONE_VFORK)`. Redirections through `ChildDup`, namespaces, closed standard descriptors, `ignore_hup`, `new_session` and non-musl targets keep the fork path. Runtime, runtime-unit, modules, root, SSH, archive, API and core gate cases pass. Only the background-versus-foreground wall-time comparison remains, deferred with the timing gates.
 - **Fix with:** make-it-fast
 - **Effort:** M
+
+### XSH-81 · P3 · Make the btop PTY replay tests hold under load
+
+- **Area:** Tests
+- **Where:** `tests/core_compat_extra/pty.rs`, `tests/core_compat_extra.rs`
+- **Problem:** Under host load of about 15 to 50, the btop PTY tests in `test-core-compat-extra` time out with empty terminal output (`pty.rs:329`, `core_compat_extra.rs:86` "applet did not exit within 10s"), and `btop_terminal_partial_start_failure_restores_input_terminal_attributes` misses its 2 s raw-mode deadline (`pty.rs:908`). Three interleaved runs each on `29995f89d` and on the XSH-79 branch failed 9 of 58 once on the base and 1 of 58 once on the branch; the other four runs passed 58 of 58. An `strace` of a failing replay showed the xsh child busy with memory work, not blocked on a spawn.
+- **Recommendation:** Find where a btop replay spends its first seconds under load (startup, model build, first render) and whether the deadlines measure btop or the host. Wait on the observable event the test needs instead of fixed wall-clock budgets where the contract allows it.
+- **Acceptance:** Ten consecutive `cargo dev gate --case test-core-compat-extra` runs at load above 20 pass 58 of 58, with each deadline justified by what it guards.
+- **Fix with:** root-cause
+- **Effort:** S
 
 ### XSH-80 · P3 · Make a btop frame for 1,000 processes interactive
 
