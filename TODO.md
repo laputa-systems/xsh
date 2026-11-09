@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 86
+Next: 87
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.

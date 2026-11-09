@@ -432,6 +432,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     });
                     match contextual {
                         Some(literal) => self.lower_record_default(&literal)?,
+                        None if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Ident(_)) => {
+                            self.lower_producer_input_expr(expr, slots, current_function, item_slot)?
+                        }
                         None => self.lower_expr(expr, slots, current_function, item_slot)?,
                     }
                 }
