@@ -143,10 +143,13 @@ type SystemReportLiveCollector = module {
   export proc usb_controller_address(root: FsRoot, device_path: RelPath) [fs, error] -> UsbControllerObservation
   export proc class_parent_target(root: FsRoot, entry: RelPath) [fs, error] -> ClassParentObservation
   export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error]
-  export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error]
   export pure usb_parent_address(target: Path) -> Str?
   export pure pci_address_in_target(target: Path) -> Str?
   export pure link_usb_parents(devices: List[report_model.UsbDevice]) -> List[report_model.UsbDevice]
+}
+
+type MonitorSourcesModule = module {
+  export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error]
 }
 
 test test_system_report_checker_keeps_cpu_policy_members_typed { |ctx|
@@ -5285,7 +5288,7 @@ test test_system_report_storage_keeps_holder_and_slave_enumeration_failures {
 }
 
 test test_system_report_process_stat_parser_preserves_start_identity {
-  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let collector = module.load(p"core/lib/monitor_sources.xsh")?.require(MonitorSourcesModule)?
   let stat = collector.parse_proc_stat("123 (worker (pool)) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2")?
   assert stat.pid == 123
   assert stat.parent_pid == 1

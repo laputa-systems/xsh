@@ -1,6 +1,6 @@
 ##! Selects monitor telemetry from the shared Linux report readers.
 use system_report as report
-use system_report_live as live
+use monitor_sources as monitor
 
 ## Retains a CPU temperature in Celsius and maps labeled core sensors to logical IDs.
 export type CpuTemperature = {
@@ -66,7 +66,7 @@ pure core_number(label: Str) -> Int? {
   null
 }
 
-pure temperature_candidates(sources: live.MonitorSources) -> List[TemperatureCandidate] {
+pure temperature_candidates(sources: monitor.MonitorSources) -> List[TemperatureCandidate] {
   let channels: List[TemperatureCandidate] = collect {
     for channel in sources.sensor_channels {
       continue unless channel.kind == "temperature"
@@ -141,7 +141,7 @@ pure core_sensor_index(core_id: Int, maximum_core_id: Int, sensor_count: Int) ->
 
 # Uses the empty default override: procfs topology first, then a deterministic spread.
 pure core_mapping(
-  sources: live.MonitorSources,
+  sources: monitor.MonitorSources,
   logical_cpu_ids: List[Int],
   sensor_count: Int,
 ) -> List[CoreMapping] {
@@ -198,7 +198,7 @@ pure core_mapping(
   ]
 }
 
-pure cpu_temperature(sources: live.MonitorSources, logical_cpu_ids: List[Int]) -> CpuTemperature {
+pure cpu_temperature(sources: monitor.MonitorSources, logical_cpu_ids: List[Int]) -> CpuTemperature {
   let candidates = temperature_candidates(sources)
   let observed = candidates |> where .millidegrees != null
   if observed.is_empty() {
@@ -260,7 +260,7 @@ export pure format_frequency_mhz(value: Float) -> Str {
   }
 }
 
-pure selected_frequency_mhz(sources: live.MonitorSources) -> List[Float] {
+pure selected_frequency_mhz(sources: monitor.MonitorSources) -> List[Float] {
   let policy_values: List[Float] = collect {
     for policy in sources.frequency_policies |> sort-by .name {
       let policy_frequency = frequency_value_mhz(policy.scaling_current_khz)
@@ -276,7 +276,7 @@ pure selected_frequency_mhz(sources: live.MonitorSources) -> List[Float] {
 }
 
 ## Reduces the observed policy or CPU information values with one pinned mode.
-export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuFrequency {
+export pure frequency(sources: monitor.MonitorSources, mode: FrequencyMode) -> CpuFrequency {
   let values = selected_frequency_mhz(sources)
   if values.is_empty() {
     let has_policy = ! sources.frequency_policies.is_empty()
@@ -319,7 +319,7 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
   }
 }
 
-pure battery_percent(sample: live.MonitorBattery) -> Int? {
+pure battery_percent(sample: monitor.MonitorBattery) -> Int? {
   let reported = sample.capacity_percent
   return reported when reported != null and (reported ?? -1) >= 0 and reported <= 100
 
@@ -338,7 +338,7 @@ pure battery_percent(sample: live.MonitorBattery) -> Int? {
   (ratio * 100.0).round() ?? 0
 }
 
-pure battery_watts(sample: live.MonitorBattery) -> Float? {
+pure battery_watts(sample: monitor.MonitorBattery) -> Float? {
   if sample.power_now_uw != null {
     let microwatts = sample.power_now_uw
     return null when microwatts < 0
@@ -352,7 +352,7 @@ pure battery_watts(sample: live.MonitorBattery) -> Float? {
   }
 }
 
-pure battery_minutes(sample: live.MonitorBattery) -> Int? {
+pure battery_minutes(sample: monitor.MonitorBattery) -> Int? {
   let status = (sample.status ?? "").lower()
   if status == "charging" {
     let now = sample.energy_now_uwh ?? -1
@@ -381,7 +381,7 @@ pure battery_minutes(sample: live.MonitorBattery) -> Int? {
   sample.time_to_empty_minutes
 }
 
-pure battery(sources: live.MonitorSources) -> Battery {
+pure battery(sources: monitor.MonitorSources) -> Battery {
   let candidates = sources.batteries
     |> where .present == true
     |> sort-by { |item| f"{item.kind == "UPS"}/{item.name}" }
@@ -427,7 +427,7 @@ pure battery(sources: live.MonitorSources) -> Battery {
 }
 
 ## Applies the pinned default sensor and frequency choices to rooted observations.
-export pure select(sources: live.MonitorSources, logical_cpu_ids: List[Int] = []) -> Telemetry {
+export pure select(sources: monitor.MonitorSources, logical_cpu_ids: List[Int] = []) -> Telemetry {
   {
     temperature: cpu_temperature(sources, logical_cpu_ids),
     frequency: frequency(sources, .First),

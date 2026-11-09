@@ -4,12 +4,12 @@
 ##! explicit inputs because a filesystem root cannot prove any of them.
 use btop_disks as disks
 use btop_model as model
+use monitor_sources as monitor
 use sys_cpu
 use sys_mem
 use sys_mount
 use sys_net
 use sys_proc
-use system_report_live as system_live
 
 ## Reads counter sources and collects or reuses gauge telemetry from one tree.
 export proc capture(
@@ -18,7 +18,7 @@ export proc capture(
   at_ns: Int,
   page_size_bytes: Int,
   clock_ticks_per_second: Int,
-  cached_telemetry: system_live.MonitorSources? = null,
+  cached_telemetry: monitor.MonitorSources? = null,
   cached_mounts: sys_mount.MountTable? = null,
   cached_mounts_at_ns: Int? = null,
   captured_mount_usage: List[sys_mount.CapturedUsage]? = null,
@@ -36,7 +36,7 @@ export proc capture(
     memory: sys_mem.collect(root),
     network: sys_net.collect(root),
     processes: sys_proc.collect(root, page_size_bytes),
-    telemetry: if cached_telemetry == null { system_live.collect_monitor_sources(root) } else { cached_telemetry ?? system_live.collect_monitor_sources(root) },
+    telemetry: if cached_telemetry == null { monitor.collect_monitor_sources(root) } else { cached_telemetry ?? monitor.collect_monitor_sources(root) },
     storage: disks.collect(
       root,
       at_ns,

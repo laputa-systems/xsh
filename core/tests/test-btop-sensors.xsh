@@ -3,7 +3,7 @@ use core.lib.btop_render as renderer
 use core.lib.btop_sensors as sensors
 use core.lib.btop_source
 use core.lib.system_report as report
-use core.lib.system_report_live as live
+use core.lib.monitor_sources as monitor
 
 type TestChannel = {id: Int, label: Str, value: Str}
 
@@ -18,8 +18,8 @@ proc write_hwmon(root: FsRoot, directory: RelPath, chip: Str, channels: List[Tes
   }
 }
 
-proc sources(root: FsRoot) [fs, error] -> live.MonitorSources {
-  live.collect_monitor_sources(root)
+proc sources(root: FsRoot) [fs, error] -> monitor.MonitorSources {
+  monitor.collect_monitor_sources(root)
 }
 
 test test_btop_sensor_selects_signed_package_and_deduplicates_core_channels {

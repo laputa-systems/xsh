@@ -10,7 +10,7 @@ use sys_mem as memory
 use sys_net as network
 use sys_proc as processes
 use system_report as report
-use system_report_live as system_live
+use monitor_sources as monitor
 
 const PROCESS_METADATA_TTL_NS = 5000000000
 
@@ -24,7 +24,7 @@ export type Observation = {
   memory: memory.MemorySource,
   network: network.NetworkSource,
   processes: processes.ProcessSource,
-  telemetry: system_live.MonitorSources,
+  telemetry: monitor.MonitorSources,
   storage: disks.Source,
 }
 

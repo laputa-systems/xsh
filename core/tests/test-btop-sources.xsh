@@ -9,7 +9,7 @@ use core.lib.sys_net as network
 use core.lib.sys_proc as processes
 use core.lib.sys_source as src
 use core.lib.system_report as report
-use core.lib.system_report_live as system_live
+use core.lib.monitor_sources as monitor
 use core.tests.support.btop as fixture
 
 proc write_proc_stat(root: FsRoot, aggregate: Str, cpu0: Str, cpu1: Str) [fs, error] {
@@ -265,8 +265,8 @@ test test_btop_process_source_keeps_i64_start_identity_outside_report_json_v1 {
   let maximum = 9223372036854775807
   let text = process_stat(42, maximum, 10, 0, 2)
 
-  assert system_live.parse_proc_stat(text) is Err(_)
-  let monitor_stat = system_live.parse_proc_stat_for_monitor(text)?
+  assert monitor.parse_proc_stat(text) is Err(_)
+  let monitor_stat = monitor.parse_proc_stat_for_monitor(text)?
   assert monitor_stat.start_ticks == maximum
 
   write_process(root, 42, maximum, 10, 2)
