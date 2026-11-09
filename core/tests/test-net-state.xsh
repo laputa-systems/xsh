@@ -112,6 +112,13 @@ test test_an_incomplete_dump_without_an_issue_is_malformed [error] {
   assert failure_name(net_state.project(dump("partial", []))) == "malformed dump"
 }
 
+test test_an_input_interface_selector_marks_a_route_as_customized [error] {
+  var observed = dump("complete", [])
+  observed.routes = [route_entry("inet", [{kind: 3, data: b"\x09\x00\x00\x00"}], [])]
+  let state = net_state.project(observed)?
+  assert state.routes[0].other_attributes == [3]
+}
+
 test test_a_link_without_a_utf8_name_is_malformed_rather_than_renamed [error] {
   var observed = dump("complete", [])
   observed.links = [link_entry(7, null)]

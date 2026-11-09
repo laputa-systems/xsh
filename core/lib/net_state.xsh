@@ -113,7 +113,7 @@ export const TABLE_MAIN = 254
 export const CHANGE_TIMEOUT_MS = 3000
 
 const OBSERVED_OBJECTS = ["socket", "link", "address", "route"]
-const MODELED_ROUTE_ATTRIBUTES = [1, 2, 3, 4, 5, 6, 7, 9, 15]
+const MODELED_ROUTE_ATTRIBUTES = [1, 2, 4, 5, 6, 7, 9, 15]
 const RTA_SRC = 2
 const RTM_F_CLONED = 512
 const ENOBUFS = 105
