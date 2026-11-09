@@ -894,6 +894,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // Evaluate the receiver and argument entries in source order before
             // arranging host slots. Named arguments never reorder effects.
             for arg in args_vec.iter() {
+                if let Some(bound) = arg.lowered {
+                    evaluated.push(bound);
+                    continue;
+                }
                 let value = self.lower_call_argument(arg, slots, current_function, item_slot)?;
                 let slot = slots.reserve("filesystem root argument");
                 bindings.push((value, slot));
