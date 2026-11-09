@@ -3584,30 +3584,30 @@ impl Checker {
                 else_block,
             } => self.check_if_arena(arena, source, branches, else_block),
             ArenaStmtKind::While { condition, block } => {
-                self.check_while_arena(arena, source, condition, block);
+                self.settle_stream_loop(arena, block, |checker| checker.check_while_arena(arena, source, condition, block));
             }
             ArenaStmtKind::For {
                 target,
                 iter,
                 block,
             } => {
-                self.check_for_arena(arena, source, target, iter, block, stmt.span);
+                self.settle_stream_loop(arena, block, |checker| checker.check_for_arena(arena, source, target, iter, block, stmt.span));
             }
-            ArenaStmtKind::Loop { block } => {
-                self.end_narrowings_the_loop_can_overwrite(arena, &[ArenaChild::Block(block)]);
-                self.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::Loop);
-                self.boundary.loop_depth += 1;
-                self.check_block_arena(arena, source, block);
-                self.boundary.loop_depth -= 1;
-                self.leave_stream_loop(arena, block);
-                if !self.block_has_exit_point_arena(arena, block) {
-                    self.error(
+            ArenaStmtKind::Loop { block } => self.settle_stream_loop(arena, block, |checker| {
+                checker.end_narrowings_the_loop_can_overwrite(arena, &[ArenaChild::Block(block)]);
+                checker.enter_stream_loop(arena, block, super::stream_origins::StreamLoopKind::Loop);
+                checker.boundary.loop_depth += 1;
+                checker.check_block_arena(arena, source, block);
+                checker.boundary.loop_depth -= 1;
+                checker.leave_stream_loop(arena, block);
+                if !checker.block_has_exit_point_arena(arena, block) {
+                    checker.error(
                         stmt.span,
                         "`loop` has no `break` — will run forever",
                         DiagnosticCode::CheckLoopNoBreak,
                     );
                 }
-            }
+            }),
             ArenaStmtKind::Guard {
                 target,
                 ty,
