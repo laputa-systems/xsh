@@ -47,12 +47,12 @@ pure render_routes(state: net_state.State) -> List[Str] {
       let none = net_state.unspecified(route.family)
       let destination = if route.prefix == 0 { "default" } else { f"{route.destination ?? none}/{route.prefix}" }
       for hop in route.hops {
-        let device = if let index = hop.ifindex { names.get(index) ?? "*" } else { "*" }
+        let device_name = if let index = hop.ifindex { names.get(index) ?? "*" } else { "*" }
         let gateway = hop.gateway ?? none
         if gateway == none {
-          yield f"{destination} dev {device} metric {route.priority}"
+          yield f"{destination} dev {device_name} metric {route.priority}"
         } else {
-          yield f"{destination} via {gateway} dev {device} metric {route.priority}"
+          yield f"{destination} via {gateway} dev {device_name} metric {route.priority}"
         }
       }
     }

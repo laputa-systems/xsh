@@ -104,26 +104,6 @@ pure matches(row: model.ProcessRow, filter: Str, values: LocalDisplayIndex) -> B
     user_text(row, values).lower().find(needle) != null
 }
 
-pure rate_available(value: rates.Rate) -> Bool {
-  value.state == .Observed and value.value != null
-}
-
-pure cpu_sort_value(value: rates.Rate, scale: Int) -> Int {
-  return 0 unless rate_available(value)
-  let scaled = (value.value ?? 0.0) * scale.float()
-  if let Ok(units) = scaled.round() {
-    units
-  } else if scaled < 0.0 {
-    -9223372036854775807
-  } else {
-    9223372036854775807
-  }
-}
-
-pure cpu_value(value: rates.Rate) -> Float {
-  if rate_available(value) { value.value ?? 0.0 } else { 0.0 }
-}
-
 pure displayed_cpu(row: model.ProcessRow, state: State) -> rates.Rate {
   if state.process_cpu_per_core { row.cpu_percent_per_core } else { row.cpu_percent }
 }
@@ -651,13 +631,13 @@ pure move(
 ) -> State {
   let rows = visible_processes(value, state, display_metadata)
   return {...state, selected: null, scroll: 0} when rows.is_empty()
-  let start = selected_index(rows, state.selected) ?? 0
-  let target = if start + amount < 0 {
+  let start_index = selected_index(rows, state.selected) ?? 0
+  let target = if start_index + amount < 0 {
     0
-  } else if start + amount >= rows.len() {
+  } else if start_index + amount >= rows.len() {
     rows.len() - 1
   } else {
-    start + amount
+    start_index + amount
   }
   let selected = identity(rows[target])
   {...state, selected: selected, scroll: bounded_scroll(state, rows, selected)}

@@ -259,8 +259,8 @@ pure route_record(entry: LinuxNetworkRoute, family: Family) -> Route {
     [{ifindex: hop.ifindex, gateway: hop.gateway} for hop in entry.nexthops]
   }
   var other: List[Int] = []
-  for attribute in entry.attributes {
-    other += [attribute.kind] unless attribute.kind in MODELED_ROUTE_ATTRIBUTES or attribute.kind in other
+  for route_attribute in entry.attributes {
+    other += [route_attribute.kind] unless route_attribute.kind in MODELED_ROUTE_ATTRIBUTES or route_attribute.kind in other
   }
   let other_attributes = other |> sort
   {

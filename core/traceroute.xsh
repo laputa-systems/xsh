@@ -485,8 +485,8 @@ proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process,
     socket_option(fd, c.SOL_SOCKET, c.SO_DONTROUTE, 1, "SO_DONTROUTE")
   }
 
-  if let mark = s.fwmark {
-    socket_option(fd, c.SOL_SOCKET, c.SO_MARK, mark, "SO_MARK")
+  if let fwmark = s.fwmark {
+    socket_option(fd, c.SOL_SOCKET, c.SO_MARK, fwmark, "SO_MARK")
   }
 
   if let name = s.interface {

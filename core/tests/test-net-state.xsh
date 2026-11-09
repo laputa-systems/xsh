@@ -5,8 +5,8 @@ pure link_entry(ifindex: Int, name: Str?) -> LinuxNetworkLink {
   {address: b"\x02\x00\x00\x00\x00\x07", attributes: [], broadcast: null, flags: 65603, hardware_type: 1, ifindex, kind: "veth", lower_ifindex: 8, master_ifindex: null, mtu: 1500, name, name_bytes: null, operstate: 6, rx_bytes: 0, tx_bytes: 0}
 }
 
-pure address_entry(family: Str, local: Str?, address: Str?, prefix: Int) -> LinuxNetworkAddress {
-  {address, attributes: [], broadcast: null, family, flags: 128, ifindex: 7, label: null, local, preferred_lifetime_seconds: null, prefix_length: prefix, scope: 0, valid_lifetime_seconds: null}
+pure address_entry(family: Str, local: Str?, peer_address: Str?, prefix: Int) -> LinuxNetworkAddress {
+  {address: peer_address, attributes: [], broadcast: null, family, flags: 128, ifindex: 7, label: null, local, preferred_lifetime_seconds: null, prefix_length: prefix, scope: 0, valid_lifetime_seconds: null}
 }
 
 pure route_entry(family: Str, attributes: List[LinuxNetlinkAttribute], nexthops: List[LinuxNetworkNexthop]) -> LinuxNetworkRoute {
