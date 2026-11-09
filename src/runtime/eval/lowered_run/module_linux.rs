@@ -1407,6 +1407,7 @@ impl Evaluator {
                 ])));
                 lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
                     (Arc::from("state"), LoweredValue::Str("complete".into())),
+                    (Arc::from("enumeration_succeeded"), LoweredValue::Bool(true)),
                     (Arc::from("links"), LoweredValue::List(vec![link])),
                     (Arc::from("addresses"), LoweredValue::List(vec![address])),
                     (Arc::from("routes"), LoweredValue::List(vec![route])),
