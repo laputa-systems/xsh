@@ -88,7 +88,7 @@ fn command_mode_exit_builtin_sets_process_status() {
     let (output, _home) = xshi(&["-c", "exit 3"]);
     assert_eq!(output.status.code(), Some(3));
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.is_empty());
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
 #[cfg(target_os = "linux")]
@@ -157,7 +157,7 @@ fn interactive_session_preserves_its_exit_status_on_the_worker() {
     let output = child.wait_with_output().expect("wait for xshi session");
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
 #[test]

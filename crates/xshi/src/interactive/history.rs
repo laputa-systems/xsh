@@ -322,6 +322,9 @@ impl History {
             return;
         }
         self.flush_pending();
+        if self.path.parent().is_some_and(|dir| matches!(dir.try_exists(), Ok(false))) {
+            return;
+        }
         let lock = match HistoryLock::exclusive(&self.path, COMPACT_LOCK_WAIT) {
             Ok(lock) => lock,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
