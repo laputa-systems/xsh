@@ -2396,9 +2396,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for (binding, name, kind, mutable, binding_identity, checked_type) in bindings {
             let slot = slots.reserve("captured global");
             slots.bind_source_at(binding, name, slot, checked_type.clone());
-            let use_span = self.bodies.resolved_bindings.expressions.iter()
-                .filter(|(_, resolved)| **resolved == binding)
-                .map(|(expression, _)| self.program.arena.expr(*expression).span)
+            let use_span = self.bodies.binding_reads.expressions_reading(binding).iter()
+                .map(|&(span, _)| span)
                 .filter(|span| span.source_id == within.source_id && span.start() >= within.start() && span.end() <= within.end())
                 .min_by_key(|span| span.start());
             captures.push(LoweredTopLevelSlot {
@@ -6793,14 +6792,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         {
             return None;
         }
-        bindings
-            .expressions
+        self.bodies
+            .binding_reads
+            .expressions_reading(*binding)
             .iter()
-            .filter_map(|(expression, resolved)| {
-                (*resolved == *binding)
-                    .then(|| self.bodies.expr_types.get(expression))
-                    .flatten()
-            })
+            .filter_map(|(_, expression)| self.bodies.expr_types.get(expression))
             .find(|ty| matches!(ty, Type::Module(_)))
             .cloned()
     }
@@ -6852,14 +6848,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn binding_expression_type(&self, binding: BindingId) -> Option<Type> {
         self.bodies
-            .resolved_bindings
-            .expressions
+            .binding_reads
+            .expressions_reading(binding)
             .iter()
-            .find_map(|(expression, resolved)| {
-                (*resolved == binding)
-                    .then(|| self.bodies.expr_types.get(expression).cloned())
-                    .flatten()
-            })
+            .find_map(|(_, expression)| self.bodies.expr_types.get(expression).cloned())
     }
 
     fn binding_identity_for_simple_target(
@@ -9604,19 +9596,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> SlotScope {
         let node = self.program.arena.stmt(statement);
         let bindings = &self.bodies.resolved_bindings;
-        let contains = |site: Span| site.source_id == node.span.source_id
-            && site.start() >= node.span.start() && site.end() <= node.span.end();
         let reads = if matches!(node.kind, ArenaStmtKind::SignalHook(_))
             || node.span.start() == node.span.end()
         {
             None
         } else {
-            Some(bindings.value_sites.iter()
-                .filter_map(|(&(span, _), &binding)| contains(span).then_some(binding))
-                .chain(bindings.expressions.iter().filter_map(|(&expression, &binding)|
-                    contains(self.program.arena.expr(expression).span).then_some(binding)))
-                .chain(bindings.tails.iter().filter_map(|(&statement, &binding)|
-                    contains(self.program.arena.stmt(statement).span).then_some(binding)))
+            Some(self.bodies.binding_reads.read_within(node.span)
                 .collect::<std::collections::BTreeSet<_>>())
         };
         let mut names = known.iter().filter_map(|(&name, binding)| {
