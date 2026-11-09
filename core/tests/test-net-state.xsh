@@ -1,4 +1,5 @@
 use core.lib.net_state
+use tests.support.netlink_replay as replay
 
 pure link_entry(ifindex: Int, name: Str?) -> LinuxNetworkLink {
   {address: b"\x02\x00\x00\x00\x00\x07", attributes: [], broadcast: null, flags: 65603, hardware_type: 1, ifindex, kind: "veth", lower_ifindex: 8, master_ifindex: null, mtu: 1500, name, name_bytes: null, operstate: 6, rx_bytes: 0, tx_bytes: 0}
@@ -312,4 +313,123 @@ proc main() [fs, process, env, net, io, error] {
 """
   guard let listing = in_network_namespace(ctx, "net-state-lost", body)? else { return }
   assert listing == "quiet\nchanged\nquiet\nlost: kernel dropped notifications (ENOBUFS)\nreobserved 64\n", listing
+}
+
+const OBSERVE_CHANGE_OBSERVE = """proc show(result: Result[net_state.State, net_state.ObserveFailure]) [io] {
+  match result {
+    Ok(state) => print f"v0 {net_state.addresses_of(state, 2).len()} addresses"
+    Err(net_state.ObserveFailure.Denied {object, ..}) => print f"denied {object}"
+    Err(net_state.ObserveFailure.Malformed {object, ..}) => print f"malformed {object}"
+    Err(net_state.ObserveFailure.Limited {object, ..}) => print f"limited {object}"
+    Err(net_state.ObserveFailure.Failed {object, errno, message}) => print f"failed {object} {errno ?? -1}: {message}"
+    Err(_) => print "other"
+  }
+}
+
+proc main() [process, env, net, io, error] {
+  show(net_state.observe())
+  match net_state.apply(net_state.AddAddress({ifindex: 2, family: .Inet, local: "192.0.2.2", prefix: 24, peer: null, broadcast: null, scope: 0, flags: 0})) {
+    Ok(_) => print "applied"
+    Err(net_state.ChangeFailure.Refused {errno, ..}) => print f"refused {errno}"
+    Err(net_state.ChangeFailure.Transport {message}) => print f"transport: {message}"
+    Err(_) => print "unencodable"
+  }
+  show(net_state.observe())
+}
+main()?
+"""
+
+type ReplayedDump = {op: Str, links: Any, addresses: Any, routes: Any, rules: Any}
+type ReplayedChange = {op: Str, type: Int, datagrams: List[Str]}
+type Replayed = {success: Bool, stdout: Str, stderr: Str, calls: Str}
+
+proc before_dump() [error] -> Result[ReplayedDump] {
+  let mac = b"\x02\x00\x00\x00\x00\x07"
+  {
+    op: "network_dump",
+    links: replay.dump(1, [replay.link(2, 65603, "v0", mac, 1500)?])?,
+    addresses: replay.dump(2, [])?,
+    routes: replay.dump(3, [])?,
+    rules: replay.dump(4, [])?,
+  }
+}
+
+proc after_dump() [error] -> Result[ReplayedDump] {
+  let mac = b"\x02\x00\x00\x00\x00\x07"
+  {
+    op: "network_dump",
+    links: replay.dump(1, [replay.link(2, 65603, "v0", mac, 1500)?])?,
+    addresses: replay.dump(2, [replay.address4(2, 24, b"\xc0\x00\x02\x02")?])?,
+    routes: replay.dump(3, [])?,
+    rules: replay.dump(4, [])?,
+  }
+}
+
+proc address_change_reply(errno: Int) [error] -> Result[ReplayedChange] {
+  {op: "netlink_route_request", type: 20, datagrams: [replay.acknowledgement(errno)?]}
+}
+
+proc replayed(ctx: TestContext, name: Str, lines: List[Any]) [fs, process, error] -> Result[Replayed] {
+  let root = test.temp_dir(ctx, name:)?
+  let file = fp"{root}/replay.jsonl"
+  file.write(json.encode_lines(lines)?)
+  let log = fp"{root}/calls.jsonl"
+  test.linux_fake(ctx, {network_replay: file, log})
+  let ran = test.run_script(ctx, f"use lib.net_state\n\n{OBSERVE_CHANGE_OBSERVE}", [], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", name)?
+  {success: ran.success, stdout: ran.stdout, stderr: ran.stderr, calls: if log.exists()? { log.read_text()? } else { "" }}
+}
+
+test test_a_fixed_replay_drives_observe_change_observe_without_the_host { |ctx|
+  let lines: List[Any] = [before_dump()?, address_change_reply(0)?, after_dump()?]
+  let first = replayed(ctx, "replay-ok", lines)?
+  assert first.success, first.stderr
+  assert first.stdout == "v0 0 addresses\napplied\nv0 1 addresses\n", first.stdout
+  let kinds = [line.split("\"op\":\"")[1].split("\"")[0] for line in first.calls.lines()]
+  assert kinds == ["network_dump", "netlink_route_request", "network_dump"], first.calls
+  let second = replayed(ctx, "replay-again", lines)?
+  assert second.stdout == first.stdout
+}
+
+test test_an_omitted_reordered_or_stale_observation_fails_explicitly { |ctx|
+  let omitted = replayed(ctx, "replay-omitted", [before_dump()?, address_change_reply(0)?])?
+  assert "`network_dump` after all 2 replayed observations were consumed" in omitted.stdout, omitted.stdout
+
+  let reordered = replayed(ctx, "replay-reordered", [address_change_reply(0)?, before_dump()?, after_dump()?])?
+  assert "replay observation 1: expected `netlink_route_request`, observed `network_dump`" in reordered.stdout, reordered.stdout
+
+  let stale = replayed(ctx, "replay-stale", [before_dump()?, address_change_reply(0)?, after_dump()?, after_dump()?])?
+  assert ! stale.success
+  assert "replay incomplete: 3 of 4 observations were consumed" in stale.stderr, stale.stderr
+
+  let wrong_request = replayed(ctx, "replay-wrong-request", [before_dump()?, {...address_change_reply(0)?, type: 21}, after_dump()?])?
+  assert "does not match the recorded request" in wrong_request.stdout, wrong_request.stdout
+}
+
+test test_injected_denials_short_reads_and_refusals_never_become_a_state { |ctx|
+  let denied = replayed(ctx, "replay-denied", [{...before_dump()?, links: 1}, address_change_reply(0)?, after_dump()?])?
+  assert denied.stdout.starts_with("denied link\n"), denied.stdout
+
+  let short = replayed(ctx, "replay-short", [{...before_dump()?, addresses: [replay.dump(2, [])?[0]]}, address_change_reply(0)?, after_dump()?])?
+  assert short.stdout.starts_with("limited address\n"), short.stdout
+
+  let mac = b"\x02\x00\x00\x00\x00\x07"
+  let torn = replay.dump(1, [replay.link(2, 65603, "v0", mac, 1500)?])?[0].base64_decode()?
+  let truncated = replayed(ctx, "replay-truncated", [{...before_dump()?, links: [torn[0..30].base64()]}, address_change_reply(0)?, after_dump()?])?
+  assert truncated.stdout.starts_with("malformed link\n"), truncated.stdout
+
+  let refused = replayed(ctx, "replay-refused", [before_dump()?, address_change_reply(17)?, after_dump()?])?
+  assert refused.stdout == "v0 0 addresses\nrefused 17\nv0 1 addresses\n", refused.stdout
+
+  let silent = replayed(ctx, "replay-silent", [before_dump()?, {op: "netlink_route_request"}, after_dump()?])?
+  assert "transport:" in silent.stdout, silent.stdout
+}
+
+test test_the_same_scenario_on_a_live_namespace_matches_the_replay { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("route netlink is Linux-only")
+    return
+  }
+  let body = OBSERVE_CHANGE_OBSERVE.replace("main()?\n", with: "fixture.link_add_dummy(\"v0\", \"02:00:00:00:00:07\")?\nmain()?\n")
+  guard let listing = in_network_namespace(ctx, "net-replay-live", body)? else { return }
+  assert listing == "v0 0 addresses\napplied\nv0 1 addresses\n", listing
 }

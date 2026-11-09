@@ -228,17 +228,6 @@ out of scope.
 - **Fix with:** reference-parity
 - **Effort:** M
 
-### XSH-45 · P3 · Reuse deterministic host-observation replay in a second systems consumer
-
-- **Area:** Host tests
-- **Where:** `core/lib/btop_source.xsh`, `docs/BTOP.md`, `core/lib/`, `src/modules/`, `crates/xsht/`, `tests/`
-- **Problem:** btop has a bounded rooted `/proc`/`/sys` capture-and-replay path and XSH-40 owns one reduced lifecycle failure, but reuse across a different real host-observation workload is unproven. A universal host-provider framework is not justified.
-- **Recommendation:** After XSH-40 qualifies the replay contract, reuse its ordered, complete, secret-redacted observations for one additional system-report or Laputa PM/network consumer. Separate pure policy/model derivation from narrow live host reads only where that reduces existing machinery. Use existing `FsRoot`, typed mocks and trace boundaries; don't introduce a second runtime or generic host-injection framework.
-- **Acceptance:** Fixed replay is deterministic without ambient-host fallback; omitted/reordered/stale observations fail explicitly, injected short reads and permission/clock errors reproduce a meaningful invariant, and a live Linux or disposable-guest corroboration covers the actual host boundary. Retain the smallest reusable fixture helper and report untested host behavior.
-- **Coordination:** XSH-40 owns the first hermetic failure; Laputa LAP-37 owns the second operational consumer.
-- **Fix with:** isolate-effects
-- **Effort:** M
-
 ### XSH-46 · P3 · Pilot opt-in static signatures for external command flags
 
 - **Area:** Tooling

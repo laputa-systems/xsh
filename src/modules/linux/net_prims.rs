@@ -232,6 +232,47 @@ pub(crate) fn fake_call(
     fake::call(op, &args, fixture, log)
 }
 
+/// Answers the next observation of an ordered network replay at `fixture`:
+/// a `netlink_route_request` call or `network_dump`. `next` counts the
+/// observations consumed so far.
+#[cfg(target_os = "linux")]
+pub(crate) fn replay_call(
+    op: RuntimeOp,
+    values: &[Option<Value>],
+    fixture: &std::path::Path,
+    next: &std::sync::atomic::AtomicUsize,
+    log: &mut fake::Log<'_>,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let kind = operation_kind(op).unwrap_or("linux-network-dump");
+    let args = Args { kind, values, span };
+    if op == RuntimeOp::LinuxNetworkDump {
+        fake::replay_network_dump(&args, fixture, next, log)
+    } else {
+        fake::replay_call(op, &args, fixture, next, log)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) use fake::unconsumed as replay_unconsumed;
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn replay_call(
+    _op: RuntimeOp,
+    _values: &[Option<Value>],
+    _fixture: &std::path::Path,
+    _next: &std::sync::atomic::AtomicUsize,
+    _log: &mut dyn FnMut(&str, &[(&str, String)]) -> Result<(), RuntimeError>,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    Err(RuntimeError::new("linux-netlink-replay", "network replay is Linux-only".to_string()).with_span(span))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn replay_unconsumed(_fixture: &std::path::Path, _consumed: usize) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn fake_call(
     _op: RuntimeOp,

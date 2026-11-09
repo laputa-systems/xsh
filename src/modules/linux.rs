@@ -174,7 +174,8 @@ pub(crate) mod storage;
 pub(crate) use namespace::namespaces;
 pub(crate) use net_prims::{
     call as net_prim_call, fake_call as net_prim_fake_call, fakeable as net_prim_fakeable,
-    handles as is_net_prim,
+    handles as is_net_prim, replay_call as net_prim_replay_call,
+    replay_unconsumed as net_prim_replay_unconsumed,
 };
 pub(crate) use block_control::{block_signatures, wipe_block_signatures, umount, blockdev_info, blockdev_set_read_only, blockdev_flush, blockdev_reread_partition_table, fstrim, fsfreeze};
 #[cfg(target_os = "linux")]

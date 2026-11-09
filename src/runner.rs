@@ -185,6 +185,7 @@ pub fn run_script_with_test_fakes(
     unix: Option<crate::runtime::eval::UnixFake>,
 ) -> ScriptOutput {
     let replay = unix.clone();
+    let network_replay = linux.clone();
     let attempt = match try_prepare_program(&options) {
         Ok(Ok(mut prepared)) => {
             let mut evaluator = prepared.evaluator.with_shared_stdio();
@@ -208,6 +209,14 @@ pub fn run_script_with_test_fakes(
         output
             .stderr
             .extend(text_bytes(format!("xsh: unix-fake-replay: {message}\n")));
+    }
+    if let Some(fake) = network_replay
+        && let Err(message) = fake.finish_replay()
+    {
+        output.status = output.status.max(1);
+        output
+            .stderr
+            .extend(text_bytes(format!("xsh: linux-netlink-replay: {message}\n")));
     }
     output
 }

@@ -187,7 +187,7 @@ pub(crate) use net::{
     add_default_ipv4_route, del_default_ipv4_route, flush_ipv4_addresses, link_down, link_up,
     set_ipv4_address,
 };
-pub(crate) use netlink::{interfaces, network_dump, routes};
+pub(crate) use netlink::{ReplayedDump, interfaces, network_dump, replayed_network_dump, routes};
 pub(crate) use route_request::{
     Acknowledgement, RouteRequest, RouteRequestError, acknowledge, route_request,
 };

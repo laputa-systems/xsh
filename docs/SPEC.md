@@ -7128,7 +7128,8 @@ writing a log entry. The other
 settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
 `hwclock_epoch_ms`) choose the values some queries report; `storage_fixture`
 and `netlink_fixture` name the recorded device and netlink exchanges that
-answer the storage transport and netlink functions (below); unknown settings
+answer the storage transport and netlink functions, and `network_replay`
+names an ordered script of network observations (below); unknown settings
 fail with `test-linux-fake`. Only the test harness can install the fake: no
 environment variable or `xsh` option enables it.
 
@@ -7199,6 +7200,25 @@ name (`genl_family_id`, `netlink_open`, `netlink_request`,
 `netlink_route_request`, `recvfrom`,
 `setsockopt`, `set_socket_timeout`) with the request's `type`, `flags`, and
 base64 `payload`, so a test asserts exactly which requests a script sent.
+
+The `network_replay` setting names a JSON Lines file that replaces the canned
+`linux.network_dump` and the netlink fixture with an ordered, complete script
+of observations, one line per call: `network_dump` or `netlink_route_request`.
+Calls must arrive in line order, no value defaults, and every other netlink
+function (`netlink_open`, `netlink_request`, `genl_family_id`, `recvfrom`, and
+the socket options) fails with `linux-netlink-replay` instead of reaching the
+kernel. A `network_dump` line gives `links`, `addresses`, `routes`, and `rules`,
+each the base64 reply datagrams of that dump (sequence 1 to 4, port id 4242) or
+an operating-system error number that fails the dump. The datagrams go through
+the same decoder as a live dump, so a reply cut short is `Truncated` or
+`Malformed`, a missing terminator times out as `ETIMEDOUT` (`Limited`), and an
+error number of 1 or 13 is a permission denial. A dump that the kernel marked
+interrupted is reported interrupted, without the live retry. A
+`netlink_route_request` line takes the `type`, `flags`, and `payload` checks and
+the `datagrams` or `errno` reply of the fixture line of that name. A call that
+is not the next line, a request that fails a check, or a call past the last
+line fails with `linux-netlink-replay`; a script run under the fake that ends
+with lines unconsumed exits non-zero.
 
 `test.unix_fake(ctx, settings)` does the same for `unix`, with the same scope
 and harness-only installation. It covers the process-group, PID 1, tty,

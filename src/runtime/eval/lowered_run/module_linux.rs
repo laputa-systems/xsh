@@ -1318,6 +1318,11 @@ impl Evaluator {
         let value = {
             if !self.linux_fake_active() {
                 lowered_runtime_result(linux_module::network_dump(span), span)?
+            } else if self.linux_network_replay_active() {
+                lowered_runtime_result(
+                    self.linux_network_replay_call(RuntimeOp::LinuxNetworkDump, &[], span),
+                    span,
+                )?
             } else {
                 self.linux_fake_log("network_dump", &[], span)?;
                 let link = LoweredValue::Record(Arc::new(BTreeMap::from([

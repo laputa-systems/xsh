@@ -59,6 +59,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const KIND: &str = "linux-netlink-fake";
 const MEMFD_NAME: &str = "xsh-netlink-fake";
@@ -74,6 +75,7 @@ const ROUTE_REQUEST_PORT_ID: u32 = 4242;
 const FAMILY_KEYS: &[&str] = &["op", "name", "id", "errno"];
 const REQUEST_KEYS: &[&str] = &["op", "protocol", "type", "flags", "cmd", "payload", "replies", "errno"];
 const ROUTE_REQUEST_KEYS: &[&str] = &["op", "type", "flags", "payload", "datagrams", "errno"];
+const NETWORK_DUMP_KEYS: &[&str] = &["op", "links", "addresses", "routes", "rules"];
 const EVENT_KEYS: &[&str] = &["op", "type", "flags", "payload", "group", "errno"];
 const REPLY_KEYS: &[&str] = &["type", "flags", "payload"];
 
@@ -156,6 +158,7 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
             "netlink_request" => REQUEST_KEYS,
             "netlink_route_request" => ROUTE_REQUEST_KEYS,
             "netlink_event" => EVENT_KEYS,
+            "network_dump" => NETWORK_DUMP_KEYS,
             other => return Err(fault(path, line, format!("unknown op `{other}`"), args)),
         };
         for (key, field) in object.iter() {
@@ -176,6 +179,29 @@ fn load(path: &Path, args: &Args<'_>) -> Result<Vec<Entry>, RuntimeError> {
             });
             if !valid {
                 return Err(fault(path, line, "`datagrams` must be a list of base64 text", args));
+            }
+        }
+        if op == "network_dump" {
+            for key in &NETWORK_DUMP_KEYS[1..] {
+                let valid = match value.get(key) {
+                    Some(reply) => {
+                        reply.as_u64().is_some()
+                            || reply.as_seq().is_some_and(|items| {
+                                items.iter().all(|item| {
+                                    item.as_str().is_some_and(|text| base64_decode(text).is_ok())
+                                })
+                            })
+                    }
+                    None => false,
+                };
+                if !valid {
+                    return Err(fault(
+                        path,
+                        line,
+                        format!("`{key}` must be an errno or a list of base64 text"),
+                        args,
+                    ));
+                }
             }
         }
         if let Some(replies) = value.get("replies").and_then(|value| value.as_seq()) {
@@ -344,17 +370,7 @@ fn request(args: &Args<'_>, fd: i32, fixture: &Path, log: &mut Log<'_>) -> Resul
 }
 
 fn route_request(args: &Args<'_>, fixture: &Path, log: &mut Log<'_>) -> Result<Value, RuntimeError> {
-    let (request, _) = route_request_arguments(args)?;
-    log(
-        "netlink_route_request",
-        &[
-            ("type", request.kind().to_string()),
-            ("flags", request.flags().to_string()),
-            ("payload", base64_encode(request.payload())),
-            ("sequence", ROUTE_REQUEST_SEQUENCE.to_string()),
-            ("port_id", ROUTE_REQUEST_PORT_ID.to_string()),
-        ],
-    )?;
+    let request = logged_route_request(args, log)?;
     let entry = load(fixture, args)?
         .into_iter()
         .find(|entry| {
@@ -374,6 +390,32 @@ fn route_request(args: &Args<'_>, fixture: &Path, log: &mut Log<'_>) -> Result<V
                 args,
             )
         })?;
+    route_reply(&entry, &request, args)
+}
+
+fn logged_route_request<'a>(
+    args: &Args<'a>,
+    log: &mut Log<'_>,
+) -> Result<real::RouteRequest<'a>, RuntimeError> {
+    let (request, _) = route_request_arguments(args)?;
+    log(
+        "netlink_route_request",
+        &[
+            ("type", request.kind().to_string()),
+            ("flags", request.flags().to_string()),
+            ("payload", base64_encode(request.payload())),
+            ("sequence", ROUTE_REQUEST_SEQUENCE.to_string()),
+            ("port_id", ROUTE_REQUEST_PORT_ID.to_string()),
+        ],
+    )?;
+    Ok(request)
+}
+
+fn route_reply(
+    entry: &Entry,
+    request: &real::RouteRequest<'_>,
+    args: &Args<'_>,
+) -> Result<Value, RuntimeError> {
     if let Some(errno) = entry.errno() {
         return Err(os_error(args, errno));
     }
@@ -388,7 +430,7 @@ fn route_request(args: &Args<'_>, fixture: &Path, log: &mut Log<'_>) -> Result<V
         })
         .unwrap_or_default()
         .into_iter();
-    let result = real::acknowledge(&request, ROUTE_REQUEST_SEQUENCE, ROUTE_REQUEST_PORT_ID, || {
+    let result = real::acknowledge(request, ROUTE_REQUEST_SEQUENCE, ROUTE_REQUEST_PORT_ID, || {
         datagrams
             .next()
             .ok_or_else(|| RouteRequestError::Io(io::Error::from_raw_os_error(libc::ETIMEDOUT)))
@@ -473,4 +515,111 @@ fn timeout(args: &Args<'_>, fd: i32, log: &mut Log<'_>) -> Result<Value, Runtime
         &[("fd", fd.to_string()), ("timeout_ms", milliseconds.to_string())],
     )?;
     ok(Value::Unit)
+}
+
+const REPLAY_KIND: &str = "linux-netlink-replay";
+
+fn replay_fault(args: &Args<'_>, message: String) -> RuntimeError {
+    RuntimeError::new(REPLAY_KIND, message).with_span(args.span)
+}
+
+fn next_observation(
+    fixture: &Path,
+    next: &AtomicUsize,
+    observed: &str,
+    args: &Args<'_>,
+) -> Result<Entry, RuntimeError> {
+    let entries = load(fixture, args)?;
+    let total = entries.len();
+    let position = next.fetch_add(1, Ordering::SeqCst);
+    let entry = entries.into_iter().nth(position).ok_or_else(|| {
+        replay_fault(
+            args,
+            format!("`{observed}` after all {total} replayed observations were consumed"),
+        )
+    })?;
+    if entry.op() != observed {
+        return Err(replay_fault(
+            args,
+            format!(
+                "replay observation {}: expected `{}`, observed `{observed}`",
+                position + 1,
+                entry.op()
+            ),
+        ));
+    }
+    Ok(entry)
+}
+
+pub(super) fn replay_call(
+    op: RuntimeOp,
+    args: &Args<'_>,
+    fixture: &Path,
+    next: &AtomicUsize,
+    log: &mut Log<'_>,
+) -> Result<Value, RuntimeError> {
+    if op != RuntimeOp::LinuxNetlinkRouteRequest {
+        return Err(replay_fault(
+            args,
+            format!("{} would reach the host; a network replay covers only netlink_route_request and network_dump", args.kind),
+        ));
+    }
+    let request = logged_route_request(args, log)?;
+    let position = next.load(Ordering::SeqCst) + 1;
+    let entry = next_observation(fixture, next, "netlink_route_request", args)?;
+    let matches = entry.uint("type").is_none_or(|value| value == u64::from(request.kind()))
+        && entry.uint("flags").is_none_or(|value| value == u64::from(request.flags()))
+        && entry.bytes("payload").is_none_or(|value| value == request.payload());
+    if !matches {
+        return Err(replay_fault(
+            args,
+            format!(
+                "replay observation {position}: request type {} flags {} does not match the recorded request",
+                request.kind(),
+                request.flags()
+            ),
+        ));
+    }
+    route_reply(&entry, &request, args)
+}
+
+pub(super) fn replay_network_dump(
+    args: &Args<'_>,
+    fixture: &Path,
+    next: &AtomicUsize,
+    log: &mut Log<'_>,
+) -> Result<Value, RuntimeError> {
+    log("network_dump", &[])?;
+    let entry = next_observation(fixture, next, "network_dump", args)?;
+    let reply = |key: &str| match entry.uint(key) {
+        Some(errno) => real::ReplayedDump::Errno(errno as i32),
+        None => real::ReplayedDump::Datagrams(
+            entry
+                .value
+                .get(key)
+                .and_then(|value| value.as_seq())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().and_then(|text| base64_decode(text).ok()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ),
+    };
+    Ok(real::replayed_network_dump(
+        [reply("links"), reply("addresses"), reply("routes"), reply("rules")],
+        ROUTE_REQUEST_PORT_ID,
+    ))
+}
+
+pub(crate) fn unconsumed(fixture: &Path, consumed: usize) -> Result<(), String> {
+    let text = std::fs::read_to_string(fixture).map_err(|error| format!("{}: {error}", fixture.display()))?;
+    let total = text.lines().filter(|line| !line.trim().is_empty()).count();
+    if consumed < total {
+        return Err(format!(
+            "replay incomplete: {consumed} of {total} observations were consumed"
+        ));
+    }
+    Ok(())
 }

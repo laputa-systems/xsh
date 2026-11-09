@@ -11,9 +11,10 @@ use std::collections::BTreeMap;
 /// (`test.linux_fake` and the scripts that test runs); no environment variable
 /// or production flag reaches it.
 #[cfg(feature = "native-tests")]
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct LinuxFake {
     values: BTreeMap<&'static str, String>,
+    replayed: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[cfg(feature = "native-tests")]
@@ -23,10 +24,11 @@ impl LinuxFake {
     /// command/response pairs that answers the storage transport primitives,
     /// and `netlink_fixture`, the file of recorded netlink exchanges that
     /// answers the netlink primitives.
-    pub const KEYS: [&'static str; 9] = [
+    pub const KEYS: [&'static str; 10] = [
         "log",
         "storage_fixture",
         "netlink_fixture",
+        "network_replay",
         "root_device",
         "sysctl_value",
         "file_attrs_flags",
@@ -50,6 +52,16 @@ impl LinuxFake {
             self.values.insert(key, value);
         }
         Ok(())
+    }
+
+    pub fn finish_replay(&self) -> Result<(), String> {
+        match self.values.get("network_replay") {
+            Some(path) => crate::modules::linux::net_prim_replay_unconsumed(
+                std::path::Path::new(path),
+                self.replayed.load(std::sync::atomic::Ordering::SeqCst),
+            ),
+            None => Ok(()),
+        }
     }
 
     pub fn settings(&self) -> impl Iterator<Item = (&'static str, &str)> {
@@ -127,6 +139,9 @@ impl Evaluator {
         values: &[Option<crate::runtime::value::Value>],
         span: Span,
     ) -> Option<Result<crate::runtime::value::Value, RuntimeError>> {
+        if self.linux_network_replay_active() {
+            return Some(self.linux_network_replay_call(op, values, span));
+        }
         let fixture = self.linux_fake_setting("netlink_fixture")?;
         let mut log = |name: &str, fields: &[(&str, String)]| self.linux_fake_log(name, fields, span);
         crate::modules::linux::net_prim_fake_call(
@@ -136,6 +151,37 @@ impl Evaluator {
             &mut log,
             span,
         )
+    }
+
+    pub(in crate::runtime::eval) fn linux_network_replay_active(&self) -> bool {
+        self.linux_fake_setting("network_replay").is_some()
+    }
+
+    pub(in crate::runtime::eval) fn linux_network_replay_call(
+        &self,
+        op: crate::modules::RuntimeOp,
+        values: &[Option<crate::runtime::value::Value>],
+        span: Span,
+    ) -> Result<crate::runtime::value::Value, RuntimeError> {
+        #[cfg(feature = "native-tests")]
+        {
+            let fake = self.linux_fake.as_deref().expect("network replay needs a linux fake");
+            let fixture = self.linux_fake_setting("network_replay").expect("network replay is installed");
+            let mut log = |name: &str, fields: &[(&str, String)]| self.linux_fake_log(name, fields, span);
+            crate::modules::linux::net_prim_replay_call(
+                op,
+                values,
+                std::path::Path::new(fixture),
+                &fake.replayed,
+                &mut log,
+                span,
+            )
+        }
+        #[cfg(not(feature = "native-tests"))]
+        {
+            let _ = (op, values);
+            Err(RuntimeError::new("linux-netlink-replay", "network replay needs the native test build".to_string()).with_span(span))
+        }
     }
 
     pub(in crate::runtime::eval) fn linux_fake_value(&self, key: &str, default: &str) -> String {
