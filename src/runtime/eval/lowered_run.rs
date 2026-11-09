@@ -2860,13 +2860,6 @@ fn lowered_runtime_stream_result(
     )
 }
 
-fn lowered_stream_from_values(values: Vec<LoweredValue>) -> LoweredValue {
-    LoweredValue::Stream(Box::new(StreamValue::from_values_live(
-        "linux.dry_run",
-        values.into_iter().map(LoweredValue::into_value).collect(),
-    )))
-}
-
 fn lowered_process_handle_list_arg(
     value: LoweredValue,
     operation: &str,
@@ -6171,8 +6164,6 @@ impl Evaluator {
                     )?
                 }
             }
-            callable; RuntimeOp::LinuxInterfaces if values.is_empty() => return self.eval_lowered_linux_interfaces_values(values, span),
-            callable; RuntimeOp::LinuxRoutes if values.is_empty() => return self.eval_lowered_linux_routes_values(values, span),
             callable; RuntimeOp::LinuxNetworkDump if values.is_empty() => return self.eval_lowered_linux_network_dump_values(values, span),
             callable; RuntimeOp::LinuxLinkUp if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.link_up", span)?;

@@ -115,17 +115,21 @@ for row in rows {{
   assert out.read_text()? == "1\n"
 }
 
-# `linux.interfaces`, `linux.routes`, and `ip` describe the network namespace
+# `linux.network_dump` and `ip` describe the network namespace
 # of the calling process. Sysfs is a mount-scoped view of the namespace that
 # mounted it, so a reader built on it would list the host's devices here.
 test test_linux_network_state_follows_the_network_namespace { |ctx|
   guard require_user_namespaces() else { return }
   let root = test.temp_dir(ctx, name: "ns-net-state")?
-  let helper = test.temp_file(ctx, name: "net-state.xsh", contents: bytes.from_text("""for iface in linux.interfaces()? |> sort-by .name {
-  print f"interface {iface.name} {iface.flags.join(",")} {iface.addresses.len()}"
+  let helper = test.temp_file(ctx, name: "net-state.xsh", contents: bytes.from_text("""let dump = linux.network_dump()?
+for link in dump.links {
+  let owned = [address for address in dump.addresses if address.ifindex == link.ifindex]
+  print f"interface {link.name ?? ""} {link.flags} {owned.len()}"
 }
-for route in linux.routes()? {
-  print f"route {route.dst}"
+for route in dump.routes {
+  if route.table == 254 and route.flags.bit_and(512) == 0 {
+    print f"route {route.destination ?? "default"}"
+  }
 }
 """))?
   let out = fp"{root}/out"
@@ -141,7 +145,7 @@ for route in linux.routes()? {
       assert fields[0] == "interface", line
       yield fields[1]
       if fields[1] == "lo" {
-        assert fields[2] == "LOOPBACK", f"the new loopback must be down: {line}"
+        assert (fields[2] as Int).bit_and(1) == 0, f"the new loopback must be down: {line}"
       } else {
         assert fields[1] in fallback, f"{fields[1]} is not a device a new namespace creates"
       }

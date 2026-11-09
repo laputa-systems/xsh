@@ -1,3 +1,5 @@
+use lib.net_state
+
 # Runs `ip` under the `linux` test fake, whose fixed interfaces and routes keep
 # the output independent of the host.
 proc ip_output(ctx: TestContext, argv: List[Str]) [fs, process, error] -> Str {
@@ -61,7 +63,7 @@ test test_ip_in_a_new_network_namespace_lists_only_that_namespace { |ctx|
   # are loaded, their fallback devices, which the outer namespace has too.
   let fallback = ["tunl0", "gre0", "gretap0", "erspan0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0"]
   assert "lo:" in listing, listing
-  for iface in linux.interfaces()? {
+  for iface in net_state.observe()?.links {
     continue when iface.name == "lo" or iface.name in fallback
     assert !(f"{iface.name}:" in listing), f"{iface.name} leaked from the outer namespace into: {listing}"
   }
@@ -82,7 +84,7 @@ test test_ifconfig_route_and_arp_list_only_the_new_network_namespace { |ctx|
   }
   let fallback = ["tunl0", "gre0", "gretap0", "erspan0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0"]
   assert "lo: flags=" in listing, listing
-  for iface in linux.interfaces()? {
+  for iface in net_state.observe()?.links {
     continue when iface.name == "lo" or iface.name in fallback
     assert !(f"{iface.name}: " in listing), f"{iface.name} leaked from the outer namespace into: {listing}"
   }

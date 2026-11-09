@@ -240,9 +240,6 @@ copy.write(b"------")?
   linux.write_device(copy, source)?
   test.eq(dest.read_bytes()?, b"abc")?
   test.eq(copy.read_bytes()?, b"abcdef")?
-  test.ok(linux.interfaces()?.collect().len() > 0)?
-  let routes = linux.routes()?.collect()
-  test.ok(routes.len() >= 0)?
   test.ok(linux.meminfo()?.total > 0)?
   let modules = linux.modules()?.collect()
   test.ok(modules.len() >= 0)?

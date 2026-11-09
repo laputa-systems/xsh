@@ -21,12 +21,6 @@ test test_linux_fake_covers_module_surface { |ctx|
   linux.flush_ipv4_addresses("eth0")
   linux.add_default_ipv4_route("192.0.2.1", interface: "eth0")
   linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")
-  let interfaces = linux.interfaces()?.collect()
-  assert interfaces[0].name == "eth0"
-  assert interfaces[0].addresses[0].family == "inet"
-  let routes = linux.routes()?.collect()
-  assert routes[0].dst == "default"
-  assert routes[0].gateway == "192.0.2.1"
   let network = linux.network_dump()?
   assert network.state == "complete"
   assert network.links[0].name == "eth0"
@@ -100,7 +94,6 @@ test test_linux_fake_covers_module_surface { |ctx|
   assert "\"source\":[112,114,111,99,255]" in log_text
   assert "\"path\":[47,102,97,107,101,255,46,107,111]" in log_text
   assert "\"op\":\"meminfo\"" in log_text
-  assert "\"op\":\"routes\"" in log_text
   assert "\"op\":\"set_ipv4_address\"" in log_text
   assert "\"op\":\"add_default_ipv4_route\"" in log_text
   assert "\"op\":\"is_mountpoint\"" in log_text
@@ -131,12 +124,12 @@ test test_linux_entries_reach_the_host_without_a_gate {
   # fails on every host without changing anything.
   if system.uname()?.sysname == "Linux" {
     assert linux.meminfo()?.total > 0
-    let interfaces = linux.interfaces()? |> collect()
-    assert interfaces |> any .name == "lo"
+    let links = linux.network_dump()?.links
+    assert links |> any .name == "lo"
     assert linux.link_up("xsh-absent0") is Err(_)
   } else {
     test.error_kind(linux.meminfo(), "linux-unsupported")
-    test.error_kind(linux.interfaces(), "linux-unsupported")
+    test.error_kind(linux.network_dump(), "linux-unsupported")
     test.error_kind(linux.link_up("xsh-absent0"), "linux-unsupported")
     test.error_kind(linux.halt(), "linux-unsupported")
   }

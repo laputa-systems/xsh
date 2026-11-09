@@ -92,14 +92,6 @@ pub(crate) fn del_default_ipv4_route(
     Ok(unsupported(span))
 }
 
-pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
-pub(crate) fn routes(span: Span) -> Result<Value, RuntimeError> {
-    Ok(unsupported(span))
-}
-
 pub(crate) fn network_dump(span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }

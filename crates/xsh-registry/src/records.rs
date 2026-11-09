@@ -56,9 +56,6 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxBlockDevice", linux_block_device_type()),
         ("LinuxDiskUsage", linux_disk_usage_type()),
         ("LinuxFileAttrs", linux_file_attrs_type()),
-        ("LinuxInterface", linux_interface_type()),
-        ("LinuxInterfaceAddress", linux_interface_address_type()),
-        ("LinuxRoute", linux_route_type()),
         ("LinuxAcceptedSocket", linux_accepted_socket_type()),
         ("LinuxControlMessage", linux_control_message_type()),
         ("LinuxNetConstants", linux_net_constants_type()),
@@ -713,39 +710,6 @@ pub fn linux_block_device_type() -> Type {
         ("rotational".to_string(), Type::Bool),
         ("partitioned".to_string(), Type::Bool),
         ("partitions".to_string(), Type::List(Box::new(Type::Path))),
-    ]))
-}
-
-pub fn linux_interface_address_type() -> Type {
-    Type::Record(name_type_map(vec![
-        ("family".to_string(), Type::Str),
-        ("addr".to_string(), Type::Str),
-        ("prefix_len".to_string(), Type::Int),
-    ]))
-}
-
-pub fn linux_interface_type() -> Type {
-    Type::Record(name_type_map(vec![
-        ("name".to_string(), Type::Str),
-        ("flags".to_string(), Type::List(Box::new(Type::Str))),
-        ("mtu".to_string(), Type::Int),
-        ("mac".to_string(), Type::Str),
-        (
-            "addresses".to_string(),
-            Type::List(Box::new(linux_interface_address_type())),
-        ),
-    ]))
-}
-
-pub fn linux_route_type() -> Type {
-    Type::Record(name_type_map(vec![
-        ("family".to_string(), Type::Str),
-        ("dst".to_string(), Type::Str),
-        ("prefix_len".to_string(), Type::Int),
-        ("gateway".to_string(), Type::Str),
-        ("dev".to_string(), Type::Str),
-        ("metric".to_string(), Type::Int),
-        ("flags".to_string(), Type::List(Box::new(Type::Str))),
     ]))
 }
 
