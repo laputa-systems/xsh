@@ -670,7 +670,7 @@ mod tests {
                 checker.record_effects = collecting;
                 checker.defer_effect_diagnostics = true;
                 checker.effect_summaries = summaries;
-                checker.stream_origin_inputs = origins;
+                checker.stream_origin_inputs = super::super::stream_origins::StreamOriginInputs::new(Arc::default(), origins);
                 checker.collect_definitions_arena(program, Arc::new(program.clone()), source, statements.iter().copied());
                 checker.infer_default_parameter_types(program, source, &statements);
                 checker.infer_local_pure_returns(&view, source, &statements);
@@ -793,7 +793,7 @@ mod tests {
                 checker.collecting_effects = true;
                 checker.defer_effect_diagnostics = true;
                 checker.effect_summaries = summaries;
-                checker.stream_origin_inputs = origins;
+                checker.stream_origin_inputs = super::super::stream_origins::StreamOriginInputs::new(Arc::default(), origins);
                 checker.collect_definitions_arena(program, Arc::new(program.clone()), source, statements.iter().copied());
                 checker.infer_local_pure_returns(&view, source, &statements);
                 for &statement in &statements { checker.check_stmt_arena(program, source, statement); }

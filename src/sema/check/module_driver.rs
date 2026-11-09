@@ -186,8 +186,7 @@ impl Checker {
                             true,
                         );
                         probe.effect_summaries.extend(provisional);
-                        probe.stream_origin_inputs = origin_summaries.clone();
-                        probe.stream_origin_inputs.extend(provisional_origins);
+                        probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(&origin_summaries), provisional_origins);
                         probe.check_program_arena_with_type_program_and_sources(
                             view,
                             source,
@@ -311,11 +310,11 @@ impl Checker {
         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
         Vec<CheckOutput>,
         ResourceTransferFacts,
-        super::stream_origins::StreamOriginSummaries,
+        Arc<super::stream_origins::StreamOriginSummaries>,
     ) {
         let mut signatures = Arc::new(FxHashMap::default());
         let mut summaries = std::collections::BTreeMap::new();
-        let mut origin_summaries = super::stream_origins::StreamOriginSummaries::new();
+        let mut origin_summaries = Arc::new(super::stream_origins::StreamOriginSummaries::new());
         let mut outputs = FxHashMap::default();
         // Suppressed embedded outputs still need the transfer-site facts used by lowering.
         let mut suppressed_resource_transfers = ResourceTransferFacts::default();
@@ -349,7 +348,7 @@ impl Checker {
                 else { assert!(checked.output.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error), "a rejected module reports a checking failure"); }
             }
             Self::extend_effect_summaries(&mut summaries, &checked.output.function_effect_facts);
-            origin_summaries.extend(checked.output.stream_origin_summaries.clone());
+            Arc::make_mut(&mut origin_summaries).extend(checked.output.stream_origin_summaries.clone());
             if Self::publish_embedded_record(view.program, module, options) {
                 let mut output = checked.output.clone();
                 if !options.reveal_types {
@@ -389,7 +388,7 @@ impl Checker {
         entry_source: &str,
         dependencies: &Arc<FxHashMap<String, UserModuleSig>>,
         dependency_summaries: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-        dependency_origins: &super::stream_origins::StreamOriginSummaries,
+        dependency_origins: &Arc<super::stream_origins::StreamOriginSummaries>,
     ) -> CheckedModuleFacts {
         let program = view.program;
         let module_view = CheckBundleView::for_module_owner(
@@ -416,8 +415,7 @@ impl Checker {
                     true,
                 );
                 probe.effect_summaries.extend(provisional);
-                probe.stream_origin_inputs = dependency_origins.clone();
-                probe.stream_origin_inputs.extend(provisional_origins);
+                probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(dependency_origins), provisional_origins);
                 record.prepared_facts().install(&mut probe, program);
                 probe.record_constructors.replace_instance_facts(
                     &bundle_record.prepared_facts().record_constructors,
@@ -552,7 +550,7 @@ impl Checker {
             super::stream_origins::StreamOriginSummaries,
         ) -> (Self, T),
         external: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
-        external_origins: &super::stream_origins::StreamOriginSummaries,
+        external_origins: &Arc<super::stream_origins::StreamOriginSummaries>,
     ) -> Result<(Self, T), FileInferenceFailure> {
         let mut provisional = std::collections::BTreeMap::new();
         let mut provisional_origins = super::stream_origins::StreamOriginSummaries::new();
@@ -571,8 +569,7 @@ impl Checker {
                 && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
             {
                 checker.effect_summaries.extend(solved);
-                checker.stream_origin_inputs = external_origins.clone();
-                checker.stream_origin_inputs.extend(checker.stream_origin_outputs.clone());
+                checker.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(external_origins), checker.stream_origin_outputs.clone());
                 return Ok((checker, output));
             }
             provisional = solved;
