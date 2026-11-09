@@ -343,3 +343,13 @@ print ${body()}
   )?
   assert local.stdout == "7\n"
 }
+
+test test_top_level_collect_feeds_a_named_native_list_argument_under_propagation { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let paths = collect { for dir in [fp"/", fp"/xsh-84-missing"] { if dir.exists()? { yield dir } } }
+let _ = linux.run_in_namespaces(process.command_argv("/bin/sh", ["sh", "-c", ":"]), join: paths)?
+""",
+  )?
+  assert "compact.indexed-build" not in output.stderr, output.stderr
+}
