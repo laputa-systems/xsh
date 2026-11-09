@@ -92,8 +92,17 @@ pub(super) struct StreamLoopFrame {
     enclosing_flow: StreamFlow,
     body_flow: StreamFlow,
     types: BTreeMap<super::BindingId, Type>,
+    entry: BTreeMap<super::BindingId, StreamOrigins>,
     header: BTreeMap<super::BindingId, StreamOrigins>,
     breaks: BTreeMap<super::BindingId, StreamOrigins>,
+}
+
+#[derive(Clone, Default)]
+pub(super) struct StreamLoopFixpoint {
+    probing: bool,
+    widened: bool,
+    seeds: BTreeMap<StreamLoopId, BTreeMap<super::BindingId, StreamOrigins>>,
+    settled: BTreeSet<StreamLoopId>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -1128,8 +1137,57 @@ impl Checker {
         self.restore_stream_mutable_state(&joined);
     }
 
+    fn stream_loop_identity(&self, arena: &ArenaProgram, block: BlockId) -> StreamLoopId {
+        StreamLoopId { owner: self.stream_origin_owner, namespace: self.current_namespace, block, body: arena.arena.span(arena.arena.block(block).span) }
+    }
+
+    pub(super) fn settle_stream_loop<T>(&mut self, arena: &ArenaProgram, block: BlockId, mut check: impl FnMut(&mut Self) -> T) -> T {
+        let identity = self.stream_loop_identity(arena, block);
+        if self.stream_loop_fixpoint.probing || self.boundary.stream_flow == StreamFlow::Dead
+            || self.stream_loop_fixpoint.settled.contains(&identity) || self.stream_mutable_state().is_empty()
+        {
+            return check(self);
+        }
+        let snapshot = self.clone();
+        let enclosing_widened = std::mem::replace(&mut self.stream_loop_fixpoint.widened, false);
+        let enclosing_loops = std::mem::take(&mut self.stream_origin_outputs.loops);
+        let output = check(self);
+        let mut loops = std::mem::replace(&mut self.stream_origin_outputs.loops, enclosing_loops);
+        if !self.stream_loop_fixpoint.widened {
+            self.stream_origin_outputs.loops.append(&mut loops);
+            self.stream_loop_fixpoint.widened = enclosing_widened;
+            return output;
+        }
+        *self = snapshot;
+        let mut settled = BTreeSet::new();
+        loop {
+            for (identity, header) in loops {
+                settled.insert(identity.clone());
+                self.stream_loop_fixpoint.seeds.insert(identity, header);
+            }
+            let mut probe = self.clone();
+            probe.stream_loop_fixpoint.probing = true;
+            probe.stream_loop_fixpoint.widened = false;
+            probe.stream_origin_outputs.loops.clear();
+            check(&mut probe);
+            loops = probe.stream_origin_outputs.loops;
+            if !probe.stream_loop_fixpoint.widened { break; }
+        }
+        for (identity, header) in loops {
+            settled.insert(identity.clone());
+            self.stream_loop_fixpoint.seeds.insert(identity, header);
+        }
+        self.stream_loop_fixpoint.settled.extend(settled.iter().cloned());
+        let output = check(self);
+        for identity in &settled {
+            self.stream_loop_fixpoint.seeds.remove(identity);
+            self.stream_loop_fixpoint.settled.remove(identity);
+        }
+        output
+    }
+
     pub(super) fn enter_stream_loop(&mut self, arena: &ArenaProgram, block: BlockId, kind: StreamLoopKind) {
-        let identity = StreamLoopId { owner: self.stream_origin_owner, namespace: self.current_namespace, block, body: arena.arena.span(arena.arena.block(block).span) };
+        let identity = self.stream_loop_identity(arena, block);
         let mut header = self.stream_mutable_state();
         let enclosing_flow = self.boundary.stream_flow;
         let body_flow = if enclosing_flow == StreamFlow::Live && self.stream_loop_body_may_enter(arena, kind) { StreamFlow::Live } else { StreamFlow::Dead };
@@ -1139,6 +1197,11 @@ impl Checker {
                 if let Some(identity) = binding.id.filter(|identity| header.contains_key(identity)) {
                     types.entry(identity).or_insert_with(|| binding.unrefined_ty.as_ref().unwrap_or(&binding.ty).clone());
                 }
+            }
+        }
+        if body_flow == StreamFlow::Live && let Some(seed) = self.stream_loop_fixpoint.seeds.get(&identity) {
+            for (binding, origin) in seed {
+                if let Some(current) = header.get_mut(binding) { current.join(origin); }
             }
         }
         if body_flow == StreamFlow::Live && let Some(previous) = self.stream_origin_inputs.loop_header(&identity) {
@@ -1153,7 +1216,7 @@ impl Checker {
             }
         }
         self.restore_stream_mutable_state(&header);
-        self.boundary.stream_loops.push(StreamLoopFrame { identity, kind, enclosing_flow, body_flow, types, header, breaks: BTreeMap::new() });
+        self.boundary.stream_loops.push(StreamLoopFrame { identity, kind, enclosing_flow, body_flow, types, entry: header.clone(), header, breaks: BTreeMap::new() });
         self.boundary.stream_flow = body_flow;
     }
 
@@ -1164,8 +1227,7 @@ impl Checker {
         let destination = if matches!(transfer, StreamLoopTransfer::Break) { &mut frame.breaks } else { &mut frame.header };
         for (identity, origin) in state {
             if frame.types.contains_key(&identity) {
-                let changed = destination.entry(identity).or_default().join(&origin);
-                if changed && matches!(transfer, StreamLoopTransfer::Backedge) { self.provisional_stream_origins_read.set(true); }
+                destination.entry(identity).or_default().join(&origin);
             }
         }
     }
@@ -1192,6 +1254,10 @@ impl Checker {
                 Ok(checked) => *origin = checked,
                 Err(_) => { self.report_stream_origin_boundary(frame.identity.body); *origin = StreamOrigins::opaque(); }
             }
+        }
+        if frame.header != frame.entry {
+            self.provisional_stream_origins_read.set(true);
+            self.stream_loop_fixpoint.widened = true;
         }
         self.stream_origin_outputs.loops.insert(frame.identity, frame.header.clone());
         let mut exits = vec![frame.breaks];
@@ -1325,6 +1391,7 @@ mod tests {
             ("stream values() [] -> Stream[Int] { yield 7 }\nlet items = values()\nlet _ = items.collect()\n", false),
             ("type Row = {items: Stream[Int]}\npure identity(value) { value }\npure choose(input: Row) -> Row { identity(input) }\n", false),
             ("pure identity(value) { value }\npure forward(value) { identity(value) }\n", false),
+            ("proc pick(first: Stream[Int], second: Stream[Int]) [] -> Stream[Int] {\n  var chosen = first\n  for _ in [1, 2] { chosen = second }\n  chosen\n}\n", false),
         ] {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
@@ -1374,6 +1441,10 @@ mod tests {
                         let items = crate::symbol::Name::intern("items");
                         assert!(summary.output.paths.contains(&super::ProjectionPath::default().append(&[StreamProjection::Field(items)]).unwrap()));
                     }
+                }
+                if source.starts_with("proc pick") {
+                    let header = checker.stream_origin_outputs.loops.values().next().expect("the checked loop publishes its header");
+                    assert!(header.values().any(|origins| origins.0.iter().any(|(_, origin)| matches!(origin, super::StreamOrigin::Formal { parameter: 1, .. }))), "{header:?}");
                 }
                 assert_eq!(checker.provisional_stream_origins_read.get(), dependency, "{source}");
             });

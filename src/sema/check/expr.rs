@@ -1574,7 +1574,7 @@ impl Checker {
                 expr.span,
             ),
             ArenaExprKind::Loop { block } => {
-                self.check_loop_arena(arena, source, *block, expected, expr.span)
+                self.settle_stream_loop(arena, *block, |checker| checker.check_loop_arena(arena, source, *block, expected, expr.span))
             }
             ArenaExprKind::Collect { block } => {
                 self.check_collect_arena(arena, source, *block, expected, expr.span)
