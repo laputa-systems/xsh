@@ -1523,6 +1523,7 @@ impl ProcessInvocationBuilder {
             cpu_max: self.cpu_max,
             accepted_exit_codes: self.accepted_exit_codes,
             namespaces: None,
+            confinement: None,
         }
     }
 }

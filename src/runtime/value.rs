@@ -2020,7 +2020,7 @@ impl RunError {
             "invalid-utf8" => "InvalidUtf8",
             "pipeline-failure" => "PipelineFailure",
             "exec-failure" | "exec-format" => "ExecFailure",
-            "spawn" => "Spawn",
+            "spawn" | crate::runtime::confinement::KIND => "Spawn",
             "io" => "Io",
             "redirection" => "Redirection",
             "nul-target" | "empty-command" => "InvalidTarget",

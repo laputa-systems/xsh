@@ -833,6 +833,7 @@ pub struct ProcessInvocation {
     pub accepted_exit_codes: Option<AcceptedExitCodes>,
     /// Namespace changes the child makes before it executes the command.
     pub namespaces: Option<crate::runtime::namespace::NamespaceEntry>,
+    pub confinement: Option<crate::runtime::confinement::Confinement>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3605,6 +3606,9 @@ fn command_with_stdio(
     if let Some(entry) = &invocation.namespaces {
         crate::runtime::namespace::prepare(entry, &mut command)?;
     }
+    if let Some(confinement) = &invocation.confinement {
+        crate::runtime::confinement::prepare(confinement, &mut command)?;
+    }
     Ok(command)
 }
 
@@ -3636,6 +3640,9 @@ fn command_with_managed_stdio(
     apply_redirections(&mut command, &invocation.redirections)?;
     if let Some(entry) = &invocation.namespaces {
         crate::runtime::namespace::prepare(entry, &mut command)?;
+    }
+    if let Some(confinement) = &invocation.confinement {
+        crate::runtime::confinement::prepare(confinement, &mut command)?;
     }
     Ok(command)
 }
@@ -4153,7 +4160,7 @@ fn map_cgroup_error(error: CgroupError) -> RunError {
 fn setup_error_is_hard(error: &RunError) -> bool {
     matches!(
         error.kind.as_str(),
-        "redirection" | "cgroup" | "unsupported-platform" | "io"
+        "redirection" | "cgroup" | "unsupported-platform" | "io" | crate::runtime::confinement::KIND
     )
 }
 
@@ -4400,6 +4407,7 @@ mod tests {
             cpu_max: None,
             accepted_exit_codes: None,
             namespaces: None,
+            confinement: None,
         };
 
         let output = run_capture_with_stderr(&invocation).expect("capture redirected process");
@@ -4441,6 +4449,7 @@ mod tests {
                 cpu_max: None,
                 accepted_exit_codes: None,
                 namespaces: None,
+                confinement: None,
             };
             run_capture_with_stderr(&invocation).expect("capture process")
         };
@@ -4475,6 +4484,7 @@ mod tests {
             cpu_max: None,
             accepted_exit_codes: None,
             namespaces: None,
+            confinement: None,
         };
         let options = SpawnManagedOptions {
             stdin: ManagedStdio::Null,

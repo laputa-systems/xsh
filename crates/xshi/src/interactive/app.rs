@@ -2222,6 +2222,7 @@ fn external_invocation(
         cpu_max: None,
         accepted_exit_codes: None,
         namespaces: None,
+        confinement: None,
     })
 }
 

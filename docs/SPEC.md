@@ -4935,7 +4935,8 @@ proc refresh(url: Str, cache: Path) [fs, net, error] {
 
 This is a claim the checker proves about XSH code. It does not sandbox a
 spawned process or say what an external program does: `without net` still
-allows `run curl ...` where `process` is permitted. `without` is a word only
+allows `run curl ...` where `process` is permitted. The kernel-enforced
+boundary for an external child is `linux.run_confined` (§15). `without` is a word only
 at the start of such a statement, written on one line up to `{`; elsewhere it
 is an ordinary name.
 
@@ -6802,6 +6803,27 @@ let text = notes.replace("DRAFT", with: "FINAL")
   child relays its exit status, or repeats a death by signal). `linux.namespaces`
   lists what processes the caller may inspect hold. The `linux` fake implements
   neither: both fail with `linux-fake-unsupported`.
+- `linux.run_confined(command, read:, write:, tcp: false)` runs the command
+  in a child the kernel confines; it is the one OS-enforced confinement
+  profile and is Linux only. It requires Landlock ABI 6 or newer: an older
+  kernel, Landlock disabled at boot, or a declared path that cannot be opened
+  fails the call with `ProcessError.Spawn` before anything is spawned, and no
+  weaker profile is substituted. The ruleset is built in the caller; the
+  child sets `no_new_privs`, enters the Landlock domain and marks every
+  descriptor above standard error close-on-exec, then executes. Beneath a
+  `read` path the command may read, list and execute; beneath a `write` path
+  it may also create, write, truncate, rename and remove; all other
+  filesystem access is denied, so the command, its loader and its libraries
+  must lie beneath a declared path. TCP bind and connect are denied unless
+  `tcp` is true. The child cannot signal processes, or connect to abstract
+  unix sockets, outside its domain. Standard streams the command plan
+  redirects stay usable. Not confined: UDP and other non-TCP sockets,
+  connecting to existing pathname unix sockets, file metadata and path
+  resolution outside the declared trees, System V IPC, resource use, and
+  whatever the declared trees themselves expose (for example `/proc` or
+  device nodes beneath them). Static effects stay separate: `without` proves
+  nothing about the child, and confinement adds nothing to what `without`
+  proves. The `linux` fake does not implement it.
 - `unix` entries likewise act on the host when called: `set_hostname`,
   `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
   have no environment gate or dry-run switch. Native tests use
