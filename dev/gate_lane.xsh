@@ -70,6 +70,7 @@ export const namespace_tests = [
   "core/tests/test-ifconfig.xsh::test_ifconfig_reports_errors_in_the_reference_wording",
   "core/tests/test-ifconfig.xsh::test_ifconfig_sets_flags_mtu_addresses_and_hardware_address",
   "core/tests/test-ip.xsh::test_ifconfig_route_and_arp_list_only_the_new_network_namespace",
+  "core/tests/test-ip.xsh::test_ip_changes_links_addresses_and_routes_and_lists_what_the_kernel_converged_to",
   "core/tests/test-ip.xsh::test_ip_in_a_new_network_namespace_lists_only_that_namespace",
   "core/tests/test-lsns.xsh::test_lsns_escapes_control_characters_in_the_command",
   "core/tests/test-lsns.xsh::test_lsns_filters_by_type_and_hides_headings",

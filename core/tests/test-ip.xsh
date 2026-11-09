@@ -92,3 +92,108 @@ test test_ifconfig_route_and_arp_list_only_the_new_network_namespace { |ctx|
   let neighbours = applet_in_new_netns(ctx, "arp", ["-an"])?
   assert neighbours == "", "a new network namespace has no ARP entries"
 }
+
+# `ip` changes links, addresses and routes through the same typed operations
+# a controller uses, and its listing is rendered from the observation those
+# operations converge to.
+test test_ip_changes_links_addresses_and_routes_and_lists_what_the_kernel_converged_to { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("network namespaces are Linux-only")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "ip-change")?
+  let source = """use lib.nettools_fixture as fixture
+
+proc main(...argv: List[Str]) [fs, process, net, io, error] {
+  fixture.link_add_veth("v0", "v1", "02:00:00:00:00:02", "02:00:00:00:00:03")
+  fixture.run_commands(argv)
+}
+"""
+  let child = test.temp_file(ctx, name: "session.xsh", contents: bytes.from_text(source))?
+  let commands = [
+    ["link", "set", "dev", "v0", "up"],
+    ["link", "set", "dev", "v1", "up"],
+    ["addr", "add", "192.0.2.2/24", "broadcast", "192.0.2.255", "dev", "v0"],
+    ["addr", "add", "192.0.2.2/24", "dev", "v0"],
+    ["addr", "add", "2001:db8::2/64", "dev", "v0"],
+    ["route", "add", "default", "via", "192.0.2.1", "dev", "v0", "metric", "100"],
+    ["route", "add", "203.0.113.0/24", "dev", "v0"],
+    ["route", "add", "2001:db8:5::/48", "via", "2001:db8::1", "dev", "v0", "metric", "1024"],
+    ["addr", "show", "dev", "v0"],
+    ["route"],
+    ["route", "del", "default"],
+    ["route", "del", "default"],
+    ["addr", "del", "192.0.2.2/24", "dev", "v0"],
+    ["link", "set", "dev", "v0", "down"],
+    ["link", "show", "dev", "v0"],
+    ["route"],
+    ["addr", "add", "192.0.2.2/24", "dev", "nosuch0"],
+  ]
+  var argv = [ctx.xsh_bin.display(), child.display(), ctx.xsh_bin.display(), fp"{ctx.core_dir}/ip.xsh".display()]
+  for command in commands {
+    argv = argv.extend(command).push("--")
+  }
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let child_env = {LC_ALL: "C", XSH_EXECUTION_PHRASE: "", XSH_MODULE_PATH: ctx.core_dir.display()}
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, child_env, b"", out, err, timeout: 60s)
+  guard let status = linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) else {
+    test.skip("the kernel refuses unprivileged user and network namespaces")
+    return
+  }
+  assert status.shell_code()? == 0, err.read_text()?
+  let transcript = out.read_text()?
+  assert transcript == """$ link set dev v0 up
+rc=0
+$ link set dev v1 up
+rc=0
+$ addr add 192.0.2.2/24 broadcast 192.0.2.255 dev v0
+rc=0
+$ addr add 192.0.2.2/24 dev v0
+2> RTNETLINK answers: File exists
+rc=2
+$ addr add 2001:db8::2/64 dev v0
+rc=0
+$ route add default via 192.0.2.1 dev v0 metric 100
+rc=0
+$ route add 203.0.113.0/24 dev v0
+rc=0
+$ route add 2001:db8:5::/48 via 2001:db8::1 dev v0 metric 1024
+rc=0
+$ addr show dev v0
+v0: mtu 1500 flags UP,BROADCAST,RUNNING,MULTICAST
+    link/ether 02:00:00:00:00:02
+    inet 192.0.2.2/24
+    inet6 2001:db8::2/64
+    inet6 fe80::ff:fe00:2/64
+rc=0
+$ route
+default via 192.0.2.1 dev v0 metric 100
+192.0.2.0/24 dev v0 metric 0
+203.0.113.0/24 dev v0 metric 0
+2001:db8::/64 dev v0 metric 256
+2001:db8:5::/48 via 2001:db8::1 dev v0 metric 1024
+fe80::/64 dev v1 metric 256
+fe80::/64 dev v0 metric 256
+rc=0
+$ route del default
+rc=0
+$ route del default
+2> ip: no route matches "default"
+rc=1
+$ addr del 192.0.2.2/24 dev v0
+rc=0
+$ link set dev v0 down
+rc=0
+$ link show dev v0
+v0: mtu 1500 flags BROADCAST,MULTICAST
+    link/ether 02:00:00:00:00:02
+rc=0
+$ route
+fe80::/64 dev v1 metric 256
+rc=0
+$ addr add 192.0.2.2/24 dev nosuch0
+2> ip: cannot find device "nosuch0"
+rc=1
+""", transcript
+}
