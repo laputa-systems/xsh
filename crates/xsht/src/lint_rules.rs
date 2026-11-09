@@ -15,7 +15,7 @@ use xsh::frontend::syntax::grammar::RunOption;
 use super::nested_pipeline_index_tests;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RuleOption { InferredPrivateEffects, EnvString, ItemShorthand, TempdirScope, InferredPureReturns, InferredProcReturns, TextPattern }
+enum RuleOption { InferredPrivateEffects, EnvString, ItemShorthand, TempdirScope, InferredPureReturns, InferredProcReturns, TextPattern, CommandSignature }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RuleSetting { Always, AlwaysWithOptInAdvice, Configured(RuleOption), OptIn(RuleOption), DeadCode, Runless, NativeTestFile, Migration }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -246,6 +246,8 @@ lint_rules! {
     LintRedundantTailReturn: (RuleSetting::Always, [ExpressionTypes, FunctionReturns, StatementPositions], FixPolicy::ProducerProof, [RuleHook::Function(FunctionSite::TailReturn, |linter, body, _, _, _, return_type| linter.lint_redundant_tail_return(body, return_type))]);
     LintRemovedRecordRequire: (RuleSetting::Migration, [CheckerDiagnostics, RecordRequireMigrations], FixPolicy::Migration, []);
     LintRunStatus: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::RunCheck(RunCheckSite::SegmentChecks, run_segment_checks)]);
+    LintCommandSignatureAdvisory: (RuleSetting::OptIn(RuleOption::CommandSignature), [], FixPolicy::NoFix, []);
+    LintCommandSignature: (RuleSetting::OptIn(RuleOption::CommandSignature), [], FixPolicy::NoFix, [RuleHook::Run(|linter, run| super::lint_command_signature::lint_run(linter.arena, linter.source, &linter.command_signatures, run, &mut linter.diagnostics))]);
     LintRunless: (RuleSetting::Runless, [], FixPolicy::NoFix, [RuleHook::Run(run_runless_hook)]);
     LintShadowing: (RuleSetting::Always, [], FixPolicy::NoFix, [RuleHook::Binding(run_shadowing_hook)]);
     LintStageCallable: (RuleSetting::Always, [CallableSignatures], FixPolicy::ProducerProof, [RuleHook::StreamStage(|linter, stage| linter.lint_stage_callable_wrapper(stage))]);
@@ -632,6 +634,7 @@ impl RuleSetting {
                 RuleOption::InferredPureReturns => options.prefer_inferred_pure_returns,
                 RuleOption::InferredProcReturns => options.prefer_inferred_proc_returns,
                 RuleOption::TextPattern => options.prefer_text_pattern,
+                RuleOption::CommandSignature => !options.command_signatures.is_empty(),
             },
             Self::DeadCode => options.dead_code,
             Self::Runless => options.runless,
@@ -2666,7 +2669,7 @@ mod tests {
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 141);
+        assert_eq!(codes.len(), 143);
         for (index, code) in codes.iter().enumerate() {
             assert_eq!(code.family(), DiagnosticFamily::Lint);
             assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());

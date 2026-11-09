@@ -36,6 +36,27 @@ remove files from its source denominator. `[check] annotate`, `[lint]`,
 in `crates/xsht/src/cli/files.rs` owns accepted keys and defaults.
 The `[lint]` section rejects unknown keys, including retired rule switches.
 
+### External command signatures
+
+`[command-signature.NAME]` opts one statically named external command into
+`xsht lint` flag checking; without such a section nothing changes. Keys, all
+required except the lists: `reviewed-version` (the tool version whose flags the
+signature lists), `pinned-version` (the version the project runs), `complete`
+(`true` or `false`), `flags` and `value-flags` (newline-separated spellings such
+as `-b` and `--check`; a value flag consumes the next word unless attached with
+`=`). Short flags may cluster; checking stops at `--`.
+
+Only `run NAME ...` with a literal head is checked, and only up to the first
+argument that is not a literal word, so computed heads and spliced or
+interpolated arguments are never judged. A flag the signature does not list is
+`lint.command-signature` (an error) when the signature is complete and the two
+versions are equal; otherwise it is `lint.command-signature-advisory` (a
+warning), so a partial or stale signature never causes a hard failure.
+Checking reads only the source and configuration: it does not execute the tool,
+look it up, or read the filesystem or network. A signature describes flags, not
+the command's effects or authority. Subcommands and flag arguments are not
+modeled.
+
 ## API inventory
 
 `xsht api summary --format jsonl` emits one JSON object with `schema_version: 1`.

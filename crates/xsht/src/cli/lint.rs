@@ -1802,6 +1802,7 @@ fn lint_config_for_file(
         }),
         runless,
         runless_except: tool_config.config.lint.runless_except,
+        command_signatures: tool_config.config.command_signatures,
         interactive_command_replacement: None,
         checked_output: None,
         #[cfg(test)]

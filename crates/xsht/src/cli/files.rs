@@ -412,6 +412,7 @@ pub struct XshConfig {
     /// as documentation examples, is named here instead of turning the rule
     /// off for the whole project.
     pub lint_rule_excludes: Vec<LintRuleExclude>,
+    pub command_signatures: Vec<crate::xsht::lint::CommandSignature>,
     pub dead_code: DeadCodeConfig,
     pub coverage: CoverageConfig,
 }
@@ -427,6 +428,7 @@ impl Default for XshConfig {
             format: FormatConfig::default(),
             lint: LintConfig::default(),
             lint_rule_excludes: Vec::new(),
+            command_signatures: Vec::new(),
             dead_code: DeadCodeConfig::default(),
             coverage: CoverageConfig::default(),
         }
@@ -463,6 +465,7 @@ fn parse_config_ini(fields: &xsh::execution::value::RecordMap) -> Result<XshConf
         format: parse_format_ini(fields)?,
         lint: parse_lint_ini(fields)?,
         lint_rule_excludes: parse_lint_rule_excludes_ini(fields)?,
+        command_signatures: parse_command_signatures_ini(fields)?,
         dead_code: parse_dead_code_ini(fields),
         coverage: parse_coverage_ini(fields),
     })
@@ -545,6 +548,50 @@ fn parse_lint_rule_excludes_ini(
         });
     }
     Ok(excludes)
+}
+
+fn parse_command_signatures_ini(
+    fields: &xsh::execution::value::RecordMap,
+) -> Result<Vec<crate::xsht::lint::CommandSignature>, String> {
+    let mut signatures = Vec::new();
+    for (section, value) in fields {
+        let Some(name) = section.strip_prefix("command-signature.") else {
+            continue;
+        };
+        let xsh::execution::value::Value::Record(signature_fields) = value else {
+            return Err(format!("{CONFIG_FILE_NAME} [{section}] must be a section"));
+        };
+        let mut remaining = signature_fields
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.clone()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut required = |key: &str| {
+            take_ini_string(&mut remaining, key)
+                .ok_or_else(|| format!("{CONFIG_FILE_NAME} [{section}] requires '{key}'"))
+        };
+        let reviewed_version = required("reviewed-version")?;
+        let pinned_version = required("pinned-version")?;
+        let completeness = required("complete")?;
+        let complete = match completeness.as_str() {
+            "true" => true,
+            "false" => false,
+            _ => return Err(format!("{CONFIG_FILE_NAME} [{section}] 'complete' must be true or false")),
+        };
+        let flags = take_ini_string_list(&mut remaining, "flags").unwrap_or_default();
+        let value_flags = take_ini_string_list(&mut remaining, "value-flags").unwrap_or_default();
+        if let Some(key) = remaining.keys().next() {
+            return Err(format!("invalid {CONFIG_FILE_NAME} [{section}] key '{key}'"));
+        }
+        signatures.push(crate::xsht::lint::CommandSignature {
+            name: name.to_owned(),
+            reviewed_version,
+            pinned_version,
+            complete,
+            flags,
+            value_flags,
+        });
+    }
+    Ok(signatures)
 }
 
 fn parse_coverage_ini(fields: &xsh::execution::value::RecordMap) -> CoverageConfig {
@@ -841,6 +888,25 @@ mod tests {
         assert_eq!(relative_paths(&root, &files), vec![
             "nested/restored.xsh", "nested/visible.outside.xsh",
         ]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn command_signature_sections_are_parsed_and_validated() {
+        let root = temp_root("command-signature-config");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join(CONFIG_FILE_NAME);
+        fs::write(&path, "[command-signature.sha256sum]\nreviewed-version = 9.5\npinned-version = 9.5\ncomplete = true\nflags = -b\n  --check\n").unwrap();
+        let signatures = load_config_from(&path).unwrap().command_signatures;
+        assert_eq!(signatures.len(), 1);
+        assert_eq!(signatures[0].name, "sha256sum");
+        assert!(signatures[0].complete);
+        assert_eq!(signatures[0].flags, vec!["-b", "--check"]);
+        fs::write(&path, "[command-signature.sha256sum]\ncomplete = true\n").unwrap();
+        assert_eq!(
+            load_config_from(&path).unwrap_err(),
+            "xsht-config.ini [command-signature.sha256sum] requires 'reviewed-version'"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
