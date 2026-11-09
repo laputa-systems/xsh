@@ -251,17 +251,6 @@ out of scope.
 - **Fix with:** isolate-effects
 - **Effort:** M
 
-### XSH-48 · P3 · Exercise pure XSH policy decisions without a new policy language
-
-- **Area:** Systems architecture
-- **Where:** `core/lib/`, `src/sema/`, existing callable/effect tests and one Laputa service/network policy consumer
-- **Problem:** Restart, admission and reconciliation decisions tend to accumulate configuration flags or host-specific branches. XSH already has pure functions and effects, but no real consumer has established that an explicit policy callable simplifies one of these decisions.
-- **Recommendation:** Start with Laputa LAP-38's selected restart/backoff or virtual-network decision. Pass an immutable typed observation to an ordinary XSH pure function and produce a typed decision, with execution and effects remaining in its caller. Compare against the existing straightforward implementation before introducing any callback field or public API. No speculative strategy DSL, component runtime or new language syntax.
-- **Acceptance:** The selected consumer has deterministic policy fixtures, rejects transitive `fs`/`net`/`process`/`time` effects in pure code, preserves precedence and failure behavior, and demonstrably removes duplicated branches or policy state. If an ordinary helper is sufficient, keep it and explicitly reject a new abstraction.
-- **Coordination:** Laputa LAP-38 owns the concrete policy and operational parity proof.
-- **Fix with:** single-source-of-truth
-- **Effort:** S
-
 ### XSH-66 · P3 · Cut the checker cost of jointly erased private callables
 
 - **Area:** Inference performance
