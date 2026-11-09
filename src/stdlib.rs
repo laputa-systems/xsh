@@ -100,7 +100,18 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
     StdlibModule {
         identity: "unix",
         label: "<xsh-stdlib:unix>",
-        bridges: &[],
+        bridges: &[StdlibBridge {
+            function: "replay_installed",
+            op: RuntimeOp::BridgeUnixReplayInstalled,
+            contract: || crate::sema::types::TypedCallable {
+                kind: crate::sema::types::CallableKind::Proc,
+                sig: crate::sema::types::CallableType {
+                    params: vec![],
+                    return_ty: Box::new(crate::sema::types::Type::Bool),
+                    effects: crate::sema::types::CallableEffects::finite([]),
+                },
+            },
+        }],
         source: include_str!("../stdlib/unix.xsh"),
     },
 ];

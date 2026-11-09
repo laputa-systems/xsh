@@ -15,6 +15,10 @@
 # A declared error variant reports `Family.Variant` unless its payload carries
 # a string `kind` field, so `kind` is what keeps the baseline spelling
 # `unix-uptime` visible to callers.
+export proc replay_installed() -> Bool {
+  return [false][1]
+}
+
 error UnixTextError = Failure(kind: Str, message: Str)
 
 # The integer text the baseline's `parse::<i64>` accepts, or null.
@@ -108,6 +112,9 @@ pure uptime_from_text(text: Str) -> Int {
 ## outside `Int` range — reads as zero. A read failure is reported with
 ## `unix-uptime` and the operating system's message.
 export proc uptime_seconds() [fs, error] -> Result[Int] {
+  if replay_installed() {
+    return Err(UnixTextError.Failure(kind: "unix-fake-replay", message: "this unix entry is not covered by the replay and would reach the host"))
+  }
   match p"/proc/uptime".read_text() {
     Ok(text) => return Ok(uptime_from_text(text))
     Err(failure) => return Err(UnixTextError.Failure(kind: "unix-uptime", message: failure.message))

@@ -111,6 +111,9 @@ pub enum RuntimeOp {
     /// type they found. Not bound to any public entry; only an embedded
     /// implementation module listed in its owning catalog entry may lower it.
     BridgeTypeName,
+    /// Private bridge: whether a unix test-fake replay is installed, so an
+    /// embedded entry that reads the host itself can refuse instead.
+    BridgeUnixReplayInstalled,
     RegexCompile,
     RegexMatches,
     RegexFind,

@@ -153,9 +153,12 @@ test test_unix_fake_replay_rejects_missing_results_and_mismatched_fields [fs, pr
 }
 
 test test_unix_fake_replay_refuses_the_host_and_unredacted_input [fs, process, error] { |ctx|
-  let host = run_replay(ctx, "replay-host", "pid1_setup\n", "unix.signal_setup([\"USR1\"])?")?
-  assert ! host.success
-  assert "would reach the host" in host.stderr, host.stderr
+  for entry in ["unix.signal_setup([\"USR1\"])?", "let _ = unix.uptime_seconds()?"] {
+    let host = run_replay(ctx, "replay-host", "pid1_setup\n", entry)?
+    assert ! host.success, entry
+    assert "unix-fake-replay" in host.stderr, host.stderr
+    assert "would reach the host" in host.stderr, host.stderr
+  }
 
   var long = ""
   while long.byte_len() < 33 {

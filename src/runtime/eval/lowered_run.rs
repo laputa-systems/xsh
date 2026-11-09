@@ -5645,6 +5645,9 @@ impl Evaluator {
                 let name = values[0].type_name().to_string();
                 LoweredValue::Str(name.into())
             }
+            internal; RuntimeOp::BridgeUnixReplayInstalled if values.is_empty() => {
+                LoweredValue::Bool(self.unix_fake_replay_active())
+            }
             callable; RuntimeOp::HashParseCheckLine if values.len() == 1 => {
                 let line = lowered_str_arg_owned(values.pop(), "", "hash.parse_check_line", span)?;
                 match hash_module::parse_check_line(&line, span) {

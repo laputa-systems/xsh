@@ -6241,7 +6241,7 @@ reports (any value setting except `log`); `?` pairs must equal the call's
 logged field. Calls must arrive in line order, each line must carry the results
 its call needs, no value defaults, and the entries the fake does not cover
 (`unix.kill_all`, `unix.daemon_start`, `unix.connect_stream`, `unix.poll_fds`,
-`unix.signal_setup`, `unix.take_signals`) fail with `unix-fake-replay` instead
+`unix.signal_setup`, `unix.take_signals`, `unix.uptime_seconds`) fail with `unix-fake-replay` instead
 of reaching the host. A call that is not the next line, a mismatched check, or a
 call past the last line fails with `unix-fake-replay`; a script run under the
 fake that ends with lines unconsumed exits non-zero. Keys and values use
