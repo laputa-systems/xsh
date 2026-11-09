@@ -1137,6 +1137,7 @@ pub struct CommandPlan {
     /// Keep the child in the caller's process group rather than its own.
     /// Contradicts `detach` and `new_session`, which create a group or session.
     pub same_group: bool,
+    pub rooted_executable: Option<crate::runtime::process::RootedExecutable>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -303,6 +303,7 @@ mod tests {
             accepted_exit_codes: None,
             namespaces: None,
             confinement: None,
+            rooted_executable: None,
         };
 
         let execution = execute_run_with_policy(

@@ -1524,6 +1524,7 @@ impl ProcessInvocationBuilder {
             accepted_exit_codes: self.accepted_exit_codes,
             namespaces: None,
             confinement: None,
+            rooted_executable: None,
         }
     }
 }

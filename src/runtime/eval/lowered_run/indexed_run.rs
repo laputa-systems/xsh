@@ -1220,6 +1220,7 @@ pub(super) fn indexed_frame_apply_value(
                 same_group,
                 command.span,
             )
+            .map(LoweredValue::Command)
         }
         ExprView::FunctionRef { function, kind } => {
             assert!(values.next().is_none(), "function reference has no operands");

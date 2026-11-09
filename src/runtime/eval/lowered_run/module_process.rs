@@ -39,6 +39,7 @@ impl Evaluator {
                     accepted_exit_codes: None,
                     namespaces: None,
                     confinement: None,
+                    rooted_executable: None,
                 };
                 match resolve_executable(&invocation)
                     .map_err(|error| run_error_to_runtime(error, span))

@@ -834,7 +834,25 @@ pub struct ProcessInvocation {
     /// Namespace changes the child makes before it executes the command.
     pub namespaces: Option<crate::runtime::namespace::NamespaceEntry>,
     pub confinement: Option<crate::runtime::confinement::Confinement>,
+    pub rooted_executable: Option<RootedExecutable>,
 }
+
+#[derive(Clone, Debug)]
+pub struct RootedExecutable(Arc<OwnedFd>);
+
+impl RootedExecutable {
+    pub(crate) fn new(file: OwnedFd) -> Self {
+        Self(Arc::new(file))
+    }
+}
+
+impl PartialEq for RootedExecutable {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for RootedExecutable {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProcessRedirection {
@@ -1232,7 +1250,7 @@ fn start_pipeline(
 
     for (index, invocation) in invocations.iter().enumerate() {
         let last = index + 1 == invocations.len();
-        let executable = match resolve_executable(invocation) {
+        let executable = match invocation_program(invocation) {
             Ok(executable) => executable,
             Err(error) => {
                 segment_statuses[index] =
@@ -1508,7 +1526,7 @@ fn run_capture_stdio(
     capture_stderr: bool,
     policy: &mut dyn CancellationPolicy,
 ) -> Result<ProcessOutput, RunError> {
-    let executable = resolve_executable(invocation)?;
+    let executable = invocation_program(invocation)?;
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-run").map_err(map_cgroup_error)?;
     policy.before_shared_stdio();
     let stderr = if capture_stderr {
@@ -1743,7 +1761,7 @@ fn spawn_managed_inner(
             "same_group conflicts with detach and new_session, which leave the caller's group",
         ));
     }
-    let executable = resolve_executable(invocation)?;
+    let executable = invocation_program(invocation)?;
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-spawn").map_err(map_cgroup_error)?;
     let command = command_with_managed_stdio(invocation, executable, options)?;
     let timed_stream = watch_stream_timeout && invocation.timeout.is_some();
@@ -3609,6 +3627,9 @@ fn command_with_stdio(
     if let Some(confinement) = &invocation.confinement {
         crate::runtime::confinement::prepare(confinement, &mut command)?;
     }
+    if let Some(executable) = &invocation.rooted_executable {
+        exec_rooted_executable(&mut command, executable, invocation)?;
+    }
     Ok(command)
 }
 
@@ -3644,6 +3665,9 @@ fn command_with_managed_stdio(
     if let Some(confinement) = &invocation.confinement {
         crate::runtime::confinement::prepare(confinement, &mut command)?;
     }
+    if let Some(executable) = &invocation.rooted_executable {
+        exec_rooted_executable(&mut command, executable, invocation)?;
+    }
     Ok(command)
 }
 
@@ -3661,7 +3685,20 @@ thread_local! {
         RefCell::new(FxHashMap::default());
 }
 
+fn invocation_program(invocation: &ProcessInvocation) -> Result<PathBuf, RunError> {
+    match invocation.rooted_executable {
+        Some(_) => Ok(path_from_target(&invocation.target)),
+        None => resolve_executable(invocation),
+    }
+}
+
 pub fn resolve_executable(invocation: &ProcessInvocation) -> Result<PathBuf, RunError> {
+    if invocation.rooted_executable.is_some() {
+        return Err(RunError::new(
+            ROOTED_EXECUTABLE_UNSUPPORTED,
+            "a command from FsRoot.command starts only through spawn, process.run, or process.spawn",
+        ));
+    }
     if invocation.target.contains(&b'/') {
         let path = path_from_target(&invocation.target);
         let executable = if path.is_absolute() {
@@ -3715,6 +3752,106 @@ pub fn resolve_executable(invocation: &ProcessInvocation) -> Result<PathBuf, Run
         ))
     } else {
         Err(RunError::new("not-found", "executable not found"))
+    }
+}
+
+const ROOTED_EXECUTABLE_UNSUPPORTED: &str = "rooted-executable-unsupported";
+
+#[cfg(target_os = "linux")]
+fn exec_rooted_executable(
+    command: &mut Command,
+    executable: &RootedExecutable,
+    invocation: &ProcessInvocation,
+) -> Result<(), RunError> {
+    let image = RootedExecImage::new(executable, invocation)?;
+    // SAFETY: `RootedExecImage::exec` makes one execveat syscall over buffers
+    // built before the fork and allocates nothing.
+    unsafe {
+        command.pre_exec(move || Err(image.exec()));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn exec_rooted_executable(
+    _command: &mut Command,
+    _executable: &RootedExecutable,
+    _invocation: &ProcessInvocation,
+) -> Result<(), RunError> {
+    Err(RunError::new(
+        "unsupported-platform",
+        "a rooted executable starts only on Linux",
+    ))
+}
+
+#[cfg(target_os = "linux")]
+struct RootedExecImage {
+    executable: RootedExecutable,
+    _strings: Vec<std::ffi::CString>,
+    argv: Vec<*const libc::c_char>,
+    envp: Vec<*const libc::c_char>,
+}
+
+// SAFETY: `argv` and `envp` point into the heap buffers of `_strings`, which
+// the image owns and never mutates, so sharing or moving the image keeps them valid.
+#[cfg(target_os = "linux")]
+unsafe impl Send for RootedExecImage {}
+// SAFETY: as for `Send`; the image is read-only after construction.
+#[cfg(target_os = "linux")]
+unsafe impl Sync for RootedExecImage {}
+
+#[cfg(target_os = "linux")]
+impl RootedExecImage {
+    fn new(executable: &RootedExecutable, invocation: &ProcessInvocation) -> Result<Self, RunError> {
+        let c_string = |bytes: Vec<u8>| {
+            std::ffi::CString::new(bytes)
+                .map_err(|_| RunError::new("nul-argv", "argv and environment cannot contain NUL"))
+        };
+        let mut argument_strings = Vec::with_capacity(invocation.argv.len() + 1);
+        argument_strings.push(c_string(invocation.target.clone())?);
+        for argument in &invocation.argv {
+            argument_strings.push(c_string(argument.clone())?);
+        }
+        let mut environment_strings = Vec::with_capacity(invocation.env.len());
+        for (name, value) in &invocation.env {
+            let mut entry = name.clone();
+            entry.push(b'=');
+            entry.extend_from_slice(value);
+            environment_strings.push(c_string(entry)?);
+        }
+        let pointers = |strings: &[std::ffi::CString]| {
+            strings
+                .iter()
+                .map(|string| string.as_ptr())
+                .chain(std::iter::once(std::ptr::null()))
+                .collect::<Vec<_>>()
+        };
+        let argv = pointers(&argument_strings);
+        let envp = pointers(&environment_strings);
+        argument_strings.extend(environment_strings);
+        Ok(Self {
+            executable: executable.clone(),
+            _strings: argument_strings,
+            argv,
+            envp,
+        })
+    }
+
+    fn exec(&self) -> io::Error {
+        // SAFETY: the descriptor is open for the image's lifetime, the path is
+        // an empty C string, and both arrays are null-terminated and point to
+        // live C strings.
+        unsafe {
+            libc::syscall(
+                libc::SYS_execveat,
+                self.executable.0.as_raw_fd(),
+                c"".as_ptr(),
+                self.argv.as_ptr(),
+                self.envp.as_ptr(),
+                libc::AT_EMPTY_PATH,
+            );
+        }
+        io::Error::last_os_error()
     }
 }
 
@@ -4408,6 +4545,7 @@ mod tests {
             accepted_exit_codes: None,
             namespaces: None,
             confinement: None,
+            rooted_executable: None,
         };
 
         let output = run_capture_with_stderr(&invocation).expect("capture redirected process");
@@ -4450,6 +4588,7 @@ mod tests {
                 accepted_exit_codes: None,
                 namespaces: None,
                 confinement: None,
+                rooted_executable: None,
             };
             run_capture_with_stderr(&invocation).expect("capture process")
         };
@@ -4485,6 +4624,7 @@ mod tests {
             accepted_exit_codes: None,
             namespaces: None,
             confinement: None,
+            rooted_executable: None,
         };
         let options = SpawnManagedOptions {
             stdin: ManagedStdio::Null,

@@ -12,7 +12,9 @@ use crate::enums::{
     ARCHIVE_OWNERSHIP, ARCHIVE_SPECIAL,
 };
 use crate::types::BuiltinTypeParameter;
-use super::modules::{archive_enum, archive_result, archive_source_type};
+use super::modules::{
+    archive_enum, archive_result, archive_source_type, process_command_environment_type,
+};
 
 pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
     let mut receivers = vec![
@@ -1277,6 +1279,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     false,
                     RuntimeOp::FsRootTempdir,
                 ),
+                fs_root_command(),
                 method(
                     "extract",
                     vec![
@@ -1537,6 +1540,33 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
         }
     }
     receivers
+}
+
+fn fs_root_command() -> (&'static str, MethodSig) {
+    method(
+        "command",
+        vec![
+            param("path", Type::RelPath),
+            param("argv", Type::List(Box::new(Type::Union(vec![Type::Str, Type::Path])))),
+            default_param("cwd", Type::Path),
+            default_param("env", process_command_environment_type()),
+            default_param("stdin", Type::Union(vec![Type::Path, Type::Bytes])),
+            default_param("stdout", Type::Path),
+            default_param("stderr", Type::Path),
+            default_param("stdout_append", Type::Bool),
+            default_param("stderr_append", Type::Bool),
+            default_param("timeout", Type::Duration),
+            default_param("detach", Type::Bool),
+            default_param("new_session", Type::Bool),
+            default_param("ignore_hup", Type::Bool),
+            default_param("cpu_max", Type::Int),
+            default_param("accept", Type::List(Box::new(Type::Int))),
+            default_param("same_group", Type::Bool),
+        ],
+        result(Type::Command),
+        false,
+        RuntimeOp::FsRootCommand,
+    )
 }
 
 fn method(

@@ -998,6 +998,55 @@ pub(crate) fn rooted_syncfs(root: &Root, span: Span) -> Result<(), RuntimeError>
     }
 }
 
+pub(crate) fn rooted_command_executable(
+    root: &Root,
+    path: &Path,
+    span: Span,
+) -> Result<crate::runtime::process::RootedExecutable, RuntimeError> {
+    const KIND: &str = "fs-root-command";
+    rooted_check_path(path, KIND, span)?;
+    #[cfg(target_os = "linux")]
+    {
+        let host = |error: std::io::Error| RuntimeError::host(KIND, &error).with_span(span);
+        let target = root.open_stat_target(path).map_err(host)?;
+        let metadata = target.metadata().map_err(host)?;
+        if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+            return Err(RuntimeError::new(
+                "not-executable",
+                "FsRoot.command path must name an executable regular file",
+            )
+            .with_span(span));
+        }
+        let contents = std::fs::File::open(format!("/proc/self/fd/{}", target.as_raw_fd()))
+            .map_err(host)?;
+        let mut magic = [0_u8; 2];
+        match std::os::unix::fs::FileExt::read_exact_at(&contents, &mut magic, 0) {
+            Ok(()) if magic == *b"#!" => {
+                return Err(RuntimeError::new(
+                    "interpreted-executable",
+                    "FsRoot.command refuses an interpreter script, whose interpreter the kernel would resolve by host path",
+                )
+                .with_span(span));
+            }
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::UnexpectedEof => {}
+            Err(error) => return Err(host(error)),
+        }
+        let above_standard_streams =
+            rustix::io::fcntl_dupfd_cloexec(&target, 3).map_err(|error| host(error.into()))?;
+        Ok(crate::runtime::process::RootedExecutable::new(above_standard_streams))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = root;
+        Err(RuntimeError::new(
+            "unsupported-platform",
+            "FsRoot.command is only available on Linux",
+        )
+        .with_span(span))
+    }
+}
+
 pub(crate) fn rooted_install_file(
     source_root: &Root,
     source: &Path,

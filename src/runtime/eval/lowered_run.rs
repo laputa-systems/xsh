@@ -2404,6 +2404,7 @@ fn empty_command_plan() -> CommandPlan {
         new_session: false,
         ignore_hup: false,
         same_group: false,
+        rooted_executable: None,
     }
 }
 
@@ -2425,7 +2426,7 @@ fn lowered_command_plan_value(
     accept: Option<LoweredValue>,
     same_group: Option<LoweredValue>,
     span: Span,
-) -> Result<LoweredValue, RuntimeError> {
+) -> Result<Box<CommandPlan>, RuntimeError> {
     let target = lowered_command_target_bytes(target, span)?;
     let argv_words = lowered_argv_list(Some(argv), "process.command_argv", span)?;
     if argv_words.is_empty() {
@@ -2500,7 +2501,51 @@ fn lowered_command_plan_value(
     plan.new_session = new_session;
     plan.ignore_hup = ignore_hup;
     plan.same_group = same_group;
-    Ok(LoweredValue::Command(Box::new(plan)))
+    Ok(Box::new(plan))
+}
+
+impl Evaluator {
+    fn eval_lowered_fs_root_command(
+        &mut self,
+        values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let option = |index: usize| values.get(index).cloned();
+        let path = values[1].clone();
+        let plan = lowered_command_plan_value(
+            path.clone(),
+            values[2].clone(),
+            option(3),
+            option(4),
+            option(5),
+            option(6),
+            option(7),
+            option(8),
+            option(9),
+            option(10),
+            option(11),
+            option(12),
+            option(13),
+            option(14),
+            option(15),
+            option(16),
+            span,
+        );
+        let mut plan = match plan {
+            Ok(plan) => plan,
+            Err(error) => return Ok(lowered_result_err_value(error)),
+        };
+        let rel = pathbuf_from_path_value(&lowered_path_arg(path, "FsRoot.command", span)?);
+        match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &values[0], span)
+            .and_then(|root| fs_module::rooted_command_executable(root, &rel, span))
+        {
+            Ok(executable) => {
+                plan.rooted_executable = Some(executable);
+                Ok(lowered_result_ok(LoweredValue::Command(plan)))
+            }
+            Err(error) => Ok(lowered_result_err_value(error)),
+        }
+    }
 }
 
 fn lowered_runtime_value(value: Value, span: Span) -> Result<LoweredValue, RuntimeError> {
@@ -4547,6 +4592,7 @@ impl Evaluator {
                 }
             }
             callable; RuntimeOp::ArchiveList if (2..=7).contains(&values.len()) => self.eval_lowered_archive_list(values, span)?,
+            callable; RuntimeOp::FsRootCommand if (3..=17).contains(&values.len()) => self.eval_lowered_fs_root_command(values, span)?,
             callable; RuntimeOp::FsRootExtract if (4..=15).contains(&values.len()) => self.eval_lowered_fs_root_extract(values, span)?,
             callable; RuntimeOp::ArchiveExtract if (3..=14).contains(&values.len()) => self.eval_lowered_archive_extract(values, span)?,
             callable; RuntimeOp::ArchiveCreate if (4..=7).contains(&values.len()) => self.eval_lowered_archive_create(values, span)?,

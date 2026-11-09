@@ -107,6 +107,7 @@ impl Evaluator {
             accepted_exit_codes: plan.accepted_exit_codes,
             namespaces: None,
             confinement: None,
+            rooted_executable: plan.rooted_executable.clone(),
         })
     }
 }

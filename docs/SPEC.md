@@ -1573,7 +1573,8 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
 - `Command` is a typed process plan from `process.command_argv(...)`. The `env:` option of `process.command_argv` accepts a record or a
   `Map[Str, Bytes]`; byte map values overlay inherited entries losslessly and
   share record environment-name and NUL validation. It is not a block literal and runs only when
-  passed to `spawn`, `process.run`, or `process.spawn`.
+  passed to `spawn`, `process.run`, or `process.spawn`. `FsRoot.command`
+  builds a plan whose executable is an open file beneath a root.
 - `NetJob` is a live network transfer from `net.start` (see 11.8).
 - `FsRoot` is an open directory capability; see the standard modules.
 - `FsLock` is an opaque filesystem lock capability returned by `fs.lock`
@@ -6699,6 +6700,21 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   descriptor, so replacing the root path or an ancestor after `open_root`
   cannot redirect a write. The destination and its ancestors may not be
   symlinks; a symlinked destination fails instead of being followed.
+  `FsRoot.command(path, argv, ...)` returns `Result[Command]`: a command plan
+  (11.9) whose executable is resolved beneath the root, refusing escapes, and
+  opened when the plan is built. The child starts that open file with
+  `execveat`, so replacing the path, an ancestor or the root path afterwards
+  cannot change what runs. `argv` includes `argv[0]`, the other named
+  arguments are those of `process.command_argv`, and the child's `argv[0]` is
+  `path`. The path must name a readable executable regular file: a `#!`
+  interpreter script fails with `interpreted-executable`, because the kernel
+  would resolve its interpreter by host path, and any other entry fails with
+  `not-executable`. `spawn`, `process.run`, `process.spawn` and `time.measure`
+  start the plan; a consumer that would resolve the executable by pathname,
+  such as `unix.exec`, fails with `rooted-executable-unsupported`. Only the
+  executable is confined: the kernel still loads an ELF program interpreter
+  by host path, and the program resolves its arguments, libraries and files
+  as usual. Other hosts fail with `unsupported-platform`.
 - Six methods take an argument whose label makes the call read as a
   sentence, so that two operands of one type cannot be swapped unnoticed:
 

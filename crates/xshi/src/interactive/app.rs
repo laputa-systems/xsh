@@ -2223,6 +2223,7 @@ fn external_invocation(
         accepted_exit_codes: None,
         namespaces: None,
         confinement: None,
+        rooted_executable: None,
     })
 }
 

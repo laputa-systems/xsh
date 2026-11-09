@@ -3483,7 +3483,7 @@ fn unix_module() -> ModuleSig {
     ])
 }
 
-fn process_command_environment_type() -> Type {
+pub(in crate::signature) fn process_command_environment_type() -> Type {
     Type::Union(vec![Type::Record(BTreeMap::new()), Type::Map(Box::new(Type::Str), Box::new(Type::Bytes))])
 }
 

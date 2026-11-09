@@ -291,6 +291,7 @@ pub enum RuntimeOp {
     FsRootFsync,
     FsRootSyncfs,
     FsRootTempdir,
+    FsRootCommand,
     FsRootExtract,
     FsRootInstallFile,
     FsRootInstallFileSha256,
