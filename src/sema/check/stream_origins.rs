@@ -121,6 +121,26 @@ impl StreamOriginSummaries {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct StreamOriginInputs {
+    dependencies: std::sync::Arc<StreamOriginSummaries>,
+    provisional: StreamOriginSummaries,
+}
+
+impl StreamOriginInputs {
+    pub(super) fn new(dependencies: std::sync::Arc<StreamOriginSummaries>, provisional: StreamOriginSummaries) -> Self {
+        Self { dependencies, provisional }
+    }
+
+    fn declaration(&self, owner: &EffectDeclarationId) -> Option<&StreamReturnSummary> {
+        self.provisional.declarations.get(owner).or_else(|| self.dependencies.declarations.get(owner))
+    }
+
+    fn loop_header(&self, identity: &StreamLoopId) -> Option<&BTreeMap<super::BindingId, StreamOrigins>> {
+        self.provisional.loops.get(identity).or_else(|| self.dependencies.loops.get(identity))
+    }
+}
+
 impl ProjectionDomain {
     fn from_type(ty: &Type) -> Result<Self, StreamOriginBoundaryError> {
         let mut output = Self::default();
@@ -692,7 +712,7 @@ impl Checker {
         if current.is_none() && target.namespace == self.current_namespace {
             self.provisional_stream_origins_read.set(true);
         }
-        current.or_else(|| self.stream_origin_inputs.declarations.get(&target))
+        current.or_else(|| self.stream_origin_inputs.declaration(&target))
     }
 
     fn stream_formal_slots(callable: &crate::sema::schemes::CallableScheme) -> BTreeMap<crate::sema::schemes::SchemeTypeParameterId, Option<usize>> {
@@ -1023,7 +1043,7 @@ impl Checker {
                                 .and_then(super::PendingFunctionSig::generalized)
                                 .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
                             if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
-                            if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declarations.get(&target)) {
+                            if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declaration(&target)) {
                                 let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
                                 let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
                                 let instances = call_instance.map(|(_, instance)| instance.applications.as_slice());
@@ -1121,7 +1141,7 @@ impl Checker {
                 }
             }
         }
-        if body_flow == StreamFlow::Live && let Some(previous) = self.stream_origin_inputs.loops.get(&identity) {
+        if body_flow == StreamFlow::Live && let Some(previous) = self.stream_origin_inputs.loop_header(&identity) {
             for (&binding, origin) in previous {
                 if let Some(current) = header.get_mut(&binding) && current.join(origin) { self.provisional_stream_origins_read.set(true); }
             }
