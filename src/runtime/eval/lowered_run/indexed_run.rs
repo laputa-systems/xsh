@@ -1388,11 +1388,8 @@ impl Evaluator {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
         };
         let publication = self.sync_indexed_root_slots(slots, call_span);
-        let flow = match (result, publication) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
-            (Ok(flow), Ok(())) => Ok(flow),
-        }?;
+        let flow = result?;
+        publication?;
         let mut flow = match flow {
             ControlFlow::Continue(value) => ControlFlow::Continue(retain_indexed_scheme_callable(self, execution, instruction, value, call_span)?),
             ControlFlow::Break(value) => ControlFlow::Break(value),
