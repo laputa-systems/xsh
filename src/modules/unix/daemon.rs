@@ -294,6 +294,7 @@ mod tests {
             cpu_max: None,
             accepted_exit_codes: None,
             namespaces: None,
+            rooted_executable: None,
         }
     }
 

@@ -1955,6 +1955,13 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             tags: &["archive", "extraction", "rooted"],
         });
     }
+    if receiver == "FsRoot" && method == "command" {
+        return Some(DocRow {
+            summary: "Builds a command plan that runs an executable resolved beneath a retained filesystem root.",
+            contract: "The executable is resolved beneath the root's descriptor, refusing escapes, and opened when the plan is built; the child starts that open file with execveat, so replacing the path, an ancestor or the root path afterwards cannot change what runs. It must be a readable executable regular file; an interpreter script (#!) is refused. The child's argv[0] is path; cwd, env and the other arguments are those of process.command_argv. Run the plan with spawn, process.run or process.spawn. Linux only. The kernel still resolves an ELF interpreter by host path, and the program resolves its own arguments and libraries by host path.",
+            tags: &["process", "rooted", "exec"],
+        });
+    }
     if receiver == "FsRoot" {
         let legacy = match method {
             "close" => "close_root",

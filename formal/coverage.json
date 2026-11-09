@@ -1967,6 +1967,7 @@
         "FsRootFsync",
         "FsRootSyncfs",
         "FsRootTempdir",
+        "FsRootCommand",
         "FsRootExtract",
         "FsRootInstallFile",
         "FsRootInstallFileSha256",
