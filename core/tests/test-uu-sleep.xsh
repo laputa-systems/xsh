@@ -1,5 +1,6 @@
 ##! Native ports of the uutils sleep integration tests.
 
+use support.sleep_signals
 use support.uu
 
 # Process measurements use a monotonic elapsed counter and keep both streams.
@@ -16,7 +17,7 @@ proc signaled_sleep(s: uu.Scene, args: List[Str], signal: Str, expected: Int) [f
   let plan = uu.command(s, "sleep", args, timeout: 10s)?
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
-  time.sleep(100ms)
+  assert sleep_signals.await_sleeping_with(child.pid, signal, "SigCgt", expect_set: false)?, signal
   process.kill(child.pid, signal:)
   let completed = process.wait_timeout([child], 10s)?
   assert completed != null, "sleep did not terminate after its signal"

@@ -1,3 +1,5 @@
+use support.sleep_signals
+
 type Ran = {status: Int, stdout: Str, stderr: Str, bytes: Bytes}
 
 # Runs core/sleep.xsh by its real path (so the invoked name is sleep and
@@ -100,7 +102,7 @@ proc sleep_signal_exit_status(ctx: TestContext, signal: Str) [fs, process, time,
     new_session: true,
   )?
 
-  time.sleep(100ms)
+  assert sleep_signals.await_sleeping_with(child.pid, signal, "SigCgt", expect_set: false)?, signal
   process.kill(child.pid, signal:)
 
   if let completed = process.wait_timeout([child], 2000ms)? {
@@ -132,7 +134,7 @@ test test_sleep_preserves_an_inherited_ignored_signal { |ctx|
     ]
     let child = spawn process.command_argv(ctx.xsh_bin, argv, root)?
 
-    time.sleep(100ms)
+    assert sleep_signals.await_sleeping_with(child.pid, signal, "SigIgn", expect_set: true)?, signal
     process.kill(child.pid, signal:)
     let still_running = process.wait_timeout([child], 100ms)? == null
 
