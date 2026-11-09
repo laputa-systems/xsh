@@ -1,7 +1,7 @@
 # Vendored SSH substrate
 
 Source: `https://github.com/laputa-systems/ssh-build` at
-`bc2a9fb418ac48c9e00b5138fa800e4a7c724315`.
+`d16c683b803eafb6975d4469cc172eac270ec1ba`.
 
 Included:
 
@@ -24,15 +24,10 @@ not vendored. No sibling checkout is needed to build or test xsh-ssh.
 The client needs the packet body and the key-derivation inputs, which the
 server-only API kept private. `oxish-proto` therefore makes four visibility-only
 changes: `IncomingPacket::payload()`, public `KeyDerivation` fields, public
-`KeySourceSide` direction constructors, a public `encode_mpint`, and a
-`WriteState::clear()` that also resets the partially-written offset. No protocol
-or cryptographic behavior changes.
-
-Two local hardening changes in `oxish-proto/src/io.rs` are not yet in
-ssh-build: `ReadState` wipes compacted and dropped plaintext and `WriteState`
-wipes its buffer on drop, and `WriteState::reserve()` lets the client make room
-for a packet before framing it, so the buffer never moves while it holds
-plaintext.
+`KeySourceSide` direction constructors, and a public `encode_mpint`. No protocol
+or cryptographic behavior changes. `oxish-proto/src/io.rs`, including the
+plaintext wiping and `WriteState::reserve()` and `clear()`, is byte-for-byte
+ssh-build.
 
 ## Manifest normalization
 
