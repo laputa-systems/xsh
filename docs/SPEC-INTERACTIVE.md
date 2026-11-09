@@ -103,7 +103,12 @@ xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 With a terminal, the shell puts itself in its own process group, takes the
 foreground, handles job-control signals itself, and resets dispositions in
 children. Raw mode and bracketed paste are on only while the editor is reading
-and are restored on every exit path.
+and are restored on every exit path. When the shell
+starts with SIGTERM or SIGHUP at its default action, that signal restores the
+attributes saved when the editor first entered raw mode and then ends the
+shell by the same signal, so a supervisor observes death by that signal. An
+inherited ignored disposition, as under `nohup`, stays ignored. SIGKILL cannot
+be handled and leaves the terminal as it was.
 
 ## 4. Session State And Statuses
 

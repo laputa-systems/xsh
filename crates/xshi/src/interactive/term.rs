@@ -1,10 +1,60 @@
 use std::io::{self, Write};
 use std::os::fd::{BorrowedFd, RawFd};
+use std::sync::OnceLock;
 
 pub const STDIN_FD: RawFd = 0;
 pub const STDOUT_FD: RawFd = 1;
 
 pub type Termios = rustix::termios::Termios;
+
+static RESTORE_TERMIOS: OnceLock<Termios> = OnceLock::new();
+
+fn install_restore_on_termination(orig: &Termios) -> io::Result<()> {
+    if RESTORE_TERMIOS.set(orig.clone()).is_err() {
+        return Ok(());
+    }
+    for signal in [libc::SIGTERM, libc::SIGHUP] {
+        install_restore_handler(signal)?;
+    }
+    Ok(())
+}
+
+fn install_restore_handler(signal: i32) -> io::Result<()> {
+    // SAFETY: both sigaction structs are zero-initialized plain data owned by
+    // this frame, and the handler only makes async-signal-safe calls.
+    unsafe {
+        let mut current: libc::sigaction = std::mem::zeroed();
+        if libc::sigaction(signal, std::ptr::null(), &mut current) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if current.sa_sigaction != libc::SIG_DFL {
+            return Ok(());
+        }
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = restore_terminal_on_signal as *const () as usize;
+        action.sa_flags = libc::SA_RESETHAND;
+        libc::sigemptyset(&mut action.sa_mask);
+        if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+extern "C" fn restore_terminal_on_signal(signal: i32) {
+    // SAFETY: OnceLock::get is a single atomic load, the termios was set before
+    // this handler was installed, and tcsetattr, write and raise are
+    // async-signal-safe. SA_RESETHAND has already restored the default action,
+    // so the raised signal ends the process once this handler returns.
+    unsafe {
+        if let Some(termios) = RESTORE_TERMIOS.get() {
+            let stdin = BorrowedFd::borrow_raw(STDIN_FD);
+            let _ = rustix::termios::tcsetattr(stdin, rustix::termios::OptionalActions::Now, termios);
+        }
+        let _ = libc::write(STDOUT_FD, b"\x1b[?2004l".as_ptr().cast(), 8);
+        libc::raise(signal);
+    }
+}
 
 pub struct RawMode {
     orig: Termios,
@@ -14,6 +64,7 @@ impl RawMode {
     pub fn enable() -> io::Result<Self> {
         let stdin = unsafe { BorrowedFd::borrow_raw(STDIN_FD) };
         let orig = rustix::termios::tcgetattr(stdin)?;
+        install_restore_on_termination(&orig)?;
 
         let mut raw = orig.clone();
         raw.make_raw();

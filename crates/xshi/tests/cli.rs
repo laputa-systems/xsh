@@ -2,6 +2,9 @@
 #[path = "../../../tests/test_binary.rs"]
 mod test_binary;
 
+#[cfg(target_os = "linux")]
+mod terminal_storm;
+
 use std::os::unix::ffi::OsStringExt;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
