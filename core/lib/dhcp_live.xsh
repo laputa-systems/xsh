@@ -14,12 +14,12 @@ use dhcp_machine as machine
 use dhcp_net as network
 use dhcp_store as store
 use dhcp_wire as wire
+use net_state
 
 const MAX_FRAMES = 32
 const MAX_EVENT_READS = 16
 const FRAME_BYTES = 2048
 const CONTROL_BYTES = 64
-const ENOBUFS = 105
 const EAGAIN_CODES = [11, 35]
 
 ## The identity of the running boot, used to tell a remembered lease from a
@@ -145,23 +145,11 @@ proc drain_frames(descriptor: Int) [process, net, error] -> Result[List[Bytes], 
 }
 
 proc drain_events(descriptor: Int) [process, net, error] -> Result[List[client.Incoming], Error] {
-  var seen = []
-  var reads = 0
-  while reads < MAX_EVENT_READS and unix.poll_fd(descriptor, ["readable"], 0)? == ["readable"] {
-    reads += 1
-    match unix.read_fd(descriptor, 65536) {
-      Ok(_) => {
-        if client.LinkChanged not in seen {
-          seen += [client.LinkChanged]
-        }
-      }
-      Err(failure) => {
-        return Ok([client.LinkLost]) when (failure.errno ?? 0) == ENOBUFS
-        return Err(failure) when (failure.errno ?? 0) not in EAGAIN_CODES
-      }
-    }
+  match net_state.drain(descriptor)? {
+    net_state.Quiet => Ok([])
+    net_state.Changed => Ok([client.LinkChanged])
+    net_state.Lost(_) => Ok([client.LinkLost])
   }
-  Ok(seen)
 }
 
 proc drain_control(descriptor: Int) [process, net, error] -> Result[List[client.Incoming], Error] {
