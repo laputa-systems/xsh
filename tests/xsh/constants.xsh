@@ -292,3 +292,36 @@ inner()
   assert rejected.stderr.split("err[").len() - 1 == 3, rejected.stderr
   assert "err[check.const]" not in rejected.stderr, rejected.stderr
 }
+
+const STEP = 3
+const TOP = 9223372036854775807
+const ENABLED = true
+
+pure step_total(count: Int) -> Int {
+  var total = 0
+  var at = 0
+  while ENABLED and at < count {
+    total = total + STEP * at - STEP
+    at += 1
+  }
+  total
+}
+
+test test_constants_read_as_scalars_in_integer_and_boolean_arithmetic { |ctx|
+  assert step_total(4) == 6
+  var flag = false
+  flag = ENABLED
+  assert flag
+  let overflow = test.expect(
+    ctx,
+    r"""const TOP = 9223372036854775807
+var total = 1
+total = total + TOP
+print $total
+""",
+    status: 3,
+    stderr: ["integer overflow", "total + TOP"],
+  )?
+  assert overflow.stdout == "", overflow.stdout
+  assert TOP - 1 == 9223372036854775806
+}

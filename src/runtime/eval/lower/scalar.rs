@@ -19,7 +19,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             scratch.expressions[expr.index()].clone()
         };
         match &row {
-            BuildExprRow::Int(value) | BuildExprRow::UInt(value) => {
+            BuildExprRow::Int(value)
+            | BuildExprRow::UInt(value)
+            | BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(LoweredValue::Int(value), None)) => {
                 Some(push_build_row!(self, int, BuildIntRow::Int(*value)))
             }
             BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::Slot(*slot))),
@@ -137,7 +139,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             scratch.expressions[expr.index()].clone()
         };
         match &row {
-            BuildExprRow::Bool(value) => {
+            BuildExprRow::Bool(value)
+            | BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(LoweredValue::Bool(value), None)) => {
                 Some(push_build_row!(self, bool, BuildBoolRow::Bool(*value)))
             }
             BuildExprRow::Param(slot) => {
