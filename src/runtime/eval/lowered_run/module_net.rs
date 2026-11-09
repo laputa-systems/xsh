@@ -172,6 +172,7 @@ impl Evaluator {
                                 Ok(response) => {
                                     lowered_runtime_value(Value::ok(response), span)?
                                 }
+                                Err(error) if error.abort.is_some() => return Err(error),
                                 Err(error) => lowered_result_err_value(error),
                             },
                             Err(error) => lowered_result_err_value(error),
@@ -378,6 +379,7 @@ impl Evaluator {
                                 Ok(response) => {
                                     lowered_runtime_value(Value::ok(response), span)?
                                 }
+                                Err(error) if error.abort.is_some() => return Err(error),
                                 Err(error) => lowered_result_err_value(error),
                             },
                             Err(error) => lowered_result_err_value(error),
@@ -418,6 +420,7 @@ impl Evaluator {
                                 Ok(response) => {
                                     lowered_runtime_value(Value::ok(response), span)?
                                 }
+                                Err(error) if error.abort.is_some() => return Err(error),
                                 Err(error) => lowered_result_err_value(error),
                             },
                             Err(error) => lowered_result_err_value(error),

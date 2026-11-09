@@ -6509,7 +6509,7 @@ impl Evaluator {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.poll_fd", span)?;
                 let events = lowered_str_list_arg(values.get(1).cloned(), "unix.poll_fd", span)?;
                 let timeout = lowered_int_arg_or(values.get(2).cloned(), 0, "unix.poll_fd", span)?;
-                lowered_runtime_result(self.poll_fd_until(fd, &events, timeout, span), span)?
+                lowered_runtime_value(self.poll_fd_until(fd, &events, timeout, span)?, span)?
             }
             // Lowering builds both from the checked call; these are what a
             // call that reaches the module operation itself evaluates to.
@@ -8086,6 +8086,7 @@ impl Evaluator {
             let value = match name {
                 "wait" => match self.wait_net_job((**handle).clone(), *span) {
                     Ok(response) => lowered_runtime_value(Value::ok(response), *span)?,
+                    Err(error) if error.abort.is_some() => return Err(error),
                     Err(error) => lowered_result_err_value(error),
                 },
                 "cancel" => match self.cancel_net_job((**handle).clone(), *span) {

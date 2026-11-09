@@ -154,3 +154,53 @@ print \"unreachable ${{seen.len()}}\"
     assert!(started.elapsed() < Duration::from_secs(3));
     let _ = std::fs::remove_file(ready);
 }
+
+fn assert_quiet_poll_fd_stop(name: &str, waiting: &str, seen: &str) {
+    let ready = temp_path(&format!("{name}-ready"));
+    let _ = std::fs::remove_file(&ready);
+    let source = format!(
+        "\
+proc wait_for_input(fd: Int) [process, net, error] -> Result[List[Int], Error] {{
+  var polls = 0
+  while polls < 1000000000 and {waiting} {{
+    polls += 1
+  }}
+  Ok([polls])
+}}
+proc listen(fifo: Path) [fs, process, net, error] -> Result[Int, Error] {{
+  fs.mkfifo(fifo, mode: 384)
+  defer fifo.remove()
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  let writer = unix.open_fd(fifo, write: true, nonblock: true)?
+  defer {{ unix.close_fd(reader); unix.close_fd(writer) }}
+  Path({ready}).write(\"ready\")?
+  {seen}
+  Ok(seen.len())
+}}
+cli main() [fs, process, net, error, io] {{
+  defer {{ print \"cleanup\" }}
+  let _ = listen(Path({ready} + \".fifo\"))?
+}}
+",
+        ready = xsh_string_literal(ready.to_str().unwrap()),
+        waiting = waiting,
+        seen = seen,
+    );
+    let started = Instant::now();
+    let output = run_cancelable_temp_script(name, &source, [], &ready, libc::SIGTERM);
+    assert_eq!(output.status.code(), Some(SHUTDOWN_STATUS), "{:?}", output);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "cleanup\n");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let _ = std::fs::remove_file(ready);
+}
+
+#[test]
+fn poll_fd_sigterm_inside_a_comprehension_iterable_stops_quietly() {
+    assert_quiet_poll_fd_stop("poll-fd-comprehension-term", "unix.poll_fd(fd, [\"readable\"], 20000)? == []", "let seen = [polls for polls in wait_for_input(reader)?]");
+}
+
+#[test]
+fn poll_fd_sigterm_in_a_while_condition_under_a_list_literal_stops_quietly() {
+    assert_quiet_poll_fd_stop("poll-fd-while-term", "unix.poll_fd(fd, [\"readable\"], 20000)?.is_empty()", "let seen = [@[0], @[wait_for_input(reader)?.len()]]");
+}
