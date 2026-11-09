@@ -39,23 +39,7 @@ pub(super) fn lint_try_capture_helpers(
     ) {
         return Vec::new();
     }
-    let before_snapshot = super::probes::LintProbeTransport::standalone(
-        source_id,
-        source,
-        CheckOptions::for_execution(),
-    );
-    if !before_snapshot.parse_diagnostics.is_empty() {
-        return Vec::new();
-    }
-    let Some(before) = before_snapshot.checked.as_ref() else {
-        return Vec::new();
-    };
-    if !before.diagnostics.is_empty() {
-        return Vec::new();
-    }
-    let Some(before_sources) = before_snapshot.sources.as_ref() else {
-        return Vec::new();
-    };
+    let mut before_snapshot: Option<super::probes::LintProbeSnapshot> = None;
     let mut diagnostics = Vec::new();
     for pair in statements.windows(2) {
         let definition = program.arena.stmt(pair[0]);
@@ -117,6 +101,26 @@ pub(super) fn lint_try_capture_helpers(
         {
             continue;
         }
+        if before_snapshot.is_none() {
+            let snapshot = super::probes::LintProbeTransport::standalone(
+                source_id,
+                source,
+                CheckOptions::for_execution(),
+            );
+            if !snapshot.parse_diagnostics.is_empty()
+                || snapshot.sources.is_none()
+                || !snapshot
+                    .checked
+                    .as_ref()
+                    .is_some_and(|checked| checked.diagnostics.is_empty())
+            {
+                return Vec::new();
+            }
+            before_snapshot = Some(snapshot);
+        }
+        let before_snapshot = before_snapshot.as_ref().expect("initialized above");
+        let before = before_snapshot.checked.as_ref().expect("checked above");
+        let before_sources = before_snapshot.sources.as_ref().expect("checked above");
         let call_span = program.arena.expr(call).span;
         let Some(Type::Result(ok, error)) = before.expr_types.get(&call_span) else {
             continue;
