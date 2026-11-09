@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 83
+Next: 84
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -122,13 +122,13 @@ out of scope.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-82 · P3 · Cut the module load cost of btop and the system report
+### XSH-83 · P3 · Cut the remaining module load cost of btop
 
 - **Area:** Performance
-- **Where:** module parse and check path (`src/sema/`), `core/lib/system_report.xsh`, `core/lib/system_report_live.xsh`
-- **Problem:** Starting `core/btop.xsh` spends about 7 s of user CPU loading its import tree before the first frame (verification profile, 2026-11-09). `use core.lib.system_report` alone takes 1.1 s for 3,757 lines, `system_report_live` 4.2 s for 5,456 lines, `btop_render` 6.0 s, against 0.04 s for `--startup` and for `btop_terminal`. `perf` shows the time spread over type checking and stream-origin analysis (`stream_origins::ProjectionPath` map clones, `Type::contains_inference`, `Name` comparison), not one hot spot. Every btop PTY test pays this, so about 17 tests start 7 s of CPU each in parallel.
-- **Recommendation:** Profile `use core.lib.system_report_live` with `perf` and rank the check phases. Consider whether btop needs to load the system report at all, or whether checked modules can be cached.
-- **Acceptance:** `btop.xsh --replay` reaches its first frame in under 1 s of user CPU, or the load cost is attributed to specific check phases with a plan.
+- **Where:** `src/sema/check/module_driver.rs` (`solve_file_effect_probes`), `src/sema/check/stream_origins.rs`, `src/sema/check/local_inference.rs` (`constraint_probe`), `core/lib/system_report_live.xsh`, `core/lib/btop_source.xsh`, `core/lib/btop_sensors.xsh`
+- **Problem:** Loading `core/btop.xsh` before its first frame runs 19.2 G user instructions, about 1.9 s of user CPU on a quiet host (verification profile, 2026-11-09). A frame-pointer `perf` profile ranks the phases: module checking 65% of samples, of which `check_module_record` is 50% and return inference over function bodies (`infer_local_pure_returns`) 32%; lowering and IR build 31%, of which function units 15%, top-level statements 6% and `FullVerifier` 9%; parsing under 2%. Each module check reruns from scratch until its provisional stream-origin summaries settle: 45 probe rounds over the btop tree cost about 1.12 s, and the 12 second and third rounds 0.48 s of that. `system_report_live` takes three rounds of about 120 ms. Cloning `StreamOriginSummaries` into every probe and `constraint_probe` costs another 7%. btop imports `system_report_live` (5,456 lines, about 7 G instructions with its imports beyond `system_report`) only for `collect_monitor_sources` and its two result types, whose transitive slice is 33 declarations and about 1,100 lines.
+- **Recommendation:** In order of payoff for the change: (1) move the monitor-telemetry readers behind `collect_monitor_sources` into their own module that `system_report_live` and btop both import; (2) settle stream origins without rechecking the whole module each round, by rechecking only same-namespace stream declarations whose provisional summary changed or by checking them in callee-first order; (3) share `StreamOriginSummaries` maps behind `Arc` with copy-on-write so probes stop deep-cloning them. A persistent cache of checked modules is not needed for the 1 s target if (1) and (2) land.
+- **Acceptance:** `btop.xsh --replay` reaches its first frame in under 1 s of user CPU; checker, lowering, btop PTY and system-report tests green.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
