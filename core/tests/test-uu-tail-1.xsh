@@ -739,6 +739,7 @@ test test_uu_tail_follow_name_shows_headers_on_creation { |ctx|
   uu.write(s, "log1", "ping\n")
   time.sleep(delay)
   uu.write(s, "log2", "pong\n")
+  wait_output(s, bytes.from_text("==> log1 <==\nping\n\n==> log2 <==\npong\n"), bytes.from_text(initial_stderr + "tail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n"))?
   time.sleep(delay)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
