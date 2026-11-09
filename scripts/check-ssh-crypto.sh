@@ -23,7 +23,7 @@ for required in "$origin" "$vendor/LICENSE-APACHE" "$vendor/LICENSE-MIT" "$vendo
     [ -f "$required" ] || fail "missing vendored license or origin manifest: $required"
 done
 
-grep -q 'bc2a9fb418ac48c9e00b5138fa800e4a7c724315' "$origin" ||
+grep -q 'd16c683b803eafb6975d4469cc172eac270ec1ba' "$origin" ||
     fail "origin manifest does not pin the ssh-build revision"
 
 command -v cargo >/dev/null || fail "cargo not found"
