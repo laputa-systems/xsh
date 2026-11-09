@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.dhcp_live as live
+use lib.net_state
 
 error IfdownError = Usage : Usage | Config | Hook | State
 
@@ -332,13 +333,18 @@ proc teardown_dhcp(physical: Str, wait_seconds: Int, verbose: Bool) [fs, process
   linux.link_down(physical)
 }
 
-proc teardown_static(physical: Str, stanza: Interface, verbose: Bool) [fs, process, error, io] {
-  let routes = linux.routes()?
+proc teardown_static(physical: Str, stanza: Interface, verbose: Bool) [fs, process, env, error, io] {
+  let state = net_state.observe()?
 
-  for route in routes {
-    if route.dst == "default" and route.dev == physical and "." in route.gateway {
-      report_action(verbose, f"del_default_ipv4_route {physical} {route.gateway}")
-      linux.del_default_ipv4_route(route.gateway, interface: physical)
+  for route in state.routes {
+    continue when route.family != .Inet or route.table != net_state.TABLE_MAIN or route.prefix != 0
+    for hop in route.hops {
+      let gateway = hop.gateway ?? ""
+      let named = [link.name for link in state.links if link.ifindex == (hop.ifindex ?? -1)]
+      if gateway != "" and named == [physical] {
+        report_action(verbose, f"del_default_ipv4_route {physical} {gateway}")
+        linux.del_default_ipv4_route(gateway, interface: physical)
+      }
     }
   }
 

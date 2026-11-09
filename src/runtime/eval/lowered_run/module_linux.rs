@@ -5,7 +5,7 @@ use super::{
     lowered_int_arg, lowered_int_arg_or, lowered_int_list_arg, lowered_optional_str_list,
     lowered_path_arg, lowered_path_list, lowered_record_arg, lowered_result_ok,
     lowered_runtime_result, lowered_runtime_value, lowered_str_arg_owned,
-    lowered_stream_from_values, lowered_value_from_runtime_any, module_error, module_io_error,
+    lowered_value_from_runtime_any, module_error, module_io_error,
     lowered_bytes_arg_or_empty, path_value_from_pathbuf, pathbuf_from_path_value,
     process_module, unix_require_arg, validate_linux_file_attrs_flags,
     validate_linux_file_version, validate_linux_sysctl_key, validate_mknod_args,
@@ -1241,77 +1241,6 @@ macro_rules! with_linux_call_rows {
 pub(crate) use with_linux_call_rows;
 
 impl Evaluator {
-    pub(super) fn eval_lowered_linux_interfaces_values(
-        &mut self, _values: NativeArgumentValues, span: Span,
-    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let value = {
-            if !self.linux_fake_active() {
-                lowered_runtime_result(linux_module::interfaces(span), span)?
-            } else {
-                self.linux_fake_log("interfaces", &[], span)?;
-                lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
-                    Arc::new(BTreeMap::from([
-                        (Arc::from("name"), LoweredValue::Str("eth0".into())),
-                        (
-                            Arc::from("flags"),
-                            LoweredValue::List(vec![
-                                LoweredValue::Str("UP".into()),
-                                LoweredValue::Str("BROADCAST".into()),
-                                LoweredValue::Str("RUNNING".into()),
-                            ]),
-                        ),
-                        (Arc::from("mtu"), LoweredValue::Int(1500)),
-                        (
-                            Arc::from("mac"),
-                            LoweredValue::Str("02:00:00:00:00:01".into()),
-                        ),
-                        (
-                            Arc::from("addresses"),
-                            LoweredValue::List(vec![LoweredValue::Record(Arc::new(
-                                BTreeMap::from([
-                                    (Arc::from("family"), LoweredValue::Str("inet".into())),
-                                    (Arc::from("addr"), LoweredValue::Str("192.0.2.10".into())),
-                                    (Arc::from("prefix_len"), LoweredValue::Int(24)),
-                                ]),
-                            ))]),
-                        ),
-                    ])),
-                )]))
-            }
-        };
-        Ok(ControlFlow::Continue(value))
-    }
-
-    pub(super) fn eval_lowered_linux_routes_values(
-        &mut self, _values: NativeArgumentValues, span: Span,
-    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let value = {
-            if !self.linux_fake_active() {
-                lowered_runtime_result(linux_module::routes(span), span)?
-            } else {
-                self.linux_fake_log("routes", &[], span)?;
-                lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
-                    Arc::new(BTreeMap::from([
-                        (Arc::from("family"), LoweredValue::Str("inet".into())),
-                        (Arc::from("dst"), LoweredValue::Str("default".into())),
-                        (Arc::from("prefix_len"), LoweredValue::Int(0)),
-                        (Arc::from("gateway"), LoweredValue::Str("192.0.2.1".into())),
-                        (Arc::from("dev"), LoweredValue::Str("eth0".into())),
-                        (Arc::from("metric"), LoweredValue::Int(100)),
-                        (
-                            Arc::from("flags"),
-                            LoweredValue::List(vec![
-                                LoweredValue::Str("UP".into()),
-                                LoweredValue::Str("GATEWAY".into()),
-                            ]),
-                        ),
-                    ])),
-                )]))
-            }
-        };
-        Ok(ControlFlow::Continue(value))
-    }
-
     pub(super) fn eval_lowered_linux_network_dump_values(
         &mut self, _values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {

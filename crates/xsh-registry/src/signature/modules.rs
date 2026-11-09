@@ -11,9 +11,9 @@ use super::{
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_type, group_record_type, hash_check_line_type, linux_blkid_type,
     linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
-    linux_interface_type, linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
+    linux_loop_device_type, linux_meminfo_type, linux_modinfo_type,
     linux_module_type, linux_network_dump_type, linux_open_file_type, linux_partition_table_type,
-    linux_rfkill_type, linux_route_type, linux_uevent_type, measured_command_type, mime_info_type,
+    linux_rfkill_type, linux_uevent_type, measured_command_type, mime_info_type,
     mime_parse_type, labeled_param, module_sig, net_pool_type, net_response_type, param, patch_result_type,
     process_entry_type, process_port_type, process_stats_type, process_thread_type,
     process_wait_any_type, result, script_sig, script_sig_with_arg_check, sig, sig_with_arg_check,
@@ -2600,24 +2600,6 @@ fn linux_module() -> ModuleSig {
             ),
         ),
         (
-            "interfaces",
-            sig(
-                Vec::new(),
-                result(Type::Stream(Box::new(linux_interface_type()))),
-                false,
-                RuntimeOp::LinuxInterfaces,
-            ),
-        ),
-        (
-            "routes",
-            sig(
-                Vec::new(),
-                result(Type::Stream(Box::new(linux_route_type()))),
-                false,
-                RuntimeOp::LinuxRoutes,
-            ),
-        ),
-        (
             "network_dump",
             sig(
                 Vec::new(),
@@ -4894,21 +4876,6 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes Linux extended file attributes.",
             "Attributes belong to host filesystem state and may require privilege to read or change.",
             &["linux", "filesystem", "record"],
-        ),
-        "LinuxInterface" => (
-            "Describes one Linux network interface.",
-            "The record is a host-global networking snapshot and can become stale before use.",
-            &["linux", "network", "record"],
-        ),
-        "LinuxInterfaceAddress" => (
-            "Describes one address assigned to a Linux interface.",
-            "The address record is observational; configuring it requires the separate privileged API.",
-            &["linux", "network", "record"],
-        ),
-        "LinuxRoute" => (
-            "Describes one Linux routing-table entry.",
-            "Routes are host-global snapshot data and are not changed by constructing this record.",
-            &["linux", "network", "record"],
         ),
         "LinuxNetConstants" => (
             "Names the Linux socket, option, netlink, and ioctl numbers the socket primitives take.",

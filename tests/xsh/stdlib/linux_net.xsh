@@ -2,6 +2,8 @@
 # socket lives in this process's own network namespace and nothing here
 # reconfigures an interface.
 
+use core.lib.net_state
+
 pure errno_of(result: Result[Any, Error]) -> Int {
   if let Err(failure) = result {
     return failure.errno ?? -1
@@ -817,7 +819,7 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
     return
   }
   guard system.uname()?.sysname == "Linux" else {
-    test.skip("linux.routes reads the live Linux routing table")
+    test.skip("net_state reads the live Linux routing table")
     return
   }
   let table = fp"/proc/net/route"
@@ -841,65 +843,44 @@ test test_ipv4_routes_match_the_kernel_table_in_network_byte_order {
       yield f"{dst} {gateway} {fields[0]}"
     }
   }
-  let routes = linux.routes()? |> where .family == "inet" |> collect
-  let actual = [f"{route.dst} {route.gateway} {route.dev}" for route in routes]
+  let state = net_state.observe()?
+  let actual = collect {
+    for route in state.routes {
+      continue when route.family != .Inet or route.table != net_state.TABLE_MAIN or net_state.is_cloned(route)
+      let dst = if route.prefix == 0 { "default" } else { f"{route.destination ?? "0.0.0.0"}/{route.prefix}" }
+      for hop in route.hops {
+        let named = [link.name for link in state.links if link.ifindex == (hop.ifindex ?? -1)]
+        let dev = if named.is_empty() { "*" } else { named[0] }
+        yield f"{dst} {hop.gateway ?? "0.0.0.0"} {dev}"
+      }
+    }
+  }
   let actual_sorted = actual |> sort
   let expected_sorted = expected |> sort
   assert actual_sorted == expected_sorted, f"routes {actual_sorted.join("; ")} differ from /proc/net/route {expected_sorted.join("; ")}"
 }
 
-test test_interfaces_and_routes_agree_with_the_netlink_snapshot {
+test test_net_state_links_and_addresses_agree_with_the_netlink_snapshot {
   if system.uname()?.sysname != "Linux" {
     test.skip("linux.socket and netlink require Linux")
     return
   }
-  guard system.uname()?.sysname == "Linux" else {
-    test.skip("linux.interfaces and linux.routes read the live Linux network state")
-    return
-  }
   let dump = settled_dump()?
-  let interfaces = linux.interfaces()? |> collect
-  let listed = [iface.name for iface in interfaces] |> sort
+  let state = net_state.project(dump)?
+  let listed = [link.name for link in state.links] |> sort
   let known = [link.name ?? "" for link in dump.links] |> sort
   assert listed == known
-  for iface in interfaces {
-    let link = [link for link in dump.links if (link.name ?? "") == iface.name][0]
-    assert iface.mtu == (link.mtu ?? 0), f"{iface.name} mtu"
-    let owned = [a for a in dump.addresses if a.ifindex == link.ifindex]
-    assert iface.addresses.len() == owned.len(), f"{iface.name} address count"
-    for address in iface.addresses {
-      let matching = [a for a in owned if (a.local ?? a.address ?? "") == address.addr and a.prefix_length == address.prefix_len]
-      assert matching.len() >= 1, f"{iface.name} lists {address.addr}/{address.prefix_len}, which the dump does not"
+  for link in state.links {
+    let raw = [entry for entry in dump.links if entry.ifindex == link.ifindex][0]
+    assert link.mtu == raw.mtu, f"{link.name} mtu"
+    let owned = [a for a in dump.addresses if a.ifindex == link.ifindex and (a.family == "inet" or a.family == "inet6")]
+    let projected = net_state.addresses_of(state, link.ifindex)
+    assert projected.len() == owned.len(), f"{link.name} address count"
+    for address in projected {
+      let matching = [a for a in owned if (a.local ?? a.address ?? "") == address.local and a.prefix_length == address.prefix]
+      assert matching.len() >= 1, f"{link.name} lists {address.local}/{address.prefix}, which the dump does not"
     }
   }
-
-  let expected = collect {
-    for route in dump.routes {
-      continue when route.table != 254 or (route.family != "inet" and route.family != "inet6")
-      continue when route.flags.bit_and(512) != 0
-      let unspecified = if route.family == "inet" { "0.0.0.0" } else { "::" }
-      let dst = if route.destination_prefix_length == 0 {
-        "default"
-      } else {
-        f"{route.destination ?? unspecified}/{route.destination_prefix_length}"
-      }
-      let hops = if route.nexthops.is_empty() {
-        [{gateway: route.gateway, ifindex: route.output_ifindex}]
-      } else {
-        [{gateway: hop.gateway, ifindex: hop.ifindex} for hop in route.nexthops]
-      }
-      for hop in hops {
-        let named = [link.name ?? "" for link in dump.links if link.ifindex == (hop.ifindex ?? -1)]
-        let dev = if named.is_empty() { "*" } else { named[0] }
-        yield f"{route.family} {dst} {hop.gateway ?? unspecified} {dev}"
-      }
-    }
-  }
-  let routes = linux.routes()? |> collect
-  let actual = [f"{route.family} {route.dst} {route.gateway} {route.dev}" for route in routes]
-  let actual_sorted = actual |> sort
-  let expected_sorted = expected |> sort
-  assert actual_sorted == expected_sorted, f"routes {actual_sorted.join("; ")} differ from the netlink snapshot {expected_sorted.join("; ")}"
 }
 
 test test_netlink_dump_status_in_the_done_message_becomes_errno {

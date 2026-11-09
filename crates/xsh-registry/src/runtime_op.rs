@@ -432,8 +432,6 @@ pub enum RuntimeOp {
     LinuxFlushIpv4Addresses,
     LinuxAddDefaultIpv4Route,
     LinuxDelDefaultIpv4Route,
-    LinuxInterfaces,
-    LinuxRoutes,
     LinuxNetworkDump,
     LinuxMemInfo,
     LinuxModules,

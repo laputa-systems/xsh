@@ -185,11 +185,11 @@ pub(crate) use unsupported::{module_plan, modprobe};
 pub(crate) use imp::{
     add_default_ipv4_route, blkid, block_devices, chroot, del_default_ipv4_route, depmod,
     disk_usage, dmesg,
-    file_attrs, file_version, file_project, set_file_project, flush_ipv4_addresses, fsck, halt, hwclock, insmod, interfaces,
+    file_attrs, file_version, file_project, set_file_project, flush_ipv4_addresses, fsck, halt, hwclock, insmod,
     is_mountpoint, kill_all, link_down, link_up, loop_attach, loop_detach, loop_list, meminfo,
     mknod, mkswap, modinfo, modinfo_path, modules, mount, mount_all, network_dump, open_files,
     partition_table, pivot_root, poweroff, read_device, reboot_system, rfkill_list, rfkill_set,
-    rmmod, root_device, routes, set_file_attrs, set_file_version, set_hwclock, set_ipv4_address,
+    rmmod, root_device, set_file_attrs, set_file_version, set_hwclock, set_ipv4_address,
     set_system_clock, swapoff, swapoff_all, swapon, swapon_all, switch_root, sysctl_get,
     sysctl_load_dirs, sysctl_set, uevent_stream, umount_all, write_device, write_partition_table,
 };
