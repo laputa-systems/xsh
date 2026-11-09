@@ -133,6 +133,15 @@ it into compiler steps only, to speed up builds, and no product links it.
 Changing the product allocator needs a paired runtime and memory comparison
 first.
 
+`xsh` reserves mimalloc arenas without committing them up front
+(`src/entrypoints/allocator_commit.c`), so arena space a process never touches
+stays out of its resident memory. On hosts with transparent huge pages set to
+`always`, that costs allocation-heavy scripts kernel time: a 20,000-record JSON
+roundtrip takes about 13,000 page faults instead of about 520 and about 16%
+more CPU than with eager commit, which would add about 4 MB of idle and 13 MB
+of peak resident memory per process. Many `xsh` processes run at once, so the
+memory is kept.
+
 ## C toolchain
 
 `Dockerfile.test` installs the prebuilt musl LLVM 23.1.5 from
