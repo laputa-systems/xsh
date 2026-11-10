@@ -1442,6 +1442,32 @@ mod tests {
         assert_eq!(loaded.program.modules[0].key, module_key(&shared));
     }
 
+    #[test]
+    fn batch_entry_after_a_too_deeply_nested_entry_parses_in_full() {
+        let root = tempfile::TempDir::new().expect("create module fixture");
+        let depth = crate::syntax::arena::MAX_NESTING_DEPTH as usize;
+        let nested = format!("let nested = {}1{}\n", "[".repeat(depth), "]".repeat(depth));
+        let loaded = parse_load_entries_shared_arena_only(vec![
+            ArenaEntryInput {
+                file: root.path().join("deep.xsh").to_string_lossy().into_owned(),
+                bytes: nested.into_bytes(),
+                module_roots: Vec::new(),
+            },
+            ArenaEntryInput {
+                file: root.path().join("plain.xsh").to_string_lossy().into_owned(),
+                bytes: b"const first = 1\nconst second = [2]\n".to_vec(),
+                module_roots: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            loaded.entries[0].diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
+            vec![Some(DiagnosticCode::ParseNestingDepth)],
+        );
+        assert!(loaded.entries[1].diagnostics.is_empty(), "{:?}", loaded.entries[1].diagnostics);
+        assert_eq!(loaded.program.arena.stmt_ids(loaded.entries[1].statements).count(), 2);
+    }
+
     // Search provenance is exposed through the Rust frontend, so the host
     // test compares loaded imports and imports parsed without resolution.
     #[test]

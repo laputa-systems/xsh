@@ -215,6 +215,7 @@ impl<'a> Parser<'a> {
         mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> ArenaParseFragment {
+        arena.nesting = crate::syntax::arena::NestingMeter::default();
         let cst = LazyCst::new(self.source_id, self.source, self.token_table.clone());
         let start = arena.root_statement_count();
         self.skip_separators();
