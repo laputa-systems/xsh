@@ -112,17 +112,6 @@ out of scope.
 - **Fix with:** orchestrate
 - **Effort:** M
 
-### XSH-79 · P3 · Spawn without forking when signals start ignored
-
-- **Area:** Performance
-- **Where:** `src/runtime/process.rs` (`child_signals_start_as_defaults`, `configure_process_group`, `configure_managed_child`)
-- **Problem:** When xsh or xsht starts with any of the child-reset signals ignored, every spawn installs a `pre_exec` closure, which makes the standard library fork instead of `posix_spawn`. A POSIX shell ignores SIGINT and SIGQUIT for every background job, so `xsht test &` starts that way. xsht installs its own SIGINT handler, but SIGQUIT stays ignored. The fork holds the address-space lock while it copies page tables. In the r11x scheduler pairs at 16 workers, about 8 of xsht's 50 threads were waiting for that lock at any moment. Tests that take 46 ms took 2 minutes, and four tests hit the 120 s timeout. The gate runner now resets the two signals itself (`a59cc658f`), but any user who backgrounds a suite still hits this.
-- **Recommendation:** Reset the ignored signals in the child without a fork: `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, or a spawn path that applies the defaults through spawn attributes. Keep the same child signal contract.
-- **Acceptance:** Started as `sh -c 'xsht test --jobs 16 & wait'`, the suite has the same wall time and outcome counts as a foreground run, within the observed spread. Children still start with the reset signals at their defaults. Process and signal tests green.
-- **Progress:** On musl, a spawn with child-reset signals ignored and no child hook now calls `posix_spawn` with `POSIX_SPAWN_SETSIGDEF`, `SETPGROUP` and file actions, so it no longer forks; `strace` shows `clone(CLONE_VM|CLONE_VFORK)`. Redirections through `ChildDup`, namespaces, closed standard descriptors, `ignore_hup`, `new_session` and non-musl targets keep the fork path. Runtime, runtime-unit, modules, root, SSH, archive, API and core gate cases pass. Only the background-versus-foreground wall-time comparison remains, deferred with the timing gates.
-- **Fix with:** make-it-fast
-- **Effort:** M
-
 ### XSH-83 · P3 · Cut the remaining module load cost of btop
 
 - **Area:** Performance
