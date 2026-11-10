@@ -565,9 +565,12 @@ impl Checker {
             checker.validate_published_stream_origins()
                 .map_err(|(owner, _)| FileInferenceFailure::StreamOrigin(owner))?;
             checker.settle_stream_origin_dependencies(external_origins);
-            if (!checker.provisional_effects_read.get() || solved == provisional)
-                && (!checker.provisional_stream_origins_read.get() || checker.stream_origin_outputs == provisional_origins)
-            {
+            let effects_ready = !checker.provisional_effects_read.get() || solved == provisional;
+            let declarations_ready = !checker.provisional_stream_declarations_read.get()
+                || checker.stream_origin_outputs == provisional_origins;
+            let origins_ready = checker.stream_origin_outputs == provisional_origins
+                || (!checker.stream_loop_header_widened.get() && declarations_ready);
+            if effects_ready && origins_ready {
                 checker.effect_summaries.extend(solved);
                 checker.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(external_origins), checker.stream_origin_outputs.clone());
                 return Ok((checker, output));

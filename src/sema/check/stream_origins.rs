@@ -711,6 +711,7 @@ impl Checker {
             .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
         if current.is_none() && target.namespace == self.current_namespace {
             self.provisional_stream_origins_read.set(true);
+            self.provisional_stream_declarations_read.set(true);
         }
         current.or_else(|| self.stream_origin_inputs.declaration(&target))
     }
@@ -1042,7 +1043,10 @@ impl Checker {
                                 .flatten()
                                 .and_then(super::PendingFunctionSig::generalized)
                                 .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
-                            if current_summary.is_none() && same_namespace { self.provisional_stream_origins_read.set(true); }
+                            if current_summary.is_none() && same_namespace {
+                                self.provisional_stream_origins_read.set(true);
+                                self.provisional_stream_declarations_read.set(true);
+                            }
                             if let Some(summary) = current_summary.or_else(|| self.stream_origin_inputs.declaration(&target)) {
                                 let arguments = self.stream_call_actuals(arena, args, span, target, summary)?;
                                 let call_instance = self.pending_call_instantiations.get(&crate::sema::schemes::InstantiationSite::call(span)).and_then(|evidence| evidence.invocation());
@@ -1165,7 +1169,10 @@ impl Checker {
         for (identity, origin) in state {
             if frame.types.contains_key(&identity) {
                 let changed = destination.entry(identity).or_default().join(&origin);
-                if changed && matches!(transfer, StreamLoopTransfer::Backedge) { self.provisional_stream_origins_read.set(true); }
+                if changed && matches!(transfer, StreamLoopTransfer::Backedge) {
+                    self.provisional_stream_origins_read.set(true);
+                    self.stream_loop_header_widened.set(true);
+                }
             }
         }
     }
@@ -2008,6 +2015,24 @@ pure blob_deep(stats: Stats) -> Stats {
         let _symbols = parsed.arena.symbol_owner().enter();
         let checked = super::Checker::check_arena(&parsed.arena, rank_one);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn seeded_nested_loop_headers_settle_without_a_confirmation_round() {
+        let source = "pure pick(first: Stream[Int], second: Stream[Int]) -> Int {\n\
+            var chosen = first\n\
+            for _ in [1, 2] {\n\
+                for x in [1] { let _ = chosen }\n\
+                chosen = second\n\
+            }\n\
+            0\n\
+        }\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+        let _symbols = parsed.arena.symbol_owner().enter();
+        let (work, checked) = crate::sema::inference_work::collect(|| super::Checker::check_arena(&parsed.arena, source));
+        assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
+        assert_eq!(work.function_body_check_entries, 2, "the seeded second round is the fixpoint, so no third body check runs");
     }
 
     #[test]
