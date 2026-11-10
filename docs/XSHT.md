@@ -238,6 +238,10 @@ remaining selected tests as not executed.
 selector, it prints a getting-started guide. Use `xsht help api` for query
 syntax and output options.
 
+`enum:NAME` selects a built-in enum by its qualified name (`enum:archive.Format`)
+or every built-in enum of a module (`enum:archive`). The answer lists each
+variant with its purpose.
+
 `xsht ir-tags` and `xsh::ir::full_instruction_tag_names()` expose the
 full-instruction tag names in schema order.
 

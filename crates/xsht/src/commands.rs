@@ -471,7 +471,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         options_end_at_first_argument: false,
         notes: &[
             "Queries:",
-            "  summary | module:NAME | api:MODULE.FUNCTION",
+            "  summary | module:NAME | api:MODULE.FUNCTION | enum:NAME",
             "  method:RECEIVER.METHOD | record:NAME | language:ID | search:TERMS",
         ],
         examples: &[],

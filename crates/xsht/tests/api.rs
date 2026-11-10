@@ -151,6 +151,86 @@ fn assert_documented(id: &str, docs: &xsh_registry::api_docs::ApiDocs) {
     }
 }
 
+fn assert_contains_in_order(text: &str, fragments: &[String]) {
+    let mut start = 0;
+    for fragment in fragments {
+        let Some(offset) = text[start..].find(fragment) else {
+            panic!("missing {fragment:?} after byte {start} in:\n{text}");
+        };
+        start += offset + fragment.len();
+    }
+}
+
+fn xsht_text(args: &[&str]) -> String {
+    let output = xsht(args);
+    assert!(
+        output.status.success(),
+        "xsht {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn enum_query_lists_each_builtin_variant_with_its_purpose() {
+    for entry in xsh_registry::enums::builtin_enums() {
+        let query = format!("enum:{}", entry.name);
+        let text = xsht_text(&["api", &query]);
+        let mut fragments = vec![
+            format!("query: {query}\n"),
+            "status: exact\n".to_string(),
+            format!("api: enum.{}\n", entry.name),
+            "kind: enum\n".to_string(),
+            format!("purpose: {}\n", entry.summary),
+            format!("variants: {}\n", entry.variants.len()),
+        ];
+        for variant in entry.variants {
+            fragments.push(format!("variant: {}\n", variant.name));
+            fragments.push(format!("variant-purpose: {}\n", variant.summary));
+        }
+        assert_contains_in_order(&text, &fragments);
+    }
+}
+
+#[test]
+fn enum_module_selector_lists_that_modules_builtin_enums() {
+    let text = xsht_text(&["api", "enum:archive"]);
+    assert!(text.contains("status: matches\n"), "{text}");
+    for entry in xsh_registry::enums::builtin_enums() {
+        let listed = text.contains(&format!("api: enum.{}\n", entry.name));
+        assert_eq!(
+            listed,
+            entry.name.starts_with("archive."),
+            "{} listed={listed}\n{text}",
+            entry.name
+        );
+    }
+}
+
+#[test]
+fn enum_jsonl_reports_every_variant_with_its_purpose() {
+    let text = xsht_text(&["api", "--format", "jsonl", "enum:archive.Format"]);
+    assert!(text.contains("\"id\":\"enum.archive.Format\""), "{text}");
+    assert!(text.contains("\"kind\":\"enum\""), "{text}");
+    let entry = xsh_registry::enums::builtin_enum(xsh_registry::enums::ARCHIVE_FORMAT).unwrap();
+    for variant in entry.variants {
+        let object = format!(
+            "{{\"name\":\"{}\",\"summary\":\"{}\"}}",
+            variant.name, variant.summary
+        );
+        assert!(text.contains(&object), "missing {object} in {text}");
+    }
+}
+
+#[test]
+fn enum_query_without_a_match_is_missing() {
+    let output = xsht(&["api", "--strict", "enum:archive.Nope"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("status: missing\n"), "{text}");
+}
+
 #[test]
 fn typed_codec_api_renders_schema_operands_separately_from_values() {
     let output = xsht(&["api", "api:codec.decode_as", "api:codec.read_as"]);

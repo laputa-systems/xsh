@@ -46,6 +46,12 @@ pub struct ApiError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct ApiVariant {
+    name: String,
+    summary: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ApiItem {
     id: String,
     kind: &'static str,
@@ -55,6 +61,7 @@ struct ApiItem {
     effects: Vec<String>,
     tags: Vec<String>,
     signatures: Vec<String>,
+    variants: Vec<ApiVariant>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -116,6 +123,7 @@ enum Selector {
     Method(String, String),
     MethodReceiver(String),
     Record(String),
+    Enum(String),
     Language(String),
     Search(String),
 }
@@ -348,7 +356,7 @@ const INTRO_SCRIPT: &str = include_str!("../../../docs/snippets/api/hello.xsh");
 
 fn intro_text() -> String {
     format!(
-        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module or receiver overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api method:Str\n  xsht api api:fs.files\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api search:rooted extraction\n\n`method:Str` lists every method on the Str receiver by purpose; append a member name (method:Str.lower) to read one exact item. Exact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
+        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module or receiver overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api method:Str\n  xsht api api:fs.files\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api enum:archive.Format\n  xsht api search:rooted extraction\n\n`method:Str` lists every method on the Str receiver by purpose; append a member name (method:Str.lower) to read one exact item. Exact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
         INTRO_SCRIPT.trim_end(),
     )
 }
@@ -379,6 +387,7 @@ fn intro_jsonl() -> String {
             "method:Str".to_string(),
             "method:Path.read_text".to_string(),
             "record:FsEntry".to_string(),
+            "enum:archive.Format".to_string(),
             "search:rooted extraction".to_string(),
         ],
         false,
@@ -417,6 +426,7 @@ fn parse_selector(raw: &str) -> Result<Selector, String> {
             }
         }
         "record" => Ok(Selector::Record(value.to_string())),
+        "enum" => Ok(Selector::Enum(value.to_string())),
         "language" => Ok(Selector::Language(value.to_string())),
         "search" => Ok(Selector::Search(value.to_string())),
         _ => Err(format!(
@@ -471,6 +481,13 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
             .filter(|item| item.id == format!("record.{record}"))
             .cloned()
             .collect(),
+        Selector::Enum(name) => enum_items()
+            .into_iter()
+            .filter(|item| {
+                item.id == format!("enum.{name}")
+                    || (!name.contains('.') && item.id.starts_with(&format!("enum.{name}.")))
+            })
+            .collect(),
         Selector::Language(language) => catalog
             .iter()
             .filter(|item| {
@@ -504,7 +521,9 @@ fn default_details(selector: &Selector, matches: &[ApiItem]) -> ApiDetails {
         }
         Selector::MethodReceiver(_) => ApiDetails::Basic,
         Selector::Language(_) => ApiDetails::Full,
-        Selector::Api(_, _) | Selector::Method(_, _) | Selector::Record(_) => ApiDetails::Full,
+        Selector::Api(_, _) | Selector::Method(_, _) | Selector::Record(_) | Selector::Enum(_) => {
+            ApiDetails::Full
+        }
     }
 }
 
@@ -661,6 +680,7 @@ fn item_from_docs(
         effects,
         tags: docs.tags.clone(),
         signatures,
+        variants: Vec::new(),
     }
 }
 
@@ -693,6 +713,30 @@ fn record_items() -> Vec<ApiItem> {
                 vec![format!("{name} {}", render_type(&ty))],
                 vec!["none".to_string()],
             )
+        })
+        .collect()
+}
+
+fn enum_items() -> Vec<ApiItem> {
+    xsh_registry::enums::builtin_enums()
+        .iter()
+        .map(|entry| ApiItem {
+            id: format!("enum.{}", entry.name),
+            kind: "enum",
+            summary: entry.summary.to_string(),
+            contract: String::new(),
+            example: None,
+            effects: vec!["none".to_string()],
+            tags: Vec::new(),
+            signatures: Vec::new(),
+            variants: entry
+                .variants
+                .iter()
+                .map(|variant| ApiVariant {
+                    name: variant.name.to_string(),
+                    summary: variant.summary.to_string(),
+                })
+                .collect(),
         })
         .collect()
 }
@@ -1086,6 +1130,16 @@ fn write_full_text_item(output: &mut String, item: &ApiItem) {
         output.push_str(signature);
         output.push('\n');
     }
+    if !item.variants.is_empty() {
+        output.push_str(&format!("variants: {}\n", item.variants.len()));
+        for variant in &item.variants {
+            output.push_str("variant: ");
+            output.push_str(&variant.name);
+            output.push_str("\nvariant-purpose: ");
+            output.push_str(&variant.summary);
+            output.push('\n');
+        }
+    }
     if !item.tags.is_empty() {
         output.push_str("tags: ");
         output.push_str(&item.tags.join(", "));
@@ -1134,7 +1188,21 @@ fn push_json_item(output: &mut String, item: &ApiItem) {
     }
     output.push(',');
     push_json_array(output, "tags", &item.tags, true);
-    push_json_array(output, "signatures", &item.signatures, false);
+    push_json_array(output, "signatures", &item.signatures, !item.variants.is_empty());
+    if !item.variants.is_empty() {
+        output.push_str("\"variants\":[");
+        for (index, variant) in item.variants.iter().enumerate() {
+            if index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"name\":");
+            push_json_string(output, &variant.name);
+            output.push_str(",\"summary\":");
+            push_json_string(output, &variant.summary);
+            output.push('}');
+        }
+        output.push(']');
+    }
     output.push('}');
 }
 

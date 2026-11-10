@@ -163,7 +163,7 @@ Usage:
   xsht api [OPTIONS] [QUERY...]
 
   Queries:
-    summary | module:NAME | api:MODULE.FUNCTION
+    summary | module:NAME | api:MODULE.FUNCTION | enum:NAME
     method:RECEIVER.METHOD | record:NAME | language:ID | search:TERMS
 
   --format FORMAT    text or jsonl
