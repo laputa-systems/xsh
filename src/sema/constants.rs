@@ -498,15 +498,40 @@ impl<T> Default for SchemaExpectation<T> {
 
 impl SchemaExpectation {
     pub(crate) fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
-        let mut pending = vec![self];
-        while let Some(schema) = pending.pop() {
-            for instance in &mut schema.instances {
-                for argument in &mut instance.arguments { map(argument); }
-            }
-            pending.extend(Arc::make_mut(&mut schema.children).values_mut());
-        }
+        self.map_arguments(map);
+    }
+}
+
+impl<T: Clone + PartialEq> SchemaExpectation<T> {
+    /// Visits a schema's arguments before its children, and children in
+    /// descending component order; callers that intern while mapping rely on it.
+    pub(crate) fn map_arguments(&mut self, map: &mut impl FnMut(&mut T)) {
+        if let Some(mapped) = self.mapped_arguments(map) { *self = mapped; }
     }
 
+    fn mapped_arguments(&self, map: &mut impl FnMut(&mut T)) -> Option<Self> {
+        let mut instances: Option<Vec<SchemaInstance<T>>> = None;
+        for (instance_index, instance) in self.instances.iter().enumerate() {
+            for (argument_index, argument) in instance.arguments.iter().enumerate() {
+                let mut mapped = argument.clone();
+                map(&mut mapped);
+                if mapped != *argument {
+                    instances.get_or_insert_with(|| self.instances.clone())[instance_index].arguments[argument_index] = mapped;
+                }
+            }
+        }
+        let mut children: Option<BTreeMap<SchemaComponent, Self>> = None;
+        for (component, child) in self.children.iter().rev() {
+            if let Some(mapped) = child.mapped_arguments(map) {
+                children.get_or_insert_with(|| self.children.as_ref().clone()).insert(*component, mapped);
+            }
+        }
+        if instances.is_none() && children.is_none() { return None; }
+        Some(Self {
+            instances: instances.unwrap_or_else(|| self.instances.clone()),
+            children: children.map_or_else(|| Arc::clone(&self.children), Arc::new),
+        })
+    }
 }
 
 impl<T> SchemaExpectation<T> {

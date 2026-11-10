@@ -1815,13 +1815,7 @@ impl SchemaExpectation<SchemeType> {
     }
 
     pub(crate) fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
-        let mut pending = vec![self];
-        while let Some(schema) = pending.pop() {
-            for instance in &mut schema.instances {
-                for argument in &mut instance.arguments { argument.map_ground_types(map); }
-            }
-            pending.extend(Arc::make_mut(&mut schema.children).values_mut());
-        }
+        self.map_arguments(&mut |argument: &mut SchemeType| argument.map_ground_types(map));
     }
 }
 
