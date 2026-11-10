@@ -235,7 +235,15 @@ proc utf8_locale() [env] -> Bool {
 ## bytes and, outside a UTF-8 locale, non-ASCII bytes print as `$'\ooo'`. With
 ## `always: false` a name that needs no quoting is returned unchanged.
 export proc quote_bytes(raw: Bytes, always = true) [env] -> Str {
-  quote_pieces(decode_name(raw, utf8_locale()), always)
+  let utf8 = utf8_locale()
+  if let Ok(text) = raw.utf8() {
+    let plain = if utf8 { rx"^[^\x00-\x1f\x7f-\x9f']*$" } else { rx"^[\x20-\x26\x28-\x7e]*$" }
+    if plain.matches(text) {
+      let must = always or text == "" or text.starts_with("~") or text.starts_with("#") or rx"[&*()|\[;<>?! `$\\^=]".matches(text) or text.find("\"") != null
+      return if must { f"'{text}'" } else { text }
+    }
+  }
+  quote_pieces(decode_name(raw, utf8), always)
 }
 
 ## Quote a name for a message (GNU `quoteaf`): `'name'` always.
