@@ -147,16 +147,6 @@ out of scope.
 - **Fix with:** make-it-fast
 - **Effort:** M
 
-### XSH-87 · P4 · Cut rm's per-entry cost for -v and -i messages
-
-- **Area:** Performance
-- **Where:** `core/rm.xsh` (`remove_target`, its `-v` line and `-i` prompt), `core/lib/gnu.xsh` (`quote_bytes`)
-- **Problem:** `rm -rv` and `rm -ri` spend 0.7 to 0.9 ms of CPU per entry on 4k entries and about 2 ms per entry on 100k (musl `release` and `dist` binaries, 2026-11-10), so the per-entry cost grows with the tree, against 45 µs for `rm -r --one-file-system`, which walks the same tree in XSH without printing. The extra cost is in formatting and writing one message or prompt per entry, not in the walk or the name building that XSH-78 made lazy.
-- **Recommendation:** Profile `rm -rv` at 10k and 100k entries with `perf`; find what grows with the tree (an output buffer, a recursion copy, a per-directory list) before tuning quoting and formatting.
-- **Acceptance:** `rm -rv` and `rm -ri` on 100k entries cost at least 40% less CPU over readiness-qualified interleaved pairs, with byte-identical messages and prompts; rm tests green.
-- **Fix with:** make-it-fast
-- **Effort:** S
-
 ### XSH-14 · P3 · Reuse import-graph checks across lint candidates
 
 - **Area:** Performance
