@@ -26,6 +26,11 @@ impl UnresolvedVariables {
     }
 }
 
+pub(crate) struct AnchoredInputSupport {
+    bound: Option<UnresolvedVariables>,
+    constrained: UnresolvedVariables,
+}
+
 impl TypeConstraints {
     pub(crate) fn unresolved_local_holes_are_input_bound(
         &self,
@@ -214,23 +219,33 @@ impl TypeConstraints {
         }
     }
 
-    pub(crate) fn unanchored_type_users<K: Clone>(
+    pub(crate) fn anchored_input_support(
         &self,
         owner: crate::sema::check::EffectDeclarationId,
         component: &BTreeSet<crate::sema::check::EffectDeclarationId>,
-        holes: &[Type],
         formals: &[Type],
-        users: &[(K, Type)],
-    ) -> Result<Option<Vec<K>>, ConstraintResolutionError> {
-        let holes = self.unresolved_input_variables(holes)?;
-        let bound = self.input_bound_variables(owner, component, formals)?;
+    ) -> Result<AnchoredInputSupport, ConstraintResolutionError> {
         let mut constrained = UnresolvedVariables::default();
         for entry in self.operations.entries.values().filter(|entry| component.iter().any(|owner| entry.owner == CallableApplicationScope::Declaration(*owner))) {
             constrained.extend(self.unresolved_input_variables(&entry.operation.inputs().cloned().collect::<Vec<_>>())?);
             if let Some(result) = entry.operation.result() { constrained.extend(self.unresolved_input_variables(std::slice::from_ref(result))?); }
         }
+        if constrained.types.is_empty() { return Ok(AnchoredInputSupport { bound: None, constrained }); }
+        Ok(AnchoredInputSupport { bound: Some(self.input_bound_variables(owner, component, formals)?), constrained })
+    }
+
+    pub(crate) fn unanchored_type_users<K: Clone>(
+        &self,
+        support: &AnchoredInputSupport,
+        holes: &[Type],
+        users: &[(K, Type)],
+    ) -> Result<Option<Vec<K>>, ConstraintResolutionError> {
+        if holes.is_empty() { return Ok(None); }
+        let holes = self.unresolved_input_variables(holes)?;
+        if !holes.types.iter().any(|variable| support.constrained.contains_type(*variable)) { return Ok(None); }
+        let Some(bound) = &support.bound else { return Ok(None); };
         let unbound = holes.types.iter().copied()
-            .filter(|variable| !bound.contains_type(*variable) && constrained.contains_type(*variable))
+            .filter(|variable| !bound.contains_type(*variable) && support.constrained.contains_type(*variable))
             .collect::<FxHashSet<_>>();
         if unbound.is_empty() { return Ok(None); }
         let mut found = Vec::new();

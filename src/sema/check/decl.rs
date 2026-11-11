@@ -237,9 +237,14 @@ impl Checker {
             .filter(|&(&expression, _)| matches!(program.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(elements) if elements.is_empty()))
             .map(|(&expression, ty)| (expression, ty.clone())).collect::<Vec<_>>();
         let mut reported = std::collections::BTreeSet::new();
+        if calls.is_empty() || users.is_empty() { return true; }
+        let support = match self.type_constraints.anchored_input_support(owner, component, &anchors) {
+            Ok(support) => support,
+            Err(_) => return true,
+        };
         for (site, evidence) in calls {
             let holes = evidence.instances().flat_map(|(_, instance)| instance.type_arguments.values().cloned()).collect::<Vec<_>>();
-            let unanchored = match self.type_constraints.unanchored_type_users(owner, component, &holes, &anchors, &users) {
+            let unanchored = match self.type_constraints.unanchored_type_users(&support, &holes, &users) {
                 Ok(None) => continue,
                 Ok(Some(unanchored)) => unanchored,
                 Err(_) => continue,
