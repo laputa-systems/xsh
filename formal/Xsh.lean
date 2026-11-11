@@ -108,6 +108,7 @@ import Xsh.Conformance.Vertical.Certificate
 import Xsh.Conformance.Vertical.CallsCertificate
 import Xsh.Conformance.Vertical.AssignmentsCertificate
 import Xsh.Conformance.Vertical.BooleanCertificate
+import Xsh.Conformance.Vertical.ResultCertificate
 import Xsh.Conformance.Vertical.Facts
 import Xsh.Conformance.Vertical.FactsDocument
 import Xsh.Conformance.Vertical.FactsCertificate

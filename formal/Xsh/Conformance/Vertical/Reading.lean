@@ -239,6 +239,31 @@ theorem reads_if {F : LoweringState} {callees : List (Option Callee)}
       blockWords_of_blockAt callees tableAt, single, conditionBefore, thenBefore, elseBefore,
       conditionReads, thenReads, elseReads]
 
+theorem reads_ok {F : LoweringState} {callees : List (Option Callee)}
+    {row value : Word32} {e : BaseExpr}
+    (at_ : F.RowAt row.val .exprOk [value]) (valueBefore : value.val < row.val)
+    (readsValue : Reads F callees value e) :
+    Reads F callees row (.resultOk e) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    have valueReads := readsValue fuel (by omega)
+    simp [expression?, readInstruction_of_rowAt at_, valueBefore, valueReads]
+
+theorem reads_err {F : LoweringState} {callees : List (Option Callee)}
+    {row value cause : Word32} {e : BaseExpr}
+    (at_ : F.RowAt row.val .exprErr [value, cause]) (valueBefore : value.val < row.val)
+    (absent : cause.val = 0) (readsValue : Reads F callees value e) :
+    Reads F callees row (.resultErr e) := by
+  intro fuel above
+  cases fuel with
+  | zero => omega
+  | succ fuel =>
+    have valueReads := readsValue fuel (by omega)
+    have causeZero : cause = 0 := Fin.ext absent
+    simp [expression?, readInstruction_of_rowAt at_, valueBefore, causeZero, valueReads]
+
 /-- An integer-family row denotes an expression in a context, at every fuel past its index. -/
 def IntReads (F : LoweringState) (callees : List (Option Callee)) (row : Word32) (e : BaseExpr) :
     Prop :=

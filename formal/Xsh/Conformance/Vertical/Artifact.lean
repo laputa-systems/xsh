@@ -38,13 +38,15 @@ inductive FragmentTag where
   | intSlot
   | intBinary
   | stmtAssignInt
+  | exprOk
+  | exprErr
   deriving DecidableEq, Repr
 
 namespace FragmentTag
 
 def all : List FragmentTag :=
   [intInt, stmtLetInt, exprInt, exprParam, exprBinary, stmtReturn, stmtValue, exprValueBlock,
-    exprIf, exprDirectPureCall, intSlot, intBinary, stmtAssignInt]
+    exprIf, exprDirectPureCall, intSlot, intBinary, stmtAssignInt, exprOk, exprErr]
 
 def name : FragmentTag → String
   | intInt => "IntInt"
@@ -60,6 +62,8 @@ def name : FragmentTag → String
   | intSlot => "IntSlot"
   | intBinary => "IntBinary"
   | stmtAssignInt => "StmtAssignInt"
+  | exprOk => "ExprOk"
+  | exprErr => "ExprErr"
 
 def word : FragmentTag → Word32
   | intInt => ⟨0, by decide⟩
@@ -75,10 +79,12 @@ def word : FragmentTag → Word32
   | intSlot => ⟨1, by decide⟩
   | intBinary => ⟨2, by decide⟩
   | stmtAssignInt => ⟨124, by decide⟩
+  | exprOk => ⟨104, by decide⟩
+  | exprErr => ⟨105, by decide⟩
 
 def payloadWords : FragmentTag → Nat
-  | intInt | stmtLetInt | exprInt | exprValueBlock => 2
-  | exprParam | stmtReturn | stmtValue | intSlot => 1
+  | intInt | stmtLetInt | exprInt | exprValueBlock | exprErr => 2
+  | exprParam | stmtReturn | stmtValue | intSlot | exprOk => 1
   | exprIf | exprDirectPureCall | intBinary => 3
   | exprBinary | stmtAssignInt => 4
 
@@ -182,9 +188,12 @@ def ofName? (text : String) : Option FragmentFailure := all.find? fun failure =>
 end FragmentFailure
 
 /-- What a recorded call of a function ended with: the 64-bit pattern of the integer it
-returned, or the specified failure it raised. -/
+returned, the 64-bit pattern of the integer an `Ok` or `Err` carried, or the specified failure it
+raised. -/
 inductive ObservedOutcome where
   | value (bits : Word64)
+  | ok (bits : Word64)
+  | err (bits : Word64)
   | failure (kind : FragmentFailure)
   deriving DecidableEq
 
@@ -275,14 +284,16 @@ def decodeWideWord (value : WireValue) : Option Word64 :=
   value.text?.bind decodeHex64?
 
 /-- An observation is the called function, the sixteen-digit bits of each argument, and either a
-value with its sixteen-digit bits or a failure with its specified name; any other outcome word,
-and any detail of the other shape, is rejected. -/
+value, `ok` or `err` with its sixteen-digit bits, or a failure with its specified name; any other
+outcome word, and any detail of the other shape, is rejected. -/
 def decodeObservation (value : WireValue) : Option Observation := do
   let fields ← value.closedObject? ["function", "arguments", "outcome", "detail"]
   let function ← idField fields "function"
   let arguments ← listField fields "arguments" decodeWideWord
   let outcome ← match textField fields "outcome" with
     | some "value" => (wideField fields "detail").map ObservedOutcome.value
+    | some "ok" => (wideField fields "detail").map ObservedOutcome.ok
+    | some "err" => (wideField fields "detail").map ObservedOutcome.err
     | some "failure" =>
         ((textField fields "detail").bind FragmentFailure.ofName?).map ObservedOutcome.failure
     | _ => none

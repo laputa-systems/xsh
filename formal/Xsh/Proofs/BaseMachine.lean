@@ -15,6 +15,17 @@ theorem accepted_initial_expression_is_wellFormed_fragment
     wellFormed (initialConfig names activations store expression) := by
   exact ⟨accepted, rfl, rfl⟩
 
+private theorem infer_result_inner {names : LexicalEnvironment}
+    {activations : ActivationEnvironment} {store : BaseStore} {value : BaseExpr}
+    {type : BaseType} (form : BaseExpr)
+    (typed : inferBaseType? names activations store form = some type)
+    (shape : form = .resultOk value ∨ form = .resultErr value) :
+    inferBaseType? names activations store value = some .integer ∧ type = .result := by
+  rcases shape with rfl | rfl <;>
+    · cases inner' : inferBaseType? names activations store value with
+      | none => simp [inferBaseType?, inner'] at typed
+      | some actual => cases actual <;> simp_all [inferBaseType?]
+
 theorem checker_accepts_every_typed_expression
     {names : LexicalEnvironment} {activations : ActivationEnvironment} {store : BaseStore}
     {expression : BaseExpr} {type : BaseType}
@@ -49,6 +60,12 @@ theorem checker_accepts_every_typed_expression
   | compare operator left right => simp [checkBaseExpr, typed]
   | conditional condition thenBranch elseBranch => simp [checkBaseExpr, typed]
   | call parameters body arguments => simp [checkBaseExpr, typed]
+  | resultOk value =>
+    obtain ⟨inner, _⟩ := infer_result_inner (form := .resultOk value) typed (Or.inl rfl)
+    simp [checkBaseExpr, checkIntegerExpr, inner]
+  | resultErr value =>
+    obtain ⟨inner, _⟩ := infer_result_inner (form := .resultErr value) typed (Or.inr rfl)
+    simp [checkBaseExpr, checkIntegerExpr, inner]
 
 theorem integer_checker_implies_supported_checker_fragment
     (names : LexicalEnvironment) (activations : ActivationEnvironment) (store : BaseStore)
@@ -110,6 +127,15 @@ private theorem static_conditional {ps : List Xsh.Syntax.RawName} {c a b : BaseE
       staticType ps b = some .integer ∧ t = .integer := by
   simp only [staticType] at h
   split at h <;> simp_all
+
+private theorem static_result {ps : List Xsh.Syntax.RawName} {value : BaseExpr} {t : BaseType}
+    (form : BaseExpr) (h : staticType ps form = some t)
+    (shape : form = .resultOk value ∨ form = .resultErr value) :
+    staticType ps value = some .integer ∧ t = .result := by
+  rcases shape with rfl | rfl <;>
+    · cases inner' : staticType ps value with
+      | none => simp [staticType, inner'] at h
+      | some actual => cases actual <;> simp_all [staticType]
 
 private theorem static_call {ps inner : List Xsh.Syntax.RawName} {body : BaseExpr}
     {args : List BaseExpr} {t : BaseType}
@@ -183,7 +209,14 @@ theorem infer_substitute (names : LexicalEnvironment) (activations : ActivationE
       have lengths := length_substituteArguments (ps.zip vs) args
       have arguments := infer_arguments_substitute names activations store ps vs same args ha
       simp [substitute, inferBaseType?, hl, lengths, arguments, hb]
-
+  | .resultOk value, t, h => by
+      obtain ⟨found, rfl⟩ := static_result _ h (Or.inl rfl)
+      simpa [substitute, inferBaseType?,
+        infer_substitute names activations store ps vs same value _ found]
+  | .resultErr value, t, h => by
+      obtain ⟨found, rfl⟩ := static_result _ h (Or.inr rfl)
+      simpa [substitute, inferBaseType?,
+        infer_substitute names activations store ps vs same value _ found]
 theorem infer_arguments_substitute (names : LexicalEnvironment)
     (activations : ActivationEnvironment) (store : BaseStore) (ps : List Xsh.Syntax.RawName)
     (vs : List IntValue) (same : ps.length = vs.length) :
@@ -537,6 +570,34 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
           · intro frame rest eq
             cases eq
             simpa [BaseFrame.consumes] using argumentInteger
+      | resultOk value =>
+        have innerInteger := infer_of_checked_integer (by simpa [checkBaseExpr] using accepted)
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        refine wf_evaluate (checker_accepts_every_typed_expression innerInteger) ?_ ?_
+        · have produces : producesWhatNextConsumes .resultOk continuation = true := by
+            refine produces_of_type fun next rest eq => ?_
+            have typedExpression := fitsFrame next rest eq
+            simpa [BaseFrame.produces, BaseFrame.consumes, inferBaseType?, innerInteger]
+              using typedExpression
+          simp [continuationChecked, produces, continuationWellFormed]
+        · intro frame rest eq
+          cases eq
+          simpa [BaseFrame.consumes] using innerInteger
+      | resultErr value =>
+        have innerInteger := infer_of_checked_integer (by simpa [checkBaseExpr] using accepted)
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        refine wf_evaluate (checker_accepts_every_typed_expression innerInteger) ?_ ?_
+        · have produces : producesWhatNextConsumes .resultErr continuation = true := by
+            refine produces_of_type fun next rest eq => ?_
+            have typedExpression := fitsFrame next rest eq
+            simpa [BaseFrame.produces, BaseFrame.consumes, inferBaseType?, innerInteger]
+              using typedExpression
+          simp [continuationChecked, produces, continuationWellFormed]
+        · intro frame rest eq
+          cases eq
+          simpa [BaseFrame.consumes] using innerInteger
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -660,6 +721,26 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
               · intro frame remaining' eq
                 cases eq
                 simpa [BaseFrame.consumes] using argumentInteger
+        | resultOk =>
+          simp only [continuationChecked, Bool.and_eq_true] at continuationWellFormed
+          obtain ⟨produces, restChecked⟩ := continuationWellFormed
+          have payload := typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer =>
+            exact wf_returned restChecked (produces_fits (type := .result) produces rfl)
+        | resultErr =>
+          simp only [continuationChecked, Bool.and_eq_true] at continuationWellFormed
+          obtain ⟨produces, restChecked⟩ := continuationWellFormed
+          have payload := typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer =>
+            exact wf_returned restChecked (produces_fits (type := .result) produces rfl)
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 

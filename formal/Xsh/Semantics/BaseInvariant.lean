@@ -52,6 +52,8 @@ def exprWork : BaseExpr → Nat
   | .conditional condition thenBranch elseBranch =>
     exprWork condition + exprWork thenBranch + exprWork elseBranch + 2
   | .call _ body arguments => exprWork body + argumentsWork arguments + 1
+  | .resultOk value => exprWork value + 2
+  | .resultErr value => exprWork value + 2
 
 def argumentsWork : List BaseExpr → Nat
   | [] => 0
@@ -66,6 +68,7 @@ def frameWork : BaseFrame → Nat
   | .compareRight _ _ => 1
   | .branch thenBranch elseBranch => exprWork thenBranch + exprWork elseBranch + 1
   | .callArgument _ body _ remaining => exprWork body + argumentsWork remaining + 1
+  | .resultOk | .resultErr => 1
 
 def continuationWork : List BaseFrame → Nat
   | [] => 0

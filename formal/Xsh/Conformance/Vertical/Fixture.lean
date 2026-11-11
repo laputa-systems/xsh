@@ -148,4 +148,27 @@ def booleanArtifact : RawArtifact where
   observations := [⟨bridgeId! 1, [12, 9], .value 1⟩, ⟨bridgeId! 1, [3, 9], .value 0⟩,
     ⟨bridgeId! 2, [3, 9], .value 1⟩, ⟨bridgeId! 2, [12, 9], .value 0⟩]
 
+def resultSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure keeps(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n\npure stops(value: Int) -> Result[Int, Int] {\n  return Err(value)\n}\n\npure adds(value: Int) -> Result[Int, Int] {\n  return Ok(value + 1)\n}\n"⟩
+
+def resultArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprOk, 1, 1⟩,
+    ⟨bridgeId! 3, .stmtReturn, 2, 1⟩, ⟨bridgeId! 4, .exprParam, 5, 1⟩,
+    ⟨bridgeId! 5, .exprErr, 6, 2⟩, ⟨bridgeId! 6, .stmtReturn, 8, 1⟩,
+    ⟨bridgeId! 7, .exprParam, 11, 1⟩, ⟨bridgeId! 8, .exprInt, 12, 2⟩,
+    ⟨bridgeId! 9, .exprBinary, 14, 4⟩, ⟨bridgeId! 10, .exprOk, 18, 1⟩,
+    ⟨bridgeId! 11, .stmtReturn, 19, 1⟩]
+  extra := [0, 0, 1, 1, 2, 0, 3, 0, 4, 1, 5, 0, 1, 0, 0, 6, 7, 2, 8, 9, 1, 10]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 3, 2, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 9, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩,
+    ⟨bridgeId! 3, 20, 2, ⟨none⟩, ⟨some (bridgeId! 3)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "keeps", 0, 1, 0, 1, bridgeId! 1, 2⟩,
+    ⟨bridgeId! 2, "stops", 1, 1, 1, 1, bridgeId! 2, 2⟩,
+    ⟨bridgeId! 3, "adds", 2, 1, 2, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [7], .ok 7⟩, ⟨bridgeId! 2, [5], .err 5⟩,
+    ⟨bridgeId! 3, [4], .ok 5⟩, ⟨bridgeId! 3, [18446744073709551615], .ok 0⟩]
+
 end Xsh.Conformance.Vertical

@@ -24,15 +24,22 @@ def FragmentOp.expression : FragmentOp → BaseExpr → BaseExpr → BaseExpr
   | .gt => .compare .greater
   | .lt => .compare .less
 
+/-- The `Ok` or `Err` constructor a source form names. -/
+def constructorExpression : Bool → BaseExpr → BaseExpr
+  | true, value => .resultOk value
+  | false, value => .resultErr value
+
 def FragmentFailure.fault : FragmentFailure → IntegerFault
   | .divisionByZero => .divisionByZero
   | .integerOverflow => .overflow
 
 /-- What the IR meaning of a function ends with: the integer it completes with, the boolean a
-comparison completes with, or the specified failure the base machine terminates with. -/
+comparison completes with, the `Ok` or `Err` of an integer a constructor completes with, or the
+specified failure the base machine terminates with. -/
 inductive FunctionOutcome where
   | value (result : Int)
   | truth (result : Bool)
+  | constructed (isOk : Bool) (result : Int)
   | failure (kind : FragmentFailure)
   deriving DecidableEq
 
@@ -143,6 +150,12 @@ def expression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
               let values ← rows.mapM (expression? context fuel)
               some (.call (parameterNames callee.parameters) callee.body values)
           | [] => none
+      | .exprOk, [value] => do
+          check (decide (value.val < index.val))
+          some (.resultOk (← expression? context fuel value))
+      | .exprErr, [value, cause] => do
+          check (decide (value.val < index.val) && cause.val == 0)
+          some (.resultErr (← expression? context fuel value))
       | _, _ => none
 
 /-- An integer row of the typed family that assignments use: a literal, a slot, or an arithmetic
@@ -336,7 +349,11 @@ def FunctionProgram.outcome? (program : FunctionProgram) (arguments : List Int) 
         | .completed (.value value) =>
             match integerPayload? value with
             | some result => some (.value result.val)
-            | none => (booleanPayload? value).map FunctionOutcome.truth
+            | none =>
+                match booleanPayload? value with
+                | some truth => some (.truth truth)
+                | none => (resultPayload? value).map fun payload =>
+                    FunctionOutcome.constructed payload.1 payload.2.val
         | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
         | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
         | _ => none
@@ -353,10 +370,13 @@ def resultBits (value : Int) : Nat := (value % 18446744073709551616).toNat
 
 /-- A recorded outcome agrees with a meaning when both are the same failure, or both are values
 and the record holds that integer's 64-bit pattern, or both are booleans and the record holds one
-bit (`1` for true). -/
+bit (`1` for true), or both are the same constructor and the record holds the payload's 64-bit
+pattern (`ok` for `Ok`, `err` for `Err`). -/
 def outcomeRecorded : FunctionOutcome → ObservedOutcome → Bool
   | .value result, .value bits => resultBits result == bits.val
   | .truth result, .value bits => (if result then 1 else 0) == bits.val
+  | .constructed isOk result, .ok bits => isOk && resultBits result == bits.val
+  | .constructed isOk result, .err bits => !isOk && resultBits result == bits.val
   | .failure kind, .failure recorded => kind == recorded
   | _, _ => false
 
@@ -381,6 +401,8 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
           | .exprValueBlock, _ => expressionAt word
           | .exprIf, _ => expressionAt word
           | .exprDirectPureCall, _ => expressionAt word
+          | .exprOk, _ => expressionAt word
+          | .exprErr, _ => expressionAt word
           | .intSlot, _ => true
           | .intBinary, _ => (intExpression? context (tables.tags.size + 1) word).isSome
           | .stmtAssignInt, [_, kind, valueRow, _] =>
@@ -509,9 +531,9 @@ theorem settle_error_is_a_machine_fault {assignment : Assignment} {bindings : Li
     | internalStuck => rw [run] at settled; simp at settled
   · simp at settled
 
-/-- A program outcome is exactly a completed base machine run: an integer or boolean value or one
-of the two specified arithmetic faults of the returned expression, run against the settled
-bindings, or the same fault raised by the assignment's right-hand side. -/
+/-- A program outcome is exactly a completed base machine run: an integer, boolean or `Result`
+value, or one of the two specified arithmetic faults of the returned expression, run against the
+settled bindings, or the same fault raised by the assignment's right-hand side. -/
 theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
     {arguments : List Int} {outcome : FunctionOutcome}
     (result : program.outcome? arguments = some outcome) :
@@ -521,6 +543,10 @@ theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
     (∃ bindings final truth, program.settled? = some (.ok bindings) ∧
       runFuel runBudget (program.machineWith bindings arguments) = .completed (.value final) ∧
       booleanPayload? final = some truth ∧ outcome = .truth truth) ∨
+    (∃ bindings final isOk payload, program.settled? = some (.ok bindings) ∧
+      runFuel runBudget (program.machineWith bindings arguments) = .completed (.value final) ∧
+      resultPayload? final = some (isOk, payload) ∧
+      outcome = .constructed isOk payload.val) ∨
     (∃ bindings kind, program.settled? = some (.ok bindings) ∧
       runFuel runBudget (program.machineWith bindings arguments) =
         .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) ∨
@@ -540,8 +566,8 @@ theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
           | none => simp [FunctionProgram.settled?, assignmentCase] at settled
           | some assignment =>
               simp only [FunctionProgram.settled?, assignmentCase] at settled
-              exact .inr (.inr (.inr ⟨assignment, kind, rfl, settle_error_is_a_machine_fault settled,
-                result.symm⟩))
+              exact .inr (.inr (.inr (.inr ⟨assignment, kind, rfl, settle_error_is_a_machine_fault
+                settled, result.symm⟩)))
       | ok bindings =>
           dsimp only at result
           cases run : runFuel runBudget (program.machineWith bindings arguments) with
@@ -558,18 +584,27 @@ theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
                       | some value =>
                           simp only [payload, truth, Option.map_some, Option.some.injEq] at result
                           exact .inr (.inl ⟨bindings, final, value, rfl, run, truth, result.symm⟩)
-                      | none => simp [payload, truth] at result
+                      | none =>
+                          cases constructed : resultPayload? final with
+                          | none => simp [payload, truth, constructed] at result
+                          | some pair =>
+                              obtain ⟨isOk, value⟩ := pair
+                              simp only [payload, truth, constructed, Option.map_some,
+                                Option.some.injEq] at result
+                              exact .inr (.inr (.inl ⟨bindings, final, isOk, value, rfl, run,
+                                constructed, result.symm⟩))
               | fault fault =>
                   cases fault <;> try (simp at result; done)
                   rename_i arithmetic
                   cases arithmetic with
                   | overflow =>
                       simp only [Option.some.injEq] at result
-                      exact .inr (.inr (.inl ⟨bindings, .integerOverflow, rfl, run, result.symm⟩))
+                      exact .inr (.inr (.inr (.inl ⟨bindings, .integerOverflow, rfl, run,
+                        result.symm⟩)))
                   | divisionByZero =>
                       simp only [Option.some.injEq] at result
-                      exact .inr (.inr (.inl ⟨bindings, .divisionByZero, rfl, run,
-                        result.symm⟩))
+                      exact .inr (.inr (.inr (.inl ⟨bindings, .divisionByZero, rfl, run,
+                        result.symm⟩)))
           | hostRequest waiting => rw [run] at result; simp at result
           | outOfFuel => rw [run] at result; simp at result
           | internalStuck => rw [run] at result; simp at result

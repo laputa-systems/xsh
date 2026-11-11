@@ -20,7 +20,8 @@ namespace Xsh.Values
 
 open Xsh.Conformance.Transport
 
-/-- Composite runtime-value fragment; Float stores its exact 64-bit pattern. -/
+/-- Composite runtime-value fragment; Float stores its exact 64-bit pattern. `result` carries the
+`Ok` or `Err` tag and the integer payload of the `Result[Int, Int]` domain this fragment models. -/
 inductive CompositeValue where
   | null
   | boolean (value : Bool)
@@ -32,6 +33,7 @@ inductive CompositeValue where
   | list (values : List CompositeValue)
   | record (fields : List (String × CompositeValue))
   | tagged (typeName variantName : String) (fields : List CompositeValue)
+  | result (isOk : Bool) (value : IntValue)
 
 /-- Exact structural identity, including Float payload bits and record order. -/
 def representationIdentity (left right : CompositeValue) : Prop := left = right
@@ -56,6 +58,8 @@ mutual
     | .tagged leftType leftVariant leftFields, .tagged rightType rightVariant rightFields =>
         leftType = rightType ∧ leftVariant = rightVariant ∧
           listSemanticEq leftFields rightFields
+    | .result leftOk leftValue, .result rightOk rightValue =>
+        leftOk = rightOk ∧ leftValue = rightValue
     | _, _ => False
 
   def listSemanticEq : List CompositeValue → List CompositeValue → Prop

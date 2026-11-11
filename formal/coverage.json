@@ -12576,6 +12576,39 @@
       ],
       "proposition": "The source document parses in the admitted productions (two functions of two integer parameters, each returning a comparison of its parameters under a declared `Bool` return); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool (`Gt` then `Lt`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `exceeds` on 12, 9 and on 3, 9 and `below` on 3, 9 and on 12, 9 end with true, false, true and false, recorded in that order, with a boolean recorded as one value bit. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong comparison operation or operand order, a wrong recorded truth or argument list, structurally malformed IR, a changed source and a wrong lowering fail the same checks.",
       "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The declared `Bool` return type is checked by the parser and not stored in the tree; the comparison result determines the meaning. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string and records a boolean outcome as the value bit `1` or `0`. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The fixture has no calls, lets or Result control."
+    },
+    {
+      "id": "artifact.result-construction-control",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.resultSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.resultRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.ResultCertificate",
+      "certificate": "Xsh.Conformance.Vertical.result_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.result_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.result_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_result_source_parses_to_the_result_functions",
+        "Xsh.Conformance.Vertical.the_result_functions_lower_to_the_result_artifact",
+        "Xsh.Conformance.Vertical.the_result_artifact_validates",
+        "Xsh.Conformance.Vertical.the_result_functions_mean_the_same_as_the_result_artifact",
+        "Xsh.Conformance.Vertical.the_result_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.result_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_result_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_constructor_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_constructor_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_result_payload_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_result_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_result_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_result_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (three functions of one integer parameter under a declared `Result[Int, Int]` return: two build a constructor over their parameter and one over an addition); the declared `Result[Int, Int]` return admits only an `Ok` or `Err` construction; lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool (`Add`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `keeps` on 7, `stops` on 5, and `adds` on 4 and on -1 end with `Ok` of 7, `Err` of 5, and `Ok` of 5 and 0, recorded in that order, with a constructor outcome recorded as its own word and the payload's 64-bit pattern. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong constructor, a wrong recorded constructor or payload, structurally malformed IR, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The declared `Result[Int, Int]` return type is checked by the parser and not stored in the tree; the constructor result determines the meaning. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers `Result[Int, Int]` construction only (`Ok` or `Err` of an integer value); `?` propagation, error producers, other `Result` payload types, matching and binding are outside it. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The fixture has no calls, lets or propagation."
     }
   ],
   "source_identity": {

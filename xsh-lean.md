@@ -19,11 +19,16 @@ fourth covers two Bool-returning comparison functions: the admitted grammar
 takes `-> Bool` only with a comparison of two atoms, the lowerer emits the same
 `ExprBinary` comparison rows, and the recorded observations are true and false.
 `lowering_means_the_source` stays universal over the widened parsed functions.
-Result control (`Ok`/`Err` and `?`) is the next step: its rows carry Result
-values and propagation, and a genuine failure needs an error producer, so it
-is a separate widening rather than part of this one.
+A fifth source/IR certificate covers `Result[Int, Int]` construction: the
+admitted grammar takes a `Result[Int, Int]` return only with `Ok(value)` or
+`Err(value)`, the lowerer emits the `ExprOk` and `ExprErr` rows the Rust
+lowerer emits, the base machine completes with the constructor and integer
+payload, and the recorded observations are `Ok` 7, `Err` 5, `Ok` 5 and `Ok` 0.
+`?` propagation is the next step: it needs a propagation row and a call of
+another admitted Result function, so it is a separate widening rather than
+part of this one.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds six ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds seven ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -34,7 +39,7 @@ Not reached: the connected milestone. The proofs cover the Lean
 lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
 Rust's execution of the IR rest on the artifacts and the recorded runs.
 Next, widen the lowered shape toward the milestone
-(record locals and Result control); add a parse and
+(record locals and `?` propagation); add a parse and
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
@@ -65,7 +70,7 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds six ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds seven ARTIFACT_CERTIFIED
 records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
@@ -87,9 +92,9 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   own and agree with Rust only on these artifacts (a source admission proof
   does not exist, and the lowerer theorem is about the Lean lowerer); span
   words are read from the document; the lowered shape has no loops, strings,
-  records, Result control or a call of a Bool function, though a Bool-returning
-  comparison of two atoms is covered, and a call to a function
-  with a let is outside it. One plain integer assignment is modeled separately;
+  records, `?` propagation or a call of a Bool function, though a Bool-returning
+  comparison of two atoms and `Result[Int, Int]` construction are covered, and a
+  call to a function with a let is outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
   evidence only through the recorded runs.
@@ -923,6 +928,42 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   wall limit on this host; the direct paranoid check used the existing build.
   Result control stays open; its Result values, `Ok`/`Err` rows, `?`
   propagation and an error producer are a larger widening.
+
+- 2026-11-11: Result construction control. The admitted grammar now parses a
+  `Result[Int, Int]` return and admits only `Ok(value)` or `Err(value)`; `Int`
+  and `Bool` returns refuse a constructor, a plain value or comparison under
+  `Result[Int, Int]` is refused, and other `Result` payload types are outside
+  the admitted domain. `SourceExpression.constructed` lowers to the existing
+  `ExprOk` and `ExprErr` rows (ordinals 104 and 105, one payload word and two),
+  `lowering_means_the_source` was extended by one case and remains universal
+  over the parsed functions, and `FunctionOutcome` gained `constructed`.
+  `BaseType` and `CompositeValue` gained `result`, `resultPayload?` reads the
+  constructor and integer payload, and `outcomeRecorded` records `ok` and `err`
+  with the payload's sixteen-digit pattern. The test-only bridge exports
+  `formal-bridge-result-control.xsh` (`keeps`, `stops`, `adds`; four calls) and
+  the Lean `ResultCertificate` certifies the pair, rejecting a wrong
+  constructor, wrong recorded constructor or payload, malformed IR, changed
+  source and a wrong lowering. `artifact_certificates` now holds seven. This is
+  a bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's
+  parser reading and execution are evidence through the bridge run only, and
+  that run used this worktree's verification build rather than the frozen
+  commit, so it is not a `RUST_CONFORMANCE` case. `cargo test --profile
+  verification --lib formal_bridge` passed 40 tests, including
+  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
+  exported bytes to equal the two Lean code lists. The clean `lake build`
+  completed 242 jobs; the axiom audit passed for 27,375 declarations and all
+  six self-test controls were rejected; `lake env leanchecker --fresh Xsh`
+  passed under the 8 GiB cap; and `lake check --paranoid`, run with the
+  repository's sandbox adapter plus `--tmpfs /run` and `con-ron --jobs=2`
+  (con-leche at four workers), accepted the 115,101-declaration export with
+  `lean4lean`, `nanoda`, `con-leche`, `con-ron` and the Lean default kernel,
+  using only `propext`, `Quot.sound` and `Classical.choice`. The audit script's
+  `#!/usr/bin/env bash` resolves a shell wrapper that restores a PATH with Lean
+  4.34.1 first, and Lake then reused 4.34.1 oleans that it could not distinguish
+  from 4.35.0 ones; invoking the same script through `/bin/bash` with the pinned
+  4.35.0 toolchain first forced the rebuild used above. `?` propagation of a
+  call to another admitted Result function stays next: it needs a propagation
+  row, a call row and an error producer.
 
 ## For the owner afterwards
 

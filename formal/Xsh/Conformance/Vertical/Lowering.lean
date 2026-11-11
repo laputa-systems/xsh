@@ -58,6 +58,8 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
   | .comparison op left right => do
       if op.isComparison then pure () else none
       some (op.expression (← left.expression? scope) (← right.expression? scope))
+  | .constructed isOk payload => do
+      some (constructorExpression isOk (← payload.expression? scope))
 
 /-- The assignment a function's returned form carries, as the base machine would run it: it must
 assign the function's one let, and its value is read in the function's scope. -/
@@ -243,6 +245,11 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
   | .comparison op left right => do
       Lower.require op.isComparison
       Lower.comparison scope op left right
+  | .constructed isOk value => do
+      let valueRow ← Lower.value scope value
+      let row ← Lower.pushRow (if isOk then .exprOk else .exprErr)
+        (if isOk then [valueRow] else [valueRow, 0])
+      pure row
 
 /-- The rows after a function's let statements: the rows of its returned expression, the
 return, its body block, and its function row. -/
@@ -303,7 +310,7 @@ def spanWords (artifact : RawArtifact) : List Word32 :=
     | .exprDirectPureCall => word 2
     | .stmtAssignInt => word 3
     | .intInt | .stmtLetInt | .exprInt | .exprParam | .stmtReturn | .stmtValue | .intSlot
-    | .intBinary => none
+    | .intBinary | .exprOk | .exprErr => none
 
 /-- A source function agrees with the artifact on the given arguments when it and the function
 of that name have the same defined outcome there, under the source tree and under the IR. -/

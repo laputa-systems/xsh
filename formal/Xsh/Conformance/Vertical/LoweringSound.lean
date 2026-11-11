@@ -702,6 +702,31 @@ theorem conditional_lowers {src : List (String × Option Callee)} {cs : List (Op
       (cl.reads ((tl.le.trans (blockLe.trans el.le)).trans toFinal))
       (tl.reads ((blockLe.trans el.le).trans toFinal)) (el.reads toFinal)
 
+theorem constructed_lowers {cs : List (Option Callee)} {src : List (String × Option Callee)}
+    {owner : BridgeId}
+    {scope : List (String × Nat)} {isOk : Bool} {payload : SourceValue}
+    {s s' : LoweringState} {row : Word32} (wf : BlocksIndexed s)
+    (h : Lower.expression owner scope (.constructed isOk payload) s = some (row, s')) :
+    ∃ e, (SourceExpression.constructed isOk payload).expression? src scope = some e ∧
+      Lowers cs s s' row e := by
+  simp only [Lower.expression, run_bind] at h
+  obtain ⟨valueRow, s1, hv, push⟩ := h
+  obtain ⟨e, found, vl⟩ := value_lowers (cs := cs) wf hv
+  refine ⟨constructorExpression isOk e, by simp [SourceExpression.expression?, found], ?_⟩
+  have valueBefore : valueRow.val < row.val := by
+    obtain ⟨_, _, rowIndex, _⟩ := push_row_run push
+    have := vl.before
+    simp only [rowIndex]; simp; omega
+  cases isOk
+  · simp only [Bool.false_eq_true, if_false] at push
+    exact lowers_row vl.le vl.wf vl.functions push fun F le =>
+      reads_err ((push_row_at push rfl).mono le) valueBefore rfl
+        (vl.reads ((push_row_le push).trans le))
+  · simp only [if_true] at push
+    exact lowers_row vl.le vl.wf vl.functions push fun F le =>
+      reads_ok ((push_row_at push rfl).mono le) valueBefore
+        (vl.reads ((push_row_le push).trans le))
+
 theorem expression_lowers {src : List (String × Option Callee)} {owner : BridgeId}
     {scope : List (String × Nat)} {expression : SourceExpression} {s s' : LoweringState}
     {row : Word32} (wf : BlocksIndexed s) (aligned : Aligned s src)
@@ -725,6 +750,7 @@ theorem expression_lowers {src : List (String × Option Callee)} {owner : Bridge
     have holds : op.isComparison = true := by simpa using isComparison
     exact ⟨op.expression first second,
       by simp [SourceExpression.expression?, holds, hfirst, hsecond], lowers⟩
+  | constructed isOk value => exact constructed_lowers wf h
 
 
 theorem bridge_id_beq (a b : BridgeId) : (a == b) = (a.raw == b.raw) := by
@@ -1135,6 +1161,7 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
   | call _ _ => simp [SourceExpression.isAssigned] at assigned
   | conditional _ _ _ _ _ => simp [SourceExpression.isAssigned] at assigned
   | comparison _ _ _ => simp [SourceExpression.isAssigned] at assigned
+  | constructed _ _ => simp [SourceExpression.isAssigned] at assigned
   | assigned target assignedValue returned =>
   cases lets with
   | nil =>

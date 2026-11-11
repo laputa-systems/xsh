@@ -13,6 +13,8 @@ inductive Token where
   | rightParen
   | leftBrace
   | rightBrace
+  | leftBracket
+  | rightBracket
   | equals
   | arrow
   | colon
@@ -53,6 +55,8 @@ def tokenize : Nat → List Nat → Option (List Token)
       else if code == 41 then continueWith .rightParen rest
       else if code == 123 then continueWith .leftBrace rest
       else if code == 125 then continueWith .rightBrace rest
+      else if code == 91 then continueWith .leftBracket rest
+      else if code == 93 then continueWith .rightBracket rest
       else if code == 61 then continueWith .equals rest
       else if code == 58 then continueWith .colon rest
       else if code == 44 then continueWith .comma rest
@@ -92,6 +96,7 @@ inductive SourceExpression where
       (thenValue elseValue : SourceValue)
   | assigned (target : String) (assignedValue : SourceValue) (result : SourceValue)
   | comparison (op : FragmentOp) (left right : SourceAtom)
+  | constructed (isOk : Bool) (value : SourceValue)
   deriving DecidableEq, Repr
 
 structure SourceFunction where
@@ -135,8 +140,24 @@ def parseArguments (fuel : Nat) : List Token → Option (List SourceAtom × List
   | .rightParen :: rest => some ([], rest)
   | tokens => parseArgumentList fuel tokens
 
+/-- `Ok(value)` and `Err(value)` are the two `Result` constructors over one value. -/
+def parseConstructor : List Token → Option (SourceExpression × List Token)
+  | .word "Ok" :: .leftParen :: rest => do
+      let (value, after) ← parseValue rest
+      match after with
+      | .rightParen :: remaining => some (.constructed true value, remaining)
+      | _ => none
+  | .word "Err" :: .leftParen :: rest => do
+      let (value, after) ← parseValue rest
+      match after with
+      | .rightParen :: remaining => some (.constructed false value, remaining)
+      | _ => none
+  | _ => none
+
 def parseExpression (tokens : List Token) : Option (SourceExpression × List Token) :=
   match tokens with
+  | .word "Ok" :: .leftParen :: _ => parseConstructor tokens
+  | .word "Err" :: .leftParen :: _ => parseConstructor tokens
   | .word "if" :: more => do
       let (left, afterLeft) ← parseAtom more
       match afterLeft with
@@ -223,13 +244,39 @@ def parseParameters (fuel : Nat) : List Token → Option (List String × List To
   | tokens => parseParameterList fuel tokens
 
 /-- The declared return type admits only its own result shape: `Int` every value form, `Bool` a
-comparison of two atoms. The tree keeps the result expression, which determines the meaning; the
-annotation itself is checked here and not stored. -/
-def admitsResult (booleanResult : Bool) : SourceExpression → Bool
-  | .comparison _ _ _ => booleanResult
-  | _ => !booleanResult
+comparison of two atoms, and `Result[Int, Int]` either constructor over a value. The tree keeps the
+result expression, which determines the meaning; the annotation itself is checked here and not
+stored. -/
+inductive ResultShape where
+  | integer
+  | boolean
+  | result
+  deriving DecidableEq, Repr
 
-def parseFunctionBody (booleanResult : Bool) (name : String) (parameters : List String)
+/-- The shape a result expression has, which the declared return type must admit. -/
+inductive ExpressionShape where
+  | comparison
+  | constructed
+  | other
+  deriving DecidableEq, Repr
+
+def SourceExpression.shape : SourceExpression → ExpressionShape
+  | .comparison _ _ _ => .comparison
+  | .constructed _ _ => .constructed
+  | _ => .other
+
+def admitsResult : ResultShape → ExpressionShape → Bool
+  | .integer, .comparison => false
+  | .integer, .constructed => false
+  | .integer, .other => true
+  | .boolean, .comparison => true
+  | .boolean, .constructed => false
+  | .boolean, .other => false
+  | .result, .comparison => false
+  | .result, .constructed => true
+  | .result, .other => false
+
+def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
     (tokens : List Token) : Option (SourceFunction × List Token) := do
   let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
   let (assignment, afterAssignment) ← parseAssignment vars afterLets
@@ -237,7 +284,7 @@ def parseFunctionBody (booleanResult : Bool) (name : String) (parameters : List 
   | .word "return" :: more => do
       let (returned, afterResult) ← parseExpression more
       let result ← attachAssignment assignment returned
-      if admitsResult booleanResult result then pure () else none
+      if admitsResult shape result.shape then pure () else none
       match afterResult with
       | .newline :: .rightBrace :: [] => some (⟨name, parameters, lets, result⟩, [])
       | .newline :: .rightBrace :: .newline :: tail =>
@@ -245,15 +292,21 @@ def parseFunctionBody (booleanResult : Bool) (name : String) (parameters : List 
       | _ => none
   | _ => none
 
+/-- The declared return type, which admits only the result shape it names. -/
+def parseReturnType : List Token → Option (ResultShape × List Token)
+  | .arrow :: .word "Int" :: rest => some (.integer, rest)
+  | .arrow :: .word "Bool" :: rest => some (.boolean, rest)
+  | .arrow :: .word "Result" :: .leftBracket :: .word "Int" :: .comma :: .word "Int" ::
+      .rightBracket :: rest => some (.result, rest)
+  | _ => none
+
 def parseFunction (tokens : List Token) : Option (SourceFunction × List Token) :=
   match tokens with
   | .word "pure" :: .word name :: .leftParen :: afterParen => do
       let (parameters, afterParameters) ← parseParameters (afterParen.length + 1) afterParen
-      match afterParameters with
-      | .arrow :: .word "Int" :: .leftBrace :: .newline :: rest =>
-          parseFunctionBody false name parameters rest
-      | .arrow :: .word "Bool" :: .leftBrace :: .newline :: rest =>
-          parseFunctionBody true name parameters rest
+      let (shape, afterShape) ← parseReturnType afterParameters
+      match afterShape with
+      | .leftBrace :: .newline :: rest => parseFunctionBody shape name parameters rest
       | _ => none
   | _ => none
 
@@ -318,6 +371,15 @@ theorem an_int_annotation_refuses_a_comparison_result :
     parseSource "pure f(a: Int, b: Int) -> Int {\n  return a > b\n}\n" = none ∧
       parseSource "pure f(a: Int, b: Int) -> Int {\n  return a < b\n}\n" = none := by
   constructor <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem a_result_annotation_admits_only_constructor_results :
+    parseSource "pure f(a: Int) -> Result[Int, Int] {\n  return a\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Result[Int, Int] {\n  return a + 1\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Result[Int, Str] {\n  return Err(a)\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Int {\n  return Ok(a)\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Bool {\n  return Err(a)\n}\n" = none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 theorem text_outside_the_admitted_productions_is_refused :
     parseSource "pure f() -> Int {\n  return 1 + 2 + 3\n}\n" = none ∧
