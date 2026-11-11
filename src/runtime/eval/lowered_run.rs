@@ -4774,6 +4774,28 @@ impl Evaluator {
                     span,
                 )?
             }
+            callable; RuntimeOp::FsScan if (1..=3).contains(&values.len()) => {
+                let operation = "fs.scan";
+                let one_file_system =
+                    lowered_bool_arg_or(values.get(2).cloned(), true, operation, span)?;
+                let exclude = match values.get(1).cloned() {
+                    Some(value) => lowered_path_list_arg(value, operation, span)?
+                        .iter()
+                        .map(pathbuf_from_path_value)
+                        .collect(),
+                    None => Vec::new(),
+                };
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_runtime_stream_result(
+                    fs_module::scan_filesystem(
+                        self.host_path(&path),
+                        exclude,
+                        one_file_system,
+                        span,
+                    ),
+                    span,
+                )?
+            }
             callable; RuntimeOp::FsMetadata if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),

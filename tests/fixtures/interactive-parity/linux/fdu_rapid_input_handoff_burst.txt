@@ -1,0 +1,17 @@
+== frame after_burst cursor=1,20
+|testuser@<HOST> ~ $ fdu --interactive root
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fdu
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_quit cursor=4,20
+|testuser@<HOST> ~ $ fdu --interactive root
+|testuser@<HOST> ~ $ q
+|q: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fdu
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 q
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

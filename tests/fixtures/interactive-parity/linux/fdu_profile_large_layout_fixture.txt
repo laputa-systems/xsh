@@ -1,0 +1,29 @@
+== frame profile_ready cursor=0,0 hidden
+| fdu
+|┌ root (3 shown, 6 total, 40.0 KiB)────────────────────────────────────────────┐
+|│        20.0 KiB  50.0% █████          3y beta/                               │
+|│        12.0 KiB  30.0% ███            3y top.txt                             │
+|│         8.0 KiB  20.0% ██             3y alpha/                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|└──────────────────────────────────────────────────────────────────────────────┘
+| 6 entries · d mark · s sort · / filter · ? help · q quit
+@0 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1  fdu
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0  root (3 shown, 6 total, 40.0 KiB)
+@2 fg=4 bg=default bold=1 dim=0 italic=0 underline=0 inverse=1         20.0 KiB  50.0% █████          3y beta/
+@4 fg=4 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0          8.0 KiB  20.0% ██             3y alpha/

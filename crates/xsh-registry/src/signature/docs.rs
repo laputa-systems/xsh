@@ -401,6 +401,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Order and traversal behavior are explicit in the options; use stream terminals to choose materialization.",
             &["filesystem", "streaming", "walk"],
         )),
+        ("fs", "scan") => Some((
+            "Streams one size-annotated record per directory entry, children before their directory's done record.",
+            "Names, kinds, allocated and apparent sizes, modification times, link counts, mount-boundary and directory-alias exclusions, read errors, and exact root-relative omitted paths are reported without following symbolic links. An entry record whose done flag is false names one entry; a done record closes the directory whose index it repeats. The scan holds at most one open directory and the sorted names of the directories on the current path, so a large tree is consumed incrementally.",
+            &["filesystem", "scan", "streaming", "sizes"],
+        )),
         ("fs", "install" | "install_as") => Some((
             "Installs a file with explicit destination and mode policy.",
             "Use this instead of separately creating parents, copying, chmodding, and touching a destination.",

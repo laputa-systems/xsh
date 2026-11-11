@@ -242,6 +242,7 @@ pub enum RuntimeOp {
     FsFiles,
     FsDirs,
     FsChildren,
+    FsScan,
     FsDu,
     FsMetadata,
     FsFilesystemStats,

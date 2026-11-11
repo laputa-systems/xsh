@@ -1405,6 +1405,24 @@ fn env_module() -> ModuleSig {
     ])
 }
 
+fn fs_scan_entry_type() -> Type {
+    Type::Record(BTreeMap::from([
+        ("allocated".to_owned(), Type::Int),
+        ("apparent".to_owned(), Type::Int),
+        ("done".to_owned(), Type::Bool),
+        ("error".to_owned(), Type::Optional(Box::new(Type::Str))),
+        ("index".to_owned(), Type::Int),
+        ("kind".to_owned(), Type::Str),
+        ("modified".to_owned(), Type::Optional(Box::new(Type::Int))),
+        ("name".to_owned(), Type::Bytes),
+        ("nlink".to_owned(), Type::Int),
+        ("omitted".to_owned(), Type::Bool),
+        ("parent".to_owned(), Type::Int),
+        ("path".to_owned(), Type::Path),
+        ("state".to_owned(), Type::Str),
+    ]))
+}
+
 fn fs_module() -> ModuleSig {
     module_sig(vec![
         (
@@ -1461,6 +1479,19 @@ fn fs_module() -> ModuleSig {
                 result(fs_entry_stream()),
                 false,
                 RuntimeOp::FsChildren,
+            ),
+        ),
+        (
+            "scan",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("exclude", Type::List(Box::new(Type::Path))),
+                    default_param("one_file_system", Type::Bool),
+                ],
+                result(Type::Stream(Box::new(fs_scan_entry_type()))),
+                false,
+                RuntimeOp::FsScan,
             ),
         ),
         (

@@ -1,0 +1,28 @@
+== frame filtered cursor=0,0 hidden
+| fdu · filter "日本"
+|┌ root (1 shown, 2 total, 8.0 KiB)─────────────────────────────────────────────┐
+|│         4.0 KiB  50.0% █████          3y 日本-é.txt                          │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|└──────────────────────────────────────────────────────────────────────────────┘
+| 2 entries · d mark · s sort · / filter · ? help · q quit
+@0 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1  fdu · filter "日本"
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0  root (1 shown, 2 total, 8.0 KiB)
+@2 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1          4.0 KiB  50.0% █████          3y 日本-é.txt

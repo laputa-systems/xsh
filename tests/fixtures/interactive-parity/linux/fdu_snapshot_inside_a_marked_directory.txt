@@ -1,0 +1,71 @@
+== frame covered_100x24 cursor=0,0 hidden
+| fdu
+|┌ root/alpha (3 shown, 3 total, 12.0 KiB)──┐┌ Marked 1 item (12.0 KiB, 27.3% o…┐
+|│[=]      4.0 KiB     3y extra.txt         ││     12.0 KiB    3y  alpha/       │
+|│[=]      4.0 KiB     3y inner.txt         ││                                  │
+|│[=]      4.0 KiB     3y other.txt         ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|│                                          ││                                  │
+|└──────────────────────────────────────────┘└──────────────────────────────────┘
+| 7 entries · Inside marked directory alpha. · ? help · q quit
+@0 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1  fdu
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0  root/alpha (3 shown, 3 total, 12.0 KiB)
+@1 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 ┌ Marked 1 item (12.0 KiB, 27.3% o…┐
+@2 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 [=]      4.0 KiB     3y extra.txt
+@2 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@2 fg=1 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0      12.0 KiB    3y  alpha/
+@2 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@3 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@3 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@4 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@4 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@5 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@5 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@6 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@6 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@7 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@7 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@8 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@8 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@9 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@9 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@10 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@10 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@11 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@11 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@12 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@12 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@13 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@13 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@14 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@14 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@15 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@15 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@16 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@16 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@17 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@17 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@18 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@18 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@19 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@19 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@20 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@20 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@21 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@21 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 │
+@22 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 └──────────────────────────────────┘

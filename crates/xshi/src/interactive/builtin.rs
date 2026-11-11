@@ -1,6 +1,10 @@
 use super::alias::AliasMap;
 use super::listing;
 use super::path;
+use std::path::{Path, PathBuf};
+
+const FDU_HELP: &str =
+    "Usage: {name} [--apparent] [-x PATH | --exclude PATH]... [--summary] [--read-only] [PATH]\nBrowse disk usage in a terminal.";
 
 const ALIAS_HELP: &str =
     "Usage: {name} [NAME [COMMAND...]]\nDefine an alias, or list aliases when NAME is omitted.";
@@ -67,6 +71,10 @@ const SHELL_BUILTINS: &[Builtin] = &[
     Builtin {
         name: "c",
         help: CLEAR_SCREEN_HELP,
+    },
+    Builtin {
+        name: "fdu",
+        help: FDU_HELP,
     },
     Builtin {
         name: "denv",
@@ -287,6 +295,48 @@ fn strip_quotes(word: &str) -> &str {
         }
     }
     word
+}
+
+/// Runs the core `fdu` applet in this process, with the shell's arguments.
+pub(super) fn run_fdu(args: &[String], stdout: &mut Vec<u8>, stderr: &mut Vec<u8>) -> i32 {
+    use std::io::Write as _;
+    let Some(script) = resolve_core_script("fdu") else {
+        writeln!(stderr, "xshi: fdu: cannot find core/fdu.xsh").ok();
+        return 1;
+    };
+    let options = xsh::execution::script::RunOptions {
+        script: script.to_string_lossy().into_owned(),
+        args: args.iter().map(std::ffi::OsString::from).collect(),
+        coverage_trace_dir: None,
+    };
+    let output = xsh::execution::script::run_script_with_shared_stdio(options);
+    stdout.extend_from_slice(&output.stdout);
+    stderr.extend_from_slice(&output.stderr);
+    i32::from(output.status)
+}
+
+fn resolve_core_script(name: &str) -> Option<PathBuf> {
+    let file = format!("{name}.xsh");
+    if let Some(directory) = std::env::var_os("XSH_CORE_DIR") {
+        let candidate = Path::new(&directory).join(&file);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let executable = std::env::current_exe().ok()?;
+    let installed = executable
+        .parent()
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("lib/xsh/core").join(&file));
+    installed
+        .into_iter()
+        .chain(
+            executable
+                .ancestors()
+                .skip(1)
+                .map(|base| base.join("core").join(&file)),
+        )
+        .find(|candidate| candidate.is_file())
 }
 
 /// Lists directories with the native listing. `show_hidden` selects `ll`

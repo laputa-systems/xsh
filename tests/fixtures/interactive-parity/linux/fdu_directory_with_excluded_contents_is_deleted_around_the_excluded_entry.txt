@@ -1,0 +1,30 @@
+== frame deleted cursor=0,0 hidden
+| fdu
+|┌ root (1 shown, 1 total, 0 B)─────────────────────────────────────────────────┐
+|│    !       ~0 B   0.0%                3y alpha/                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|│                                                                              │
+|└──────────────────────────────────────────────────────────────────────────────┘
+| 1 entries · Deleted 1 · d mark · s sort · / filter · ? help · q quit
+@0 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1  fdu
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0  root (1 shown, 1 total, 0 B)
+@2 fg=3 bg=default bold=0 dim=0 italic=0 underline=0 inverse=1     !       ~0 B   0.0%                3y alpha/
+== effect alpha
+|nested

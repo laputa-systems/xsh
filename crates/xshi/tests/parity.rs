@@ -40,6 +40,8 @@ mod editor;
 mod denv;
 #[path = "parity/extended.rs"]
 mod extended;
+#[path = "parity/fdu.rs"]
+mod fdu;
 #[path = "parity/history.rs"] mod history;
 #[path = "parity/scenarios.rs"]
 mod scenarios;
@@ -799,6 +801,30 @@ impl Live {
         self.settle();
     }
 
+    /// Waits until the visible screen satisfies `predicate`.
+    pub(crate) fn wait_screen(
+        &mut self,
+        description: &str,
+        predicate: impl Fn(&ptytest::ScreenSnapshot) -> bool,
+    ) {
+        let deadline = self.deadline();
+        self.term
+            .wait_for_screen(deadline, description, predicate)
+            .expect("wait for screen condition");
+        self.settle();
+    }
+
+    /// Waits until the visible screen no longer contains `needle`.
+    pub(crate) fn wait_until_absent(&mut self, needle: &str) {
+        let deadline = self.deadline();
+        self.term
+            .wait_for_screen(deadline, format!("screen lacks {needle:?}"), |screen| {
+                !screen.contains(needle)
+            })
+            .expect("wait for screen text to disappear");
+        self.settle();
+    }
+
     /// Types `text` and Enter, then waits for `needle` on screen instead of a
     /// new prompt (for commands that keep running).
     pub(crate) fn line_until(&mut self, text: &str, needle: &str) {
@@ -1537,7 +1563,10 @@ fn known_gap(name: &str) -> bool {
     let path = known_gaps_path();
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    text.lines().any(|line| line.trim() == name)
+    text.lines().any(|line| {
+        let id = line.split_once('\t').map_or(line, |(id, _cause)| id);
+        id.trim() == name
+    })
 }
 
 #[test]

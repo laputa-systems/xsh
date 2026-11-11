@@ -2005,6 +2005,7 @@ fn execute_session_builtin(
             stdout.extend_from_slice(b"\x1b[H\x1b[2J");
             0
         }
+        SessionBuiltin::Fdu => builtin::run_fdu(args, &mut stdout, &mut stderr),
         SessionBuiltin::List => builtin::list_directory(args, false, &mut stdout, &mut stderr),
         SessionBuiltin::ListHidden => builtin::list_directory(args, true, &mut stdout, &mut stderr),
         SessionBuiltin::Z => {
@@ -3564,6 +3565,7 @@ enum SessionBuiltin {
     Z,
     Denv,
     Clear,
+    Fdu,
     List,
     ListHidden,
     Which,
@@ -3588,6 +3590,7 @@ fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
         "z" => SessionBuiltin::Z,
         "denv" => SessionBuiltin::Denv,
         "c" => SessionBuiltin::Clear,
+        "fdu" => SessionBuiltin::Fdu,
         "l" => SessionBuiltin::List,
         "ll" => SessionBuiltin::ListHidden,
         "w" | "which" | "type" => SessionBuiltin::Which,

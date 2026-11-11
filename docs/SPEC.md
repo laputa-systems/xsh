@@ -5981,8 +5981,8 @@ whole pipeline, which must be grouped (`check.ambiguous-grouping`).
 ### 13.2 Laziness
 
 Live sources produce items on demand: `fs.walk`, `fs.files`, `fs.dirs`,
-`fs.children`, `Path.lines()`, `Path.bytes_lines()`, `run.stream`, and `stream`
-producers. `Str.lines()` and `Bytes.lines()` split an existing buffer.
+`fs.children`, `fs.scan`, `Path.lines()`, `Path.bytes_lines()`, `run.stream`,
+and `stream` producers. `Str.lines()` and `Bytes.lines()` split an existing buffer.
 
 Bare `range(n)` and `range(start, n)` return `Stream[Int]` values that produce
 each item when it is pulled, so a loop that leaves early holds no items it never
@@ -6494,6 +6494,14 @@ Contracts worth knowing without consulting the reference:
   omitted by the peer remain under macOS policy because the platform verifier
   does not expose its selected anchor. Explicit bundles follow XSH anchor blocks.
 - Standard API failures are structured errors located at the call site.
+- `fs.scan(path, exclude: [], one_file_system: true)` streams one record per
+  directory entry and a closing `done` record per scanned directory. Each
+  record carries the entry's allocated and apparent sizes, modification
+  seconds, link count, kind, state, read error, and full path; a directory's
+  `done` record reports whether an exact root-relative exclusion or a read
+  failure made it incomplete. Mount boundaries and repeated directory
+  identities are excluded rather than entered, and symbolic links are never
+  followed. Record order is children before their directory's `done` record.
 - `fs.walk`, `fs.files`, and `fs.dirs` skip hidden entries and honor
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).
   With `stat: false`, metadata fields are unavailable and reading one fails

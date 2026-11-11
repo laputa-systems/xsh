@@ -24,6 +24,19 @@ allocate, 90 ms to fill, and 45 ms to diff; 120x40 measured 10/230/115 ms and
 200x60 25/640/270 ms. They suit model-driven overlays and moderate-size
 frames, not per-key animation of a large grid; btop keeps the row-surface path.
 
+`fdu` is a core XSH app on those libraries: `core/fdu.xsh` parses the browser
+options and drives `core/lib/fdu_ui.xsh`, `fdu_model.xsh`, `fdu_scan.xsh`, and
+`fdu_delete.xsh`. The filesystem boundary is `fs.scan`, a bounded stream that
+reports one size-annotated record per entry and a closing record per scanned
+directory: kinds, allocated and apparent sizes, modification times, link
+counts, mount-boundary and directory-alias exclusions, read errors, and exact
+root-relative excluded paths. The XSH side builds the tree, aggregates sizes,
+orders and filters rows, and renders without following symlinks. Deletion is
+permanent and per-entry: a directory is removed only when every child was
+removed, so an excluded or unreadable path keeps its parent, and a read-only
+session never plans one. Quarantine and crash-recoverable deletion are not
+implemented here; they belong to the separate rooted staging and journal work.
+
 `iw` implements a bounded `nl80211` subset: device and PHY listing/info,
 connection and station queries, scan dump/trigger/abort, device type/channel/
 frequency/transmit-power changes, regulatory queries/updates/reload, and event

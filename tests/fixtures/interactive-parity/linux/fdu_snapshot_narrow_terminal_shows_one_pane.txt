@@ -1,0 +1,29 @@
+== frame narrow_marked_50x24 cursor=0,0 hidden
+| fdu
+|┌ Marked 2 items (32.0 KiB, 72.7% of 44.0 KiB)───┐
+|│     12.0 KiB    3y  alpha/                     │
+|│     20.0 KiB    3y  beta/                      │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|│                                                │
+|└────────────────────────────────────────────────┘
+| 7 entries · d unmark · Enter show · ^R delete · …
+@0 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1  fdu
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0  Marked 2 items (32.0 KiB, 72.7% of 44.0 KiB)
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=1      12.0 KiB    3y  alpha/
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0      20.0 KiB    3y  beta/
