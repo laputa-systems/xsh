@@ -540,6 +540,11 @@ S6 depends on S1 only if the scan primitive reuses the metadata record.
 - **Deferred to later slices:** pipeline job control (a multi-child job handle
   in XSH's process layer), raw non-UTF-8 path bytes in shell words, and ish's
   capture-PTY job cases.
+- **Landed refusals leave three gaps:** subshells `( … )` and top-level brace
+  groups stay XSH source, although ish refuses them. The `command $VAR`
+  refusal that ish makes at execution time is not implemented. An
+  all-external pipeline such as `sleep | cat` still hangs at Ctrl-Z until
+  pipeline job control lands.
 - **macOS** stays owner-deferred; Linux first.
 
 ## 5. (E) Open questions for the owner
