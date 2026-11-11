@@ -10,7 +10,7 @@ use crate::sema::schemes::{RegisteredArgumentCheck, RegisteredCallPlan, SchemeTy
 use crate::sema::types::{CallableType, ModuleExportType, Type, TypedCallable};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, SymbolOwner};
-use crate::syntax::arena::{ArenaBindingTargetKind, ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
+use crate::syntax::arena::{ArenaBindingTargetKind, ArenaCallArgKind, ArenaChild, ArenaExprKind, ArenaExprOrRun, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId, StmtId, SugarView, TypeDefId};
 use crate::syntax::node::{BinaryOp, StreamStageKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -97,6 +97,13 @@ impl PendingBodyContracts {
             }
         };
         let location = if let BodyContractSite::ValueBoundary(_) = site {
+            if let Some(locations) = self.sites.get(&site) {
+                if locations.len() != 1 { return Err(BodyContractError::AmbiguousSite(span)); }
+                let location = locations.first().ok_or(BodyContractError::UnmappedFact(span))?;
+                let index = self.contracts.iter().position(|body| body.source_name == location.0.0 && body.owner == location.0.1)
+                    .ok_or(BodyContractError::UnmappedFact(span))?;
+                return Ok(Some((index, location.1.clone())));
+            }
             let expression = unique(BodyContractSite::Expression(span))?;
             let statement = unique(BodyContractSite::Statement(span))?;
             match (expression, statement) {
@@ -781,6 +788,8 @@ impl Capture<'_> {
         if let ArenaChild::Expr(expression) = node {
             let span = self.program.arena.expr(expression).span;
             self.bodies.get_mut(owner).unwrap().expr_paths.insert(expression, path.to_vec());
+            self.record_field_boundaries(expression, owner, path);
+            self.call_argument_boundaries(expression, owner, path);
             self.binary_operators(expression, owner, path)?;
             self.pipeline_stages(expression, owner, path, namespace)?;
             self.shorthand_fields(expression, owner, path, namespace)?;
@@ -881,6 +890,47 @@ impl Capture<'_> {
         body.span_paths.entry(span).or_insert_with(|| path.clone());
         if body.selections.insert(path, selection).is_some() { return Err(BodyContractError::UnmappedFact(span)); }
         Ok(())
+    }
+
+    fn record_field_boundaries(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) {
+        let arena = &self.program.arena;
+        let ArenaExprKind::Record(fields) = arena.expr(expression).kind else { return; };
+        let boundaries = arena.record_fields(fields).iter().filter_map(|field| match &field.kind {
+            ArenaRecordFieldKind::Computed { value, span, .. }
+            | ArenaRecordFieldKind::Path { value, span, .. }
+            | ArenaRecordFieldKind::Named { value, span, .. } => Some((arena.span(*span), *value)),
+            ArenaRecordFieldKind::Spread { expr, span } => Some((arena.span(*span), *expr)),
+            ArenaRecordFieldKind::Shorthand { .. } => None,
+        }).collect::<Vec<_>>();
+        self.bind_value_boundaries(expression, boundaries, owner, path);
+    }
+
+    fn call_argument_boundaries(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep]) {
+        let arena = &self.program.arena;
+        let ArenaExprKind::Call { args, .. } = arena.expr(expression).kind else { return; };
+        let boundaries = arena.call_args(args).iter().filter_map(|arg| match &arg.kind {
+            ArenaCallArgKind::Named { value, span, .. }
+            | ArenaCallArgKind::NamedSpread { value, span }
+            | ArenaCallArgKind::Splice { value, span } => Some((arena.span(*span), *value)),
+            ArenaCallArgKind::Positional(_) => None,
+        }).collect::<Vec<_>>();
+        self.bind_value_boundaries(expression, boundaries, owner, path);
+    }
+
+    fn bind_value_boundaries(&mut self, expression: ExprId, boundaries: Vec<(Span, ExprId)>, owner: &OwnerKey, path: &[PathStep]) {
+        if boundaries.is_empty() { return; }
+        let nodes = children(self.program, ArenaChild::Expr(expression));
+        for (span, value) in boundaries {
+            self.bind_value_boundary(span, value, &nodes, owner, path);
+        }
+    }
+
+    fn bind_value_boundary(&mut self, span: Span, value: ExprId, nodes: &[ArenaChild], owner: &OwnerKey, path: &[PathStep]) {
+        let Some(index) = nodes.iter().position(|child| *child == ArenaChild::Expr(value)) else { return; };
+        let mut value_path = path.to_vec();
+        value_path.push(PathStep::Child(index));
+        self.sites.entry(BodyContractSite::ValueBoundary(span)).or_default()
+            .insert((owner.clone(), CanonicalBodyContractSite(SitePath::ValueExpression(value_path))));
     }
 
     fn shorthand_fields(&mut self, expression: ExprId, owner: &OwnerKey, path: &[PathStep], namespace: Option<Name>)

@@ -354,6 +354,22 @@ impl CheckedCallableContract {
     pub(crate) fn instance_evidence(&self, generalized: &Self)
         -> Result<Option<CallableInstanceEvidence>, ContractComparisonError>
     {
+        self.instance_evidence_with(generalized, false)
+    }
+
+    /// Tests whether `candidate` infers a scheme at least as general as this
+    /// annotated contract: this contract remains one established instance of
+    /// the candidate scheme, while an original structural schema boundary may
+    /// be absent when the annotated ground type already implies it. Retained
+    /// or nominal boundaries still require the candidate's matching
+    /// expectation.
+    pub fn generalized_by(&self, candidate: &Self) -> Result<bool, ContractComparisonError> {
+        self.instance_evidence_with(candidate, true).map(|evidence| evidence.is_some())
+    }
+
+    fn instance_evidence_with(&self, generalized: &Self, allow_structural_schema_elision: bool)
+        -> Result<Option<CallableInstanceEvidence>, ContractComparisonError>
+    {
         use crate::sema::constraints::TypeConstraints;
         use crate::source::{SourceId, Span};
 
@@ -418,7 +434,10 @@ impl CheckedCallableContract {
             let right_schema = right.map(|schema| constraints.instantiate_schema(schema, &instance, origin)
                 .map(|schema| schema.map(&mut |ty| SchemeType::Ground(ty.clone()))))
                 .transpose().map_err(|_| ContractComparisonError::UnresolvedInstance)?;
-            Ok(schemas.interface_schema(left, right_schema.as_ref(), left_type, right_type))
+            if schemas.interface_schema(left, right_schema.as_ref(), left_type, right_type) { return Ok(true); }
+            if !allow_structural_schema_elision || right_schema.is_some() { return Ok(false); }
+            let (Some(schema), Some(ground)) = (left, left_type.closed_ground_type()) else { return Ok(false); };
+            Ok(structural_schema_is_redundant(schema, &ground, &self.schema_identities))
         };
         if !schema_matches(self.scheme.return_schema(), generalized.scheme.return_schema(), self.scheme.return_type(), generalized.scheme.return_type())?
         { return Ok(None); }

@@ -932,3 +932,37 @@ test test_check_compare_preserves_public_type_names { |ctx|
     assert "missing candidate exported type Event" in renamed.stderr, renamed.stderr
   }
 }
+
+# A private erased parameter annotation is an expected generalization, while a
+# changed public signature is interface drift. Qualification reports both
+# classifications without changing its failure status.
+test test_check_compare_classifies_private_generalization_and_interface_drift { |ctx|
+  let original = """##! Classification fixture.
+## Box values.
+type Box = {label: Str, count: Int}
+## Keep an integer.
+export pure keep(value: Int) -> Int { value }
+## Render a box label.
+pure render(box: Box) -> Str { box.label }
+"""
+  let candidate = """##! Classification fixture.
+## Box values.
+type Box = {label: Str, count: Int}
+## Keep text.
+export pure keep(value: Str) -> Str { value }
+## Render a box label.
+pure render(box) -> Str { box.label }
+"""
+  let root = project(ctx, {"original/main.xsh": original, "candidate/main.xsh": candidate})?
+  cd (root) {
+    let compared = run.capture --text "xsht" check --compare-with original --candidate-root candidate candidate/main.xsh
+    assert compared.status.exited_with(2), compared.stderr
+    assert compared.stdout == ""
+    assert "main.xsh::render: contract mismatch [expected-private-generalization]" in compared.stderr, compared.stderr
+    assert "main.xsh::render: checked body contract mismatch [expected-private-generalization]" in compared.stderr, compared.stderr
+    assert "main.xsh::keep: cannot establish interface compatibility" in compared.stderr, compared.stderr
+    assert "[interface-drift]" in compared.stderr, compared.stderr
+    let keep_line = compared.stderr.split("main.xsh::keep:")[1].split("\n")[0]
+    assert "[expected-private-generalization]" not in keep_line, compared.stderr
+  }
+}

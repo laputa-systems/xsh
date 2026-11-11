@@ -96,7 +96,20 @@ entry contexts is compared separately with its corresponding candidate context.
 Within one selected entry, checked bodies with the same key must have mutually
 preserved contracts.
 Missing facts, unsupported capture, and preparation errors fail qualification.
-These checks do not establish runtime behavior equivalence.
+Each failed declaration, CLI, or checked-body diagnostic ends with a
+classification. `[interface-drift]` marks a public signature change, an
+unestablished contract comparison, or a checked-body difference that the strict
+comparison cannot preserve. `[expected-private-generalization]` marks a private
+callable whose candidate scheme is at least as general as the original
+annotation: the annotated contract remains an established instance after the
+candidate scheme instantiates its parameters and return, and an original
+structural schema boundary implied by that contract's own ground type may be
+absent from the candidate. Retained and nominal schema boundaries still count as
+drift. A checked-body diagnostic carries the expected classification only when
+its declaration does and the declaration body source is unchanged;
+`[checked-body-drift]` marks every other checked-body difference. Classification
+does not change the exit status: any reported mismatch still fails
+qualification. These checks do not establish runtime behavior equivalence.
 
 Both roots bound the source view: reachable user imports must stay inside the
 original root and have candidate files. Every candidate `.xsh` file must have
@@ -128,7 +141,10 @@ For example, `callable#0{...}` defines a relationship and a later `callable#0`
 refers to it. These local labels are diagnostic output, not annotation syntax.
 `equivalent_to` compares structure modulo bound type, row and effect parameter
 names, including complete nested callable target families. Missing relationship
-context cannot establish equivalence. `join_effects` combines finite effect
+context cannot establish equivalence. `generalized_by` tests whether a candidate
+contract is at least as general as an annotated contract under the same
+established instance, allowing a structural schema boundary implied by the
+annotated ground type to be absent. `join_effects` combines finite effect
 requirements only when the remaining checked shape agrees; an unrestricted
 clause remains unrestricted. Per-call instantiation does not replace
 the declaration contract. Failed or unresolved declarations have no view.

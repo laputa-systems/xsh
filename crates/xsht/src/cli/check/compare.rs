@@ -68,6 +68,7 @@ struct CheckedProgram {
     interfaces: Contracts,
     public_types: PublicTypeNames,
     bodies: BodyContracts,
+    body_sources: BTreeMap<(PathBuf, String), String>,
 }
 
 
@@ -170,6 +171,9 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
     let mut cli_declarations = BTreeSet::new();
     let mut original_bodies = BodyContracts::new();
     let mut candidate_bodies = BodyContracts::new();
+    let mut original_body_sources = BTreeMap::new();
+    let mut candidate_body_sources = BTreeMap::new();
+    let mut expected_generalizations = BTreeSet::new();
     let mut entries = BTreeSet::new();
     let mut failures = Vec::new();
     for path in paths {
@@ -197,7 +201,9 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
         }
         candidate_has_declarations |= !new.interfaces.is_empty();
         compare_public_type_names(relative, &old.public_types, &new.public_types, &mut failures)?;
-        compare_contracts(relative, &old.interfaces, &new.interfaces, &mut failures)?;
+        compare_contracts(relative, &original, &old.interfaces, &new.interfaces, &mut expected_generalizations, &mut failures)?;
+        merge_body_sources(&mut original_body_sources, old.body_sources);
+        merge_body_sources(&mut candidate_body_sources, new.body_sources);
         merge_body_contracts(&mut original_bodies, old.bodies)?;
         merge_body_contracts(&mut candidate_bodies, new.bodies)?;
     }
@@ -212,7 +218,9 @@ fn compare_paths(original_root: &str, candidate_root: &str, paths: &[String], ti
         match candidate_bodies.get(key) {
             None => failures.push(format!("entry {}: {}::{}: missing candidate checked body contract", key.entry_path.display(), key.source_path.display(), key.owner.label())),
             Some(new) if old.preserved_by(new) => {}
-            Some(_) => failures.push(format!("entry {}: {}::{}: checked body contract mismatch", key.entry_path.display(), key.source_path.display(), key.owner.label())),
+            Some(_) => failures.push(format!("entry {}: {}::{}: checked body contract mismatch [{}]",
+                key.entry_path.display(), key.source_path.display(), key.owner.label(),
+                body_classification(key, &expected_generalizations, &original_body_sources, &candidate_body_sources))),
         }
     }
     for key in candidate_bodies.keys() {
@@ -282,7 +290,14 @@ fn comparison_error(error: ContractComparisonError) -> &'static str {
     }
 }
 
-fn compare_contracts(entry: &Path, original: &Contracts, candidate: &Contracts, failures: &mut Vec<String>) -> Result<(), String> {
+fn compare_contracts(
+    entry: &Path,
+    entry_path: &Path,
+    original: &Contracts,
+    candidate: &Contracts,
+    expected_generalizations: &mut BTreeSet<(PathBuf, PathBuf, String)>,
+    failures: &mut Vec<String>,
+) -> Result<(), String> {
     for ((path, name), old) in original {
         check_cancellation()?;
         let Some(new) = candidate.get(&(path.clone(), name.clone())) else {
@@ -291,19 +306,23 @@ fn compare_contracts(entry: &Path, original: &Contracts, candidate: &Contracts, 
         };
         match (old, new) {
             (DeclarationContract::Callable { exported: old_exported, .. }, DeclarationContract::Callable { exported: new_exported, .. }) if old_exported != new_exported => {
-                failures.push(format!("entry {}: {}::{name}: export visibility mismatch", entry.display(), path.display()));
+                failures.push(format!("entry {}: {}::{name}: export visibility mismatch [interface-drift]", entry.display(), path.display()));
             }
-            (DeclarationContract::Callable { contract: old, .. }, DeclarationContract::Callable { contract: new, .. }) => {
+            (DeclarationContract::Callable { contract: old, exported: old_exported }, DeclarationContract::Callable { contract: new, .. }) => {
                 let comparison = if old.equivalent_to(new) { Ok(true) } else if old.is_generic() { Ok(false) } else { old.is_instance_of(new) };
+                if matches!(comparison, Ok(true)) { continue; }
+                let expected = !*old_exported && old.generalized_by(new).unwrap_or(false);
+                if expected { expected_generalizations.insert((entry_path.to_path_buf(), path.clone(), name.clone())); }
+                let classification = if expected { "expected-private-generalization" } else { "interface-drift" };
                 match comparison {
+                    Ok(false) => failures.push(format!("entry {}: {}::{name}: contract mismatch [{classification}]\n  original: {old}\n  candidate: {new}", entry.display(), path.display())),
+                    Err(error) => failures.push(format!("entry {}: {}::{name}: cannot establish interface compatibility: {} [{classification}]", entry.display(), path.display(), comparison_error(error))),
                     Ok(true) => {}
-                    Ok(false) => failures.push(format!("entry {}: {}::{name}: contract mismatch\n  original: {old}\n  candidate: {new}", entry.display(), path.display())),
-                    Err(error) => failures.push(format!("entry {}: {}::{name}: cannot establish interface compatibility: {}", entry.display(), path.display(), comparison_error(error))),
                 }
             }
             (DeclarationContract::Cli(old), DeclarationContract::Cli(new)) if old.equivalent_to(new) => {}
-            (DeclarationContract::Cli(_), DeclarationContract::Cli(_)) => failures.push(format!("entry {}: {}::{name}: CLI parsing contract or declared effect bound mismatch", entry.display(), path.display())),
-            _ => failures.push(format!("entry {}: {}::{name}: declaration kind mismatch", entry.display(), path.display())),
+            (DeclarationContract::Cli(_), DeclarationContract::Cli(_)) => failures.push(format!("entry {}: {}::{name}: CLI parsing contract or declared effect bound mismatch [interface-drift]", entry.display(), path.display())),
+            _ => failures.push(format!("entry {}: {}::{name}: declaration kind mismatch [interface-drift]", entry.display(), path.display())),
         }
     }
     for (path, name) in candidate.keys() {
@@ -313,6 +332,31 @@ fn compare_contracts(entry: &Path, original: &Contracts, candidate: &Contracts, 
         }
     }
     Ok(())
+}
+
+fn merge_body_sources(target: &mut BTreeMap<(PathBuf, String), String>, sources: BTreeMap<(PathBuf, String), String>) {
+    let mut inconsistent = Vec::new();
+    for (key, text) in sources {
+        match target.get(&key) {
+            Some(previous) if previous != &text => inconsistent.push(key),
+            Some(_) => {}
+            None => { target.insert(key, text); }
+        }
+    }
+    for key in inconsistent { target.remove(&key); }
+}
+
+fn body_classification(
+    key: &BodyKey,
+    expected_generalizations: &BTreeSet<(PathBuf, PathBuf, String)>,
+    original_sources: &BTreeMap<(PathBuf, String), String>,
+    candidate_sources: &BTreeMap<(PathBuf, String), String>,
+) -> &'static str {
+    let BodyOwner::Declaration(name) = &key.owner else { return "checked-body-drift"; };
+    let declaration = (key.source_path.clone(), name.clone());
+    if expected_generalizations.contains(&(key.entry_path.clone(), key.source_path.clone(), name.clone()))
+        && original_sources.get(&declaration).is_some_and(|body| candidate_sources.get(&declaration) == Some(body))
+    { "expected-private-generalization" } else { "checked-body-drift" }
 }
 
 fn merge_body_contracts(target: &mut BodyContracts, bodies: BodyContracts) -> Result<(), String> {
@@ -447,10 +491,13 @@ fn check_contracts(
             return Err(format!("{}::{name}: ambiguous declaration key", path.display()));
         }
     }
+    let mut body_sources = BTreeMap::new();
     for (&definition, declaration) in checked.checked_declarations.functions.iter().filter(|(_, declaration)| !declaration.internal) {
         let source = sources.get(declaration.body.source_id).expect("checked declaration source exists");
         let path = bounded_file(Path::new(source.name()), original_root)?;
         let name = arena.symbol_owner().with_current(|| declaration.name.as_str().to_string());
+        let body_text = source.text().get(declaration.body.start()..declaration.body.end()).unwrap_or_default().to_owned();
+        body_sources.insert((path.clone(), name.clone()), body_text);
         if declaration.kind == CheckedFunctionKind::CliMain {
             if !contracts.contains_key(&(path.clone(), name.clone())) {
                 return Err(format!("{}::{name}: missing checked CLI parsing contract", path.display()));
@@ -479,7 +526,7 @@ fn check_contracts(
         }
         bodies.insert(key, body);
     }
-    Ok(CheckedProgram { interfaces: contracts, public_types, bodies })
+    Ok(CheckedProgram { interfaces: contracts, public_types, bodies, body_sources })
 }
 
 #[cfg(test)]
