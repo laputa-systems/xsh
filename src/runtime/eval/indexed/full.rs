@@ -37920,6 +37920,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
             IntStrCountLinesSlot
             IntStrByteAtSlot
             IntFieldSlot
+            IntListIndexSlot
             BoolBool
             BoolSlot
             BoolNot
@@ -38065,7 +38066,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
         let dead_ordinals = [32, 43, 50, 64, 95, 96, 97, 98, 101, 117, 145, 146, 147];
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 149);
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 150);
         assert_eq!(names.len(), schema::INSTRUCTION_TAGS.len());
         let mut existing_ordinals = (0usize..158)
             .filter(|ordinal| !dead_ordinals.contains(ordinal));
@@ -38075,6 +38076,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, else => 12 } }
                 "ExprCodecSchema" => 159,
                 "ExprTargetVariant" => 160,
                 "IntFieldSlot" => 161,
+                "IntListIndexSlot" => 162,
                 _ => existing_ordinals.next().expect("existing tag has an ordinal"),
             };
             assert_eq!(*tag as usize, ordinal);

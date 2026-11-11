@@ -7340,7 +7340,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 | IntView::Slot(_)
                 | IntView::StrByteLenSlot { .. }
                 | IntView::StrCountLinesSlot { .. }
-                | IntView::FieldSlot { .. } => None,
+                | IntView::FieldSlot { .. }
+                | IntView::ListIndexSlot { .. } => None,
                 IntView::Binary { op, left, right } => {
                     Some(FrameOperation::Binary(op, left.raw(), right.raw()))
                 }

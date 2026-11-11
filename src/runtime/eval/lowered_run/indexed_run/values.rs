@@ -585,6 +585,10 @@ enum TypedScalarWork {
         default: Option<u32>,
         span: Span,
     },
+    ApplyIntListIndex {
+        slot: usize,
+        span: Span,
+    },
 }
 
 fn eval_indexed_typed_scalar(
@@ -663,6 +667,10 @@ fn eval_indexed_typed_scalar(
                             default: default.map(|id| id.raw()),
                             span,
                         });
+                        work.push(TypedScalarWork::Int(index.raw()));
+                    }
+                    IntView::ListIndexSlot { slot, index, span } => {
+                        work.push(TypedScalarWork::ApplyIntListIndex { slot, span });
                         work.push(TypedScalarWork::Int(index.raw()));
                     }
                 }
@@ -827,6 +835,37 @@ fn eval_indexed_typed_scalar(
                     }
                 } else {
                     values.push(TypedScalarValue::Int(value));
+                }
+            }
+            TypedScalarWork::ApplyIntListIndex { slot, span } => {
+                let Some(TypedScalarValue::Int(index)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("list index", call_span));
+                };
+                let items = match &slots[slot] {
+                    LoweredValue::List(items) => items.as_slice(),
+                    LoweredValue::SharedList(items) => items.as_slice(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("cannot index {} with Int", other.type_name()),
+                        )
+                        .with_span(span));
+                    }
+                };
+                match items.get(index as usize) {
+                    Some(LoweredValue::Int(value)) => values.push(TypedScalarValue::Int(*value)),
+                    Some(_) => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "lowered expression expected Int",
+                        )
+                        .with_span(span));
+                    }
+                    None => {
+                        return Err(
+                            RuntimeError::new("index-out-of-range", "list index").with_span(span)
+                        );
+                    }
                 }
             }
         }

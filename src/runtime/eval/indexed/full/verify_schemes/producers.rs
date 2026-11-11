@@ -8073,6 +8073,13 @@ impl<'a> ProducerProof<'a> {
                     if fields.get(&Name::intern(field)) != Some(&Type::Int) { return Err(IrVerifyError::new("scalar field read has no Int field")); }
                     self.slot(decoder.owner, instruction, slot, ty)?;
                 }
+                schema::IntView::ListIndexSlot { slot, .. } => {
+                    let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar list index has no slot contract"))?;
+                    ensure_substitution_type(&ty)?;
+                    let Type::List(item) = ty.unvalidated() else { return Err(IrVerifyError::new("scalar list index has a non-list slot")); };
+                    if item.unvalidated() != &Type::Int { return Err(IrVerifyError::new("scalar list index has a non-Int item")); }
+                    self.slot(decoder.owner, instruction, slot, ty)?;
+                }
                 schema::IntView::StrByteLenSlot { slot, .. } | schema::IntView::StrCountLinesSlot { slot, .. } | schema::IntView::StrByteAtSlot { slot, .. } => {
                     let ty = self.slot_context_type(decoder, instruction, slot)?.ok_or_else(|| IrVerifyError::new("scalar string producer has no slot contract"))?;
                     ensure_substitution_type(&ty)?;

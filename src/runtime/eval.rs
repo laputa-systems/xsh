@@ -830,6 +830,7 @@ struct BuildScratch {
     /// prohibit integer-only specialization.
     non_int_binary_expressions: FxHashSet<usize>,
     int_record_slot_field_reads: FxHashSet<usize>,
+    int_list_slot_index_reads: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
     resource_transfers: Vec<bool>,
     patterns: Vec<BuildPatternRow>,

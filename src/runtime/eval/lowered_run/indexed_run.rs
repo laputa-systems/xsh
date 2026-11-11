@@ -1997,6 +1997,7 @@ fn is_typed_int_tag(tag: FullTag) -> bool {
             | FullTag::IntStrCountLinesSlot
             | FullTag::IntStrByteAtSlot
             | FullTag::IntFieldSlot
+            | FullTag::IntListIndexSlot
     )
 }
 

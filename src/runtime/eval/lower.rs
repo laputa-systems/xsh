@@ -9203,7 +9203,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else {
                     lowered_index
                 };
-                Some(push_build_row!(
+                let value = push_build_row!(
                     self,
                     expr,
                     BuildExprRow::Index {
@@ -9212,7 +9212,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                         key_span: self.program.arena.expr(index).span,
                     }
-                ))
+                );
+                let slot_base = matches!(
+                    self.scratch.borrow().expressions[lowered_base.index()],
+                    BuildExprRow::Param(_)
+                );
+                if !guarded
+                    && slot_base
+                    && matches!(self.checked_expr_type(id), Some(Type::Int))
+                    && matches!(self.checked_expr_type(index), Some(Type::Int))
+                    && matches!(self.checked_expr_type(base), Some(Type::List(item)) if *item == Type::Int)
+                {
+                    self.scratch.borrow_mut().int_list_slot_index_reads.insert(value.index());
+                }
+                Some(value)
             }
             ArenaExprKind::Slice {
                 base,

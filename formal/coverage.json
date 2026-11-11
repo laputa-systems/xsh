@@ -95,6 +95,7 @@
         "IntStrCountLinesSlot=4|BuildIntRow:IntView:Int|StrCountLinesSlot(slot:tokens:[\"usize\"],span:tokens:[\"Span\"])|tokens:[\"0\"]|Operands|FrameApply",
         "IntStrByteAtSlot=5|BuildIntRow:IntView:Int|StrByteAtSlot(slot:tokens:[\"usize\"],index:tokens:[\"BuildIntId\"],default:tokens:[\"Option\",\"<\",\"BuildIntId\",\">\"],span:tokens:[\"Span\"])|tokens:[\"0\"]|Operands|FrameApply",
         "IntFieldSlot=161|BuildIntRow:IntView:Int|FieldSlot(slot:tokens:[\"usize\"],field:tokens:[\"NameText\"],span:tokens:[\"Span\"])|tokens:[\"0\"]|Operands|FrameApply",
+        "IntListIndexSlot=162|BuildIntRow:IntView:Int|ListIndexSlot(slot:tokens:[\"usize\"],index:tokens:[\"BuildIntId\"],span:tokens:[\"Span\"])|tokens:[\"0\"]|Operands|FrameApply",
         "BoolBool=6|BuildBoolRow:BoolView:Bool|Bool(value:tokens:[\"bool\"])|tokens:[\"0\"]|Operands|FrameApply",
         "BoolSlot=7|BuildBoolRow:BoolView:Bool|Slot(slot:tokens:[\"usize\"])|tokens:[\"0\"]|Operands|FrameApply",
         "BoolNot=8|BuildBoolRow:BoolView:Bool|Not(value:tokens:[\"BuildBoolId\"])|tokens:[\"0\"]|Operands|FrameApply",
