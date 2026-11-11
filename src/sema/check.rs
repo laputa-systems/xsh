@@ -3007,9 +3007,16 @@ fn defines_proc_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId)
     entry_main_definition(program, stmt).is_some()
 }
 
-pub(super) fn is_entry_main(program: &ArenaProgram, target: CheckedFunctionTarget) -> bool {
+pub(super) fn is_entry_main(
+    program: &ArenaProgram,
+    root_statements: ArenaRange,
+    target: CheckedFunctionTarget,
+) -> bool {
     target.namespace.is_none()
-        && program.statement_ids().any(|stmt| entry_main_definition(program, stmt) == Some(target.definition))
+        && program
+            .arena
+            .stmt_ids(root_statements)
+            .any(|stmt| entry_main_definition(program, stmt) == Some(target.definition))
 }
 
 fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> bool {

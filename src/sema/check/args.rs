@@ -1210,7 +1210,8 @@ impl Checker {
 
     fn reject_splice_outside_rest(&mut self, arena: &ArenaProgram, args: &[ArenaCallArg], authority: CallArgumentAuthority<'_>, splice_span: Span) {
         let named_spread = args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. }));
-        let entry_main = matches!(authority, CallArgumentAuthority::KnownCallable { callee: Some(callee), .. } if super::is_entry_main(arena, callee));
+        let root_statements = self.bundle_root_statements.unwrap_or(arena.statements);
+        let entry_main = matches!(authority, CallArgumentAuthority::KnownCallable { callee: Some(callee), .. } if super::is_entry_main(arena, root_statements, callee));
         if named_spread || entry_main {
             return;
         }

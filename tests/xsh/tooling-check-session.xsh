@@ -229,3 +229,47 @@ print ${worker.value}
     assert "compact.main-missing-spread" not in result.stderr, f"{tool}: {result.stderr}"
   }
 }
+
+test test_multi_file_check_keeps_the_entry_main_splice_exemption_for_later_files { |ctx|
+  let root = fixture(ctx, "entry-main-splice-multi-file")?
+  fp"{root}/a0.xsh".write("print \"x\"\n")
+  fp"{root}/z.xsh".write(r"""proc main(a: Path, b: Path, c: Str) [io, error] -> Result[Unit, Error] {
+  print $c
+}
+
+main(@args)?
+""")
+  let checked = cd (root) {
+    run.capture --text "xsht" check "a0.xsh" "z.xsh"
+  }?
+  assert checked.status.exited_with(0), checked.stderr
+  assert "check.splice-target" not in checked.stderr, checked.stderr
+
+  fp"{root}/other.xsh".write(r"""proc helper(a: Path, b: Path, c: Str) [io, error] -> Result[Unit, Error] {
+  print $c
+}
+
+helper(@args)?
+""")
+  let rejected = cd (root) {
+    run.capture --text "xsht" check "other.xsh"
+  }?
+  assert rejected.status.exited_with(2), rejected.stderr
+  assert "check.splice-target" in rejected.stderr, rejected.stderr
+
+  fp"{root}/modules/worker.xsh".write(r"""##! Worker module.
+## Main entry.
+export proc main(a: Path, b: Path, c: Str) [io, error] -> Result[Unit, Error] {
+  print $c
+}
+""")
+  fp"{root}/imported.xsh".write(r"""use worker
+
+worker.main(@args)?
+""")
+  let imported = cd (root) {
+    run.capture --text "xsht" check "imported.xsh"
+  }?
+  assert imported.status.exited_with(2), imported.stderr
+  assert "check.splice-target" in imported.stderr, imported.stderr
+}
