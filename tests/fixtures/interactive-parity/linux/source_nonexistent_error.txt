@@ -1,8 +1,7 @@
-== frame after_source cursor=3,20
+== frame after_source cursor=2,20
 |testuser@<HOST> ~ $ source foo.sh
-|.: foo.sh: No such file or directory (os error 2)
-|
+|<SHELL>: `source` is not supported
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 source
-@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 source
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

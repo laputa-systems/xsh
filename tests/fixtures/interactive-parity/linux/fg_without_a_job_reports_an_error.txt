@@ -9,7 +9,7 @@
 |testuser@<HOST> ~ $ fg
 |<SHELL>: fg: no suspended job
 |testuser@<HOST> ~ $ echo $?
-|0
+|1
 |
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

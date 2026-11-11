@@ -20,10 +20,11 @@ results and statuses, and the files a session leaves behind. `xshi` ported
 ranking, listing, denv); it does not embed `ish` or its shell engine and does
 not shell out for work the shell owns.
 
-The retained PTY transcripts in §14 record behavior captured from `ish`; their
-replay driver is absent from this repository, so they are reference evidence,
-not executable tests. A behavior that differs from `ish` is either a bug or
-one of the deviations below; every deviation is covered by an `xshi`-only test.
+The retained PTY transcripts in §14 record behavior captured from `ish` and are
+replayed against the real `xshi` binary by
+`cargo test -p xshi --features laputa-asterinas --test parity`. A behavior that
+differs from `ish` is either a bug or one of the deviations below; every
+deviation is covered by an `xshi`-only test.
 
 Where `ish`'s README documents behavior its implementation lacks, `xshi`
 follows the README:
@@ -414,7 +415,8 @@ prompt marker.
 ## 14. Tests
 
 [Testing](TESTING.md#interactive-parity) owns the interactive test commands,
-feature requirements, and limits of the historical PTY transcripts.
+feature requirements, the drift and re-record workflow, and the PTY transcripts
+that `crates/xshi/tests/parity.rs` replays against `xshi`.
 
 ## 15. Deferrals
 

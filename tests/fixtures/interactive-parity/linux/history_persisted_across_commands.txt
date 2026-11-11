@@ -21,5 +21,4 @@
 @3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
 @6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 == effect history
-|v2 <TS> <SESSION> <HOME> /bin/echo unique_cmd_12345
-|v2 <TS> <SESSION> <HOME> /bin/echo unique_cmd_12345
+|<NotFound>

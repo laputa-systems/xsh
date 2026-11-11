@@ -17,4 +17,4 @@
 == frame user_at_host cursor=0,35
 |testuser@<HOST> ~ $ scp file user@g
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 scp
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 scp

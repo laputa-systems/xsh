@@ -1156,7 +1156,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8445b7e2429c6b3c5f02f0b9d4dadf99722f7b506159e4c00e61c2c23bde4dc"
 dependencies = [
  "libc",
- "vt100",
+ "vt100 0.16.2",
+]
+
+[[package]]
+name = "laputa-ptytest"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffc9fd2fa31b72e3631804b806e0db9a8046cba191e82d862d9e4c1740eec050"
+dependencies = [
+ "libc",
+ "rustc-hash",
+ "vt100 0.18.1",
 ]
 
 [[package]]
@@ -1990,6 +2001,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vt100"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb05cdd19ae8707bf6a0a269972c07e6358103a7079faec749dec318a5b3dc23"
+dependencies = [
+ "itoa",
+ "unicode-width",
+ "vte",
+]
+
+[[package]]
 name = "vte"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2301,7 +2323,7 @@ dependencies = [
  "http",
  "ignore",
  "laputa-h2-futures-lite",
- "laputa-ptytest",
+ "laputa-ptytest 0.1.1",
  "libc",
  "libmimalloc-sys",
  "md-5",
@@ -2414,6 +2436,7 @@ dependencies = [
 name = "xshi"
 version = "0.0.1"
 dependencies = [
+ "laputa-ptytest 0.4.0",
  "libc",
  "mimalloc",
  "rustc-hash",

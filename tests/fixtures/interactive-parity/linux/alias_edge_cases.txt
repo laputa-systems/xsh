@@ -98,7 +98,7 @@
 @13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
 @15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame alias_over_builtin cursor=17,20
+== frame alias_over_builtin cursor=19,20
 |testuser@<HOST> ~ $ alias a echo one
 |testuser@<HOST> ~ $ alias b a two
 |testuser@<HOST> ~ $ b
@@ -116,6 +116,8 @@
 |<SHELL>: alias: not found: ll
 |testuser@<HOST> ~ $ alias cd echo redefined
 |testuser@<HOST> ~ $ cd
+|redefined
+|
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
@@ -137,4 +139,4 @@
 @15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
 @16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

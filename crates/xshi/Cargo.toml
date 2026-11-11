@@ -20,6 +20,7 @@ benchmark = []
 laputa-asterinas = ["dep:libc", "dep:mimalloc", "dep:rustc-hash", "dep:rustix", "dep:sha2", "dep:xsh"]
 
 [dev-dependencies]
+laputa-ptytest = "0.4"
 rustybench = "0.1"
 tempfile = "3"
 
@@ -31,6 +32,11 @@ required-features = ["benchmark", "laputa-asterinas"]
 [[test]]
 name = "cli"
 path = "tests/cli.rs"
+required-features = ["laputa-asterinas"]
+
+[[test]]
+name = "parity"
+path = "tests/parity.rs"
 required-features = ["laputa-asterinas"]
 
 [[test]]

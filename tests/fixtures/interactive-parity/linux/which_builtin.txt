@@ -1,7 +1,10 @@
-== frame after_w cursor=2,20
+== frame after_w cursor=5,20
 |testuser@<HOST> ~ $ w echo
-|builtin
+|echo: builtin
+|Usage: echo [-n] [-e|-E] [ARG]...
+|Write arguments separated by spaces. `-n` omits the trailing newline; `-e` inter
+|prets escapes.
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
-@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

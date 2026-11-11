@@ -1,14 +1,16 @@
-== frame after_l cursor=6,20
+== frame after_l cursor=5,20
 |testuser@<HOST> ~ $ l
-|drwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
-|drwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
-|-rw-r--r-- 1 <USER> <GROUP>   3B Nov 14  2023 file_a.txt
-|-rw-r--r-- 1 <USER> <GROUP>   3B Nov 14  2023 file_b.txt
-|drwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 subdir/
+|file_a.txt  3B  2y
+|file_b.txt  3B  2y
+|subdir/         2y
+|
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
-@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
-@2 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
-@5 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 subdir/
-@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 file_a.txt
+@1 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@2 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 file_b.txt
+@2 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@3 fg=4 bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 subdir/
+@3 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

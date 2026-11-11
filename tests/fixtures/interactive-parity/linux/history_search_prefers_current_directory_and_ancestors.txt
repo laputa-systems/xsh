@@ -1,8 +1,8 @@
 == frame boosted_by_directory cursor=0,18
 |search: make build
 |make build src
-|make build home
 |make build project
+|make build home
 |make build other again
 |make build other
 @0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:

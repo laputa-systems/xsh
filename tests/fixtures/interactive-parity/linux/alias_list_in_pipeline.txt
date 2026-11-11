@@ -1,10 +1,11 @@
-== frame list_in_pipeline cursor=3,20
+== frame list_in_pipeline cursor=4,20
 |testuser@<HOST> ~ $ alias only echo one
 |testuser@<HOST> ~ $ alias | cat
-|alias only echo one
+|<SHELL>: alias changes shell state or needs the ish process, so it must be the only
+|command on its line
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
 @1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

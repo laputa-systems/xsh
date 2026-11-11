@@ -1,7 +1,7 @@
 == frame stopped cursor=4,20
 |testuser@<HOST> ~ $ ./bin/job
 |ready
-|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|<SHELL>: stopped: ./bin/job (pgid=<N>)
 |
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
@@ -10,7 +10,7 @@
 == frame resumed cursor=6,0
 |testuser@<HOST> ~ $ ./bin/job
 |ready
-|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|<SHELL>: stopped: ./bin/job (pgid=<N>)
 |
 |testuser@<HOST> ~ $ fg
 |<SHELL>: resuming: ./bin/job
@@ -21,7 +21,7 @@
 == frame after_interrupt cursor=6,20
 |testuser@<HOST> ~ $ ./bin/job
 |ready
-|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|<SHELL>: stopped: ./bin/job (pgid=<N>)
 |
 |testuser@<HOST> ~ $ fg
 |<SHELL>: resuming: ./bin/job
@@ -34,7 +34,7 @@
 == frame alive cursor=9,20
 |testuser@<HOST> ~ $ ./bin/job
 |ready
-|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|<SHELL>: stopped: ./bin/job (pgid=<N>)
 |
 |testuser@<HOST> ~ $ fg
 |<SHELL>: resuming: ./bin/job
@@ -52,7 +52,7 @@
 == frame status cursor=12,20
 |testuser@<HOST> ~ $ ./bin/job
 |ready
-|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|<SHELL>: stopped: ./bin/job (pgid=<N>)
 |
 |testuser@<HOST> ~ $ fg
 |<SHELL>: resuming: ./bin/job

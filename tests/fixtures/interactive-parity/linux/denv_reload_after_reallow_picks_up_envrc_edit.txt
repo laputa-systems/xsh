@@ -1,43 +1,43 @@
-== frame after_reload cursor=10,28
+== frame after_reload cursor=9,28
 |testuser@<HOST> ~ $ cd project
-|denv: loading .envrc
-|denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $ denv allow
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ denv allow
 |denv: allowed <HOME>/project/.envrc
 |denv: loading .envrc
 |denv: +DENV_TEST_VAR
 |testuser@<HOST> ~/project $ denv reload
 |denv: loading .envrc
-|denv: +DENV_TEST_VAR
+|denv: -DENV_TEST_VAR +DENV_TEST_VAR
 |testuser@<HOST> ~/project $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-== frame var_updated cursor=13,28
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame var_updated cursor=12,28
 |testuser@<HOST> ~ $ cd project
-|denv: loading .envrc
-|denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $ denv allow
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ denv allow
 |denv: allowed <HOME>/project/.envrc
 |denv: loading .envrc
 |denv: +DENV_TEST_VAR
 |testuser@<HOST> ~/project $ denv reload
 |denv: loading .envrc
-|denv: +DENV_TEST_VAR
+|denv: -DENV_TEST_VAR +DENV_TEST_VAR
 |testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
 |updated
 |
 |testuser@<HOST> ~/project $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

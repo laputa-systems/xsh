@@ -2,11 +2,12 @@
 |testuser@<HOST> ~ $ echo first
 |  echo second
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame after_enter cursor=4,20
+== frame after_enter cursor=5,20
 |testuser@<HOST> ~ $ echo first
 |  echo second
-|first echo second
+|first
+|second
 |
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

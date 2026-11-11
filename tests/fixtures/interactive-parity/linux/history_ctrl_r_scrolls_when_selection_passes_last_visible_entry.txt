@@ -6,10 +6,12 @@
 |hist09
 |hist08
 |hist07
+|hist06
 @0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
 @1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 hist12
 == frame scrolled cursor=0,8
 |search:
+|hist07
 |hist06
 |hist05
 |hist04
@@ -17,4 +19,4 @@
 |hist02
 |hist01
 @0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
-@6 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 hist01
+@7 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 hist01

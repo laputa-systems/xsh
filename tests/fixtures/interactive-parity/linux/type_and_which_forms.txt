@@ -8,12 +8,15 @@
 @1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
 @3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame which_builtin cursor=5,20
+== frame which_builtin cursor=8,20
 |testuser@<HOST> ~ $ alias ll l
 |testuser@<HOST> ~ $ type ll
 |alias: ll l
 |testuser@<HOST> ~ $ which cd
-|builtin
+|cd: builtin
+|Usage: cd [DIRECTORY]
+|Change the current directory. No argument goes to HOME; `-` returns to the previ
+|ous directory.
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
@@ -21,13 +24,16 @@
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
 @3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame type_missing cursor=7,20
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame type_missing cursor=10,20
 |testuser@<HOST> ~ $ alias ll l
 |testuser@<HOST> ~ $ type ll
 |alias: ll l
 |testuser@<HOST> ~ $ which cd
-|builtin
+|cd: builtin
+|Usage: cd [DIRECTORY]
+|Change the current directory. No argument goes to HOME; `-` returns to the previ
+|ous directory.
 |testuser@<HOST> ~ $ type nosuchthing_xyz
 |<SHELL>: w: not found: nosuchthing_xyz
 |testuser@<HOST> ~ $
@@ -37,19 +43,22 @@
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
 @3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
-@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame status cursor=10,20
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=13,20
 |testuser@<HOST> ~ $ alias ll l
 |testuser@<HOST> ~ $ type ll
 |alias: ll l
 |testuser@<HOST> ~ $ which cd
-|builtin
+|cd: builtin
+|Usage: cd [DIRECTORY]
+|Change the current directory. No argument goes to HOME; `-` returns to the previ
+|ous directory.
 |testuser@<HOST> ~ $ type nosuchthing_xyz
 |<SHELL>: w: not found: nosuchthing_xyz
 |testuser@<HOST> ~ $ echo $?
-|0
+|1
 |
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
@@ -58,21 +67,24 @@
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
 @3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
-@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame which_absolute cursor=12,20
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame which_absolute cursor=15,20
 |testuser@<HOST> ~ $ alias ll l
 |testuser@<HOST> ~ $ type ll
 |alias: ll l
 |testuser@<HOST> ~ $ which cd
-|builtin
+|cd: builtin
+|Usage: cd [DIRECTORY]
+|Change the current directory. No argument goes to HOME; `-` returns to the previ
+|ous directory.
 |testuser@<HOST> ~ $ type nosuchthing_xyz
 |<SHELL>: w: not found: nosuchthing_xyz
 |testuser@<HOST> ~ $ echo $?
-|0
+|1
 |
 |testuser@<HOST> ~ $ which /bin/sh
 |<SHELL>: w: not found: /bin/sh
@@ -83,23 +95,26 @@
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
 @3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
-@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-== frame w_no_args cursor=14,20
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame w_no_args cursor=17,20
 |testuser@<HOST> ~ $ alias ll l
 |testuser@<HOST> ~ $ type ll
 |alias: ll l
 |testuser@<HOST> ~ $ which cd
-|builtin
+|cd: builtin
+|Usage: cd [DIRECTORY]
+|Change the current directory. No argument goes to HOME; `-` returns to the previ
+|ous directory.
 |testuser@<HOST> ~ $ type nosuchthing_xyz
 |<SHELL>: w: not found: nosuchthing_xyz
 |testuser@<HOST> ~ $ echo $?
-|0
+|1
 |
 |testuser@<HOST> ~ $ which /bin/sh
 |<SHELL>: w: not found: /bin/sh
@@ -112,12 +127,12 @@
 @1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
 @3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
-@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
-@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
-@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

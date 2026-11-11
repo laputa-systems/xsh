@@ -1,8 +1,11 @@
-== frame values cursor=3,28
-|testuser@<HOST> ~/project $ echo $FROM_ENV $AFTER
-|loaded 1
+== frame values cursor=4,30
 |
-|testuser@<HOST> ~/project $
-@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+|testuser@<HOST> ~/project * $ echo $FROM_ENV $AFTER
+|
+|
+|testuser@<HOST> ~/project * $
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *

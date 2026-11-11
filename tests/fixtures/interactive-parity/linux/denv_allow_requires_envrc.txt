@@ -1,49 +1,55 @@
-== frame after_allow cursor=5,28
+== frame after_allow cursor=6,28
 |testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.env
 |denv: loading .env
 |denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $ denv allow
-|denv: no .envrc found
 |testuser@<HOST> ~/project $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-== frame usage cursor=7,28
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame usage cursor=8,28
 |testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.env
 |denv: loading .env
 |denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $ denv allow
-|denv: no .envrc found
 |testuser@<HOST> ~/project $ denv bogus
-|usage: denv <allow|deny|reload>
+|denv: usage: denv <allow|deny|reload>
 |testuser@<HOST> ~/project $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-== frame status cursor=10,28
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame status cursor=11,28
 |testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.env
 |denv: loading .env
 |denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $ denv allow
-|denv: no .envrc found
 |testuser@<HOST> ~/project $ denv bogus
-|usage: denv <allow|deny|reload>
+|denv: usage: denv <allow|deny|reload>
 |testuser@<HOST> ~/project $ echo $?
-|0
+|1
 |
 |testuser@<HOST> ~/project $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
-@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

@@ -9,7 +9,7 @@
 |testuser@<HOST> ~ $ echo -n no-newline
 |no-newline
 |testuser@<HOST> ~ $ echo -e 'a\tb\nc'
-|ab
+|a       b
 |c
 |
 |testuser@<HOST> ~ $
@@ -22,7 +22,7 @@
 |testuser@<HOST> ~ $ echo -n no-newline
 |no-newline
 |testuser@<HOST> ~ $ echo -e 'a\tb\nc'
-|ab
+|a       b
 |c
 |
 |testuser@<HOST> ~ $ echo 'a\tb'
@@ -40,7 +40,7 @@
 |testuser@<HOST> ~ $ echo -n no-newline
 |no-newline
 |testuser@<HOST> ~ $ echo -e 'a\tb\nc'
-|ab
+|a       b
 |c
 |
 |testuser@<HOST> ~ $ echo 'a\tb'
@@ -63,7 +63,7 @@
 |testuser@<HOST> ~ $ echo -n no-newline
 |no-newline
 |testuser@<HOST> ~ $ echo -e 'a\tb\nc'
-|ab
+|a       b
 |c
 |
 |testuser@<HOST> ~ $ echo 'a\tb'

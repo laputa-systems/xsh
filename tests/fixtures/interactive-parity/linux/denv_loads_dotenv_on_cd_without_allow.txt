@@ -1,21 +1,22 @@
-== frame after_cd cursor=3,28
+== frame after_cd cursor=2,30
 |testuser@<HOST> ~ $ cd project
-|denv: loading .env
-|denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-== frame var_loaded cursor=6,28
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame var_loaded cursor=5,30
 |testuser@<HOST> ~ $ cd project
-|denv: loading .env
-|denv: +DENV_TEST_VAR
-|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
-|loaded
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ echo $DENV_TEST_VAR
 |
-|testuser@<HOST> ~/project $
+|
+|testuser@<HOST> ~/project * $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *

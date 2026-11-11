@@ -1,4 +1,2 @@
 == effect shared_log
-|v2 <TS> <SESSION> <HOME> echo from_first
-|v2 <TS> <SESSION> <HOME> echo from_second
-|v2 <TS> <SESSION> <HOME> echo from_first_again
+|<NotFound>

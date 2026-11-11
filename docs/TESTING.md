@@ -812,9 +812,20 @@ History storage unit tests in `crates/xshi/src/interactive/history/tests.rs`
 cover lock contention, failed writes and retries, reset, and torn log tails.
 They do not establish crash or power-loss durability.
 
-Files under `tests/fixtures/interactive-parity/<os>/` are historical PTY
-transcripts from `ish`. Their replay driver is absent, so they do not establish
-end-to-end terminal parity.
+`cargo test -p xshi --features laputa-asterinas --test parity` drives the real
+`xshi` binary through a kernel PTY and compares each scenario with
+`tests/fixtures/interactive-parity/<os>/`; ordinary runs need no `ish` install.
+Set `XSHI_PARITY_ISH_BIN` to an `ish` binary to replay the same scripts against
+`ish` and fail on drift, and add `XSHI_PARITY_RECORD=1` to rewrite the goldens
+from that binary. Recording and drift runs require a six-character short host
+name; run them in a `--hostname sentry` container or under
+`unshare --user --map-root-user --uts` with `hostname sentry`. Set
+`XSHI_PARITY_FULL=1` to print the full transcript instead of the failure window.
+The driver is `crates/xshi/tests/parity.rs`; scenarios are in
+`crates/xshi/tests/parity/`.
+`tests/fixtures/interactive-parity/known-gaps.txt` lists the scenarios where
+`xshi` does not yet match `ish`; a listed scenario must still differ, so the
+entry is removed in the change that closes the gap.
 
 ## What not to run
 
