@@ -1,0 +1,15 @@
+== frame after_z cursor=4,34
+|testuser@<HOST> ~ $ cd 'project space'
+|testuser@<HOST> ~/project space $ cd ..
+|testuser@<HOST> ~ $ z project
+|<HOME>/project space
+|testuser@<HOST> ~/project space $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project space
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 z
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project space
+== effect z_pwd
+|<NotFound>

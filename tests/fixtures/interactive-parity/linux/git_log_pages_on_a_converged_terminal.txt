@@ -1,0 +1,3 @@
+== frame alive cursor=0,0
+|testuser@<HOST> ~/repo master $ echo alive
+|alive

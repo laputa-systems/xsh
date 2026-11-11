@@ -1,0 +1,434 @@
+== frame eval_target cursor=3,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=6,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame source_target cursor=9,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=12,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame dot_target cursor=15,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET .; $TARGET dot-target.sh
+|<SHELL>: 1:22: .: builtin is not available
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=18,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET .; $TARGET dot-target.sh
+|<SHELL>: 1:22: .: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame command_target cursor=22,20
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch eval-marker
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET .; $TARGET dot-target.sh
+|<SHELL>: 1:22: .: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET eval; command $TARGET /usr/bin/touch command-mark
+|er
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@22 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=23,20
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET .; $TARGET dot-target.sh
+|<SHELL>: 1:22: .: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET eval; command $TARGET /usr/bin/touch command-mark
+|er
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame markers_absent cursor=23,20
+|testuser@<HOST> ~ $ set TARGET source; $TARGET source-target.sh
+|<SHELL>: 1:27: source: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET .; $TARGET dot-target.sh
+|<SHELL>: 1:22: .: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET eval; command $TARGET /usr/bin/touch command-mark
+|er
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ test -e eval-marker -o -e source-marker -o -e dot-marker -o
+|-e command-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@16 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@19 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame redirection_refused cursor=23,20
+|<SHELL>: 1:22: .: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET eval; command $TARGET /usr/bin/touch command-mark
+|er
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ test -e eval-marker -o -e source-marker -o -e dot-marker -o
+|-e command-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch redirection-target >
+| redirection-file
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame redirection_absent cursor=23,20
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET eval; command $TARGET /usr/bin/touch command-mark
+|er
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ test -e eval-marker -o -e source-marker -o -e dot-marker -o
+|-e command-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch redirection-target >
+| redirection-file
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ test -e redirection-target -o -e redirection-file; echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame nested_absent cursor=23,20
+|testuser@<HOST> ~ $ test -e eval-marker -o -e source-marker -o -e dot-marker -o
+|-e command-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET eval; $TARGET /usr/bin/touch redirection-target >
+| redirection-file
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ test -e redirection-target -o -e redirection-file; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET eval; echo $(echo $(command $TARGET /usr/bin/touc
+|h nested-marker))
+|<SHELL>: 1:8: eval: builtin is not available
+|<SHELL>: 0:0: command refused by policy in child evaluator
+|<SHELL>: 0:0: command refused by policy in child evaluator
+|
+|testuser@<HOST> ~ $ test -e nested-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame exit_target_status cursor=23,20
+|<SHELL>: 1:25: eval: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ test -e redirection-target -o -e redirection-file; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET eval; echo $(echo $(command $TARGET /usr/bin/touc
+|h nested-marker))
+|<SHELL>: 1:8: eval: builtin is not available
+|<SHELL>: 0:0: command refused by policy in child evaluator
+|<SHELL>: 0:0: command refused by policy in child evaluator
+|
+|testuser@<HOST> ~ $ test -e nested-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET exit; $TARGET 23
+|<SHELL>: 1:25: exit: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame ordinary_target_runs cursor=23,20
+|testuser@<HOST> ~ $ test -e redirection-target -o -e redirection-file; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET eval; echo $(echo $(command $TARGET /usr/bin/touc
+|h nested-marker))
+|<SHELL>: 1:8: eval: builtin is not available
+|<SHELL>: 0:0: command refused by policy in child evaluator
+|<SHELL>: 0:0: command refused by policy in child evaluator
+|
+|testuser@<HOST> ~ $ test -e nested-marker; echo $?
+|1
+|
+|testuser@<HOST> ~ $ set TARGET exit; $TARGET 23
+|<SHELL>: 1:25: exit: builtin is not available
+|
+|testuser@<HOST> ~ $ echo policy-status-$?
+|policy-status-2
+|
+|testuser@<HOST> ~ $ set TARGET touch; $TARGET ordinary-command-marker
+|
+|testuser@<HOST> ~ $ test -e ordinary-command-marker; echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

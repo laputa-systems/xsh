@@ -1,0 +1,21 @@
+== frame after_list_cd cursor=3,24
+|testuser@<HOST> ~ $ cd sub && /bin/pwd
+|<HOME>/sub
+|
+|testuser@<HOST> ~/sub $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/sub
+== frame after_list_sh cursor=6,20
+|testuser@<HOST> ~ $ cd sub && /bin/pwd
+|<HOME>/sub
+|
+|testuser@<HOST> ~/sub $ cd .. && sh -c 'pwd'
+|<HOME>
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/sub
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

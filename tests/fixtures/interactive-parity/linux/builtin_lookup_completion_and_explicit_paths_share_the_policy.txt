@@ -1,0 +1,663 @@
+== frame command_v_exec cursor=4,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=7,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame query_output_size cursor=10,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame command_v_trap cursor=12,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=15,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame query_output_size cursor=18,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame w_exec cursor=20,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=23,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame which_trap cursor=23,20
+|testuser@<HOST> ~ $ command -v exec >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ which trap
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@16 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=23,20
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ which trap
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame type_exec cursor=23,20
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ which trap
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=23,20
+|testuser@<HOST> ~ $ command -V trap >query-output 2>query-error
+|
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ which trap
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame supported_lookup cursor=23,20
+|testuser@<HOST> ~ $ wc -c < query-output
+|wc: not found
+|
+|testuser@<HOST> ~ $ w exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ which trap
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ command -v exit >supported-lookup
+|
+|testuser@<HOST> ~ $ cat supported-lookup
+|cat: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 wc
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame command_exit_status cursor=23,20
+|1
+|
+|testuser@<HOST> ~ $ which trap
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ command -v exit >supported-lookup
+|
+|testuser@<HOST> ~ $ cat supported-lookup
+|cat: not found
+|
+|testuser@<HOST> ~ $ command exit >refused-exit
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only c
+|ommand on its line
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame refused_exit_absent cursor=23,20
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ command -v exit >supported-lookup
+|
+|testuser@<HOST> ~ $ cat supported-lookup
+|cat: not found
+|
+|testuser@<HOST> ~ $ command exit >refused-exit
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only c
+|ommand on its line
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $ test -e refused-exit; echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame completion_hides_refused cursor=23,23
+|<SHELL>: w: not found: trap
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ command -v exit >supported-lookup
+|
+|testuser@<HOST> ~ $ cat supported-lookup
+|cat: not found
+|
+|testuser@<HOST> ~ $ command exit >refused-exit
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only c
+|ommand on its line
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $ test -e refused-exit; echo $?
+|1
+|
+|testuser@<HOST> ~ $ exe
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exe
+== frame completion_shows_approved cursor=23,24
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ type exec
+|<SHELL>: w: not found: exec
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $ command -v exit >supported-lookup
+|
+|testuser@<HOST> ~ $ cat supported-lookup
+|cat: not found
+|
+|testuser@<HOST> ~ $ command exit >refused-exit
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only c
+|ommand on its line
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $ test -e refused-exit; echo $?
+|1
+|
+|testuser@<HOST> ~ $ exe^C
+|testuser@<HOST> ~ $ echo $?
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 type
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@16 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@19 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@22 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exe
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@23 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  $?
+== frame refused_exec_status cursor=23,20
+|testuser@<HOST> ~ $ command exit >refused-exit
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only c
+|ommand on its line
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $ test -e refused-exit; echo $?
+|1
+|
+|testuser@<HOST> ~ $ exe^C
+|testuser@<HOST> ~ $ echo^C?
+|testuser@<HOST> ~ $ ./bin/exec
+|explicit-exec
+|testuser@<HOST> ~ $ mkdir exec
+|mkdir: not found
+|
+|testuser@<HOST> ~ $ set PATH
+|
+|testuser@<HOST> ~ $ exec
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exe
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ?
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/exec
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mkdir
+@16 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect explicit_marker
+|entered
+== effect cwd_after_refusal
+|<HOME>

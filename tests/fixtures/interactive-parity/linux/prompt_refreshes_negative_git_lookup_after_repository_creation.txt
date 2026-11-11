@@ -1,0 +1,14 @@
+== frame after_cd cursor=5,37
+|testuser@<HOST> ~ $ mkdir -p repo/.git
+|
+|testuser@<HOST> ~ $ printf 'ref: refs/heads/late-branch\n' > repo/.git/HEAD
+|
+|testuser@<HOST> ~ $ cd repo
+|testuser@<HOST> ~/repo late-branch $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mkdir
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/repo

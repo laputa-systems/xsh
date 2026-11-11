@@ -1,0 +1,3 @@
+== frame after_marker cursor=0,0
+|testuser@<HOST> ~ $ echo sigint-cancel-marker
+|sigint-cancel-marker

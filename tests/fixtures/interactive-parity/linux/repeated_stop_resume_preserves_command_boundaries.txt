@@ -1,0 +1,19 @@
+== effect markers
+|A
+|B
+|C
+|D;148
+|A
+|B
+|C
+|D;130
+|A
+|B
+|C
+|D;148
+|A
+|B
+|C
+|D;130
+|A
+|B

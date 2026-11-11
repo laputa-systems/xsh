@@ -1,0 +1,18 @@
+== frame recalled cursor=1,77
+|testuser@<HOST> ~/parent space $ cd child
+|testuser@<HOST> ~/p/child $ cd '<HOME>/parent space/child'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent space
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/child
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+== frame replayed cursor=2,28
+|testuser@<HOST> ~/parent space $ cd child
+|testuser@<HOST> ~/p/child $ cd '<HOME>/parent space/child'
+|testuser@<HOST> ~/p/child $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent space
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/child
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/child
+== effect replay_pwd
+|<NotFound>

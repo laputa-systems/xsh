@@ -1,0 +1,490 @@
+== frame echo cursor=3,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame printf cursor=5,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame pwd cursor=8,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame true cursor=10,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame false cursor=12,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame colon cursor=14,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame test cursor=16,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame bracket cursor=18,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame kill cursor=20,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $ kill -0 $$
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame export cursor=22,20
+|testuser@<HOST> ~ $ echo output
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $ kill -0 $$
+|
+|testuser@<HOST> ~ $ export POLICY_VAR=value
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame unset cursor=23,20
+|output
+|
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $ kill -0 $$
+|
+|testuser@<HOST> ~ $ export POLICY_VAR=value
+|
+|testuser@<HOST> ~ $ unset POLICY_VAR
+|
+|testuser@<HOST> ~ $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@19 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame set cursor=23,20
+|testuser@<HOST> ~ $ printf '%s' output
+|output
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $ kill -0 $$
+|
+|testuser@<HOST> ~ $ export POLICY_VAR=value
+|
+|testuser@<HOST> ~ $ unset POLICY_VAR
+|
+|testuser@<HOST> ~ $ set POLICY_VAR -value +value
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@19 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame command cursor=23,20
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $ kill -0 $$
+|
+|testuser@<HOST> ~ $ export POLICY_VAR=value
+|
+|testuser@<HOST> ~ $ unset POLICY_VAR
+|
+|testuser@<HOST> ~ $ set POLICY_VAR -value +value
+|
+|testuser@<HOST> ~ $ command -p -- printf output
+|output
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@19 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd cursor=23,24
+|testuser@<HOST> ~ $ true
+|
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $ :
+|
+|testuser@<HOST> ~ $ test 1 = 1
+|
+|testuser@<HOST> ~ $ [ 1 = 1 ]
+|
+|testuser@<HOST> ~ $ kill -0 $$
+|
+|testuser@<HOST> ~ $ export POLICY_VAR=value
+|
+|testuser@<HOST> ~ $ unset POLICY_VAR
+|
+|testuser@<HOST> ~ $ set POLICY_VAR -value +value
+|
+|testuser@<HOST> ~ $ command -p -- printf output
+|output
+|testuser@<HOST> ~ $ cd sub && pwd
+|<HOME>/sub
+|
+|testuser@<HOST> ~/sub $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 :
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 [
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/sub
+== frame history cursor=23,24
+|testuser@<HOST> ~ $ command -p -- printf output
+|output
+|testuser@<HOST> ~ $ cd sub && pwd
+|<HOME>/sub
+|
+|testuser@<HOST> ~/sub $ history; echo listed
+|echo output
+|printf '%s' output
+|pwd
+|true
+|false
+|:
+|test 1 = 1
+|[ 1 = 1 ]
+|kill -0 $$
+|export POLICY_VAR=value
+|unset POLICY_VAR
+|set POLICY_VAR -value +value
+|command -p -- printf output
+|cd <HOME>/sub && pwd
+|history; echo listed
+|listed
+|
+|testuser@<HOST> ~/sub $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/sub
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history;
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/sub

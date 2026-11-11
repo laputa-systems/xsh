@@ -13,7 +13,16 @@ fn install_restore_on_termination(orig: &Termios) -> io::Result<()> {
     if RESTORE_TERMIOS.set(orig.clone()).is_err() {
         return Ok(());
     }
-    for signal in [libc::SIGTERM, libc::SIGHUP] {
+    for signal in [
+        libc::SIGTERM,
+        libc::SIGHUP,
+        libc::SIGABRT,
+        libc::SIGBUS,
+        libc::SIGFPE,
+        libc::SIGILL,
+        libc::SIGSEGV,
+        libc::SIGTRAP,
+    ] {
         install_restore_handler(signal)?;
     }
     Ok(())
@@ -27,7 +36,7 @@ fn install_restore_handler(signal: i32) -> io::Result<()> {
         if libc::sigaction(signal, std::ptr::null(), &mut current) != 0 {
             return Err(io::Error::last_os_error());
         }
-        if current.sa_sigaction != libc::SIG_DFL {
+        if current.sa_sigaction == libc::SIG_IGN {
             return Ok(());
         }
         let mut action: libc::sigaction = std::mem::zeroed();
@@ -43,29 +52,35 @@ fn install_restore_handler(signal: i32) -> io::Result<()> {
 
 extern "C" fn restore_terminal_on_signal(signal: i32) {
     // SAFETY: OnceLock::get is a single atomic load, the termios was set before
-    // this handler was installed, and tcsetattr, write and raise are
-    // async-signal-safe. SA_RESETHAND has already restored the default action,
-    // so the raised signal ends the process once this handler returns.
+    // this handler was installed, and tcsetattr, write and _exit are
+    // async-signal-safe.
     unsafe {
         if let Some(termios) = RESTORE_TERMIOS.get() {
             let stdin = BorrowedFd::borrow_raw(STDIN_FD);
             let _ = rustix::termios::tcsetattr(stdin, rustix::termios::OptionalActions::Now, termios);
         }
         let _ = libc::write(STDOUT_FD, b"\x1b[?2004l".as_ptr().cast(), 8);
-        libc::raise(signal);
+        libc::_exit(128 + signal);
     }
 }
 
 pub struct RawMode {
     orig: Termios,
+    interrupt: Option<libc::sigaction>,
 }
 
 impl RawMode {
     pub fn enable() -> io::Result<Self> {
         let stdin = unsafe { BorrowedFd::borrow_raw(STDIN_FD) };
-        let orig = rustix::termios::tcgetattr(stdin)?;
-        install_restore_on_termination(&orig)?;
+        let current = rustix::termios::tcgetattr(stdin)?;
+        install_restore_on_termination(&current)?;
+        let orig = RESTORE_TERMIOS
+            .get()
+            .expect("installed before raw mode")
+            .clone();
+        let interrupt = super::signal::install_interrupt_handler();
 
+        rustix::termios::tcsetattr(stdin, rustix::termios::OptionalActions::Drain, &orig)?;
         let mut raw = orig.clone();
         raw.make_raw();
         raw.special_codes[rustix::termios::SpecialCodeIndex::VMIN] = 0;
@@ -81,12 +96,13 @@ impl RawMode {
         let _ = io::stdout().write_all(b"\x1b[?2004h");
         let _ = io::stdout().flush();
 
-        Ok(Self { orig })
+        Ok(Self { orig, interrupt })
     }
 }
 
 impl Drop for RawMode {
     fn drop(&mut self) {
+        super::signal::restore_interrupt_handler(self.interrupt.take());
         // Disable bracketed paste mode before restoring cooked terminal.
         let _ = io::stdout().write_all(b"\x1b[?2004l");
         let _ = io::stdout().flush();

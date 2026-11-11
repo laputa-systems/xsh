@@ -1,0 +1,29 @@
+== frame after_foo cursor=5,20
+|testuser@<HOST> ~ $ export PATH=$HOME/bin
+|
+|testuser@<HOST> ~ $ foo
+|path-foo-ran
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 foo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_pwd cursor=8,20
+|testuser@<HOST> ~ $ export PATH=$HOME/bin
+|
+|testuser@<HOST> ~ $ foo
+|path-foo-ran
+|
+|testuser@<HOST> ~ $ pwd
+|<HOME>
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 foo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

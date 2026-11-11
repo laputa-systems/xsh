@@ -1,0 +1,26 @@
+== frame after_ctrl_c cursor=1,20
+|testuser@<HOST> ~ $ secret-token-123^C
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 secret-token-123
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect dumps
+|ish layout dump
+|version: <VERSION>
+|terminal.rows: 24
+|terminal.cols: 80
+|prompt.display_len: 20
+|line.bytes: 16
+|line.cursor_byte: 16
+|line.cursor_display_col: 16
+|line.display_len: 16
+|suggestion.present: false
+|suggestion.display_len: 0
+|line.has_newlines: false
+|rendered_region: RenderedRegion { anchored: true, painted_rows: 1, cursor_row: 0, cursor_col: 36 }
+|mode: normal
+|prompt.layout_math: before_cursor=36 full=36 cols=80 forced_wrap=false
+|prompt_layout: PromptLayout { region: RenderedRegion { anchored: false, painted_rows: 1, cursor_row: 0, cursor_col: 36 }, rows_up_from_end: 0, needs_forced_wrap: false }
+== effect dump_privacy
+|dir 700
+|file 600

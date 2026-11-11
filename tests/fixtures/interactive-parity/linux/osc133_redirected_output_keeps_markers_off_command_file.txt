@@ -1,0 +1,9 @@
+== effect out_file
+|hi
+== effect markers
+|A
+|B
+|C
+|D;0
+|A
+|B

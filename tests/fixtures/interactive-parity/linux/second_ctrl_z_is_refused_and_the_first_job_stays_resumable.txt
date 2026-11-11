@@ -39,29 +39,6 @@
 @4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
 @8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
-== frame alive cursor=14,20
-|testuser@<HOST> ~ $ ./bin/job
-|ready
-|<SHELL>: stopped: ./bin/job (pgid=<N>)
-|
-|testuser@<HOST> ~ $ sh -c 'kill -STOP $$; echo continued$((1+1))'
-|<SHELL>: a job is already suspended; resume it with fg before suspending another
-|continued2
-|
-|testuser@<HOST> ~ $ fg
-|<SHELL>: resuming: ./bin/job
-|^Ctestuser@<HOST> ~
+== frame alive cursor=0,0
 |testuser@<HOST> ~ $ echo alive
 |alive
-|
-|testuser@<HOST> ~ $
-@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
-@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
-@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
-@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
-@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

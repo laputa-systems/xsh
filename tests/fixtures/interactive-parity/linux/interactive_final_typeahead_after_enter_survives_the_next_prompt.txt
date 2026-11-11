@@ -1,0 +1,6 @@
+== frame typeahead_output cursor=0,0
+|80235
+== effect first
+|first
+== effect second
+|second

@@ -1,0 +1,71 @@
+== frame after_cd cursor=14,32
+|testuser@<HOST> ~ $ cd parent
+|denv: loading .envrc
+|denv: +PARENT_VALUE
+|testuser@<HOST> ~/parent $ denv deny
+|denv: denied <HOME>/parent/.envrc
+|denv: <HOME>/parent/.envrc is blocked. Run `denv allow` to trust it.
+|denv: -PARENT_VALUE
+|testuser@<HOST> ~/parent * $ rm -f parent-marker
+|
+|testuser@<HOST> ~/parent * $ cd ..
+|testuser@<HOST> ~ $ cd parent/project
+|denv: loading .envrc
+|denv: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/p/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rm
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame state cursor=17,32
+|testuser@<HOST> ~ $ cd parent
+|denv: loading .envrc
+|denv: +PARENT_VALUE
+|testuser@<HOST> ~/parent $ denv deny
+|denv: denied <HOME>/parent/.envrc
+|denv: <HOME>/parent/.envrc is blocked. Run `denv allow` to trust it.
+|denv: -PARENT_VALUE
+|testuser@<HOST> ~/parent * $ rm -f parent-marker
+|
+|testuser@<HOST> ~/parent * $ cd ..
+|testuser@<HOST> ~ $ cd parent/project
+|denv: loading .envrc
+|denv: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/p/project * $ echo =$PARENT_VALUE=:$CANDIDATE=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/p/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rm
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== effect project_entries
+|.envrc
+== effect parent_entries
+|.envrc
+|project

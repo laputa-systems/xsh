@@ -1,0 +1,33 @@
+== frame unicode_user cursor=2,16
+|testuser@<HOST> ~ $ USER='Zoë'
+|
+|Zoë@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 USER='Zoë'
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame control_user cursor=4,21
+|testuser@<HOST> ~ $ USER='Zoë'
+|
+|Zoë@<HOST> ~ $ USER=$(printf '更新\n\033[2J')
+|
+|更新[2J@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 USER='Zoë'
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 USER=$(printf
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame restored_user cursor=6,20
+|testuser@<HOST> ~ $ USER='Zoë'
+|
+|Zoë@<HOST> ~ $ USER=$(printf '更新\n\033[2J')
+|
+|更新[2J@<HOST> ~ $ USER=testuser
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 USER='Zoë'
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 USER=$(printf
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 USER=testuser
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

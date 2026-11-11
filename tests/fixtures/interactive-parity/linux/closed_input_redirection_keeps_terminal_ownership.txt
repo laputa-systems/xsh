@@ -1,0 +1,12 @@
+== frame closed_input_status cursor=5,20
+|testuser@<HOST> ~ $ /bin/sh -c 'exit 0' 0<&-
+|
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/sh
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

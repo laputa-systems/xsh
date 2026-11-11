@@ -914,10 +914,10 @@ impl FailureChannel {
         for (index, helper) in RetiredHelper::ALL.into_iter().enumerate() {
             let record = char::from(b'A' + index as u8);
             writeln!(script, "{}() {{", helper.name()).unwrap();
+            writeln!(script, "  printf '%s\\n' 'denv: {helper}' >&2").unwrap();
             for fd in reporters {
                 writeln!(script, "  printf '%s' '{record}' >&{fd} 2>/dev/null || :").unwrap();
             }
-            writeln!(script, "  printf '%s\\n' 'denv: {helper}' >&2").unwrap();
             writeln!(script, "  return 2").unwrap();
             writeln!(script, "}}").unwrap();
         }

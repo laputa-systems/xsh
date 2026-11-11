@@ -1,0 +1,6 @@
+== effect quoted
+|é
+|日本\
+|語
+== effect escaped
+|é語

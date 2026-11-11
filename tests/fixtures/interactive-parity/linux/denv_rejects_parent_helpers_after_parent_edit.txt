@@ -1,0 +1,57 @@
+== frame after_cd cursor=11,32
+|testuser@<HOST> ~ $ cd parent
+|denv: loading .envrc
+|denv: +PARENT_VALUE
+|testuser@<HOST> ~/parent $ rm -f parent-marker
+|
+|testuser@<HOST> ~/parent $ cd ..
+|denv: -PARENT_VALUE
+|testuser@<HOST> ~ $ cd parent/project
+|denv: loading .envrc
+|denv: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/p/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rm
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame state cursor=14,32
+|testuser@<HOST> ~ $ cd parent
+|denv: loading .envrc
+|denv: +PARENT_VALUE
+|testuser@<HOST> ~/parent $ rm -f parent-marker
+|
+|testuser@<HOST> ~/parent $ cd ..
+|denv: -PARENT_VALUE
+|testuser@<HOST> ~ $ cd parent/project
+|denv: loading .envrc
+|denv: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/p/project * $ echo =$PARENT_VALUE=:$CANDIDATE=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/p/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rm
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/parent
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== effect project_entries
+|.envrc
+== effect parent_entries
+|.envrc
+|project

@@ -85,12 +85,13 @@ xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 With a terminal, the shell puts itself in its own process group, takes the
 foreground, handles job-control signals itself, and resets dispositions in
 children. Raw mode and bracketed paste are on only while the editor is reading
-and are restored on every exit path. When the shell
-starts with SIGTERM or SIGHUP at its default action, that signal restores the
-attributes saved when the editor first entered raw mode and then ends the
-shell by the same signal, so a supervisor observes death by that signal. An
-inherited ignored disposition, as under `nohup`, stays ignored. SIGKILL cannot
-be handled and leaves the terminal as it was.
+and are restored on every exit path. Every prompt starts from the attributes
+the first prompt saw, so a stopped or killed child cannot leave its own modes
+on the terminal. When the shell starts with SIGTERM, SIGHUP, SIGABRT, SIGBUS,
+SIGFPE, SIGILL, SIGSEGV, or SIGTRAP at a non-ignored disposition, that signal
+restores those attributes and exits with status `128 + signal`, as the
+reference shell does. An inherited ignored disposition, as under `nohup`,
+stays ignored. SIGKILL cannot be handled and leaves the terminal as it was.
 
 ## 4. Session State And Statuses
 
@@ -286,7 +287,9 @@ context` and leaves storage untouched.
 The prompt is `user@host cwd git-branch [*] $`: the cwd is shortened in the
 middle (`~/.config/fish` → `~/.c/fish`), the branch comes from `.git/HEAD`
 without a subprocess, a red `*` marks a denv with pending changes, and the
-prompt is green after success and red after failure. Every prompt is preceded by
+prompt is green after success and red after failure. Control characters in the
+user name become `U+FFFD`, while printable text, including private-use code
+points, is kept. Every prompt is preceded by
 an OSC 7 working-directory report and OSC 133 prompt/command markers: `A` before
 the prompt is drawn, `B` once it is on screen, `C` when a command starts, and
 `D;STATUS` when it finishes. Cancelled input closes its prompt with `D;130` and
@@ -307,13 +310,14 @@ Keys:
 | Ctrl-Y | yank the kill ring (one ring, shared by all kills) |
 | Ctrl-C | discard the line, status `130` |
 | Ctrl-L | clear the screen, keep the line |
-| Ctrl-P | write a layout dump to `~/.cache/xshi/dump-<hex>` without touching the screen; the `xshi-dump` builtin does the same |
+| Ctrl-P | write a layout dump to `~/.cache/xshi/dump-<hex>` without touching the screen; the directory is `0700`, each dump `0600`, and the dump records byte counts rather than typed text; the `xshi-dump` builtin does the same |
 | Up, Down | move by visual row; at the first or last row, prefix search through session history |
 | Tab, Ctrl-R | completion (§10), history search |
 
 Consecutive typed characters form one undo step; every other edit records its
 own. Cursor motion starts a new typing step, and undo restores the cursor
-position recorded with the text.
+position recorded with the text. Bytes typed ahead of the next prompt stay
+readable: a write containing several command lines runs them in order.
 
 Text is UTF-8 throughout: cursor motion and deletion work on characters, widths
 account for wide characters, combining marks, variation selectors, and emoji
@@ -383,7 +387,8 @@ status `2`; `bg` is not a builtin. Any `set` whose first operand is not a
 variable name is refused (`set -e` reports `set: expected a variable name`).
 
 - A one-word line naming a directory becomes `cd`, and `..`, `...`, … climb.
-  Relative `cd` and `z` targets are recorded in history as absolute paths.
+  Relative `cd` and `z` targets are recorded in history as absolute paths,
+  shell-quoted when the path contains spaces, quotes, or control characters.
 - `l [path…]` hides dotfiles; `ll [path…]` shows them. Entries are
   `name size age`: directories and symlinks omit the size, ages are relative,
   symlink targets are shown, and names carry type colors that fade with age.
@@ -396,8 +401,9 @@ variable name is refused (`set -e` reports `set: expected a variable name`).
 
 ## 12. Jobs And Signals
 
-One job slot. Ctrl-Z on a foreground command leaves it stopped, prints
-`xshi: stopped: CMD (pgid=N)`, and gives status `148`. CMD is the last line as
+One job slot. Ctrl-Z on a foreground command leaves it stopped, restores the
+prompt's terminal attributes, prints `xshi: stopped: CMD (pgid=N)`, and gives
+status `148`. CMD is the last line as
 submitted. A pipeline is one job: Ctrl-Z stops every stage, and `fg` prints
 `xshi: resuming: CMD`, gives the job's process group the terminal, restores its
 saved terminal modes, and waits for every stage. A pipeline's status is its

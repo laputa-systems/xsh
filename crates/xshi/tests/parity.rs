@@ -32,6 +32,8 @@ macro_rules! cargo_env {
 
 #[path = "parity/builtins.rs"]
 mod builtins;
+#[path = "parity/catchup.rs"]
+mod catchup;
 #[path = "parity/editor.rs"]
 mod editor;
 #[path = "parity/denv.rs"]
@@ -729,6 +731,21 @@ impl Live {
         self.settle();
     }
 
+    /// Sends bytes without waiting for an answer, for typeahead and pastes
+    /// that stay unread until a child or the editor consumes them.
+    pub(crate) fn send_raw(&mut self, bytes: &[u8]) {
+        let deadline = self.deadline();
+        self.term
+            .send_bytes(deadline, bytes)
+            .expect("write to shell PTY");
+        self.settle();
+    }
+
+    /// Delivers a signal to the shell process.
+    pub(crate) fn signal(&mut self, signal: i32) {
+        self.term.signal(signal).expect("signal the shell");
+    }
+
     /// Sends bytes the shell handles without repainting (for example Ctrl+P).
     pub(crate) fn keys_silent(&mut self, bytes: &[u8]) {
         let deadline = self.deadline();
@@ -891,7 +908,7 @@ impl Live {
             .replace("xshi layout dump", "ish layout dump")
             .replace(".cache/xshi/", ".cache/ish/");
         normalize_dump_names(&normalize_pgid(&normalize_ls_row(&normalize_shell_name(
-            &text,
+            &normalize_pty_paths(&text),
         ))))
     }
 
@@ -976,6 +993,45 @@ impl Live {
             .expect("set future mtime");
     }
 
+    /// Records how many times `needle` appears in the raw terminal stream.
+    pub(crate) fn effect_raw_count(&mut self, name: &str, needle: &[u8]) {
+        let count = self
+            .term
+            .raw_output()
+            .windows(needle.len())
+            .filter(|window| *window == needle)
+            .count();
+        self.effects.push((name.to_owned(), count.to_string()));
+    }
+
+    /// Records the mode of the layout-dump directory and of every dump file in
+    /// it, so the privacy contract is visible in the golden.
+    pub(crate) fn effect_dump_privacy(&mut self, name: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = self.home.join(".cache").join(self.kind.label());
+        let mode = |path: &Path| {
+            std::fs::metadata(path)
+                .map(|metadata| format!("{:03o}", metadata.permissions().mode() & 0o777))
+                .unwrap_or_else(|error| format!("<{:?}>", error.kind()))
+        };
+        let mut lines = vec![format!("dir {}", mode(&dir))];
+        let mut dumps: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("dump-"))
+            })
+            .collect();
+        dumps.sort();
+        for dump in dumps {
+            lines.push(format!("file {}", mode(&dump)));
+        }
+        self.effects.push((name.to_owned(), lines.join("\n")));
+    }
+
     /// Records the sorted names of entries directly under a HOME directory.
     pub(crate) fn effect_listing(&mut self, name: &str, relative: &str) {
         let mut names: Vec<String> = match std::fs::read_dir(self.home.join(relative)) {
@@ -987,6 +1043,21 @@ impl Live {
         };
         names.sort();
         self.effects.push((name.to_owned(), names.join("\n")));
+    }
+
+    /// Waits for the shell to exit, asserts the terminal modes were restored
+    /// whatever the status, and records the status as an effect.
+    pub(crate) fn expect_exit_restored(&mut self, name: &str) {
+        let deadline = self.deadline();
+        let status = self
+            .term
+            .wait_for_exit(deadline)
+            .expect("wait for shell exit");
+        self.term
+            .assert_terminal_restored(&self.baseline)
+            .expect("exit restores represented terminal modes");
+        self.exited = Some(status);
+        self.effects.push((name.to_owned(), format!("{status:?}")));
     }
 
     /// Waits for the shell to exit and records its exit status as an effect.
@@ -1222,6 +1293,27 @@ fn normalize_listing_transcript(transcript: &str) -> String {
         }
         out.push_str(ending);
     }
+    out
+}
+
+/// A command that opens its controlling terminal prints the PTY's name; each
+/// run gets a fresh `/dev/pts/N`.
+fn normalize_pty_paths(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(index) = rest.find("/dev/pts/") {
+        out.push_str(&rest[..index]);
+        let after = &rest[index + "/dev/pts/".len()..];
+        let digits = after.chars().take_while(char::is_ascii_digit).count();
+        if digits == 0 {
+            out.push_str("/dev/pts/");
+            rest = after;
+        } else {
+            out.push_str("/dev/pts/<N>");
+            rest = &after[digits..];
+        }
+    }
+    out.push_str(rest);
     out
 }
 

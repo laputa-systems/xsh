@@ -234,6 +234,7 @@ fn mode_name(mode: &Mode) -> &'static str {
 /// Deliberately does not touch the terminal, so Ctrl+P can capture a corrupted
 /// screen without changing it.
 fn write_layout_dump_to_file(session: &Session, ui: &Ui) -> Result<String, String> {
+    use std::os::unix::fs::OpenOptionsExt as _;
     let home = home_string(session);
     if home.is_empty() {
         return Err("xshi-dump: HOME is not set".to_string());
@@ -242,12 +243,15 @@ fn write_layout_dump_to_file(session: &Session, ui: &Ui) -> Result<String, Strin
     let dir = Path::new(&home).join(".cache/xshi");
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("xshi-dump: could not create {}: {error}", dir.display()))?;
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+        .map_err(|error| format!("xshi-dump: could not secure {}: {error}", dir.display()))?;
 
     for _ in 0..8 {
         let path = dir.join(format!("dump-{}", random_dump_hex()));
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&path)
         {
             Ok(mut file) => {
@@ -377,6 +381,14 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
         let event = reader.read_event();
         match event {
             InputEvent::Signal(sig) => {
+                if sig == libc::SIGINT {
+                    tw.write_str("^C\r\n");
+                    let _ = tw.flush_to_stdout();
+                    term::write_osc133_d(130);
+                    ui.osc133_pending_d = false;
+                    ui.prompt_buf = prompt_str;
+                    return ReadResult::Empty;
+                }
                 if sig == rustix::process::Signal::WINCH.as_raw() {
                     let (rows, cols) = term::term_size();
                     ui.rows = rows;
@@ -519,7 +531,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                 if submitted.is_empty() {
                                     return ReadResult::Empty;
                                 }
-                                if parsed_line_accepts(&submitted) {
+                                if parsed_line_accepts(&submitted, &session.aliases) {
                                     term::write_osc133_c();
                                 }
                                 if submitted_line_clears_screen(&submitted) {
@@ -1024,8 +1036,13 @@ fn submit_text(input: &str) -> String {
     result
 }
 
-fn parsed_line_accepts(input: &str) -> bool {
-    super::shell::ShellParser::new(input).parse_line().is_ok()
+fn parsed_line_accepts(input: &str, aliases: &super::alias::AliasMap) -> bool {
+    if super::shell::ShellParser::new(input).parse_line().is_err() {
+        return false;
+    }
+    let first = input.split_whitespace().next().unwrap_or_default();
+    aliases.get(first).is_some()
+        || !matches!(first, "eval" | "exec" | "source" | "." | "trap" | "bg")
 }
 
 fn submitted_line_clears_screen(input: &str) -> bool {

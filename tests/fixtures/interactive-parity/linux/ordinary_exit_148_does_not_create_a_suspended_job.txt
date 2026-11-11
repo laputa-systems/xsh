@@ -1,0 +1,27 @@
+== frame after_fg cursor=4,20
+|testuser@<HOST> ~ $ ./bin/exit148
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: fg: no suspended job
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/exit148
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=7,20
+|testuser@<HOST> ~ $ ./bin/exit148
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: fg: no suspended job
+|testuser@<HOST> ~ $ echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/exit148
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

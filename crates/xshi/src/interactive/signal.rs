@@ -30,6 +30,35 @@ pub fn init() -> RawFd {
     unsafe { PIPE_READ }
 }
 
+/// Routes SIGINT through the editor's own event loop while the line editor
+/// owns the terminal. The process-wide disposition ignores SIGINT so external
+/// jobs can handle it; the editor restores that disposition when it hands the
+/// terminal back.
+pub fn install_interrupt_handler() -> Option<libc::sigaction> {
+    // SAFETY: the action is zero-initialized plain data, the handler is
+    // async-signal-safe, and `previous` is owned by the caller.
+    unsafe {
+        let mut previous: libc::sigaction = std::mem::zeroed();
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = handler as *const () as usize;
+        action.sa_flags = 0;
+        libc::sigemptyset(&mut action.sa_mask);
+        if libc::sigaction(libc::SIGINT, &action, &mut previous) != 0 {
+            return None;
+        }
+        Some(previous)
+    }
+}
+
+pub fn restore_interrupt_handler(previous: Option<libc::sigaction>) {
+    if let Some(previous) = previous {
+        // SAFETY: `previous` was filled by sigaction for SIGINT.
+        unsafe {
+            libc::sigaction(libc::SIGINT, &previous, std::ptr::null_mut());
+        }
+    }
+}
+
 /// Read one signal byte from the self-pipe. Returns the signal number or None.
 pub fn read_signal() -> Option<i32> {
     let mut byte = 0u8;

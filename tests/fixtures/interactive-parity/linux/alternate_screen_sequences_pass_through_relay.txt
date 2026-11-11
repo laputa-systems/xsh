@@ -1,0 +1,16 @@
+== frame restored cursor=5,20
+|testuser@<HOST> ~ $ /usr/bin/printf '\033[?1049hALT\033[?1049l'
+|
+|testuser@<HOST> ~ $ echo restored
+|restored
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /usr/bin/printf
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect alternate_screen_enter
+|1
+== effect alternate_screen_leave
+|1

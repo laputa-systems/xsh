@@ -1,0 +1,11 @@
+== effect markers
+|A
+|B
+|C
+|D;0
+|A
+|B
+|C
+|D;0
+|A
+|B

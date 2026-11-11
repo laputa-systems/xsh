@@ -1,0 +1,10 @@
+== frame after_tty cursor=5,20
+|testuser@<HOST> ~ $ sh -c 'tty <&0; tty <&1; tty <&2'
+|/dev/pts/<N>
+|/dev/pts/<N>
+|/dev/pts/<N>
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

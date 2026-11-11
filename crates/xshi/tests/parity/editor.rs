@@ -227,6 +227,213 @@ fn run_violation_free(kind: ShellKind, binary: &Path, fixture: &Fixture) -> Stri
     live.finish().render()
 }
 
+fn run_violation_free_with(
+    kind: ShellKind,
+    binary: &Path,
+    fixture: &Fixture,
+    script: fn(&mut Live),
+) -> String {
+    let mut live = spawn_violation_free(kind, binary, fixture);
+    script(&mut live);
+    live.finish().render()
+}
+
+/// OSC 133 is outside the driver's protocol profile, so these scenarios use
+/// the same profile-disabled PTY as ish's own marker tests.
+fn run_osc_scenario(name: &str, fixture: &Fixture, script: fn(&mut Live)) {
+    let golden = golden_path(name);
+    let record = std::env::var_os("XSHI_PARITY_RECORD").is_some();
+    if let Some(ish) = ish_binary() {
+        let from_ish = run_violation_free_with(ShellKind::Ish, &ish, fixture, script);
+        if record {
+            std::fs::create_dir_all(golden.parent().expect("golden parent"))
+                .expect("golden dir");
+            std::fs::write(&golden, &from_ish).expect("write golden");
+        } else {
+            let expected = std::fs::read_to_string(&golden)
+                .unwrap_or_else(|error| panic!("read golden {}: {error}", golden.display()));
+            assert!(
+                expected == from_ish,
+                "{name}: ish no longer matches its recorded golden\n{}",
+                first_difference(&expected, &from_ish)
+            );
+        }
+    }
+    let expected = std::fs::read_to_string(&golden).unwrap_or_else(|error| {
+        panic!(
+            "{name}: read golden {}: {error}; record it with XSHI_PARITY_ISH_BIN and XSHI_PARITY_RECORD=1",
+            golden.display()
+        )
+    });
+    let xshi = std::path::PathBuf::from(env!("CARGO_BIN_EXE_xshi"));
+    let actual = run_violation_free_with(ShellKind::Xshi, &xshi, fixture, script);
+    if super::known_gap(name) {
+        assert!(
+            expected != actual,
+            "{name}: xshi now matches the ish golden; remove it from {}",
+            super::known_gaps_path().display()
+        );
+        return;
+    }
+    assert!(
+        expected == actual,
+        "{name}: xshi differs from the ish golden\n{}",
+        first_difference(&expected, &actual)
+    );
+}
+
+macro_rules! osc_parity {
+    ($name:ident, $fixture:expr, $script:expr) => {
+        #[test]
+        fn $name() {
+            let fixture: Fixture = $fixture;
+            run_osc_scenario(stringify!($name), &fixture, $script);
+        }
+    };
+}
+
+fn osc52_payload(sh: &Live) -> String {
+    let raw = sh.term.raw_output();
+    let marker = b"\x1b]52;c;";
+    let Some(position) = raw.windows(marker.len()).position(|word| word == marker) else {
+        return "<missing>".to_owned();
+    };
+    let rest = &raw[position + marker.len()..];
+    let end = rest
+        .iter()
+        .position(|byte| *byte == 0x07)
+        .unwrap_or(rest.len());
+    String::from_utf8_lossy(&rest[..end]).into_owned()
+}
+
+const READY_SLEEP: &str = "#!/bin/sh\necho ready\nsleep 60\n";
+
+osc_parity!(
+    osc133_marks_prompt_input_execution_and_completion,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.line("true");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_reports_command_status,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.line("/bin/sh -c 'exit 7'");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_cancelled_input_has_no_execution_marker,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.text("echo nope");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.line("echo after");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_refused_input_has_no_execution_marker,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.line("source /etc/profile");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_resize_does_not_duplicate_markers,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.line("true");
+        sh.resize(30, 100);
+        sh.line("true");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_redirected_output_keeps_markers_off_command_file,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.line("echo hi >out.txt");
+        sh.effect_file("out_file", "out.txt");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_continuation_does_not_emit_extra_execution_markers,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.text("true |");
+        sh.keys(key::ENTER);
+        sh.text("cat");
+        sh.keys_to_prompt(key::ENTER);
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc133_suspended_job_and_fg_emit_completion_markers,
+    Fixture::new()
+        .env("ISH_TEST_SUPPRESS_OSC133", "0")
+        .executable("sleeper.sh", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./sleeper.sh", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        record_osc133(sh, "stopped");
+        sh.line_until("fg", "resuming:");
+        sh.keys_to_prompt(key::CTRL_C);
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    resize_storm_keeps_shell_responsive,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        for (rows, cols) in [(24, 80), (30, 100), (20, 60), (40, 120), (24, 80), (10, 40)] {
+            sh.resize(rows, cols);
+        }
+        sh.line("echo storm-ok");
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    repeated_stop_resume_preserves_command_boundaries,
+    Fixture::new()
+        .env("ISH_TEST_SUPPRESS_OSC133", "0")
+        .executable("s1.sh", READY_SLEEP)
+        .executable("s2.sh", READY_SLEEP),
+    |sh: &mut Live| {
+        for script in ["$HOME/s1.sh", "$HOME/s2.sh"] {
+            sh.line_until(script, "ready");
+            sh.keys_to_prompt(key::CTRL_Z);
+            sh.line_until("fg", "resuming:");
+            sh.keys_to_prompt(key::CTRL_C);
+        }
+        record_osc133(sh, "markers");
+    }
+);
+
+osc_parity!(
+    osc52_copy_scrollback_emits_base64_session_log,
+    Fixture::new().env("ISH_TEST_SUPPRESS_OSC133", "0"),
+    |sh: &mut Live| {
+        sh.line("echo seed");
+        sh.line("copy-scrollback");
+        let payload = osc52_payload(sh);
+        sh.effects.push(("payload".to_owned(), payload));
+    }
+);
+
 fn osc133_script(sh: &mut Live) {
     sh.line("true");
     sh.line("/bin/sh -c 'exit 7'");

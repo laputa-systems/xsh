@@ -33,9 +33,10 @@ impl Prompt {
 
     /// Create prompt state from values owned by the shell's variable store.
     pub fn with_identity(user: &str, home: &str) -> Self {
+        let user = display_identity(user);
         Self {
-            user: user.to_string(),
             user_host: format!("{user}@{} ", hostname()),
+            user,
             home: home.to_string(),
             git: GitCache::Unknown,
             pwd_last: String::new(),
@@ -47,9 +48,9 @@ impl Prompt {
     /// Update identity values after the shell's variable store changes.
     pub fn set_identity(&mut self, user: &str, home: &str) {
         if self.user != user {
-            self.user.clear();
-            self.user.push_str(user);
+            let user = display_identity(user);
             self.user_host = format!("{user}@{} ", hostname());
+            self.user = user;
         }
         if self.home != home {
             self.home.clear();
@@ -179,6 +180,21 @@ impl Prompt {
             }
         }
     }
+}
+
+/// The prompt is a single line: control characters in an identity would move
+/// the cursor or start an escape sequence, so each one becomes a replacement
+/// character. Printable text, including private-use code points, is kept.
+fn display_identity(identity: &str) -> String {
+    let mut out = String::with_capacity(identity.len());
+    for ch in identity.chars() {
+        if ch.is_control() {
+            out.push('\u{fffd}');
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 // -- PWD shortening --

@@ -310,6 +310,6 @@ parity!(
         sh.enter();
         sh.wait_prompt();
         sh.line("echo alive");
-        sh.frame("alive");
+        sh.frame_rows_containing("alive", "alive");
     }
 );

@@ -289,14 +289,18 @@ impl InputReader {
             && fds[0].revents().contains(rustix::event::PollFlags::IN)
     }
 
-    /// Read up to `READ_BUF_SIZE` bytes from stdin into the internal buffer.
-    /// Callers must have fully consumed the buffer (`buf_pos >= buf_end`) first.
+    /// Read from stdin into the internal buffer. Outside a bracketed paste the
+    /// reader takes one byte, so input typed ahead of the next prompt (several
+    /// lines in one write) stays in the kernel buffer until its own prompt
+    /// cycle reads it. A whole buffer would swallow those lines and drop them
+    /// when the line editor ends.
     fn fill_buf(&mut self) -> Option<()> {
         debug_assert!(self.buf_pos >= self.buf_end);
         self.buf_pos = 0;
         self.buf_end = 0;
+        let limit = if self.in_paste { self.buf.len() } else { 1 };
         let stdin = unsafe { BorrowedFd::borrow_raw(STDIN_FD) };
-        match rustix::io::read(stdin, &mut self.buf) {
+        match rustix::io::read(stdin, &mut self.buf[..limit]) {
             Ok(0) => None,
             Ok(n) => {
                 self.buf_end = n;
