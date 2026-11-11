@@ -11,7 +11,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use xsh::frontend::source::{SourceId, Span};
 use xsh::host::fs::gitroot;
-use xsh::process::{ManagedChild, ProcessStatus};
+use xsh::process::{ManagedChild, PipelineJob, ProcessGroup, ProcessStatus};
 
 const DENV_DATA_PATH: &str = ".local/share/xshi/denv";
 
@@ -46,20 +46,37 @@ pub(super) struct Session {
     pub(super) test_home: Option<std::sync::Arc<tempfile::TempDir>>,
 }
 
+/// The one suspended job the shell owns. A value in the slot is stopped by
+/// construction: every way of creating one is a wait that reported a stop.
 pub(super) struct InteractiveJob {
-    pub(super) child: ManagedChild,
-    pub(super) pid: u32,
-    pub(super) pgid: libc::pid_t,
+    pub(super) process: InteractiveJobProcess,
     pub(super) command: String,
-    pub(super) state: InteractiveJobState,
     pub(super) terminal_attrs: Option<rustix::termios::Termios>,
-    pub(super) last_status: Option<ProcessStatus>,
-    pub(super) notified: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum InteractiveJobState {
-    Stopped,
+pub(super) enum InteractiveJobProcess {
+    Single(Box<ManagedChild>),
+    Pipeline(PipelineJob),
+}
+
+impl InteractiveJob {
+    pub(super) fn process_group(&self) -> ProcessGroup {
+        match &self.process {
+            InteractiveJobProcess::Single(child) => child.process_group(),
+            InteractiveJobProcess::Pipeline(pipeline) => pipeline.process_group(),
+        }
+    }
+
+    /// The member whose status the shell reports: the program itself, or the
+    /// pipeline's last stage.
+    pub(super) fn pid(&self) -> u32 {
+        match &self.process {
+            InteractiveJobProcess::Single(child) => child.pid,
+            InteractiveJobProcess::Pipeline(pipeline) => {
+                pipeline.pids().last().copied().unwrap_or_default()
+            }
+        }
+    }
 }
 
 impl Session {

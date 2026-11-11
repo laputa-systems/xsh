@@ -203,6 +203,56 @@ parity!(
 );
 
 parity!(
+    pipeline_suspend_and_resume_retains_every_stage,
+    Fixture::new().executable("bin/sleep", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/sleep | /bin/cat", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.frame("stopped");
+        sh.line_until("fg", "resuming:");
+        sh.frame("resumed");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_interrupt");
+        sh.line("echo pipeline-alive");
+        sh.frame("alive");
+    }
+);
+
+parity!(
+    pipeline_suspend_and_resume_keeps_job_owned,
+    Fixture::new().executable("bin/sleep", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/sleep | /bin/cat", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.frame("stopped");
+        sh.line_until("fg", "resuming:");
+        sh.frame("resumed");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_interrupt");
+        sh.line("echo alive");
+        sh.frame("alive");
+    }
+);
+
+parity!(
+    all_external_stopped_pipeline_discards_the_remaining_list,
+    Fixture::new().executable("bin/sleep", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until(
+            "./bin/sleep | /bin/cat; /bin/touch forbidden-remainder",
+            "ready",
+        );
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.line_until("fg", "resuming:");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.line("seq 1 40");
+        sh.frame("after_scroll");
+        sh.line("test -e forbidden-remainder; echo $?");
+        sh.frame("remainder_status");
+    }
+);
+
+parity!(
     ctrl_c_interrupts_running_child,
     Fixture::new().executable("bin/sleep", READY_SLEEP),
     |sh: &mut Live| {

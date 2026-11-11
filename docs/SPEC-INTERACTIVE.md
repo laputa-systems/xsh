@@ -397,22 +397,27 @@ variable name is refused (`set -e` reports `set: expected a variable name`).
 ## 12. Jobs And Signals
 
 One job slot. Ctrl-Z on a foreground command leaves it stopped, prints
-`xshi: stopped: CMD (pgid=N)`, and gives status `148`. `fg` prints
-`xshi: resuming: CMD`, gives the job the terminal, restores its saved terminal
-modes, and waits; `fg` with no job is an error. When the command was stopped in
-the middle of a list (`a && b`, `a || b`, `a; b`), the rest of the list is
-dropped, as it is dropped by the reference shell. Background commands (`&`) and
-`bg` are refused or absent as described in §6 and §11.
+`xshi: stopped: CMD (pgid=N)`, and gives status `148`. CMD is the last line as
+submitted. A pipeline is one job: Ctrl-Z stops every stage, and `fg` prints
+`xshi: resuming: CMD`, gives the job's process group the terminal, restores its
+saved terminal modes, and waits for every stage. A pipeline's status is its
+last stage's, and a stage killed by a signal counts as `128 + signal`. `fg`
+with no job is an error. When the command was stopped in the middle of a list
+(`a && b`, `a || b`, `a; b`), the rest of the list is dropped, as it is dropped
+by the reference shell. Background commands (`&`) and `bg` are refused or
+absent as described in §6 and §11.
 
-Before each prompt the slot is polled without blocking and completions are
-reported. A second Ctrl-Z while the slot is occupied reports
+Before each prompt a single-command job is polled without blocking and its
+completion is reported; a suspended pipeline is only re-examined by `fg`. A
+second Ctrl-Z while the slot is occupied reports
 `xshi: a job is already suspended; resume it with fg before suspending another`
 and keeps the new command running in the foreground instead of replacing the
 slot. `exit` and Ctrl-D with a live job warn once. The `exit` warning says
 `xshi: there is a suspended job. Exit again to force quit.` The Ctrl-D warning
 says `xshi: there is a suspended job. Press Ctrl+D again to force quit.`
 Repeating the same gesture exits and sends the job's process group `SIGTERM`
-then `SIGCONT`, so a stopped job can terminate. Any other line re-arms the warning.
+then `SIGCONT`, so a stopped job can terminate; a pipeline job's remaining
+stages are then killed and reaped. Any other line re-arms the warning.
 
 ## 13. Denv And z
 

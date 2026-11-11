@@ -6,7 +6,9 @@ use super::config::{load_config, load_config_path, load_profile};
 use super::denv::{self, DenvCommand};
 use super::history::History;
 use super::repl::{self, ReadResult, Ui};
-use super::session::{InteractiveJob, InteractiveJobState, Session, set_env_bytes, stdio_is_tty};
+use super::session::{
+    InteractiveJob, InteractiveJobProcess, Session, set_env_bytes, stdio_is_tty,
+};
 use super::shell::{
     Chain, ChainOp, PipeOp, Pipeline, RedirectionKind as ShellRedirectionKind, ShellLine,
     ShellParser, ShellToken, ShellWord, ShellWordPart, SimpleCommand, expand_glob, has_glob_meta,
@@ -30,9 +32,9 @@ use xsh::frontend::syntax::arena::ArenaProgram;
 use xsh::frontend::syntax::node::RunKind;
 use xsh::process::{
     CancellationDecision, CancellationPolicy, ChildWaitOutcome, FileRedirectionMode,
-    ForegroundTerminal, ManagedStdio, ProcessGroup, ProcessGroupConfig, ProcessInvocation,
-    ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind, ProcessStatus,
-    ProcessStatusKind, RedirectionStream, SpawnManagedOptions, WaitMode,
+    ForegroundTerminal, ManagedStdio, PipelineJob, ProcessGroup, ProcessGroupConfig,
+    ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind,
+    ProcessStatus, ProcessStatusKind, RedirectionStream, SpawnManagedOptions, WaitMode,
     initialize_interactive_process_group, poll_managed, run_capture_with_policy,
     run_pipeline_inherit_with_policy, spawn_managed, wait_managed,
 };
@@ -695,11 +697,7 @@ fn handle_submitted_line(
     let dollar_before = session.dollar_status;
     let output = execute_line(session, &line);
     // A command stopped by Ctrl-Z never finished, so it leaves `$?` alone.
-    let stopped = output.status == 148
-        && session
-            .job
-            .as_ref()
-            .is_some_and(|job| job.state == InteractiveJobState::Stopped);
+    let stopped = output.status == 148 && session.job.is_some();
     if stopped {
         session.dollar_status = dollar_before;
     } else {
@@ -912,10 +910,11 @@ fn handle_exit_command(
     Some(code)
 }
 
-/// Sends SIGTERM to the managed job's process group and forgets it.
+/// Sends SIGTERM to the managed job's process group and forgets it. A pipeline
+/// job's drop then kills and reaps every stage that outlives the signal.
 pub(super) fn terminate_job(session: &mut Session) {
     if let Some(job) = session.job.take() {
-        let group = ProcessGroup::from_pgid(job.pgid);
+        let group = job.process_group();
         group.signal(libc::SIGTERM);
         // A stopped process acts on SIGTERM only once it is continued.
         group.signal(libc::SIGCONT);
@@ -1060,7 +1059,7 @@ pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput
     let source = expanded.as_ref();
 
     match ShellParser::new(source).parse_line() {
-        Ok(line) => execute_shell_line(session, line),
+        Ok(line) => execute_shell_line(session, line, source),
         Err(message) => CommandOutput {
             status: 2,
             stdout: Vec::new(),
@@ -1217,14 +1216,14 @@ pub fn check_source(source_name: &str, text: &str) -> CliOutput {
     }
 }
 
-fn execute_shell_line(session: &mut Session, line: ShellLine) -> CommandOutput {
+fn execute_shell_line(session: &mut Session, line: ShellLine, source: &str) -> CommandOutput {
     if line.background {
         return refusal_output(BACKGROUND_JOBS_REFUSED);
     }
 
     let last_status = session.last_status;
     let last_process_status = session.last_process_status.clone();
-    run_chains(session, line.chains, last_status, last_process_status)
+    run_chains(session, line.chains, last_status, last_process_status, source)
 }
 
 fn run_chains(
@@ -1232,6 +1231,7 @@ fn run_chains(
     chains: Vec<Chain>,
     mut last_status: i32,
     mut last_process_status: Option<ProcessStatus>,
+    source: &str,
 ) -> CommandOutput {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -1245,8 +1245,8 @@ fn run_chains(
         if !should_run {
             continue;
         }
-        let job_before = session.job.as_ref().map(|job| job.pid);
-        let output = execute_pipeline(session, chain.pipeline);
+        let job_before = session.job.as_ref().map(|job| job.process_group().id());
+        let output = execute_pipeline(session, chain.pipeline, source);
         stdout.extend(output.stdout);
         stderr.extend(output.stderr);
         last_status = output.status;
@@ -1270,10 +1270,11 @@ fn run_chains(
     }
 }
 
-fn new_stopped_job(session: &Session, job_before: Option<u32>) -> bool {
-    session.job.as_ref().is_some_and(|job| {
-        job.state == InteractiveJobState::Stopped && Some(job.pid) != job_before
-    })
+fn new_stopped_job(session: &Session, job_before: Option<libc::pid_t>) -> bool {
+    session
+        .job
+        .as_ref()
+        .is_some_and(|job| Some(job.process_group().id()) != job_before)
 }
 
 fn refusal_output(message: &str) -> CommandOutput {
@@ -1286,7 +1287,7 @@ fn refusal_output(message: &str) -> CommandOutput {
     }
 }
 
-fn execute_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandOutput {
+fn execute_pipeline(session: &mut Session, pipeline: Pipeline, source: &str) -> CommandOutput {
     if pipeline.commands.len() == 1 {
         return execute_simple_command(session, pipeline.commands.into_iter().next().unwrap());
     }
@@ -1296,7 +1297,7 @@ fn execute_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandOutput 
         .iter()
         .any(|command| is_builtin_stage(session, command))
     {
-        return execute_mixed_pipeline(session, pipeline);
+        return execute_mixed_pipeline(session, pipeline, source);
     }
 
     for command in &pipeline.commands {
@@ -1311,15 +1312,17 @@ fn execute_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandOutput 
         }
     }
 
-    run_external_pipeline(session, &pipeline.commands, &pipeline.pipes)
+    run_external_pipeline(session, &pipeline.commands, &pipeline.pipes, source)
 }
 
 /// Runs a pipeline of programs. `|&` also sends the left program's standard
-/// error into the pipe.
+/// error into the pipe. A foreground pipeline is one job: its stages share a
+/// process group, and a stop suspends and resumes every stage together.
 fn run_external_pipeline(
     session: &mut Session,
     commands: &[SimpleCommand],
     pipes: &[PipeOp],
+    source: &str,
 ) -> CommandOutput {
     let mut invocations = Vec::with_capacity(commands.len());
     for (index, command) in commands.iter().enumerate() {
@@ -1339,57 +1342,52 @@ fn run_external_pipeline(
         invocations.push(invocation);
     }
 
+    if session.capturing {
+        return run_captured_pipeline(session, invocations);
+    }
+    run_foreground_pipeline(session, invocations, source)
+}
+
+fn run_captured_pipeline(
+    session: &Session,
+    mut invocations: Vec<ProcessInvocation>,
+) -> CommandOutput {
     // Inside a command substitution the last program writes to a pipe the
     // shell reads, through /dev/fd so the process layer needs no new option.
-    let mut capture = None;
-    if session.capturing {
-        match StdoutCapture::new() {
-            Ok(sink) => {
-                if let Some(last) = invocations.last_mut() {
-                    // The sink is the program's standard output before any
-                    // redirection of its own: `2>&1` reaches it, `> file` wins.
-                    last.redirections.insert(
-                        0,
-                        ProcessRedirection::File {
-                            stream: RedirectionStream::Stdout,
-                            mode: FileRedirectionMode::Write,
-                            path: PathBuf::from(&sink.path),
-                        },
-                    );
-                }
-                capture = Some(sink);
+    let capture = match StdoutCapture::new() {
+        Ok(sink) => {
+            if let Some(last) = invocations.last_mut() {
+                // The sink is the program's standard output before any
+                // redirection of its own: `2>&1` reaches it, `> file` wins.
+                last.redirections.insert(
+                    0,
+                    ProcessRedirection::File {
+                        stream: RedirectionStream::Stdout,
+                        mode: FileRedirectionMode::Write,
+                        path: PathBuf::from(&sink.path),
+                    },
+                );
             }
-            Err(error) => {
-                return CommandOutput {
-                    status: 1,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(format!("xshi: pipe: {error}\n")),
-                    process_status: Some(ProcessStatus::exited(1)),
-                    history_source: None,
-                };
-            }
+            sink
         }
-    }
+        Err(error) => {
+            return CommandOutput {
+                status: 1,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xshi: pipe: {error}\n")),
+                process_status: Some(ProcessStatus::exited(1)),
+                history_source: None,
+            };
+        }
+    };
 
     let mut policy = InteractiveNoCancellation;
     let end = run_pipeline_inherit_with_policy(&invocations, &mut policy);
-    let stdout = capture.map(StdoutCapture::finish).unwrap_or_default();
+    let stdout = capture.finish();
     match end {
         Ok(end) => {
             let status = end.status.unwrap_or_else(|| ProcessStatus::exited(0));
-            let mut stderr = Vec::new();
-            for segment in &status.segments {
-                if segment.kind == ProcessSegmentStatusKind::Exec {
-                    let kind = segment.error_kind.clone().unwrap_or_default();
-                    let mut error =
-                        RunError::new(kind, segment.error_message.clone().unwrap_or_default());
-                    if let Some(message) =
-                        exec_failure_message(session, &segment.target, &mut error)
-                    {
-                        stderr.extend_from_slice(message.as_bytes());
-                    }
-                }
-            }
+            let stderr = pipeline_exec_diagnostics(session, &status);
             status_from_process_output(CommandOutput {
                 status: 0,
                 stdout,
@@ -1406,6 +1404,141 @@ fn run_external_pipeline(
             history_source: None,
         },
     }
+}
+
+fn run_foreground_pipeline(
+    session: &mut Session,
+    invocations: Vec<ProcessInvocation>,
+    source: &str,
+) -> CommandOutput {
+    let target = invocations
+        .last()
+        .map_or(&[][..], |invocation| invocation.target.as_slice());
+    let mut job = match ProcessGroup::spawn_pipeline_job(&invocations) {
+        Ok(job) => job,
+        Err(mut error) => return pipeline_start_error(session, &mut error),
+    };
+    let group = job.process_group();
+    let foreground = ForegroundTerminal::take(group);
+    let outcomes = match job.wait() {
+        Ok(outcomes) => outcomes,
+        Err(error) => {
+            drop(foreground);
+            return CommandOutput {
+                status: 1,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xshi: {}\n", error.message)),
+                process_status: Some(process_error_status(target, error)),
+                history_source: None,
+            };
+        }
+    };
+    if !pipeline_stopped(&outcomes) {
+        let status = pipeline_status(&outcomes);
+        drop(foreground);
+        return status_from_process_output(CommandOutput {
+            status: 0,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            process_status: Some(status),
+            history_source: None,
+        });
+    }
+
+    if session.job.is_some() {
+        let _ = io::stderr().write_all(
+            b"xshi: a job is already suspended; resume it with fg before suspending another\n",
+        );
+        let status = loop {
+            job.resume();
+            match job.wait() {
+                Ok(outcomes) if !pipeline_stopped(&outcomes) => {
+                    break pipeline_status(&outcomes);
+                }
+                Ok(_) => {}
+                Err(error) => break process_error_status(target, error),
+            }
+        };
+        drop(foreground);
+        return status_from_process_output(CommandOutput {
+            status: 0,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            process_status: Some(status),
+            history_source: None,
+        });
+    }
+
+    let attrs = terminal_attrs();
+    drop(foreground);
+    let pgid = group.id();
+    // A pipeline runs on the shell's own terminal, so the terminal driver's
+    // `^Z` echo stays in front of the notice, as it does in the reference
+    // shell; unlike a single command, there is no converged session to hide it.
+    let stderr = text_bytes(format!("xshi: stopped: {source} (pgid={pgid})\n"));
+    session.job = Some(InteractiveJob {
+        process: InteractiveJobProcess::Pipeline(job),
+        command: source.to_string(),
+        terminal_attrs: attrs,
+    });
+    CommandOutput {
+        status: 148,
+        stdout: Vec::new(),
+        stderr,
+        process_status: Some(ProcessStatus::exited(148)),
+        history_source: None,
+    }
+}
+
+/// The pipeline status rule: the last stage decides, and a stage killed by a
+/// signal counts as `128 + signal`.
+fn pipeline_status(outcomes: &[ChildWaitOutcome]) -> ProcessStatus {
+    let mut segments = Vec::new();
+    for outcome in outcomes {
+        if let ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) = outcome {
+            segments.extend(status.segments.iter().cloned());
+        }
+    }
+    ProcessStatus::from_segments(segments)
+}
+
+fn pipeline_stopped(outcomes: &[ChildWaitOutcome]) -> bool {
+    outcomes
+        .iter()
+        .any(|outcome| matches!(outcome, ChildWaitOutcome::Stopped { .. }))
+}
+
+fn pipeline_start_error(session: &Session, error: &mut RunError) -> CommandOutput {
+    let Some(status) = error.status.take() else {
+        return CommandOutput {
+            status: 1,
+            stdout: Vec::new(),
+            stderr: text_bytes(format!("xshi: {}\n", error.message)),
+            process_status: Some(ProcessStatus::exited(1)),
+            history_source: None,
+        };
+    };
+    status_from_process_output(CommandOutput {
+        status: 0,
+        stdout: Vec::new(),
+        stderr: pipeline_exec_diagnostics(session, &status),
+        process_status: Some(*status),
+        history_source: None,
+    })
+}
+
+fn pipeline_exec_diagnostics(session: &Session, status: &ProcessStatus) -> Vec<u8> {
+    let mut stderr = Vec::new();
+    for segment in &status.segments {
+        if segment.kind == ProcessSegmentStatusKind::Exec {
+            let kind = segment.error_kind.clone().unwrap_or_default();
+            let mut error = RunError::new(kind, segment.error_message.clone().unwrap_or_default());
+            if let Some(message) = exec_failure_message(session, &segment.target, &mut error) {
+                stderr.extend_from_slice(message.as_bytes());
+            }
+        }
+    }
+    stderr
 }
 
 /// A pipe that collects a pipeline's standard output for a command substitution.
@@ -1573,7 +1706,11 @@ fn with_redirection(
 /// A pipeline containing builtins. Stages up to the last builtin run in order,
 /// each seeing the previous stage's output as its input; the programs after it
 /// run as an ordinary pipeline fed by that builtin's output.
-fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandOutput {
+fn execute_mixed_pipeline(
+    session: &mut Session,
+    pipeline: Pipeline,
+    source: &str,
+) -> CommandOutput {
     let Pipeline { commands, pipes } = pipeline;
     let last_builtin = commands
         .iter()
@@ -1584,7 +1721,7 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
     let mut carry: Option<Vec<u8>> = None;
 
     for (index, command) in commands.iter().enumerate().take(last_builtin + 1) {
-        let job_before = session.job.as_ref().map(|job| job.pid);
+        let job_before = session.job.as_ref().map(|job| job.process_group().id());
         let merge_stderr = pipes
             .get(index)
             .is_some_and(|pipe| *pipe == PipeOp::StdoutStderr);
@@ -1665,6 +1802,7 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
                 commands: suffix,
                 pipes: pipes[last_builtin + 1..].to_vec(),
             },
+            source,
         );
         drop(feed);
         statuses.push(output.status);
@@ -1921,20 +2059,17 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
             history_source: None,
         };
     };
-    match poll_managed(&mut job.child) {
-        Ok(ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status)) => {
+    match poll_job_terminated(&mut job) {
+        Ok(Some(status)) => {
             let stderr = text_bytes(format!(
                 "xshi: completed: {} (pid={}, {})\n",
                 job.command,
-                job.pid,
+                job.pid(),
                 process_status_label(&status)
             ));
             return status_command_output(status, stderr);
         }
-        Ok(ChildWaitOutcome::Stopped { .. }) => {
-            job.state = InteractiveJobState::Stopped;
-        }
-        Ok(ChildWaitOutcome::StillRunning) => {}
+        Ok(None) => {}
         Err(error) => {
             return CommandOutput {
                 status: 1,
@@ -1947,26 +2082,21 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
     }
 
     let _ = writeln!(io::stderr(), "xshi: resuming: {}", job.command);
-    let group = ProcessGroup::from_pgid(job.pgid);
+    let group = job.process_group();
     let foreground = ForegroundTerminal::take(group);
     if let Some(attrs) = job.terminal_attrs.as_ref() {
         restore_terminal_attrs(attrs);
     }
-    if job.state == InteractiveJobState::Stopped {
-        group.signal(libc::SIGCONT);
-    }
-    let mut policy = InteractiveNoCancellation;
-    match wait_managed(&mut job.child, WaitMode::InteractiveForeground, &mut policy) {
-        Ok((ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status), _)) => {
+    resume_job(&mut job);
+    match wait_job_foreground(&mut job) {
+        Ok(JobForegroundOutcome::Finished(status)) => {
             drop(foreground);
             status_command_output(status, Vec::new())
         }
-        Ok((ChildWaitOutcome::Stopped { signal: _ }, _)) => {
+        Ok(JobForegroundOutcome::Stopped) => {
             // Stopped again: the job stays suspended in the slot, silently.
             job.terminal_attrs = terminal_attrs();
             drop(foreground);
-            job.state = InteractiveJobState::Stopped;
-            job.notified = true;
             let stderr = erase_stopped_key_echo(job.terminal_attrs.as_ref());
             session.job = Some(job);
             CommandOutput {
@@ -1977,7 +2107,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                 history_source: None,
             }
         }
-        Ok((ChildWaitOutcome::StillRunning, _)) => {
+        Ok(JobForegroundOutcome::Running) => {
             drop(foreground);
             session.job = Some(job);
             CommandOutput {
@@ -1997,6 +2127,61 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                 process_status: Some(ProcessStatus::exited(1)),
                 history_source: None,
             }
+        }
+    }
+}
+
+enum JobForegroundOutcome {
+    Finished(ProcessStatus),
+    Stopped,
+    Running,
+}
+
+fn poll_job_terminated(job: &mut InteractiveJob) -> Result<Option<ProcessStatus>, RunError> {
+    match &mut job.process {
+        InteractiveJobProcess::Single(child) => Ok(match poll_managed(child)? {
+            ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) => Some(status),
+            ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning => None,
+        }),
+        InteractiveJobProcess::Pipeline(pipeline) => {
+            let outcomes = pipeline.wait()?;
+            Ok(if pipeline_stopped(&outcomes) {
+                None
+            } else {
+                Some(pipeline_status(&outcomes))
+            })
+        }
+    }
+}
+
+fn resume_job(job: &mut InteractiveJob) {
+    let group = job.process_group();
+    match &mut job.process {
+        InteractiveJobProcess::Single(_) => group.signal(libc::SIGCONT),
+        InteractiveJobProcess::Pipeline(pipeline) => pipeline.resume(),
+    }
+}
+
+fn wait_job_foreground(job: &mut InteractiveJob) -> Result<JobForegroundOutcome, RunError> {
+    match &mut job.process {
+        InteractiveJobProcess::Single(child) => {
+            let mut policy = InteractiveNoCancellation;
+            let (outcome, _) = wait_managed(child, WaitMode::InteractiveForeground, &mut policy)?;
+            Ok(match outcome {
+                ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) => {
+                    JobForegroundOutcome::Finished(status)
+                }
+                ChildWaitOutcome::Stopped { .. } => JobForegroundOutcome::Stopped,
+                ChildWaitOutcome::StillRunning => JobForegroundOutcome::Running,
+            })
+        }
+        InteractiveJobProcess::Pipeline(pipeline) => {
+            let outcomes = pipeline.wait()?;
+            Ok(if pipeline_stopped(&outcomes) {
+                JobForegroundOutcome::Stopped
+            } else {
+                JobForegroundOutcome::Finished(pipeline_status(&outcomes))
+            })
         }
     }
 }
@@ -2121,18 +2306,12 @@ fn run_external_foreground(
                     let attrs = terminal_attrs();
                     drop(foreground);
                     let name = String::from_utf8_lossy(&invocation.target).into_owned();
-                    let pid = child.pid;
                     let pgid = new_root_process_group_id(child.pid);
                     let stderr = stopped_notice(attrs.as_ref(), &name, pgid);
                     session.job = Some(InteractiveJob {
-                        child,
-                        pid,
-                        pgid,
+                        process: InteractiveJobProcess::Single(Box::new(child)),
                         command: name.clone(),
-                        state: InteractiveJobState::Stopped,
                         terminal_attrs: attrs,
-                        last_status: None,
-                        notified: true,
                     });
                     return CommandOutput {
                         status: 148,
@@ -2260,24 +2439,17 @@ fn reap_interactive_job(session: &mut Session, stderr: &mut dyn Write) {
     let Some(job) = session.job.as_mut() else {
         return;
     };
-    match poll_managed(&mut job.child) {
-        Ok(ChildWaitOutcome::StillRunning) => {}
-        Ok(ChildWaitOutcome::Stopped { signal }) => {
-            job.state = InteractiveJobState::Stopped;
-            if !job.notified {
-                let _ = writeln!(
-                    stderr,
-                    "xshi: stopped: {} (pid={}, signal={signal})",
-                    job.command, job.pid
-                );
-                job.notified = true;
-            }
-        }
+    // Only a single child has a nonblocking waiter; a suspended pipeline has
+    // no running stage to observe, so `fg` reports its state instead.
+    let InteractiveJobProcess::Single(child) = &mut job.process else {
+        return;
+    };
+    match poll_managed(child) {
+        Ok(ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning) => {}
         Ok(ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status)) => {
             let command = job.command.clone();
-            let pid = job.pid;
+            let pid = child.pid;
             let label = process_status_label(&status);
-            job.last_status = Some(status);
             let _ = writeln!(stderr, "xshi: completed: {command} (pid={pid}, {label})");
             session.job = None;
         }
@@ -2884,7 +3056,7 @@ fn expand_command_substitution(session: &Session, source: &str) -> Result<String
         .parse_line()
         .map_err(|message| ExpansionError::usage(format!("command substitution: {message}")))?;
     let mut nested = session.fork_for_substitution();
-    let output = execute_shell_line(&mut nested, line);
+    let output = execute_shell_line(&mut nested, line, source);
     // Diagnostics reach the terminal as they would from any command; the
     // substitution's status does not stop the command that uses it.
     let _ = io::stderr().write_all(&output.stderr);
