@@ -1,3 +1,1 @@
-denv_allow_requires_envrc
-denv_dotenv_helper_loads_env_file
 history_reset_refuses_pipeline_and_command_substitution
