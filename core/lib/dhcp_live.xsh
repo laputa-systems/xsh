@@ -208,6 +208,10 @@ proc live_apply(ctx: client.Context, change: client.Change) [fs, process, net, t
       let root = fs.open_root(settings.lease_dir)?
       Ok(.Reconciled(apply.reconcile(root, request.record, request.desired, request.metric)?))
     }
+    client.BringUp => {
+      let _ = apply.mutate(ctx.link.name, ctx.link.ifindex, network.BringUp)?
+      Ok(client.Done)
+    }
     client.Dns(contribution) => {
       let layout = dns_owner.Layout(run_dir: settings.run_dir, destination_dir: settings.resolv_dir, destination: settings.resolv_name, static_path: settings.static_path, lock_wait_ms: dns_owner.LOCK_WAIT_MS)
       Ok(.Resolver(dns_owner.update(layout, settings.interface, contribution)?))

@@ -70,9 +70,11 @@ export enum Outgoing {
 ## A request to bring the owned configuration to a lease (null withdraws it).
 export type ReconcileRequest = {record: store.LeaseRecord, desired: machine.Lease?, metric: Int}
 
-## One change the loop asks the host to make.
+## One change the loop asks the host to make. `BringUp` makes the interface
+## administratively up.
 export enum Change {
   Reconcile(ReconcileRequest),
+  BringUp,
   Dns(dns_owner.Contribution?),
   Persist(store.LeaseRecord),
   Publish(Str),
@@ -385,9 +387,13 @@ proc observed_change(host: ClientIo, ctx: Context, session: Session, now: Int) [
   }
   let fresh = observation?
   let recreated = fresh.ifindex != session.observed.ifindex
+  let brought_up = recreated and ! fresh.up and session.machine.state != .AdminDown
+  if brought_up {
+    let _ = host.apply(ctx, .BringUp)?
+  }
   let bound = if recreated { host.rebind(ctx, fresh)? } else { ctx }
   let record = if recreated { {...session.record, ifindex: fresh.ifindex, owned: network.empty_owned(fresh.ifindex)} } else { session.record }
-  var current = {...session, observed: fresh, context: bound, record: record, resync: false, trouble: "none"}
+  var current = {...session, observed: fresh, context: bound, record: record, resync: brought_up, trouble: "none"}
   for event in link_events(session.machine.state, session.observed, fresh) {
     current = settle(host, bound, feed(current, event, now), now)?
   }

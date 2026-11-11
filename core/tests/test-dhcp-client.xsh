@@ -304,6 +304,33 @@ test test_an_interface_that_vanishes_before_it_is_recreated_does_not_stop_the_cl
   assert gone.world.kernel.addresses.len() == 1, "the lease is revalidated on the recreated device"
 }
 
+test test_a_hot_replugged_admin_down_interface_is_brought_up_and_reacquires_the_lease { |ctx|
+  let h = harness(ctx, "hotplug")?
+  let rules = [script.always("discover", [offer_with(600)]), script.always("request", [ack_with(600)])]
+  let result = play(h, rules, [after(5000, "vanish", ""), after(6000, "recreate_down", ""), after(20000, "ask", "stop")])?
+  assert counted(result.session, "observe_failed") >= 1
+  assert result.world.kernel.ifindex == 13
+  let replugged = [item for item in result.world.sent if item.kind == "dhcp" and item.at >= 6000]
+  assert ! replugged.is_empty(), "the client asks for the lease again after the re-enumeration"
+  assert result.world.kernel.up, "the client brought the re-enumerated link up"
+  assert result.world.kernel.addresses.len() == 1, "the lease is re-acquired on the re-enumerated device"
+}
+
+test test_an_operator_admin_down_link_is_never_brought_up { |ctx|
+  let h = harness(ctx, "admin-down")?
+  let rules = [script.always("discover", [offer_with(600)]), script.always("request", [ack_with(600)])]
+  let happenings = [after(5000, "vanish", ""), after(6000, "recreate_down", ""), after(12000, "ask", "stop")]
+  let world = fake.world_of(h.link, 1000, rules, happenings)
+  fake.save(h.settings, world)
+  let record = store.load(fs.open_root(h.settings.lease_dir)?, "eth0")?
+  let beginning = client.Beginning(record:, observed: fake.observed_in(world), admin_down: true)
+  let session = client.drive(fake.scripted_io(), h.context, beginning, .Supervised)?
+  let end = fake.load(h.settings)?
+  assert counted(session, "observe_failed") >= 1
+  assert ! end.kernel.up, "an operator AdminDown keeps the re-enumerated link down"
+  assert end.kernel.addresses.is_empty()
+}
+
 test test_a_failed_send_is_counted_and_the_client_acquires_once_sending_works { |ctx|
   let h = harness(ctx, "deaf")?
   let rules = [script.always("discover", [offer_with(600)]), script.always("request", [ack_with(600)])]

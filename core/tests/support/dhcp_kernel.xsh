@@ -1,8 +1,9 @@
 ##! Test support: a model of one interface's IPv4 state that applies the
 ##! operations of a reconciliation the way the kernel does: an address brings
 ##! its connected route and takes it away, a route that finds its slot taken
-##! is refused. It lets tests drive the pure reconciliation, and the in-process
-##! fake world, through failures at chosen operations without a real link.
+##! is refused, and bringing a link up restores its carrier. It lets tests
+##! drive the pure reconciliation, and the in-process fake world, through
+##! failures at chosen operations without a real link.
 use lib.dhcp_machine as machine
 use lib.dhcp_net as network
 use lib.dhcp_wire as wire
@@ -47,7 +48,7 @@ pure drop_connected(routes: List[network.Route], address: network.Address) -> Li
 export pure simulate(kernel: Kernel, operation: network.Operation) -> Kernel {
   let state = kernel.observed
   let next = match operation {
-    network.BringUp => {...state, up: true}
+    network.BringUp => {...state, up: true, carrier: true}
     network.AddAddress(item) => {...state, addresses: state.addresses.push(item), routes: state.routes.push(connected(item))}
     network.RemoveAddress(item) => {...state, addresses: [held for held in state.addresses if held != item], routes: drop_connected(state.routes, item)}
     network.AddRoute(item) => {...state, routes: state.routes.push(item)}

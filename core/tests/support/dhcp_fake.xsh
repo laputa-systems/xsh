@@ -21,7 +21,7 @@ use tests.support.dhcp_types as types
 ## One scripted happening. `kind` is one of: `frame` (deliver the base64 datagram
 ## in `text`), `arp` (deliver an ARP frame), `lost` (deliver a notification
 ## overrun), `changed` (deliver a link change), `ask` (a command: `stop`,
-## `down` or `up`), `carrier` (`up` or `down`; losing it removes the link's routes, as the kernel does), `send_off` and `send_on` (every send fails with an error, as on a downed link, until `send_on`), `vanish` (the interface disappears until a `recreate`), `recreate` (a new index),
+## `down` or `up`), `carrier` (`up` or `down`; losing it removes the link's routes, as the kernel does), `send_off` and `send_on` (every send fails with an error, as on a downed link, until `send_on`), `vanish` (the interface disappears until a `recreate`), `recreate` (a new index), `recreate_down` (a new index, administratively down with no carrier, as after a PCI re-enumeration),
 ## `unplug_address` (remove the addresses behind the client's back),
 ## `fail_next` (fail the next network operation), `jump` (add `text`
 ## milliseconds to the boot clock without delivering anything in between) and
@@ -167,7 +167,7 @@ pure readiness(due_now: List[Happening]) -> client.Ready {
   client.Ready(
     dhcp: has_kind(due_now, ["frame"]),
     arp: has_kind(due_now, ["arp"]),
-    events: has_kind(due_now, ["changed", "lost", "carrier", "send_off", "send_on", "vanish", "recreate", "unplug_address", "fail_next", "jump", "wall", "later"]),
+    events: has_kind(due_now, ["changed", "lost", "carrier", "send_off", "send_on", "vanish", "recreate", "recreate_down", "unplug_address", "fail_next", "jump", "wall", "later"]),
     control: has_kind(due_now, ["ask"]),
   )
 }
@@ -225,6 +225,10 @@ proc fake_receive(ctx: client.Context) [fs, process, net, error] -> Result[List[
         world = with_kernel(world, {...world.kernel, ifindex: world.kernel.ifindex + 10, addresses: [], routes: [], missing: false})
         delivered += [client.LinkChanged]
       }
+      "recreate_down" => {
+        world = with_kernel(world, {...world.kernel, ifindex: world.kernel.ifindex + 10, addresses: [], routes: [], missing: false, up: false, carrier: false})
+        delivered += [client.LinkChanged]
+      }
       "send_off" => world = with_kernel(world, {...world.kernel, send_fails: true})
       "send_on" => world = with_kernel(world, {...world.kernel, send_fails: false})
       "vanish" => {
@@ -273,7 +277,7 @@ pure max_of(left: Int, right: Int) -> Int {
 
 proc fake_send(ctx: client.Context, outgoing: client.Outgoing) [fs, process, net, error] {
   var world = load(ctx.settings)?
-  return Err(error.failure("Network is down")) when world.kernel.send_fails
+  return Err(error.failure("Network is down")) when world.kernel.send_fails or ! world.kernel.up
   match outgoing {
     client.SendDhcp(found) => {
       let message = wire.decode(found.bytes)?
@@ -316,6 +320,26 @@ pure injected_failure_spent(fail_at: Int, outcome: network.Outcome?) -> Int {
 proc fake_apply(ctx: client.Context, change: client.Change) [fs, process, net, time, error] -> Result[client.Applied, Error] {
   var world = load(ctx.settings)?
   match change {
+    client.BringUp => {
+      let model = kernel_model.Kernel(observed: observation_of(world.kernel), fail_at: -1, calls: world.kernel.calls)
+      let raised = kernel_model.simulate(model, network.BringUp)
+      let state = raised.observed
+      let reached = KernelJson(
+        ifindex: world.kernel.ifindex,
+        name: world.kernel.name,
+        mac: world.kernel.mac,
+        up: state.up,
+        carrier: state.carrier,
+        addresses: world.kernel.addresses,
+        routes: world.kernel.routes,
+        fail_at: world.kernel.fail_at,
+        calls: raised.calls,
+        missing: world.kernel.missing,
+        send_fails: world.kernel.send_fails,
+      )
+      save(ctx.settings, after_work({...world, kernel: reached}))
+      Ok(client.Done)
+    }
     client.Reconcile(request) => {
       let model = kernel_model.Kernel(observed: observation_of(world.kernel), fail_at: world.kernel.fail_at, calls: world.kernel.calls)
       let played = kernel_model.play(request.desired, request.metric, request.record.owned, model, false)
@@ -325,7 +349,7 @@ proc fake_apply(ctx: client.Context, change: client.Change) [fs, process, net, t
         name: world.kernel.name,
         mac: world.kernel.mac,
         up: state.up,
-        carrier: world.kernel.carrier,
+        carrier: state.carrier,
         addresses: state.addresses,
         routes: state.routes,
         fail_at: injected_failure_spent(world.kernel.fail_at, played.outcome),
