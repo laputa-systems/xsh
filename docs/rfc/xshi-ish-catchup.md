@@ -525,8 +525,8 @@ S6 depends on S1 only if the scan primitive reuses the metadata record.
 - **The fdu scan is a narrow Rust primitive** beside `fs.walk`, carrying ish's
   size-indexed parallel scan; model, browser and delete logic stay in XSH.
 - **Staged publication and crash recovery stay internal** to XSH's
-  filesystem layer, shared by the shell's `cp`/`mv`/`rsync`/`rmrf` and core
-  commands, with no new script-visible contract yet.
+  filesystem layer as a Rust API of the `xsh` crate that xshi's
+  `cp`/`mv`/`rsync`/`rmrf` call, with no new script-visible contract yet.
 - **Harness:** the parity lane owns the move to `laputa-ptytest` 0.4.
 - **macOS** stays owner-deferred; Linux first.
 
