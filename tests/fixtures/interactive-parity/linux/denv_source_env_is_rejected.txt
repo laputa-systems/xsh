@@ -1,0 +1,29 @@
+== frame after_cd cursor=4,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: source_env was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_env was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame state cursor=7,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: source_env was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_env was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/project * $ echo =$BEFORE=:$AFTER=:$SHARED=:$__DENV_DIRTY=
+|==:=:=:1=
+|
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== effect project_entries
+|.envrc
+|shared

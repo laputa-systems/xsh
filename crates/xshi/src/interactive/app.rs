@@ -513,7 +513,7 @@ fn handle_submitted_line(
 fn is_intercepted_line(line: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     match first {
-        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "c" | "cd" => {
+        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "cd" => {
             is_simple_word_line(line)
         }
         _ => false,
@@ -1767,7 +1767,7 @@ fn execute_session_builtin(
             Some("deny") => denv::run_command(session, &DenvCommand::Deny, &mut stderr),
             Some("reload") => denv::run_command(session, &DenvCommand::Reload, &mut stderr),
             _ => {
-                stderr.extend_from_slice(b"usage: denv <allow|deny|reload>\n");
+                stderr.extend_from_slice(b"denv: usage: denv <allow|deny|reload>\n");
                 1
             }
         },

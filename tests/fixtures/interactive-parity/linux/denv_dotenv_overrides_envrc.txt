@@ -1,6 +1,6 @@
 == frame after_cd cursor=2,30
 |testuser@<HOST> ~ $ cd project
-|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
 |testuser@<HOST> ~/project * $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
@@ -8,7 +8,7 @@
 @2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
 == frame values cursor=5,30
 |testuser@<HOST> ~ $ cd project
-|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
 |testuser@<HOST> ~/project * $ echo $SHARED $ENVRC_ONLY $DOTENV_ONLY
 |
 |

@@ -34,6 +34,8 @@ macro_rules! cargo_env {
 mod builtins;
 #[path = "parity/editor.rs"]
 mod editor;
+#[path = "parity/denv.rs"]
+mod denv;
 #[path = "parity/extended.rs"]
 mod extended;
 #[path = "parity/history.rs"] mod history;
@@ -435,21 +437,30 @@ fn materialize(home: &Path, fixture: &Fixture, kind: ShellKind) {
         std::fs::write(&config, text).expect("write fixture config");
     }
     for relative in &fixture.allow {
-        use std::os::unix::fs::MetadataExt as _;
         let envrc = home.join(relative);
         let canonical = std::fs::canonicalize(&envrc).unwrap_or(envrc);
         let allow_dir = home.join(kind.denv_allow_dir());
         std::fs::create_dir_all(&allow_dir).expect("create denv allow dir");
-        let mtime = std::fs::metadata(&canonical)
-            .expect("envrc metadata")
-            .mtime();
-        let key: String = canonical
-            .as_os_str()
-            .as_encoded_bytes()
+        let contents = std::fs::read(&canonical).expect("read trusted file");
+        let mut hasher = sha2::Sha256::new();
+        use sha2::Digest as _;
+        hasher.update(&contents);
+        let content_hash: String = hasher
+            .finalize()
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        std::fs::write(allow_dir.join(key), mtime.to_string()).expect("write denv trust");
+        let mut path_hasher = sha2::Sha256::new();
+        path_hasher.update(canonical.as_os_str().as_encoded_bytes());
+        let key: String = format!(
+            "sha256-{}",
+            path_hasher
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        std::fs::write(allow_dir.join(key), content_hash).expect("write denv trust");
     }
     // The state directories the harness itself creates must not carry the
     // time of the run into `l` listings.

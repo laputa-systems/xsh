@@ -1,14 +1,13 @@
-== frame path cursor=5,30
+== frame path cursor=6,28
 |testuser@<HOST> ~ $ cd project
-|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
-|testuser@<HOST> ~/project * $ echo $PATH
-|/usr/bin:/bin:/usr/sbin:/sbin
+|denv: loading .envrc
+|denv: +PATH
+|testuser@<HOST> ~/project $ echo $PATH
+|<HOME>/project/bin:/usr/bin:/bin:/usr/sbin:/sbin
 |
-|testuser@<HOST> ~/project * $
+|testuser@<HOST> ~/project $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 @0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
-@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
-@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
-@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
-@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

@@ -426,15 +426,23 @@ then `SIGCONT`, so a stopped job can terminate. Any other line re-arms the warni
 
 ## 13. Denv And z
 
-Denv loads a directory's environment from the git root (or the current
-directory): `.envrc` (bash-style, evaluated by `bash`, `sh`, or `xsh` for `.xsh`
-files) and `.env` (dotenv). Both apply on startup, after every directory
-change, and after `denv reload`; leaving the tree restores previous values.
-`.envrc` requires trust: `denv allow` records the file's path and mtime under
-`~/.local/share/xshi/denv/allow`, editing the file invalidates the trust, and
-`denv deny` removes it and marks the environment dirty. `.env` needs no trust.
-The state is exported as `__DENV_*` variables; `__DENV_DIRTY=1` shows the red
-prompt marker.
+Denv loads a directory's environment from the nearest ancestor (the current
+directory first) holding `.envrc`, `.env`, or both. `.envrc` is evaluated
+interactively by `bash` when its first line mentions bash, as XSH source when it
+mentions `xsh`, and by `sh` otherwise; `.env` (dotenv) applies on top of the
+result, as data. Both apply on startup, after every directory change, and after
+`denv reload`; leaving the tree restores previous values, including whether they
+were exported.
+
+Each file requires trust: `denv allow` records the canonical path and the
+SHA-256 of the file's content under `~/.local/share/xshi/denv/allow`, so any
+edit revokes it, and `denv deny` removes it and marks the environment dirty.
+A candidate `.envrc` that fails, or that calls the retired `source_env`,
+`source_env_if_exists`, `source_up`, `source_up_if_exists`, `dotenv`, or
+`dotenv_if_exists` helpers, is rejected whole: none of its variables apply and
+`__DENV_DIRTY=1` shows the red prompt marker. The state is exported as
+`__DENV_*` variables, and a shell that exits normally removes the active record
+it wrote beside `allow/`.
 
 `z` reads its scores from the same history (§8).
 

@@ -1,0 +1,185 @@
+== frame loaded cursor=7,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_LITERAL +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR $DENV_LITERAL
+|dotenv $(touch marker); `touch marker`; "quoted"
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame blocked cursor=10,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_LITERAL +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR $DENV_LITERAL
+|dotenv $(touch marker); `touch marker`; "quoted"
+|
+|testuser@<HOST> ~/project $ denv reload
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|denv: -DENV_LITERAL -DENV_PAIR
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame rejected cursor=13,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_LITERAL +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR $DENV_LITERAL
+|dotenv $(touch marker); `touch marker`; "quoted"
+|
+|testuser@<HOST> ~/project $ denv reload
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|denv: -DENV_LITERAL -DENV_PAIR
+|testuser@<HOST> ~/project * $ echo =$DENV_PAIR=:$DENV_LITERAL=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame edited cursor=22,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_LITERAL +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR $DENV_LITERAL
+|dotenv $(touch marker); `touch marker`; "quoted"
+|
+|testuser@<HOST> ~/project $ denv reload
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|denv: -DENV_LITERAL -DENV_PAIR
+|testuser@<HOST> ~/project * $ echo =$DENV_PAIR=:$DENV_LITERAL=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.envrc
+|denv: allowed <HOME>/project/.env
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR
+|edited
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@19 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame denied cursor=23,30
+|testuser@<HOST> ~/project $ echo $DENV_PAIR $DENV_LITERAL
+|dotenv $(touch marker); `touch marker`; "quoted"
+|
+|testuser@<HOST> ~/project $ denv reload
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|denv: -DENV_LITERAL -DENV_PAIR
+|testuser@<HOST> ~/project * $ echo =$DENV_PAIR=:$DENV_LITERAL=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.envrc
+|denv: allowed <HOME>/project/.env
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR
+|edited
+|
+|testuser@<HOST> ~/project $ denv deny
+|denv: denied <HOME>/project/.envrc
+|denv: denied <HOME>/project/.env
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|denv: -DENV_PAIR
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame denied_state cursor=23,30
+|testuser@<HOST> ~/project $ denv reload
+|denv: <HOME>/project/.env is blocked. Run `denv allow` to trust it.
+|denv: -DENV_LITERAL -DENV_PAIR
+|testuser@<HOST> ~/project * $ echo =$DENV_PAIR=:$DENV_LITERAL=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.envrc
+|denv: allowed <HOME>/project/.env
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DENV_PAIR
+|testuser@<HOST> ~/project $ echo $DENV_PAIR
+|edited
+|
+|testuser@<HOST> ~/project $ denv deny
+|denv: denied <HOME>/project/.envrc
+|denv: denied <HOME>/project/.env
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|denv: -DENV_PAIR
+|testuser@<HOST> ~/project * $ echo =$DENV_PAIR=:$__DENV_DIRTY=
+|==:1=
+|
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== effect project_entries
+|.env
+|.envrc

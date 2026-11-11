@@ -1,0 +1,31 @@
+== frame after_cd cursor=4,32
+|testuser@<HOST> ~ $ cd parent/project
+|denv: loading .envrc
+|denv: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/p/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame state cursor=7,32
+|testuser@<HOST> ~ $ cd parent/project
+|denv: loading .envrc
+|denv: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: source_up was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/p/project * $ echo =$PARENT_VALUE=:$CANDIDATE=:$__DENV_DIRTY=
+|==:=:1=
+|
+|testuser@<HOST> ~/p/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/p/project
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== effect project_entries
+|.envrc
+== effect parent_entries
+|.envrc
+|project

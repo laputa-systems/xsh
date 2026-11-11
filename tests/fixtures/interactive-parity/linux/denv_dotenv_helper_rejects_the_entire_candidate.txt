@@ -1,0 +1,51 @@
+== frame after_cd cursor=5,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: dotenv was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: dotenv was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame state cursor=8,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: dotenv was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: dotenv was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/project * $ echo =$FROM_ENV=:$BEFORE=:$AFTER=:$__DENV_DIRTY=
+|==:=:=:1=
+|
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame usable cursor=11,30
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: dotenv was removed; use the automatically discovered .env or put setup in the approved .envrc
+|denv: .envrc rejected: dotenv was removed; use the automatically discovered .env or put setup in the approved .envrc
+|testuser@<HOST> ~/project * $ echo =$FROM_ENV=:$BEFORE=:$AFTER=:$__DENV_DIRTY=
+|==:=:=:1=
+|
+|testuser@<HOST> ~/project * $ echo still-usable
+|still-usable
+|
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *

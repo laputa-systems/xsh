@@ -1,0 +1,51 @@
+== frame inside cursor=10,28
+|testuser@<HOST> ~ $ DENV_EMPTY=
+|
+|testuser@<HOST> ~ $ DENV_LOCAL=base
+|
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_LAYER +DENV_EMPTY +DENV_LOCAL
+|testuser@<HOST> ~/project $ echo =$DENV_LAYER=:$DENV_EMPTY=:$DENV_LOCAL=
+|=first=:changed=:changed=
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 DENV_EMPTY=
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 DENV_LOCAL=base
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame outside cursor=15,20
+|testuser@<HOST> ~ $ DENV_EMPTY=
+|
+|testuser@<HOST> ~ $ DENV_LOCAL=base
+|
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_LAYER +DENV_EMPTY +DENV_LOCAL
+|testuser@<HOST> ~/project $ echo =$DENV_LAYER=:$DENV_EMPTY=:$DENV_LOCAL=
+|=first=:changed=:changed=
+|
+|testuser@<HOST> ~/project $ cd ..
+|denv: +DENV_LAYER +DENV_EMPTY +DENV_LOCAL
+|testuser@<HOST> ~ $ echo =$DENV_LAYER=:$DENV_EMPTY=:$DENV_LOCAL=
+|=base=:=:base=
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 DENV_EMPTY=
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 DENV_LOCAL=base
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,10 @@
+== frame after_allow cursor=3,28
+|testuser@<HOST> ~ $ cd project
+|testuser@<HOST> ~/project $ denv allow
+|denv: no .envrc or .env found
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
