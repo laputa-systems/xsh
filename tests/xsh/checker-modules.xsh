@@ -356,6 +356,22 @@ export let exported: Int = 1
   expect_codes(separated, ["check.orphan-doc-comment"])
 }
 
+test test_checker_requires_retained_docs_when_the_entry_root_is_checked { |ctx|
+  let undocumented = check(ctx, "##! A module.\nexport const name = \"x\"\n")?
+  expect_codes(undocumented, ["check.missing-public-doc"])
+
+  let documented = check(
+    ctx,
+    r"""
+##! A module.
+
+## Exposes the module name.
+export const name = "x"
+""",
+  )?
+  assert documented.status.exited_with(0), documented.stderr
+}
+
 test test_checker_rejects_removed_verbose_apis { |ctx|
   for case in [
     {

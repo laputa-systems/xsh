@@ -132,13 +132,17 @@ test test_check_annotate_rewrites_safe_annotations { |ctx|
     ctx,
     name: "annotate.xsh",
     contents: bytes.from_text(r"""
+##! Annotation fixture module.
+
 let count=1
 var names=["a", "b"]
 let _ = process.command_argv("echo", ["ok"])
 let data: Any = json.decode("{}")?
 let row = {name: "demo"}
+## Exposes a demonstration label.
 export let label="demo"
 proc local(input = Path(".")) {}
+## Runs the entry.
 export proc entry(flag = true) {}
 """),
   )?
@@ -146,16 +150,20 @@ export proc entry(flag = true) {}
   assert annotated.status.exited_with(0), annotated.stderr
   assert annotated.stdout == ""
   assert diagnostics(annotated.stderr) == "", annotated.stderr
-  assert file.read_text()? == r"""let count = 1
+  assert file.read_text()? == r"""##! Annotation fixture module.
+
+let count = 1
 var names = ["a", "b"]
 let _ = process.command_argv("echo", ["ok"])
 let data: Any = json.decode("{}")?
 let row = {name: "demo"}
 
+## Exposes a demonstration label.
 export let label: Str = "demo"
 
 proc local(input: Path = Path(".")) {}
 
+## Runs the entry.
 export proc entry(flag: Bool = true) -> Result[Unit, Error] {}
 """
 }
@@ -262,7 +270,10 @@ print ${defaulted_result[0]}
 
 test test_check_annotate_uses_exact_configured_classes { |ctx|
   let source = """
+##! Configured annotation fixture module.
+
 let names = ["a", "b"]
+## Exposes a demonstration label.
 export let label = "demo"
 proc local(input = Path(".")) {}
 """
@@ -274,8 +285,11 @@ proc local(input = Path(".")) {}
     assert diagnostics(annotated.stderr) == "", annotated.stderr
   }
 
-  assert fp"{root}/main.xsh".read_text()? == """let names: List[Str] = ["a", "b"]
+  assert fp"{root}/main.xsh".read_text()? == """##! Configured annotation fixture module.
 
+let names: List[Str] = ["a", "b"]
+
+## Exposes a demonstration label.
 export let label: Str = "demo"
 
 proc local(input = Path(".")) {}

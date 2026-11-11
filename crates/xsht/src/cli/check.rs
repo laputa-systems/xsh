@@ -453,6 +453,9 @@ fn check_entry(
     let mut checked = timings.time(Stage::Check, || {
         session.check_view(&view, CheckOptions::for_check_cli())
     });
+    checked.diagnostics.extend(view.program().symbol_owner().with_current(|| {
+        Checker::check_public_module_docs_for(view.program(), view.root_statements())
+    }));
     if !checked.diagnostics.is_empty() {
         return report.failed(2, EntryOutput::Diagnostics(checked.diagnostics));
     }

@@ -34,7 +34,7 @@ test test_mixed_enum_and_record_require_migration_rechecks_import_graph_and_conv
     ctx,
     {
       "choice.xsh": legacy_choice_module,
-      "entry.xsh": "use choice as c\n## A name.\nexport type Name = {name: Str}\nlet _ = record.require({name: \"café\"}, {name: \"Str\"})? # retained receiver\nlet choice: c.Choice = c.Selected(7)\nprint \"café\"\nmatch choice { c.Selected(number) => print \$number; c.Empty => print \"empty\" }\n",
+      "entry.xsh": "##! Mixed enum and record migration fixture.\nuse choice as c\n## A name.\nexport type Name = {name: Str}\nlet _ = record.require({name: \"café\"}, {name: \"Str\"})? # retained receiver\nlet choice: c.Choice = c.Selected(7)\nprint \"café\"\nmatch choice { c.Selected(number) => print \$number; c.Empty => print \"empty\" }\n",
     },
   )?
   let entry = fp"{root}/entry.xsh"
@@ -103,7 +103,7 @@ test test_removed_record_require_fix_rechecks_and_converges_in_stages { |ctx|
   let root = project(
     ctx,
     {
-      "entry.xsh": "export type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint \$value.name\n",
+      "entry.xsh": "##! Removed record require migration fixture.\n## A name.\nexport type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint \$value.name\n",
     },
   )?
   let entry = fp"{root}/entry.xsh"

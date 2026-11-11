@@ -2651,9 +2651,16 @@ impl Checker {
         program: &ArenaProgram,
         _source: &str,
     ) -> Vec<Diagnostic> {
+        Self::check_public_module_docs_for(program, program.statements)
+    }
+
+    pub fn check_public_module_docs_for(
+        program: &ArenaProgram,
+        statement_range: ArenaRange,
+    ) -> Vec<Diagnostic> {
         let mut checker = Self::new(CheckOptions::default());
-        let statements = program.statement_ids().collect::<Vec<_>>();
-        checker.check_public_docs(program, program.statements, &statements);
+        let statements = program.arena.stmt_ids(statement_range).collect::<Vec<_>>();
+        checker.check_public_docs(program, statement_range, &statements);
         checker.diagnostics
     }
 

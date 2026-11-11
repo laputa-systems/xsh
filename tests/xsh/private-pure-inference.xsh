@@ -1,3 +1,5 @@
+##! Private and exported pure-function inference.
+
 type InferredPrivateModule = module {
   export pure label(value: Str) -> Str
 }
@@ -14,6 +16,7 @@ pure inferred_bool(value: Int) {
   value > 0
 }
 
+## Returns its argument unchanged.
 export pure public_identity(value) {
   value
 }

@@ -187,15 +187,6 @@ out of scope.
 - **Fix with:** root-cause
 - **Effort:** M
 
-### XSH-88 · P3 · Make xsht check reject the undocumented exports the module loader rejects
-
-- **Area:** Tooling consistency
-- **Where:** `src/sema/check.rs` (`check_public_module_docs`), `src/runtime/eval/lowered_run.rs:1556-1567`, `crates/xsht/`
-- **Problem:** Laputa `d5ab2c5` added a package recipe whose `export const name` had no preceding `##` doc. `xsht check packages/laputa-diagnostics` reported no diagnostics, but loading the file as a module failed with `module-load: loaded module has undocumented exports`, which broke every PM catalog load until Laputa `39a2464` added the doc. The loader runs `check_public_module_docs` on every loaded module; `xsht check` does not apply it to a file named as a check root.
-- **Recommendation:** Apply the public-doc rule to every checked file that has a `##!` module doc or exports a declaration, so check and load agree; add a regression with an undocumented first export after the module doc.
-- **Acceptance:** `xsht check` rejects any file the module loader rejects for undocumented exports; native checker suite green.
-- **Effort:** S
-
 ### XSH-44 · P3 · Connect one Lean semantic scenario to actual XSH execution
 
 - **Area:** Formal conformance
