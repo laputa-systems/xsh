@@ -94,8 +94,8 @@ out of scope.
 
 - **Area:** Remote execution consumer
 - **Where:** `laputa-systems/xsh-infra`, `docs/rfc/XSH-56-xsh-infra.md`
-- **Problem:** xsh-infra implements remote reconciliation over native SSH. Its Alpine container scenarios and the pyinfra 3.5 differential now cover every resource kind, packages, services, commands and failures, and agree with pyinfra apart from two recorded deviations. A full-init Alpine VM, two-process cancellation at every mutation boundary, and a Laputa/xinit adapter remain open; macOS is owner-deferred.
-- **Recommendation:** Run the scenarios on a full-init Alpine VM and add two-process cancellation at each mutation boundary.
+- **Problem:** xsh-infra implements remote reconciliation over native SSH. Its Alpine container scenarios and the pyinfra 3.5 differential now cover every resource kind, packages, services, commands and failures, and agree with pyinfra apart from two recorded deviations. Two-process cancellation is done (xsh-infra `7cd069a`): a SIGTERM or SIGINT exits 3 and reports the resource in flight as unknown and every resource not yet run as blocked, and 11 Alpine scenarios hold the before, after and in-flight boundaries with target-side gates and prove the rerun converges. Single-request kinds have no holdable interior. A full-init Alpine VM and a Laputa/xinit adapter remain open; macOS is owner-deferred.
+- **Recommendation:** Run the scenarios on a full-init Alpine VM.
 - **Acceptance:** The RFC's per-resource and integration scenarios pass against disposable Alpine SSH hosts, with pyinfra as a differential reference on equivalent hosts; XSH defects found get minimal reproducers in XSH.
 - **Coordination:** Remote execution uses the experimental XSH-55 client.
 - **Fix with:** isolate-effects
