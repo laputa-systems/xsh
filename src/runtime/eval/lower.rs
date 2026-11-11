@@ -8069,6 +8069,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn record_lowered_producer_inputs(&mut self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<()> {
         let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Absent { return Some(()); }
+        let guarded_call = matches!(
+            self.program.arena.expr(id).kind,
+            ArenaExprKind::Call { callee, .. }
+                if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. })
+        );
         let source = match self.program.arena.expr(id).kind {
             ArenaExprKind::Call { callee, .. } => match self.program.arena.expr(callee).kind {
                 ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => Some(base),
@@ -8081,6 +8086,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::Null | ArenaExprKind::Bool(..) | ArenaExprKind::Int(..) | ArenaExprKind::Float(..) | ArenaExprKind::Duration(..) | ArenaExprKind::Str(..) | ArenaExprKind::PathStr(..) | ArenaExprKind::GlobStr(..) | ArenaExprKind::FmtString(..) | ArenaExprKind::PathFmtString(..) | ArenaExprKind::Bytes(..) | ArenaExprKind::Regex(..) | ArenaExprKind::Ident(..) | ArenaExprKind::Item | ArenaExprKind::List(..) | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. } | ArenaExprKind::Record(..) | ArenaExprKind::If { .. } | ArenaExprKind::PatternCondition { .. } | ArenaExprKind::Unary { .. } | ArenaExprKind::Binary { .. } | ArenaExprKind::ValuePipelineCall { .. } | ArenaExprKind::NullSafeField { .. } | ArenaExprKind::EnvString(..) | ArenaExprKind::EnvPathList | ArenaExprKind::Run(..) | ArenaExprKind::Spawn(..) | ArenaExprKind::Wait(..) | ArenaExprKind::Capture(..) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Require { .. } | ArenaExprKind::Convert { .. } | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } | ArenaExprKind::ValueBlock(..) | ArenaExprKind::ErrorContext { .. } | ArenaExprKind::ContextScope { .. } | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => None,
         };
         let Some(source) = source else { return Some(()) };
+        if guarded_call
+            && matches!(self.scratch.borrow().expressions.get(lowered.index()), Some(BuildExprRow::MatchExpr { .. }))
+        {
+            return Some(());
+        }
         let input = match self.scratch.borrow().expressions.get(lowered.index())? {
             BuildExprRow::Field { base, .. } | BuildExprRow::Index { base, .. } | BuildExprRow::Slice { base, .. } | BuildExprRow::IndexFromEnd { base, .. } => Some(*base),
             BuildExprRow::Method { receiver, .. } | BuildExprRow::StrByteLen { receiver, .. } | BuildExprRow::StrByteAt { receiver, .. } | BuildExprRow::StrPredicate { receiver, .. } => Some(*receiver),

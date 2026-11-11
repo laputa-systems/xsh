@@ -353,3 +353,19 @@ let _ = linux.run_in_namespaces(process.command_argv("/bin/sh", ["sh", "-c", ":"
   )?
   assert "compact.indexed-build" not in output.stderr, output.stderr
 }
+
+test test_null_safe_method_call_lowers_a_local_read_argument { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc source() -> Result[Str, Str] { Ok("x") }
+proc demo() -> Result[Str, Str] {
+  let body = "abc"
+  let invalid = source()?.replace(body, with: f"{body}\n")
+  Ok(invalid)
+}
+let _ = demo()?
+print ok
+""",
+  )?
+  assert "compact.indexed-build" not in output.stderr, output.stderr
+}
