@@ -458,7 +458,7 @@ export proc drive(host: ClientIo, ctx: Context, beginning: Beginning, mode: Mode
       return Ok(session) when session.machine.state == .Bound
       return Err(ClientFailure.NoLease("no lease before the deadline")) when now >= limit
     }
-    let wake = if let at = session.machine.wake_at { at - now } else { null }
+    let wake = if let at = session.machine.wake_at { if at > now { at - now } else { 0 } } else { null }
     let limited = if let limit = deadline { min_wait(wake, limit - now) } else { wake }
     let bounded = if session.resync { min_wait(limited, RESYNC_MS) } else { limited }
     let ready = host.wait(session.context, bounded)?

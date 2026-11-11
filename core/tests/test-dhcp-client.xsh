@@ -173,6 +173,27 @@ test test_an_acknowledged_renewal_with_new_options_reconfigures_routes_and_dns {
   assert result.world.kernel.addresses.len() == 1
 }
 
+test test_a_slow_host_after_a_nak_never_asks_for_a_negative_wait { |ctx|
+  let h = harness(ctx, "slow-nak")?
+  let rules = [
+    script.always("discover", [offer_with(60)]),
+    script.only("request", 1, [ack_with(60)]),
+    script.only("request", 2, [script.reply("nak")]),
+    script.from("request", 3, [ack_with(12)]),
+  ]
+  let world = {...fake.world_of(h.link, 1000, rules, [after(90000, "ask", "stop")]), work_ms: 1500}
+  fake.save(h.settings, world)
+  let beginning = client.Beginning(record: null, observed: fake.observed_in(world), admin_down: false)
+  let outcome = client.drive(fake.scripted_io(), h.context, beginning, .Supervised)
+  let end = fake.load(h.settings)?
+  if let Err(failure) = outcome {
+    assert false, f"the client stopped after {end.counts.discover} discovers and {end.counts.request} requests: {failure.message}"
+  }
+  let session = outcome?
+  assert counted(session, "nak") >= 1
+  assert counted(session, "sent_discover") >= 2, "discovery resumed after the nak"
+}
+
 test test_a_nak_withdraws_only_owned_state_and_discovery_resumes { |ctx|
   let h = harness(ctx, "nak")?
   let rules = [

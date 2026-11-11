@@ -909,7 +909,8 @@ pure wake_effect(before: Int?, after: Int?) -> List[Effect] {
 }
 
 pure finish(before: Machine, after: Step, now: Int) -> Step {
-  let wake = earliest(wake_candidates(after.machine))
+  let next = earliest(wake_candidates(after.machine))
+  let wake = if let at = next { if at < now { now } else { at } } else { null }
   let settled = {...after.machine, wake_at: wake, last_now: now}
   var effects = after.effects.extend(wake_effect(before.wake_at, wake))
   if status(before) != status(settled) {

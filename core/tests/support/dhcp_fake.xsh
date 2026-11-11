@@ -60,6 +60,7 @@ export type World = {
   conflicting: Int?,
   waits: Int,
   persisted: Int,
+  work_ms: Int,
 }
 
 const SERVER_MAC = b"\x02\x00\x00\x00\x00\x02"
@@ -108,7 +109,13 @@ export pure world_of(link: client.Link, start: Int, rules: List[types.Rule], inb
     conflicting: null,
     waits: 0,
     persisted: 0,
+    work_ms: 0,
   )
+}
+
+## The world after one host operation spent `world.work_ms` of the boot clock.
+export pure after_work(world: World) -> World {
+  {...world, now: world.now + world.work_ms}
 }
 
 pure observation_of(kernel: KernelJson) -> network.Observation {
@@ -166,6 +173,9 @@ pure readiness(due_now: List[Happening]) -> client.Ready {
 }
 
 proc fake_wait(ctx: client.Context, timeout_ms: Int?) [fs, process, net, time, error] -> Result[client.Ready, Error] {
+  if let pause = timeout_ms {
+    return Err(error.failure(f"the client asked to wait a negative {pause} ms")) when pause < 0
+  }
   let world = load(ctx.settings)?
   let limit = if let pause = timeout_ms { world.now + pause } else { null }
   let next = earliest_at(world)
@@ -280,7 +290,7 @@ proc fake_send(ctx: client.Context, outgoing: client.Outgoing) [fs, process, net
       }
     }
   }
-  save(ctx.settings, world)
+  save(ctx.settings, after_work(world))
 }
 
 pure arp_target(frame: Bytes) -> Int {
@@ -323,7 +333,7 @@ proc fake_apply(ctx: client.Context, change: client.Change) [fs, process, net, t
         missing: world.kernel.missing,
         send_fails: world.kernel.send_fails,
       )
-      save(ctx.settings, {...world, kernel: reached})
+      save(ctx.settings, after_work({...world, kernel: reached}))
       if let outcome = played.outcome {
         store.save(fs.open_root(ctx.settings.lease_dir)?, {...request.record, owned: outcome.owned, reconcile: false})
         return Ok(.Reconciled(outcome))
@@ -332,15 +342,18 @@ proc fake_apply(ctx: client.Context, change: client.Change) [fs, process, net, t
     }
     client.Dns(contribution) => {
       let layout = dns_owner.Layout(run_dir: ctx.settings.run_dir, destination_dir: ctx.settings.resolv_dir, destination: ctx.settings.resolv_name, static_path: ctx.settings.static_path, lock_wait_ms: 1000)
-      Ok(.Resolver(dns_owner.update(layout, ctx.settings.interface, contribution)?))
+      let standing = dns_owner.update(layout, ctx.settings.interface, contribution)?
+      save(ctx.settings, after_work(world))
+      Ok(.Resolver(standing))
     }
     client.Persist(record) => {
       store.save(fs.open_root(ctx.settings.lease_dir)?, record)
-      save(ctx.settings, {...world, persisted: world.persisted + 1})
+      save(ctx.settings, after_work({...world, persisted: world.persisted + 1}))
       Ok(client.Done)
     }
     client.Publish(text) => {
       fp"{ctx.settings.run_dir}/{ctx.settings.interface}.status".write_atomic(text)
+      save(ctx.settings, after_work(world))
       Ok(client.Done)
     }
   }

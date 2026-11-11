@@ -311,6 +311,22 @@ test test_nak_withdraws_owned_configuration_and_restarts_after_a_delay {
   assert state_of(ses) == "selecting" and only_actions(ses.effects) == ["send:discover"]
 }
 
+test test_a_slow_reacquisition_after_a_nak_arms_no_wake_in_the_past {
+  var ses = bound_ses(fast())?
+  let lease = held(ses)?
+  ses = feed(ses, .OnTick, lease.renew_at ?? 0)
+  ses = feed(ses, .OnReceived(message(reply(6, ses.machine.xid))?), ses.now + 3)
+  ses = feed(ses, .OnTick, ses.machine.wake_at ?? 0)
+  let discover = sends(ses.effects)[0]
+  ses = feed(ses, .OnReceived(message(reply(2, discover.xid))?), ses.now + 5)
+  ses = feed(ses, .OnReceived(message(reply(5, discover.xid))?), ses.now + 5)
+  while state_of(ses) == "probing" {
+    ses = feed(ses, .OnTick, (ses.machine.wake_at ?? 0) + 3000)
+  }
+  assert state_of(ses) == "bound"
+  assert wake(ses) >= ses.now, f"wake {wake(ses)} is behind now {ses.now}"
+}
+
 test test_nak_while_requesting_returns_to_init_without_deconfiguring {
   var ses = begin(fast())
   let xid = sends(ses.effects)[0].xid
