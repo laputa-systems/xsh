@@ -1,0 +1,56 @@
+== frame failed_cd cursor=2,20
+|testuser@<HOST> ~ $ cd missing-directory
+|<SHELL>: cd: missing-directory: No such file or directory (os error 2)
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd_status cursor=5,20
+|testuser@<HOST> ~ $ cd missing-directory
+|<SHELL>: cd: missing-directory: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ echo builtin-status-$?
+|builtin-status-1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame rejected cursor=7,20
+|testuser@<HOST> ~ $ cd missing-directory
+|<SHELL>: cd: missing-directory: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ echo builtin-status-$?
+|builtin-status-1
+|
+|testuser@<HOST> ~ $ z project && true
+|<SHELL>: z changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 z
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame rejected_status cursor=10,20
+|testuser@<HOST> ~ $ cd missing-directory
+|<SHELL>: cd: missing-directory: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ echo builtin-status-$?
+|builtin-status-1
+|
+|testuser@<HOST> ~ $ z project && true
+|<SHELL>: z changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $ echo rejected-status-$?
+|rejected-status-2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 z
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

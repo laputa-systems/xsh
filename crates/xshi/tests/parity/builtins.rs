@@ -1,0 +1,178 @@
+//! Remaining builtin, listing, lookup, and job-control scenarios from ish's
+//! `tests/pty.rs` that the earlier scenario set did not replay.
+
+use super::scenarios::parity;
+use super::{Fixture, Live, key, run_scenario};
+
+const READY_SLEEP: &str = "#!/bin/sh\necho ready\nsleep 60\n";
+
+parity!(
+    l_wraps_long_names_at_narrow_terminal_width,
+    Fixture::new()
+        .file("abcdefghijklmnopqrstuvwxyz0123456789.txt", "x")
+        .file("short.txt", "y")
+        .size(24, 40),
+    |sh: &mut Live| {
+        sh.line("l");
+        sh.frame("after_l");
+    }
+);
+
+parity!(
+    l_hides_dotfiles,
+    Fixture::new()
+        .file("visible.txt", "")
+        .file(".hidden", ""),
+    |sh: &mut Live| {
+        sh.line("l");
+        sh.frame("after_l");
+    }
+);
+
+parity!(
+    ll_shows_dotfiles,
+    Fixture::new()
+        .file("visible.txt", "")
+        .file(".hidden", ""),
+    |sh: &mut Live| {
+        sh.line("ll");
+        sh.frame("after_ll");
+    }
+);
+
+parity!(
+    which_same_name_alias_shows_underlying_binary,
+    Fixture::new().executable("bin/mytool", "#!/bin/sh\necho hi\n"),
+    |sh: &mut Live| {
+        sh.line("set PATH $HOME/bin");
+        sh.line("alias mytool mytool --flag");
+        sh.line("w mytool");
+        sh.frame("after_w");
+    }
+);
+
+parity!(
+    set_refuses_option_and_positional_forms_without_redirection_effects,
+    Fixture::new().file("set-target", "preserved"),
+    |sh: &mut Live| {
+        sh.line("set -e > set-target");
+        sh.frame("rejected");
+        sh.line("echo $?");
+        sh.frame("status");
+        sh.line("set 7 value");
+        sh.frame("positional");
+        sh.line("set NAME=value");
+        sh.frame("assignment_name");
+        sh.line("set EMPTY");
+        sh.line("set OPTIONS -e +e --");
+        sh.line("printf '[%s][%s]' \"$EMPTY\" \"$OPTIONS\"");
+        sh.frame("allowed_values");
+        sh.effect_file("set_target", "set-target");
+    }
+);
+
+parity!(
+    which_refuses_unsupported_posix_builtins,
+    Fixture::new()
+        .executable("bin/exec", "#!/bin/sh\nexit 0\n")
+        .executable("bin/trap", "#!/bin/sh\nexit 0\n"),
+    |sh: &mut Live| {
+        sh.line("set PATH $HOME/bin");
+        sh.line("w exec");
+        sh.frame("w_exec");
+        sh.line("which trap");
+        sh.frame("which_trap");
+        sh.line("type exec");
+        sh.frame("type_exec");
+        sh.line("echo $?");
+        sh.frame("status");
+    }
+);
+
+parity!(
+    failed_builtins_update_question_status,
+    Fixture::new().size(24, 200).dir("project"),
+    |sh: &mut Live| {
+        sh.line("cd missing-directory");
+        sh.frame("failed_cd");
+        sh.line("echo builtin-status-$?");
+        sh.frame("cd_status");
+        sh.line("z project && true");
+        sh.frame("rejected");
+        sh.line("echo rejected-status-$?");
+        sh.frame("rejected_status");
+    }
+);
+
+parity!(
+    state_builtins_in_a_list_are_refused_without_running_anything,
+    Fixture::new().size(24, 200),
+    |sh: &mut Live| {
+        sh.line("z nothing; echo ran");
+        sh.frame("z_list");
+        sh.line("fg && echo ran");
+        sh.frame("fg_list");
+    }
+);
+
+parity!(
+    ctrl_c_interrupts_running_child,
+    Fixture::new().executable("bin/sleep", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/sleep", "ready");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_interrupt");
+        sh.line("echo alive");
+        sh.frame("alive");
+    }
+);
+
+parity!(
+    exit_twice_with_a_stopped_job_exits,
+    Fixture::new().executable("bin/job", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/job", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.line("exit");
+        sh.frame("first_exit");
+        sh.text("exit");
+        sh.enter();
+        sh.expect_exit("exit_status");
+    }
+);
+
+parity!(
+    confirmed_exit_with_a_stopped_job_keeps_the_requested_status,
+    Fixture::new().executable("bin/job", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/job", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.line("exit 3");
+        sh.frame("first_exit");
+        sh.text("exit 3");
+        sh.enter();
+        sh.expect_exit("exit_status");
+    }
+);
+
+parity!(
+    second_ctrl_z_is_refused_and_the_first_job_stays_resumable,
+    Fixture::new().executable("bin/job", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/job", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.frame("stopped");
+        sh.line_until(
+            "sh -c 'kill -STOP $$; echo continued$((1+1))'",
+            "continued2",
+        );
+        sh.frame("second_stop_refused");
+        sh.line_until("fg", "resuming:");
+        sh.frame("resumed");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.enter();
+        sh.wait_prompt();
+        sh.line("echo alive");
+        sh.frame("alive");
+    }
+);

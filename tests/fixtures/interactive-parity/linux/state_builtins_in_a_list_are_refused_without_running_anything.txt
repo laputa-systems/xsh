@@ -1,0 +1,18 @@
+== frame z_list cursor=2,20
+|testuser@<HOST> ~ $ z nothing; echo ran
+|<SHELL>: z changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 z
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame fg_list cursor=4,20
+|testuser@<HOST> ~ $ z nothing; echo ran
+|<SHELL>: z changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $ fg && echo ran
+|<SHELL>: fg changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 z
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -37,19 +37,19 @@ follows the README:
 - `$NAME<Tab>` completes shell variables (`ish` completes files);
 - `fg` continues an AND-OR list that was stopped while running one of its
   commands (`ish` drops the rest of the list);
-- typing `exit` a second time forces the exit past a suspended job (`ish`
-  clears the warning before it looks at the line, so only Ctrl-D forces it),
-  and the forced exit sends the job `SIGTERM` then `SIGCONT`.
+- the forced exit past a suspended job sends the job `SIGTERM` then `SIGCONT`,
+  so a stopped job can terminate.
 
 Other deliberate differences:
 
 - `ssh`/`scp` remote path completion passes the host as one process argument;
   `ish` interpolates it into a local `sh -c` string;
-- `-c COMMAND` runs one command line; `--config PATH` replaces `ish`'s `-c PATH`;
+- `-c COMMAND` is evaluated by `xshi` itself rather than run through
+  `/bin/sh -c`;
 - `eval` and `exec` exist; `exec COMMAND` runs the command and then leaves the
   shell (a command that cannot start leaves the shell running);
 - shell functions, `trap`, `readonly`, `shift`, `local`, and `init.sh` are not
-  implemented, and option forms such as `set -e` are accepted and ignored;
+  implemented;
 - messages are prefixed `xshi:` instead of `ish:`, state lives under `xshi`
   (`~/.config/xshi`, `~/.local/share/xshi`, `~/.cache/xshi/dump-<hex>`), and the
   layout-dump builtin is `xshi-dump`;
@@ -128,8 +128,8 @@ Variables:
 
 Two statuses exist. The prompt status reflects the last line, including
 commands the shell answers itself, and controls the prompt color. `$?` is the status
-of the last command that ran a program or ordinary builtin; `cd`, `fg`, `w`,
-`history`, and the other session commands leave it alone.
+of the last line: commands such as `cd`, `fg`, `w`, and `history` set it like
+any other builtin.
 
 | Situation | Status |
 | --- | --- |
@@ -288,7 +288,9 @@ a forked context` and leaves storage untouched.
 prints `Usage: history [reset]` and
 `Show saved history, or clear it with `reset`.` with no trailing newline;
 `history reset` clears storage. Any other argument is an unknown subcommand
-with status `1`.
+with status `1`; in a pipeline or command substitution `history` is refused
+with `history requires the original shell process and cannot run in a forked
+context` and leaves storage untouched.
 
 ## 9. Prompt, Editing, Rendering
 
@@ -380,17 +382,20 @@ output cap; any failure yields no candidates.
 ## 11. Builtins
 
 Answered by the shell itself: `cd` (`cd -`, `~`), `exit`, `fg`, `bg`, `export`,
-`set`, `unset`, `alias`, `source`/`.`, `eval`, `exec`, `history`, `z`, `denv`,
-`l`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, and `:`. `echo`
-(`-n`, `-e`, `-E`), `pwd`, `true`, and `false` are internal so they work in
-pipelines. `w`, `which`, and `type` also report `command`, `test`, `printf`,
-and the other POSIX names as builtins; those that are not internal resolve on
-`PATH`.
+`set`, `unset`, `alias`, `eval`, `exec`, `history`, `z`, `denv`,
+`l`, `ll`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, and `:`.
+`echo` (`-n`, `-e`, `-E`), `pwd`, `true`, and `false` are internal so they work
+in pipelines. `w`, `which`, and `type` print `NAME: builtin` followed by the
+builtin's usage block; `command`, `test`, `printf`, and the other POSIX names
+are reported as builtins, and those that are not internal resolve on `PATH`.
+`source` and `.` are refused as unsupported, as is any `set` whose first operand
+is not a variable name (`set -e` reports `set: expected a variable name`).
 
 - A one-word line naming a directory becomes `cd`, and `..`, `...`, … climb.
   Relative `cd` and `z` targets are recorded in history as absolute paths.
-- `l [path…]` is the native `ls -plAhG`: no fork, owner and group by name,
-  sizes as `B/K/M/G`, symlink targets, colors on names only.
+- `l [path…]` hides dotfiles; `ll [path…]` shows them. Entries are
+  `name size age`: directories and symlinks omit the size, ages are relative,
+  symlink targets are shown, and names carry type colors that fade with age.
 - `c` clears the screen and starts the next prompt on a fresh row.
 - `copy-scrollback` copies the session's typed lines to the clipboard with
   OSC 52.
@@ -410,7 +415,10 @@ in the job and runs when `fg` sees the command finish, using its status.
 dropped); `cmd &` starts one simple external command in the slot.
 
 Before each prompt the slot is polled without blocking and completions are
-reported. `exit` and Ctrl-D with a live job warn once. The `exit` warning says
+reported. A second Ctrl-Z while the slot is occupied reports
+`xshi: a job is already suspended; resume it with fg before suspending another`
+and keeps the new command running in the foreground instead of replacing the
+slot. `exit` and Ctrl-D with a live job warn once. The `exit` warning says
 `xshi: there is a suspended job. Exit again to force quit.` The Ctrl-D warning
 says `xshi: there is a suspended job. Press Ctrl+D again to force quit.`
 Repeating the same gesture exits and sends the job's process group `SIGTERM`

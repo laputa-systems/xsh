@@ -30,6 +30,8 @@ macro_rules! cargo_env {
     };
 }
 
+#[path = "parity/builtins.rs"]
+mod builtins;
 #[path = "parity/editor.rs"]
 mod editor;
 #[path = "parity/extended.rs"]

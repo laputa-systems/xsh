@@ -1,0 +1,10 @@
+== frame after_l cursor=3,20
+|testuser@<HOST> ~ $ l
+|visible.txt  0B  2y
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 visible.txt
+@1 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

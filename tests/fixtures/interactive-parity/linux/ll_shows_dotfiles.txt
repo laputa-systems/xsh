@@ -1,0 +1,19 @@
+== frame after_ll cursor=6,20
+|testuser@<HOST> ~ $ ll
+|.config/         2y
+|.hidden      0B  2y
+|.local/          2y
+|visible.txt  0B  2y
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ll
+@1 fg=4 bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 .config/
+@1 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@2 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 .hidden
+@2 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@3 fg=4 bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 .local/
+@3 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@4 fg=default bg=default bold=0 dim=1 italic=0 underline=0 inverse=0 visible.txt
+@4 fg=240 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 2y
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

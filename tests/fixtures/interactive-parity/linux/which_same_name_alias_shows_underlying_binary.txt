@@ -1,0 +1,15 @@
+== frame after_w cursor=6,20
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ alias mytool mytool --flag
+|testuser@<HOST> ~ $ w mytool
+|alias: mytool mytool --flag
+|<HOME>/bin/mytool
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

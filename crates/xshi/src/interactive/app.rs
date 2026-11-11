@@ -4,6 +4,7 @@ use super::alias::{self, AliasMap};
 use super::builtin;
 use super::config::{load_config, load_config_path, load_profile};
 use super::denv::{self, DenvCommand};
+use super::history::History;
 use super::repl::{self, ReadResult, Ui};
 use super::session::{InteractiveJob, InteractiveJobState, Session, set_env_bytes, stdio_is_tty};
 use super::shell::{
@@ -235,7 +236,10 @@ pub fn run_with_options(options: RunOptions) -> i32 {
         }
         match handle_submitted_line(&mut session, &mut ui, &command, &mut stdout, &mut stderr) {
             LineOutcome::Continue => {}
-            LineOutcome::Exit(code) => return code,
+            LineOutcome::Exit(code) => {
+                super::term::write_osc133_d(code);
+                return code;
+            }
         }
     }
 }
@@ -246,7 +250,99 @@ enum LineOutcome {
 }
 
 fn is_exit_command(line: &str) -> bool {
-    !is_xsh_source(line) && line.split_whitespace().next() == Some("exit")
+    !is_xsh_source(line) && is_simple_word_line(line) && line.split_whitespace().next() == Some("exit")
+}
+
+fn is_simple_word_line(line: &str) -> bool {
+    lex_shell(line)
+        .map(|tokens| {
+            tokens
+                .iter()
+                .all(|token| matches!(token, ShellToken::Word(_)))
+        })
+        .unwrap_or(false)
+}
+
+/// Builtins that read or change shell state or need the shell process, so the
+/// reference shell only runs them as the whole input line.
+fn is_whole_line_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "alias"
+            | "copy-scrollback"
+            | "denv"
+            | "exit"
+            | "fg"
+            | "xshi-dump"
+            | "z"
+            | "w"
+            | "which"
+            | "type"
+    )
+}
+
+fn static_word_text(word: &ShellWord) -> Option<String> {
+    let mut text = String::new();
+    for part in &word.parts {
+        match part {
+            ShellWordPart::Text {
+                text: part_text,
+                expand,
+                ..
+            } if !expand || !part_text.contains('$') => text.push_str(part_text),
+            _ => return None,
+        }
+    }
+    Some(text)
+}
+
+/// Refusals the reference shell makes before running any part of the line:
+/// process-bound builtins outside a whole-line command, `source` and `.`,
+/// and `set` with anything but a variable name.
+fn plan_rejection(line: &str) -> Option<String> {
+    let parsed = ShellParser::new(line).parse_line().ok()?;
+    let whole_line = !parsed.background
+        && parsed.chains.len() == 1
+        && parsed.chains[0].op == ChainOp::Start
+        && parsed.chains[0].pipeline.commands.len() == 1;
+
+    for chain in &parsed.chains {
+        for command in &chain.pipeline.commands {
+            let leading = command
+                .words
+                .iter()
+                .take_while(|word| parse_env_assignment(&word.text()).is_some())
+                .count();
+            let Some(first) = command.words.get(leading) else {
+                continue;
+            };
+            let Some(name) = static_word_text(first) else {
+                continue;
+            };
+            let command_is_whole_line =
+                whole_line && command.redirections.is_empty() && leading == 0;
+            if name == "source" || name == "." {
+                return Some(format!("`{name}` is not supported"));
+            }
+            if name == "set" {
+                let static_arguments: Vec<String> = command.words[leading + 1..]
+                    .iter()
+                    .map_while(static_word_text)
+                    .collect();
+                if let Some(argument) = static_arguments.first()
+                    && !valid_env_name(argument)
+                {
+                    return Some("set: expected a variable name".to_string());
+                }
+            }
+            if !command_is_whole_line && is_whole_line_builtin(&name) {
+                return Some(format!(
+                    "{name} changes shell state or needs the ish process, so it must be the only command on its line"
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// Runs one submitted line: interactive rewrites, the session-level commands
@@ -289,6 +385,22 @@ fn handle_submitted_line(
     ui.session_log.push_str(&line);
     ui.session_log.push('\n');
 
+    if !xsh_source && !matches!(history_line.trim(), "l" | "ll") {
+        session
+            .history
+            .add_in_dir(&history_line, Some(&history_cwd));
+    }
+
+    let plan_line = session.aliases.expand_line(&line);
+    if let Some(rejection) = plan_rejection(&plan_line) {
+        let _ = stderr.write_all(wrapped_diagnostic(&format!("xshi: {rejection}")).as_bytes());
+        let _ = stderr.flush();
+        session.last_status = 2;
+        session.dollar_status = 2;
+        session.last_process_status = Some(ProcessStatus::exited(2));
+        return LineOutcome::Continue;
+    }
+
     let first_word = line.split_whitespace().next().unwrap_or("");
     if !xsh_source {
         match first_word {
@@ -296,9 +408,6 @@ fn handle_submitted_line(
                 if let Some(code) = handle_exit_command(session, ui, &line, stderr) {
                     return LineOutcome::Exit(code);
                 }
-                session
-                    .history
-                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             "exec" => {
@@ -313,9 +422,6 @@ fn handle_submitted_line(
                 let _ = stdout.write_all(&output.stdout);
                 let _ = stdout.flush();
                 let _ = stderr.write_all(&output.stderr);
-                session
-                    .history
-                    .add_in_dir(&history_line, Some(&history_cwd));
                 if matches!(output.status, 126 | 127) {
                     session.last_status = output.status;
                     return LineOutcome::Continue;
@@ -323,7 +429,7 @@ fn handle_submitted_line(
                 session.history.compact();
                 return LineOutcome::Exit(output.status);
             }
-            "alias" => {
+            "alias" if is_simple_word_line(&line) => {
                 let words = alias::lex_words(line.trim_start().strip_prefix("alias").unwrap_or(""));
                 let mut out = Vec::new();
                 let mut err = Vec::new();
@@ -333,10 +439,8 @@ fn handle_submitted_line(
                 let _ = stderr.write_all(&err);
                 let _ = stderr.flush();
                 session.last_status = status;
+                session.dollar_status = status;
                 session.last_process_status = Some(ProcessStatus::exited(status));
-                session
-                    .history
-                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             "copy-scrollback" => {
@@ -344,10 +448,8 @@ fn handle_submitted_line(
                 let _ = stdout.write_all(format!("\x1b]52;c;{encoded}\x07").as_bytes());
                 let _ = stdout.flush();
                 session.last_status = 0;
+                session.dollar_status = 0;
                 session.last_process_status = Some(ProcessStatus::exited(0));
-                session
-                    .history
-                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             "xshi-dump" => {
@@ -357,10 +459,8 @@ fn handle_submitted_line(
                 let _ = stderr.write_all(err.as_bytes());
                 let _ = stderr.flush();
                 session.last_status = status;
+                session.dollar_status = status;
                 session.last_process_status = Some(ProcessStatus::exited(status));
-                session
-                    .history
-                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             _ => {}
@@ -368,8 +468,9 @@ fn handle_submitted_line(
     }
 
     // Commands the shell answers itself never leave the terminal mid-line;
-    // everything else may have written arbitrary output.
-    let intercepted = !xsh_source && is_intercepted_line(&line);
+    // everything else may have written arbitrary output. The alias-expanded
+    // line decides, as it does in the reference shell.
+    let intercepted = !xsh_source && is_intercepted_line(&plan_line);
 
     let dollar_before = session.dollar_status;
     let output = execute_line(session, &line);
@@ -379,7 +480,7 @@ fn handle_submitted_line(
             .job
             .as_ref()
             .is_some_and(|job| job.state == InteractiveJobState::Stopped);
-    if intercepted || stopped {
+    if stopped {
         session.dollar_status = dollar_before;
     } else {
         session.dollar_status = output.status;
@@ -395,12 +496,11 @@ fn handle_submitted_line(
     };
     session.prompt.invalidate_git();
 
-    let reset_history = first_word == "history" && line.split_whitespace().nth(1) == Some("reset");
-    if history_line.trim() != "l" && !reset_history {
-        let recorded = output.history_source.as_deref().filter(|_| xsh_source);
+    if xsh_source {
+        let recorded = output.history_source.as_deref().unwrap_or(&history_line);
         session
             .history
-            .add_in_dir(recorded.unwrap_or(&history_line), Some(&history_cwd));
+            .add_in_dir(recorded, Some(&history_cwd));
     }
     if !intercepted {
         ui.prompt_needs_line_start = true;
@@ -412,54 +512,35 @@ fn handle_submitted_line(
 /// a program, in which case it cannot leave the terminal mid-line.
 fn is_intercepted_line(line: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
-    let simple = || {
-        lex_shell(line)
-            .map(|tokens| {
-                tokens
-                    .iter()
-                    .all(|token| matches!(token, ShellToken::Word(_)))
-            })
-            .unwrap_or(false)
-    };
     match first {
-        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "c" => true,
-        "cd" | "l" => simple(),
+        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "c" | "cd" => {
+            is_simple_word_line(line)
+        }
         _ => false,
     }
 }
 
-/// `source FILE` / `. FILE`: runs the file's lines as if typed, in this shell.
-fn builtin_source(
-    session: &mut Session,
-    args: &[String],
-    stdout: &mut Vec<u8>,
-    stderr: &mut Vec<u8>,
-) -> i32 {
-    let Some(filename) = args.first() else {
-        writeln!(stderr, ".: filename argument required").ok();
-        return 2;
-    };
-    let path = session.cwd.join(filename);
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(err) => {
-            writeln!(stderr, ".: {filename}: {err}").ok();
-            return 127;
+/// Wraps a diagnostic at the terminal width on word boundaries, so the
+/// wrapped rows are the ones the reference shell's terminal produces without
+/// leaving a space at the start of a continuation row.
+fn wrapped_diagnostic(text: &str) -> String {
+    let cols = usize::from(super::term::term_size().1).max(1);
+    let mut out = String::with_capacity(text.len() + 1);
+    let mut column = 0_usize;
+    for word in text.split(' ') {
+        let width = word.chars().count();
+        if column > 0 && column + 1 + width > cols {
+            out.push('\n');
+            column = 0;
+        } else if column > 0 {
+            out.push(' ');
+            column += 1;
         }
-    };
-    let mut status = 0;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let output = execute_line(session, trimmed);
-        stdout.extend_from_slice(&output.stdout);
-        stderr.extend_from_slice(&output.stderr);
-        status = output.status;
-        session.last_status = status;
+        out.push_str(word);
+        column += width;
     }
-    status
+    out.push('\n');
+    out
 }
 
 /// `cd [DIR]`, `cd -`: reports failures as `xshi: cd: ...` with status 1.
@@ -526,9 +607,9 @@ fn change_directory_path(session: &mut Session, target: &Path, stderr: &mut Vec<
 }
 
 /// `set`: with no arguments lists the exported environment; `set NAME value...`
-/// sets and exports `NAME` (extra words join with spaces); option forms such
-/// as `-e` are accepted.
-fn set_builtin(session: &mut Session, args: &[String], stdout: &mut Vec<u8>) -> i32 {
+/// sets and exports `NAME` (extra words join with spaces). Any other first
+/// word, including an option form, is refused as a variable name.
+fn set_builtin(session: &mut Session, args: &[String], stdout: &mut Vec<u8>, stderr: &mut Vec<u8>) -> i32 {
     let Some(first) = args.first() else {
         for (name, value) in &session.env {
             writeln!(
@@ -541,12 +622,9 @@ fn set_builtin(session: &mut Session, args: &[String], stdout: &mut Vec<u8>) -> 
         }
         return 0;
     };
-    if first.starts_with('-') || first.starts_with('+') {
-        return 0;
-    }
     if !valid_env_name(first) {
-        // Anything else sets positional parameters, which this shell does not keep.
-        return 0;
+        writeln!(stderr, "xshi: set: expected a variable name").ok();
+        return 2;
     }
     let value = args[1..].join(" ");
     session.export_var(first.as_bytes(), value.as_bytes());
@@ -589,10 +667,16 @@ fn handle_exit_command(
     line: &str,
     stderr: &mut io::Stderr,
 ) -> Option<i32> {
+    let code: i32 = line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|word| word.parse().ok())
+        .unwrap_or(0);
     if session.job.is_some() {
         if ui.exit_warned {
             terminate_job(session);
-            return Some(0);
+            session.history.compact();
+            return Some(code);
         }
         let _ = writeln!(
             stderr,
@@ -600,14 +684,10 @@ fn handle_exit_command(
         );
         ui.exit_warned = true;
         session.last_status = 1;
+        session.dollar_status = 1;
         session.last_process_status = Some(ProcessStatus::exited(1));
         return None;
     }
-    let code: i32 = line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|word| word.parse().ok())
-        .unwrap_or(0);
     session.history.compact();
     Some(code)
 }
@@ -754,15 +834,10 @@ pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput
         return run_xsh_source(session, "<interactive>", source);
     }
 
-    // Aliases expand textually on the first word of the whole line, unless
-    // that word names a session builtin, which always wins.
-    let expanded;
-    let source = if first_word_is_session_builtin(source) {
-        source
-    } else {
-        expanded = session.aliases.expand_line(source);
-        expanded.as_ref()
-    };
+    // Aliases expand textually on the first word of the whole line, as the
+    // reference shell does before dispatch.
+    let expanded = session.aliases.expand_line(source);
+    let source = expanded.as_ref();
 
     match ShellParser::new(source).parse_line() {
         Ok(line) => execute_shell_line(session, line),
@@ -1271,7 +1346,6 @@ fn run_builtin_stage(session: &mut Session, command: &SimpleCommand) -> CommandO
             SessionBuiltin::Cd
                 | SessionBuiltin::Unset
                 | SessionBuiltin::Eval
-                | SessionBuiltin::Source
                 | SessionBuiltin::Z
                 | SessionBuiltin::Denv
                 | SessionBuiltin::Fg
@@ -1581,7 +1655,6 @@ fn execute_session_builtin(
             }
         }
         SessionBuiltin::Cd => builtin_cd(session, args, &mut stderr),
-        SessionBuiltin::Source => builtin_source(session, args, &mut stdout, &mut stderr),
         SessionBuiltin::Export => {
             if args.is_empty() {
                 for (name, value) in &session.env {
@@ -1608,7 +1681,7 @@ fn execute_session_builtin(
                 status
             }
         }
-        SessionBuiltin::Set => set_builtin(session, args, &mut stdout),
+        SessionBuiltin::Set => set_builtin(session, args, &mut stdout, &mut stderr),
         SessionBuiltin::Unset => {
             for name in args {
                 session.unset_var(name.as_bytes());
@@ -1624,48 +1697,48 @@ fn execute_session_builtin(
                 .to_vec();
             builtin::locate_command(args, &session.aliases, &path_env, &mut stdout, &mut stderr)
         }
-        SessionBuiltin::History => match args.first().map(String::as_str) {
-            None => {
-                for index in 0..session.history.len() {
-                    writeln!(stdout, "{}", session.history.get(index)).ok();
-                }
-                0
-            }
-            Some("-h" | "--help") => {
-                writeln!(stdout, "Usage: history [compact|rebuild|reset]").ok();
-                writeln!(stdout).ok();
-                writeln!(
-                    stdout,
-                    "Show history, compact its storage, rebuild its cache, or reset it."
-                )
-                .ok();
-                0
-            }
-            Some("compact") => {
-                session.history.compact();
-                0
-            }
-            Some("rebuild") => {
-                session.history.rebuild();
-                0
-            }
-            Some("reset") => match session.history.reset() {
-                Ok(()) => 0,
-                Err(error) => {
-                    writeln!(stderr, "xshi: history reset: {error}").ok();
-                    1
-                }
-            },
-            Some(other) => {
-                writeln!(stderr, "xshi: history: unknown subcommand: {other}").ok();
+        SessionBuiltin::History => {
+            if session.capturing {
+                stderr.extend_from_slice(
+                    b"history requires the original shell process and cannot run in a forked context\n",
+                );
                 1
+            } else {
+                match args.first().map(String::as_str) {
+                    None => {
+                        let mut indices = Vec::new();
+                        session.history.command_indices_into(&mut indices);
+                        for index in indices {
+                            writeln!(stdout, "{}", session.history.display(index)).ok();
+                        }
+                        0
+                    }
+                    Some("-h" | "--help") => {
+                        stdout.extend_from_slice(
+                            b"Usage: history [reset]\nShow saved history, or clear it with `reset`.",
+                        );
+                        0
+                    }
+                    Some("reset") => match session.history.reset() {
+                        Ok(()) => 0,
+                        Err(error) => {
+                            writeln!(stderr, "xshi: history reset: {error}").ok();
+                            1
+                        }
+                    },
+                    Some(other) => {
+                        writeln!(stderr, "xshi: history: unknown subcommand: {other}").ok();
+                        1
+                    }
+                }
             }
-        },
+        }
         SessionBuiltin::Clear => {
             stdout.extend_from_slice(b"\x1b[H\x1b[2J");
             0
         }
-        SessionBuiltin::List => builtin::list_directory(args, &mut stdout, &mut stderr),
+        SessionBuiltin::List => builtin::list_directory(args, false, &mut stdout, &mut stderr),
+        SessionBuiltin::ListHidden => builtin::list_directory(args, true, &mut stdout, &mut stderr),
         SessionBuiltin::Z => {
             let home = session
                 .var(b"HOME")
@@ -1774,11 +1847,12 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
             drop(foreground);
             job.state = InteractiveJobState::Stopped;
             job.notified = true;
+            let stderr = erase_stopped_key_echo(job.terminal_attrs.as_ref());
             session.job = Some(job);
             CommandOutput {
                 status: 148,
                 stdout: Vec::new(),
-                stderr: Vec::new(),
+                stderr,
                 process_status: Some(ProcessStatus::exited(148)),
                 history_source: None,
             }
@@ -1900,6 +1974,24 @@ fn restore_terminal_attrs(attrs: &Termios) {
     let _ = rtermios::tcsetattr(rustix::stdio::stdin(), OptionalActions::Now, attrs);
 }
 
+/// A stopped child leaves the terminal's control-key echo (`^Z`) on the row
+/// before the notice. The reference shell intercepts the suspend key before
+/// its line discipline can echo it; erase the two columns here instead.
+fn erase_stopped_key_echo(attrs: Option<&Termios>) -> Vec<u8> {
+    match attrs {
+        Some(attrs) if attrs.local_modes.contains(rtermios::LocalModes::ECHOCTL) => {
+            b"\x08\x08  \x08\x08".to_vec()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn stopped_notice(attrs: Option<&Termios>, name: &str, pgid: libc::pid_t) -> Vec<u8> {
+    let mut stderr = erase_stopped_key_echo(attrs);
+    stderr.extend_from_slice(format!("xshi: stopped: {name} (pgid={pgid})\n").as_bytes());
+    stderr
+}
+
 fn status_from_process_output(mut output: CommandOutput) -> CommandOutput {
     if let Some(status) = &output.process_status {
         output.status = shell_status(status);
@@ -1943,11 +2035,53 @@ fn run_external_foreground(
                     status
                 }
                 Ok((ChildWaitOutcome::Stopped { signal: _ }, _)) => {
+                    if session.job.is_some() {
+                        let attrs = terminal_attrs();
+                        let mut message = erase_stopped_key_echo(attrs.as_ref());
+                        message.extend_from_slice(
+                            b"xshi: a job is already suspended; resume it with fg before suspending another\n",
+                        );
+                        let _ = io::stderr().write_all(&message);
+                        let group = ProcessGroup::from_pgid(new_root_process_group_id(child.pid));
+                        group.signal(libc::SIGCONT);
+                        let mut policy = InteractiveNoCancellation;
+                        let status = loop {
+                            match wait_managed(
+                                &mut child,
+                                WaitMode::InteractiveForeground,
+                                &mut policy,
+                            ) {
+                                Ok((
+                                    ChildWaitOutcome::Exited(status)
+                                    | ChildWaitOutcome::Signaled(status),
+                                    _,
+                                )) => break status,
+                                Ok((ChildWaitOutcome::Stopped { .. }, _)) => {
+                                    group.signal(libc::SIGCONT);
+                                }
+                                Ok((ChildWaitOutcome::StillRunning, _)) => {
+                                    break ProcessStatus::signaled(libc::SIGTERM);
+                                }
+                                Err(error) => {
+                                    break process_error_status(&invocation.target, error);
+                                }
+                            }
+                        };
+                        drop(foreground);
+                        return status_from_process_output(CommandOutput {
+                            status: 0,
+                            stdout: Vec::new(),
+                            stderr: Vec::new(),
+                            process_status: Some(status),
+                            history_source: Some(source),
+                        });
+                    }
                     let attrs = terminal_attrs();
                     drop(foreground);
                     let name = String::from_utf8_lossy(&invocation.target).into_owned();
                     let pid = child.pid;
                     let pgid = new_root_process_group_id(child.pid);
+                    let stderr = stopped_notice(attrs.as_ref(), &name, pgid);
                     session.job = Some(InteractiveJob {
                         child,
                         pid,
@@ -1962,7 +2096,7 @@ fn run_external_foreground(
                     return CommandOutput {
                         status: 148,
                         stdout: Vec::new(),
-                        stderr: text_bytes(format!("xshi: stopped: {name} (pgid={pgid})\n")),
+                        stderr,
                         process_status: Some(ProcessStatus::exited(148)),
                         history_source: Some(source),
                     };
@@ -3185,10 +3319,10 @@ fn apply_builtin_redirections(
     }
 }
 
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionBuiltin {
     Eval,
-    Source,
     Export,
     Fg,
     Bg,
@@ -3201,15 +3335,9 @@ enum SessionBuiltin {
     Denv,
     Clear,
     List,
+    ListHidden,
     Which,
     History,
-}
-
-fn first_word_is_session_builtin(source: &str) -> bool {
-    source
-        .split_whitespace()
-        .next()
-        .is_some_and(|word| session_builtin_name(word).is_some())
 }
 
 fn session_builtin(words: &[ShellWord]) -> Option<SessionBuiltin> {
@@ -3221,7 +3349,6 @@ fn session_builtin(words: &[ShellWord]) -> Option<SessionBuiltin> {
 fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
     Some(match name {
         "eval" => SessionBuiltin::Eval,
-        "source" | "." => SessionBuiltin::Source,
         "export" => SessionBuiltin::Export,
         "fg" => SessionBuiltin::Fg,
         "bg" => SessionBuiltin::Bg,
@@ -3234,6 +3361,7 @@ fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
         "denv" => SessionBuiltin::Denv,
         "c" => SessionBuiltin::Clear,
         "l" => SessionBuiltin::List,
+        "ll" => SessionBuiltin::ListHidden,
         "w" | "which" | "type" => SessionBuiltin::Which,
         "history" => SessionBuiltin::History,
         _ => return None,
@@ -3508,11 +3636,11 @@ mod tests {
     }
 
     #[test]
-    fn job_control_builtins_are_reserved_before_aliases() {
+    fn aliases_expand_before_builtin_dispatch() {
         let mut session = Session::for_test();
         let w = execute_line(&mut session, "w fg");
         assert_eq!(w.status, 0);
-        assert!(String::from_utf8(w.stdout).unwrap().contains("builtin"));
+        assert!(String::from_utf8(w.stdout).unwrap().contains("fg: builtin"));
 
         session.aliases.set(
             "fg".to_string(),
@@ -3524,20 +3652,12 @@ mod tests {
         );
 
         let fg = execute_line(&mut session, "fg");
-        assert_eq!(fg.status, 1);
-        assert!(
-            String::from_utf8(fg.stderr)
-                .unwrap()
-                .contains("xshi: fg: no suspended job")
-        );
+        assert_eq!(fg.status, 0);
+        assert_eq!(String::from_utf8(fg.stdout).unwrap(), "alias\n");
 
         let bg = execute_line(&mut session, "bg");
-        assert_eq!(bg.status, 1);
-        assert!(
-            String::from_utf8(bg.stderr)
-                .unwrap()
-                .contains("xshi: bg: no background job")
-        );
+        assert_eq!(bg.status, 0);
+        assert_eq!(String::from_utf8(bg.stdout).unwrap(), "alias\n");
     }
 
     #[test]

@@ -1,0 +1,21 @@
+== frame after_interrupt cursor=3,20
+|testuser@<HOST> ~ $ ./bin/sleep
+|ready
+|^C
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/sleep
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame alive cursor=6,20
+|testuser@<HOST> ~ $ ./bin/sleep
+|ready
+|^C
+|testuser@<HOST> ~ $ echo alive
+|alive
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/sleep
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
