@@ -528,6 +528,18 @@ S6 depends on S1 only if the scan primitive reuses the metadata record.
   filesystem layer as a Rust API of the `xsh` crate that xshi's
   `cp`/`mv`/`rsync`/`rmrf` call, with no new script-visible contract yet.
 - **Harness:** the parity lane owns the move to `laputa-ptytest` 0.4.
+- **`-c` runs in process** (owner, 2026-11-11). ish execs `/bin/sh -c`; on
+  Laputa `/bin/sh` is xshi, so xshi evaluates the command itself. This is the
+  only platform-forced deviation and SPEC-INTERACTIVE records it with that
+  reason.
+- **Syntax ish refuses is refused** (owner, 2026-11-11): `eval`, `exec`,
+  trailing `&`, `bg`, `if`, `${VAR:-x}` and the other undocumented constructs
+  ish rejects get ish's refusals and messages. XSH source at the prompt (§5)
+  stays as the one xshi addition.
+- **`fg` after a stopped AND-OR list drops the rest of the list**, as ish does.
+- **Deferred to later slices:** pipeline job control (a multi-child job handle
+  in XSH's process layer), raw non-UTF-8 path bytes in shell words, and ish's
+  capture-PTY job cases.
 - **macOS** stays owner-deferred; Linux first.
 
 ## 5. (E) Open questions for the owner
