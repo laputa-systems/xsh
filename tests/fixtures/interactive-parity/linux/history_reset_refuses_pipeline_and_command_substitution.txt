@@ -1,0 +1,43 @@
+== frame pipeline cursor=3,20
+|testuser@<HOST> ~ $ history reset | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame substitution cursor=7,20
+|testuser@<HOST> ~ $ history reset | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(history reset)
+|history requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame preserved cursor=12,20
+|testuser@<HOST> ~ $ history reset | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(history reset)
+|history requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ history
+|echo preserved_history_marker
+|history reset | /bin/cat
+|echo $(history reset)
+|history
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

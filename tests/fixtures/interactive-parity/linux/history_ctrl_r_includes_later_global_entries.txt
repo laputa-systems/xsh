@@ -1,0 +1,29 @@
+== frame search_open cursor=1,8
+|testuser@<HOST> ~ $
+|search:
+|echo later_global
+|echo startup
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@2 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo later_global
+== frame query_later cursor=1,13
+|testuser@<HOST> ~ $
+|search: later
+|echo later_global
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@2 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo later_global
+== frame accepted cursor=1,37
+|testuser@<HOST> ~ $
+|testuser@<HOST> ~ $ echo later_global
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_enter cursor=4,20
+|testuser@<HOST> ~ $
+|testuser@<HOST> ~ $ echo later_global
+|later_global
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

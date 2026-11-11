@@ -1,0 +1,38 @@
+== frame listing cursor=6,28
+|testuser@<HOST> ~ $ set HOME <HOME>/new-home
+|
+|testuser@<HOST> /t/x/home $ history
+|echo startup_log_marker
+|set HOME <HOME>/new-home
+|history
+|testuser@<HOST> /t/x/home $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home
+== frame redirected cursor=14,28
+|testuser@<HOST> ~ $ set HOME <HOME>/new-home
+|
+|testuser@<HOST> /t/x/home $ history
+|echo startup_log_marker
+|set HOME <HOME>/new-home
+|history
+|testuser@<HOST> /t/x/home $ history > history-after-home-change
+|
+|testuser@<HOST> /t/x/home $ cat history-after-home-change
+|echo startup_log_marker
+|set HOME <HOME>/new-home
+|history
+|history > history-after-home-change
+|
+|testuser@<HOST> /t/x/home $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home

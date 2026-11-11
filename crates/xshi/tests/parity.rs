@@ -32,6 +32,7 @@ macro_rules! cargo_env {
 
 #[path = "parity/extended.rs"]
 mod extended;
+#[path = "parity/history.rs"] mod history;
 #[path = "parity/scenarios.rs"]
 mod scenarios;
 

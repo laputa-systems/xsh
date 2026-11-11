@@ -1,0 +1,17 @@
+== frame restarted/search cursor=0,27
+|search: durable_before_kill
+|/bin/echo durable_before_kill
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 /bin/echo durable_before_kill
+== frame restarted/accepted cursor=0,49
+|testuser@<HOST> ~ $ /bin/echo durable_before_kill
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame restarted/executed cursor=3,20
+|testuser@<HOST> ~ $ /bin/echo durable_before_kill
+|durable_before_kill
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect killed
+|Signal(9)

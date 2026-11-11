@@ -1,0 +1,27 @@
+== frame listing cursor=3,20
+|testuser@<HOST> ~ $ history
+|echo concurrent_history_marker
+|history
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame redirected cursor=10,20
+|testuser@<HOST> ~ $ history
+|echo concurrent_history_marker
+|history
+|testuser@<HOST> ~ $ history > history-output
+|
+|testuser@<HOST> ~ $ cat history-output
+|echo concurrent_history_marker
+|history
+|history > history-output
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,532 +1,519 @@
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
-use std::fs;
-use std::io::{self, Write};
-use std::os::unix::fs::FileExt;
+use rustc_hash::FxHashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io;
+use std::num::NonZeroU32;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
+mod legacy;
 mod store;
 #[cfg(test)]
 mod tests;
 
-use store::{
-    CacheRead, FileStamp, HistoryLock, Record, cache_path_for, dedup_last, file_stamp,
-    format_record, hash_str, history_path_for_home, is_recordable, is_torn_record, new_session_id, now_millis,
-    overlay, quarantine_path_for, read_cache, read_reset_marker, read_text_records,
-    remove_if_present, reset_marker_for, write_cache, write_reset_marker,
-};
+use store::{Occurrence, Store};
 
-const HISTORY_LOCK_WAIT: Duration = Duration::from_secs(1);
-/// Compaction is only an optimisation, so it gives up quickly when busy.
-const COMPACT_LOCK_WAIT: Duration = Duration::from_millis(250);
-/// `history reset` and `history rebuild` are explicit requests and wait longer.
-const EXPLICIT_LOCK_WAIT: Duration = Duration::from_secs(2);
+fn hash_str(s: &str) -> u64 {
+    let mut h = DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish()
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock predates Unix epoch")
+        .as_millis() as u64
+}
+
+fn new_session_id() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock predates Unix epoch")
+        .as_nanos() as u64;
+    nanos ^ (rustix::process::getpid().as_raw_pid() as u64).wrapping_shl(32)
+}
+
+/// Ranking key: (text tier or last-use time for an empty query, directory
+/// proximity, usage bonus, usage time, latest occurrence id).
+type RankKey = (u64, usize, u32, u64, u32);
+
+#[derive(Clone, Copy, Default)]
+struct Usage {
+    count: u64,
+    timestamp: u64,
+}
+
+/// The directory a command last ran in, as a code into `History::directory_paths`.
+/// A command that ran in exactly one directory shares the entry's totals, so
+/// only repeated directories elsewhere need a record of their own.
+const DIRECTORY_NONE: u32 = u32::MAX;
+const DIRECTORY_DETAILED: u32 = u32::MAX - 1;
+
+/// What a code of `DIRECTORY_DETAILED` stands for: a command that ran in one
+/// directory but also without one, or a command that moved between them.
+enum DirectoryDetail {
+    Tracked { code: u32, usage: Usage },
+    Many(Box<FxHashMap<u32, Usage>>),
+}
+
+enum DirectoryCodes<'a> {
+    Empty,
+    One(std::iter::Once<u32>),
+    Many(std::collections::hash_map::Keys<'a, u32, Usage>),
+}
+
+impl Iterator for DirectoryCodes<'_> {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        match self {
+            DirectoryCodes::Empty => None,
+            DirectoryCodes::One(iter) => iter.next(),
+            DirectoryCodes::Many(keys) => keys.next().copied(),
+        }
+    }
+}
+
+impl Usage {
+    fn record(&mut self, timestamp: u64) {
+        self.count = self.count.saturating_add(1);
+        self.timestamp = self.timestamp.max(timestamp);
+    }
+}
+
+struct EntryUsage {
+    latest_id: u32,
+    /// ASCII letters present in the command, as one bit per `a`..`z`.
+    letters: u32,
+    total: Usage,
+    directories: u32,
+    /// One-based slot in `History::session`, so replacing a command's session
+    /// occurrence is a store instead of a search.
+    session_position: Option<NonZeroU32>,
+}
+
+fn letter_mask(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0, |mask, &byte| {
+        let lower = byte.to_ascii_lowercase();
+        if lower.is_ascii_lowercase() {
+            mask | 1 << (lower - b'a')
+        } else {
+            mask
+        }
+    })
+}
+
+const SESSION_REMOVED: u32 = u32::MAX;
 
 pub struct History {
-    /// All entry text packed into a single allocation.
+    /// Unique command text stays packed; updating usage never moves a candidate.
     arena: String,
-    /// (start, len) byte offsets into `arena` for each entry.
-    offsets: Vec<(u32, u16)>,
-    /// Epoch milliseconds when each entry was last used. Parallel to `offsets`.
-    timestamps: Vec<u64>,
-    /// Session ids parallel to `offsets`. Zero means unknown/legacy.
-    session_ids: Vec<u64>,
-    /// Working directory for each entry. None means unknown/legacy.
-    cwds: Vec<Option<PathBuf>>,
-    /// Maps command hash to its current in-memory position.
-    index_by_hash: FxHashMap<u64, usize>,
-    /// Set when two different commands hash alike, making the index incomplete;
-    /// lookups then fall back to a scan.
-    has_collisions: bool,
-    /// The text log. Empty for a history that is never persisted.
-    path: PathBuf,
-    /// Byte offset into the text log up to which complete lines were consumed.
-    /// Enables incremental sync: only bytes appended by other shells are read.
-    file_pos: u64,
-    /// Device and inode of the log at the last read; a change means the file
-    /// was replaced and `file_pos` no longer refers to it.
-    text_id: Option<(u64, u64)>,
-    /// Stamp of the cache at the last read; a change means another shell
-    /// compacted.
-    cache_stamp: Option<FileStamp>,
-    /// Per-entry flag: true if the entry was added by this shell session
-    /// (`add()`).
-    local: Vec<bool>,
-    /// Entries with timestamps at or before this boundary are considered part
-    /// of the session-visible history. Up-arrow sees those entries plus any
-    /// entry added by this shell.
-    session_cutoff: u64,
-    /// Session id used for new entries written by this shell.
+    offsets: Vec<(u32, u32)>,
+    usages: Vec<EntryUsage>,
+    index_by_hash: FxHashMap<u64, u32>,
+    /// Latest occurrence id to entry index, kept sorted by id. Ascending order
+    /// is oldest first and its reverse is the most-recent-first order recall
+    /// and prefix search walk.
+    latest_occurrences: Vec<(i64, u32)>,
+    /// Directory paths addressed by the codes in `EntryUsage::directories`.
+    directory_paths: Vec<PathBuf>,
+    directory_codes: FxHashMap<PathBuf, u32>,
+    /// Entries whose directories are more than one shared code, by entry index.
+    directory_details: FxHashMap<u32, DirectoryDetail>,
+    /// Startup snapshot plus this shell's commands, oldest first. Other
+    /// sessions may update global usage without changing the order or
+    /// membership of Up-arrow recall. Replaced occurrences leave a tombstone.
+    session: Vec<u32>,
+    session_live: usize,
     session_id: u64,
-    /// Set when the cache was unreadable. Prevents overwriting the (possibly
-    /// recoverable) cache file until `history rebuild` sets it aside.
-    cache_dirty: bool,
-    /// Generation written by `history reset`; stale shells clear their
-    /// in-memory entries before they can persist them again.
-    reset_generation: u64,
-    reset_stamp: Option<FileStamp>,
-    pending: VecDeque<Record>,
+    generation: i64,
+    last_id: i64,
+    store: Option<store::Store>,
 }
 
 impl History {
-    fn empty(path: PathBuf) -> Self {
-        Self {
-            arena: String::new(),
-            offsets: Vec::new(),
-            timestamps: Vec::new(),
-            session_ids: Vec::new(),
-            cwds: Vec::new(),
-            index_by_hash: FxHashMap::default(),
-            has_collisions: false,
-            path,
-            file_pos: 0,
-            text_id: None,
-            cache_stamp: None,
-            local: Vec::new(),
-            session_cutoff: 0,
-            session_id: new_session_id(),
-            cache_dirty: false,
-            reset_generation: 0,
-            reset_stamp: None,
-            pending: VecDeque::new(),
-        }
-    }
-
     pub fn load() -> Self {
-        Self::load_from_home(None)
+        Self::load_from_home(std::env::var_os("HOME").as_deref())
     }
 
     pub fn load_from_home(home: Option<&std::ffi::OsStr>) -> Self {
-        Self::load_from(history_path_for_home(home))
-    }
-
-    /// Loads the cache and the log tail under a shared lock. Loading never
-    /// writes: the first compaction creates the cache, so starting a shell
-    /// cannot race another shell's rewrite.
-    pub fn load_from(path: PathBuf) -> Self {
-        let mut hist = Self::empty(path);
-        {
-            match HistoryLock::shared(&hist.path, HISTORY_LOCK_WAIT) {
-                Ok(_lock) => {
-                    match hist.sync_reset_marker() {
-                        Ok(()) => hist.resync_from_disk(true),
-                        Err(error) => eprintln!("xshi: cannot load history: {error}"),
-                    }
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => eprintln!("xshi: cannot load history: {error}"),
+        match history_path_for_home(home) {
+            Ok(path) => Self::load_from(path),
+            Err(error) => {
+                eprintln!("xshi: cannot open history: {error}");
+                Self::empty()
             }
         }
-        hist.session_cutoff = now_millis();
-        hist
     }
 
-    /// Create from pre-existing entries (for testing/benchmarks). The result
-    /// is never persisted.
-    pub fn from_entries(entries: Vec<String>) -> Self {
-        let mut hist = Self::empty(PathBuf::new());
-        let ts = now_millis();
-        let records = entries
-            .into_iter()
-            .map(|command| Record {
-                command,
-                timestamp: ts,
-                session_id: 0,
-                cwd: None,
-            })
-            .collect();
-        hist.apply_records(records);
-        hist.session_cutoff = ts;
-        hist
+    pub fn load_from(path: PathBuf) -> Self {
+        Self::try_load_from(path).unwrap_or_else(|error| {
+            eprintln!("xshi: cannot open history: {error}");
+            Self::empty()
+        })
     }
 
-    fn is_detached(&self) -> bool {
-        self.path.as_os_str().is_empty()
+    fn try_load_from(path: PathBuf) -> io::Result<Self> {
+        let mut history = Self::empty();
+        history.store = Some(Store::open(&path)?);
+        if let Err(error) = history.try_sync() {
+            // A damaged record must not keep the shell from starting. Keep
+            // the valid prefix and preserve the rest in a separate file.
+            if !store::is_frame_corruption(&error) {
+                return Err(error);
+            }
+            let store = history.store.as_mut().expect("store was just opened");
+            let salvage = store.salvage()?;
+            eprintln!(
+                "xshi: history log damaged ({error}); kept {} bytes and moved the rest to {}",
+                salvage.kept,
+                salvage.moved_to.display()
+            );
+            history.try_sync()?;
+        }
+        let latest = std::mem::take(&mut history.latest_occurrences);
+        for &(_, idx) in &latest {
+            history.remember_session(idx as usize);
+        }
+        history.latest_occurrences = latest;
+        history.shrink();
+        Ok(history)
     }
 
-    /// Replaces the view of the disk state with the cache plus the whole log.
-    /// The caller holds a lock when it needs a consistent snapshot.
-    fn resync_from_disk(&mut self, announce: bool) {
-        if self.is_detached() {
+    fn empty() -> Self {
+        Self {
+            arena: String::new(),
+            offsets: Vec::new(),
+            usages: Vec::new(),
+            index_by_hash: FxHashMap::default(),
+            latest_occurrences: Vec::new(),
+            directory_paths: Vec::new(),
+            directory_codes: FxHashMap::default(),
+            directory_details: FxHashMap::default(),
+            session: Vec::new(),
+            session_live: 0,
+            session_id: new_session_id(),
+            generation: 0,
+            last_id: 0,
+            store: None,
+        }
+    }
+
+    pub fn storage_path(&self) -> Option<&Path> {
+        self.store.as_ref().map(|store| store.path.as_path())
+    }
+
+    /// Synchronize a committed snapshot while holding the storage lock, so a
+    /// reset cannot mix old occurrences with a new generation.
+    pub fn sync(&mut self) {
+        if let Err(error) = self.try_sync() {
+            eprintln!("xshi: cannot sync history: {error}");
+        }
+    }
+
+    fn try_sync(&mut self) -> io::Result<()> {
+        let Some(store) = self.store.as_mut() else {
+            return Ok(());
+        };
+        let snapshot = store.snapshot(self.generation, self.last_id)?;
+        self.apply_snapshot(snapshot);
+        Ok(())
+    }
+
+    fn apply_snapshot(&mut self, snapshot: store::Snapshot) {
+        if snapshot.generation != self.generation {
+            self.clear();
+            self.generation = snapshot.generation;
+        }
+        if self.arena.is_empty() {
+            let text: usize = snapshot
+                .occurrences
+                .iter()
+                .map(|occurrence| occurrence.command.len())
+                .sum();
+            self.arena.reserve_exact(text);
+        }
+        for occurrence in snapshot.occurrences {
+            self.apply_occurrence(occurrence);
+        }
+    }
+
+    fn apply_occurrence(&mut self, occurrence: Occurrence) -> usize {
+        let hash = hash_str(&occurrence.command);
+        let idx = match self.find_entry_index(hash, &occurrence.command) {
+            Some(idx) => idx,
+            None => {
+                let idx = self.offsets.len();
+                let start = u32::try_from(self.arena.len()).expect("history text exceeds 4 GiB");
+                self.arena.push_str(&occurrence.command);
+                let length =
+                    u32::try_from(occurrence.command.len()).expect("history command exceeds 4 GiB");
+                self.offsets.push((start, length));
+                self.usages.push(EntryUsage {
+                    latest_id: 0,
+                    letters: letter_mask(occurrence.command.as_bytes()),
+                    total: Usage::default(),
+                    directories: DIRECTORY_NONE,
+                    session_position: None,
+                });
+                self.index_by_hash
+                    .insert(hash, u32::try_from(idx).expect("history entries exceed 4 billion"));
+                idx
+            }
+        };
+        let directory = occurrence.cwd.map(|cwd| self.intern_directory(cwd));
+        if directory.is_none() {
+            self.detach_shared_directory(idx);
+        } else if let Some(code) = directory {
+            self.record_directory(idx, code, occurrence.timestamp);
+        }
+        self.forget_latest_occurrence(i64::from(self.usages[idx].latest_id));
+        self.usages[idx].latest_id =
+            u32::try_from(occurrence.id).expect("history occurrence ids exceed 4 billion");
+        self.usages[idx].total.record(occurrence.timestamp);
+        self.record_latest_occurrence(
+            occurrence.id,
+            u32::try_from(idx).expect("history entries exceed 4 billion"),
+        );
+        self.last_id = self.last_id.max(occurrence.id);
+        idx
+    }
+
+    /// Track `idx` as the entry behind latest occurrence `id`, keeping the
+    /// table sorted by id. Committed ids usually grow, so the insert lands at
+    /// the end.
+    fn record_latest_occurrence(&mut self, id: i64, idx: u32) {
+        match self.latest_occurrences.binary_search_by_key(&id, |&(key, _)| key) {
+            Ok(position) => self.latest_occurrences[position].1 = idx,
+            Err(position) => self.latest_occurrences.insert(position, (id, idx)),
+        }
+    }
+
+    /// Drop the row for occurrence `id` when the table still holds it.
+    fn forget_latest_occurrence(&mut self, id: i64) {
+        if let Ok(position) = self.latest_occurrences.binary_search_by_key(&id, |&(key, _)| key) {
+            self.latest_occurrences.remove(position);
+        }
+    }
+
+    fn remember_session(&mut self, idx: usize) {
+        if let Some(previous) = self.usages[idx].session_position {
+            self.session[previous.get() as usize - 1] = SESSION_REMOVED;
+        } else {
+            self.session_live += 1;
+        }
+        self.session.push(
+            u32::try_from(idx).expect("history entries exceed 4 billion"),
+        );
+        self.usages[idx].session_position = NonZeroU32::new(
+            u32::try_from(self.session.len()).expect("session exceeds 4 billion entries"),
+        );
+        self.compact_session();
+    }
+
+    /// Reclaim tombstones once they outnumber live occurrences. Compaction is
+    /// rare, so rewriting every slot's position stays amortized constant.
+    fn compact_session(&mut self) {
+        if self.session.len() <= 2 * self.session_live || self.session.len() <= 64 {
             return;
         }
-        let cache = cache_path_for(&self.path);
-        let cache_stamp = file_stamp(&cache);
-        let cached = match read_cache(&cache) {
-            CacheRead::Missing => {
-                self.cache_dirty = false;
-                Vec::new()
-            }
-            CacheRead::Entries(records) => {
-                self.cache_dirty = false;
-                records
-            }
-            CacheRead::Unreadable(why) => {
-                self.cache_dirty = true;
-                if announce {
-                    eprintln!(
-                        "xshi: history cache {why} — loading text file only; \
-                         `history rebuild` sets it aside and writes a new one"
-                    );
-                }
-                Vec::new()
-            }
-        };
-        let text = match read_text_records(&self.path, 0, false, now_millis()) {
-            Ok(text) => text,
-            Err(error) => {
-                eprintln!("xshi: cannot read history: {error}");
-                return;
-            }
-        };
-        self.cache_stamp = cache_stamp;
-        self.file_pos = text.consumed;
-        self.text_id = text.stamp.map(FileStamp::id);
-        self.apply_records(overlay(cached, text.records));
-    }
-
-    /// Folds `records` (in chronological order) into the in-memory history.
-    ///
-    /// A record for a command that is already present supersedes it only when
-    /// it is strictly newer, and never disturbs an entry this session can
-    /// still recall with Up-arrow. Records written by this session are already
-    /// in memory and are skipped.
-    fn apply_records(&mut self, records: Vec<Record>) {
-        let mut stale = Vec::new();
-        let mut fresh = Vec::new();
-        for record in dedup_last(records) {
-            if record.session_id == self.session_id {
+        let session = std::mem::take(&mut self.session);
+        self.session = Vec::with_capacity(self.session_live);
+        for idx in session {
+            if idx == SESSION_REMOVED {
                 continue;
             }
-            if let Some(idx) = self.find_entry_index(hash_str(&record.command), &record.command) {
-                if self.is_session_visible(idx) || record.timestamp <= self.timestamps[idx] {
-                    continue;
-                }
-                stale.push(idx);
-            }
-            fresh.push(record);
-        }
-        self.remove_entries(stale);
-        for record in fresh {
-            self.push_entry(
-                &record.command,
-                record.timestamp,
-                record.session_id,
-                record.cwd,
-                false,
+            self.session.push(idx);
+            self.usages[idx as usize].session_position = NonZeroU32::new(
+                u32::try_from(self.session.len()).expect("session exceeds 4 billion entries"),
             );
         }
     }
 
-    /// Read new entries written by other shell instances. Costs three `stat`
-    /// calls when nothing changed; reads only the new tail when the log grew;
-    /// re-reads cache and log when another shell compacted or replaced them.
-    /// Called at each prompt and before Ctrl+R history search.
-    pub fn sync(&mut self) {
-        if self.is_detached() {
+    /// Give back the growth slack a bulk load leaves behind. Entries arrive in
+    /// chunks of doubling capacity, so a loaded history sits up to twice its
+    /// content.
+    fn shrink(&mut self) {
+        self.arena.shrink_to_fit();
+        self.offsets.shrink_to_fit();
+        self.usages.shrink_to_fit();
+        self.session.shrink_to_fit();
+        self.index_by_hash.shrink_to_fit();
+    }
+
+    /// Note that entry `idx` ran in directory `code`. One directory shares the
+    /// entry's totals, so recording it costs a code and nothing else. Call this
+    /// before the entry's totals take the occurrence.
+    fn record_directory(&mut self, idx: usize, code: u32, timestamp: u64) {
+        let key = idx as u32;
+        let current = self.usages[idx].directories;
+        if current == code {
             return;
         }
-        self.flush_pending();
-        let cache_now = file_stamp(&cache_path_for(&self.path));
-        let text_now = file_stamp(&self.path);
-        let replaced = match text_now {
-            Some(text) => {
-                self.text_id.is_some_and(|id| id != text.id()) || text.size < self.file_pos
-            }
-            None => self.file_pos > 0 || self.text_id.is_some(),
-        };
-        if replaced
-            || cache_now != self.cache_stamp
-            || file_stamp(&reset_marker_for(&self.path)) != self.reset_stamp
+        if current == DIRECTORY_NONE {
+            self.usages[idx].directories = code;
+            return;
+        }
+        if current != DIRECTORY_DETAILED {
+            let shared = self.usages[idx].total;
+            let mut map = FxHashMap::default();
+            map.insert(current, shared);
+            self.usages[idx].directories = DIRECTORY_DETAILED;
+            self.directory_details
+                .insert(key, DirectoryDetail::Many(Box::new(map)));
+        }
+        if let Some(DirectoryDetail::Tracked { code: tracked, usage }) =
+            self.directory_details.get_mut(&key)
+            && *tracked == code
         {
-            let Some(_lock) = self.sync_lock() else {
-                return;
-            };
-            if let Err(error) = self.sync_reset_marker() {
-                eprintln!("xshi: cannot sync history: {error}");
-                return;
-            }
-            self.resync_from_disk(false);
+            usage.record(timestamp);
             return;
         }
-        let Some(text) = text_now else {
-            return;
-        };
-        if text.size == self.file_pos {
+        if let Some(DirectoryDetail::Many(map)) = self.directory_details.get_mut(&key) {
+            map.entry(code).or_default().record(timestamp);
             return;
         }
-        let Some(_lock) = self.sync_lock() else {
-            return;
-        };
-        if let Err(error) = self.sync_reset_marker() {
-            eprintln!("xshi: cannot sync history: {error}");
-            return;
-        }
-        let read = match read_text_records(&self.path, self.file_pos, false, now_millis()) {
-            Ok(read) => read,
-            Err(error) => {
-                eprintln!("xshi: cannot read history: {error}");
-                return;
-            }
-        };
-        self.file_pos = read.consumed;
-        self.text_id = read.stamp.map(FileStamp::id);
-        self.apply_records(read.records);
-    }
-
-    fn sync_lock(&self) -> Option<HistoryLock> {
-        match HistoryLock::shared(&self.path, HISTORY_LOCK_WAIT) {
-            Ok(lock) => Some(lock),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => None,
-            Err(error) => {
-                eprintln!("xshi: cannot sync history: {error}");
-                None
-            }
+        if let Some(DirectoryDetail::Tracked {
+            code: tracked,
+            usage,
+        }) = self.directory_details.remove(&key)
+        {
+            let mut map = FxHashMap::default();
+            map.insert(tracked, usage);
+            map.entry(code).or_default().record(timestamp);
+            self.directory_details
+                .insert(key, DirectoryDetail::Many(Box::new(map)));
         }
     }
 
-    fn sync_reset_marker(&mut self) -> io::Result<()> {
-        if file_stamp(&reset_marker_for(&self.path)) == self.reset_stamp {
-            return Ok(());
+    /// Stop sharing the entry's totals once an occurrence without a directory
+    /// arrives: one directory's usage no longer covers every use.
+    fn detach_shared_directory(&mut self, idx: usize) {
+        let current = self.usages[idx].directories;
+        if current == DIRECTORY_NONE || current == DIRECTORY_DETAILED {
+            return;
         }
-        let (generation, stamp) = read_reset_marker(&self.path)?;
-        self.reset_stamp = stamp;
-        if generation == self.reset_generation {
-            return Ok(());
-        }
-        self.clear_entries();
-        self.pending.clear();
-        self.reset_generation = generation;
-        self.cache_dirty = false;
-        Ok(())
+        let usage = self.usages[idx].total;
+        self.usages[idx].directories = DIRECTORY_DETAILED;
+        self.directory_details
+            .insert(idx as u32, DirectoryDetail::Tracked { code: current, usage });
     }
 
-    fn clear_entries(&mut self) {
+    fn directory_codes_of(&self, idx: usize) -> DirectoryCodes<'_> {
+        match self.usages[idx].directories {
+            DIRECTORY_NONE => DirectoryCodes::Empty,
+            DIRECTORY_DETAILED => match self.directory_details.get(&(idx as u32)) {
+                Some(DirectoryDetail::Tracked { code, .. }) => {
+                    DirectoryCodes::One(std::iter::once(*code))
+                }
+                Some(DirectoryDetail::Many(map)) => DirectoryCodes::Many(map.keys()),
+                None => DirectoryCodes::Empty,
+            },
+            code => DirectoryCodes::One(std::iter::once(code)),
+        }
+    }
+
+    fn intern_directory(&mut self, cwd: PathBuf) -> u32 {
+        if let Some(&code) = self.directory_codes.get(cwd.as_path()) {
+            return code;
+        }
+        let code = u32::try_from(self.directory_paths.len()).expect("directory table exhausted");
+        self.directory_paths.push(cwd.clone());
+        self.directory_codes.insert(cwd, code);
+        code
+    }
+
+    fn clear(&mut self) {
         self.arena.clear();
         self.offsets.clear();
-        self.timestamps.clear();
-        self.session_ids.clear();
-        self.cwds.clear();
+        self.usages.clear();
         self.index_by_hash.clear();
-        self.has_collisions = false;
-        self.local.clear();
-        self.file_pos = 0;
-        self.text_id = None;
-        self.cache_stamp = None;
-        self.session_cutoff = now_millis();
+        self.latest_occurrences.clear();
+        self.directory_paths.clear();
+        self.directory_codes.clear();
+        self.directory_details.clear();
+        self.session.clear();
+        self.session_live = 0;
+        self.last_id = 0;
     }
 
-    pub fn compact(&mut self) {
-        if self.is_detached() {
-            return;
-        }
-        self.flush_pending();
-        if self.path.parent().is_some_and(|dir| matches!(dir.try_exists(), Ok(false))) {
-            return;
-        }
-        let lock = match HistoryLock::exclusive(&self.path, COMPACT_LOCK_WAIT) {
-            Ok(lock) => lock,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                self.sync();
-                return;
-            }
-            Err(error) => {
-                eprintln!("xshi: cannot compact history: {error}");
-                return;
-            }
-        };
-        self.compact_locked();
-        drop(lock);
-    }
-
-    /// Rewrites the cache from the log, setting aside a cache that cannot be
-    /// read so that it can still be inspected.
-    pub fn rebuild(&mut self) {
-        if self.is_detached() {
-            return;
-        }
-        let lock = match HistoryLock::exclusive(&self.path, EXPLICIT_LOCK_WAIT) {
-            Ok(lock) => lock,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                eprintln!("xshi: history is busy; try again");
-                return;
-            }
-            Err(error) => {
-                eprintln!("xshi: cannot rebuild history: {error}");
-                return;
-            }
-        };
-        let cache = cache_path_for(&self.path);
-        if matches!(read_cache(&cache), CacheRead::Unreadable(_)) {
-            let quarantine = quarantine_path_for(&self.path);
-            match fs::rename(&cache, &quarantine) {
-                Ok(()) => eprintln!(
-                    "xshi: set aside the unreadable history cache as {}",
-                    quarantine.display()
-                ),
-                Err(error) => {
-                    eprintln!("xshi: cannot set aside the history cache: {error}");
-                    return;
-                }
-            }
-        }
-        self.cache_dirty = false;
-        if let Some(count) = self.compact_locked() {
-            eprintln!("xshi: rebuilt history cache — {count} entries");
-        }
-        drop(lock);
-    }
-
-    /// The compaction itself: a disk-to-disk merge of the cache and the whole
-    /// log, independent of this shell's memory. Returns the number of entries
-    /// written.
-    fn compact_locked(&mut self) -> Option<usize> {
-        if let Err(error) = self.sync_reset_marker() {
-            eprintln!("xshi: cannot compact history: {error}");
-            return None;
-        }
-        if self.cache_dirty {
-            return None;
-        }
-        let cache = cache_path_for(&self.path);
-        let cached = match read_cache(&cache) {
-            CacheRead::Missing => Vec::new(),
-            CacheRead::Entries(records) => records,
-            CacheRead::Unreadable(_) => {
-                self.cache_dirty = true;
-                return None;
-            }
-        };
-        let cached_count = cached.len();
-        // No appender can be mid-write while the exclusive lock is held, so an
-        // unterminated final line is a torn write and is recovered, not deferred.
-        let text = match read_text_records(&self.path, 0, true, now_millis()) {
-            Ok(text) => text,
-            Err(error) => {
-                eprintln!("xshi: cannot compact history: {error}");
-                return None;
-            }
-        };
-        let merged = overlay(cached, text.records);
-        if merged.is_empty() {
-            return Some(0);
-        }
-        if merged.len() < cached_count / 2 && cached_count > 100 {
-            eprintln!(
-                "xshi: refusing to shrink history cache from {cached_count} to {} entries",
-                merged.len()
-            );
-            return None;
-        }
-        if let Err(error) = write_cache(&cache, &merged) {
-            eprintln!("xshi: cannot compact history: {error}");
-            return None;
-        }
-        // The log's contents are now in the cache.
-        match fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&self.path)
-        {
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                eprintln!("xshi: cannot truncate history: {error}");
-                return None;
-            }
-        }
-        self.file_pos = 0;
-        self.text_id = file_stamp(&self.path).map(FileStamp::id);
-        self.cache_stamp = file_stamp(&cache);
-        let count = merged.len();
-        self.apply_records(merged);
-        Some(count)
-    }
-
-    /// Delete all history and invalidate the in-memory state of other shells.
     pub fn reset(&mut self) -> io::Result<()> {
-        if self.is_detached() {
-            self.clear_entries();
-            return Ok(());
-        }
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let _lock = HistoryLock::exclusive(&self.path, EXPLICIT_LOCK_WAIT)?;
-        let generation = new_session_id();
-        write_reset_marker(&self.path, generation)?;
-        remove_if_present(&self.path)?;
-        remove_if_present(&cache_path_for(&self.path))?;
-        remove_if_present(&quarantine_path_for(&self.path))?;
-
-        self.clear_entries();
-        self.pending.clear();
-        self.reset_generation = generation;
-        self.reset_stamp = file_stamp(&reset_marker_for(&self.path));
-        self.cache_dirty = false;
+        let generation = match self.store.as_mut() {
+            Some(store) => store.reset()?,
+            None => self.generation + 1,
+        };
+        self.clear();
+        self.generation = generation;
         Ok(())
     }
 
-    /// Appends an entry to the arena and every parallel vector.
-    fn push_entry(
-        &mut self,
-        command: &str,
-        timestamp: u64,
-        session_id: u64,
-        cwd: Option<PathBuf>,
-        local: bool,
-    ) -> bool {
-        if !is_recordable(command) || self.arena.len() + command.len() > u32::MAX as usize {
-            return false;
-        }
-        let start = self.arena.len() as u32;
-        self.arena.push_str(command);
-        self.offsets.push((start, command.len() as u16));
-        self.timestamps.push(timestamp);
-        self.session_ids.push(session_id);
-        self.cwds.push(cwd);
-        self.local.push(local);
-        self.index_insert(hash_str(command), self.offsets.len() - 1);
-        true
+    /// Create an isolated history without filesystem access for tests and benchmarks.
+    pub fn from_entries(entries: Vec<String>) -> Self {
+        Self::from_entries_in_dirs(entries.into_iter().map(|command| (command, None)))
     }
 
-    /// Add entry. Deduplicates (removes prior occurrence).
+    /// Like `from_entries`, recording the directory each command ran in.
+    pub fn from_entries_in_dirs(entries: impl IntoIterator<Item = (String, Option<PathBuf>)>) -> Self {
+        let entries: Vec<_> = entries.into_iter().collect();
+        let mut history = Self::empty();
+        history.arena.reserve_exact(
+            entries
+                .iter()
+                .map(|(command, _)| command.len())
+                .sum(),
+        );
+        let timestamp = now_millis();
+        for (i, (command, cwd)) in entries.into_iter().enumerate() {
+            let id = i as i64 + 1;
+            let idx = history.apply_occurrence(Occurrence {
+                id,
+                command,
+                timestamp,
+                session_id: 0,
+                cwd,
+            });
+            history.remember_session(idx);
+        }
+        history.shrink();
+        history
+    }
+
     pub fn add(&mut self, line: &str) {
         let cwd = std::env::current_dir().ok();
         self.add_in_dir(line, cwd.as_deref());
     }
 
-    /// Add an entry with the directory in which it was entered. Commands that
-    /// cannot be stored (over 64 KiB, or containing NUL) are not recorded.
+    /// Persist each use before updating the local search and recall snapshots.
     pub fn add_in_dir(&mut self, line: &str, cwd: Option<&Path>) {
-        self.sync();
-        // Collapse newlines to spaces to prevent history file corruption.
-        let line = line.trim().replace('\n', " ");
-        let line = line.trim();
-        if !is_recordable(line) {
-            return;
+        if let Err(error) = self.append_in_dir(line, cwd) {
+            eprintln!("xshi: command was not saved to history: {error}");
         }
+    }
 
-        if let Some(idx) = self.find_entry_index(hash_str(line), line) {
-            self.remove_entry_at(idx);
+    fn append_in_dir(&mut self, line: &str, cwd: Option<&Path>) -> io::Result<()> {
+        // Stored verbatim: recalling an entry must run what originally ran,
+        // including multi-line input. Display code flattens it instead.
+        if line.trim().is_empty() {
+            return Ok(());
         }
-        let timestamp = now_millis();
-        if self.push_entry(
-            line,
-            timestamp,
-            self.session_id,
-            cwd.map(Path::to_path_buf),
-            true,
-        ) && !self.is_detached() {
-            self.pending.push_back(Record {
-                command: line.to_owned(),
-                timestamp,
-                session_id: self.session_id,
-                cwd: cwd.map(Path::to_path_buf),
-            });
-            self.flush_pending();
+        let occurrence = Occurrence {
+            id: self.last_id + 1,
+            command: line.to_string(),
+            timestamp: now_millis(),
+            session_id: self.session_id,
+            cwd: cwd.map(Path::to_path_buf),
+        };
+        if let Some(store) = self.store.as_mut() {
+            let (snapshot, _) = store.append(self.generation, self.last_id, occurrence)?;
+            self.apply_snapshot(snapshot);
+        } else {
+            self.apply_occurrence(occurrence);
         }
+        let idx = self
+            .find_entry_index(hash_str(line), line)
+            .expect("committed command missing");
+        self.remember_session(idx);
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -537,159 +524,69 @@ impl History {
         self.offsets.is_empty()
     }
 
-    /// Get the timestamp (epoch milliseconds) for entry at index.
     pub fn timestamp(&self, idx: usize) -> u64 {
-        self.timestamps[idx]
+        self.usages[idx].total.timestamp
     }
 
-    /// Prefix search: find entries that start with `prefix`, starting from
-    /// the end and skipping `skip` matches. Returns the entry text.
+    pub fn frequency(&self, idx: usize) -> u64 {
+        self.usages[idx].total.count
+    }
+
     pub fn prefix_search(&self, prefix: &str, skip: usize) -> Option<&str> {
-        self.offsets
+        self.latest_occurrences
             .iter()
             .rev()
-            .filter_map(|&(start, len)| {
-                let s = &self.arena[start as usize..start as usize + len as usize];
-                s.starts_with(prefix).then_some(s)
-            })
+            .map(|&(_, idx)| self.get(idx as usize))
+            .filter(|command| command.starts_with(prefix))
             .nth(skip)
     }
 
-    /// Get the `skip`'th session-visible entry from the end (for up-arrow
-    /// navigation). Session-visible entries are those present when the shell
-    /// started plus those added by this shell.
     pub fn session_get(&self, skip: usize) -> Option<&str> {
-        self.offsets
+        self.session
             .iter()
-            .enumerate()
             .rev()
-            .filter(|&(i, _)| self.is_session_visible(i))
+            .filter(|&&idx| idx != SESSION_REMOVED)
             .nth(skip)
-            .map(|(_, &(start, len))| &self.arena[start as usize..start as usize + len as usize])
+            .map(|&idx| self.get(idx as usize))
     }
 
-    /// Prefix search over session-visible entries only (for up-arrow with
-    /// partial input).
     pub fn session_prefix_search(&self, prefix: &str, skip: usize) -> Option<&str> {
-        self.offsets
+        self.session
             .iter()
-            .enumerate()
             .rev()
-            .filter(|&(i, _)| self.is_session_visible(i))
-            .filter_map(|(_, &(start, len))| {
-                let s = &self.arena[start as usize..start as usize + len as usize];
-                s.starts_with(prefix).then_some(s)
-            })
+            .filter(|&&idx| idx != SESSION_REMOVED)
+            .map(|&idx| self.get(idx as usize))
+            .filter(|command| command.starts_with(prefix))
             .nth(skip)
     }
 
-    /// History search used by Ctrl+R.
-    ///
-    /// Ranking is intentionally simple and recency-friendly:
-    /// 1. prefix match
-    /// 2. substring match at a word boundary
-    /// 3. other substring match
-    /// 4. subsequence fallback
-    ///
-    /// Within a tier, newer entries win.
-    pub fn fuzzy_search(&self, query: &str) -> Vec<FuzzyMatch> {
-        self.fuzzy_search_scored(query, "")
-    }
-
-    /// Like `fuzzy_search` but keeps the old signature used by callers/tests.
-    pub fn fuzzy_search_scored(&self, query: &str, cwd: &str) -> Vec<FuzzyMatch> {
-        let mut results = Vec::new();
-        let cwd = (!cwd.is_empty()).then(|| Path::new(cwd));
-        self.fill_search_results(query, &mut results, cwd);
-        results
-    }
-
-    /// Search with a priority boost for entries recorded in an ancestor directory.
-    pub fn fuzzy_search_in_dir(&self, query: &str, cwd: &Path) -> Vec<FuzzyMatch> {
-        let mut results = Vec::new();
-        self.fill_search_results(query, &mut results, Some(cwd));
-        results
-    }
-
-    /// Like `fuzzy_search` but appends into a caller-owned Vec (zero-alloc reuse).
-    /// Caps at `limit` results since the pager only shows a screenful.
-    pub fn fuzzy_search_into(
-        &self,
-        query: &str,
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-        cwd: &str,
-    ) {
-        let cwd = (!cwd.is_empty()).then(|| Path::new(cwd));
-        self.fuzzy_search_into_with_cwd(query, results, limit, cwd);
-    }
-
-    /// Search with cwd weighting into a caller-owned result buffer.
-    pub fn fuzzy_search_into_in_dir(
-        &self,
-        query: &str,
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-        cwd: &Path,
-    ) {
-        self.fuzzy_search_into_with_cwd(query, results, limit, Some(cwd));
-    }
-
-    fn fuzzy_search_into_with_cwd(
-        &self,
-        query: &str,
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-        cwd: Option<&Path>,
-    ) {
-        if query.is_ascii() && query.len() <= 32 {
-            let mut query_lower = [0u8; 32];
-            for (slot, byte) in query_lower.iter_mut().zip(query.bytes()) {
-                *slot = byte.to_ascii_lowercase();
-            }
-            self.fill_search_results_limited_bytes(
-                &query_lower[..query.len()],
-                results,
-                limit,
-                cwd,
-            );
-        } else {
-            self.fill_search_results_limited(query, results, limit, cwd);
-        }
-    }
-
-    /// Fill `out` with session-visible entry indices in recency order.
-    pub fn visible_entry_indices_into(&self, out: &mut Vec<usize>) {
+    /// Unique commands ordered by actual last-use time, with commit IDs breaking ties.
+    pub fn command_indices_into(&self, out: &mut Vec<usize>) {
         out.clear();
-        out.extend(
-            (0..self.offsets.len())
-                .rev()
-                .filter(|&idx| self.is_session_visible(idx)),
-        );
+        out.extend(self.latest_occurrences.iter().map(|&(_, idx)| idx as usize));
+        out.sort_unstable_by(|&a, &b| {
+            self.timestamp(a)
+                .cmp(&self.timestamp(b))
+                .then(self.usages[a].latest_id.cmp(&self.usages[b].latest_id))
+        });
     }
 
-    /// Search within an existing candidate set, preserving all matches in
-    /// `matched_indices` and the best `limit` ranked results in `results`.
-    pub fn fuzzy_search_subset_into(
-        &self,
-        query: &str,
-        candidates: &[usize],
-        matched_indices: &mut Vec<usize>,
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-    ) {
-        self.fuzzy_search_subset_into_with_cwd(
-            query,
-            candidates,
-            matched_indices,
-            results,
-            limit,
-            None,
-        );
+    /// All global candidates, independent of the session recall snapshot.
+    pub fn search_entry_indices_into(&self, out: &mut Vec<usize>) {
+        out.clear();
+        out.extend(self.latest_occurrences.iter().rev().map(|&(_, idx)| idx as usize));
     }
 
-    /// Search a candidate set with a priority boost for entries recorded in an
-    /// ancestor of `cwd`.
+    /// The Ctrl+R candidate set: every committed command, newest use first.
+    pub fn visible_entry_indices_into(&self, out: &mut Vec<usize>) {
+        self.search_entry_indices_into(out);
+    }
+
+    /// Ctrl+R search: keep the best `limit` matches of `query` among
+    /// `candidates`, and report every matching candidate in `matched` so the
+    /// next keystroke can refine within it. Text quality precedes directory
+    /// context. Bounded usage and age bonuses break ties within that context;
+    /// old popularity cannot dominate forever.
     pub fn fuzzy_search_subset_into_in_dir(
         &self,
         query: &str,
@@ -699,403 +596,370 @@ impl History {
         limit: usize,
         cwd: &Path,
     ) {
-        self.fuzzy_search_subset_into_with_cwd(
+        self.search_limited(
             query,
-            candidates,
-            matched_indices,
+            Some(candidates),
+            Some(matched_indices),
             results,
             limit,
             Some(cwd),
         );
     }
 
-    fn fuzzy_search_subset_into_with_cwd(
+    pub fn fuzzy_search_subset_into(
         &self,
         query: &str,
         candidates: &[usize],
         matched_indices: &mut Vec<usize>,
         results: &mut Vec<FuzzyMatch>,
         limit: usize,
-        cwd: Option<&Path>,
     ) {
-        matched_indices.clear();
-        results.clear();
-        if limit == 0 {
-            return;
-        }
+        self.search_limited(
+            query,
+            Some(candidates),
+            Some(matched_indices),
+            results,
+            limit,
+            None,
+        );
+    }
 
-        if query.is_empty() {
-            matched_indices.extend_from_slice(candidates);
-            results.extend(candidates.iter().map(|&idx| FuzzyMatch {
-                entry_idx: idx,
-                match_positions: [0; 32],
-                match_count: 0,
-                score: self.cwd_weight(idx, cwd),
-            }));
-            if cwd.is_some() {
-                results.sort_unstable_by(compare_fuzzy_match);
-            }
-            results.truncate(limit);
-            return;
-        }
+    /// Convenience over the production search path for callers without a
+    /// candidate subset or scratch buffers.
+    pub fn fuzzy_search(&self, query: &str) -> Vec<FuzzyMatch> {
+        let mut results = Vec::new();
+        self.search_limited(query, None, None, &mut results, self.len(), None);
+        results
+    }
 
-        let query_lower = lowercase_query(query);
-        for &idx in candidates {
-            let entry = self.entry_text(idx);
-            let Some(mut m) = classify_match(&query_lower, entry, idx) else {
-                continue;
-            };
-            m.score += self.cwd_weight(idx, cwd);
-            matched_indices.push(idx);
-            let insert_at = results
-                .binary_search_by(|existing| compare_fuzzy_match(existing, &m))
-                .unwrap_or_else(|pos| pos);
-            if insert_at >= limit {
-                continue;
-            }
-            results.insert(insert_at, m);
-            if results.len() > limit {
-                results.pop();
-            }
-            if results.len() == limit && self.can_stop_search(results, cwd) {
-                break;
-            }
+    pub fn fuzzy_search_in_dir(&self, query: &str, cwd: &Path) -> Vec<FuzzyMatch> {
+        let mut results = Vec::new();
+        self.search_limited(query, None, None, &mut results, self.len(), Some(cwd));
+        results
+    }
+
+    pub fn fuzzy_search_scored(&self, query: &str, cwd: &str) -> Vec<FuzzyMatch> {
+        if cwd.is_empty() {
+            self.fuzzy_search(query)
+        } else {
+            self.fuzzy_search_in_dir(query, Path::new(cwd))
         }
     }
 
-    /// Get entry text by index.
+    pub fn fuzzy_search_into(
+        &self,
+        query: &str,
+        results: &mut Vec<FuzzyMatch>,
+        limit: usize,
+        cwd: &str,
+    ) {
+        let cwd = (!cwd.is_empty()).then(|| Path::new(cwd));
+        self.search_limited(query, None, None, results, limit, cwd);
+    }
+
+    fn search_limited(
+        &self,
+        query: &str,
+        candidates: Option<&[usize]>,
+        mut matched: Option<&mut Vec<usize>>,
+        results: &mut Vec<FuzzyMatch>,
+        limit: usize,
+        cwd: Option<&Path>,
+    ) {
+        results.clear();
+        if let Some(matched) = matched.as_mut() {
+            matched.clear();
+        }
+        let now = now_millis();
+        let empty = query.is_empty();
+        let mut ranking: Vec<(RankKey, usize)> = Vec::with_capacity(limit.min(self.len()) + 1);
+        let mut ascii = [0u8; 32];
+        let is_ascii = query.is_ascii() && query.len() <= ascii.len();
+        for (slot, byte) in ascii.iter_mut().zip(query.bytes()) {
+            *slot = byte.to_ascii_lowercase();
+        }
+        let mut chars = (!is_ascii).then(|| lowercase_query(query));
+        let query_letters = if is_ascii {
+            letter_mask(&ascii[..query.len()])
+        } else {
+            0
+        };
+        let cwd_depth = cwd.map_or(0, |cwd| cwd.ancestors().count());
+        let count = candidates.map_or(self.len(), |candidates| candidates.len());
+        for i in 0..count {
+            let idx = candidates.map_or(i, |candidates| candidates[i]);
+            let text = self.get(idx);
+            let rank = if empty {
+                MatchRank::Empty
+            } else {
+                let rank = if is_ascii && text.is_ascii() {
+                    if self.usages[idx].letters & query_letters != query_letters {
+                        continue;
+                    }
+                    rank_match_ascii(&ascii[..query.len()], text)
+                } else if let Some(chars) = &chars {
+                    rank_match(chars, text)
+                } else {
+                    rank_match(
+                        chars.get_or_insert_with(|| lowercase_query(query)),
+                        text,
+                    )
+                };
+                let Some(rank) = rank else {
+                    continue;
+                };
+                rank
+            };
+            if let Some(matched) = matched.as_mut() {
+                matched.push(idx);
+            }
+            if limit == 0 {
+                continue;
+            }
+            let primary = if empty {
+                self.timestamp(idx)
+            } else {
+                rank.score()
+            };
+            // The text tier alone rejects most candidates once the result
+            // list is full, before any directory lookup.
+            if ranking.len() == limit && ranking.last().is_some_and(|worst| primary < worst.0.0) {
+                continue;
+            }
+            let key = self.rank_key(idx, primary, empty, cwd, cwd_depth, now);
+            if ranking.len() == limit && ranking.last().is_some_and(|worst| key <= worst.0) {
+                continue;
+            }
+            let position = ranking.partition_point(|existing| existing.0 > key);
+            if ranking.len() == limit {
+                ranking.pop();
+            }
+            ranking.insert(position, (key, idx));
+        }
+        if limit == 0 {
+            return;
+        }
+        // Matched positions are only observable for results, so build them
+        // once the ranking has chosen the few that fit.
+        let bytes = &ascii[..query.len().min(ascii.len())];
+        for (_, idx) in ranking {
+            let text = self.get(idx);
+            let rank = if empty {
+                MatchRank::Empty
+            } else if is_ascii && text.is_ascii() {
+                rank_match_ascii(&ascii[..query.len()], text)
+                    .expect("a selected candidate still matches")
+            } else {
+                rank_match(chars.get_or_insert_with(|| lowercase_query(query)), text)
+                    .expect("a selected candidate still matches")
+            };
+            results.push(materialize_match(rank, idx, text, bytes, chars.as_deref()));
+        }
+    }
+
+    /// Larger is better. Each candidate's directory score is computed once, so
+    /// ordering never repeats the ancestor walk per comparison.
+    fn rank_key(
+        &self,
+        idx: usize,
+        primary: u64,
+        empty: bool,
+        cwd: Option<&Path>,
+        cwd_depth: usize,
+        now: u64,
+    ) -> RankKey {
+        let (context, usage) = self.context_usage(idx, cwd, cwd_depth);
+        let bonus = if empty { 0 } else { usage_bonus(usage, now) };
+        (
+            primary,
+            context,
+            bonus,
+            usage.timestamp,
+            self.usages[idx].latest_id,
+        )
+    }
+
+    /// The nearest recorded directory that is `cwd` or an ancestor of it, and
+    /// its usage. Walks the smaller side: a command usually ran in one
+    /// directory and `cwd` usually nests six deep.
+    fn context_usage(&self, idx: usize, cwd: Option<&Path>, cwd_depth: usize) -> (usize, &Usage) {
+        let usage = &self.usages[idx];
+        let Some(cwd) = cwd else {
+            return (0, &usage.total);
+        };
+        match usage.directories {
+            DIRECTORY_NONE => (0, &usage.total),
+            DIRECTORY_DETAILED => match self.directory_details.get(&(idx as u32)) {
+                Some(DirectoryDetail::Tracked {
+                    code,
+                    usage: tracked,
+                }) => match ancestor_distance(&self.directory_paths[*code as usize], cwd) {
+                    Some(distance) => (usize::MAX - distance, tracked),
+                    None => (0, &usage.total),
+                },
+                Some(DirectoryDetail::Many(map)) if map.len() <= cwd_depth => {
+                    let mut nearest: Option<(usize, &Usage)> = None;
+                    for (code, directory_usage) in map.iter() {
+                        let Some(distance) =
+                            ancestor_distance(&self.directory_paths[*code as usize], cwd)
+                        else {
+                            continue;
+                        };
+                        if nearest.is_none_or(|(closest, _)| distance < closest) {
+                            nearest = Some((distance, directory_usage));
+                        }
+                    }
+                    match nearest {
+                        Some((distance, directory_usage)) => {
+                            (usize::MAX - distance, directory_usage)
+                        }
+                        None => (0, &usage.total),
+                    }
+                }
+                Some(DirectoryDetail::Many(map)) => {
+                    for (distance, directory) in cwd.ancestors().enumerate() {
+                        let Some(code) = self.directory_codes.get(directory) else {
+                            continue;
+                        };
+                        if let Some(directory_usage) = map.get(code) {
+                            return (usize::MAX - distance, directory_usage);
+                        }
+                    }
+                    (0, &usage.total)
+                }
+                None => (0, &usage.total),
+            },
+            code => match ancestor_distance(&self.directory_paths[code as usize], cwd) {
+                Some(distance) => (usize::MAX - distance, &usage.total),
+                None => (0, &usage.total),
+            },
+        }
+    }
+
+    /// Single-row form of entry `idx` for the pager and `history` output.
+    pub fn display(&self, idx: usize) -> std::borrow::Cow<'_, str> {
+        display_line(self.get(idx))
+    }
+
+    #[cfg(test)]
+    fn directory_usage(&self, idx: usize, path: &Path) -> Option<&Usage> {
+        let code = self.directory_codes.get(path)?;
+        match self.usages[idx].directories {
+            DIRECTORY_NONE => None,
+            DIRECTORY_DETAILED => match self.directory_details.get(&(idx as u32))? {
+                DirectoryDetail::Tracked {
+                    code: tracked,
+                    usage,
+                } => (tracked == code).then_some(usage),
+                DirectoryDetail::Many(map) => map.get(code),
+            },
+            shared => (shared == *code).then_some(&self.usages[idx].total),
+        }
+    }
+
+    pub fn directories(&self, idx: usize) -> impl Iterator<Item = &Path> {
+        let paths = &self.directory_paths;
+        self.directory_codes_of(idx)
+            .map(move |code| paths[code as usize].as_path())
+    }
+
     pub fn get(&self, idx: usize) -> &str {
         let (start, len) = self.offsets[idx];
         &self.arena[start as usize..start as usize + len as usize]
     }
 
-    fn flush_pending(&mut self) {
-        if self.pending.is_empty() {
-            return;
-        }
-        if let Err(error) = self.try_flush_pending() {
-            eprintln!(
-                "xshi: cannot save history: {error}; {} command(s) pending",
-                self.pending.len()
-            );
-        }
+    /// Give back memory growth slack accumulated by a bulk load or long run.
+    pub fn compact(&mut self) {
+        self.shrink();
     }
 
-    fn try_flush_pending(&mut self) -> io::Result<()> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let _lock = HistoryLock::exclusive(&self.path, HISTORY_LOCK_WAIT)?;
-        self.sync_reset_marker()?;
-        while let Some(record) = self.pending.front() {
-            let file = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .read(true)
-                .open(&self.path)?;
-            let mut bytes = String::new();
-            let len = recover_log_tail(&file)?;
-            if len > 0 {
-                let mut last = [0u8; 1];
-                file.read_exact_at(&mut last, len - 1)?;
-                if last[0] != b'\n' {
-                    bytes.push('\n');
-                }
-            }
-            bytes.push_str(&format_record(
-                record.timestamp,
-                record.session_id,
-                record.cwd.as_deref(),
-                &record.command,
-            ));
-            bytes.push('\n');
-            write_record(&file, bytes.as_bytes(), len)?;
-            self.pending.pop_front();
-        }
-        Ok(())
-    }
-
-    fn fill_search_results(&self, query: &str, results: &mut Vec<FuzzyMatch>, cwd: Option<&Path>) {
-        results.clear();
-
-        if query.is_empty() {
-            results.extend(
-                (0..self.offsets.len())
-                    .rev()
-                    .filter(|&idx| self.is_session_visible(idx))
-                    .map(|idx| FuzzyMatch {
-                        entry_idx: idx,
-                        match_positions: [0; 32],
-                        match_count: 0,
-                        score: self.cwd_weight(idx, cwd),
-                    }),
-            );
-            if cwd.is_some() {
-                results.sort_unstable_by(compare_fuzzy_match);
-            }
-            return;
-        }
-
-        let query_lower = lowercase_query(query);
-        for (idx, &(start, len)) in self.offsets.iter().enumerate().rev() {
-            if !self.is_session_visible(idx) {
-                continue;
-            }
-            let entry = &self.arena[start as usize..start as usize + len as usize];
-            if let Some(mut m) = classify_match(&query_lower, entry, idx) {
-                m.score += self.cwd_weight(idx, cwd);
-                results.push(m);
-            }
-        }
-
-        results.sort_unstable_by(compare_fuzzy_match);
-    }
-
-    fn fill_search_results_limited(
-        &self,
-        query: &str,
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-        cwd: Option<&Path>,
-    ) {
-        let query_lower = lowercase_query(query);
-        self.fill_search_results_limited_chars(&query_lower, results, limit, cwd);
-    }
-
-    fn fill_search_results_limited_bytes(
-        &self,
-        query_lower: &[u8],
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-        cwd: Option<&Path>,
-    ) {
-        results.clear();
-        if limit == 0 {
-            return;
-        }
-
-        if query_lower.is_empty() {
-            results.extend(
-                (0..self.offsets.len())
-                    .rev()
-                    .filter(|&idx| self.is_session_visible(idx))
-                    .take(limit)
-                    .map(|idx| FuzzyMatch {
-                        entry_idx: idx,
-                        match_positions: [0; 32],
-                        match_count: 0,
-                        score: self.cwd_weight(idx, cwd),
-                    }),
-            );
-            if cwd.is_some() {
-                results.sort_unstable_by(compare_fuzzy_match);
-                results.truncate(limit);
-            }
-            return;
-        }
-
-        for (idx, &(start, len)) in self.offsets.iter().enumerate().rev() {
-            if !self.is_session_visible(idx) {
-                continue;
-            }
-            let entry = &self.arena[start as usize..start as usize + len as usize];
-            let Some(mut m) = classify_match_ascii(query_lower, entry, idx) else {
-                continue;
-            };
-            m.score += self.cwd_weight(idx, cwd);
-
-            let insert_at = results
-                .binary_search_by(|existing| compare_fuzzy_match(existing, &m))
-                .unwrap_or_else(|pos| pos);
-            if insert_at >= limit {
-                continue;
-            }
-            results.insert(insert_at, m);
-            if results.len() > limit {
-                results.pop();
-            }
-            if results.len() == limit && self.can_stop_search(results, cwd) {
-                break;
-            }
-        }
-    }
-
-    fn fill_search_results_limited_chars(
-        &self,
-        query_lower: &[char],
-        results: &mut Vec<FuzzyMatch>,
-        limit: usize,
-        cwd: Option<&Path>,
-    ) {
-        results.clear();
-        if limit == 0 {
-            return;
-        }
-
-        if query_lower.is_empty() {
-            results.extend(
-                (0..self.offsets.len())
-                    .rev()
-                    .filter(|&idx| self.is_session_visible(idx))
-                    .take(limit)
-                    .map(|idx| FuzzyMatch {
-                        entry_idx: idx,
-                        match_positions: [0; 32],
-                        match_count: 0,
-                        score: self.cwd_weight(idx, cwd),
-                    }),
-            );
-            if cwd.is_some() {
-                results.sort_unstable_by(compare_fuzzy_match);
-                results.truncate(limit);
-            }
-            return;
-        }
-
-        for (idx, &(start, len)) in self.offsets.iter().enumerate().rev() {
-            if !self.is_session_visible(idx) {
-                continue;
-            }
-            let entry = &self.arena[start as usize..start as usize + len as usize];
-            let Some(mut m) = classify_match(query_lower, entry, idx) else {
-                continue;
-            };
-            m.score += self.cwd_weight(idx, cwd);
-
-            let insert_at = results
-                .binary_search_by(|existing| compare_fuzzy_match(existing, &m))
-                .unwrap_or_else(|pos| pos);
-            if insert_at >= limit {
-                continue;
-            }
-            results.insert(insert_at, m);
-            if results.len() > limit {
-                results.pop();
-            }
-            if results.len() == limit && self.can_stop_search(results, cwd) {
-                break;
-            }
-        }
-    }
-
-    fn cwd_weight(&self, idx: usize, cwd: Option<&Path>) -> i16 {
-        const CWD_WEIGHT: i16 = 4;
-        if cwd.is_some_and(|cwd| {
-            self.cwds[idx]
-                .as_deref()
-                .is_some_and(|entry_cwd| cwd.starts_with(entry_cwd))
-        }) {
-            CWD_WEIGHT
-        } else {
-            0
-        }
-    }
-
-    fn can_stop_search(&self, results: &[FuzzyMatch], cwd: Option<&Path>) -> bool {
-        let best_possible_score = if cwd.is_some() { 7 } else { 3 };
-        results
-            .last()
-            .is_some_and(|m| m.score >= best_possible_score)
-    }
-
-    fn is_session_visible(&self, idx: usize) -> bool {
-        self.local[idx] || self.timestamps[idx] <= self.session_cutoff
-    }
-
-    fn entry_text(&self, idx: usize) -> &str {
-        let (start, len) = self.offsets[idx];
-        &self.arena[start as usize..start as usize + len as usize]
+    /// Rebuild the in-memory view from the committed log.
+    pub fn rebuild(&mut self) {
+        self.sync();
+        self.shrink();
     }
 
     fn find_entry_index(&self, hash: u64, text: &str) -> Option<usize> {
-        let hit = self
-            .index_by_hash
-            .get(&hash)
-            .copied()
-            .filter(|&idx| self.entry_text(idx) == text);
-        if hit.is_some() || !self.has_collisions {
-            return hit;
+        let &idx = self.index_by_hash.get(&hash)?;
+        if self.get(idx as usize) == text {
+            return Some(idx as usize);
         }
-        (0..self.offsets.len()).find(|&idx| self.entry_text(idx) == text)
-    }
-
-    fn index_insert(&mut self, hash: u64, idx: usize) {
-        if let Some(previous) = self.index_by_hash.insert(hash, idx)
-            && self.entry_text(previous) != self.entry_text(idx)
-        {
-            self.has_collisions = true;
-        }
-    }
-
-    fn remove_entry_at(&mut self, idx: usize) {
-        self.offsets.remove(idx);
-        self.timestamps.remove(idx);
-        self.session_ids.remove(idx);
-        self.cwds.remove(idx);
-        self.local.remove(idx);
-        if self.has_collisions {
-            self.rebuild_index();
-        } else {
-            self.index_by_hash.retain(|_, position| {
-                if *position == idx {
-                    return false;
-                }
-                if *position > idx {
-                    *position -= 1;
-                }
-                true
-            });
-        }
-    }
-
-    /// Removes several entries in one pass.
-    fn remove_entries(&mut self, mut indices: Vec<usize>) {
-        if indices.is_empty() {
-            return;
-        }
-        indices.sort_unstable();
-        indices.dedup();
-        let mut drop_entry = vec![false; self.offsets.len()];
-        for idx in indices {
-            drop_entry[idx] = true;
-        }
-        fn retain_kept<T>(items: &mut Vec<T>, drop_entry: &[bool]) {
-            let mut position = 0;
-            items.retain(|_| {
-                position += 1;
-                !drop_entry[position - 1]
-            });
-        }
-        retain_kept(&mut self.offsets, &drop_entry);
-        retain_kept(&mut self.timestamps, &drop_entry);
-        retain_kept(&mut self.session_ids, &drop_entry);
-        retain_kept(&mut self.cwds, &drop_entry);
-        retain_kept(&mut self.local, &drop_entry);
-        self.rebuild_index();
-    }
-
-    fn rebuild_index(&mut self) {
-        self.index_by_hash.clear();
-        self.has_collisions = false;
-        for idx in 0..self.offsets.len() {
-            self.index_insert(hash_str(self.entry_text(idx)), idx);
-        }
+        // Hash collisions must not merge commands. This rare slow path keeps
+        // the common case at one lookup without allocating a second text copy.
+        (0..self.len()).find(|&idx| self.get(idx) == text)
     }
 }
 
-fn compare_fuzzy_match(a: &FuzzyMatch, b: &FuzzyMatch) -> std::cmp::Ordering {
-    b.score.cmp(&a.score).then(b.entry_idx.cmp(&a.entry_idx))
+/// How many components `cwd` is below `directory`, when it is below it at
+/// all. `Some(0)` means they are the same directory.
+fn ancestor_distance(directory: &Path, cwd: &Path) -> Option<usize> {
+    if !cwd.as_os_str().as_bytes().starts_with(directory.as_os_str().as_bytes()) {
+        return None;
+    }
+    let rest = cwd.strip_prefix(directory).ok()?;
+    Some(rest.components().count())
 }
 
-/// Lowercase a query into a fixed stack buffer, returning the used slice.
+fn usage_bonus(usage: &Usage, now: u64) -> u32 {
+    let frequency = usage.count.max(1).ilog2().min(10) * 2;
+    let hours = now.saturating_sub(usage.timestamp) / 3_600_000;
+    let recency = match hours {
+        0..=1 => 24,
+        2..=23 => 20,
+        24..=167 => 12,
+        168..=719 => 4,
+        _ => 0,
+    };
+    frequency + recency
+}
+
+pub fn render_history_log(path: &Path) -> io::Result<String> {
+    store::render(path)
+}
+
+/// History holds typed secrets, so it never falls back to a shared or
+/// launch-relative location: without a usable HOME the shell cannot start.
+fn history_path_for_home(home: Option<&std::ffi::OsStr>) -> io::Result<PathBuf> {
+    match home {
+        Some(home) if !home.is_empty() => Ok(PathBuf::from(home).join(".local/share/xshi/history")),
+        _ => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "HOME is unset or empty; cannot locate the history log",
+        )),
+    }
+}
+
+/// A command as one terminal row. History keeps commands verbatim, so
+/// multi-line input and control characters are replaced one char for one char
+/// (match positions stay valid) only when shown.
+pub fn display_line(command: &str) -> std::borrow::Cow<'_, str> {
+    if !command.chars().any(char::is_control) {
+        return std::borrow::Cow::Borrowed(command);
+    }
+    std::borrow::Cow::Owned(
+        command
+            .chars()
+            .map(|c| match c {
+                '\n' => '\u{21b5}',
+                c if c.is_control() => '\u{fffd}',
+                c => c,
+            })
+            .collect(),
+    )
+}
+
+/// Lowercase a query using Unicode character semantics.
 fn lowercase_query(query: &str) -> Vec<char> {
-    query.chars().flat_map(|c| c.to_lowercase()).collect()
+    query
+        .chars()
+        .map(|c| c.to_lowercase().next().expect("lowercase scalar missing"))
+        .collect()
 }
 
 #[derive(Debug)]
 pub struct FuzzyMatch {
     pub entry_idx: usize,
-    /// Matched character indices (as u16 — entries are always <64K chars).
+    /// Matched character indices, independent of UTF-8 byte lengths.
     pub match_positions: [u16; 32],
     pub match_count: u8,
     /// Match tier. Higher = stronger literal match.
@@ -1103,48 +967,99 @@ pub struct FuzzyMatch {
     pub score: i16,
 }
 
-fn classify_match(query: &[char], text: &str, entry_idx: usize) -> Option<FuzzyMatch> {
+/// Which tier a candidate matched at, and where a contiguous match starts.
+/// Ranking needs only this; matched positions are built for the few results
+/// that survive the limit.
+#[derive(Clone, Copy)]
+enum MatchRank {
+    Empty,
+    Prefix,
+    BoundarySubstring(usize),
+    Substring(usize),
+    Subsequence,
+}
+
+impl MatchRank {
+    fn score(self) -> u64 {
+        match self {
+            Self::Empty | Self::Subsequence => 0,
+            Self::Substring(_) => 1,
+            Self::BoundarySubstring(_) => 2,
+            Self::Prefix => 3,
+        }
+    }
+}
+
+fn rank_match(query: &[char], text: &str) -> Option<MatchRank> {
     if starts_with_icase(query, text) {
-        return Some(contiguous_match(entry_idx, 3, 0, query.len()));
+        return Some(MatchRank::Prefix);
     }
 
     if let Some(start) = find_substring_icase(query, text, true) {
-        return Some(contiguous_match(entry_idx, 2, start, query.len()));
+        return Some(MatchRank::BoundarySubstring(start));
     }
 
     if let Some(start) = find_substring_icase(query, text, false) {
-        return Some(contiguous_match(entry_idx, 1, start, query.len()));
+        return Some(MatchRank::Substring(start));
     }
 
-    let (positions, count) = subsequence_match(query, text)?;
-    Some(FuzzyMatch {
-        entry_idx,
-        match_positions: positions,
-        match_count: count,
-        score: 0,
-    })
+    subsequence_match(query, text).map(|_| MatchRank::Subsequence)
 }
 
-fn classify_match_ascii(query: &[u8], text: &str, entry_idx: usize) -> Option<FuzzyMatch> {
+fn rank_match_ascii(query: &[u8], text: &str) -> Option<MatchRank> {
     if starts_with_icase_ascii(query, text.as_bytes()) {
-        return Some(contiguous_match(entry_idx, 3, 0, query.len()));
+        return Some(MatchRank::Prefix);
+    }
+
+    // Every substring is also a subsequence, so entries that fail this
+    // single-pass check skip both substring scans and the window search.
+    // Most entries fail it while the query is still being typed.
+    if !is_subsequence_ascii_bytes(query, text.as_bytes()) {
+        return None;
     }
 
     if let Some(start) = find_substring_icase_ascii_bytes(query, text.as_bytes(), true) {
-        return Some(contiguous_match(entry_idx, 2, start, query.len()));
+        return Some(MatchRank::BoundarySubstring(start));
     }
 
     if let Some(start) = find_substring_icase_ascii_bytes(query, text.as_bytes(), false) {
-        return Some(contiguous_match(entry_idx, 1, start, query.len()));
+        return Some(MatchRank::Substring(start));
     }
 
-    let (positions, count) = subsequence_match_ascii_bytes(query, text.as_bytes())?;
-    Some(FuzzyMatch {
-        entry_idx,
-        match_positions: positions,
-        match_count: count,
-        score: 0,
-    })
+    Some(MatchRank::Subsequence)
+}
+
+fn materialize_match(
+    rank: MatchRank,
+    entry_idx: usize,
+    text: &str,
+    bytes: &[u8],
+    chars: Option<&[char]>,
+) -> FuzzyMatch {
+    let len = chars.map_or(bytes.len(), |chars| chars.len());
+    match rank {
+        MatchRank::Empty => contiguous_match(entry_idx, 0, 0, 0),
+        MatchRank::Prefix => contiguous_match(entry_idx, 3, 0, len),
+        MatchRank::BoundarySubstring(start) => contiguous_match(entry_idx, 2, start, len),
+        MatchRank::Substring(start) => contiguous_match(entry_idx, 1, start, len),
+        MatchRank::Subsequence => {
+            let (positions, count) = chars.map_or_else(
+                || subsequence_match_ascii_bytes(bytes, text.as_bytes()),
+                |query| subsequence_match(query, text),
+            )
+            .expect("a ranked subsequence still matches");
+            let mut match_positions = [0u16; 32];
+            for (slot, &position) in match_positions.iter_mut().zip(positions.iter()) {
+                *slot = position as u16;
+            }
+            FuzzyMatch {
+                entry_idx,
+                match_positions,
+                match_count: count,
+                score: 0,
+            }
+        }
+    }
 }
 
 fn contiguous_match(entry_idx: usize, score: i16, start: usize, len: usize) -> FuzzyMatch {
@@ -1241,16 +1156,24 @@ fn find_substring_icase_ascii_bytes(
         return None;
     }
 
-    'start: for start in 0..=text.len() - query.len() {
-        if boundary_only && start > 0 && !is_word_boundary_byte(text[start - 1]) {
-            continue;
+    // `query` is ASCII-lowercased, so a start can only begin at its first byte
+    // in either case. Jump between those instead of testing every start.
+    let first = query[0];
+    let first_upper = first.to_ascii_uppercase();
+    let last_start = text.len() - query.len();
+    let mut start = 0;
+    while start <= last_start {
+        start += find_either_byte(&text[start..=last_start], first, first_upper)?;
+        let at_boundary = start == 0 || is_word_boundary_byte(text[start - 1]);
+        if (at_boundary || !boundary_only)
+            && text[start + 1..start + query.len()]
+                .iter()
+                .zip(&query[1..])
+                .all(|(&byte, &query_byte)| byte.to_ascii_lowercase() == query_byte)
+        {
+            return Some(start);
         }
-        for (offset, &query_byte) in query.iter().enumerate() {
-            if text[start + offset].to_ascii_lowercase() != query_byte {
-                continue 'start;
-            }
-        }
-        return Some(start);
+        start += 1;
     }
 
     None
@@ -1260,8 +1183,8 @@ fn find_substring_icase_ascii_bytes(
 /// Uses a forward-then-backward scan to find the tightest match window,
 /// then a final forward pass within that window for optimal positions.
 /// Returns a fixed-size array of matched character indices and the count.
-/// Zero heap allocations — uses stack arrays only.
-pub fn subsequence_match(query: &[char], text: &str) -> Option<([u16; 32], u8)> {
+/// The ASCII path uses stack arrays without heap allocations.
+pub fn subsequence_match(query: &[char], text: &str) -> Option<([usize; 32], u8)> {
     if query.is_empty() {
         return Some(([0; 32], 0));
     }
@@ -1275,7 +1198,7 @@ pub fn subsequence_match(query: &[char], text: &str) -> Option<([u16; 32], u8)> 
 }
 
 /// ASCII fast path — operates on bytes directly, no char decoding.
-fn subsequence_match_ascii(query: &[char], text: &str) -> Option<([u16; 32], u8)> {
+fn subsequence_match_ascii(query: &[char], text: &str) -> Option<([usize; 32], u8)> {
     let bytes = text.as_bytes();
     let qlen = query.len();
     let last_qchar = query[qlen - 1] as u8;
@@ -1320,7 +1243,7 @@ fn subsequence_match_ascii(query: &[char], text: &str) -> Option<([u16; 32], u8)
     };
 
     // 4) Forward pass within the tight window to record optimal positions.
-    let mut positions = [0u16; 32];
+    let mut positions = [0usize; 32];
     let mut qi2 = 0;
     for (ti, &b) in bytes
         .iter()
@@ -1329,7 +1252,9 @@ fn subsequence_match_ascii(query: &[char], text: &str) -> Option<([u16; 32], u8)
         .skip(window_start)
     {
         if b.to_ascii_lowercase() == query[qi2] as u8 {
-            positions[qi2] = ti as u16;
+            if qi2 < positions.len() {
+                positions[qi2] = ti;
+            }
             qi2 += 1;
             if qi2 == qlen {
                 break;
@@ -1337,10 +1262,62 @@ fn subsequence_match_ascii(query: &[char], text: &str) -> Option<([u16; 32], u8)
         }
     }
 
-    Some((positions, qlen as u8))
+    Some((positions, qlen.min(32) as u8))
 }
 
-fn subsequence_match_ascii_bytes(query: &[u8], text: &[u8]) -> Option<([u16; 32], u8)> {
+const BYTE_WORD_ONES: u64 = 0x0101_0101_0101_0101;
+const BYTE_WORD_HIGHS: u64 = 0x8080_8080_8080_8080;
+
+#[inline]
+fn zero_byte_mask(word: u64) -> u64 {
+    word.wrapping_sub(BYTE_WORD_ONES) & !word & BYTE_WORD_HIGHS
+}
+
+/// Index of the first byte equal to `first` or `second`, eight bytes at a time.
+/// History entries are short, where this beats a libc `memchr` call per byte
+/// of the query.
+#[inline]
+fn find_either_byte(haystack: &[u8], first: u8, second: u8) -> Option<usize> {
+    let first_word = u64::from(first) * BYTE_WORD_ONES;
+    let second_word = u64::from(second) * BYTE_WORD_ONES;
+    let (words, remainder) = haystack.as_chunks::<8>();
+    for (index, chunk) in words.iter().enumerate() {
+        let word = u64::from_le_bytes(*chunk);
+        let matches = zero_byte_mask(word ^ first_word) | zero_byte_mask(word ^ second_word);
+        if matches != 0 {
+            return Some(index * 8 + matches.trailing_zeros() as usize / 8);
+        }
+    }
+    let offset = haystack.len() - remainder.len();
+    remainder
+        .iter()
+        .position(|&byte| byte == first || byte == second)
+        .map(|index| offset + index)
+}
+
+/// Whether `query` (already ASCII-lowercased) is a case-insensitive
+/// subsequence of `text`. Agrees with `subsequence_match_ascii_bytes` returning
+/// `Some`, without computing positions.
+fn is_subsequence_ascii_bytes(query: &[u8], mut text: &[u8]) -> bool {
+    for &byte in query {
+        let uppercase = byte.to_ascii_uppercase();
+        // Query bytes usually continue a run in the text, so test the next
+        // byte before setting up a word scan.
+        if let Some((&next, rest)) = text.split_first()
+            && (next == byte || next == uppercase)
+        {
+            text = rest;
+            continue;
+        }
+        let Some(position) = find_either_byte(text, byte, uppercase) else {
+            return false;
+        };
+        text = &text[position + 1..];
+    }
+    true
+}
+
+fn subsequence_match_ascii_bytes(query: &[u8], text: &[u8]) -> Option<([usize; 32], u8)> {
     let qlen = query.len();
     let last_qchar = query[qlen - 1];
 
@@ -1380,7 +1357,7 @@ fn subsequence_match_ascii_bytes(query: &[u8], text: &[u8]) -> Option<([u16; 32]
         }
     };
 
-    let mut positions = [0u16; 32];
+    let mut positions = [0usize; 32];
     let mut qi2 = 0;
     for (ti, &byte) in text
         .iter()
@@ -1389,7 +1366,9 @@ fn subsequence_match_ascii_bytes(query: &[u8], text: &[u8]) -> Option<([u16; 32]
         .skip(window_start)
     {
         if byte.to_ascii_lowercase() == query[qi2] {
-            positions[qi2] = ti as u16;
+            if qi2 < positions.len() {
+                positions[qi2] = ti;
+            }
             qi2 += 1;
             if qi2 == qlen {
                 break;
@@ -1397,7 +1376,7 @@ fn subsequence_match_ascii_bytes(query: &[u8], text: &[u8]) -> Option<([u16; 32]
         }
     }
 
-    Some((positions, qlen as u8))
+    Some((positions, qlen.min(32) as u8))
 }
 
 /// Backward scan from `end` (inclusive) to find the tightest window start.
@@ -1428,7 +1407,7 @@ fn backward_ascii_bytes(bytes: &[u8], query: &[u8], end: usize) -> usize {
 }
 
 /// Unicode path — operates on chars.
-fn subsequence_match_unicode(query: &[char], text: &str) -> Option<([u16; 32], u8)> {
+fn subsequence_match_unicode(query: &[char], text: &str) -> Option<([usize; 32], u8)> {
     let qlen = query.len();
     let last_qchar = query[qlen - 1];
 
@@ -1477,7 +1456,7 @@ fn subsequence_match_unicode(query: &[char], text: &str) -> Option<([u16; 32], u
     };
 
     // 4) Forward pass within the tight window to record optimal positions.
-    let mut positions = [0u16; 32];
+    let mut positions = [0usize; 32];
     let mut qi2 = 0;
     for (ti, tc) in text.chars().enumerate() {
         if ti < window_start {
@@ -1487,7 +1466,9 @@ fn subsequence_match_unicode(query: &[char], text: &str) -> Option<([u16; 32], u
             break;
         }
         if tc.to_lowercase().next() == Some(query[qi2]) {
-            positions[qi2] = ti as u16;
+            if qi2 < positions.len() {
+                positions[qi2] = ti;
+            }
             qi2 += 1;
             if qi2 == qlen {
                 break;
@@ -1495,7 +1476,7 @@ fn subsequence_match_unicode(query: &[char], text: &str) -> Option<([u16; 32], u
         }
     }
 
-    Some((positions, qlen as u8))
+    Some((positions, qlen.min(32) as u8))
 }
 
 /// Backward scan through collected chars to find tightest window start.
@@ -1525,13 +1506,13 @@ fn is_word_boundary_byte(b: u8) -> bool {
 
 /// Compatibility helper retained for benchmarks.
 /// Returns the literal-match tier for a precomputed match window.
-pub fn score_match(positions: &[u16; 32], count: u8, text: &str, _pwd_basename: &str) -> i16 {
+pub fn score_match(positions: &[usize; 32], count: u8, text: &str, _pwd_basename: &str) -> i16 {
     let n = count as usize;
     if n == 0 {
         return 0;
     }
 
-    let start = positions[0] as usize;
+    let start = positions[0];
     for i in 1..n {
         if positions[i] != positions[i - 1] + 1 {
             return 0;
@@ -1549,60 +1530,4 @@ pub fn score_match(positions: &[u16; 32], count: u8, text: &str, _pwd_basename: 
     } else {
         1
     }
-}
-
-fn recover_log_tail(file: &fs::File) -> io::Result<u64> {
-    let len = file.metadata()?.len();
-    if len == 0 {
-        return Ok(0);
-    }
-    let mut last = [0u8; 1];
-    file.read_exact_at(&mut last, len - 1)?;
-    if last[0] == b'\n' {
-        return Ok(len);
-    }
-    let mut pos = len;
-    let mut buffer = [0u8; 4096];
-    while pos > 0 {
-        let count = pos.min(buffer.len() as u64) as usize;
-        pos -= count as u64;
-        file.read_exact_at(&mut buffer[..count], pos)?;
-        if let Some(index) = buffer[..count].iter().rposition(|&byte| byte == b'\n') {
-            pos += index as u64 + 1;
-            break;
-        }
-    }
-    let prefix_len = (len - pos).min(16) as usize;
-    let mut prefix = [0u8; 16];
-    file.read_exact_at(&mut prefix[..prefix_len], pos)?;
-    if is_torn_record(&prefix[..prefix_len]) {
-        file.set_len(pos)?;
-        Ok(pos)
-    } else {
-        Ok(len)
-    }
-}
-
-fn write_record(file: &fs::File, bytes: &[u8], original_len: u64) -> io::Result<()> {
-    write_record_with(file, bytes, original_len, |mut file, bytes| file.write(bytes))
-}
-
-fn write_record_with(
-    file: &fs::File,
-    bytes: &[u8],
-    original_len: u64,
-    write: impl FnOnce(&fs::File, &[u8]) -> io::Result<usize>,
-) -> io::Result<()> {
-    let result = match write(file, bytes) {
-        Ok(written) if written == bytes.len() => return Ok(()),
-        Ok(_) => io::Error::new(io::ErrorKind::WriteZero, "partial history record"),
-        Err(error) => error,
-    };
-    if let Err(error) = file.set_len(original_len) {
-        return Err(io::Error::new(
-            error.kind(),
-            format!("{result}; cannot restore history log: {error}"),
-        ));
-    }
-    Err(result)
 }

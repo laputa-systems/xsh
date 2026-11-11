@@ -1,0 +1,35 @@
+== frame second/peer_search cursor=9,23
+|testuser@<HOST> ~ $ /bin/echo second_process_0
+|second_process_0
+|
+|testuser@<HOST> ~ $ /bin/echo second_process_1
+|second_process_1
+|
+|testuser@<HOST> ~ $ /bin/echo second_process_after_exit
+|second_process_after_exit
+|
+|search: first_process_1
+|/bin/echo first_process_1
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@9 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@10 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 /bin/echo first_process_1
+== frame third/history_listing cursor=8,20
+|testuser@<HOST> ~ $ history
+|/bin/echo first_process_0
+|/bin/echo second_process_0
+|/bin/echo first_process_1
+|/bin/echo second_process_1
+|exit
+|/bin/echo second_process_after_exit
+|history
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect first/first_exit
+|Code(0)

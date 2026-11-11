@@ -1,0 +1,20 @@
+== frame restarted/saved_after_recovery cursor=3,20
+|testuser@<HOST> ~ $ /bin/echo durable_after_partial_append
+|durable_after_partial_append
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame restarted/search_before cursor=3,37
+|testuser@<HOST> ~ $ /bin/echo durable_after_partial_append
+|durable_after_partial_append
+|
+|search: durable_before_partial_append
+|/bin/echo durable_before_partial_append
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@3 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@4 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 /bin/echo durable_before_partial_append
+== effect killed
+|Signal(9)

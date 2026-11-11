@@ -185,12 +185,11 @@ fn history_dedup_on_add() {
         "cd /tmp".into(),
         "ls".into(), // dup
     ]);
-    // Already deduped by from_entries? No, from_entries takes them as-is.
-    // add() deduplicates.
     h.add("ls");
-    // "ls" should appear only once, at the end
+    // A command has one text entry; a new use only updates its usage.
     assert_eq!((0..h.len()).filter(|&i| h.get(i) == "ls").count(), 1);
-    assert_eq!(h.get(h.len() - 1), "ls");
+    assert_eq!(h.get(0), "ls");
+    assert_eq!(h.session_get(0), Some("ls"));
 }
 
 #[test]
@@ -1094,7 +1093,8 @@ fn alias_default_impl() {
 
 #[test]
 fn history_load_empty() {
-    let h = History::load();
+    let dir = tempdir_with_files(&[]);
+    let h = History::load_from(dir.join("history"));
     // Just verify it doesn't panic and returns a valid history
     let _ = h.len();
 }
@@ -1103,8 +1103,8 @@ fn history_load_empty() {
 fn history_add_with_newlines() {
     let mut h = History::from_entries(vec![]);
     h.add("echo\nhello");
-    // Newlines should be collapsed to spaces
-    assert_eq!(h.get(h.len() - 1), "echo hello");
+    // Multi-line input is stored verbatim so recall runs what was typed.
+    assert_eq!(h.get(h.len() - 1), "echo\nhello");
 }
 
 #[test]
@@ -1112,7 +1112,8 @@ fn history_add_dedup_preserves_order() {
     let mut h = History::from_entries(vec!["a".into(), "b".into(), "c".into()]);
     h.add("a");
     let entries: Vec<&str> = (0..h.len()).map(|i| h.get(i)).collect();
-    assert_eq!(entries, &["b", "c", "a"]);
+    assert_eq!(entries, &["a", "b", "c"]);
+    assert_eq!(h.session_get(0), Some("a"));
 }
 
 #[test]
@@ -1502,14 +1503,16 @@ fn history_file_io() {
     let mut h = History::load_from(hist_file.clone());
     h.add("test command 1");
     h.add("test command 2");
-    h.add("test command 1"); // dup — should be deduped in memory
+    h.add("test command 1"); // dup — one text entry, later use wins
 
-    // Verify file was written
-    let content = std::fs::read_to_string(&hist_file).unwrap();
+    // The append-only log is written next to the requested path.
+    let log = hist_file.with_file_name("history.log");
+    assert!(log.exists());
+    let content = history::render_history_log(&log).unwrap();
     assert!(content.contains("test command 1"));
     assert!(content.contains("test command 2"));
 
-    // Reload and verify dedup
+    // Reload and verify the shared entry survived.
     let h2 = History::load_from(hist_file);
     assert!(h2.len() >= 2);
 }
@@ -1561,14 +1564,9 @@ fn history_up_arrow_uses_session_start_boundary() {
         Some("echo local one")
     );
 
-    std::thread::sleep(std::time::Duration::from_millis(2));
-
-    std::fs::OpenOptions::new()
-        .append(true)
-        .open(&hist_file)
-        .unwrap()
-        .write_all(b"echo global three\n")
-        .unwrap();
+    let mut other = History::load_from(hist_file.clone());
+    other.add("echo global three");
+    other.compact();
     h.sync();
 
     assert_eq!(h.session_get(0), Some("echo local one"));
@@ -1581,7 +1579,7 @@ fn history_up_arrow_uses_session_start_boundary() {
 }
 
 #[test]
-fn history_ctrl_r_uses_session_start_boundary() {
+fn history_ctrl_r_includes_later_global_entries() {
     let dir = tempdir_with_files(&[]);
     let hist_file = dir.join("history");
     std::fs::write(&hist_file, "echo global one\necho global two\n").unwrap();
@@ -1589,32 +1587,22 @@ fn history_ctrl_r_uses_session_start_boundary() {
     let mut h = History::load_from(hist_file.clone());
     h.add("echo local one");
 
-    std::thread::sleep(std::time::Duration::from_millis(2));
-
-    std::fs::OpenOptions::new()
-        .append(true)
-        .open(&hist_file)
-        .unwrap()
-        .write_all(b"echo global three\n")
-        .unwrap();
+    let mut other = History::load_from(hist_file.clone());
+    other.add("echo global three");
+    other.compact();
     h.sync();
 
     let all = h.fuzzy_search("");
-    assert_eq!(h.get(all[0].entry_idx), "echo local one");
-    assert_eq!(h.get(all[1].entry_idx), "echo global two");
-    assert!(
-        all.iter()
-            .all(|m| h.get(m.entry_idx) != "echo global three")
-    );
+    assert_eq!(h.get(all[0].entry_idx), "echo global three");
+    assert!(all.iter().any(|m| h.get(m.entry_idx) == "echo local one"));
+    assert_eq!(h.session_get(0), Some("echo local one"));
+    assert_eq!(h.session_get(1), Some("echo global two"));
+    assert!(h.session_prefix_search("echo global three", 0).is_none());
 
     let filtered = h.fuzzy_search("global");
-    assert_eq!(h.get(filtered[0].entry_idx), "echo global two");
-    assert_eq!(h.get(filtered[1].entry_idx), "echo global one");
-    assert!(
-        filtered
-            .iter()
-            .all(|m| h.get(m.entry_idx) != "echo global three")
-    );
+    assert_eq!(h.get(filtered[0].entry_idx), "echo global three");
+    assert_eq!(h.get(filtered[1].entry_idx), "echo global two");
+    assert_eq!(h.get(filtered[2].entry_idx), "echo global one");
 }
 
 // ---------------------------------------------------------------------------

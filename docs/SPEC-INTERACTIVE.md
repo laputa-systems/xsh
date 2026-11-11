@@ -43,9 +43,6 @@ follows the README:
 
 Other deliberate differences:
 
-- history is safe under concurrent shells (§8): `ish` can lose entries when
-  shells exit around one another, treats a torn record as a command, and can
-  stop syncing on an invalid-UTF-8 line;
 - `ssh`/`scp` remote path completion passes the host as one process argument;
   `ish` interpolates it into a local `sh -c` string;
 - `-c COMMAND` runs one command line; `--config PATH` replaces `ish`'s `-c PATH`;
@@ -57,11 +54,12 @@ Other deliberate differences:
   (`~/.config/xshi`, `~/.local/share/xshi`, `~/.cache/xshi/dump-<hex>`), and the
   layout-dump builtin is `xshi-dump`;
 - `xshi`-only additions that leave `ish`-shaped input alone: XSH source at the
-  prompt (§5), trailing `&` for one simple command, `bg`, `z`, `:`, and
-  `history` subcommands.
+  prompt (§5), trailing `&` for one simple command, `bg`, `z`, and `:`.
 
-There is no compatibility layer for earlier `xshi` behavior: its history
-records, `XH` cache, `config.ini`/`config.xsh`, and pipefail statuses are gone.
+There is no compatibility layer for earlier `xshi` behavior: its text history
+log, binary cache, `XH` cache, `config.ini`/`config.xsh`, and pipefail statuses
+are gone; the old `history`/`history.bin` files are imported once into the
+current log and removed.
 
 ## 2. Boundaries
 
@@ -70,7 +68,7 @@ is not a second script language.
 
 - `xsh` does not accept shell syntax such as bare `git status`.
 - `xsht check`, formatting, docs generation, examples, and tests never read
-  `~/.config/xshi/config.ish` or `~/.local/share/xshi/history`.
+  `~/.config/xshi/config.ish` or `~/.local/share/xshi/history.log`.
 - Aliases, prompt state, denv trust, history, completion, and autosuggestions
   are unavailable to scripts.
 - Library changes outside `crates/xshi` must stay neutral for existing scripts
@@ -223,71 +221,74 @@ Files, all beside each other under `~/.local/share/xshi/`:
 
 | File | Content |
 | --- | --- |
-| `history` | append-only log, one record per line |
-| `history.bin` | compacted cache, format `ISH\x05` |
-| `history.lock` | advisory `flock` target |
-| `history.reset` | generation written by `history reset` |
-| `history.bin.corrupt` | an unreadable cache set aside by `history rebuild` |
+| `history.log` | append-only frame log |
+| `history.log.lock` | advisory `flock` target |
+| `history.log.corrupt-<MS>-<N>` | damaged bytes set aside by startup salvage |
 
-Log records are `:ish-history:v2\tTIMESTAMP_MS\tSESSION\tCWD\tCOMMAND`
-(`v1` has no cwd). `CWD` escapes `\\`, tab, newline, and carriage return. A plain
-line is a legacy command with unknown time, session, and directory. A line that
-carries the record prefix but does not parse is a torn record and is dropped.
-The cache holds `[magic][count][arena size][cwd arena size]`, one little-endian
-`u64` timestamp per entry (milliseconds since 1998-01-01), then NUL-terminated
-command and directory arenas. Any structural inconsistency makes the whole
-cache unreadable.
+The log starts with the 8-byte magic `ISHLOG\0\x01` and a little-endian `i64`
+generation. Each record is a 16-byte frame header (payload length `u64`, CRC-32
+of that length, four reserved bytes, CRC-32 of the payload) followed by the
+payload: occurrence id `i64`, timestamp `u64` in milliseconds, session id
+`u64`, directory length `u32` (`u32::MAX` means no directory), command length
+`u32`, the raw directory bytes, and the UTF-8 command. Occurrence ids are
+strictly increasing within a generation.
 
-Entries: commands are trimmed, embedded newlines become spaces, and a command
-that is empty, longer than 65,535 bytes, or contains NUL is not recorded. Each
-command appears once, at the position of its latest use.
+On first open without a log, the shell imports the retired text `history`
+(plain lines and `:ish-history:v1`/`:ish-history:v2` records) and the `ISH\x05`
+binary `history.bin` cache, prefers the newest metadata, skips a cache record
+that duplicates the same command and timestamp in the text, then removes both
+files. The import is idempotent; a damaged cache aborts it without touching
+either file.
 
-A command is queued in memory and appended to the log in one write. On a
-lock or persistence failure, the shell warns and keeps pending commands in
-memory for a later retry; command execution remains available. Sync and
-compaction retry pending writes, including on exit, but a crash or persistent
-I/O failure can lose them. Compaction is a disk-to-disk merge that never trusts
-a shell's memory: under an exclusive lock it reads the cache and the whole log, lets a log record replace a cached
-entry only when strictly newer (a log left by a crashed compaction therefore
-cannot reorder anything), writes the cache through a temporary file and an
-atomic rename, then truncates the log. It runs when a shell exits and on
-`history compact`, and yields quietly when another shell holds the lock;
-already persisted records remain in the log and cache.
+Entries: commands are stored verbatim, including embedded newlines and
+surrounding spaces; an empty or whitespace-only line is not recorded. `history`
+and the Ctrl-R pager display an entry on one row by replacing newline with `↵`
+and other control characters with `�`, one character for one character. Each
+distinct command text is one entry; using it again records another occurrence
+and updates its usage rather than adding a second row.
 
-Locking: readers require a shared lock; append, compaction, and reset require
-an exclusive lock. Every wait is bounded so a stuck peer cannot hang a prompt.
-Loading never writes.
+Recording is ordered before execution, as in `ish`: the submitted line is
+appended and fsynced under the log lock before the command runs, so a failing
+command, `exit`, and `history` itself appear in the history they observe. A
+failed append rolls the file back to its previous length, reports
+`command was not saved to history: <error>` before the command output, and the
+command still runs.
 
-Sync, run before every prompt and every Ctrl-R, costs three `stat` calls when
-nothing changed. It reads only the new complete lines of the log; a line still
-being written is left for the next sync and a line that is not valid UTF-8 is
-skipped. A shell recognizes its own records by session id. If the cache's or
-log's identity changed (another shell compacted or replaced them) it re-reads
-both. Entries other shells add after this shell started are merged into memory
-but stay out of Up-arrow recall, Ctrl-R, and autosuggestions until the next
-shell starts, so a session's own history does not shift under the user.
+Log access takes an exclusive advisory `flock` on `history.log.lock`. Loading
+reads the header and frames from the start; each later prompt and each Ctrl-R
+reread only the frames appended since the last committed occurrence id. A short
+or checksum-invalid final frame is a torn tail: the valid prefix is republished
+under the next generation and reading continues. Damage before the final frame
+is reported at startup; the shell keeps the valid prefix, moves the rest to
+`history.log.corrupt-<MS>-<N>`, and continues.
 
-Reset: `history reset` deletes the log, cache, and quarantined cache and writes
-a new generation. Running shells see the marker change at their next sync or
-add, clear their memory and pending writes, and cannot resurrect old entries
-at exit.
+Up-arrow and autosuggestions use the startup snapshot plus the current shell's
+own commands as an ordered list; using a command again moves it to the end of
+that list and leaves a tombstone where it was. A command another shell commits
+after startup updates global usage and search immediately but does not enter
+Up-arrow or autosuggestions until the next shell starts. Ctrl-R searches every
+committed command, including entries other shells added later.
 
-Recovery: an unreadable cache is announced once at startup; the shell loads the
-log only and refuses to overwrite the cache until `history rebuild`, which sets
-the file aside as `history.bin.corrupt` and writes a new cache from what is
-recoverable. Before append or compaction, an unterminated record bearing the
-current record marker, or a partial marker, is discarded as a torn tail.
-Complete records and other unterminated legacy lines are retained. An
-unterminated legacy command that matches a partial marker is ambiguous and is
-discarded. This does not guarantee durability across power loss.
+Search ranks a candidate by text tier (prefix, word-boundary substring,
+substring, subsequence), then by the nearest recorded directory that is the
+current directory or an ancestor of it, then by a bounded bonus built from
+usage count and age, then by last-use time, then by latest occurrence id;
+larger values win. An empty query orders by last-use time with the same tie
+breaks. Ctrl-R keeps the best 200 ranked results and refines later keystrokes
+within the previous match set.
 
-Search ranks by tier (prefix, word-boundary substring, substring,
-subsequence), then recency, with a boost for entries recorded in the current
-directory or an ancestor. Autosuggestions use the most recent session-visible
-entry having the buffer as a prefix.
+Reset replaces the log with an empty one under the lock and increments the
+generation. Every other shell detects the generation change at its next
+snapshot or append, clears its entries and pending state, and cannot resurrect
+older entries. A `history` invocation inside a pipeline or command substitution
+is refused with `history requires the original shell process and cannot run in
+a forked context` and leaves storage untouched.
 
-`history` prints entries; `history compact`, `history rebuild`, `history reset`,
-and `history -h` manage storage.
+`history` prints each distinct command once, oldest last use first. `history -h`
+prints `Usage: history [reset]` and
+`Show saved history, or clear it with `reset`.` with no trailing newline;
+`history reset` clears storage. Any other argument is an unknown subcommand
+with status `1`.
 
 ## 9. Prompt, Editing, Rendering
 

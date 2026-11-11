@@ -416,27 +416,22 @@ parity!(
 );
 
 parity!(
-    history_ctrl_r_ignores_later_global_entries,
+    history_ctrl_r_includes_later_global_entries,
     Fixture::new().history(&["echo startup"]),
     |sh: &mut Live| {
-        let path = sh.home().join(sh.kind().history_file());
-        {
-            use std::io::Write as _;
-            std::fs::OpenOptions::new()
-                .append(true)
-                .open(&path)
-                .expect("open history")
-                .write_all(b"echo later_global\n")
-                .expect("append history");
-        }
+        let mut peer = sh.spawn_peer();
+        peer.line("echo later_global");
+        sh.enter();
+        sh.wait_prompt();
         sh.keys(key::CTRL_R);
         sh.frame("search_open");
         sh.text("later");
         sh.frame("query_later");
         sh.keys(key::ENTER);
-        sh.frame("enter_without_match");
+        sh.frame("accepted");
         sh.keys_to_prompt(key::ENTER);
         sh.frame("after_enter");
+        sh.absorb(peer, "peer");
     }
 );
 
@@ -1115,16 +1110,10 @@ parity!(
     history_autosuggest_ignores_later_global_entries,
     Fixture::new().history(&["echo startup"]),
     |sh: &mut Live| {
-        let path = sh.home().join(sh.kind().history_file());
-        {
-            use std::io::Write as _;
-            std::fs::OpenOptions::new()
-                .append(true)
-                .open(&path)
-                .expect("open history")
-                .write_all(b"echo later_global\n")
-                .expect("append history");
-        }
+        let mut peer = sh.spawn_peer();
+        peer.line("echo later_global");
+        sh.enter();
+        sh.wait_prompt();
         sh.keys(key::CTRL_R);
         sh.keys(key::ESC);
         sh.frame("after_search");
@@ -1133,6 +1122,7 @@ parity!(
         sh.frame("after_right");
         sh.keys_to_prompt(key::ENTER);
         sh.frame("after_enter");
+        sh.absorb(peer, "peer");
     }
 );
 

@@ -1,512 +1,603 @@
-//! On-disk representation of the shared history: the append-only text log, the
-//! binary cache that compaction folds it into, and the advisory lock and reset
-//! marker that keep concurrent shells consistent.
-//!
-
-use rustc_hash::FxHashMap;
-use std::ffi::OsStr;
-use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::MetadataExt;
+use super::legacy;
+use std::fs::{self, DirBuilder, File};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
 
-pub(super) const CACHE_MAGIC: &[u8; 4] = b"ISH\x05";
-/// magic(4) + entry_count(4) + arena_size(4) + cwd_arena_size(4)
-pub(super) const CACHE_HEADER_SIZE: usize = 16;
-const LOG_RECORD_STEM: &str = ":ish-history:v";
-const LOG_RECORD_PREFIX: &str = ":ish-history:v1\t";
-const LOG_RECORD_PREFIX_V2: &str = ":ish-history:v2\t";
+const HEADER: &[u8; 8] = b"ISHLOG\0\x01";
+const HEADER_SIZE: u64 = 16;
+const FRAME_HEADER_SIZE: u64 = 16;
 
-/// Entry lengths are stored as `u16` in memory, so longer commands are not
-/// recorded and longer records are ignored when read back.
-pub(super) const MAX_ENTRY_LEN: usize = u16::MAX as usize;
-
-/// 1998-01-01T00:00:00 UTC as Unix epoch milliseconds.
-const TS_EPOCH_MILLIS: u64 = 883_612_800_000;
-
-pub(super) fn hash_str(s: &str) -> u64 {
-    let mut h = DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
+pub(super) struct Occurrence {
+    pub id: i64,
+    pub command: String,
+    pub timestamp: u64,
+    pub session_id: u64,
+    pub cwd: Option<PathBuf>,
 }
 
-pub(super) fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+pub(super) struct Snapshot {
+    pub generation: i64,
+    pub occurrences: Vec<Occurrence>,
 }
 
-/// A session id that is unique per process even when two histories are opened
-/// within the same millisecond; zero is reserved for records of unknown origin.
-pub(super) fn new_session_id() -> u64 {
-    static LAST: AtomicU64 = AtomicU64::new(0);
-    let candidate =
-        now_millis().wrapping_shl(16) ^ u64::from(rustix::process::getpid().as_raw_pid() as u32);
-    let mut last = LAST.load(Ordering::Relaxed);
-    loop {
-        let next = candidate.max(last.wrapping_add(1)).max(1);
-        match LAST.compare_exchange_weak(last, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return next,
-            Err(seen) => last = seen,
-        }
-    }
+#[derive(Clone, Copy)]
+struct Cursor {
+    identity: Option<(u64, u64)>,
+    generation: i64,
+    offset: u64,
+    last_id: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Record {
-    pub(super) command: String,
-    pub(super) timestamp: u64,
-    /// Zero means unknown/legacy.
-    pub(super) session_id: u64,
-    pub(super) cwd: Option<PathBuf>,
-}
-
-/// Whether `command` can be stored in memory and in the NUL-delimited cache.
-pub(super) fn is_recordable(command: &str) -> bool {
-    !command.is_empty() && command.len() <= MAX_ENTRY_LEN && !command.contains('\0')
-}
-
-pub(super) fn is_torn_record(bytes: &[u8]) -> bool {
-    let prefix = LOG_RECORD_PREFIX_V2.as_bytes();
-    !bytes.is_empty() && (prefix.starts_with(bytes) || bytes.starts_with(LOG_RECORD_STEM.as_bytes()))
-}
-
-pub(super) fn parse_line(line: &str, fallback_ts: u64) -> Option<Record> {
-    let record = if let Some(rest) = line.strip_prefix(LOG_RECORD_PREFIX_V2) {
-        let mut parts = rest.splitn(4, '\t');
-        let (ts, session_id, cwd, command) =
-            (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
-        Record {
-            command: command.to_owned(),
-            timestamp: ts.parse().ok()?,
-            session_id: session_id.parse().ok()?,
-            cwd: unescape_field(cwd)
-                .map(PathBuf::from)
-                .filter(|cwd| !cwd.as_os_str().is_empty()),
-        }
-    } else if let Some(rest) = line.strip_prefix(LOG_RECORD_PREFIX) {
-        let mut parts = rest.splitn(3, '\t');
-        let (ts, session_id, command) = (parts.next()?, parts.next()?, parts.next()?);
-        Record {
-            command: command.to_owned(),
-            timestamp: ts.parse().ok()?,
-            session_id: session_id.parse().ok()?,
-            cwd: None,
-        }
-    } else if line.starts_with(LOG_RECORD_STEM) {
-        return None;
-    } else {
-        Record {
-            command: line.to_owned(),
-            timestamp: fallback_ts,
-            session_id: 0,
-            cwd: None,
-        }
-    };
-    is_recordable(&record.command).then_some(record)
-}
-
-/// One log line, without the trailing newline.
-pub(super) fn format_record(
-    timestamp: u64,
-    session_id: u64,
-    cwd: Option<&Path>,
-    command: &str,
-) -> String {
-    match cwd {
-        Some(cwd) => format!(
-            "{LOG_RECORD_PREFIX_V2}{timestamp}\t{session_id}\t{}\t{command}",
-            escape_field(&cwd.to_string_lossy())
-        ),
-        None => format!("{LOG_RECORD_PREFIX}{timestamp}\t{session_id}\t{command}"),
-    }
-}
-
-fn escape_field(field: &str) -> String {
-    let mut escaped = String::with_capacity(field.len());
-    for c in field.chars() {
-        match c {
-            '\\' => escaped.push_str("\\\\"),
-            '\t' => escaped.push_str("\\t"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            _ => escaped.push(c),
-        }
-    }
-    escaped
-}
-
-fn unescape_field(field: &str) -> Option<String> {
-    let mut unescaped = String::with_capacity(field.len());
-    let mut chars = field.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            unescaped.push(c);
-            continue;
-        }
-        match chars.next()? {
-            '\\' => unescaped.push('\\'),
-            't' => unescaped.push('\t'),
-            'n' => unescaped.push('\n'),
-            'r' => unescaped.push('\r'),
-            _ => return None,
-        }
-    }
-    Some(unescaped)
-}
-
-/// Collapses a chronological record stream from a single source to one record
-/// per command. The last occurrence wins and keeps its position.
-pub(super) fn dedup_last(records: Vec<Record>) -> Vec<Record> {
-    let mut last: FxHashMap<&str, usize> =
-        FxHashMap::with_capacity_and_hasher(records.len(), Default::default());
-    for (index, record) in records.iter().enumerate() {
-        last.insert(record.command.as_str(), index);
-    }
-    let keep: Vec<bool> = records
-        .iter()
-        .enumerate()
-        .map(|(index, record)| last.get(record.command.as_str()) == Some(&index))
-        .collect();
-    drop(last);
-    records
-        .into_iter()
-        .zip(keep)
-        .filter_map(|(record, keep)| keep.then_some(record))
-        .collect()
-}
-
-/// Lays the log over the cache. A log record replaces the cached entry for the
-/// same command only when it is strictly newer, so replaying a log that a
-/// crashed compaction failed to truncate cannot reorder entries. Survivors keep
-/// the position of their winning record: cached entries first, then the log's.
-pub(super) fn overlay(cached: Vec<Record>, log: Vec<Record>) -> Vec<Record> {
-    let log = dedup_last(log);
-    let cached_at: FxHashMap<&str, usize> = cached
-        .iter()
-        .enumerate()
-        .map(|(index, record)| (record.command.as_str(), index))
-        .collect();
-    let mut cached_dead = vec![false; cached.len()];
-    let log_keep: Vec<bool> = log
-        .iter()
-        .map(|record| match cached_at.get(record.command.as_str()) {
-            Some(&index) if record.timestamp <= cached[index].timestamp => false,
-            Some(&index) => {
-                cached_dead[index] = true;
-                true
-            }
-            None => true,
-        })
-        .collect();
-    drop(cached_at);
-    let survivors = cached
-        .into_iter()
-        .zip(cached_dead)
-        .filter_map(|(record, dead)| (!dead).then_some(record));
-    let fresh = log
-        .into_iter()
-        .zip(log_keep)
-        .filter_map(|(record, keep)| keep.then_some(record));
-    survivors.chain(fresh).collect()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct FileStamp {
-    dev: u64,
-    ino: u64,
-    pub(super) size: u64,
-    mtime: i64,
-    mtime_nsec: i64,
-}
-
-impl FileStamp {
-    fn from_metadata(meta: &fs::Metadata) -> Self {
+impl Default for Cursor {
+    fn default() -> Self {
         Self {
-            dev: meta.dev(),
-            ino: meta.ino(),
-            size: meta.size(),
-            mtime: meta.mtime(),
-            mtime_nsec: meta.mtime_nsec(),
+            identity: None,
+            generation: 0,
+            offset: HEADER_SIZE,
+            last_id: 0,
         }
     }
-
-    /// Identity of the underlying file; changes when it is replaced by rename.
-    pub(super) fn id(self) -> (u64, u64) {
-        (self.dev, self.ino)
-    }
 }
 
-pub(super) fn file_stamp(path: &Path) -> Option<FileStamp> {
-    fs::metadata(path)
-        .ok()
-        .map(|meta| FileStamp::from_metadata(&meta))
+pub(super) struct Store {
+    pub path: PathBuf,
+    cursor: Cursor,
 }
 
-fn sibling_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+fn suffixed_path(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(suffix);
     path.with_file_name(name)
 }
 
-pub(super) fn history_path_for_home(home: Option<&OsStr>) -> PathBuf {
-    if let Some(home) = home {
-        PathBuf::from(home).join(".local/share/xshi/history")
-    } else {
-        PathBuf::from("/tmp/xshi_history")
+pub(super) fn storage_path(path: &Path) -> PathBuf {
+    suffixed_path(path, ".log")
+}
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("history log: {message}"),
+    )
+}
+
+fn open_file(path: &Path, flags: rustix::fs::OFlags) -> io::Result<File> {
+    let fd = rustix::fs::open(
+        path,
+        flags | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )?;
+    Ok(File::from(fd))
+}
+
+fn lock(path: &Path) -> io::Result<File> {
+    let file = open_file(
+        &suffixed_path(path, ".lock"),
+        rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CREATE,
+    )?;
+    loop {
+        match rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive) {
+            Ok(()) => return Ok(file),
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 
-pub(super) fn cache_path_for(path: &Path) -> PathBuf {
-    sibling_with_suffix(path, ".bin")
-}
-
-/// Where an unreadable cache is set aside by `history rebuild`.
-pub(super) fn quarantine_path_for(path: &Path) -> PathBuf {
-    sibling_with_suffix(path, ".bin.corrupt")
-}
-
-pub(super) fn lock_path_for(path: &Path) -> PathBuf {
-    sibling_with_suffix(path, ".lock")
-}
-
-pub(super) fn reset_marker_for(path: &Path) -> PathBuf {
-    sibling_with_suffix(path, ".reset")
-}
-
-/// An advisory `flock` on the history lock file, released on drop.
-pub(super) struct HistoryLock {
-    _file: fs::File,
-}
-
-impl HistoryLock {
-    pub(super) fn shared(history: &Path, wait: Duration) -> io::Result<Self> {
-        Self::acquire(history, false, wait)
-    }
-
-    pub(super) fn exclusive(history: &Path, wait: Duration) -> io::Result<Self> {
-        Self::acquire(history, true, wait)
-    }
-
-    fn acquire(history: &Path, exclusive: bool, wait: Duration) -> io::Result<Self> {
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path_for(history))?;
-        let operation = if exclusive {
-            rustix::fs::FlockOperation::NonBlockingLockExclusive
-        } else {
-            rustix::fs::FlockOperation::NonBlockingLockShared
-        };
-        let started = Instant::now();
-        loop {
-            match rustix::fs::flock(&file, operation) {
-                Ok(()) => return Ok(Self { _file: file }),
-                Err(rustix::io::Errno::INTR) => {}
-                Err(rustix::io::Errno::WOULDBLOCK) if started.elapsed() < wait => {
-                    std::thread::sleep(Duration::from_millis(1));
+impl Store {
+    pub fn open(legacy_path: &Path) -> io::Result<Self> {
+        let path = storage_path(legacy_path);
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(parent)?;
+        }
+        let _lock = lock(&path)?;
+        match fs::metadata(&path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let mut occurrences = legacy::read(legacy_path)?;
+                for (index, occurrence) in occurrences.iter_mut().enumerate() {
+                    occurrence.id = i64::try_from(index)
+                        .ok()
+                        .and_then(|id| id.checked_add(1))
+                        .ok_or_else(|| invalid("too many occurrences"))?;
                 }
-                Err(error) => return Err(io::Error::from_raw_os_error(error.raw_os_error())),
+                replace(&path, 0, &occurrences)?;
+                legacy::retire(legacy_path)?;
             }
+            Err(error) => return Err(error),
         }
+        Ok(Self {
+            path,
+            cursor: Cursor::default(),
+        })
+    }
+
+    pub fn snapshot(&mut self, generation: i64, last_id: i64) -> io::Result<Snapshot> {
+        let _lock = lock(&self.path)?;
+        let mut file = open_file(&self.path, rustix::fs::OFlags::RDWR)?;
+        let mut cursor = self.cursor;
+        let snapshot = read_snapshot(&self.path, &mut file, &mut cursor, generation, last_id)?;
+        self.cursor = cursor;
+        Ok(snapshot)
+    }
+
+    pub fn append(
+        &mut self,
+        generation: i64,
+        last_id: i64,
+        mut occurrence: Occurrence,
+    ) -> io::Result<(Snapshot, i64)> {
+        let _lock = lock(&self.path)?;
+        let mut file = open_file(&self.path, rustix::fs::OFlags::RDWR)?;
+        let mut cursor = self.cursor;
+        let mut snapshot = read_snapshot(&self.path, &mut file, &mut cursor, generation, last_id)?;
+        let id = cursor
+            .last_id
+            .checked_add(1)
+            .ok_or_else(|| invalid("occurrence id exhausted"))?;
+        occurrence.id = id;
+        let frame = encode(&occurrence)?;
+        let next_offset = cursor
+            .offset
+            .checked_add(frame.len() as u64)
+            .ok_or_else(|| invalid("file offset overflow"))?;
+        file.seek(SeekFrom::Start(cursor.offset))?;
+        if let Err(error) = file.write_all(&frame).and_then(|_| file.sync_all()) {
+            if let Err(rollback) = file.set_len(cursor.offset).and_then(|_| file.sync_all()) {
+                return Err(io::Error::other(format!(
+                    "history append failed: {error}; tail rollback failed: {rollback}"
+                )));
+            }
+            return Err(error);
+        }
+        cursor.offset = next_offset;
+        cursor.last_id = id;
+        self.cursor = cursor;
+        snapshot.occurrences.push(occurrence);
+        Ok((snapshot, id))
+    }
+
+    pub fn reset(&mut self) -> io::Result<i64> {
+        let _lock = lock(&self.path)?;
+        let mut file = open_file(&self.path, rustix::fs::OFlags::RDWR)?;
+        let generation = match read_header(&mut file) {
+            Ok(current) => current
+                .checked_add(1)
+                .ok_or_else(|| invalid("generation exhausted"))?,
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                fs::hard_link(&self.path, corrupt_path(&self.path))?;
+                i64::try_from(super::now_millis()).map_err(|_| invalid("clock out of range"))?
+            }
+            Err(error) => return Err(error),
+        };
+        drop(file);
+        replace(&self.path, generation, &[])?;
+        self.cursor = Cursor::default();
+        Ok(generation)
+    }
+
+    pub fn salvage(&mut self) -> io::Result<Salvage> {
+        let _lock = lock(&self.path)?;
+        let mut file = open_file(&self.path, rustix::fs::OFlags::RDWR)?;
+        let kept = match read_snapshot(&self.path, &mut file, &mut Cursor::default(), -1, 0) {
+            Ok(_) => return Err(invalid("salvage requested but the log is intact")),
+            Err(error) => match error
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<FrameCorruption>())
+            {
+                Some(corruption) => corruption.offset,
+                None => return Err(error),
+            },
+        };
+        let generation = read_header(&mut file)?
+            .checked_add(1)
+            .ok_or_else(|| invalid("generation exhausted"))?;
+        let moved_to = corrupt_path(&self.path);
+        let mut destination = open_file(
+            &moved_to,
+            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::CREATE | rustix::fs::OFlags::EXCL,
+        )?;
+        file.seek(SeekFrom::Start(kept))?;
+        io::copy(&mut file, &mut destination)?;
+        destination.sync_all()?;
+        publish(&self.path, generation, |writer| {
+            file.seek(SeekFrom::Start(HEADER_SIZE))?;
+            io::copy(&mut file.take(kept - HEADER_SIZE), writer)?;
+            Ok(())
+        })?;
+        self.cursor = Cursor::default();
+        Ok(Salvage { kept, moved_to })
     }
 }
 
-pub(super) struct TextRead {
-    pub(super) records: Vec<Record>,
-    /// Offset just past the last byte that was consumed.
-    pub(super) consumed: u64,
-    /// Identity of the file that was read, taken from the open handle.
-    pub(super) stamp: Option<FileStamp>,
+pub(super) struct Salvage {
+    pub kept: u64,
+    pub moved_to: PathBuf,
 }
 
-/// Reads the log from byte `from`. Unless `accept_partial` is set the trailing
-/// unterminated line is left unconsumed: it may still be being written, and a
-/// later read picks it up once it is complete. Lines that are not valid UTF-8
-/// are skipped so they cannot stall progress.
-pub(super) fn read_text_records(
+fn corrupt_path(path: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    suffixed_path(
+        path,
+        &format!(
+            ".corrupt-{}-{}",
+            super::now_millis(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ),
+    )
+}
+
+#[derive(Debug)]
+struct FrameCorruption {
+    offset: u64,
+    message: &'static str,
+}
+
+impl std::fmt::Display for FrameCorruption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "history log: {} at offset {}", self.message, self.offset)
+    }
+}
+
+impl std::error::Error for FrameCorruption {}
+
+fn corrupt(offset: u64, message: &'static str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        FrameCorruption { offset, message },
+    )
+}
+
+pub(super) fn is_frame_corruption(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<FrameCorruption>())
+}
+
+fn read_header(file: &mut File) -> io::Result<i64> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut header = [0u8; HEADER_SIZE as usize];
+    file.read_exact(&mut header).map_err(|error| {
+        if error.kind() == io::ErrorKind::UnexpectedEof {
+            invalid("incomplete file header")
+        } else {
+            error
+        }
+    })?;
+    if &header[..8] != HEADER {
+        return Err(invalid("unsupported or corrupt file header"));
+    }
+    let current = i64::from_le_bytes(header[8..].try_into().unwrap());
+    if current < 0 {
+        return Err(invalid("negative generation"));
+    }
+    Ok(current)
+}
+
+fn read_snapshot(
     path: &Path,
-    from: u64,
-    accept_partial: bool,
-    fallback_ts: u64,
-) -> io::Result<TextRead> {
-    let mut file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(TextRead {
-                records: Vec::new(),
-                consumed: 0,
-                stamp: None,
-            });
-        }
-        Err(error) => return Err(error),
-    };
-    let stamp = Some(FileStamp::from_metadata(&file.metadata()?));
-    let mut data = Vec::new();
-    file.seek(SeekFrom::Start(from))?;
-    file.read_to_end(&mut data)?;
-    let line_end = data.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
-    let complete = if accept_partial && !is_torn_record(&data[line_end..]) {
-        data.len()
-    } else {
-        line_end
-    };
-    let mut records = Vec::new();
-    for chunk in data[..complete].split(|&b| b == b'\n') {
-        if let Ok(line) = std::str::from_utf8(chunk)
-            && let Some(record) = parse_line(line, fallback_ts)
-        {
-            records.push(record);
-        }
+    file: &mut File,
+    cursor: &mut Cursor,
+    generation: i64,
+    last_id: i64,
+) -> io::Result<Snapshot> {
+    let current = read_header(file)?;
+    let metadata = file.metadata()?;
+    let identity = (metadata.dev(), metadata.ino());
+    if cursor.identity != Some(identity)
+        || cursor.generation != current
+        || metadata.len() < cursor.offset
+        || last_id < cursor.last_id
+    {
+        *cursor = Cursor {
+            identity: Some(identity),
+            generation: current,
+            ..Cursor::default()
+        };
     }
-    Ok(TextRead {
-        records,
-        consumed: from + complete as u64,
-        stamp,
-    })
-}
-
-pub(super) enum CacheRead {
-    Missing,
-    Entries(Vec<Record>),
-    /// Present but not usable; the reason is suitable for a diagnostic.
-    Unreadable(String),
-}
-
-pub(super) fn read_cache(cache: &Path) -> CacheRead {
-    match fs::read(cache) {
-        Ok(data) => match decode_cache(&data) {
-            Some(records) => CacheRead::Entries(records),
-            None => CacheRead::Unreadable(format!("corrupt ({} bytes)", data.len())),
-        },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => CacheRead::Missing,
-        Err(error) => CacheRead::Unreadable(format!("unreadable: {error}")),
+    let cutoff = if current == generation { last_id } else { 0 };
+    if current != generation && cursor.offset != HEADER_SIZE {
+        cursor.offset = HEADER_SIZE;
+        cursor.last_id = 0;
     }
-}
-
-/// Decodes the v5 cache:
-/// `[magic(4)][entry_count(4)][arena_size(4)][cwd_arena_size(4)]`
-/// `[timestamps: N×8][arena: \0-terminated][cwd arena: \0-terminated]`.
-/// Any structural inconsistency makes the whole cache unusable.
-pub(super) fn decode_cache(data: &[u8]) -> Option<Vec<Record>> {
-    if data.len() < CACHE_HEADER_SIZE || &data[..4] != CACHE_MAGIC {
-        return None;
-    }
-    let word = |at: usize| Some(u32::from_le_bytes(data[at..at + 4].try_into().ok()?) as usize);
-    let (count, arena_size, cwd_size) = (word(4)?, word(8)?, word(12)?);
-    let timestamps_end = CACHE_HEADER_SIZE.checked_add(count.checked_mul(8)?)?;
-    let arena_end = timestamps_end.checked_add(arena_size)?;
-    if data.len() != arena_end.checked_add(cwd_size)? {
-        return None;
-    }
-    let arena = std::str::from_utf8(&data[timestamps_end..arena_end]).ok()?;
-    let cwd_arena = std::str::from_utf8(&data[arena_end..]).ok()?;
-    let mut commands = arena.split('\0');
-    let mut cwds = cwd_arena.split('\0');
-    let mut records = Vec::with_capacity(count);
-    for index in 0..count {
-        let command = commands.next()?;
-        let cwd = cwds.next()?;
-        if !is_recordable(command) {
-            return None;
-        }
-        let at = CACHE_HEADER_SIZE + index * 8;
-        let stored = u64::from_le_bytes(data[at..at + 8].try_into().ok()?);
-        records.push(Record {
-            command: command.to_owned(),
-            timestamp: stored.wrapping_add(TS_EPOCH_MILLIS),
-            session_id: 0,
-            cwd: (!cwd.is_empty()).then(|| PathBuf::from(cwd)),
+    let mut occurrences = Vec::new();
+    if cursor.offset == metadata.len() {
+        return Ok(Snapshot {
+            generation: current,
+            occurrences,
         });
     }
-    // Each arena ends with the terminator of its last entry, leaving one empty
-    // trailing piece and nothing after it.
-    let well_terminated = |mut pieces: std::str::Split<'_, char>| {
-        pieces.next() == Some("") && pieces.next().is_none()
-    };
-    (well_terminated(commands) && well_terminated(cwds)).then_some(records)
-}
-
-pub(super) fn encode_cache(records: &[Record]) -> Vec<u8> {
-    let mut arena = Vec::new();
-    let mut cwd_arena = Vec::new();
-    for record in records {
-        arena.extend_from_slice(record.command.as_bytes());
-        arena.push(0);
-        if let Some(cwd) = &record.cwd {
-            cwd_arena.extend_from_slice(cwd.to_string_lossy().as_bytes());
+    file.seek(SeekFrom::Start(cursor.offset))?;
+    let mut reader = BufReader::with_capacity(64 * 1024, &mut *file);
+    let mut payload = Vec::new();
+    let mut discarded_tail = false;
+    while cursor.offset < metadata.len() {
+        let remaining = metadata.len() - cursor.offset;
+        if remaining < FRAME_HEADER_SIZE {
+            discarded_tail = true;
+            break;
         }
-        cwd_arena.push(0);
+        let mut frame_header = [0u8; FRAME_HEADER_SIZE as usize];
+        reader.read_exact(&mut frame_header)?;
+        let length_bytes: [u8; 8] = frame_header[..8].try_into().unwrap();
+        let length = u64::from_le_bytes(length_bytes);
+        let length_crc = u32::from_le_bytes(frame_header[8..12].try_into().unwrap());
+        if crc32(&length_bytes) != length_crc {
+            if frame_header.iter().all(|&b| b == 0) && rest_is_zero(&mut reader)? {
+                discarded_tail = true;
+                break;
+            }
+            return Err(corrupt(cursor.offset, "frame length checksum mismatch"));
+        }
+        if length < 32 {
+            return Err(corrupt(cursor.offset, "frame payload is too short"));
+        }
+        let frame_size = FRAME_HEADER_SIZE
+            .checked_add(length)
+            .ok_or_else(|| invalid("frame length overflow"))?;
+        if frame_size > remaining {
+            discarded_tail = true;
+            break;
+        }
+        let length =
+            usize::try_from(length).map_err(|_| invalid("frame length exceeds address space"))?;
+        payload
+            .try_reserve_exact(length.saturating_sub(payload.len()))
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        payload.resize(length, 0);
+        reader.read_exact(&mut payload)?;
+        let checksum = u32::from_le_bytes(frame_header[12..].try_into().unwrap());
+        if crc32(&payload) != checksum {
+            if frame_size == remaining {
+                discarded_tail = true;
+                break;
+            }
+            return Err(corrupt(cursor.offset, "frame payload checksum mismatch"));
+        }
+        let occurrence =
+            decode(&payload).map_err(|_| corrupt(cursor.offset, "invalid record"))?;
+        if occurrence.id <= cursor.last_id {
+            return Err(corrupt(
+                cursor.offset,
+                "occurrence ids are not strictly increasing",
+            ));
+        }
+        cursor.last_id = occurrence.id;
+        cursor.offset = cursor
+            .offset
+            .checked_add(frame_size)
+            .ok_or_else(|| invalid("file offset overflow"))?;
+        if occurrence.id > cutoff {
+            occurrences.push(occurrence);
+        }
     }
-    let mut buf =
-        Vec::with_capacity(CACHE_HEADER_SIZE + records.len() * 8 + arena.len() + cwd_arena.len());
-    buf.extend_from_slice(CACHE_MAGIC);
-    buf.extend_from_slice(&(records.len() as u32).to_le_bytes());
-    buf.extend_from_slice(&(arena.len() as u32).to_le_bytes());
-    buf.extend_from_slice(&(cwd_arena.len() as u32).to_le_bytes());
-    for record in records {
-        buf.extend_from_slice(&record.timestamp.wrapping_sub(TS_EPOCH_MILLIS).to_le_bytes());
+    if discarded_tail {
+        let kept = cursor.offset;
+        let next = current
+            .checked_add(1)
+            .ok_or_else(|| invalid("generation exhausted"))?;
+        publish(path, next, |writer| {
+            file.seek(SeekFrom::Start(HEADER_SIZE))?;
+            io::copy(&mut Read::by_ref(&mut *file).take(kept - HEADER_SIZE), writer)?;
+            Ok(())
+        })?;
+        *file = open_file(path, rustix::fs::OFlags::RDWR)?;
+        *cursor = Cursor::default();
+        return read_snapshot(path, file, cursor, generation, last_id);
     }
-    buf.extend_from_slice(&arena);
-    buf.extend_from_slice(&cwd_arena);
-    buf
-}
-
-/// Writes the cache through a private temporary file and an atomic rename, so a
-/// reader or a crash never sees a partial cache.
-pub(super) fn write_cache(cache: &Path, records: &[Record]) -> io::Result<()> {
-    if u32::try_from(records.len()).is_err() {
-        return Err(io::Error::other("history is too large to cache"));
-    }
-    let tmp = sibling_with_suffix(cache, &format!(".tmp.{}", std::process::id()));
-    let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(&encode_cache(records))?;
-        file.sync_all()?;
-        fs::rename(&tmp, cache)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
-pub(super) fn read_reset_marker(path: &Path) -> io::Result<(u64, Option<FileStamp>)> {
-    let marker = reset_marker_for(path);
-    let mut file = match fs::File::open(marker) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((0, None)),
-        Err(error) => return Err(error),
-    };
-    let stamp = Some(FileStamp::from_metadata(&file.metadata()?));
-    let mut value = String::new();
-    file.read_to_string(&mut value)?;
-    let generation = value
-        .trim()
-        .parse()
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    Ok((generation, stamp))
-}
-
-pub(super) fn write_reset_marker(path: &Path, generation: u64) -> io::Result<()> {
-    let marker = reset_marker_for(path);
-    let tmp = sibling_with_suffix(&marker, &format!(".tmp.{}", std::process::id()));
-    fs::write(&tmp, generation.to_string())?;
-    fs::rename(&tmp, &marker).inspect_err(|_| {
-        let _ = fs::remove_file(&tmp);
+    Ok(Snapshot {
+        generation: current,
+        occurrences,
     })
 }
 
-pub(super) fn remove_if_present(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+fn rest_is_zero(reader: &mut impl Read) -> io::Result<bool> {
+    let mut chunk = [0u8; 8192];
+    loop {
+        let n = reader.read(&mut chunk)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        if chunk[..n].iter().any(|&b| b != 0) {
+            return Ok(false);
+        }
     }
+}
+
+fn decode(payload: &[u8]) -> io::Result<Occurrence> {
+    let id = i64::from_le_bytes(payload[..8].try_into().unwrap());
+    if id <= 0 {
+        return Err(invalid("nonpositive occurrence id"));
+    }
+    let timestamp = u64::from_le_bytes(payload[8..16].try_into().unwrap());
+    let session_id = u64::from_le_bytes(payload[16..24].try_into().unwrap());
+    let cwd_len = u32::from_le_bytes(payload[24..28].try_into().unwrap());
+    let command_len = u32::from_le_bytes(payload[28..32].try_into().unwrap()) as usize;
+    let directory_size = if cwd_len == u32::MAX {
+        0
+    } else {
+        cwd_len as usize
+    };
+    let command_start = 32usize
+        .checked_add(directory_size)
+        .ok_or_else(|| invalid("directory length overflow"))?;
+    if command_len == 0 || command_start.checked_add(command_len) != Some(payload.len()) {
+        return Err(invalid("invalid payload field lengths"));
+    }
+    let command = std::str::from_utf8(&payload[command_start..])
+        .map_err(|_| invalid("command is not UTF-8"))?
+        .to_string();
+    let cwd = (cwd_len != u32::MAX).then(|| {
+        PathBuf::from(std::ffi::OsString::from_vec(
+            payload[32..command_start].to_vec(),
+        ))
+    });
+    Ok(Occurrence {
+        id,
+        timestamp,
+        session_id,
+        cwd,
+        command,
+    })
+}
+
+fn encode(occurrence: &Occurrence) -> io::Result<Vec<u8>> {
+    if occurrence.id <= 0 || occurrence.command.is_empty() {
+        return Err(invalid("invalid occurrence"));
+    }
+    let cwd = occurrence
+        .cwd
+        .as_ref()
+        .map(|path| path.as_os_str().as_bytes());
+    let cwd_len = match cwd {
+        Some(bytes) => u32::try_from(bytes.len())
+            .ok()
+            .filter(|&len| len != u32::MAX)
+            .ok_or_else(|| invalid("directory is too long"))?,
+        None => u32::MAX,
+    };
+    let command_len =
+        u32::try_from(occurrence.command.len()).map_err(|_| invalid("command is too long"))?;
+    let payload_len = 32usize
+        .checked_add(cwd.map_or(0, <[u8]>::len))
+        .and_then(|size| size.checked_add(occurrence.command.len()))
+        .ok_or_else(|| invalid("payload length overflow"))?;
+    let length = u64::try_from(payload_len)
+        .map_err(|_| invalid("payload length overflow"))?
+        .to_le_bytes();
+    let frame_len = payload_len
+        .checked_add(FRAME_HEADER_SIZE as usize)
+        .ok_or_else(|| invalid("frame length overflow"))?;
+    let mut frame = Vec::new();
+    frame
+        .try_reserve_exact(frame_len)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    frame.extend_from_slice(&length);
+    frame.extend_from_slice(&crc32(&length).to_le_bytes());
+    frame.extend_from_slice(&[0u8; 4]);
+    frame.extend_from_slice(&occurrence.id.to_le_bytes());
+    frame.extend_from_slice(&occurrence.timestamp.to_le_bytes());
+    frame.extend_from_slice(&occurrence.session_id.to_le_bytes());
+    frame.extend_from_slice(&cwd_len.to_le_bytes());
+    frame.extend_from_slice(&command_len.to_le_bytes());
+    if let Some(cwd) = cwd {
+        frame.extend_from_slice(cwd);
+    }
+    frame.extend_from_slice(occurrence.command.as_bytes());
+    let checksum = crc32(&frame[FRAME_HEADER_SIZE as usize..]);
+    frame[12..16].copy_from_slice(&checksum.to_le_bytes());
+    Ok(frame)
+}
+
+const fn crc_table() -> [u32; 256] {
+    let mut table = [0u32; 256];
+    let mut index = 0;
+    while index < 256 {
+        let mut value = index as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            value = if value & 1 != 0 {
+                (value >> 1) ^ 0xedb88320
+            } else {
+                value >> 1
+            };
+            bit += 1;
+        }
+        table[index] = value;
+        index += 1;
+    }
+    table
+}
+
+pub(super) fn crc32(bytes: &[u8]) -> u32 {
+    const TABLE: [u32; 256] = crc_table();
+    let mut crc = !0u32;
+    for &byte in bytes {
+        crc = (crc >> 8) ^ TABLE[((crc as u8) ^ byte) as usize];
+    }
+    !crc
+}
+
+struct TemporaryFile(PathBuf);
+impl Drop for TemporaryFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn replace(path: &Path, generation: i64, occurrences: &[Occurrence]) -> io::Result<()> {
+    publish(path, generation, |writer| {
+        for occurrence in occurrences {
+            writer.write_all(&encode(occurrence)?)?;
+        }
+        Ok(())
+    })
+}
+
+fn publish(
+    path: &Path,
+    generation: i64,
+    write_records: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
+) -> io::Result<()> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let (temporary, file) = loop {
+        let temporary = suffixed_path(
+            path,
+            &format!(
+                ".tmp-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ),
+        );
+        match open_file(
+            &temporary,
+            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::CREATE | rustix::fs::OFlags::EXCL,
+        ) {
+            Ok(file) => break (TemporaryFile(temporary), file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    };
+    let mut writer = BufWriter::with_capacity(64 * 1024, file);
+    writer.write_all(HEADER)?;
+    writer.write_all(&generation.to_le_bytes())?;
+    write_records(&mut writer)?;
+    writer.flush()?;
+    writer.get_ref().sync_all()?;
+    fs::rename(&temporary.0, path)?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    open_file(
+        parent,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY,
+    )?
+    .sync_all()
+}
+
+pub(super) fn render(path: &Path) -> io::Result<String> {
+    let _lock = lock(path)?;
+    let mut file = open_file(path, rustix::fs::OFlags::RDWR)?;
+    let snapshot = read_snapshot(path, &mut file, &mut Cursor::default(), -1, 0)?;
+    let mut latest = rustc_hash::FxHashMap::default();
+    for occurrence in snapshot.occurrences {
+        let usage = latest.entry(occurrence.command).or_insert((0, 0));
+        usage.0 = usage.0.max(occurrence.timestamp);
+        usage.1 = usage.1.max(occurrence.id);
+    }
+    let mut entries: Vec<_> = latest.into_iter().collect();
+    entries.sort_unstable_by_key(|(_, usage)| *usage);
+    let mut output = String::new();
+    for (command, _) in entries {
+        output.push_str(&command);
+        output.push('\n');
+    }
+    Ok(output)
 }

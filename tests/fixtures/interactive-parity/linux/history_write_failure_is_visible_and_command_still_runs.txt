@@ -1,0 +1,10 @@
+== frame failure_and_output cursor=5,20
+|testuser@<HOST> ~ $ printf 'executed_%s\n' despite_failure
+|<SHELL>: command was not saved to history: Is a directory (os error 21)
+|executed_despite_failure
+|<SHELL>: cannot sync history: Is a directory (os error 21)
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
