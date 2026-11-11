@@ -410,6 +410,40 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
             InputEvent::Paste(text) => {
                 // Insert the entire paste in one shot, with no per-char render.
                 grid_column = None;
+                if let Mode::HistorySearch {
+                    query,
+                    matches,
+                    candidates,
+                    scratch,
+                    candidate_stack,
+                    selected,
+                    ..
+                } = &mut mode
+                {
+                    query.insert_str(&text);
+                    candidate_stack.clear();
+                    session.history.visible_entry_indices_into(scratch);
+                    session.history.fuzzy_search_subset_into_in_dir(
+                        query.text(),
+                        scratch,
+                        candidates,
+                        matches,
+                        200,
+                        &session.cwd,
+                    );
+                    std::mem::swap(candidates, scratch);
+                    *selected = 0;
+                    region = render_history_mode(
+                        &mut tw,
+                        &mode,
+                        session,
+                        ui,
+                        region,
+                        &mut history_cache,
+                    );
+                    let _ = tw.flush_to_stdout();
+                    continue;
+                }
                 undo.before_edit(&line, EditGroup::Other);
                 line.insert_str(&text);
                 region = render_active_mode(

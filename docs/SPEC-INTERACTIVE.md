@@ -345,7 +345,9 @@ lines. SIGWINCH reaches the read loop through a self-pipe and repaints.
 
 History search (Ctrl-R) is a pager: a `search:` header, matches below it with
 matched characters highlighted, Up/Down to move, Enter to accept into the
-prompt, Escape or Ctrl-C to cancel.
+prompt, Escape or Ctrl-C to cancel. The query is an editable line buffer; a
+bracketed paste inserts at the query cursor, re-filters the matches from the
+full history, and resets the selection.
 
 ## 10. Completion
 
