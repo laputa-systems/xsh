@@ -361,7 +361,7 @@ fn mode_bits(mode: u32) -> Mode {
     Mode::from_raw_mode((mode & 0o7777) as rustix::fs::RawMode)
 }
 
-fn file_kind(kind: FileType) -> FileKind {
+pub(crate) fn file_kind(kind: FileType) -> FileKind {
     match kind {
         FileType::Directory => FileKind::Directory,
         FileType::Symlink => FileKind::Symlink,

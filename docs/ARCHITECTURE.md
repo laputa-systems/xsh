@@ -19,6 +19,19 @@ spans, values, diagnostics, or evaluator state. `xsh-net` is the example: its
 adapter converts XSH records to Rust requests and turns results back into XSH
 data.
 
+## Filesystem transfer substrate
+
+The internal transfer core for the shell's filesystem commands lives in
+`crates/xsh-root/src/transfer.rs` and is re-exported to the `xsh` crate by
+`src/modules/fs/meta.rs` and `src/modules/fs/transfer.rs`. It owns the metadata
+record (mode, ownership, timestamps, extended attributes, POSIX access ACL
+bytes, inode flags), hardlink-group preservation during a tree copy,
+cooperative cancellation, and byte/hole progress. Regular-file bytes use the
+clone, `copy_file_range`, read/write chain, and source objects are opened with
+`O_NOFOLLOW` and checked against their captured identities. The module has no
+script-visible contract. Staged publication, journals, and collision policy
+belong to later slices and will build on these types.
+
 ## The `libxsh` facade
 
 `src/lib.rs` defines the public library surface. `tests/libxsh_api.rs` protects

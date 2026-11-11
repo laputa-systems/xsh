@@ -16,6 +16,7 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod mutate;
+pub mod transfer;
 
 pub use mutate::{DirEntry, FileKind, Metadata, NodeKind, RenameMode};
 

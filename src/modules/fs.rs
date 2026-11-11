@@ -69,6 +69,8 @@ use xsh_root::{OpenOptions as RootOpenOptions, Root};
 
 mod prims;
 mod control;
+mod meta;
+mod transfer;
 mod xattr;
 pub(crate) use control::{access, path_limits, rename_exchange, sync_path};
 pub(crate) use xattr::{xattr_get, xattr_list, xattr_remove, xattr_set};

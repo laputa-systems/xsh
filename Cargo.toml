@@ -196,6 +196,10 @@ name = "linux_priv"
 path = "tests/linux_priv.rs"
 required-features = ["linux-priv-tests"]
 
+[[test]]
+name = "fs_transfer"
+path = "tests/fs_transfer.rs"
+
 [profile.dev]
 debug = 0
 strip = "debuginfo"
