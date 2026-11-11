@@ -510,6 +510,26 @@ driver restoration is out of scope (another lane).
 Sequencing: S1 → S2 → S3 → S4; S5 → S6; S7 and S8 are independent after S1.
 S6 depends on S1 only if the scan primitive reuses the metadata record.
 
+## Decisions (owner, 2026-11-11)
+
+- **ish is canonical for everything.** xshi is outdated; every behavior ish
+  has, xshi matches, and the deviations listed in SPEC-INTERACTIVE §1 and
+  elsewhere are retired as each slice reaches them: `l` hides dotfiles with
+  `ll` showing them, OSC 133 markers, ish's history visibility, `.env` behind
+  `denv allow`, and the rest. SPEC-INTERACTIVE is rewritten to describe the
+  ish behavior. xshi-only additions that leave ish-shaped input alone (XSH
+  source at the prompt) are kept unless a slice finds a conflict, which goes
+  back to the owner.
+- **fdu is an XSH app** (`core/fdu.xsh`) on generic `tui_*` libraries extracted
+  from btop's; xshi runs it as a builtin.
+- **The fdu scan is a narrow Rust primitive** beside `fs.walk`, carrying ish's
+  size-indexed parallel scan; model, browser and delete logic stay in XSH.
+- **Staged publication and crash recovery stay internal** to XSH's
+  filesystem layer, shared by the shell's `cp`/`mv`/`rsync`/`rmrf` and core
+  commands, with no new script-visible contract yet.
+- **Harness:** the parity lane owns the move to `laputa-ptytest` 0.4.
+- **macOS** stays owner-deferred; Linux first.
+
 ## 5. (E) Open questions for the owner
 
 1. **fdu delivery vehicle.** XSH app (`core/fdu.xsh`, reusing genericized
