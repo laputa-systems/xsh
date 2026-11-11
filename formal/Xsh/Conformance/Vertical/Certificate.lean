@@ -24,8 +24,8 @@ theorem fixture_is_the_decoded_source_document :
 
 /-- The functions the source document parses to. -/
 def fixtureFunctions : List SourceFunction :=
-  [⟨"divided", [], [("zero", 0)], .value (.binary .div (.int 1) (.var "zero"))⟩,
-    ⟨"overflowed", [], [("top", 9223372036854775807)],
+  [⟨"divided", [], [("zero", 0)], none, .value (.binary .div (.int 1) (.var "zero"))⟩,
+    ⟨"overflowed", [], [("top", 9223372036854775807)], none,
       .value (.binary .add (.var "top") (.int 1))⟩]
 
 set_option maxRecDepth 10000 in
@@ -217,19 +217,19 @@ check against the same artifact: swapped operands, another operator, a dropped b
 changed literal. -/
 theorem a_wrong_lowering_is_rejected :
     lowersTo fixtureArtifact (fixtureFunctions.set 0
-        ⟨"divided", [], [("zero", 0)], .value (.binary .div (.var "zero") (.int 1))⟩) = false ∧
+        ⟨"divided", [], [("zero", 0)], none, .value (.binary .div (.var "zero") (.int 1))⟩) = false ∧
       sourceAgrees fixtureArtifact (fixtureFunctions.set 0
-        ⟨"divided", [], [("zero", 0)], .value (.binary .div (.var "zero") (.int 1))⟩) = false ∧
+        ⟨"divided", [], [("zero", 0)], none, .value (.binary .div (.var "zero") (.int 1))⟩) = false ∧
       lowersTo fixtureArtifact (fixtureFunctions.set 1
-        ⟨"overflowed", [], [("top", 9223372036854775807)],
+        ⟨"overflowed", [], [("top", 9223372036854775807)], none,
           .value (.binary .sub (.var "top") (.int 1))⟩) = false ∧
       sourceAgrees fixtureArtifact (fixtureFunctions.set 1
-        ⟨"overflowed", [], [("top", 9223372036854775807)],
+        ⟨"overflowed", [], [("top", 9223372036854775807)], none,
           .value (.binary .sub (.var "top") (.int 1))⟩) = false ∧
       lowersTo fixtureArtifact (fixtureFunctions.set 0
-        ⟨"divided", [], [], .value (.binary .div (.int 1) (.int 0))⟩) = false ∧
+        ⟨"divided", [], [], none, .value (.binary .div (.int 1) (.int 0))⟩) = false ∧
       sourceAgrees fixtureArtifact (fixtureFunctions.set 0
-        ⟨"divided", [], [("zero", 1)], .value (.binary .div (.int 1) (.var "zero"))⟩) = false := by
+        ⟨"divided", [], [("zero", 1)], none, .value (.binary .div (.int 1) (.var "zero"))⟩) = false := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 end Xsh.Conformance.Vertical

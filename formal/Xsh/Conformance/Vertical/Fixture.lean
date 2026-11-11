@@ -171,4 +171,39 @@ def resultArtifact : RawArtifact where
   observations := [⟨bridgeId! 1, [7], .ok 7⟩, ⟨bridgeId! 2, [5], .err 5⟩,
     ⟨bridgeId! 3, [4], .ok 5⟩, ⟨bridgeId! 3, [18446744073709551615], .ok 0⟩]
 
+def propagationSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure keeps(value: Int) -> Result[Int, Int] {\n  return Ok(value + 1)\n}\n\npure stops(value: Int) -> Result[Int, Int] {\n  return Err(value)\n}\n\npure passes(value: Int) -> Result[Int, Int] {\n  let kept = keeps(value)?\n  return Ok(kept)\n}\n\npure blocks(value: Int) -> Result[Int, Int] {\n  let kept = stops(value)?\n  return Ok(kept)\n}\n"⟩
+
+def propagationArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprInt, 1, 2⟩,
+    ⟨bridgeId! 3, .exprBinary, 3, 4⟩, ⟨bridgeId! 4, .exprOk, 7, 1⟩,
+    ⟨bridgeId! 5, .stmtReturn, 8, 1⟩, ⟨bridgeId! 6, .exprParam, 11, 1⟩,
+    ⟨bridgeId! 7, .exprErr, 12, 2⟩, ⟨bridgeId! 8, .stmtReturn, 14, 1⟩,
+    ⟨bridgeId! 9, .exprParam, 17, 1⟩, ⟨bridgeId! 10, .exprDirectPureCall, 21, 3⟩,
+    ⟨bridgeId! 11, .exprTry, 24, 2⟩, ⟨bridgeId! 12, .stmtLet, 26, 3⟩,
+    ⟨bridgeId! 13, .exprParam, 29, 1⟩, ⟨bridgeId! 14, .exprOk, 30, 1⟩,
+    ⟨bridgeId! 15, .stmtReturn, 31, 1⟩, ⟨bridgeId! 16, .exprParam, 35, 1⟩,
+    ⟨bridgeId! 17, .exprDirectPureCall, 39, 3⟩, ⟨bridgeId! 18, .exprTry, 42, 2⟩,
+    ⟨bridgeId! 19, .stmtLet, 44, 3⟩, ⟨bridgeId! 20, .exprParam, 47, 1⟩,
+    ⟨bridgeId! 21, .exprOk, 48, 1⟩, ⟨bridgeId! 22, .stmtReturn, 49, 1⟩]
+  extra := [0, 1, 0, 0, 0, 1, 2, 2, 3, 1, 4, 0, 5, 0, 6, 1, 7, 0, 1, 0, 8, 1, 3, 3, 9, 4,
+    2, 10, 0, 2, 12, 13, 2, 11, 14, 0, 1, 0, 15, 2, 5, 5, 16, 6, 2, 17, 0, 2, 19, 20, 2, 18,
+    21]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 9, 2, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 15, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩,
+    ⟨bridgeId! 3, 18, 3, ⟨none⟩, ⟨some (bridgeId! 3)⟩, 0⟩,
+    ⟨bridgeId! 4, 32, 3, ⟨none⟩, ⟨some (bridgeId! 3)⟩, 3⟩,
+    ⟨bridgeId! 5, 36, 3, ⟨none⟩, ⟨some (bridgeId! 4)⟩, 0⟩,
+    ⟨bridgeId! 6, 50, 3, ⟨none⟩, ⟨some (bridgeId! 4)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "keeps", 0, 1, 0, 1, bridgeId! 1, 2⟩,
+    ⟨bridgeId! 2, "stops", 1, 1, 1, 1, bridgeId! 2, 2⟩,
+    ⟨bridgeId! 3, "passes", 2, 1, 2, 1, bridgeId! 4, 3⟩,
+    ⟨bridgeId! 4, "blocks", 3, 1, 3, 1, bridgeId! 6, 3⟩]
+  observations := [⟨bridgeId! 1, [7], .ok 8⟩, ⟨bridgeId! 2, [5], .err 5⟩,
+    ⟨bridgeId! 3, [7], .ok 8⟩, ⟨bridgeId! 4, [5], .err 5⟩,
+    ⟨bridgeId! 3, [18446744073709551613], .ok 18446744073709551614⟩]
+
 end Xsh.Conformance.Vertical

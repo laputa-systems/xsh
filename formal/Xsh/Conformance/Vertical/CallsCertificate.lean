@@ -21,10 +21,10 @@ theorem calls_artifact_is_the_decoded_source_document :
 
 /-- The functions the calls source document parses to. -/
 def callsFunctions : List SourceFunction :=
-  [⟨"excess", ["value", "limit"], [],
+  [⟨"excess", ["value", "limit"], [], none,
       .conditional .gt (.var "value") (.var "limit") (.binary .sub (.var "value") (.var "limit"))
         (.atom (.int 0))⟩,
-    ⟨"surplus", [], [("x", 12)], .call "excess" [.var "x", .int 9]⟩]
+    ⟨"surplus", [], [("x", 12)], none, .call "excess" [.var "x", .int 9]⟩]
 
 set_option maxRecDepth 10000 in
 theorem the_calls_source_parses_to_the_calls_functions :
@@ -165,14 +165,14 @@ check against the same artifact: a call with exchanged arguments and a condition
 branches are exchanged. -/
 theorem a_wrong_calls_lowering_is_rejected :
     sourceAgrees callsArtifact (callsFunctions.set 1
-        ⟨"surplus", [], [("x", 12)], .call "excess" [.int 9, .var "x"]⟩) = false ∧
+        ⟨"surplus", [], [("x", 12)], none, .call "excess" [.int 9, .var "x"]⟩) = false ∧
       lowersTo callsArtifact (callsFunctions.set 1
-        ⟨"surplus", [], [("x", 12)], .call "excess" [.int 9, .var "x"]⟩) = false ∧
+        ⟨"surplus", [], [("x", 12)], none, .call "excess" [.int 9, .var "x"]⟩) = false ∧
       sourceAgrees callsArtifact (callsFunctions.set 0
-        ⟨"excess", ["value", "limit"], [], .conditional .gt (.var "value") (.var "limit")
+        ⟨"excess", ["value", "limit"], [], none, .conditional .gt (.var "value") (.var "limit")
           (.atom (.int 0)) (.binary .sub (.var "value") (.var "limit"))⟩) = false ∧
       lowersTo callsArtifact (callsFunctions.set 0
-        ⟨"excess", ["limit", "value"], [], .conditional .gt (.var "value") (.var "limit")
+        ⟨"excess", ["limit", "value"], [], none, .conditional .gt (.var "value") (.var "limit")
           (.binary .sub (.var "value") (.var "limit")) (.atom (.int 0))⟩) = false := by
   refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
 

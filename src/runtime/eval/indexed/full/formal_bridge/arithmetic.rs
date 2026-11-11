@@ -21,10 +21,12 @@ enum ProjectedTag {
     StmtAssignInt,
     ExprOk,
     ExprErr,
+    ExprTry,
+    StmtLet,
 }
 
 impl ProjectedTag {
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 17] = [
         Self::IntInt,
         Self::StmtLetInt,
         Self::ExprInt,
@@ -40,6 +42,8 @@ impl ProjectedTag {
         Self::StmtAssignInt,
         Self::ExprOk,
         Self::ExprErr,
+        Self::ExprTry,
+        Self::StmtLet,
     ];
 
     fn from_full_tag(tag: FullTag) -> Option<Self> {
@@ -63,6 +67,8 @@ impl ProjectedTag {
             Self::StmtAssignInt => FullTag::StmtAssignInt,
             Self::ExprOk => FullTag::ExprOk,
             Self::ExprErr => FullTag::ExprErr,
+            Self::ExprTry => FullTag::ExprTry,
+            Self::StmtLet => FullTag::StmtLet,
         }
     }
 
@@ -89,6 +95,8 @@ impl ProjectedTag {
             Self::ExprBinary | Self::StmtAssignInt => 4,
             Self::ExprOk => 1,
             Self::ExprErr => 2,
+            Self::ExprTry => 2,
+            Self::StmtLet => 3,
         }
     }
 
@@ -108,6 +116,10 @@ impl ProjectedTag {
         matches!(self, Self::ExprOk | Self::ExprErr)
     }
 
+    fn is_propagation(self) -> bool {
+        matches!(self, Self::ExprTry)
+    }
+
     fn is_int_row(self) -> bool {
         matches!(self, Self::IntInt | Self::IntSlot | Self::IntBinary)
     }
@@ -116,6 +128,7 @@ impl ProjectedTag {
         matches!(
             self,
             Self::StmtLetInt | Self::StmtReturn | Self::StmtValue | Self::StmtAssignInt
+                | Self::StmtLet
         )
     }
 }
@@ -417,6 +430,19 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
                 }
                 if words[1] != 0 {
                     return Err("Err cause word is not the absent marker".to_string());
+                }
+            }
+            ProjectedTag::ExprTry => {
+                if document.row_before(words[0], index)?.tag != ProjectedTag::ExprDirectPureCall {
+                    return Err("propagated value is not a direct call".to_string());
+                }
+            }
+            ProjectedTag::StmtLet => {
+                if words[2] != 0 {
+                    return Err("propagation binding carries a type annotation".to_string());
+                }
+                if !document.row_before(words[1], index)?.tag.is_propagation() {
+                    return Err("bound value is not a propagation".to_string());
                 }
             }
         }
@@ -1016,6 +1042,19 @@ mod tests {
         ScheduledCall { function: "adds", arguments: &[-1] },
     ];
 
+    const PROPAGATION_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-result-propagation.xsh"
+    ));
+
+    const PROPAGATION_SCHEDULE: [ScheduledCall; 5] = [
+        ScheduledCall { function: "keeps", arguments: &[7] },
+        ScheduledCall { function: "stops", arguments: &[5] },
+        ScheduledCall { function: "passes", arguments: &[7] },
+        ScheduledCall { function: "blocks", arguments: &[5] },
+        ScheduledCall { function: "passes", arguments: &[-3] },
+    ];
+
     struct Fixture {
         source: SourceDocument,
         sources: SourceMap,
@@ -1074,6 +1113,8 @@ mod tests {
         let assignments = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
         let boolean = fixture_of(BOOLEAN_SOURCE.to_string(), &BOOLEAN_SCHEDULE);
         let result = fixture_of(RESULT_SOURCE.to_string(), &RESULT_SCHEDULE);
+        let propagation =
+            fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
@@ -1095,6 +1136,12 @@ mod tests {
                 &RESULT_SCHEDULE[..],
                 "resultSourceDocumentCodes",
                 "resultRawIrDocumentCodes",
+            ),
+            (
+                &propagation,
+                &PROPAGATION_SCHEDULE[..],
+                "propagationSourceDocumentCodes",
+                "propagationRawIrDocumentCodes",
             ),
         ] {
             let source_text = encode_source_document(&fixture.source);
@@ -1827,4 +1874,153 @@ mod tests {
         operand_to_literal.store.extra[binary + 1] = literal_row;
         assert!(check(&operand_to_literal).is_err());
     }
+
+    #[test]
+    fn exported_result_propagation_rows_are_the_propagation_family() {
+        let fixture =
+            fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
+        let document = &fixture.document;
+
+        let keeps = function_body_statements(&fixture, "keeps");
+        assert_eq!(keeps.len(), 1);
+        let returned = document.payload(&document.rows[keeps[0]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprOk);
+        let sum = document.payload(&document.rows[returned]).unwrap()[0] as usize;
+        assert_eq!(document.rows[sum].tag, ProjectedTag::ExprBinary);
+
+        let passes = function_body_statements(&fixture, "passes");
+        assert_eq!(passes.len(), 2);
+        assert_eq!(document.rows[passes[0]].tag, ProjectedTag::StmtLet);
+        let binding = document.payload(&document.rows[passes[0]]).unwrap();
+        assert_eq!(binding[2], 0);
+        let try_row = binding[1] as usize;
+        assert_eq!(document.rows[try_row].tag, ProjectedTag::ExprTry);
+        let propagated = document.payload(&document.rows[try_row]).unwrap();
+        let call_row = propagated[0] as usize;
+        assert_eq!(document.rows[call_row].tag, ProjectedTag::ExprDirectPureCall);
+        let call = document.payload(&document.rows[call_row]).unwrap();
+        assert_eq!(call[0] as usize, 1);
+        let arguments = document.blocks[call[1] as usize - 1];
+        let table = &document.extra
+            [arguments.start as usize..(arguments.start + arguments.len) as usize];
+        assert_eq!(table, &[1, 0, 8]);
+        assert_eq!(document.rows[passes[1]].tag, ProjectedTag::StmtReturn);
+
+        let blocks = function_body_statements(&fixture, "blocks");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(document.rows[blocks[0]].tag, ProjectedTag::StmtLet);
+        let binding = document.payload(&document.rows[blocks[0]]).unwrap();
+        let try_row = binding[1] as usize;
+        assert_eq!(document.rows[try_row].tag, ProjectedTag::ExprTry);
+        let call_row = document.payload(&document.rows[try_row]).unwrap()[0] as usize;
+        let call = document.payload(&document.rows[call_row]).unwrap();
+        assert_eq!(call[0] as usize, 2);
+
+        assert_eq!(
+            document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [
+                Outcome::Ok(8),
+                Outcome::Err(5),
+                Outcome::Ok(8),
+                Outcome::Err(5),
+                Outcome::Ok(18446744073709551614),
+            ]
+        );
+    }
+
+    #[test]
+    fn result_propagation_runs_continue_on_ok_and_propagate_err() {
+        let fixture =
+            fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
+        let observations = execute_schedule(
+            &fixture.program,
+            &fixture.sources,
+            &PROPAGATION_SCHEDULE,
+        )
+        .unwrap();
+        assert_eq!(
+            observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [
+                Outcome::Ok(8),
+                Outcome::Err(5),
+                Outcome::Ok(8),
+                Outcome::Err(5),
+                Outcome::Ok(18446744073709551614),
+            ]
+        );
+    }
+
+    #[test]
+    fn mutated_result_propagation_programs_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture =
+            fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
+        let check = |document: &ArithmeticDocument, program: &FullProgram| {
+            check_artifact_against_program(
+                document,
+                program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                &PROPAGATION_SCHEDULE,
+            )
+        };
+        assert!(check(&fixture.document, &fixture.program).is_ok());
+
+        let mut wrong_slot = fixture.program.clone();
+        let slot = payload_start(&wrong_slot, FullTag::ExprParam, 3);
+        wrong_slot.store.extra[slot] = 0;
+        FullVerifier::verify(&wrong_slot).expect("the changed slot is still well typed");
+        assert_eq!(
+            execute_schedule(&wrong_slot, &fixture.sources, &PROPAGATION_SCHEDULE).unwrap()[2]
+                .outcome,
+            Outcome::Ok(7)
+        );
+        assert!(check(&fixture.document, &wrong_slot).is_err());
+
+        let mut wrong_record = fixture.document.clone();
+        wrong_record.observations[2].outcome = Outcome::Err(8);
+        assert!(validate_arithmetic_document(&wrong_record).is_ok());
+        assert!(check(&wrong_record, &fixture.program).is_err());
+    }
+
+    #[test]
+    fn structurally_malformed_result_propagation_rows_are_rejected() {
+        let fixture =
+            fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
+        let reject = |name: &str, mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err(), "{name} must be rejected");
+        };
+        let try_row = fixture
+            .document
+            .rows
+            .iter()
+            .position(|row| row.tag == ProjectedTag::ExprTry)
+            .unwrap();
+        let binding_row = fixture
+            .document
+            .rows
+            .iter()
+            .position(|row| row.tag == ProjectedTag::StmtLet)
+            .unwrap();
+        let call_row = fixture
+            .document
+            .rows
+            .iter()
+            .position(|row| row.tag == ProjectedTag::ExprDirectPureCall)
+            .unwrap();
+        reject("a propagation row naming itself", &|document| {
+            document.extra[document.rows[try_row].lhs as usize] = try_row as u32;
+        });
+        reject("a binding value that is not a propagation", &|document| {
+            document.extra[document.rows[binding_row].lhs as usize + 1] = call_row as u32;
+        });
+        reject("a binding type annotation", &|document| {
+            document.extra[document.rows[binding_row].lhs as usize + 2] = 1;
+        });
+        reject("a call naming the absent function", &|document| {
+            document.extra[document.rows[call_row].lhs as usize] = 0;
+        });
+    }
+
 }

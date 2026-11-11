@@ -21,10 +21,10 @@ theorem assignments_artifact_is_the_decoded_source_document :
 
 /-- The functions the assignments source document parses to. -/
 def assignmentsFunctions : List SourceFunction :=
-  [⟨"scaled", [], [("total", 5)],
+  [⟨"scaled", [], [("total", 5)], none,
       .assigned "total" (.binary .mul (.var "total") (.int 6))
         (.binary .add (.var "total") (.int 1))⟩,
-    ⟨"wrapped", [], [("top", 9223372036854775807)],
+    ⟨"wrapped", [], [("top", 9223372036854775807)], none,
       .assigned "top" (.binary .add (.var "top") (.int 1)) (.atom (.var "top"))⟩]
 
 set_option maxRecDepth 10000 in
@@ -164,13 +164,13 @@ against the same artifact: the product's operands exchanged (the same value, oth
 the assignment dropped (another value). -/
 theorem a_wrong_assignments_lowering_is_rejected :
     lowersTo assignmentsArtifact (assignmentsFunctions.set 0
-        ⟨"scaled", [], [("total", 5)],
+        ⟨"scaled", [], [("total", 5)], none,
           .assigned "total" (.binary .mul (.int 6) (.var "total"))
             (.binary .add (.var "total") (.int 1))⟩) = false ∧
       lowersTo assignmentsArtifact (assignmentsFunctions.set 0
-        ⟨"scaled", [], [("total", 5)], .value (.binary .add (.var "total") (.int 1))⟩) = false ∧
+        ⟨"scaled", [], [("total", 5)], none, .value (.binary .add (.var "total") (.int 1))⟩) = false ∧
       sourceAgrees assignmentsArtifact (assignmentsFunctions.set 0
-        ⟨"scaled", [], [("total", 5)], .value (.binary .add (.var "total") (.int 1))⟩) = false := by
+        ⟨"scaled", [], [("total", 5)], none, .value (.binary .add (.var "total") (.int 1))⟩) = false := by
   refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
 
 end Xsh.Conformance.Vertical

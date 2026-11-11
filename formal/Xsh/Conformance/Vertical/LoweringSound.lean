@@ -609,8 +609,8 @@ theorem call_lowers {src : List (String × Option Callee)} {owner : BridgeId}
     (h : Lower.expression owner scope (.call callee arguments) s = some (row, s')) :
     ∃ e, (SourceExpression.call callee arguments).expression? src scope = some e ∧
       Lowers (src.map (·.2)) s s' row e := by
-  simp only [Lower.expression, run_bind, run_get, run_lift, run_require, run_pure,
-    Lower.word] at h
+  simp only [Lower.expression, Lower.pureCall, run_bind, run_get, run_lift, run_require,
+    run_pure, Lower.word] at h
   obtain ⟨_, _, ⟨rfl, rfl⟩, index, _, ⟨hfind, rfl⟩, found, _, ⟨hfound, rfl⟩, _, _, ⟨rfl, rfl⟩,
     _, _, ⟨hcallable, rfl⟩, _, _, ⟨hlen, rfl⟩, rows, s7, hrows, count, _, ⟨hcount, rfl⟩, table, s9,
     htable, span, s10, hspan, w, _, ⟨hw, rfl⟩, push⟩ := h
@@ -810,9 +810,10 @@ theorem return_expression_of {F : LoweringState} {cs : List (Option Callee)}
 theorem body_return {F : LoweringState} {cs : List (Option Callee)} {returned operand : Word32}
     {e : BaseExpr} (at_ : F.RowAt returned.val .stmtReturn [operand])
     (before : operand.val < returned.val) (rowBound : returned.val < F.rows.length)
-    (reads : Reads F cs operand e) : body? (F.context cs) [returned] = some ([], none, e) := by
+    (reads : Reads F cs operand e) :
+    body? (F.context cs) [returned] = some ([], none, none, e) := by
   have returnRead := return_expression_of at_ before rowBound reads
-  simp [body?, readInstruction_of_rowAt at_, returnRead]
+  simp [body?, bodyStep, readInstruction_of_rowAt at_, returnRead]
 
 theorem body_assign_return {F : LoweringState} {cs : List (Option Callee)}
     {assign returned slot kind valueRow span : Word32} {valueExpression e : BaseExpr}
@@ -820,12 +821,114 @@ theorem body_assign_return {F : LoweringState} {cs : List (Option Callee)}
     (plain : kind.val = 0) (valueBefore : valueRow.val < assign.val)
     (rowBound : assign.val < F.rows.length) (valueReads : IntReads F cs valueRow valueExpression)
     (returnRead : returnExpression? (F.context cs) returned = some e) :
-    body? (F.context cs) [assign, returned] = some ([], some ⟨slot, valueExpression⟩, e) := by
+    body? (F.context cs) [assign, returned] = some ([], some ⟨slot, valueExpression⟩, none, e) := by
   have fuel : valueRow.val < (F.context cs).tables.tags.size + 1 := by
     simp [LoweringState.tables]; omega
   have read := valueReads (F.tables.tags.size + 1) (by simpa using fuel)
   have kindZero : kind = 0 := Fin.ext plain
-  simp [body?, readInstruction_of_rowAt assignAt, read, returnRead, kindZero, valueBefore]
+  simp [body?, bodyStep, readInstruction_of_rowAt assignAt, read, returnRead, kindZero,
+    valueBefore]
+
+theorem propagation_of {F : LoweringState} {cs : List (Option Callee)}
+    {row slot valueRow annotation callRow trySpan : Word32}
+    {parameters : List Xsh.Syntax.RawName} {body : BaseExpr} {args : List BaseExpr}
+    (bindingAt : F.RowAt row.val .stmtLet [slot, valueRow, annotation])
+    (annotationZero : annotation.val = 0) (valueBefore : valueRow.val < row.val)
+    (tryAt : F.RowAt valueRow.val .exprTry [callRow, trySpan])
+    (callBefore : callRow.val < valueRow.val)
+    (readsCall : Reads F cs callRow (.call parameters body args)) :
+    propagationOf? (F.context cs) row = some ⟨slot, parameters, body, args⟩ := by
+  unfold propagationOf?
+  have rowBound : row.val < F.rows.length := by
+    obtain ⟨found, located, _, _, _, _⟩ := bindingAt
+    exact (List.getElem?_eq_some_iff.mp located).1
+  have callRead := readsCall (F.tables.tags.size + 1) (by
+    simp [LoweringState.tables]; omega)
+  have annotationIs : annotation = 0 := Fin.ext annotationZero
+  simp [readInstruction_of_rowAt bindingAt, readInstruction_of_rowAt tryAt, annotationIs,
+    valueBefore, callBefore, callRead]
+
+theorem body_propagation_return {F : LoweringState} {cs : List (Option Callee)}
+    {binding returned slot valueRow annotation : Word32} {propagation : Propagation}
+    {e : BaseExpr}
+    (bindingAt : F.RowAt binding.val .stmtLet [slot, valueRow, annotation])
+    (found : propagationOf? (F.context cs) binding = some propagation)
+    (returnRead : returnExpression? (F.context cs) returned = some e) :
+    body? (F.context cs) [binding, returned] = some ([], none, some propagation, e) := by
+  simp [body?, bodyStep, readInstruction_of_rowAt bindingAt, found, returnRead]
+
+theorem propagation_lowers {src : List (String × Option Callee)} {owner : BridgeId}
+    {scope : List (String × Nat)} {propagation : SourcePropagation}
+    {s s' : LoweringState} {row : Word32} (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (h : Lower.propagation owner scope propagation s = some (row, s')) :
+    ∃ slot word callee args tryRow,
+      scope.lookup propagation.target = some slot ∧ Word32.decode? slot = some word ∧
+      (src.lookup propagation.callee).bind id = some callee ∧
+      propagation.arguments.length = callee.parameters ∧
+      propagation.arguments.mapM (·.expression? scope) = some args ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧ s'.functions = s.functions ∧ s'.callable = s.callable ∧
+      row.val < s'.rows.length ∧
+      ∀ (F : LoweringState), StateLE s' F →
+        F.RowAt row.val .stmtLet [word, tryRow, 0] ∧
+        propagationOf? (F.context (src.map (·.2))) row =
+          some ⟨word, parameterNames callee.parameters, callee.body, args⟩ := by
+  simp only [Lower.propagation, run_bind, run_lift, Lower.word] at h
+  obtain ⟨callRow, s1, hcall, trySpan, s2, htrySpan, tried, s3, htry, slot, s4, ⟨hslot, rfl⟩,
+    w, s5, ⟨hw, rfl⟩, push⟩ := h
+  obtain ⟨e, hsrc, callLowers⟩ := call_lowers wf aligned hcall
+  unfold SourceExpression.expression? at hsrc
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hsrc
+  obtain ⟨callee, hcallee, hsrc⟩ := hsrc
+  have lookedUp : (src.lookup propagation.callee).bind id = some callee := by
+    obtain ⟨entry, hlookup, hid⟩ := hcallee
+    rw [hlookup]
+    exact hid
+  by_cases countFits : (propagation.arguments.length == callee.parameters) = true
+  · rw [if_pos countFits] at hsrc
+    simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hsrc
+    obtain ⟨args, foundArguments, he⟩ := hsrc
+    have he' : e = .call (parameterNames callee.parameters) callee.body args := by
+      simpa using he.symm
+    subst he'
+    have countFitsEq : propagation.arguments.length = callee.parameters := by
+      simpa [beq_iff_eq] using countFits
+    obtain ⟨rest, spans, rfl⟩ := take_span_run htrySpan
+    have spanLe : StateLE s1 { s1 with spans := rest } := StateLE.of_eq rfl rfl rfl rfl
+    have wf2 : BlocksIndexed { s1 with spans := rest } := BlocksIndexed.congr rfl callLowers.wf
+    obtain ⟨_, _, tryIndex, _⟩ := push_row_run htry
+    have tryLe := push_row_le htry
+    have tryFrame := push_row_frame htry
+    have wf3 := BlocksIndexed.congr (push_row_blocks htry).1 wf2
+    obtain ⟨_, _, rowIndex, _⟩ := push_row_run push
+    have pushLe := push_row_le push
+    have pushFrame := push_row_frame push
+    have wf4 : BlocksIndexed s' := BlocksIndexed.congr (push_row_blocks push).1 wf3
+    have callBefore : callRow.val < tried.val := by
+      have := callLowers.before
+      simp only [tryIndex]
+      simp at this ⊢
+      omega
+    have tryBefore : tried.val < row.val := by
+      have step := (push_row_blocks htry).2.2
+      simp only [rowIndex]
+      omega
+    refine ⟨slot, w, callee, args, tried, hslot, hw, lookedUp, countFitsEq, foundArguments, ?_, ?_, ?_,
+      ?_, ?_, ?_⟩
+    · exact callLowers.le.trans (spanLe.trans (tryLe.trans pushLe))
+    · exact wf4
+    · rw [pushFrame.1, tryFrame.1, callLowers.functions.1]
+    · rw [pushFrame.2, tryFrame.2, callLowers.functions.2]
+    · have length := (push_row_blocks push).2.2
+      simp only [rowIndex] at length ⊢
+      omega
+    · intro F le
+      have toTry := tryLe.trans (pushLe.trans le)
+      refine ⟨(push_row_at push rfl).mono le, ?_⟩
+      exact propagation_of ((push_row_at push rfl).mono le) rfl tryBefore
+        ((push_row_at htry rfl).mono (pushLe.trans le)) callBefore
+        (callLowers.reads (spanLe.trans (tryLe.trans (pushLe.trans le))))
+  · rw [if_neg countFits] at hsrc
+    simp at hsrc
 
 theorem fresh_bool (bindings : List LetBinding) (slot : Word32)
     (fresh : ∀ binding ∈ bindings, binding.slot ≠ slot) :
@@ -842,21 +945,21 @@ theorem fresh_bool (bindings : List LetBinding) (slot : Word32)
 
 theorem body_let_cons {ctx : MeaningContext} {statement slot valueRow : Word32}
     {next : Word32} {more : List Word32} {value : IntValue} {bindings : List LetBinding}
-    {assignment : Option Assignment} {result : BaseExpr}
+    {assignment : Option Assignment} {propagation : Option Propagation} {result : BaseExpr}
     (statementAt : readInstruction? ctx.tables statement = some (.stmtLetInt, [slot, valueRow]))
     (valueBefore : valueRow.val < statement.val)
     (literal : literalValue? ctx valueRow = some value)
-    (rest : body? ctx (next :: more) = some (bindings, assignment, result))
+    (rest : body? ctx (next :: more) = some (bindings, assignment, propagation, result))
     (fresh : ∀ binding ∈ bindings, binding.slot ≠ slot) :
     body? ctx (statement :: next :: more) =
-      some (⟨slot, value⟩ :: bindings, assignment, result) := by
+      some (⟨slot, value⟩ :: bindings, assignment, propagation, result) := by
   have freshBool := fresh_bool bindings slot fresh
   have beforeChecked : check (decide (valueRow.val < statement.val)) = some () := by
     unfold check; exact if_pos (decide_eq_true valueBefore)
   have freshChecked : check (!bindings.any fun binding => binding.slot.val == slot.val) = some () := by
     unfold check; exact if_pos freshBool
-  rw [body?]
-  simp only [statementAt, beforeChecked, literal, rest, freshChecked,
+  rw [body?.eq_2]
+  simp only [bodyStep, statementAt, beforeChecked, literal, rest, freshChecked,
     Option.bind_eq_bind, Option.bind_some]
 
 theorem literal_value_of {ctx : MeaningContext} {row low high : Word32} {value : IntValue}
@@ -874,7 +977,7 @@ theorem body_let_return {F : LoweringState} {cs : List (Option Callee)}
     (valid : validateInt? (signedOfWords low high) = some value)
     (returnAt : F.RowAt returned.val .stmtReturn [operand]) (before : operand.val < returned.val)
     (rowBound : returned.val < F.rows.length) (reads : Reads F cs operand e) :
-    body? (F.context cs) [binding, returned] = some ([⟨slot, value⟩], none, e) :=
+    body? (F.context cs) [binding, returned] = some ([⟨slot, value⟩], none, none, e) :=
   body_let_cons (readInstruction_of_rowAt bindingAt) literalBefore
     (literal_value_of (readInstruction_of_rowAt literalAt) valid)
     (body_return returnAt before rowBound reads) (fun _ member => by cases member)
@@ -891,7 +994,7 @@ theorem body_let_assign_return {F : LoweringState} {cs : List (Option Callee)}
     (returnAt : F.RowAt returned.val .stmtReturn [operand]) (before : operand.val < returned.val)
     (rowBound : returned.val < F.rows.length) (reads : Reads F cs operand e) :
     body? (F.context cs) [binding, assign, returned] =
-      some ([⟨slot, value⟩], some ⟨assignSlot, valueExpression⟩, e) :=
+      some ([⟨slot, value⟩], some ⟨assignSlot, valueExpression⟩, none, e) :=
   body_let_cons (readInstruction_of_rowAt bindingAt) literalBefore
     (literal_value_of (readInstruction_of_rowAt literalAt) valid)
     (body_assign_return assignAt plain valueBefore assignBound valueReads
@@ -912,12 +1015,13 @@ theorem statement_rows_of {artifact : RawArtifact} {function : FunctionRow} {blo
 
 theorem function_program_of {artifact : RawArtifact} {callees : List (Option Callee)}
     {function : FunctionRow} {statements : List Word32} {bindings : List LetBinding}
-    {assignment : Option Assignment} {e : BaseExpr}
+    {assignment : Option Assignment} {propagation : Option Propagation} {e : BaseExpr}
     (rows : statementRows? artifact artifact.tables function = some statements)
-    (body : body? (artifact.context callees) statements = some (bindings, assignment, e))
+    (body : body? (artifact.context callees) statements =
+      some (bindings, assignment, propagation, e))
     (shape : function.paramsLen.val = 0 ∨ bindings = []) :
     functionProgram? artifact callees function =
-      some ⟨function.paramsLen.val, bindings, assignment, e⟩ := by
+      some ⟨function.paramsLen.val, bindings, assignment, propagation, e⟩ := by
   unfold functionProgram?
   have checked : check (function.paramsLen.val == 0 || bindings.isEmpty) = some () := by
     unfold check
@@ -931,21 +1035,25 @@ theorem function_program_of {artifact : RawArtifact} {callees : List (Option Cal
 theorem function_tail_lowers {src : List (String × Option Callee)} {f : SourceFunction}
     {scope : List (String × Nat)} {owner : BridgeId} {s s' : LoweringState}
     {functionsBefore parametersStart : Nat} {statements : List Word32}
-    {bindings : List LetBinding} {assignment : Option Assignment} (wf : BlocksIndexed s)
+    {bindings : List LetBinding} {assignment : Option Assignment}
+    {propagation : Option Propagation} (wf : BlocksIndexed s)
     (aligned : Aligned s src) (shape : f.parameters.length = 0 ∨ bindings = [])
-    (statementsRead : ∀ (F : LoweringState) (cs : List (Option Callee)), StateLE s F →
+    (statementsRead : ∀ (F : LoweringState), StateLE s F →
       ∀ (returned operand : Word32) (e : BaseExpr), F.RowAt returned.val .stmtReturn [operand] →
-        operand.val < returned.val → returned.val < F.rows.length → Reads F cs operand e →
-          body? (F.context cs) (statements ++ [returned]) = some (bindings, assignment, e))
+        operand.val < returned.val → returned.val < F.rows.length →
+          Reads F (src.map (·.2)) operand e →
+          body? (F.context (src.map (·.2))) (statements ++ [returned]) =
+            some (bindings, assignment, propagation, e))
     (h : Lower.functionTail f scope owner functionsBefore parametersStart statements s =
       some ((), s')) :
     ∃ e row, f.result.expression? src scope = some e ∧
-      s'.functions = s.functions ++ [row] ∧ s'.callable = s.callable ++ [f.lets.isEmpty] ∧
+      s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [f.lets.isEmpty && f.propagation.isNone] ∧
       StateLE s s' ∧ BlocksIndexed s' ∧ row.name = f.name ∧
       row.paramsLen.val = f.parameters.length ∧
       ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
         functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row =
-          some ⟨f.parameters.length, bindings, assignment, e⟩ := by
+          some ⟨f.parameters.length, bindings, assignment, propagation, e⟩ := by
   simp only [Lower.functionTail, run_bind, run_modify, run_pure, Lower.word, run_lift] at h
   obtain ⟨result, s1, hexpr, returned, s2, hret, count, s3, ⟨hcount, rfl⟩, body, s4, hbody,
     parameters, s5, ⟨hparams, rfl⟩, pStart, s6, ⟨hpstart, rfl⟩, fBefore, s7, ⟨hfb, rfl⟩, slots,
@@ -991,7 +1099,7 @@ theorem function_tail_lowers {src : List (String × Option Callee)} {f : SourceF
         simp only [LoweringState.tables] at same ⊢
         simp [same]
       · simp [decode_val hcount]
-    have bodyRead := statementsRead F (src.map (·.2)) (chainLe.trans toF) returned result e atReturn
+    have bodyRead := statementsRead F (chainLe.trans toF) returned result e atReturn
       resultBefore boundReturn (lw.reads (retLe.trans (bodyLe.trans toF)))
     have program := function_program_of rowsOk bodyRead (by rw [paramsValue]; exact shape)
     dsimp only at program
@@ -1024,7 +1132,7 @@ theorem assignments_plain {name : String} {scope : List (String × Nat)}
 
 theorem assignment_plain {f : SourceFunction} {scope : List (String × Nat)}
     (plain : f.result.isAssigned = false) : f.assignment? scope = some none := by
-  obtain ⟨name, parameters, lets, result⟩ := f
+  obtain ⟨name, parameters, lets, propagation, result⟩ := f
   cases result <;> simp_all [SourceFunction.assignment?, SourceExpression.isAssigned]
 
 theorem assignment_lowers {scope : List (String × Nat)}
@@ -1068,29 +1176,36 @@ theorem assignment_lowers {scope : List (String × Nat)}
 
 theorem function_lowers_plain {src : List (String × Option Callee)} {f : SourceFunction}
     {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (propagationNone : f.propagation = none)
     (plain : f.result.isAssigned = false) (h : Lower.function f s = some ((), s')) :
-    ∃ program row, f.program? src = some program ∧ program.callee?.isSome = f.lets.isEmpty ∧
+    ∃ program row, f.program? src = some program ∧ program.callee?.isSome = (f.lets.isEmpty && f.propagation.isNone) ∧
       program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
-      s'.callable = s.callable ++ [f.lets.isEmpty] ∧ StateLE s s' ∧ BlocksIndexed s' ∧
+      s'.callable = s.callable ++ [f.lets.isEmpty && f.propagation.isNone] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧
       row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
       ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
         functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
   have plainResult := plain
-  obtain ⟨name, parameters, lets, result⟩ := f
+  obtain ⟨name, parameters, lets, propagation, result⟩ := f
   dsimp only at plainResult
+  subst propagationNone
   cases lets with
   | nil =>
     simp only [Lower.function, run_bind, run_lift, run_get, run_pure, run_require] at h
     obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, _, _, ⟨_, rfl⟩,
       tail⟩ := h
     obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
-      function_tail_lowers (statements := []) (bindings := []) (assignment := none) wf aligned
-        (Or.inr rfl)
-        (fun F cs _ returned operand e' at_ before bound rd => by
+      function_tail_lowers (statements := []) (bindings := []) (assignment := none)
+        (propagation := none) wf aligned (Or.inr rfl)
+        (fun F _ returned operand e' at_ before bound rd => by
           simpa using body_return at_ before bound rd) tail
-    refine ⟨⟨parameters.length, [], none, e⟩, row, ?_, by simp [FunctionProgram.callee?], rfl, fa,
+    refine ⟨⟨parameters.length, [], none, none, e⟩, row, ?_,
+      by simp [FunctionProgram.callee?], rfl, fa,
       fb, le, wf', hname, hparams, reads⟩
-    simp [SourceFunction.program?, hscope, hsrc, assignment_plain plain]
+    have assignmentNone :
+        (⟨name, parameters, [], none, result⟩ : SourceFunction).assignment? scope = some none := by
+      cases result <;> simp_all [SourceFunction.assignment?, SourceExpression.isAssigned]
+    simp [SourceFunction.program?, hscope, hsrc, assignmentNone]
   | cons binding more =>
     obtain ⟨bindingName, value⟩ := binding
     cases more with
@@ -1122,9 +1237,10 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
       have rowsGrow := (push_row_blocks hpush1).2.2
       obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
         function_tail_lowers (statements := [bindingRow])
-          (bindings := [⟨⟨letSlot, by decide⟩, bound⟩]) (assignment := none) wf2 alignedLet
+          (bindings := [⟨⟨letSlot, by decide⟩, bound⟩]) (assignment := none)
+          (propagation := none) wf2 alignedLet
           (Or.inl rfl)
-          (fun F cs leF returned operand e' at_ before bound' rd => by
+          (fun F leF returned operand e' at_ before bound' rd => by
             have literalAt := (push_row_at hpush1 rfl).mono
               ((push_row_le hpush2).trans leF)
             have bindingAt := (push_row_at hpush2 rfl).mono leF
@@ -1134,9 +1250,13 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
               rw [signed_of_words_literal ok lowEq highEq]; exact hbound
             simpa using body_let_return bindingAt literalBefore literalAt valid at_ before bound' rd)
           tail
-      refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, bound⟩], none, e⟩, row, ?_, by simp [FunctionProgram.callee?],
-        rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
-      · simp [SourceFunction.program?, hscope, hbound, hsrc, assignment_plain plain]
+      refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, bound⟩], none, none, e⟩, row, ?_,
+        by simp [FunctionProgram.callee?], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
+      · have assignmentNone :
+            (⟨name, [], [(bindingName, value)], none, result⟩ : SourceFunction).assignment?
+              scope = some none := by
+          cases result <;> simp_all [SourceFunction.assignment?, SourceExpression.isAssigned]
+        simp [SourceFunction.program?, hscope, hbound, hsrc, assignmentNone]
       · rw [fa, frame2.1, frame1.1]
       · rw [fb, frame2.2, frame1.2]
       · exact ((push_row_le hpush1).trans (push_row_le hpush2)).trans le
@@ -1148,14 +1268,17 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
 
 theorem function_lowers_assigned {src : List (String × Option Callee)} {f : SourceFunction}
     {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (propagationNone : f.propagation = none)
     (assigned : f.result.isAssigned = true) (h : Lower.function f s = some ((), s')) :
-    ∃ program row, f.program? src = some program ∧ program.callee?.isSome = f.lets.isEmpty ∧
+    ∃ program row, f.program? src = some program ∧ program.callee?.isSome = (f.lets.isEmpty && f.propagation.isNone) ∧
       program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
-      s'.callable = s.callable ++ [f.lets.isEmpty] ∧ StateLE s s' ∧ BlocksIndexed s' ∧
+      s'.callable = s.callable ++ [f.lets.isEmpty && f.propagation.isNone] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧
       row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
       ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
         functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
-  obtain ⟨name, parameters, lets, result⟩ := f
+  obtain ⟨name, parameters, lets, propagation, result⟩ := f
+  subst propagationNone
   cases result with
   | value _ => simp [SourceExpression.isAssigned] at assigned
   | call _ _ => simp [SourceExpression.isAssigned] at assigned
@@ -1219,8 +1342,9 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
       obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
         function_tail_lowers (statements := [bindingRow, assignRow])
           (bindings := [⟨⟨letSlot, by decide⟩, bound⟩])
-          (assignment := some ⟨⟨letSlot, by decide⟩, ae⟩) assignWf alignedAssign (Or.inl rfl)
-          (fun F cs leF returned operand e' at_ before bound' rd => by
+          (assignment := some ⟨⟨letSlot, by decide⟩, ae⟩) (propagation := none)
+          assignWf alignedAssign (Or.inl rfl)
+          (fun F leF returned operand e' at_ before bound' rd => by
             have toBinding := assignLe.trans leF
             have literalAt := (push_row_at hpush1 rfl).mono ((push_row_le hpush2).trans toBinding)
             have bindingAt := (push_row_at hpush2 rfl).mono toBinding
@@ -1228,32 +1352,99 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
               rw [bindingIndex]; omega
             have valid : validateInt? (signedOfWords low high) = some bound := by
               rw [signed_of_words_literal ok lowEq highEq]; exact hbound
-            obtain ⟨assignAt, valueReads⟩ := assignReads cs F leF
+            obtain ⟨assignAt, valueReads⟩ := assignReads (src.map (·.2)) F leF
             have assignBoundF : assignRow.val < F.rows.length := by
               obtain ⟨row', located, _⟩ := assignAt
               exact (List.getElem?_eq_some_iff.mp located).1
             simpa using body_let_assign_return bindingAt literalBefore literalAt valid assignAt rfl
               valueBefore assignBoundF valueReads at_ before bound' rd)
           tail
-      refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, bound⟩], some ⟨⟨letSlot, by decide⟩, ae⟩, e⟩, row, ?_,
-        by simp [FunctionProgram.callee?], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
+      refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, bound⟩], some ⟨⟨letSlot, by decide⟩, ae⟩, none, e⟩,
+        row, ?_, by simp [FunctionProgram.callee?], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
       · simp [SourceFunction.program?, SourceFunction.assignment?, hscope, hbound, hsrcAssign, hsrc]
       · rw [fa, assignFa, frame2.1, frame1.1]
       · rw [fb, assignFb, frame2.2, frame1.2]
       · exact ((push_row_le hpush1).trans ((push_row_le hpush2).trans assignLe)).trans le
 
-theorem function_lowers {src : List (String × Option Callee)} {f : SourceFunction}
-    {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
+theorem function_lowers_propagated {src : List (String × Option Callee)} {f : SourceFunction}
+    {s s' : LoweringState} {propagation : SourcePropagation}
+    (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (propagated : f.propagation = some propagation)
     (h : Lower.function f s = some ((), s')) :
-    ∃ program row, f.program? src = some program ∧ program.callee?.isSome = f.lets.isEmpty ∧
+    ∃ program row, f.program? src = some program ∧
+      program.callee?.isSome = (f.lets.isEmpty && f.propagation.isNone) ∧
       program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
-      s'.callable = s.callable ++ [f.lets.isEmpty] ∧ StateLE s s' ∧ BlocksIndexed s' ∧
+      s'.callable = s.callable ++ [f.lets.isEmpty && f.propagation.isNone] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧
       row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
       ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
         functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
-  cases hassigned : f.result.isAssigned with
-  | false => exact function_lowers_plain wf aligned hassigned h
-  | true => exact function_lowers_assigned wf aligned hassigned h
+  obtain ⟨name, parameters, lets, propagationOption, result⟩ := f
+  dsimp only at propagated
+  rw [propagated] at h ⊢
+  simp only [Lower.function, run_bind, run_lift, run_get, run_pure, run_require] at h
+  obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, _, _,
+    ⟨condition, rfl⟩, statement, s2, hprop, tail⟩ := h
+  have conditionParts : lets.isEmpty = true ∧ result.isAssigned = false := by
+    rw [Bool.and_eq_true] at condition
+    exact ⟨condition.1, by simpa using condition.2⟩
+  have letsEmpty : lets = [] := List.isEmpty_iff.mp conditionParts.1
+  subst letsEmpty
+  obtain ⟨slot, word, callee, args, tryRow, hslot, hword, lookedUp, countFits, foundArguments,
+    propLe, propWf, propFa, propFb, propBefore, propReads⟩ :=
+    propagation_lowers wf aligned hprop
+  have alignedProp : Aligned s2 src := Aligned.congr propFa propFb aligned
+  obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
+    function_tail_lowers (statements := [statement]) (bindings := []) (assignment := none)
+      (propagation := some ⟨word, parameterNames callee.parameters, callee.body, args⟩)
+      propWf alignedProp (Or.inr rfl)
+      (fun F leF returned operand e' at_ before bound rd => by
+        obtain ⟨bindingAt, propRead⟩ := propReads F leF
+        exact body_propagation_return bindingAt propRead
+          (return_expression_of at_ before bound rd))
+      tail
+  have assignmentNone :
+      (⟨name, parameters, [], some propagation, result⟩ : SourceFunction).assignment?
+        scope = some none :=
+    assignment_plain (f := ⟨name, parameters, [], some propagation, result⟩) conditionParts.2
+  have propagationRead : propagationProgram? src scope propagation =
+      some ⟨word, parameterNames callee.parameters, callee.body, args⟩ := by
+    simp [propagationProgram?, lookedUp, countFits, hslot, hword, foundArguments, beq_iff_eq]
+  have programProof : SourceFunction.program?
+      src ⟨name, parameters, [], some propagation, result⟩ =
+      some ⟨parameters.length, [], none,
+        some ⟨word, parameterNames callee.parameters, callee.body, args⟩, e⟩ := by
+    simp [SourceFunction.program?, hscope, propagationRead, assignmentNone, hsrc]
+  refine ⟨⟨parameters.length, [], none,
+      some ⟨word, parameterNames callee.parameters, callee.body, args⟩, e⟩, row, programProof,
+    ?_, rfl, ?_, ?_, propLe.trans le, wf', hname, hparams, reads⟩
+  · simp [FunctionProgram.callee?]
+  · rw [fa, propFa]
+  · rw [fb, propFb]
+
+theorem function_lowers {src : List (String × Option Callee)} {f : SourceFunction}
+    {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (h : Lower.function f s = some ((), s')) :
+    ∃ program row, f.program? src = some program ∧
+      program.callee?.isSome = (f.lets.isEmpty && f.propagation.isNone) ∧
+      program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [f.lets.isEmpty && f.propagation.isNone] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧
+      row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
+  cases propagationCase : f.propagation with
+  | some propagation =>
+      simpa [Option.isNone, propagationCase] using
+        function_lowers_propagated wf aligned propagationCase h
+  | none =>
+      cases hassigned : f.result.isAssigned with
+      | false =>
+          simpa [Option.isNone, propagationCase] using
+            function_lowers_plain wf aligned propagationCase hassigned h
+      | true =>
+          simpa [Option.isNone, propagationCase] using
+            function_lowers_assigned wf aligned propagationCase hassigned h
 
 
 theorem callee_parameters {program : FunctionProgram} {callee : Callee}

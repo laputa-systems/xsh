@@ -19,6 +19,7 @@ inductive Token where
   | arrow
   | colon
   | comma
+  | question
   | operator (op : FragmentOp)
   | newline
   deriving DecidableEq, Repr
@@ -60,6 +61,7 @@ def tokenize : Nat → List Nat → Option (List Token)
       else if code == 61 then continueWith .equals rest
       else if code == 58 then continueWith .colon rest
       else if code == 44 then continueWith .comma rest
+      else if code == 63 then continueWith .question rest
       else if code == 62 then continueWith (.operator .gt) rest
       else if code == 60 then continueWith (.operator .lt) rest
       else if code == 43 then continueWith (.operator .add) rest
@@ -99,10 +101,18 @@ inductive SourceExpression where
   | constructed (isOk : Bool) (value : SourceValue)
   deriving DecidableEq, Repr
 
+/-- A `let` line whose value is a call under `?`: the target, the callee and its arguments. -/
+structure SourcePropagation where
+  target : String
+  callee : String
+  arguments : List SourceAtom
+  deriving DecidableEq, Repr
+
 structure SourceFunction where
   name : String
   parameters : List String
   lets : List (String × Nat)
+  propagation : Option SourcePropagation
   result : SourceExpression
   deriving DecidableEq, Repr
 
@@ -208,6 +218,18 @@ def parseLets : Nat → List Token → Option (List (String × Nat) × List Stri
           else some ([], [], tokens)
       | _ => some ([], [], tokens)
 
+/-- A propagation line: `let target = callee(arguments)?`. -/
+def parsePropagation : List Token → Option (Option SourcePropagation × List Token)
+  | .word "let" :: .word target :: .equals :: .word callee :: .leftParen :: afterParen =>
+      if isKeyword target || isKeyword callee then none
+      else do
+        let (arguments, rest) ← parseArguments (afterParen.length + 1) afterParen
+        match rest with
+        | .question :: .newline :: remaining =>
+            some (some ⟨target, callee, arguments⟩, remaining)
+        | _ => none
+  | tokens => some (none, tokens)
+
 /-- An optional assignment line to a declared var, an integer value. -/
 def parseAssignment (vars : List String) :
     List Token → Option (Option (String × SourceValue) × List Token)
@@ -279,16 +301,28 @@ def admitsResult : ResultShape → ExpressionShape → Bool
 def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
     (tokens : List Token) : Option (SourceFunction × List Token) := do
   let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
-  let (assignment, afterAssignment) ← parseAssignment vars afterLets
+  let (propagation, afterPropagation) ← parsePropagation afterLets
+  let (assignment, afterAssignment) ← parseAssignment vars afterPropagation
+  match propagation with
+  | some _ =>
+      if lets.isEmpty && assignment.isNone && shape == .result && parameters.length == 1 then
+        pure ()
+      else none
+  | none => pure ()
   match afterAssignment with
   | .word "return" :: more => do
       let (returned, afterResult) ← parseExpression more
       let result ← attachAssignment assignment returned
       if admitsResult shape result.shape then pure () else none
+      match propagation with
+      | some found =>
+          if parameters.contains found.target then none
+          else pure ()
+      | none => pure ()
       match afterResult with
-      | .newline :: .rightBrace :: [] => some (⟨name, parameters, lets, result⟩, [])
+      | .newline :: .rightBrace :: [] => some (⟨name, parameters, lets, propagation, result⟩, [])
       | .newline :: .rightBrace :: .newline :: tail =>
-          some (⟨name, parameters, lets, result⟩, tail)
+          some (⟨name, parameters, lets, propagation, result⟩, tail)
       | _ => none
   | _ => none
 
@@ -325,10 +359,36 @@ def parseFunctions : Nat → List Token → Option (List SourceFunction)
           let functions ← parseFunctions fuel rest
           some (function :: functions)
 
+/-- A function a propagation may call: no let, no propagation and no assignment, returning a
+constructor, which is the callee form the meaning keeps. -/
+def SourceFunction.callableShape (function : SourceFunction) : Bool :=
+  function.lets.isEmpty && function.propagation.isNone && function.result.shape == .constructed &&
+    match function.result with
+    | .assigned _ _ _ => false
+    | _ => true
+
+/-- Every propagation names an earlier callable function with a constructor result and the
+argument count of that function. -/
+def functionsAdmitted (functions : List SourceFunction) : Bool :=
+  let rec go (earlier : List SourceFunction) : List SourceFunction → Bool
+    | [] => true
+    | function :: rest =>
+        let admitted :=
+          match function.propagation with
+          | none => true
+          | some propagation =>
+              match earlier.find? (fun callee => callee.name == propagation.callee) with
+              | some callee =>
+                  callee.callableShape && callee.parameters.length == propagation.arguments.length
+              | none => false
+        admitted && go (earlier ++ [function]) rest
+  go [] functions
+
 /-- The admitted source productions, from the character codes of the source. -/
 def parseSourceCodes (codes : List Nat) : Option (List SourceFunction) := do
   let tokens ← tokenize (codes.length + 1) codes
-  parseFunctions (tokens.length + 1) tokens
+  let functions ← parseFunctions (tokens.length + 1) tokens
+  if functionsAdmitted functions then some functions else none
 
 /-- The admitted source productions, from exact source bytes. -/
 def parseSource (text : String) : Option (List SourceFunction) :=
@@ -336,24 +396,24 @@ def parseSource (text : String) : Option (List SourceFunction) :=
 
 theorem the_admitted_productions_parse :
     parseSource "pure f() -> Int {\n  let a = 4\n  return a - 1\n}\n" =
-      some [⟨"f", [], [("a", 4)], .value (.binary .sub (.var "a") (.int 1))⟩] := by
+      some [⟨"f", [], [("a", 4)], none, .value (.binary .sub (.var "a") (.int 1))⟩] := by
   decide +kernel
 
 theorem parameters_a_call_and_a_conditional_parse :
     parseSource ("pure g(a: Int, b: Int) -> Int {\n  return if a > b { a - b } else { 0 }\n}\n" ++
         "pure h() -> Int {\n  let x = 7\n  return g(x, 2)\n}\n") =
-      some [⟨"g", ["a", "b"], [],
+      some [⟨"g", ["a", "b"], [], none,
           .conditional .gt (.var "a") (.var "b") (.binary .sub (.var "a") (.var "b")) (.atom (.int 0))⟩,
-        ⟨"h", [], [("x", 7)], .call "g" [.var "x", .int 2]⟩] := by
+        ⟨"h", [], [("x", 7)], none, .call "g" [.var "x", .int 2]⟩] := by
   decide +kernel
 
 set_option maxRecDepth 10000 in
 theorem comparison_functions_parse :
     parseSource ("pure exceeds(value: Int, limit: Int) -> Bool {\n  return value > limit\n}\n" ++
         "pure below(value: Int, limit: Int) -> Bool {\n  return value < limit\n}\n") =
-      some [⟨"exceeds", ["value", "limit"], [],
+      some [⟨"exceeds", ["value", "limit"], [], none,
           .comparison .gt (.var "value") (.var "limit")⟩,
-        ⟨"below", ["value", "limit"], [],
+        ⟨"below", ["value", "limit"], [], none,
           .comparison .lt (.var "value") (.var "limit")⟩] := by
   decide +kernel
 
@@ -380,6 +440,35 @@ theorem a_result_annotation_admits_only_constructor_results :
       parseSource "pure f(a: Int) -> Int {\n  return Ok(a)\n}\n" = none ∧
       parseSource "pure f(a: Int) -> Bool {\n  return Err(a)\n}\n" = none := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem a_propagated_call_parses :
+    parseSource ("pure keeps(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+        "pure passes(value: Int) -> Result[Int, Int] {\n  let kept = keeps(value)?\n" ++
+        "  return Ok(kept)\n}\n") =
+      some [⟨"keeps", ["value"], [], none, .constructed true (.atom (.var "value"))⟩,
+        ⟨"passes", ["value"], [], some ⟨"kept", "keeps", [.var "value"]⟩,
+          .constructed true (.atom (.var "kept"))⟩] := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem propagation_outside_the_admitted_productions_is_refused :
+    parseSource "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)?\n  return Ok(kept)\n}\n" =
+        none ∧
+      parseSource "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)\n  return Ok(kept)\n}\n" =
+        none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int) -> Int {\n  let kept = g(value)?\n  return kept\n}\n") = none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int, other: Int) -> Result[Int, Int] {\n  let kept = g(value)?\n" ++
+          "  return Ok(kept)\n}\n") = none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int) -> Result[Int, Int] {\n  let value = g(value)?\n  return Ok(value)\n}\n") =
+        none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)??\n  return Ok(kept)\n}\n") =
+        none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 theorem text_outside_the_admitted_productions_is_refused :
     parseSource "pure f() -> Int {\n  return 1 + 2 + 3\n}\n" = none ∧

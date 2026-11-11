@@ -22,9 +22,9 @@ theorem boolean_artifact_is_the_decoded_source_document :
 
 /-- The functions the boolean source document parses to. -/
 def booleanFunctions : List SourceFunction :=
-  [⟨"exceeds", ["value", "limit"], [],
+  [⟨"exceeds", ["value", "limit"], [], none,
       .comparison .gt (.var "value") (.var "limit")⟩,
-    ⟨"below", ["value", "limit"], [],
+    ⟨"below", ["value", "limit"], [], none,
       .comparison .lt (.var "value") (.var "limit")⟩]
 
 set_option maxRecDepth 10000 in
@@ -148,19 +148,19 @@ set_option maxRecDepth 10000 in
 against the same artifact: exchanged operands in each comparison and the other comparison. -/
 theorem a_wrong_boolean_lowering_is_rejected :
     lowersTo booleanArtifact (booleanFunctions.set 0
-        ⟨"exceeds", ["value", "limit"], [],
+        ⟨"exceeds", ["value", "limit"], [], none,
           .comparison .gt (.var "limit") (.var "value")⟩) = false ∧
       sourceAgrees booleanArtifact (booleanFunctions.set 0
-        ⟨"exceeds", ["value", "limit"], [],
+        ⟨"exceeds", ["value", "limit"], [], none,
           .comparison .gt (.var "limit") (.var "value")⟩) = false ∧
       lowersTo booleanArtifact (booleanFunctions.set 1
-        ⟨"below", ["value", "limit"], [],
+        ⟨"below", ["value", "limit"], [], none,
           .comparison .lt (.var "limit") (.var "value")⟩) = false ∧
       sourceAgrees booleanArtifact (booleanFunctions.set 1
-        ⟨"below", ["value", "limit"], [],
+        ⟨"below", ["value", "limit"], [], none,
           .comparison .lt (.var "limit") (.var "value")⟩) = false ∧
       lowersTo booleanArtifact (booleanFunctions.set 1
-        ⟨"below", ["value", "limit"], [],
+        ⟨"below", ["value", "limit"], [], none,
           .comparison .gt (.var "value") (.var "limit")⟩) = false := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 

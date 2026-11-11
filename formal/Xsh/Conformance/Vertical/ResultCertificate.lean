@@ -23,9 +23,9 @@ theorem result_artifact_is_the_decoded_source_document :
 
 /-- The functions the result source document parses to. -/
 def resultFunctions : List SourceFunction :=
-  [⟨"keeps", ["value"], [], .constructed true (.atom (.var "value"))⟩,
-    ⟨"stops", ["value"], [], .constructed false (.atom (.var "value"))⟩,
-    ⟨"adds", ["value"], [], .constructed true (.binary .add (.var "value") (.int 1))⟩]
+  [⟨"keeps", ["value"], [], none, .constructed true (.atom (.var "value"))⟩,
+    ⟨"stops", ["value"], [], none, .constructed false (.atom (.var "value"))⟩,
+    ⟨"adds", ["value"], [], none, .constructed true (.binary .add (.var "value") (.int 1))⟩]
 
 set_option maxRecDepth 10000 in
 theorem the_result_source_parses_to_the_result_functions :
@@ -138,14 +138,14 @@ set_option maxRecDepth 10000 in
 against the same artifact: the other constructor for two functions and a changed addition. -/
 theorem a_wrong_result_lowering_is_rejected :
     lowersTo resultArtifact (resultFunctions.set 0
-        ⟨"keeps", ["value"], [], .constructed false (.atom (.var "value"))⟩) = false ∧
+        ⟨"keeps", ["value"], [], none, .constructed false (.atom (.var "value"))⟩) = false ∧
       sourceAgrees resultArtifact (resultFunctions.set 0
-        ⟨"keeps", ["value"], [], .constructed false (.atom (.var "value"))⟩) = false ∧
+        ⟨"keeps", ["value"], [], none, .constructed false (.atom (.var "value"))⟩) = false ∧
       lowersTo resultArtifact (resultFunctions.set 2
-        ⟨"adds", ["value"], [], .constructed true (.binary .sub (.var "value") (.int 1))⟩) =
+        ⟨"adds", ["value"], [], none, .constructed true (.binary .sub (.var "value") (.int 1))⟩) =
         false ∧
       sourceAgrees resultArtifact (resultFunctions.set 2
-        ⟨"adds", ["value"], [], .constructed true (.binary .sub (.var "value") (.int 1))⟩) =
+        ⟨"adds", ["value"], [], none, .constructed true (.binary .sub (.var "value") (.int 1))⟩) =
         false := by
   refine ⟨?_, ?_, ?_, ?_⟩ <;> decide +kernel
 

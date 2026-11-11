@@ -24,11 +24,21 @@ admitted grammar takes a `Result[Int, Int]` return only with `Ok(value)` or
 `Err(value)`, the lowerer emits the `ExprOk` and `ExprErr` rows the Rust
 lowerer emits, the base machine completes with the constructor and integer
 payload, and the recorded observations are `Ok` 7, `Err` 5, `Ok` 5 and `Ok` 0.
-`?` propagation is the next step: it needs a propagation row and a call of
-another admitted Result function, so it is a separate widening rather than
-part of this one.
+A sixth covers `?` propagation: the admitted grammar takes one
+`let target = callee(argument)?` binding in a one-parameter `Result[Int, Int]`
+function whose callee is an earlier callable function returning a constructor;
+the lowerer emits the argument block, `ExprDirectPureCall`, `ExprTry` and
+`StmtLet` rows the Rust lowerer emits (the target slot and the absent
+annotation word included), the base machine continues with the callee's `Ok`
+payload bound to the target and returns the same `Err`, and the recorded
+observations are `Ok` 8, `Err` 5, `Ok` 8, `Err` 5 and `Ok` -2. The outcome
+theorem is split: the plain form is stated for programs without a propagation
+and `propagated_program_outcome_is_a_completed_machine_run` covers the binding.
+The next widening is a call of a function with a let, an error producer, or a
+record local; each needs a new row form rather than another certificate-only
+check.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds seven ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds eight ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -92,9 +102,10 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   own and agree with Rust only on these artifacts (a source admission proof
   does not exist, and the lowerer theorem is about the Lean lowerer); span
   words are read from the document; the lowered shape has no loops, strings,
-  records, `?` propagation or a call of a Bool function, though a Bool-returning
-  comparison of two atoms and `Result[Int, Int]` construction are covered, and a
-  call to a function with a let is outside it. One plain integer assignment is modeled separately;
+  records or a call of a Bool function, though a Bool-returning comparison of
+  two atoms, `Result[Int, Int]` construction and one `?` binding of a call to an
+  earlier callable `Result[Int, Int]` function are covered, and a call to a
+  function with a let is outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
   evidence only through the recorded runs.
@@ -961,9 +972,59 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   `#!/usr/bin/env bash` resolves a shell wrapper that restores a PATH with Lean
   4.34.1 first, and Lake then reused 4.34.1 oleans that it could not distinguish
   from 4.35.0 ones; invoking the same script through `/bin/bash` with the pinned
-  4.35.0 toolchain first forced the rebuild used above. `?` propagation of a
-  call to another admitted Result function stays next: it needs a propagation
-  row, a call row and an error producer.
+  4.35.0 toolchain first forced the rebuild used above. A call of a function
+  with a `let`, an error producer, or a record local stays next: each needs a
+  new row form rather than another certificate-only check.
+
+- 2026-11-11: `?` propagation control. The admitted grammar now parses one
+  `let target = callee(argument)?` binding in a one-parameter `Result[Int, Int]`
+  function whose callee is an earlier callable function returning a constructor;
+  the target may not be a parameter, and the arguments must match the callee's
+  parameter count. `SourceFunction` gained `propagation`, and the lowerer emits
+  the argument block, `ExprDirectPureCall` (ordinal 109), `ExprTry` (107) and
+  `StmtLet` (115) rows with the target slot and the absent annotation word;
+  `Lower.pureCall` is shared with the existing call form, and the function slot
+  count and callable flags account for the binding. `lowering_means_the_source`
+  was extended and remains universal over the parsed functions. `Meaning`
+  gained `Propagation` and its `run?`: an `Ok` payload is bound to the target
+  slot, an `Err` is returned, and an arithmetic fault propagates.
+  `program_outcome_is_a_completed_machine_run` now requires
+  `program.propagation = none`; `continuation_outcome_is_a_completed_machine_run`
+  covers the returned expression, `propagation_run_cases` splits the binding's
+  run into `Ok`-continued, `Err`-returned and arithmetic-fault cases, and
+  `propagated_program_outcome_is_a_completed_machine_run` proves the whole
+  program with a propagation. The test-only bridge
+  exports `formal-bridge-result-propagation.xsh` (`keeps`, `stops`, `passes`,
+  `blocks`; five recorded calls) and the Lean `PropagationCertificate` certifies
+  the pair, rejecting a wrong propagation call, a wrong recorded outcome,
+  malformed IR, a substituted source and a wrong lowering.
+  `artifact_certificates` now holds eight. This is a bounded artifact and a
+  Lean-only theorem about the Lean lowerer: Rust's parser reading and execution
+  are evidence through the bridge run only, and that run used this worktree's
+  verification build rather than the frozen commit, so it is not a
+  `RUST_CONFORMANCE` case. The source parse theorem was restructured after
+  `lean4lean` reported a deterministic kernel timeout on its single
+  `decide +kernel` reduction: the document text's 326 character codes are
+  `propagationTextCodes`, `propagation_text_is_the_decoded_document_text` ties
+  the literal to `String.ofList` of them by `rfl`, and
+  `propagation_text_codes_round_trip` and `the_propagation_text_codes_parse` are
+  separate `decide +kernel` lemmas; the theorem rewrites through
+  `String.toList_ofList`, so no declaration decodes the whole string literal.
+  The theorem statement is unchanged. `cargo test --profile verification --lib
+  formal_bridge` passed 44 tests, including
+  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
+  exported bytes to equal the two Lean code lists. The clean `lake build`
+  completed 243 jobs; the axiom audit passed for 27,623 declarations and all six
+  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
+  under the 8 GiB cap; and `lake check --paranoid`, run with the repository's
+  sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
+  `con-ron`, accepted the export with `lean4lean` (115,304 declarations),
+  `nanoda`, `con-leche` and `con-ron` (115,307 each) and the Lean default
+  kernel, using only `propext`, `Quot.sound` and `Classical.choice`. The audit
+  and the fresh check ran through `/bin/bash` with the pinned 4.35.0 toolchain
+  first, because `#!/usr/bin/env bash` resolves the PATH-restoring wrapper. A
+  call of a function with a `let`, an error producer, or a record local stays
+  next: each needs a new row form rather than another certificate-only check.
 
 ## For the owner afterwards
 
