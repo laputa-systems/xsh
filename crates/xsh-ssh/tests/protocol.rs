@@ -48,6 +48,49 @@ fn completion_and_output_arrive_through_the_scripted_peer() {
 }
 
 #[test]
+fn output_and_completion_before_the_exec_reply_are_delivered() {
+    let peer = spawn(Behavior::default(), |link| {
+        link.accept_authentication();
+        let open = link.expect(CHANNEL_OPEN);
+        let kind_length = open.u32_at(0) as usize;
+        let channel = open.u32_at(4 + kind_length);
+        link.send(&message(
+            CHANNEL_CONFIRMATION,
+            &[
+                &number(channel),
+                &number(SERVER_CHANNEL),
+                &number(1 << 20),
+                &number(32 * 1024),
+            ],
+        ));
+        let request = link.expect(CHANNEL_REQUEST);
+        assert_eq!(request.string_at(4), b"exec");
+        link.data(channel, b"before the reply");
+        link.extended_data(channel, b"stderr before the reply");
+        link.exit_status(channel, 9);
+        link.send(&message(CHANNEL_SUCCESS, &[&number(channel)]));
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let mut connection = peer.connect(TIMEOUT);
+    let result = connection
+        .exec(
+            "command",
+            &ExecOptions {
+                timeout: Some(TIMEOUT),
+                ..ExecOptions::default()
+            },
+        )
+        .expect("data and completion before the exec reply are accepted");
+    assert_eq!(result.status, ExecStatus::Exited(9));
+    assert_eq!(result.stdout, b"before the reply");
+    assert_eq!(result.stderr, b"stderr before the reply");
+    drop(connection);
+    peer.finish();
+}
+
+#[test]
 fn a_channel_closed_without_completion_is_missing_never_zero() {
     let peer = serve_exec(Behavior::default(), 1 << 20, |link, channel| {
         link.data(channel, b"partial");

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::os::fd::BorrowedFd;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -224,6 +224,7 @@ pub struct Transport {
     since_kex: KexUsage,
     awaiting_command: bool,
     peer_closed: bool,
+    abort: Option<OwnedFd>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -275,7 +276,16 @@ impl Transport {
             peer_closed: false,
             since_kex: KexUsage::new(),
             awaiting_command: false,
+            abort: None,
         })
+    }
+
+    pub(crate) fn set_abort(&mut self, descriptor: OwnedFd) {
+        self.abort = Some(descriptor);
+    }
+
+    pub(crate) fn clear_abort(&mut self) {
+        self.abort = None;
     }
 
     /// Record that a mutation request has been submitted.
@@ -421,11 +431,16 @@ impl Transport {
             if write {
                 events |= PollFlags::OUT;
             }
+            let abort = self.abort.as_ref().map(AsFd::as_fd);
             let mut descriptors = [
                 PollFd::new(&self.stream, events),
                 file_entry(&self.stream, input, PollFlags::IN),
                 file_entry(&self.stream, outputs[0], PollFlags::OUT),
                 file_entry(&self.stream, outputs[1], PollFlags::OUT),
+                match abort {
+                    Some(descriptor) => PollFd::from_borrowed_fd(descriptor, PollFlags::IN),
+                    None => PollFd::new(&self.stream, PollFlags::empty()),
+                },
             ];
             let timespec = Timespec {
                 tv_sec: remaining.as_secs() as _,
@@ -434,6 +449,11 @@ impl Transport {
             match poll(&mut descriptors, Some(&timespec)) {
                 Ok(0) => continue,
                 Ok(_) => {
+                    if abort.is_some() && !descriptors[4].revents().is_empty() {
+                        return Err(Error::Cancelled {
+                            certainty: self.certainty,
+                        });
+                    }
                     let events = descriptors[0].revents();
                     if reports_socket_failure(events) {
                         let detail = self

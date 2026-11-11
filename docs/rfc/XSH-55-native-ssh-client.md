@@ -17,7 +17,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Requirement | 2026-10-31 | Now | Evidence |
 |---|---|---|---|
 | Pinned vendored substrate, origin manifest, update steps, builds without a sibling checkout, one Graviola | D | D | `vendor/ORIGIN.md`, `scripts/check-ssh-crypto.sh` |
-| Crate independent of XSH values; thin adapter; no async runtime or per-command thread | D | D | `Cargo.toml`, `src/modules/ssh.rs` |
+| Crate independent of XSH values; thin adapter; no async runtime or unbounded thread creation | D | D `Connection::exec_stream` runs one bounded scoped connection thread per call; the XSH adapter adds none | `Cargo.toml`, `src/modules/ssh.rs` |
 | `connect` with explicit connection, trust and identity options returning an owned session | P pin and key file only | D | `tests/xsh/ssh-connect.xsh` |
 | Bounded captured exec, streaming and file-backed stdin, independent sinks | P stdin past the window failed; no limit test | D | `stdin_larger_than_the_window_is_echoed_exactly`, `output_past_the_capture_limit_is_reported_and_poisons_the_session`, 128 MiB `tests/stream.rs` |
 | Negotiated algorithms and authenticated host identity | M | D | `ssh.info`, `hybrid_post_quantum_exchange_is_negotiated` |
@@ -114,6 +114,25 @@ rekey limits (`the_packet_count_alone_starts_a_rekey`,
 compared with `ssh-keygen -F` over 16 patterns and 14 endpoints
 (`tests/known_hosts.rs`).
 
+### Fourth round: fixed
+
+2026-11-10, Linux x86-64 musl. Each fixed row has a test that failed before
+its change.
+
+| Severity | Defect | Fix and test |
+|---|---|---|
+| Medium | A server could send channel data, extended data, EOF, close or a completion before its reply to the `exec` request, and the command failed as a protocol error after submission. RFC 4254 section 5.4 lets the sender continue without waiting for a reply, and section 6.5 orders neither the reply nor the command's traffic; OpenSSH and Dropbear reply first, but the RFC does not require it. | `Channel::exec` holds those messages, bounded by the receive window and 1024 packets, and delivers them in order once the reply succeeds. `output_and_completion_before_the_exec_reply_are_delivered` |
+| Medium | `Connection::exec_stream` called the caller's writers synchronously, so one that blocked stopped the connection from answering keepalives, key exchanges and other requests, as a stalled output file once did. | The connection runs on one bounded scoped thread with nonblocking pipes for stdin and both outputs; the calling thread, which owns the non-`Send` writers and input source, feeds and drains them, holding at most the pipe capacity and the receive window. A writer that never returns still keeps the call from returning, but no longer stops service. `a_stalled_writer_does_not_stop_the_connection_from_being_served` |
+
+The SHA-256 contexts remain unwiped as a dependency limit, not an `xsh-ssh`
+defect it can fix without a fork: `oxish-graviola` wraps Graviola's
+`Sha256Context` (`vendor/oxish-graviola/src/lib.rs:569`), neither type wipes on
+drop (`vendor/graviola/src/high/hash.rs:167`,
+`vendor/graviola/src/mid/sha2.rs:13`), and `oxish-proto` creates and consumes
+the context inside `HandshakeHash` and `KeyDerivation`, so `xsh-ssh` holds no
+copy it can wipe. The fix belongs in ssh-build's one authoritative copy of
+those crates.
+
 Contract changes: `auth::authenticate` is crate-private and takes the
 connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 (implemented for `File`) instead of `dyn Read`. The later rows add `exec::open_stdin_file`, `exec::create_output_file` and
@@ -151,17 +170,18 @@ connection; `Connection::exec_stream` takes `Option<&mut dyn InputSource>`
 ### Risks supported by the code but not demonstrated
 
 - Not zeroized: the SHA-256 contexts that hash the shared secret into the
-  exchange hash and keys (Graviola's type, with no wipe on drop; changing it
-  needs an ssh-build patch), the caller's own `ExecOptions::stdin` buffer and
-  the XSH value it came from, the receive buffer while it grows, and the
-  writers a Rust caller passes to `exec_stream`. Swap and core dumps are outside
-  any guarantee.
-- Data, extended data or a completion that arrives before the `exec` reply
-  fails the command as a protocol error after submission. RFC 4254 does not
-  order them; OpenSSH and Dropbear reply first, and no other server was tested.
-- A writer passed to `Connection::exec_stream` is written synchronously: one
-  that blocks stops the connection as a stalled output file used to. Only
-  `ExecOptions` file sinks are polled.
+  exchange hash and keys. This is a Graviola dependency limit: the context is
+  Graviola's type with no wipe on drop, wrapped by `oxish-graviola` and consumed
+  inside `oxish-proto`, so `xsh-ssh` holds no copy it can wipe; changing it
+  needs an ssh-build patch (see [Fourth round](#fourth-round-fixed)). Also not
+  zeroized: the caller's own `ExecOptions::stdin` buffer and the XSH value it
+  came from, the receive buffer while it grows, and whatever a caller's writer
+  keeps after the bounded pipe copies it. Swap and core dumps are outside any
+  guarantee.
+- A writer passed to `Connection::exec_stream` that never returns still keeps
+  the call from returning, although it no longer stops the connection from
+  serving the command; a writer that is merely slow holds up to the bounded
+  pipe and the receive window.
 - An output FIFO whose reader opens later than the command start is refused
   (`ENXIO`) rather than waited for.
 - The session handle is a counter into a process-wide registry, and `ssh.exec`
@@ -218,8 +238,8 @@ third round's tree passed the whole `xsh-ssh` suite for
 - An independent protocol and security review before any claim beyond
   experimental. The [source review](#protocol-and-security-review) above found and
   fixed five defects, a second round fixed seven more that it could only support
-  from the code, and a third internal pass fixed four with failing-first tests;
-  the risks that remain are listed. None of them is the independent review, and
+  from the code, a third internal pass fixed four with failing-first tests, and
+  a fourth fixed two; the risks that remain are listed. None of them is the independent review, and
   the tests, fuzz loops and fixtures are not formal verification.
 - One command at a time per session, with no channel multiplexing. A session is dead after
   any failure; a timeout does not keep the transport reusable.

@@ -195,6 +195,10 @@ impl Connection {
     }
 
     /// Run one remote command with streaming stdin and independent output sinks.
+    ///
+    /// Each writer is reached through a bounded pipe, so a writer that blocks stops neither the
+    /// connection nor the server's requests from being answered. A writer that never returns
+    /// still keeps this call from returning.
     pub fn exec_stream(
         &mut self,
         command: &str,
@@ -203,14 +207,7 @@ impl Connection {
         stdout: &mut dyn std::io::Write,
         stderr: &mut dyn std::io::Write,
     ) -> Result<ExecResult, Error> {
-        stream::exec_stream(
-            self,
-            command,
-            options,
-            stdin,
-            &mut stream::Unpolled(stdout),
-            &mut stream::Unpolled(stderr),
-        )
+        stream::exec_stream_to_writers(self, command, options, stdin, stdout, stderr)
     }
 
     /// The host name the connection was made to.
@@ -274,6 +271,12 @@ impl Connection {
     pub(crate) fn mark_unusable(&mut self) {
         self.usable = false;
         self.transport.shutdown();
+    }
+
+    pub(crate) fn defer(&mut self, packets: Vec<Packet>) {
+        for packet in packets.into_iter().rev() {
+            self.pending.push_front(packet);
+        }
     }
 
     /// Say goodbye to the server and release the socket.

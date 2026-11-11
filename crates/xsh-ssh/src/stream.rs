@@ -59,23 +59,285 @@ pub(crate) trait OutputSink: Write {
     fn descriptor(&self) -> Option<BorrowedFd<'_>>;
 }
 
-/// A caller's writer, which the client cannot wait on.
-pub(crate) struct Unpolled<'a>(pub(crate) &'a mut dyn Write);
+/// One end of a pipe that the connection writes into and the caller drains.
+struct PipeSink(File);
 
-impl Write for Unpolled<'_> {
+impl Write for PipeSink {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         self.0.write(data)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.0.flush()
+        Ok(())
     }
 }
 
-impl OutputSink for Unpolled<'_> {
+impl OutputSink for PipeSink {
     fn descriptor(&self) -> Option<BorrowedFd<'_>> {
-        None
+        Some(self.0.as_fd())
     }
+}
+
+fn pipe() -> Result<(File, File), Error> {
+    let (reader, writer) =
+        rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(|error| {
+            Error::NotSubmitted {
+                detail: format!("cannot create a pipe: {error}"),
+            }
+        })?;
+    Ok((File::from(reader), File::from(writer)))
+}
+
+fn nonblocking(file: &File) -> Result<(), Error> {
+    let flags = rustix::fs::fcntl_getfl(file).map_err(|error| Error::NotSubmitted {
+        detail: format!("cannot read a pipe's flags: {error}"),
+    })?;
+    rustix::fs::fcntl_setfl(file, flags | rustix::fs::OFlags::NONBLOCK).map_err(|error| {
+        Error::NotSubmitted {
+            detail: format!("cannot make a pipe nonblocking: {error}"),
+        }
+    })
+}
+
+const COPY_BUFFER: usize = 16 * 1024;
+const INPUT_BUFFER: usize = 64 * 1024;
+const INPUT_IDLE_POLL: Duration = Duration::from_millis(10);
+
+/// The calling thread's side of a streamed exec: it feeds stdin into a bounded pipe and drains
+/// the output pipes into the caller's writers, so a writer that blocks stops neither the
+/// connection thread nor its service of the server.
+struct CallerIo<'i, 'o, 'e> {
+    stdin: Option<&'i mut dyn InputSource>,
+    input: Option<File>,
+    out_pipe: File,
+    err_pipe: File,
+    out: &'o mut dyn Write,
+    err: &'e mut dyn Write,
+    input_buffer: Zeroizing<Vec<u8>>,
+    copy_buffer: Zeroizing<Vec<u8>>,
+    pending: std::ops::Range<usize>,
+    input_idle: bool,
+    input_eof: bool,
+    out_done: bool,
+    err_done: bool,
+}
+
+impl CallerIo<'_, '_, '_> {
+    fn run(&mut self) -> Result<(), Error> {
+        if self.stdin.is_none() {
+            self.end_input();
+        }
+        loop {
+            if self.out_done && self.err_done {
+                self.end_input();
+                return Ok(());
+            }
+            let polled = self.poll_once()?;
+            if !self.out_done && reports(polled[0]) {
+                self.out_done = read_output(
+                    &mut self.out_pipe,
+                    &mut self.copy_buffer,
+                    &mut *self.out,
+                    "stdout",
+                )?;
+            }
+            if !self.err_done && reports(polled[1]) {
+                self.err_done = read_output(
+                    &mut self.err_pipe,
+                    &mut self.copy_buffer,
+                    &mut *self.err,
+                    "stderr",
+                )?;
+            }
+            if self.stdin.is_some()
+                && self.input.is_some()
+                && self.pending.is_empty()
+                && !self.input_eof
+            {
+                let has_descriptor = self
+                    .stdin
+                    .as_ref()
+                    .is_some_and(|stdin| stdin.descriptor().is_some());
+                if !has_descriptor || reports(polled[2]) {
+                    self.fill_input()?;
+                }
+            }
+            if !self.pending.is_empty() {
+                if polled[3].intersects(PollFlags::ERR | PollFlags::NVAL) {
+                    self.end_input();
+                } else if polled[3].contains(PollFlags::OUT) {
+                    self.flush_input()?;
+                }
+            }
+        }
+    }
+
+    fn poll_once(&mut self) -> Result<[PollFlags; 4], Error> {
+        let stdin_fd = if self.input.is_some() && self.pending.is_empty() && !self.input_eof {
+            self.stdin.as_ref().and_then(|stdin| stdin.descriptor())
+        } else {
+            None
+        };
+        let input_fd = if self.pending.is_empty() {
+            None
+        } else {
+            self.input.as_ref().map(AsFd::as_fd)
+        };
+        let dummy = if self.out_done { &self.err_pipe } else { &self.out_pipe };
+        let mut polled = [
+            if self.out_done {
+                PollFd::new(dummy, PollFlags::empty())
+            } else {
+                PollFd::new(&self.out_pipe, PollFlags::IN)
+            },
+            if self.err_done {
+                PollFd::new(dummy, PollFlags::empty())
+            } else {
+                PollFd::new(&self.err_pipe, PollFlags::IN)
+            },
+            stdin_fd.map_or_else(
+                || PollFd::new(dummy, PollFlags::empty()),
+                |fd| PollFd::from_borrowed_fd(fd, PollFlags::IN),
+            ),
+            input_fd.map_or_else(
+                || PollFd::new(dummy, PollFlags::empty()),
+                |fd| PollFd::from_borrowed_fd(fd, PollFlags::OUT),
+            ),
+        ];
+        let immediate = stdin_fd.is_none()
+            && self.input.is_some()
+            && self.pending.is_empty()
+            && !self.input_eof
+            && self
+                .stdin
+                .as_ref()
+                .is_some_and(|stdin| stdin.descriptor().is_none());
+        let timeout = if immediate {
+            let wait = if self.input_idle {
+                INPUT_IDLE_POLL
+            } else {
+                Duration::ZERO
+            };
+            Some(Timespec {
+                tv_sec: wait.as_secs() as _,
+                tv_nsec: wait.subsec_nanos() as _,
+            })
+        } else {
+            None
+        };
+        match poll(&mut polled, timeout.as_ref()) {
+            Ok(0) => Ok([PollFlags::empty(); 4]),
+            Ok(_) => Ok([
+                polled[0].revents(),
+                polled[1].revents(),
+                polled[2].revents(),
+                polled[3].revents(),
+            ]),
+            Err(error) if error == rustix::io::Errno::INTR => Ok([PollFlags::empty(); 4]),
+            Err(error) => Err(Error::Submitted {
+                detail: format!("polling a pipe failed: {error}"),
+            }),
+        }
+    }
+
+    fn fill_input(&mut self) -> Result<(), Error> {
+        if self.input.is_none() || self.input_eof {
+            return Ok(());
+        }
+        let Some(stdin) = self.stdin.as_mut() else {
+            self.end_input();
+            return Ok(());
+        };
+        match stdin.read(&mut self.input_buffer) {
+            Ok(0) => {
+                self.input_eof = true;
+                self.end_input();
+                Ok(())
+            }
+            Ok(read) => {
+                self.input_idle = false;
+                self.pending = 0..read;
+                self.flush_input()
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                self.input_idle = true;
+                Ok(())
+            }
+            Err(error) => Err(Error::Submitted {
+                detail: format!("stdin read failed: {error}"),
+            }),
+        }
+    }
+
+    fn flush_input(&mut self) -> Result<(), Error> {
+        let mut broken = false;
+        while !self.pending.is_empty() {
+            let Some(input) = self.input.as_mut() else {
+                break;
+            };
+            match input.write(&self.input_buffer[self.pending.clone()]) {
+                Ok(0) => {
+                    return Err(Error::Submitted {
+                        detail: "the input pipe accepted no bytes".to_owned(),
+                    });
+                }
+                Ok(written) => self.pending.start += written,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {
+                    broken = true;
+                    break;
+                }
+                Err(error) => {
+                    return Err(Error::Submitted {
+                        detail: format!("stdin copy failed: {error}"),
+                    });
+                }
+            }
+        }
+        self.pending = 0..0;
+        if broken {
+            self.end_input();
+        }
+        Ok(())
+    }
+
+    fn end_input(&mut self) {
+        self.input = None;
+        self.pending = 0..0;
+    }
+}
+
+fn read_output(
+    pipe: &mut File,
+    buffer: &mut [u8],
+    sink: &mut dyn Write,
+    stream: &'static str,
+) -> Result<bool, Error> {
+    match pipe.read(buffer) {
+        Ok(0) => Ok(true),
+        Ok(read) => {
+            sink.write_all(&buffer[..read])
+                .map_err(|error| sink_error(error, stream))?;
+            Ok(false)
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(Error::Submitted {
+            detail: format!("{stream} pipe read failed: {error}"),
+        }),
+    }
+}
+
+fn reports(events: PollFlags) -> bool {
+    events.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL)
 }
 
 const PIPE_ATOMIC_WRITE: usize = 4096;
@@ -335,6 +597,88 @@ pub(crate) fn exec_stream(
         connection.mark_unusable();
         error
     })
+}
+
+/// Run a command for a Rust caller. The connection runs on a scoped thread with bounded pipes
+/// for stdin and both outputs; the calling thread, which owns the non-`Send` writers and input
+/// source, feeds and drains those pipes. A writer that blocks then stalls only the caller's
+/// thread, while the connection keeps answering the server.
+pub(crate) fn exec_stream_to_writers(
+    connection: &mut Connection,
+    command: &str,
+    options: &StreamOptions,
+    stdin: Option<&mut dyn InputSource>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExecResult, Error> {
+    let (out_pipe, out_writer) = pipe()?;
+    let (err_pipe, err_writer) = pipe()?;
+    let (mut input_pipe, input_writer) = pipe()?;
+    let (abort_reader, abort_writer) = pipe()?;
+    nonblocking(&out_writer)?;
+    nonblocking(&err_writer)?;
+    nonblocking(&input_writer)?;
+
+    let has_stdin = stdin.is_some();
+    let mut out_sink = PipeSink(out_writer);
+    let mut err_sink = PipeSink(err_writer);
+    connection.transport().set_abort(abort_reader.into());
+
+    type Joined = std::thread::Result<Result<ExecResult, Error>>;
+    let outcome: Result<(Result<(), Error>, Joined), Error> = std::thread::scope(|scope| {
+        let connection = &mut *connection;
+        let worker = std::thread::Builder::new()
+            .spawn_scoped(scope, move || {
+                let input: Option<&mut dyn InputSource> = if has_stdin {
+                    Some(&mut input_pipe)
+                } else {
+                    None
+                };
+                exec_stream(
+                    connection,
+                    command,
+                    options,
+                    input,
+                    &mut out_sink,
+                    &mut err_sink,
+                )
+            })
+            .map_err(|error| Error::NotSubmitted {
+                detail: format!("cannot start the connection thread: {error}"),
+            })?;
+        let pumped = CallerIo {
+            stdin,
+            input: Some(input_writer),
+            out_pipe,
+            err_pipe,
+            out: stdout,
+            err: stderr,
+            input_buffer: Zeroizing::new(vec![0; INPUT_BUFFER]),
+            copy_buffer: Zeroizing::new(vec![0; COPY_BUFFER]),
+            pending: 0..0,
+            input_idle: false,
+            input_eof: false,
+            out_done: false,
+            err_done: false,
+        }
+        .run();
+        drop(abort_writer);
+        let joined = worker.join();
+        Ok((pumped, joined))
+    });
+    connection.transport().clear_abort();
+    let (pumped, joined) = outcome?;
+
+    match joined {
+        Err(payload) => std::panic::resume_unwind(payload),
+        Ok(result) => match pumped {
+            Ok(()) => result,
+            Err(error) => {
+                connection.mark_unusable();
+                Err(error)
+            }
+        },
+    }
 }
 
 fn run(

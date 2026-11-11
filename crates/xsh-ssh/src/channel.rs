@@ -3,7 +3,7 @@ use zeroize::Zeroizing;
 
 use crate::client::Connection;
 use crate::error::Error;
-use crate::wire::{SshReader, Transport, plain_text, put_string};
+use crate::wire::{Packet, SshReader, Transport, plain_text, put_string};
 
 /// The local receive window advertised to the server.
 pub const LOCAL_WINDOW: u32 = 2 * 1024 * 1024;
@@ -26,6 +26,7 @@ fn protocol_error(detail: impl Into<String>) -> Error {
 
 const MAX_ENVIRONMENT: usize = 64;
 const MAX_ENVIRONMENT_VALUE: usize = 4096;
+const MAX_EARLY_PACKETS: usize = 1024;
 
 /// Refuse an environment the client will not send.
 pub fn validate_environment(env: &[(String, String)]) -> Result<(), Error> {
@@ -176,20 +177,66 @@ impl Channel {
         connection.transport().mark_submitted();
         connection.transport().send_raw(&request)?;
 
+        let mut early = Vec::new();
+        let mut early_bytes = 0;
         loop {
             let packet = connection.next_packet()?;
+            if early.len() >= MAX_EARLY_PACKETS {
+                return Err(protocol_error(
+                    "peer sent too many messages before the exec reply",
+                ));
+            }
             match packet.message_type {
-                MessageType::ChannelSuccess => return self.expect_reply_for(&packet.payload),
+                MessageType::ChannelSuccess => {
+                    self.expect_reply_for(&packet.payload)?;
+                    connection.defer(early);
+                    return Ok(());
+                }
                 MessageType::ChannelFailure => {
                     self.expect_reply_for(&packet.payload)?;
                     return Err(Error::Rejected { request: "exec" });
                 }
                 MessageType::ChannelWindowAdjust => self.window_adjust(&packet.payload)?,
+                MessageType::ChannelData | MessageType::ChannelExtendedData => {
+                    early_bytes += self.pre_reply_data_length(&packet)?;
+                    if early_bytes > LOCAL_WINDOW as usize {
+                        return Err(protocol_error(
+                            "peer sent more than the channel window before the exec reply",
+                        ));
+                    }
+                    early.push(packet);
+                }
+                MessageType::ChannelEof | MessageType::ChannelClose => {
+                    self.pre_reply_recipient(&packet.payload)?;
+                    early.push(packet);
+                }
+                MessageType::ChannelRequest => {
+                    self.pre_reply_recipient(&packet.payload)?;
+                    early.push(packet);
+                }
                 other => {
                     return Err(protocol_error(format!("unexpected exec reply {other:?}")));
                 }
             }
         }
+    }
+
+    fn pre_reply_recipient(&self, payload: &[u8]) -> Result<(), Error> {
+        let mut reader = SshReader::new(payload);
+        let recipient = reader.u32()?;
+        self.expect_recipient(recipient)
+    }
+
+    fn pre_reply_data_length(&self, packet: &Packet) -> Result<usize, Error> {
+        let mut reader = SshReader::new(&packet.payload);
+        let recipient = reader.u32()?;
+        self.expect_recipient(recipient)?;
+        if packet.message_type == MessageType::ChannelExtendedData {
+            let _data_type = reader.u32()?;
+        }
+        let data = reader.string()?;
+        reader.finish()?;
+        Ok(data.len())
     }
 
     fn expect_reply_for(&self, payload: &[u8]) -> Result<(), Error> {

@@ -986,6 +986,84 @@ fn output_held_for_a_full_pipe_is_written_after_the_server_hangs_up() {
     peer.finish();
 }
 
+struct StalledWriter {
+    release: mpsc::Receiver<()>,
+    blocked: bool,
+    written: usize,
+}
+
+impl Write for StalledWriter {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        if !self.blocked {
+            self.blocked = true;
+            let _ = self.release.recv();
+        }
+        self.written += data.len();
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_stalled_writer_does_not_stop_the_connection_from_being_served() {
+    let _guard = exclusive();
+    let (answered, observed) = mpsc::channel();
+    let peer = serve_exec(Behavior::default(), 1 << 20, move |link, channel| {
+        let packet = data_packet(channel, 32 * 1024);
+        for _ in 0..8 {
+            link.send(&packet);
+        }
+        link.send(&message(
+            GLOBAL_REQUEST,
+            &[&text(b"keepalive@openssh.com"), &[1]],
+        ));
+        let reply = loop {
+            match link.try_recv() {
+                Ok(frame) if frame.kind == CHANNEL_EOF => continue,
+                other => break other.map(|frame| frame.kind),
+            }
+        };
+        let _ = answered.send(reply);
+        link.exit_status(channel, 0);
+        link.eof(channel);
+        link.close(channel);
+        link.expect_close();
+    });
+    let (release, wait) = mpsc::channel();
+    let mut writer = StalledWriter {
+        release: wait,
+        blocked: false,
+        written: 0,
+    };
+    let mut connection = peer.connect(TIMEOUT);
+    let handle = thread::spawn(move || {
+        let result = connection.exec_stream(
+            "command",
+            &StreamOptions {
+                timeout: Some(Duration::from_secs(10)),
+                ..StreamOptions::default()
+            },
+            None,
+            &mut writer,
+            &mut io::sink(),
+        );
+        (result, writer.written)
+    });
+    let reply = observed
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the client answers the keepalive while the writer is stalled")
+        .expect("the peer reads the answer");
+    assert_eq!(reply, REQUEST_FAILURE);
+    release.send(()).expect("release the writer");
+    let (result, written) = handle.join().expect("the exec thread returns");
+    assert_eq!(result.expect("exec").status, ExecStatus::Exited(0));
+    assert_eq!(written, 8 * 32 * 1024);
+    peer.finish();
+}
+
 fn identification_outcome(line_length: usize) -> Result<Connection, Error> {
     let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
     let port = listener.local_addr().expect("address").port();
