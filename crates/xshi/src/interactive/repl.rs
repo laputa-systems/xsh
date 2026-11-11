@@ -35,6 +35,8 @@ pub(super) struct Ui {
     /// Layout captured for `xshi-dump` and Ctrl+P.
     pub(super) layout_dump: String,
     pub(super) path_cache: super::path::PathCache,
+    /// A command line was submitted and its completion marker is still due.
+    pub(super) osc133_pending_d: bool,
 }
 
 impl Ui {
@@ -52,6 +54,7 @@ impl Ui {
             session_log: String::new(),
             layout_dump: String::new(),
             path_cache: super::path::PathCache::new(),
+            osc133_pending_d: false,
         }
     }
 }
@@ -107,10 +110,8 @@ fn capture_layout_dump(
     ui: &mut Ui,
     mode: &Mode,
     line: &LineBuffer,
-    prompt_str: &str,
     prompt_display_len: usize,
     region: render::RenderedRegion,
-    history_cache: &render::HistoryPagerCache,
 ) {
     let suggestion =
         if line.text().len() >= 3 && !line.has_newlines() && line.cursor() == line.text().len() {
@@ -130,9 +131,7 @@ fn capture_layout_dump(
     let _ = writeln!(out, "version: {}", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out, "terminal.rows: {rows}");
     let _ = writeln!(out, "terminal.cols: {cols}");
-    let _ = writeln!(out, "prompt.text: {prompt_str:?}");
     let _ = writeln!(out, "prompt.display_len: {prompt_display_len}");
-    let _ = writeln!(out, "line.text: {:?}", line.text());
     let _ = writeln!(out, "line.bytes: {}", line.text().len());
     let _ = writeln!(out, "line.cursor_byte: {}", line.cursor());
     let _ = writeln!(
@@ -141,7 +140,7 @@ fn capture_layout_dump(
         line.display_cursor_pos()
     );
     let _ = writeln!(out, "line.display_len: {}", line.display_len());
-    let _ = writeln!(out, "suggestion.text: {suggestion:?}");
+    let _ = writeln!(out, "suggestion.present: {}", suggestion.is_some());
     let _ = writeln!(out, "suggestion.display_len: {suggestion_display_len}");
     let _ = writeln!(out, "line.has_newlines: {}", line.has_newlines());
     let _ = writeln!(out, "rendered_region: {region:?}");
@@ -151,7 +150,6 @@ fn capture_layout_dump(
     match mode {
         Mode::Normal => {}
         Mode::Completion { state, base_line } => {
-            let _ = writeln!(out, "completion.base_line.text: {:?}", base_line.text());
             let _ = writeln!(
                 out,
                 "completion.base_line.cursor_byte: {}",
@@ -162,11 +160,15 @@ fn capture_layout_dump(
             let _ = writeln!(out, "completion.rows: {}", state.rows);
             let _ = writeln!(out, "completion.scroll: {}", state.scroll);
             let _ = writeln!(out, "completion.term_cols: {}", state.term_cols);
-            let _ = writeln!(out, "completion.dir_prefix: {:?}", state.dir_prefix);
+            let _ = writeln!(out, "completion.term_rows: {rows}");
+            let _ = writeln!(
+                out,
+                "completion.dir_prefix_bytes: {}",
+                state.dir_prefix.len()
+            );
             let _ = writeln!(out, "completion.in_quote: {}", state.in_quote);
-            let _ = writeln!(out, "completion.names: {:?}", state.comp.names);
             let _ = writeln!(out, "completion.entries: {:?}", state.comp.entries);
-            render::debug_dump_completion_layout(out, state);
+            render::debug_dump_completion_layout(out, state, rows);
         }
         Mode::HistorySearch {
             query,
@@ -177,7 +179,6 @@ fn capture_layout_dump(
             selected,
             saved_line,
         } => {
-            let _ = writeln!(out, "history.query.text: {:?}", query.text());
             let _ = writeln!(out, "history.query.cursor_byte: {}", query.cursor());
             let _ = writeln!(
                 out,
@@ -189,7 +190,7 @@ fn capture_layout_dump(
             let _ = writeln!(out, "history.scratch: {scratch:?}");
             let _ = writeln!(out, "history.candidate_stack: {candidate_stack:?}");
             let _ = writeln!(out, "history.selected: {selected}");
-            let _ = writeln!(out, "history.saved_line: {saved_line:?}");
+            let _ = writeln!(out, "history.saved_line_bytes: {}", saved_line.len());
             render::debug_dump_pager_layout(
                 out,
                 line::str_width("search: "),
@@ -203,7 +204,7 @@ fn capture_layout_dump(
             );
         }
         Mode::DirPicker { entries, selected } => {
-            let _ = writeln!(out, "dir_picker.entries: {entries:?}");
+            let _ = writeln!(out, "dir_picker.entry_count: {}", entries.len());
             let _ = writeln!(out, "dir_picker.selected: {selected}");
             render::debug_dump_pager_layout(
                 out,
@@ -218,8 +219,6 @@ fn capture_layout_dump(
             );
         }
     }
-
-    render::debug_dump_history_cache(out, history_cache);
 }
 
 fn mode_name(mode: &Mode) -> &'static str {
@@ -336,6 +335,11 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
     let mut history_idx: Option<usize> = None;
     let mut saved_line = String::new();
     let mut grid_column: Option<usize> = None;
+    let mut undo = UndoState::new();
+    if ui.osc133_pending_d {
+        term::write_osc133_d(session.last_status);
+        ui.osc133_pending_d = false;
+    }
     write_osc7(session);
 
     if ui.prompt_needs_line_start {
@@ -345,6 +349,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
         tw.write_str("\r\n");
         ui.prompt_needs_line_start = false;
     }
+    term::write_osc133_a();
 
     let pwd = env_str(session, b"PWD").to_owned();
     let denv_dirty = session.denv_dirty();
@@ -366,6 +371,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
     );
     let mut history_cache = render::HistoryPagerCache::default();
     let _ = tw.flush_to_stdout();
+    term::write_osc133_b();
 
     loop {
         let event = reader.read_event();
@@ -404,6 +410,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
             InputEvent::Paste(text) => {
                 // Insert the entire paste in one shot, with no per-char render.
                 grid_column = None;
+                undo.before_edit(&line, EditGroup::Other);
                 line.insert_str(&text);
                 region = render_active_mode(
                     &mut tw,
@@ -421,18 +428,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
             }
             InputEvent::PasteRejected => {
                 grid_column = None;
-                line.set("[paste exceeded 8KB limit]");
-                region = render_active_mode(
-                    &mut tw,
-                    &mode,
-                    session,
-                    ui,
-                    &line,
-                    &prompt_str,
-                    prompt_display_len,
-                    region,
-                    &mut history_cache,
-                );
+                tw.write_str("\x07");
                 let _ = tw.flush_to_stdout();
                 continue;
             }
@@ -446,10 +442,8 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                         ui,
                         &mode,
                         &line,
-                        &prompt_str,
                         prompt_display_len,
                         region,
-                        &history_cache,
                     );
                     if let Err(message) = write_layout_dump_to_file(session, ui) {
                         eprintln!("{message}");
@@ -467,6 +461,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                             prompt_display_len,
                             session,
                             ui,
+                            &mut undo,
                         ) {
                             KeyAction::Continue => {}
                             KeyAction::Execute(text) => {
@@ -475,10 +470,8 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                     ui,
                                     &mode,
                                     &line,
-                                    &prompt_str,
                                     prompt_display_len,
                                     region,
-                                    &history_cache,
                                 );
                                 // Clear autosuggestion ghost text before freezing the line.
                                 if line.cursor() == line.text().len() {
@@ -487,12 +480,18 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                 tw.write_str("\r\n");
                                 let _ = tw.flush_to_stdout();
                                 ui.prompt_buf = prompt_str;
-                                let joined = join_continuation_lines(&text);
-                                return if joined.is_empty() {
-                                    ReadResult::Empty
-                                } else {
-                                    ReadResult::Line(joined)
-                                };
+                                let submitted = submit_text(&text);
+                                ui.osc133_pending_d = true;
+                                if submitted.is_empty() {
+                                    return ReadResult::Empty;
+                                }
+                                if parsed_line_accepts(&submitted) {
+                                    term::write_osc133_c();
+                                }
+                                if submitted_line_clears_screen(&submitted) {
+                                    ui.prompt_needs_line_start = true;
+                                }
+                                return ReadResult::Line(submitted);
                             }
                             KeyAction::Continuation => {
                                 line.insert_char('\n');
@@ -501,6 +500,8 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                             KeyAction::Cancel => {
                                 tw.write_str("^C\r\n");
                                 let _ = tw.flush_to_stdout();
+                                term::write_osc133_d(130);
+                                ui.osc133_pending_d = false;
                                 ui.prompt_buf = prompt_str;
                                 return ReadResult::Empty;
                             }
@@ -508,7 +509,14 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                 tw.write_str("\r\n");
                                 let _ = tw.flush_to_stdout();
                                 ui.prompt_buf = prompt_str;
-                                return handle_exit(session, ui);
+                                let result = handle_exit(session, ui);
+                                let status = if matches!(result, ReadResult::Empty) {
+                                    130
+                                } else {
+                                    session.last_status
+                                };
+                                term::write_osc133_d(status);
+                                return result;
                             }
                             KeyAction::ClearScreen => {
                                 tw.clear_screen();
@@ -626,7 +634,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                     &render::RenderOpts::default(),
                                 );
                                 region = info;
-                                render::render_completions(&mut tw, state, info, false);
+                                render::render_completions(&mut tw, state, info, false, ui.rows);
                                 let _ = tw.flush_to_stdout();
                                 continue;
                             }
@@ -652,7 +660,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                         &render::RenderOpts::default(),
                                     );
                                     region = info;
-                                    render::render_completions(&mut tw, &cs, info, true);
+                                    render::render_completions(&mut tw, &cs, info, true, ui.rows);
                                     mode = Mode::Completion {
                                         state: cs,
                                         base_line: base_line.clone(),
@@ -896,7 +904,7 @@ fn render_active_mode(
                 region,
                 &render::RenderOpts::default(),
             );
-            render::render_completions(tw, state, info, true);
+            render::render_completions(tw, state, info, true, ui.rows);
             info
         }
         Mode::HistorySearch { .. } => {
@@ -911,6 +919,7 @@ fn update_mode_layout_for_resize(mode: &mut Mode, ui: &Ui) {
         let (cols, rows) = complete::compute_grid(&state.comp.entries, ui.cols);
         state.cols = cols;
         state.rows = rows;
+        state.term_cols = ui.cols;
         state.scroll = state.scroll.min(rows.saturating_sub(1));
     }
 }
@@ -927,28 +936,154 @@ enum KeyAction {
     StartCompletion,
 }
 
-/// Joins continuation lines for execution: strips `\<newline>` sequences and
-/// replaces remaining newlines with spaces.
-fn join_continuation_lines(input: &str) -> String {
-    if !input.contains('\n') {
+/// Prepares an edited buffer for execution. A backslash-newline is removed,
+/// a newline inside quotes stays data, a newline after an operator continues
+/// the command, and any other newline separates commands.
+fn submit_text(input: &str) -> String {
+    if !input.contains('\n') && !input.contains("\\\n") {
         return input.to_string();
     }
     let mut result = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
-            // Line continuation: skip \ and \n.
-            i += 2;
-        } else if bytes[i] == b'\n' {
-            result.push(' ');
-            i += 1;
-        } else {
-            result.push(bytes[i] as char);
-            i += 1;
+    let mut chars = input.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    while let Some(ch) = chars.next() {
+        if in_single {
+            result.push(ch);
+            if ch == '\'' {
+                in_single = false;
+            }
+            continue;
+        }
+        if ch == '\\' && chars.peek() == Some(&'\n') {
+            chars.next();
+            continue;
+        }
+        if in_double {
+            result.push(ch);
+            if ch == '"' {
+                in_double = false;
+            }
+            continue;
+        }
+        match ch {
+            '\'' => {
+                in_single = true;
+                result.push(ch);
+            }
+            '"' => {
+                in_double = true;
+                result.push(ch);
+            }
+            '\n' => {
+                let before = result.trim_end();
+                let continues = before.is_empty() || before.ends_with(['|', '&', ';']);
+                if !continues {
+                    result.push(';');
+                } else if !before.is_empty() && !result.ends_with(' ') {
+                    result.push(' ');
+                }
+            }
+            _ => result.push(ch),
         }
     }
     result
+}
+
+fn parsed_line_accepts(input: &str) -> bool {
+    super::shell::ShellParser::new(input).parse_line().is_ok()
+}
+
+fn submitted_line_clears_screen(input: &str) -> bool {
+    input.split_whitespace().next() == Some("c")
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct UndoEntry {
+    text: String,
+    cursor: usize,
+}
+
+impl UndoEntry {
+    fn from_line(line: &LineBuffer) -> Self {
+        Self {
+            text: line.text().to_string(),
+            cursor: line.cursor(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EditGroup {
+    Typing,
+    Other,
+}
+
+struct UndoState {
+    undo: Vec<UndoEntry>,
+    redo: Vec<UndoEntry>,
+    group: Option<EditGroup>,
+}
+
+impl UndoState {
+    fn new() -> Self {
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+            group: None,
+        }
+    }
+
+    fn break_group(&mut self) {
+        self.group = None;
+    }
+
+    fn before_edit(&mut self, line: &LineBuffer, group: EditGroup) {
+        if self.group == Some(group) && group == EditGroup::Typing {
+            return;
+        }
+        let entry = UndoEntry::from_line(line);
+        if self.undo.last() != Some(&entry) {
+            self.undo.push(entry);
+            if self.undo.len() > 256 {
+                self.undo.remove(0);
+            }
+        }
+        self.redo.clear();
+        self.group = Some(group);
+    }
+
+    fn undo(&mut self, line: &mut LineBuffer) -> bool {
+        let Some(entry) = self.undo.pop() else {
+            return false;
+        };
+        let current = UndoEntry::from_line(line);
+        if self.redo.last() != Some(&current) {
+            self.redo.push(current);
+            if self.redo.len() > 256 {
+                self.redo.remove(0);
+            }
+        }
+        line.set_with_cursor(&entry.text, entry.cursor);
+        self.group = None;
+        true
+    }
+
+    fn redo(&mut self, line: &mut LineBuffer) -> bool {
+        let Some(entry) = self.redo.pop() else {
+            return false;
+        };
+        let current = UndoEntry::from_line(line);
+        if self.undo.last() != Some(&current) {
+            self.undo.push(current);
+            if self.undo.len() > 256 {
+                self.undo.remove(0);
+            }
+        }
+        line.set_with_cursor(&entry.text, entry.cursor);
+        self.group = None;
+        true
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -961,115 +1096,199 @@ fn handle_normal_key(
     prompt_display_len: usize,
     session: &Session,
     ui: &Ui,
+    undo: &mut UndoState,
 ) -> KeyAction {
     if !matches!(key.key, Key::Up | Key::Down) || key.mods.ctrl {
         *grid_column = None;
     }
 
     match (key.key, key.mods.ctrl, key.mods.alt) {
+        (Key::Char('_'), true, _) => {
+            undo.undo(line);
+            *history_idx = None;
+            return KeyAction::Continue;
+        }
+        (Key::Char('r'), false, true) => {
+            undo.redo(line);
+            *history_idx = None;
+            return KeyAction::Continue;
+        }
         (Key::Char('c'), true, _) => return KeyAction::Cancel,
         (Key::Char('d'), true, _) => {
             if line.is_empty() {
                 return KeyAction::Exit;
             }
+            undo.before_edit(line, EditGroup::Other);
             line.delete_forward();
         }
-        (Key::Char('a'), true, _) => line.move_home(),
-        (Key::Char('e'), true, _) => line.move_end(),
-        (Key::Char('k'), true, _) => line.kill_to_end(),
-        (Key::Char('u'), true, _) => line.kill_to_start(),
-        (Key::Char('w'), true, _) => line.kill_word_back(),
-        (Key::Char('d'), false, true) => line.kill_word_forward(),
-        (Key::Char('y'), true, _) => line.yank(),
+        (Key::Char('a'), true, _) => {
+            undo.break_group();
+            line.move_home();
+        }
+        (Key::Char('e'), true, _) => {
+            undo.break_group();
+            line.move_end();
+        }
+        (Key::Char('k'), true, _) => {
+            undo.before_edit(line, EditGroup::Other);
+            line.kill_to_end();
+        }
+        (Key::Char('u'), true, _) => {
+            undo.before_edit(line, EditGroup::Other);
+            line.kill_to_start();
+        }
+        (Key::Char('w'), true, _) => {
+            undo.before_edit(line, EditGroup::Other);
+            line.kill_word_back();
+        }
+        (Key::Char('d'), false, true) => {
+            undo.before_edit(line, EditGroup::Other);
+            line.kill_word_forward();
+        }
+        (Key::Char('y'), true, _) => {
+            undo.before_edit(line, EditGroup::Other);
+            line.yank();
+        }
         (Key::Char('l'), true, _) => return KeyAction::ClearScreen,
         (Key::Char('r'), true, _) => return KeyAction::StartHistorySearch,
 
-        (Key::Char('b'), false, true) => line.move_word_left(),
-        (Key::Char('f'), false, true) => line.move_word_right(),
+        (Key::Char('b'), false, true) => {
+            undo.break_group();
+            line.move_word_left();
+        }
+        (Key::Char('f'), false, true) => {
+            undo.break_group();
+            line.move_word_right();
+        }
 
         (Key::Up, _, _) if !key.mods.ctrl => {
             if line.has_newlines() && !line.on_first_line() {
+                undo.break_group();
                 line.move_line_up();
                 *grid_column = None;
             } else if !line.has_newlines() {
                 let col = *grid_column.get_or_insert_with(|| {
                     line.grid_cursor_position(prompt_display_len, ui.cols).1
                 });
-                if !line.move_grid_up(prompt_display_len, ui.cols, col) {
+                if line.move_grid_up(prompt_display_len, ui.cols, col) {
+                    undo.break_group();
+                } else {
                     *grid_column = None;
-                    navigate_history(line, history_idx, saved_line, session, true);
+                    navigate_history(line, history_idx, saved_line, session, true, undo);
                 }
             } else {
-                navigate_history(line, history_idx, saved_line, session, true);
+                navigate_history(line, history_idx, saved_line, session, true, undo);
             }
         }
         (Key::Down, _, _) if !key.mods.ctrl => {
             if line.has_newlines() && !line.on_last_line() {
+                undo.break_group();
                 line.move_line_down();
                 *grid_column = None;
             } else if !line.has_newlines() {
                 let col = *grid_column.get_or_insert_with(|| {
                     line.grid_cursor_position(prompt_display_len, ui.cols).1
                 });
-                if !line.move_grid_down(prompt_display_len, ui.cols, col) {
+                if line.move_grid_down(prompt_display_len, ui.cols, col) {
+                    undo.break_group();
+                } else {
                     *grid_column = None;
-                    navigate_history(line, history_idx, saved_line, session, false);
+                    navigate_history(line, history_idx, saved_line, session, false, undo);
                 }
             } else {
-                navigate_history(line, history_idx, saved_line, session, false);
+                navigate_history(line, history_idx, saved_line, session, false, undo);
             }
         }
-        (Key::Left, _, _) if key.mods.ctrl || key.mods.alt => line.move_word_left(),
-        (Key::Right, _, _) if key.mods.ctrl || key.mods.alt => line.move_word_right(),
+        (Key::Left, _, _) if key.mods.ctrl || key.mods.alt => {
+            undo.break_group();
+            line.move_word_left();
+        }
+        (Key::Right, _, _) if key.mods.ctrl || key.mods.alt => {
+            if line.cursor() >= line.text().len() && !line.has_newlines() {
+                if let Some(entry) = session.history.session_prefix_search(line.text(), 0)
+                    && let Some(suffix) = entry.strip_prefix(line.text())
+                {
+                    let take = suggestion_word_accept_len(suffix);
+                    if take > 0 {
+                        undo.before_edit(line, EditGroup::Other);
+                        let mut owned = line.text().to_string();
+                        owned.push_str(&suffix[..take]);
+                        line.set(&owned);
+                    }
+                }
+            } else {
+                undo.break_group();
+                line.move_word_right();
+            }
+        }
         (Key::Left, _, _) => {
+            undo.break_group();
             line.move_left();
         }
         (Key::Right, _, _) => {
             if line.cursor() >= line.text().len() && !line.has_newlines() {
                 // At end of line: accept the autosuggestion from history.
                 if let Some(entry) = session.history.session_prefix_search(line.text(), 0) {
+                    undo.before_edit(line, EditGroup::Other);
                     let owned = entry.to_string();
                     line.set(&owned);
+                } else {
+                    undo.break_group();
+                    line.move_right();
                 }
             } else {
+                undo.break_group();
                 line.move_right();
             }
         }
-        (Key::Home, _, _) => line.move_home(),
-        (Key::End, _, _) => line.move_end(),
+        (Key::Home, _, _) => {
+            undo.break_group();
+            line.move_home();
+        }
+        (Key::End, _, _) => {
+            undo.break_group();
+            line.move_end();
+        }
 
         (Key::Backspace, true, _) => return KeyAction::StartDirPicker,
         (Key::Backspace, _, _) => {
+            undo.before_edit(line, EditGroup::Other);
             line.delete_back();
             *history_idx = None;
         }
         (Key::Delete, true, _) => {
+            undo.before_edit(line, EditGroup::Other);
             line.kill_word_back();
             *history_idx = None;
         }
         (Key::Delete, _, _) => {
+            undo.before_edit(line, EditGroup::Other);
             line.delete_forward();
         }
         (Key::Tab, _, _) => {
             if line.is_empty() {
+                undo.before_edit(line, EditGroup::Other);
                 line.insert_str("cd ");
             }
             return KeyAction::StartCompletion;
         }
         (Key::Enter, _, _) => {
-            let text = join_continuation_lines(line.text());
-            if needs_continuation(&text) {
+            if needs_continuation(line.text()) {
                 return KeyAction::Continuation;
             }
             return KeyAction::Execute(line.text().to_string());
         }
 
         (Key::Char(c), false, false) => {
+            undo.before_edit(line, EditGroup::Typing);
+            let before = line.text().to_string();
             line.insert_char(c);
             if c == ' ' {
                 try_alias_expand(line, &session.aliases);
             }
-            *history_idx = None;
+            if line.text() != before {
+                *history_idx = None;
+            }
         }
 
         _ => {}
@@ -1078,12 +1297,46 @@ fn handle_normal_key(
     KeyAction::Continue
 }
 
+fn suggestion_word_accept_len(suffix: &str) -> usize {
+    if suffix.is_empty() {
+        return 0;
+    }
+    let mut chars = suffix.char_indices();
+    let Some((_, first)) = chars.next() else {
+        return 0;
+    };
+    if first.is_whitespace() {
+        let mut end = first.len_utf8();
+        for (i, c) in chars {
+            if c.is_whitespace() {
+                end = i + c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        for (i, c) in suffix[end..].char_indices() {
+            if c.is_whitespace() {
+                return end + i;
+            }
+        }
+        suffix.len()
+    } else {
+        for (i, c) in chars {
+            if c.is_whitespace() {
+                return i;
+            }
+        }
+        suffix.len()
+    }
+}
+
 fn navigate_history(
     line: &mut LineBuffer,
     history_idx: &mut Option<usize>,
     saved_line: &mut String,
     session: &Session,
     up: bool,
+    undo: &mut UndoState,
 ) {
     let hist = &session.history;
     if hist.is_empty() {
@@ -1094,7 +1347,7 @@ fn navigate_history(
         *saved_line = line.text().to_string();
     }
 
-    if up {
+    let new_text = if up {
         let skip = history_idx.map(|i| i + 1).unwrap_or(0);
         let entry = if saved_line.is_empty() {
             hist.session_get(skip)
@@ -1103,13 +1356,15 @@ fn navigate_history(
         };
         if let Some(e) = entry {
             *history_idx = Some(skip);
-            line.set(e);
+            Some(e.to_string())
+        } else {
+            None
         }
     } else {
         match history_idx {
             Some(0) | None => {
                 *history_idx = None;
-                line.set(saved_line);
+                Some(saved_line.clone())
             }
             Some(idx) => {
                 *idx -= 1;
@@ -1119,11 +1374,15 @@ fn navigate_history(
                 } else {
                     hist.session_prefix_search(saved_line, skip)
                 };
-                if let Some(e) = entry {
-                    line.set(e);
-                }
+                entry.map(|e| e.to_string())
             }
         }
+    };
+    if let Some(text) = new_text
+        && text != line.text()
+    {
+        undo.before_edit(line, EditGroup::Other);
+        line.set(&text);
     }
 }
 
@@ -1887,7 +2146,10 @@ fn handle_exit(session: &mut Session, ui: &mut Ui) -> ReadResult {
 
 #[cfg(test)]
 mod tests {
-    use super::variable_prefix_end;
+    use super::{
+        EditGroup, LineBuffer, UndoState, submit_text, suggestion_word_accept_len,
+        variable_prefix_end,
+    };
 
     #[test]
     fn variable_prefix_ends_just_after_an_unescaped_dollar() {
@@ -1903,5 +2165,73 @@ mod tests {
         assert_eq!(variable_prefix_end("HOME"), None);
         assert_eq!(variable_prefix_end("$HOME/"), None);
         assert_eq!(variable_prefix_end("$HOME$"), Some(6));
+    }
+
+    #[test]
+    fn suggestion_word_accept_len_splits_words_and_paths() {
+        assert_eq!(suggestion_word_accept_len(""), 0);
+        assert_eq!(
+            suggestion_word_accept_len("checkout feature"),
+            "checkout".len()
+        );
+        assert_eq!(
+            suggestion_word_accept_len(" checkout"),
+            " checkout".len()
+        );
+        assert_eq!(suggestion_word_accept_len("  --flag"), "  --flag".len());
+        assert_eq!(
+            suggestion_word_accept_len("src/main.rs"),
+            "src/main.rs".len()
+        );
+    }
+
+    #[test]
+    fn typing_group_coalesces_into_one_undo_step() {
+        let mut line = LineBuffer::new();
+        let mut undo = UndoState::new();
+        for c in "echo".chars() {
+            undo.before_edit(&line, EditGroup::Typing);
+            line.insert_char(c);
+        }
+        assert_eq!(undo.undo.len(), 1);
+        assert!(undo.undo(&mut line));
+        assert!(line.text().is_empty());
+        assert!(undo.redo(&mut line));
+        assert_eq!(line.text(), "echo");
+    }
+
+    #[test]
+    fn undo_and_redo_are_bounded_to_256_states() {
+        let mut line = LineBuffer::new();
+        let mut undo = UndoState::new();
+        for _ in 0..300 {
+            undo.before_edit(&line, EditGroup::Other);
+            line.insert_char('x');
+        }
+        assert_eq!(undo.undo.len(), 256);
+        for _ in 0..300 {
+            undo.undo(&mut line);
+        }
+        assert_eq!(line.text(), "x".repeat(44));
+        assert_eq!(undo.redo.len(), 256);
+        for _ in 0..300 {
+            undo.redo(&mut line);
+        }
+        assert_eq!(line.text(), "x".repeat(300));
+    }
+
+    #[test]
+    fn submit_text_follows_shell_line_continuation_rules() {
+        assert_eq!(
+            submit_text("echo first\necho second"),
+            "echo first;echo second"
+        );
+        assert_eq!(submit_text("echo one \\\ntwo"), "echo one two");
+        assert_eq!(submit_text("true &&\necho ok"), "true && echo ok");
+        assert_eq!(
+            submit_text("echo \"open\nclose\""),
+            "echo \"open\nclose\""
+        );
+        assert_eq!(submit_text("printf '%s' 'a\nb'"), "printf '%s' 'a\nb'");
     }
 }

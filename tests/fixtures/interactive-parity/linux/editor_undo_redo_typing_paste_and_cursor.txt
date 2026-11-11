@@ -1,0 +1,47 @@
+== frame typed cursor=0,27
+|testuser@<HOST> ~ $ echo hi
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_typing_group cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame redo_typing_group cursor=0,27
+|testuser@<HOST> ~ $ echo hi
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame pasted cursor=0,33
+|testuser@<HOST> ~ $ echo hi there
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_paste cursor=0,27
+|testuser@<HOST> ~ $ echo hi
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame redo_paste cursor=0,33
+|testuser@<HOST> ~ $ echo hi there
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame typed_mid_line cursor=0,32
+|testuser@<HOST> ~ $ echo hi theXre
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_restores_cursor cursor=0,31
+|testuser@<HOST> ~ $ echo hi there
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_previous_step cursor=0,27
+|testuser@<HOST> ~ $ echo hi
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame redo_previous_step cursor=0,31
+|testuser@<HOST> ~ $ echo hi there
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame killed_word cursor=0,28
+|testuser@<HOST> ~ $ echo hi re
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_kill cursor=0,31
+|testuser@<HOST> ~ $ echo hi there
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

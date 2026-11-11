@@ -1,0 +1,56 @@
+== frame ctrl_delete cursor=0,31
+|testuser@<HOST> ~ $ echo alpha
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_enter cursor=3,20
+|testuser@<HOST> ~ $ echo alpha
+|alpha
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame alt_d_at_start cursor=3,20
+|testuser@<HOST> ~ $ echo alpha
+|alpha
+|
+|testuser@<HOST> ~ $  two three
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame yanked cursor=3,23
+|testuser@<HOST> ~ $ echo alpha
+|alpha
+|
+|testuser@<HOST> ~ $ one two three
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame alt_d_middle cursor=3,26
+|testuser@<HOST> ~ $ echo alpha
+|alpha
+|
+|testuser@<HOST> ~ $ alpha  gamma two three
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha
+== frame undo_kill cursor=3,26
+|testuser@<HOST> ~ $ echo alpha
+|alpha
+|
+|testuser@<HOST> ~ $ alpha beta gamma two three
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha
+== frame ctrl_w_after_undo cursor=3,20
+|testuser@<HOST> ~ $ echo alpha
+|alpha
+|
+|testuser@<HOST> ~ $ beta gamma two three
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 beta

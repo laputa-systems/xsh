@@ -364,7 +364,9 @@ fn layout_pager(input: PagerInput) -> PagerLayout {
     let header_rows = header_full.saturating_sub(1) / cols + 1;
     let cursor_row = header_before_cursor / cols;
     let cursor_col = header_before_cursor % cols;
-    let max_results = (input.term_rows as usize).saturating_sub(2).min(20);
+    let max_results = (input.term_rows as usize)
+        .saturating_sub(header_rows)
+        .max(1);
     let displayed = input.total_entries.min(max_results);
     let last_row = header_rows + displayed.saturating_sub(1);
     let scroll = if input.total_entries <= max_results || input.selected < max_results / 2 {
@@ -393,8 +395,8 @@ fn layout_pager(input: PagerInput) -> PagerLayout {
     }
 }
 
-fn layout_completion_grid(state: &CompletionState) -> CompletionGridLayout {
-    let visible_rows = grid_visible_rows(state);
+fn layout_completion_grid(state: &CompletionState, term_rows: u16) -> CompletionGridLayout {
+    let visible_rows = grid_visible_rows(state, term_rows);
     if visible_rows == 0 {
         return CompletionGridLayout {
             visible_rows: 0,
@@ -486,8 +488,8 @@ pub fn debug_dump_pager_layout(
 }
 
 /// Dump the computed completion grid geometry.
-pub fn debug_dump_completion_layout(out: &mut String, state: &CompletionState) {
-    let layout = layout_completion_grid(state);
+pub fn debug_dump_completion_layout(out: &mut String, state: &CompletionState, term_rows: u16) {
+    let layout = layout_completion_grid(state, term_rows);
     let _ = writeln!(out, "completion_grid_layout: {layout:?}");
 }
 
@@ -623,8 +625,9 @@ pub fn render_completions(
     state: &CompletionState,
     info: RenderedRegion,
     initial: bool,
+    term_rows: u16,
 ) {
-    let layout = layout_completion_grid(state);
+    let layout = layout_completion_grid(state, term_rows);
     if layout.visible_rows == 0 {
         return;
     }
@@ -656,11 +659,12 @@ pub fn render_completions(
     tw.show_cursor();
 }
 
-pub fn grid_visible_rows(state: &CompletionState) -> usize {
+pub fn grid_visible_rows(state: &CompletionState, term_rows: u16) -> usize {
     if state.comp.is_empty() || state.rows == 0 {
         return 0;
     }
-    state.rows.min(10)
+    let max = usize::from(term_rows).saturating_sub(1).max(1);
+    state.rows.min(max)
 }
 
 fn draw_grid(tw: &mut TermWriter, state: &CompletionState, layout: &CompletionGridLayout) {
@@ -1370,7 +1374,7 @@ mod tests {
     fn completion_grid_does_not_pad_last_column() {
         let state = completion_state(&["12345678"], 1, 1, 80);
         let mut tw = TermWriter::new();
-        let layout = layout_completion_grid(&state);
+        let layout = layout_completion_grid(&state, 24);
         draw_grid(&mut tw, &state, &layout);
         assert!(
             tw.as_bytes().ends_with(b"12345678"),
@@ -1382,7 +1386,7 @@ mod tests {
     fn completion_grid_truncates_entry_to_terminal_width() {
         let state = completion_state(&["123456789"], 1, 1, 8);
         let mut tw = TermWriter::new();
-        let layout = layout_completion_grid(&state);
+        let layout = layout_completion_grid(&state, 24);
         draw_grid(&mut tw, &state, &layout);
         assert_eq!(tw.as_bytes(), b"\r\x1b[K1234567");
     }

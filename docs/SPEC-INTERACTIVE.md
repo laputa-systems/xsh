@@ -296,7 +296,11 @@ The prompt is `user@host cwd git-branch [*] $`: the cwd is shortened in the
 middle (`~/.config/fish` → `~/.c/fish`), the branch comes from `.git/HEAD`
 without a subprocess, a red `*` marks a denv with pending changes, and the
 prompt is green after success and red after failure. Every prompt is preceded by
-an OSC 7 working-directory report.
+an OSC 7 working-directory report and OSC 133 prompt/command markers: `A` before
+the prompt is drawn, `B` once it is on screen, `C` when a command starts, and
+`D;STATUS` when it finishes. Cancelled input closes its prompt with `D;130` and
+no `C`; refused input reports its status with `D` and no `C`. `PTY` suites set
+`ISH_TEST_SUPPRESS_OSC133=1` to suppress the markers, as `ish` does.
 
 Keys:
 
@@ -305,6 +309,7 @@ Keys:
 | Ctrl-A / Home, Ctrl-E / End | line start / end |
 | Left, Right | one character |
 | Ctrl-Left, Alt-B / Ctrl-Right, Alt-F | one word |
+| Ctrl-_, Alt-R | undo, redo (bounded to 256 states) |
 | Backspace, Delete, Ctrl-D | delete before / after the cursor; Ctrl-D on an empty line exits |
 | Ctrl-K, Ctrl-U, Ctrl-W / Ctrl-Delete, Alt-D | kill to end, to start, word back, word forward |
 | Ctrl-Backspace | pick from the directories this shell has visited, most recent first |
@@ -315,15 +320,24 @@ Keys:
 | Up, Down | move by visual row; at the first or last row, prefix search through session history |
 | Tab, Ctrl-R | completion (§10), history search |
 
+Consecutive typed characters form one undo step; every other edit records its
+own. Cursor motion starts a new typing step, and undo restores the cursor
+position recorded with the text.
+
 Text is UTF-8 throughout: cursor motion and deletion work on characters, widths
-account for wide characters and combining marks, and a wide character with one
-column left wraps before drawing. Long lines wrap as a grid; pasted multi-line
-input keeps its lines and Up/Down move between them. Bracketed paste inserts
-text without executing it and is rejected above 8,192 bytes.
+account for wide characters, combining marks, variation selectors, and emoji
+skin-tone modifiers, and a wide character with one column left wraps before
+drawing. Long lines wrap as a grid; pasted multi-line input keeps its lines and
+Up/Down move between them. Bracketed paste inserts text without executing it
+and is rejected above 8,192 bytes. Submitting a multi-line buffer follows shell
+line rules: a backslash-newline joins, a newline inside quotes is data, a
+newline after `|`, `&&`, `||`, or `;` continues the command, and any other
+newline separates commands.
 
 The autosuggestion ghost text shows the rest of the newest matching history
 entry after the cursor when the buffer is at least three characters, single
-line, and the cursor is at its end; Right, End, or Ctrl-E accepts it.
+line, and the cursor is at its end; Right, End, or Ctrl-E accepts it, while
+Ctrl-Right accepts only the next word.
 
 Repainting returns to the top of the previous region and clears the larger of
 the old and new row counts, so output never stacks across resizes or wrapped
@@ -353,9 +367,9 @@ for a prefix that starts with `.`; prefix matches win over substring matches;
 fish-style. Names needing quoting are single-quoted on insertion.
 
 A single candidate or a longer common prefix is inserted. Otherwise a column-major
-grid of up to six columns and ten visible rows opens with no selection; Tab and
-the arrows move the selection and preview it, typing filters live, Enter
-accepts without submitting, Escape and Ctrl-C cancel.
+grid of up to six columns and at most one fewer row than the terminal height
+opens with no selection; Tab and the arrows move the selection and preview it,
+typing filters live, Enter accepts without submitting, Escape and Ctrl-C cancel.
 
 Remote path completion runs `ssh -o BatchMode=yes -o ConnectTimeout=2 HOST ls
 -dp PATH*` with the host as one argument, a three-second deadline, and a 64 KiB
@@ -375,6 +389,7 @@ and the other POSIX names as builtins; those that are not internal resolve on
   Relative `cd` and `z` targets are recorded in history as absolute paths.
 - `l [path…]` is the native `ls -plAhG`: no fork, owner and group by name,
   sizes as `B/K/M/G`, symlink targets, colors on names only.
+- `c` clears the screen and starts the next prompt on a fresh row.
 - `copy-scrollback` copies the session's typed lines to the clipboard with
   OSC 52.
 - `z QUERY` jumps to the best frecency match among directories recorded by

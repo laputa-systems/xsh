@@ -106,6 +106,49 @@ pub fn term_size() -> (u16, u16) {
     }
 }
 
+pub fn write_osc133_a() {
+    write_osc133("A", None);
+}
+
+pub fn write_osc133_b() {
+    write_osc133("B", None);
+}
+
+pub fn write_osc133_c() {
+    write_osc133("C", None);
+}
+
+pub fn write_osc133_d(status: i32) {
+    write_osc133("D", Some(status));
+}
+
+/// The switch mirrors ish's: PTY test suites suppress the markers because they
+/// are outside the minimal xterm profile their screen models accept.
+fn osc133_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var_os("ISH_TEST_SUPPRESS_OSC133").as_deref()
+            != Some(std::ffi::OsStr::new("1"))
+    })
+}
+
+fn write_osc133(kind: &str, status: Option<i32>) {
+    use std::io::IsTerminal as _;
+    if !osc133_enabled() {
+        return;
+    }
+    let mut stdout = io::stdout().lock();
+    if !stdout.is_terminal() {
+        return;
+    }
+    let result = match status {
+        Some(code) => write!(stdout, "\x1b]133;{kind};{code}\x07"),
+        None => write!(stdout, "\x1b]133;{kind}\x07"),
+    };
+    let _ = result;
+    let _ = stdout.flush();
+}
+
 /// Save original termios without entering raw mode (for child process restoration).
 pub fn save_termios() -> io::Result<Termios> {
     let stdin = unsafe { BorrowedFd::borrow_raw(STDIN_FD) };

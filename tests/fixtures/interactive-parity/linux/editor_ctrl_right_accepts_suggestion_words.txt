@@ -1,0 +1,26 @@
+== frame suggested cursor=0,26
+|testuser@<HOST> ~ $ git checkout feature-branch
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 eckout feature-branch
+== frame first_word cursor=0,32
+|testuser@<HOST> ~ $ git checkout feature-branch
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  feature-branch
+== frame second_word cursor=0,47
+|testuser@<HOST> ~ $ git checkout feature-branch
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame at_end cursor=0,47
+|testuser@<HOST> ~ $ git checkout feature-branch
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame whole_suggestion cursor=0,47
+|testuser@<HOST> ~ $ git checkout feature-branch
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame no_suggestion cursor=0,27
+|testuser@<HOST> ~ $ echo gi
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

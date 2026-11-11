@@ -447,14 +447,20 @@ pub fn str_width(s: &str) -> usize {
 pub fn char_width(c: char) -> usize {
     let cp = c as u32;
     if cp < 0x7F {
-        return if cp >= 0x20 { 1 } else { 0 };
+        return 1;
     }
-    // Control chars, soft hyphen
-    if cp < 0xA0 || cp == 0xAD {
+    if c.is_control() {
+        return 1;
+    }
+    if cp == 0xAD {
         return 0;
     }
     // Zero-width characters
     if matches!(cp, 0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0xFEFF) {
+        return 0;
+    }
+    // Variation selectors and emoji skin-tone modifiers
+    if matches!(cp, 0xFE00..=0xFE0F | 0x1F3FB..=0x1F3FF) {
         return 0;
     }
     // Combining marks
@@ -561,8 +567,8 @@ mod tests {
         assert_eq!(char_width('a'), 1);
         assert_eq!(char_width(' '), 1);
         // Control
-        assert_eq!(char_width('\0'), 0);
-        assert_eq!(char_width('\x1b'), 0);
+        assert_eq!(char_width('\0'), 1);
+        assert_eq!(char_width('\x1b'), 1);
         // Fullwidth
         assert_eq!(char_width('｜'), 2); // U+FF5C fullwidth vertical bar
         assert_eq!(char_width('Ａ'), 2); // U+FF21 fullwidth A
@@ -574,6 +580,9 @@ mod tests {
         assert_eq!(char_width('ñ'), 1);
         // Combining marks
         assert_eq!(char_width('\u{0301}'), 0); // combining acute accent
+        // Variation selectors and emoji skin-tone modifiers
+        assert_eq!(char_width('\u{FE0F}'), 0);
+        assert_eq!(char_width('\u{1F3FD}'), 0);
     }
 
     #[test]
