@@ -1047,6 +1047,17 @@ mod tests {
         "/tests/fixtures/runtime/formal-bridge-result-propagation.xsh"
     ));
 
+    const LET_CALL_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-integer-let-calls.xsh"
+    ));
+
+    const LET_CALL_SCHEDULE: [ScheduledCall; 3] = [
+        ScheduledCall { function: "bumps", arguments: &[5] },
+        ScheduledCall { function: "runs", arguments: &[5] },
+        ScheduledCall { function: "runs", arguments: &[-9] },
+    ];
+
     const PROPAGATION_SCHEDULE: [ScheduledCall; 5] = [
         ScheduledCall { function: "keeps", arguments: &[7] },
         ScheduledCall { function: "stops", arguments: &[5] },
@@ -1115,6 +1126,7 @@ mod tests {
         let result = fixture_of(RESULT_SOURCE.to_string(), &RESULT_SCHEDULE);
         let propagation =
             fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
+        let let_call = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
@@ -1142,6 +1154,12 @@ mod tests {
                 &PROPAGATION_SCHEDULE[..],
                 "propagationSourceDocumentCodes",
                 "propagationRawIrDocumentCodes",
+            ),
+            (
+                &let_call,
+                &LET_CALL_SCHEDULE[..],
+                "letCallSourceDocumentCodes",
+                "letCallRawIrDocumentCodes",
             ),
         ] {
             let source_text = encode_source_document(&fixture.source);
@@ -2020,6 +2038,102 @@ mod tests {
         });
         reject("a call naming the absent function", &|document| {
             document.extra[document.rows[call_row].lhs as usize] = 0;
+        });
+    }
+
+    #[test]
+    fn exported_integer_let_call_rows_are_the_let_call_family() {
+        let fixture = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
+        let document = &fixture.document;
+
+        let bumps = function_body_statements(&fixture, "bumps");
+        assert_eq!(bumps.len(), 2);
+        assert_eq!(document.rows[bumps[0]].tag, ProjectedTag::StmtLetInt);
+        let binding = document.payload(&document.rows[bumps[0]]).unwrap();
+        assert_eq!(binding[0], 2);
+        assert_eq!(document.rows[binding[1] as usize].tag, ProjectedTag::IntInt);
+        assert_eq!(document.rows[bumps[1]].tag, ProjectedTag::StmtReturn);
+        let returned = document.payload(&document.rows[bumps[1]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprBinary);
+
+        let runs = function_body_statements(&fixture, "runs");
+        assert_eq!(runs.len(), 1);
+        let returned = document.payload(&document.rows[runs[0]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprDirectPureCall);
+        let call = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(call[0], 1);
+        let arguments = document.blocks[call[1] as usize - 1];
+        let table = &document.extra
+            [arguments.start as usize..(arguments.start + arguments.len) as usize];
+        assert_eq!(table, &[1, 0, 6]);
+        assert_eq!(
+            document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(7), Outcome::Value(7), Outcome::Value(-7_i64 as u64)]
+        );
+    }
+
+    #[test]
+    fn integer_let_calls_run_through_the_let_binding() {
+        let fixture = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
+        let observations =
+            execute_schedule(&fixture.program, &fixture.sources, &LET_CALL_SCHEDULE).unwrap();
+        assert_eq!(
+            observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(7), Outcome::Value(7), Outcome::Value(-7_i64 as u64)]
+        );
+    }
+
+    #[test]
+    fn mutated_integer_let_call_programs_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
+        let check = |document: &ArithmeticDocument, program: &FullProgram| {
+            check_artifact_against_program(
+                document,
+                program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                &LET_CALL_SCHEDULE,
+            )
+        };
+        assert!(check(&fixture.document, &fixture.program).is_ok());
+
+        let mut wrong_read = fixture.program.clone();
+        let slot = payload_start(&wrong_read, FullTag::ExprParam, 1);
+        wrong_read.store.extra[slot] = 0;
+        FullVerifier::verify(&wrong_read).expect("the changed read is still well typed");
+        assert_eq!(
+            execute_schedule(&wrong_read, &fixture.sources, &LET_CALL_SCHEDULE).unwrap()[0]
+                .outcome,
+            Outcome::Value(10)
+        );
+        assert!(check(&fixture.document, &wrong_read).is_err());
+
+        let mut wrong_record = fixture.document.clone();
+        wrong_record.observations[0].outcome = Outcome::Value(8);
+        assert!(validate_arithmetic_document(&wrong_record).is_ok());
+        assert!(check(&wrong_record, &fixture.program).is_err());
+    }
+
+    #[test]
+    fn structurally_malformed_integer_let_rows_are_rejected() {
+        let fixture = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
+        let reject = |name: &str, mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err(), "{name} must be rejected");
+        };
+        let binding_row = fixture
+            .document
+            .rows
+            .iter()
+            .position(|row| row.tag == ProjectedTag::StmtLetInt)
+            .unwrap();
+        reject("a let binding naming its own row as its value", &|document| {
+            document.extra[document.rows[binding_row].lhs as usize + 1] = binding_row as u32;
+        });
+        reject("a let binding whose value is not an integer row", &|document| {
+            document.extra[document.rows[binding_row].lhs as usize + 1] =
+                document.rows.len() as u32;
         });
     }
 

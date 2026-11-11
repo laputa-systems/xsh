@@ -296,12 +296,17 @@ def functionProgram? (artifact : RawArtifact) (callees : List (Option Callee))
     (function : FunctionRow) : Option FunctionProgram := do
   let statements ← statementRows? artifact artifact.tables function
   let (bindings, assignment, propagation, expression) ← body? (artifact.context callees) statements
-  check (function.paramsLen.val == 0 || bindings.isEmpty)
   pure ⟨function.paramsLen.val, bindings, assignment, propagation, expression⟩
 
+/-- The callee form of a function without an assignment or a propagation: its parameter count and
+its body with the function's literal bindings substituted for their slots. An immutable let of a
+literal means the substituted body, so a call of such a function binds nothing the base machine's
+call node cannot substitute. -/
 def FunctionProgram.callee? (program : FunctionProgram) : Option Callee :=
-  if program.bindings.isEmpty && program.assignment.isNone && program.propagation.isNone then
-    some ⟨program.parameters, program.expression⟩
+  if program.assignment.isNone && program.propagation.isNone then
+    some ⟨program.parameters,
+      substitute (program.bindings.map fun binding => (NameId.mk binding.slot, binding.value))
+        program.expression⟩
   else none
 
 /-- The programs of the functions in table order; a call may name only a function before the

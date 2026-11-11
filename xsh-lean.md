@@ -34,11 +34,20 @@ payload bound to the target and returns the same `Err`, and the recorded
 observations are `Ok` 8, `Err` 5, `Ok` 8, `Err` 5 and `Ok` -2. The outcome
 theorem is split: the plain form is stated for programs without a propagation
 and `propagated_program_outcome_is_a_completed_machine_run` covers the binding.
-The next widening is a call of a function with a let, an error producer, or a
-record local; each needs a new row form rather than another certificate-only
-check.
+A seventh covers a call of a function with a `let`: the admitted grammar takes
+one integer parameter and one integer literal let, with the parameter at slot 0
+and the let at slot 2, and a caller that calls it on its parameter; the lowerer
+emits the callee's `IntInt`, `StmtLetInt`, parameter, `ExprBinary` and
+`StmtReturn` rows and the caller's argument, `ExprDirectPureCall`,
+`StmtReturn` and body rows, and the base machine runs the call with the
+callee's literal binding in its callee form, recording 7, 7 and -7. The
+callee form of a function without an assignment or a propagation is its body
+with each literal binding substituted for its slot; `callee?` admits it, so
+the call row has a meaning.
+The next widening is an error producer or a record local; each needs a new row
+form rather than another certificate-only check.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds eight ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds nine ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -49,7 +58,7 @@ Not reached: the connected milestone. The proofs cover the Lean
 lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
 Rust's execution of the IR rest on the artifacts and the recorded runs.
 Next, widen the lowered shape toward the milestone
-(record locals and `?` propagation); add a parse and
+(an error producer and a record local); add a parse and
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
@@ -80,7 +89,7 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds seven ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds nine ARTIFACT_CERTIFIED
 records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
@@ -88,11 +97,13 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
 
 **Open items:**
 
-- BASE-VERTICAL stays planned. Two fixtures
+- BASE-VERTICAL stays planned. Three fixtures
   (`formal-bridge-integer-failures.xsh`: `divided` and `overflowed`, each with
-  one integer `let` and one binary return and each a specified failure; and
+  one integer `let` and one binary return and each a specified failure;
   `formal-bridge-integer-calls.xsh`: `excess`, two integer parameters and a
-  conditional on a comparison, and `surplus`, a `let` and a call of `excess`) go
+  conditional on a comparison, and `surplus`, a `let` and a call of `excess`;
+  and `formal-bridge-integer-let-calls.xsh`: `bumps`, one integer parameter and
+  one literal `let`, and `runs`, which calls it on its parameter) go
   through a test-only exporter and decoder (`formal_bridge/arithmetic.rs`) that
   emit the real compiler's lowering. `Xsh.Conformance.Vertical.Certificate` and
   `...CallsCertificate` kernel-check that each source's bytes parse in an
@@ -103,9 +114,11 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   does not exist, and the lowerer theorem is about the Lean lowerer); span
   words are read from the document; the lowered shape has no loops, strings,
   records or a call of a Bool function, though a Bool-returning comparison of
-  two atoms, `Result[Int, Int]` construction and one `?` binding of a call to an
-  earlier callable `Result[Int, Int]` function are covered, and a call to a
-  function with a let is outside it. One plain integer assignment is modeled separately;
+  two atoms, `Result[Int, Int]` construction, one `?` binding of a call to an
+  earlier callable `Result[Int, Int]` function, and a call of a function with one
+  integer parameter and one integer literal let are covered; a computed let, a
+  callee with an assigned binding, an error producer and a record local are
+  outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
   evidence only through the recorded runs.
@@ -1025,6 +1038,50 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   first, because `#!/usr/bin/env bash` resolves the PATH-restoring wrapper. A
   call of a function with a `let`, an error producer, or a record local stays
   next: each needs a new row form rather than another certificate-only check.
+
+- 2026-11-11: Let-call control. The admitted grammar now takes a function of one
+  integer parameter and one integer literal `let`, plus a caller that calls it on
+  its parameter. The exporter places the parameter at slot 0 and the let at slot
+  2; `SourceFunction.scope?` admits that pair, and `Lower.function` emits
+  `IntInt`, `StmtLetInt [2, valueRow]`, the parameter reads, `ExprBinary` and
+  `StmtReturn` for the callee, and the argument row, argument block,
+  `ExprDirectPureCall`, `StmtReturn` and body rows for the caller.
+  `SourceFunction.callable` replaces the let-free flag, and
+  `FunctionProgram.callee?` admits a function without an assignment or a
+  propagation and substitutes its literal bindings into its body, so a call of a
+  function with a let has a callee form; `functionProgram?` no longer requires
+  parameters or lets alone. `lowering_means_the_source` was extended by the new
+  branch and remains universal over the parsed functions; the plain outcome
+  theorem stays universal and covers the parameter-plus-let program. The
+  test-only bridge exports `formal-bridge-integer-let-calls.xsh` (`bumps`,
+  `runs`; three recorded calls) and the Lean `LetCallCertificate` certifies the
+  pair, rejecting a call naming a function the callee table does not hold, a
+  callee body whose let read is replaced by its parameter (well typed, returns
+  10 where 7 is recorded), wrong recorded outcomes, malformed rows, a changed
+  source and a wrong lowering. `artifact_certificates` now holds nine. This is a
+  bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's parser
+  reading and execution are evidence through the bridge run only, and that run
+  used this worktree's verification build rather than the frozen commit, so it
+  is not a `RUST_CONFORMANCE` case. Two reductions had to be made cheap enough
+  for the kernel: `lowersTo` re-reduced `spanWords` inside the function fold and
+  exhausted the 8 GiB cap, so `letCall_span_words` pins the span list and
+  `decide +kernel` runs with that literal; and a let binding whose slot was
+  looked up in the scope made the lowered-state reduction allocate without
+  bound, so `Lower.function` chooses literal slot values per parameter shape.
+  The raw-IR document is 2,287 bytes. `cargo test --profile verification --lib
+  formal_bridge` passed 48 tests, including
+  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
+  exported bytes to equal the two Lean code lists. The clean `lake build`
+  completed 244 jobs; the axiom audit passed for 27,675 declarations and all six
+  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
+  under the 8 GiB cap; and `lake check --paranoid`, run with the repository's
+  sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
+  `con-ron`, accepted the export with `lean4lean` (115,361 declarations),
+  `nanoda`, `con-leche` and `con-ron` (115,364 each) and the Lean paranoid and
+  default kernels, using only `propext`, `Quot.sound` and `Classical.choice`.
+  The audit and the fresh check ran through `/bin/bash` with the pinned 4.35.0
+  toolchain first. A parameterless function with no let is outside the admitted
+  lowerer domain, and an error producer or a record local stays next.
 
 ## For the owner afterwards
 

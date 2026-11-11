@@ -206,4 +206,27 @@ def propagationArtifact : RawArtifact where
     ⟨bridgeId! 3, [7], .ok 8⟩, ⟨bridgeId! 4, [5], .err 5⟩,
     ⟨bridgeId! 3, [18446744073709551613], .ok 18446744073709551614⟩]
 
+def letCallSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure bumps(value: Int) -> Int {\n  let step = 2\n  return value + step\n}\n\npure runs(value: Int) -> Int {\n  return bumps(value)\n}\n"⟩
+
+def letCallArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .intInt, 0, 2⟩, ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩,
+    ⟨bridgeId! 3, .exprParam, 4, 1⟩, ⟨bridgeId! 4, .exprParam, 5, 1⟩,
+    ⟨bridgeId! 5, .exprBinary, 6, 4⟩, ⟨bridgeId! 6, .stmtReturn, 10, 1⟩,
+    ⟨bridgeId! 7, .exprParam, 14, 1⟩, ⟨bridgeId! 8, .exprDirectPureCall, 18, 3⟩,
+    ⟨bridgeId! 9, .stmtReturn, 21, 1⟩]
+  extra := [2, 0, 2, 0, 0, 2, 0, 2, 3, 2, 4, 2, 1, 5, 0, 1, 0, 6, 1, 2, 3, 7, 1, 8]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 11, 3, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 15, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 22, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "bumps", 0, 1, 0, 1, bridgeId! 1, 3⟩,
+    ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨7, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨5, by decide⟩], .value ⟨7, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
+      .value ⟨18446744073709551609, by decide⟩⟩]
+
 end Xsh.Conformance.Vertical

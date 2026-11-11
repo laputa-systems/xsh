@@ -12,16 +12,25 @@ def maxIntLiteral : Nat := 9223372036854775807
 
 def letSlot : Nat := 1
 
+def SourceExpression.isAssigned : SourceExpression → Bool
+  | .assigned _ _ _ => true
+  | _ => false
+
 /-- The slot each name of a function reads: the parameters are the first slots in order, or the
-one let takes the slot after the unused first. A function with both, or with several lets, has
-no scope: the slot a let takes beside parameters is not among the rows the exporter emitted. A
-propagation function has one parameter and its target at the slot after the reserved one. -/
+one let takes the slot after the unused first. A function with one parameter and one let uses the
+parameter slot, the reserved slot after it, and then the let, which is where the exporter places
+the binding of such a function. A propagation function has one parameter and its target at the
+slot after the reserved one. -/
 def SourceFunction.scope? (function : SourceFunction) : Option (List (String × Nat)) :=
   match function.parameters, function.lets, function.propagation with
   | [parameter], [], some propagation =>
       if parameter == propagation.target then none
       else some [(parameter, 0), (propagation.target, 2)]
   | [], [(name, _)], none => some [(name, letSlot)]
+  | [parameter], [(name, _)], none =>
+      if function.result.isAssigned then none
+      else if parameter == name then none
+      else some [(parameter, 0), (name, 2)]
   | _ :: _, [], none =>
       if function.parameters.Nodup then some (function.parameters.zip (List.range function.parameters.length))
       else none
@@ -88,15 +97,22 @@ def propagationProgram? (callees : List (String × Option Callee))
   let arguments ← propagation.arguments.mapM (·.expression? scope)
   some ⟨word, parameterNames found.parameters, found.body, arguments⟩
 
+/-- A function the lowerer records as directly callable: it has no propagation binding and no
+assignment, so the IR meaning reads it as a callee whose literal bindings are substituted. -/
+def SourceFunction.callable (function : SourceFunction) : Bool :=
+  function.propagation.isNone && !function.result.isAssigned
+
 /-- The base-machine program a source function denotes, straight from the parsed tree. -/
 def SourceFunction.program? (callees : List (String × Option Callee)) (function : SourceFunction) :
     Option FunctionProgram := do
   let scope ← function.scope?
   let bindings ← match function.lets with
     | [] => some []
-    | [(_, value)] => do
+    | [(name, value)] => do
+        let slot ← scope.lookup name
+        let word ← Word32.decode? slot
         let bound ← validateInt? value
-        some [(⟨⟨letSlot, by decide⟩, bound⟩ : LetBinding)]
+        some [(⟨word, bound⟩ : LetBinding)]
     | _ => none
   let assignment ← function.assignment? scope
   let propagation ← match function.propagation with
@@ -234,10 +250,6 @@ def Lower.assignments (name : String) (scope : List (String × Nat)) :
       pure [← Lower.assignment scope target value]
   | _ => pure []
 
-def SourceExpression.isAssigned : SourceExpression → Bool
-  | .assigned _ _ _ => true
-  | _ => false
-
 /-- The call row of an earlier callable function: the argument rows, their table, the span and
 the direct call. -/
 def Lower.pureCall (owner : BridgeId) (scope : List (String × Nat)) (callee : String)
@@ -291,8 +303,7 @@ def Lower.functionTail (function : SourceFunction) (scope : List (String × Nat)
       (if function.propagation.isSome then 1 else 0) + 1)⟩
   modify fun state =>
     { state with functions := state.functions ++ [row],
-                 callable := state.callable ++
-                   [function.lets.isEmpty && function.propagation.isNone] }
+                 callable := state.callable ++ [function.callable] }
 
 /-- A propagation binding: the callee call row, the `?` row over it, and the `StmtLet` row that
 binds the payload to the target slot. -/
@@ -322,12 +333,21 @@ def Lower.function (function : SourceFunction) : Lower Unit := do
     | [] => do
         Lower.require (!function.result.isAssigned)
         Lower.functionTail function scope owner before.functions.length parametersStart []
-    | [(name, value)] => do
-        let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
-        let binding ← Lower.pushRow .stmtLetInt [← Lower.word letSlot, literal]
-        let assigned ← Lower.assignments name scope function.result
-        Lower.functionTail function scope owner before.functions.length parametersStart
-          (binding :: assigned)
+    | [(name, value)] =>
+        match function.parameters with
+        | [] =>
+            let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
+            let binding ← Lower.pushRow .stmtLetInt [← Lower.word letSlot, literal]
+            let assigned ← Lower.assignments name scope function.result
+            Lower.functionTail function scope owner before.functions.length parametersStart
+              (binding :: assigned)
+        | [_] =>
+            let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
+            let binding ← Lower.pushRow .stmtLetInt [← Lower.word 2, literal]
+            let assigned ← Lower.assignments name scope function.result
+            Lower.functionTail function scope owner before.functions.length parametersStart
+              (binding :: assigned)
+        | _ => Lower.fail
     | _ => Lower.fail
 
 def lowerFunctions (spans : List Word32) (functions : List SourceFunction) :
