@@ -1280,7 +1280,7 @@ fn start_pipeline(
         let group_config = process_group
             .map(|group: ProcessGroup| ProcessGroupConfig::Join(group.pgid))
             .unwrap_or(ProcessGroupConfig::NewRoot);
-        let command = command_with_stdio(
+        let command = match command_with_stdio(
             invocation,
             executable,
             stdin,
@@ -1290,7 +1290,18 @@ fn start_pipeline(
             (if index == 0 { 1 } else { 0 })
                 | (if last && !capture_stdout { 2 } else { 0 })
                 | (if stderr.is_none() { 4 } else { 0 }),
-        )?;
+        ) {
+            Ok(command) => command,
+            Err(error) => {
+                if let Some(group) = process_group {
+                    group.kill();
+                    for started in &mut children {
+                        let _ = started.child.wait();
+                    }
+                }
+                return Err(error);
+            }
+        };
         match command.spawn() {
             Ok(mut child) => {
                 let group = process_group.unwrap_or_else(|| {
@@ -3080,6 +3091,19 @@ impl ProcessGroup {
         }
     }
 
+    /// The group id signals are sent to.
+    pub fn id(self) -> libc::pid_t {
+        self.pgid
+    }
+
+    /// Starts every invocation as one foreground pipeline in a new process
+    /// group and returns the job that owns each stage.
+    pub fn spawn_pipeline_job(
+        invocations: &[ProcessInvocation],
+    ) -> Result<PipelineJob, RunError> {
+        PipelineJob::spawn(invocations)
+    }
+
     pub fn signal(self, signal: i32) {
         signal_process_group(self, signal);
     }
@@ -3161,6 +3185,256 @@ impl Cancellation {
 
     pub fn error(self, status: Option<ProcessStatus>) -> RunError {
         RunError::canceled(self.signal, status)
+    }
+}
+
+/// A foreground pipeline whose stages share one process group.
+///
+/// The job owns every stage until its exit status has been collected. A wait
+/// reports stopped stages as well as terminated ones, and `resume` continues
+/// the whole job through its process group.
+pub struct PipelineJob {
+    stages: Vec<JobStage>,
+    group: ProcessGroup,
+    _cgroup: CgroupScope,
+}
+
+struct JobStage {
+    index: usize,
+    target: Vec<u8>,
+    pid: u32,
+    child: Option<Child>,
+    input: Option<InputDelivery>,
+    outcome: ChildWaitOutcome,
+}
+
+impl PipelineJob {
+    fn spawn(invocations: &[ProcessInvocation]) -> Result<Self, RunError> {
+        if invocations.is_empty() {
+            return Err(RunError::new(
+                "spawn",
+                "a pipeline job needs at least one stage",
+            ));
+        }
+        let mut started = start_pipeline(invocations, false, None)?;
+        let group = match started.group {
+            Some(group) => group,
+            None => {
+                return Err(RunError::new("spawn", "pipeline job did not start")
+                    .with_status(started.status(invocations)));
+            }
+        };
+        if started.children.len() != invocations.len() {
+            let status = started.status(invocations);
+            group.kill();
+            for child in &mut started.children {
+                child.input = None;
+                let _ = child.child.wait();
+            }
+            return Err(RunError::new(
+                "spawn",
+                "pipeline job segment failed to start",
+            )
+            .with_status(status));
+        }
+        let stages = started
+            .children
+            .into_iter()
+            .map(|started| JobStage {
+                index: started.index,
+                target: started.target,
+                pid: started
+                    .pid
+                    .expect("a started pipeline stage records its pid"),
+                child: Some(started.child),
+                input: started.input,
+                outcome: ChildWaitOutcome::StillRunning,
+            })
+            .collect();
+        Ok(Self {
+            stages,
+            group,
+            _cgroup: started._cgroup,
+        })
+    }
+
+    /// The stage pids in pipeline order.
+    pub fn pids(&self) -> Vec<u32> {
+        self.stages.iter().map(|stage| stage.pid).collect()
+    }
+
+    pub fn process_group(&self) -> ProcessGroup {
+        self.group
+    }
+
+    /// Waits until every stage has either stopped or terminated, then returns
+    /// one outcome per stage in pipeline order.
+    pub fn wait(&mut self) -> Result<Vec<ChildWaitOutcome>, RunError> {
+        loop {
+            self.collect_ready_events()?;
+            if self
+                .stages
+                .iter()
+                .all(|stage| !matches!(stage.outcome, ChildWaitOutcome::StillRunning))
+            {
+                return Ok(self
+                    .stages
+                    .iter()
+                    .map(|stage| stage.outcome.clone())
+                    .collect());
+            }
+            self.wait_group_event()?;
+        }
+    }
+
+    /// Sends `SIGCONT` to the job's process group and marks every stopped
+    /// stage running for the next wait.
+    pub fn resume(&mut self) {
+        for stage in &mut self.stages {
+            if matches!(stage.outcome, ChildWaitOutcome::Stopped { .. }) {
+                stage.outcome = ChildWaitOutcome::StillRunning;
+            }
+        }
+        self.group.signal(libc::SIGCONT);
+    }
+
+    /// Signals the job's process group. `SIGCONT` resumes the job and
+    /// `SIGKILL` terminates it, so both keep the per-stage state consistent
+    /// with the next wait.
+    pub fn signal(&mut self, signal: i32) {
+        match signal {
+            libc::SIGCONT => self.resume(),
+            libc::SIGKILL => self.kill(),
+            _ => self.group.signal(signal),
+        }
+    }
+
+    /// Sends `SIGKILL` to the job's process group. Stopped stages are marked
+    /// running so the next wait reaps them instead of reporting the old stop.
+    pub fn kill(&mut self) {
+        for stage in &mut self.stages {
+            if !job_stage_terminated(&stage.outcome) {
+                stage.outcome = ChildWaitOutcome::StillRunning;
+            }
+        }
+        self.group.kill();
+    }
+
+    fn collect_ready_events(&mut self) -> Result<(), RunError> {
+        for stage in &mut self.stages {
+            if job_stage_terminated(&stage.outcome) {
+                continue;
+            }
+            let pid = job_stage_pid(stage)?;
+            let flags = rprocess::WaitOptions::NOHANG
+                | rprocess::WaitOptions::UNTRACED
+                | rprocess::WaitOptions::CONTINUED;
+            loop {
+                match rprocess::waitpid(Some(pid), flags) {
+                    Ok(None) => break,
+                    Ok(Some((_, status))) => {
+                        let continued = status.continued();
+                        record_job_stage(stage, status);
+                        if !continued {
+                            break;
+                        }
+                    }
+                    Err(rustix::io::Errno::INTR) => {}
+                    Err(error) => return Err(map_wait_error(io::Error::from(error))),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn wait_group_event(&mut self) -> Result<(), RunError> {
+        let pgid = rprocess::Pid::from_raw(self.group.pgid)
+            .ok_or_else(|| RunError::new("wait", "job process group is out of range"))?;
+        let flags = rprocess::WaitOptions::UNTRACED | rprocess::WaitOptions::CONTINUED;
+        loop {
+            match rprocess::waitpgid(pgid, flags) {
+                Ok(Some((waited, status))) => {
+                    let pid = waited.as_raw_pid() as u32;
+                    if let Some(stage) = self.stages.iter_mut().find(|stage| stage.pid == pid) {
+                        record_job_stage(stage, status);
+                    }
+                    return Ok(());
+                }
+                Ok(None) => return Ok(()),
+                Err(rustix::io::Errno::INTR) => {}
+                Err(error) => return Err(map_wait_error(io::Error::from(error))),
+            }
+        }
+    }
+}
+
+fn job_stage_pid(stage: &JobStage) -> Result<rprocess::Pid, RunError> {
+    rprocess::Pid::from_raw(stage.pid as i32)
+        .ok_or_else(|| RunError::new("wait", "job stage pid is out of range"))
+}
+
+fn job_stage_terminated(outcome: &ChildWaitOutcome) -> bool {
+    matches!(
+        outcome,
+        ChildWaitOutcome::Exited(_) | ChildWaitOutcome::Signaled(_)
+    )
+}
+
+fn record_job_stage(stage: &mut JobStage, status: rprocess::WaitStatus) {
+    stage.outcome = job_wait_outcome(status, stage.index, &stage.target, stage.pid);
+    if job_stage_terminated(&stage.outcome) {
+        stage.input = None;
+        stage.child = None;
+    }
+}
+
+fn job_wait_outcome(
+    status: rprocess::WaitStatus,
+    index: usize,
+    target: &[u8],
+    pid: u32,
+) -> ChildWaitOutcome {
+    if status.continued() {
+        ChildWaitOutcome::StillRunning
+    } else {
+        child_wait_outcome_from_raw(status.as_raw(), index, target, Some(pid))
+    }
+}
+
+impl Drop for PipelineJob {
+    fn drop(&mut self) {
+        if self
+            .stages
+            .iter()
+            .all(|stage| job_stage_terminated(&stage.outcome))
+        {
+            return;
+        }
+        self.group.kill();
+        for stage in &mut self.stages {
+            if job_stage_terminated(&stage.outcome) {
+                continue;
+            }
+            stage.input = None;
+            let _ = reap_job_stage(stage);
+            stage.child = None;
+        }
+    }
+}
+
+fn reap_job_stage(stage: &mut JobStage) -> Result<(), RunError> {
+    let pid = job_stage_pid(stage)?;
+    loop {
+        match rprocess::waitpid(Some(pid), rprocess::WaitOptions::empty()) {
+            Ok(Some((_, status))) => {
+                stage.outcome = job_wait_outcome(status, stage.index, &stage.target, stage.pid);
+                return Ok(());
+            }
+            Ok(None) => return Ok(()),
+            Err(rustix::io::Errno::INTR) => {}
+            Err(rustix::io::Errno::CHILD) => return Ok(()),
+            Err(error) => return Err(map_wait_error(io::Error::from(error))),
+        }
     }
 }
 

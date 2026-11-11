@@ -1,6 +1,9 @@
 use super::common::*;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
+use xsh::process::{ChildWaitOutcome, ProcessGroup, ProcessInvocation, ProcessStatusKind};
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_helper() -> &'static str {
     cargo_env!("CARGO_BIN_EXE_xsh-test-helper")
 }
@@ -959,5 +962,336 @@ while true {{ time.sleep(50ms)? }}
     assert!(!stderr.contains("unexpected-exit"), "{stderr}");
     std::thread::sleep(Duration::from_millis(2300));
     assert!(!leaked.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn write_pipeline_job_stage(
+    root: &Path,
+    name: &str,
+    ready: &Path,
+    go: &Path,
+    done: Option<&Path>,
+) -> PathBuf {
+    let done = done.map_or_else(String::new, |done| {
+        format!(
+            "Path({}).write(\"done\")?\n",
+            xsh_string_literal(done.to_str().unwrap())
+        )
+    });
+    let source = format!(
+        "\
+let ready = Path({})
+ready.write(\"ready\")?
+let go = Path({})
+while !go.exists()? {{ time.sleep(5ms)? }}
+{done}",
+        xsh_string_literal(ready.to_str().unwrap()),
+        xsh_string_literal(go.to_str().unwrap())
+    );
+    let path = root.join(name);
+    std::fs::write(&path, source).expect("write pipeline job stage script");
+    path
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn pipeline_job_invocation(script: &Path) -> ProcessInvocation {
+    ProcessInvocation {
+        target: cargo_env!("CARGO_BIN_EXE_xsh").as_bytes().to_vec(),
+        argv: vec![script.as_os_str().as_bytes().to_vec()],
+        cwd: PathBuf::from("/"),
+        env: BTreeMap::new(),
+        env_overlay: BTreeMap::new(),
+        redirections: Vec::new(),
+        timeout: None,
+        cpu_max: None,
+        accepted_exit_codes: None,
+        namespaces: None,
+        confinement: None,
+        rooted_executable: None,
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn wait_for_pipeline_job_ready(paths: &[PathBuf]) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for path in paths {
+        while !path.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "pipeline job stage did not become ready: {}",
+                path.display()
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_pipeline_job_stages_exited(outcomes: &[ChildWaitOutcome]) {
+    for outcome in outcomes {
+        let ChildWaitOutcome::Exited(status) = outcome else {
+            panic!("expected exited pipeline job stage, got {outcome:?}");
+        };
+        assert!(status.success, "pipeline job stage failed: {status:?}");
+        assert_eq!(status.kind, ProcessStatusKind::Exit);
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_pipeline_job_reaped(
+    pgid: libc::pid_t,
+    pids: &[u32],
+    outcomes: &[ChildWaitOutcome],
+) {
+    assert_eq!(outcomes.len(), pids.len());
+    for pid in pids {
+        let mut status = 0;
+        let waited = unsafe { libc::waitpid(*pid as libc::pid_t, &mut status, libc::WNOHANG) };
+        assert_eq!(waited, -1, "stage {pid} was not reaped");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD),
+            "stage {pid} is not an exited child"
+        );
+    }
+    assert_eq!(
+        unsafe { libc::kill(-pgid, 0) },
+        -1,
+        "job group {pgid} still exists"
+    );
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH),
+        "job group {pgid} is not empty"
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn pipeline_job_stops_and_resumes_two_stages() {
+    let root = temp_path("pipeline-job-two");
+    std::fs::create_dir_all(&root).unwrap();
+    let go = root.join("go");
+    let scripts: Vec<_> = (0..2)
+        .map(|index| {
+            write_pipeline_job_stage(
+                &root,
+                &format!("stage-{index}.xsh"),
+                &root.join(format!("ready-{index}")),
+                &go,
+                None,
+            )
+        })
+        .collect();
+    let invocations: Vec<_> = scripts
+        .iter()
+        .map(|script| pipeline_job_invocation(script))
+        .collect();
+    let mut job = ProcessGroup::spawn_pipeline_job(&invocations).expect("spawn two-stage job");
+    let pids = job.pids();
+    let pgid = job.process_group().id();
+    assert_eq!(pids.len(), 2);
+    for pid in &pids {
+        assert_eq!(
+            unsafe { libc::getpgid(*pid as libc::pid_t) },
+            pgid,
+            "stage {pid} is not in the job process group"
+        );
+    }
+    wait_for_pipeline_job_ready(&[root.join("ready-0"), root.join("ready-1")]);
+    assert_eq!(
+        unsafe { libc::kill(-pgid, libc::SIGTSTP) },
+        0,
+        "stop the job process group: {}",
+        std::io::Error::last_os_error()
+    );
+    let stopped = job.wait().expect("wait for the stopped two-stage job");
+    assert_eq!(stopped.len(), 2);
+    for outcome in &stopped {
+        assert!(
+            matches!(outcome, ChildWaitOutcome::Stopped { signal } if *signal == libc::SIGTSTP),
+            "expected a SIGTSTP stop, got {outcome:?}"
+        );
+    }
+    std::fs::write(&go, b"").expect("release the stopped stages");
+    job.resume();
+    let completed = job.wait().expect("wait for the resumed two-stage job");
+    assert_eq!(completed.len(), 2);
+    assert_pipeline_job_stages_exited(&completed);
+    assert_pipeline_job_reaped(pgid, &pids, &completed);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn pipeline_job_stops_and_resumes_three_stages() {
+    let root = temp_path("pipeline-job-three");
+    std::fs::create_dir_all(&root).unwrap();
+    let go = root.join("go");
+    let scripts: Vec<_> = (0..3)
+        .map(|index| {
+            write_pipeline_job_stage(
+                &root,
+                &format!("stage-{index}.xsh"),
+                &root.join(format!("ready-{index}")),
+                &go,
+                None,
+            )
+        })
+        .collect();
+    let invocations: Vec<_> = scripts
+        .iter()
+        .map(|script| pipeline_job_invocation(script))
+        .collect();
+    let mut job = ProcessGroup::spawn_pipeline_job(&invocations).expect("spawn three-stage job");
+    let pids = job.pids();
+    let pgid = job.process_group().id();
+    assert_eq!(pids.len(), 3);
+    wait_for_pipeline_job_ready(&[
+        root.join("ready-0"),
+        root.join("ready-1"),
+        root.join("ready-2"),
+    ]);
+    assert_eq!(
+        unsafe { libc::kill(-pgid, libc::SIGTSTP) },
+        0,
+        "stop the job process group: {}",
+        std::io::Error::last_os_error()
+    );
+    let stopped = job.wait().expect("wait for the stopped three-stage job");
+    assert_eq!(stopped.len(), 3);
+    for outcome in &stopped {
+        assert!(
+            matches!(outcome, ChildWaitOutcome::Stopped { signal } if *signal == libc::SIGTSTP),
+            "expected a SIGTSTP stop, got {outcome:?}"
+        );
+    }
+    std::fs::write(&go, b"").expect("release the stopped stages");
+    job.resume();
+    let completed = job.wait().expect("wait for the resumed three-stage job");
+    assert_eq!(completed.len(), 3);
+    assert_pipeline_job_stages_exited(&completed);
+    assert_pipeline_job_reaped(pgid, &pids, &completed);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn pipeline_job_reports_exit_while_another_stage_stays_stopped() {
+    let root = temp_path("pipeline-job-mixed");
+    std::fs::create_dir_all(&root).unwrap();
+    let go = root.join("go");
+    let go_fast = root.join("go-fast");
+    let done_fast = root.join("done-fast");
+    let fast = write_pipeline_job_stage(
+        &root,
+        "fast.xsh",
+        &root.join("ready-fast"),
+        &go_fast,
+        Some(&done_fast),
+    );
+    let waiting =
+        write_pipeline_job_stage(&root, "waiting.xsh", &root.join("ready-waiting"), &go, None);
+    let invocations = vec![
+        pipeline_job_invocation(&fast),
+        pipeline_job_invocation(&waiting),
+    ];
+    let mut job = ProcessGroup::spawn_pipeline_job(&invocations).expect("spawn mixed job");
+    let pids = job.pids();
+    let pgid = job.process_group().id();
+    wait_for_pipeline_job_ready(&[root.join("ready-fast"), root.join("ready-waiting")]);
+    assert_eq!(
+        unsafe { libc::kill(-pgid, libc::SIGTSTP) },
+        0,
+        "stop the job process group: {}",
+        std::io::Error::last_os_error()
+    );
+    let stopped = job.wait().expect("wait for the stopped mixed job");
+    assert_eq!(stopped.len(), 2);
+    for outcome in &stopped {
+        assert!(
+            matches!(outcome, ChildWaitOutcome::Stopped { signal } if *signal == libc::SIGTSTP),
+            "expected a SIGTSTP stop, got {outcome:?}"
+        );
+    }
+    std::fs::write(&go_fast, b"").expect("release the first stage");
+    assert_eq!(
+        unsafe { libc::kill(pids[0] as libc::pid_t, libc::SIGCONT) },
+        0,
+        "continue only the first stage: {}",
+        std::io::Error::last_os_error()
+    );
+    wait_for_pipeline_job_ready(&[done_fast]);
+    let mixed = job.wait().expect("wait for the mixed job");
+    assert_eq!(mixed.len(), 2);
+    assert!(
+        matches!(&mixed[0], ChildWaitOutcome::Exited(status) if status.success),
+        "first stage should have exited while the second stayed stopped: {mixed:?}"
+    );
+    assert!(
+        matches!(&mixed[1], ChildWaitOutcome::Stopped { signal } if *signal == libc::SIGTSTP),
+        "second stage should have stayed stopped: {mixed:?}"
+    );
+    std::fs::write(&go, b"").expect("release the waiting stage");
+    job.resume();
+    let completed = job.wait().expect("wait for the completed mixed job");
+    assert_eq!(completed.len(), 2);
+    assert_pipeline_job_stages_exited(&completed);
+    assert_pipeline_job_reaped(pgid, &pids, &completed);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn pipeline_job_killed_while_stopped_reports_signaled_and_reaps() {
+    let root = temp_path("pipeline-job-killed");
+    std::fs::create_dir_all(&root).unwrap();
+    let go = root.join("go");
+    let scripts: Vec<_> = (0..2)
+        .map(|index| {
+            write_pipeline_job_stage(
+                &root,
+                &format!("stage-{index}.xsh"),
+                &root.join(format!("ready-{index}")),
+                &go,
+                None,
+            )
+        })
+        .collect();
+    let invocations: Vec<_> = scripts
+        .iter()
+        .map(|script| pipeline_job_invocation(script))
+        .collect();
+    let mut job = ProcessGroup::spawn_pipeline_job(&invocations).expect("spawn job to kill");
+    let pids = job.pids();
+    let pgid = job.process_group().id();
+    wait_for_pipeline_job_ready(&[root.join("ready-0"), root.join("ready-1")]);
+    assert_eq!(
+        unsafe { libc::kill(-pgid, libc::SIGTSTP) },
+        0,
+        "stop the job process group: {}",
+        std::io::Error::last_os_error()
+    );
+    let stopped = job.wait().expect("wait for the stopped job");
+    assert_eq!(stopped.len(), 2);
+    for outcome in &stopped {
+        assert!(
+            matches!(outcome, ChildWaitOutcome::Stopped { signal } if *signal == libc::SIGTSTP),
+            "expected a SIGTSTP stop, got {outcome:?}"
+        );
+    }
+    job.kill();
+    let killed = job.wait().expect("reap the killed job");
+    assert_eq!(killed.len(), 2);
+    for outcome in &killed {
+        let ChildWaitOutcome::Signaled(status) = outcome else {
+            panic!("expected a signaled stage, got {outcome:?}");
+        };
+        assert_eq!(status.kind, ProcessStatusKind::Signal);
+        assert_eq!(status.code, Some(libc::SIGKILL));
+        assert!(!status.success);
+    }
+    assert_pipeline_job_reaped(pgid, &pids, &killed);
     let _ = std::fs::remove_dir_all(root);
 }
