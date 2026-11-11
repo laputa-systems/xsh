@@ -1434,3 +1434,69 @@ fn cp_update_older_prompt_yes() { cp_prompt(b"Y\n", true, b"cp: overwrite 'old'?
 // origin: uutils test_cp::test_cp_update_older_interactive_prompt_no
 #[test]
 fn cp_update_older_prompt_no() { cp_prompt(b"N\n", false, b"cp: overwrite 'old'? "); }
+
+#[test]
+fn tui_terminal_signal_hook_restores_attributes_without_a_deferred_cleanup() {
+    let directory = tempfile::tempdir().unwrap();
+    let script = directory.path().join("tui-signal.xsh");
+    fs::write(
+        &script,
+        "use core.lib.tui_terminal as terminal\n\
+         let session = terminal.enter()?\n\
+         on TERM [process, io] {\n\
+           terminal.restore(session)\n\
+           exit 130\n\
+         }\n\
+         terminal.present(\"ready\")\n\
+         time.sleep(time.seconds(30))?\n",
+    ).unwrap();
+    let terminal = Terminal::new(24, 80);
+    set_master_nonblocking(&terminal.master);
+    let original_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut command = Command::new(test_bin!("xsh"));
+    command
+        .arg(&script)
+        .current_dir(directory.path())
+        .env("XSH_MODULE_PATH", format!("{}:{}", repository.display(), repository.join("core").display()))
+        .stdin(terminal.stdio())
+        .stdout(terminal.stdio())
+        .stderr(Stdio::piped());
+    let child = Running::spawn(&mut command);
+    drop(command);
+    let mut output = Vec::new();
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, HANG_BACKSTOP, |bytes| {
+        bytes.windows(b"ready".len()).any(|window| window == b"ready")
+    });
+    let active_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    assert_eq!(active_attrs.local & libc::ICANON, 0, "the helper must enter raw mode before the signal");
+
+    assert_eq!(unsafe { libc::kill(child.0.id() as libc::pid_t, libc::SIGTERM) }, 0, "send SIGTERM");
+    let result = child.finish();
+    append_terminal_output(&mut terminal.master.try_clone().unwrap(), &mut output);
+
+    assert_eq!(
+        result.status.code(),
+        Some(130),
+        "the signal hook commits its exit status: {}",
+        String::from_utf8_lossy(&result.stderr),
+    );
+    assert!(result.stderr.is_empty(), "unexpected error: {}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(
+        termios_snapshot(terminal.slave.as_raw_fd()),
+        original_attrs,
+        "the signal hook must restore input attributes without a deferred cleanup",
+    );
+    for sequence in [
+        b"\x1b[?1049h".as_slice(),
+        b"\x1b[?25h".as_slice(),
+        b"\x1b[?1049l".as_slice(),
+        b"\x1b[?2004l".as_slice(),
+    ] {
+        assert!(
+            output.windows(sequence.len()).any(|window| window == sequence),
+            "missing restore sequence {sequence:?} in {:?}",
+            String::from_utf8_lossy(&output),
+        );
+    }
+}

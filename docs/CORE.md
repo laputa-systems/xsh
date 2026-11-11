@@ -1,5 +1,29 @@
 # Core command behavior
 
+## TUI libraries
+
+`core/lib/tui_*.xsh` is the foundation for terminal applications.
+`tui_terminal` enters raw mode and the alternate screen and offers two restore
+paths: `leave` for normal scope cleanup and `restore` for a signal hook, where a
+deferred call is not guaranteed; `restore` attempts every step without exiting.
+`hand_off` writes input bytes the decoder did not consume to the inherited
+descriptor named by `XSH_TUI_INPUT_FD`, and is a no-op without it, so a parent
+shell can reuse type-ahead. `tui_input` decodes keys and bracketed paste with
+bounded buffers and emits paste as one inert event. `tui_surface` builds row
+surfaces for whole-row diffs and cell screens for per-cell styles; a cell screen
+keeps wide-glyph continuation cells, so erasing either half repaints the whole
+glyph, and `cell_modal` draws a centered overlay. `tui_colors` parses
+`LS_COLORS`, selects a style by entry kind and name pattern, and renders a style
+as SGR. `tui_browser` reduces movement and mark intents into a two-pane state
+with focus, ordered marks, range extension, and mark-all.
+
+Cell screens trade speed for per-cell fidelity: each cell is a styled list
+entry, so `cell_text` rebuilds a row and `cell_diff` scans the whole grid. On
+the verification build, a full 80x24 cell screen measured about 5 ms to
+allocate, 90 ms to fill, and 45 ms to diff; 120x40 measured 10/230/115 ms and
+200x60 25/640/270 ms. They suit model-driven overlays and moderate-size
+frames, not per-key animation of a large grid; btop keeps the row-surface path.
+
 `iw` implements a bounded `nl80211` subset: device and PHY listing/info,
 connection and station queries, scan dump/trigger/abort, device type/channel/
 frequency/transmit-power changes, regulatory queries/updates/reload, and event

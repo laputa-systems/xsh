@@ -9,13 +9,13 @@ use btop_graphs as graph_series
 use btop_model as model
 use btop_rates as rates
 use btop_sensors as sensors
-use btop_surface as surface
 use btop_terminal as terminal
 use btop_ui as ui
 use sys_cpu as syscpu
 use sys_proc as processes
 use system_report as report
 use tui
+use tui_surface as surface
 
 ## Holds the full visible row set and whether the terminal can show the panels.
 export type Screen = {
@@ -24,65 +24,6 @@ export type Screen = {
   too_small: Bool,
   lines: List[Str],
   row_roles: List[color.Role?],
-}
-
-pure repeated(character: Str, count: Int) -> Str {
-  var text = ""
-  for _ in range(count) {
-    text += character
-  }
-  text
-}
-
-pure safe_line(value: Str) -> Str {
-  tui.safe_single_line(value)
-}
-
-pure fit(value: Str, width: Int) -> Str {
-  return "" when width <= 0
-  tui.cell_right_pad(tui.cell_clip(safe_line(value), width), width)
-}
-
-pure top_border(width: Int, title: Str) -> Str {
-  let inner_width = width - 2
-  let label = f" {title} "
-  let spare = inner_width - label.count_chars()
-  let left = if spare < 0 { 0 } else { spare / 2 }
-  let right = if spare < 0 { 0 } else { spare - left }
-  f"╭{repeated("─", left)}{label}{repeated("─", right)}╮"
-}
-
-pure bottom_border(width: Int) -> Str {
-  f"╰{repeated("─", width - 2)}╯"
-}
-
-pure panel(width: Int, height: Int, title: Str, content: List[Str]) -> List[Str] {
-  var rows = [top_border(width, title)]
-  for index in range(height - 2) {
-    let text = if index < content.len() { content[index] } else { "" }
-    rows += [f"│{fit(text, width - 2)}│"]
-  }
-  rows += [bottom_border(width)]
-  rows
-}
-
-pure split_panel(
-  width: Int,
-  height: Int,
-  title: Str,
-  left_content: List[Str],
-  right_content: List[Str],
-) -> List[Str] {
-  let left_width = (width - 3) / 2
-  let right_width = width - 3 - left_width
-  var rows = [top_border(width, title)]
-  for index in range(height - 2) {
-    let left = if index < left_content.len() { left_content[index] } else { "" }
-    let right = if index < right_content.len() { right_content[index] } else { "" }
-    rows += [f"│{fit(left, left_width)}│{fit(right, right_width)}│"]
-  }
-  rows += [bottom_border(width)]
-  rows
 }
 
 pure state_text(state: report.ObservationState) -> Str {
@@ -242,7 +183,7 @@ pure process_text(
   } else {
     "unavailable"
   }
-  let indent = repeated("  ", entry.depth)
+  let indent = surface.repeated("  ", entry.depth)
   let tree_marker = if ! state.tree_view {
     ""
   } else if entry.has_children {
@@ -578,7 +519,7 @@ export pure render_view_with_graphs(
       width: width,
       height: height,
       too_small: true,
-      lines: [fit("btop: terminal too small (minimum 80x24)", width)],
+      lines: [surface.fit("btop: terminal too small (minimum 80x24)", width)],
       row_roles: [null],
     })
   }
@@ -589,14 +530,14 @@ export pure render_view_with_graphs(
   let network_height = lower_height - memory_height
   let memory_width = memory_panel_width(width)
   let process_width = width - memory_width
-  let cpu_rows = cpu_content(value, histories, capabilities, width - 2, cpu_height)? |> panel(width, cpu_height, "CPU", _)
+  let cpu_rows = cpu_content(value, histories, capabilities, width - 2, cpu_height)? |> surface.panel(width, cpu_height, "CPU", _)
   let memory_left_width = (memory_width - 3) / 2
   let memory_left = memory_panel_content(value, histories.memory, capabilities, memory_left_width)?
   let memory_right_width = memory_width - 3 - memory_left_width
   let memory_rows = disk_panel_content(value, state, histories, capabilities, memory_right_width, memory_height - 2)?
-    |> split_panel(memory_width, memory_height, "Memory / Disks", memory_left, _)
+    |> surface.split_panel(memory_width, memory_height, "Memory / Disks", memory_left, _)
   let network_rows = network_panel_content(value, state, histories, capabilities, memory_width - 2)?
-    |> panel(memory_width, network_height, "Network", _)
+    |> surface.panel(memory_width, network_height, "Network", _)
   let view = ui.resize_view(state, value, process_capacity(height))
   let visible_rows = if local_display.is_empty() {
     view.rows
@@ -604,7 +545,7 @@ export pure render_view_with_graphs(
     ui.visible_tree_rows(value, view.state, local_display)
   }
   let process_rows = process_content(value, view.state, visible_rows, process_capacity(height), process_width - 2, local_display)
-    |> panel(
+    |> surface.panel(
       process_width,
       lower_height,
       "Processes",

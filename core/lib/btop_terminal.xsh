@@ -1,8 +1,9 @@
-##! Owns the monitor's raw terminal session and deterministic display capabilities.
+##! Owns the monitor's deterministic display capabilities and terminal session.
 ##!
 ##! Capability selection is a pure function of captured environment values and
-##! window size; terminal mutation stays behind the session boundary.
-use lib.gnu
+##! window size. The raw session and its restore contract come from
+##! [tui_terminal](tui_terminal.xsh).
+use tui_terminal as terminal
 
 ## Names the largest ANSI color range the captured terminal advertises.
 export enum ColorDepth: Str {
@@ -87,10 +88,6 @@ proc environment_inputs(rows: Int, cols: Int) [env] -> Inputs {
   }
 }
 
-pure cleanup_sequences() -> Str {
-  "\u{1b}[0m\u{1b}[?2026l\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l"
-}
-
 pure usable_inputs(inputs: Inputs) -> Bool {
   inputs.rows > 0 and inputs.cols > 0 and inputs.rows <= 2000 and inputs.cols <= 2000 and
     inputs.term.byte_len() <= 256 and inputs.colorterm.byte_len() <= 256 and
@@ -109,24 +106,9 @@ proc start(selected: Inputs?) [env, process, io, error] -> Result[Session, Error
   if ! usable_inputs(inputs) {
     return Err(error.failure("btop terminal inputs exceed their bounds"))
   }
-  let attrs = unix.tty_attrs(0)?
   let capabilities = detect(inputs)
-  let raw = unix.tty_mode(attrs, "raw")?
-  var transferred = false
-  var output_may_be_active = false
-  defer {
-    if ! transferred {
-      defer { unix.set_tty_attrs(attrs, fd: 0) }
-      if output_may_be_active {
-        gnu.write_text(cleanup_sequences())
-      }
-    }
-  }
-  unix.set_tty_attrs(raw, fd: 0)
-  output_may_be_active = true
-  gnu.write_text("\u{1b}[?1049h\u{1b}[?25l\u{1b}[?2004h\u{1b}[2J\u{1b}[H")
-  transferred = true
-  Ok({attrs: attrs, inputs: inputs, capabilities: capabilities})
+  let session = terminal.enter()?
+  Ok({attrs: session.attrs, inputs: inputs, capabilities: capabilities})
 }
 
 ## Enters raw input using the current process environment and terminal size.
@@ -141,13 +123,10 @@ export proc begin_with(inputs: Inputs) [env, process, io, error] -> Result[Sessi
 
 ## Restores terminal state even when a mode-reset write fails.
 export proc finish(session: Session) [process, io, error] -> Result[Unit, Error] {
-  defer { gnu.write_text(cleanup_sequences()) }
-  unix.set_tty_attrs(session.attrs, fd: 0)
+  terminal.leave(terminal.Session(attrs: session.attrs))
 }
 
 ## Closes synchronized output on errors while a frame is being written.
 export proc present(frame: Str) [io] {
-  defer { gnu.write_text("\u{1b}[?2026l") }
-  gnu.write_text("\u{1b}[?2026h")
-  gnu.write_text(frame)
+  terminal.present(frame)
 }

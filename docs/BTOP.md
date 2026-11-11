@@ -5,6 +5,18 @@ processes, mounted storage, and available sensor readings. It has no settings
 file or configuration interface. Live collection reads Linux system sources;
 replay renders data captured in a bundle.
 
+## Structure
+
+The applet is built on the generic terminal libraries. `tui_terminal` owns the
+raw session and its restore contract, `tui_surface` owns row and cell surfaces,
+and `tui_input` owns the key decoder.
+[btop_terminal.xsh](../core/lib/btop_terminal.xsh) keeps only the monitor's
+capability selection; [btop_input.xsh](../core/lib/btop_input.xsh) and
+[btop_surface.xsh](../core/lib/btop_surface.xsh) keep the monitor's event and
+palette names over the generic libraries, and
+[btop_render.xsh](../core/lib/btop_render.xsh) draws its panels on
+`tui_surface` widgets.
+
 ## Run
 
 Pass applet options after the XSH argument separator:
