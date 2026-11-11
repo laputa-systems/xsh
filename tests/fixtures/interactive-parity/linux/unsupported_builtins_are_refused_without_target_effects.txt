@@ -1,0 +1,138 @@
+== frame trap cursor=2,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame exec cursor=4,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $ exec /bin/true >refused-target
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame eval cursor=6,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $ exec /bin/true >refused-target
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $ eval /bin/true >refused-target
+|<SHELL>: `eval` is not supported
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 eval
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame source cursor=8,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $ exec /bin/true >refused-target
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $ eval /bin/true >refused-target
+|<SHELL>: `eval` is not supported
+|testuser@<HOST> ~ $ source /dev/null >refused-target
+|<SHELL>: `source` is not supported
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 eval
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 source
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame dot cursor=10,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $ exec /bin/true >refused-target
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $ eval /bin/true >refused-target
+|<SHELL>: `eval` is not supported
+|testuser@<HOST> ~ $ source /dev/null >refused-target
+|<SHELL>: `source` is not supported
+|testuser@<HOST> ~ $ . /dev/null >refused-target
+|<SHELL>: `.` is not supported
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 eval
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 source
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=13,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $ exec /bin/true >refused-target
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $ eval /bin/true >refused-target
+|<SHELL>: `eval` is not supported
+|testuser@<HOST> ~ $ source /dev/null >refused-target
+|<SHELL>: `source` is not supported
+|testuser@<HOST> ~ $ . /dev/null >refused-target
+|<SHELL>: `.` is not supported
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 eval
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 source
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame alive cursor=16,20
+|testuser@<HOST> ~ $ trap ignored TERM >refused-target
+|<SHELL>: `trap` is not supported
+|testuser@<HOST> ~ $ exec /bin/true >refused-target
+|<SHELL>: `exec` is not supported
+|testuser@<HOST> ~ $ eval /bin/true >refused-target
+|<SHELL>: `eval` is not supported
+|testuser@<HOST> ~ $ source /dev/null >refused-target
+|<SHELL>: `source` is not supported
+|testuser@<HOST> ~ $ . /dev/null >refused-target
+|<SHELL>: `.` is not supported
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $ echo alive
+|alive
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 trap
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exec
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 eval
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 source
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect refused-target
+|preserved

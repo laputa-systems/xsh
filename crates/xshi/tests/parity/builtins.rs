@@ -5,6 +5,7 @@ use super::scenarios::parity;
 use super::{Fixture, Live, key, run_scenario};
 
 const READY_SLEEP: &str = "#!/bin/sh\necho ready\nsleep 60\n";
+const READY_SLEEP_STDERR: &str = "#!/bin/sh\necho ready >&2\nsleep 60\n";
 
 parity!(
     l_wraps_long_names_at_narrow_terminal_width,
@@ -112,6 +113,92 @@ parity!(
         sh.frame("z_list");
         sh.line("fg && echo ran");
         sh.frame("fg_list");
+    }
+);
+
+parity!(
+    state_builtin_in_a_list_and_undocumented_syntax_are_refused_without_running_anything,
+    Fixture::new().size(24, 200),
+    |sh: &mut Live| {
+        for (label, command) in [
+            ("z_list", "z nothing; echo ran$((1+1))"),
+            ("fg_list", "fg && echo ran$((1+1))"),
+            ("background", "sleep 1 & echo ran$((1+1))"),
+            ("if", "if true; then echo ran$((1+1)); fi"),
+            ("for", "for i in a; do echo ran$((1+1)); done"),
+            ("case", "case x in x) echo ran$((1+1));; esac"),
+            ("function", "f() { echo ran$((1+1)); }"),
+            ("eval", "eval echo ran$((1+1))"),
+            ("exec", "exec echo ran$((1+1))"),
+            ("parameter_operator", "echo ${HOME:-ran$((1+1))}"),
+        ] {
+            sh.line(command);
+            sh.frame(label);
+        }
+        sh.line("/bin/echo ok${HOME}; echo ran$((1+1)) | cat");
+        sh.frame("documented_syntax");
+    }
+);
+
+parity!(
+    unsupported_builtins_are_refused_without_target_effects,
+    Fixture::new().file("refused-target", "preserved"),
+    |sh: &mut Live| {
+        for (label, command) in [
+            ("trap", "trap ignored TERM >refused-target"),
+            ("exec", "exec /bin/true >refused-target"),
+            ("eval", "eval /bin/true >refused-target"),
+            ("source", "source /dev/null >refused-target"),
+            ("dot", ". /dev/null >refused-target"),
+        ] {
+            sh.line(command);
+            sh.frame(label);
+        }
+        sh.line("echo $?");
+        sh.frame("status");
+        sh.line("echo alive");
+        sh.frame("alive");
+        sh.effect_file("refused-target", "refused-target");
+    }
+);
+
+parity!(bg_is_not_a_builtin, Fixture::new(), |sh: &mut Live| {
+    sh.line("bg");
+    sh.frame("bg");
+    sh.line("echo $?");
+    sh.frame("status");
+});
+
+parity!(
+    fg_drops_the_rest_of_a_stopped_and_or_list,
+    Fixture::new().executable("bin/sleep", READY_SLEEP),
+    |sh: &mut Live| {
+        sh.line_until("./bin/sleep || /bin/touch forbidden-remainder", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.line_until("fg", "resuming:");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.line("seq 1 40");
+        sh.frame("after_scroll");
+        sh.line("test -e forbidden-remainder; echo $?");
+        sh.frame("remainder_status");
+    }
+);
+
+parity!(
+    stopped_pipeline_discards_the_remaining_list,
+    Fixture::new().executable("bin/sleep", READY_SLEEP_STDERR),
+    |sh: &mut Live| {
+        sh.line_until(
+            "./bin/sleep | true; /bin/touch forbidden-remainder",
+            "ready",
+        );
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.line_until("fg", "resuming:");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.line("seq 1 40");
+        sh.frame("after_scroll");
+        sh.line("test -e forbidden-remainder; echo $?");
+        sh.frame("remainder_status");
     }
 );
 

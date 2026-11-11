@@ -26,35 +26,18 @@ replayed against the real `xshi` binary by
 differs from `ish` is either a bug or one of the deviations below; every
 deviation is covered by an `xshi`-only test.
 
-Where `ish`'s README documents behavior its implementation lacks, `xshi`
-follows the README:
+Two differences remain; both leave `ish`-shaped input otherwise unchanged:
 
-- `&>` and `&>>` redirect both streams; `|&` pipes both (`ish` runs `&>` as a
-  background marker and rejects `|&`);
-- `**` matches recursively, and a pattern that matches nothing is an error with
-  status `2` (`ish` passes the pattern through literally);
-- quoted and escaped glob characters are literal (`ish` globs them anyway);
-- `$NAME<Tab>` completes shell variables (`ish` completes files);
-- `fg` continues an AND-OR list that was stopped while running one of its
-  commands (`ish` drops the rest of the list);
-- the forced exit past a suspended job sends the job `SIGTERM` then `SIGCONT`,
-  so a stopped job can terminate.
-
-Other deliberate differences:
-
-- `ssh`/`scp` remote path completion passes the host as one process argument;
-  `ish` interpolates it into a local `sh -c` string;
 - `-c COMMAND` is evaluated by `xshi` itself rather than run through
-  `/bin/sh -c`;
-- `eval` and `exec` exist; `exec COMMAND` runs the command and then leaves the
-  shell (a command that cannot start leaves the shell running);
-- shell functions, `trap`, `readonly`, `shift`, `local`, and `init.sh` are not
-  implemented;
-- messages are prefixed `xshi:` instead of `ish:`, state lives under `xshi`
-  (`~/.config/xshi`, `~/.local/share/xshi`, `~/.cache/xshi/dump-<hex>`), and the
-  layout-dump builtin is `xshi-dump`;
-- `xshi`-only additions that leave `ish`-shaped input alone: XSH source at the
-  prompt (§5), trailing `&` for one simple command, `bg`, `z`, and `:`.
+  `/bin/sh -c`. On Laputa, `/bin/sh` is `xshi`, so delegating would re-enter
+  this shell instead of the system shell; evaluating in process is the
+  platform-forced deviation.
+- XSH source at the prompt (§5) is an addition; `ish`-shaped input is
+  unaffected by it.
+
+Messages name the shell (`xshi:`), session state lives under the `xshi` names
+(`~/.config/xshi`, `~/.local/share/xshi`, `~/.cache/xshi/dump-<hex>`), and the
+layout-dump builtin is `xshi-dump`.
 
 There is no compatibility layer for earlier `xshi` behavior: its text history
 log, binary cache, `XH` cache, `config.ini`/`config.xsh`, and pipefail statuses
@@ -156,7 +139,8 @@ starts (`json.write …`), and expression starts (`{`, `(`, a `[` not followed b
 a space, string/path/format literals, `null`, digits). Ambiguous words go to the
 shell form: `export NAME=v`, `type ls`, `set …`, `source f`, `alias name cmd`.
 `true` and `false` are shell builtins unless the line is an expression
-(`false or true`, `[false]`).
+(`false or true`, `[false]`). A shell compound header (`if …; then …; fi`,
+`for …; do …; done`, `while …; do …; done`) is shell input, not XSH source.
 
 XSH source runs through the normal parser, checker, and runtime with the
 session's environment and directory. A parse or check error prints the
@@ -169,13 +153,18 @@ Lines are tokenized as a POSIX-like interactive subset:
 - words with `'…'`, `"…"`, and `\` quoting; `#` starts a comment at a word
   start; an unterminated quote, trailing `\`, or trailing `|`, `&&`, `||`
   continues the line on a new prompt;
-- lists with `;`, `&&`, `||`; pipelines with `|` and `|&`; a single trailing
-  `&` for one simple external command;
+- lists with `;`, `&&`, `||`; pipelines with `|` and `|&`;
 - redirections `<`, `>`, `>>`, `2>`, `2>>`, `>&2`, `2>&1`, `&>`, `&>>`,
   applied left to right (`> f 2>&1` and `2>&1 > f` differ, as in a POSIX
   shell), relative to the session directory;
 - a builtin in a pipeline runs against a copy of the session, so `cd d | cat`
   leaves the shell where it was.
+
+Syntax the reference shell refuses is refused before anything runs, with its
+message and status `2`: `&` (`background jobs (`&`) are not supported`), `if`,
+`for`, `while`, `until`, `case`, and function definitions, `${...}` parameter
+operators other than `${NAME}`, process-bound builtins outside a whole-line
+command, and the reserved builtins listed in §11.
 
 Expansion order: alias, tilde, parameters, arithmetic `$((…))`, command
 substitution (`$(…)` and backticks), field splitting, pathname expansion, quote
@@ -381,15 +370,17 @@ output cap; any failure yields no candidates.
 
 ## 11. Builtins
 
-Answered by the shell itself: `cd` (`cd -`, `~`), `exit`, `fg`, `bg`, `export`,
-`set`, `unset`, `alias`, `eval`, `exec`, `history`, `z`, `denv`,
+Answered by the shell itself: `cd` (`cd -`, `~`), `exit`, `fg`, `export`,
+`set`, `unset`, `alias`, `history`, `z`, `denv`,
 `l`, `ll`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, and `:`.
 `echo` (`-n`, `-e`, `-E`), `pwd`, `true`, and `false` are internal so they work
 in pipelines. `w`, `which`, and `type` print `NAME: builtin` followed by the
 builtin's usage block; `command`, `test`, `printf`, and the other POSIX names
 are reported as builtins, and those that are not internal resolve on `PATH`.
-`source` and `.` are refused as unsupported, as is any `set` whose first operand
-is not a variable name (`set -e` reports `set: expected a variable name`).
+`source`, `.`, `eval`, `exec`, `trap`, `readonly`, `shift`, `local`, and the
+other reserved POSIX names are refused with `` `NAME` is not supported `` and
+status `2`; `bg` is not a builtin. Any `set` whose first operand is not a
+variable name is refused (`set -e` reports `set: expected a variable name`).
 
 - A one-word line naming a directory becomes `cd`, and `..`, `...`, … climb.
   Relative `cd` and `z` targets are recorded in history as absolute paths.
@@ -408,11 +399,10 @@ is not a variable name (`set -e` reports `set: expected a variable name`).
 One job slot. Ctrl-Z on a foreground command leaves it stopped, prints
 `xshi: stopped: CMD (pgid=N)`, and gives status `148`. `fg` prints
 `xshi: resuming: CMD`, gives the job the terminal, restores its saved terminal
-modes, and waits; `fg` with no job is an error. If the command was stopped in
-the middle of a list (`a && b`, `a || b`, `a; b`), the rest of the list waits
-in the job and runs when `fg` sees the command finish, using its status.
-`bg` continues a stopped job without the terminal (the rest of its list is
-dropped); `cmd &` starts one simple external command in the slot.
+modes, and waits; `fg` with no job is an error. When the command was stopped in
+the middle of a list (`a && b`, `a || b`, `a; b`), the rest of the list is
+dropped, as it is dropped by the reference shell. Background commands (`&`) and
+`bg` are refused or absent as described in §6 and §11.
 
 Before each prompt the slot is polled without blocking and completions are
 reported. A second Ctrl-Z while the slot is occupied reports
@@ -456,4 +446,5 @@ that `crates/xshi/tests/parity.rs` replays against `xshi`.
 
 `~user` expansion, brace expansion, here-documents, process substitution,
 shell functions, `trap`, `readonly`, `shift`, `local`, job specs (`%1`), more
-than one job, and background pipelines or lists are not implemented.
+than one job are not implemented; syntax the reference shell refuses, including
+background commands, is refused before execution (§6).

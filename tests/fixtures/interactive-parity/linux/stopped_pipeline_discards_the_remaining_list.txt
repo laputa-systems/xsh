@@ -1,0 +1,54 @@
+== frame after_scroll cursor=23,20
+|19
+|20
+|21
+|22
+|23
+|24
+|25
+|26
+|27
+|28
+|29
+|30
+|31
+|32
+|33
+|34
+|35
+|36
+|37
+|38
+|39
+|40
+|
+|testuser@<HOST> ~ $
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame remainder_status cursor=23,20
+|22
+|23
+|24
+|25
+|26
+|27
+|28
+|29
+|30
+|31
+|32
+|33
+|34
+|35
+|36
+|37
+|38
+|39
+|40
+|
+|testuser@<HOST> ~ $ test -e forbidden-remainder; echo $?
+|1
+|
+|testuser@<HOST> ~ $
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 test
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

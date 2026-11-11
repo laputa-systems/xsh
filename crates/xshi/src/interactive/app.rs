@@ -296,53 +296,292 @@ fn static_word_text(word: &ShellWord) -> Option<String> {
     Some(text)
 }
 
-/// Refusals the reference shell makes before running any part of the line:
-/// process-bound builtins outside a whole-line command, `source` and `.`,
-/// and `set` with anything but a variable name.
-fn plan_rejection(line: &str) -> Option<String> {
-    let parsed = ShellParser::new(line).parse_line().ok()?;
-    let whole_line = !parsed.background
+const BACKGROUND_JOBS_REFUSED: &str = "background jobs (`&`) are not supported";
+const PARAMETER_OPERATORS_REFUSED: &str =
+    "`${...}` parameter operators are not supported; use `$NAME`";
+const MAX_REFUSAL_DEPTH: usize = 16;
+const UNSUPPORTED_BUILTINS: &[&str] = &[
+    "readonly", "shift", "eval", ".", "source", "read", "local", "exec", "wait", "trap", "umask",
+    "getopts", "return", "break", "continue",
+];
+
+fn unquoted_word_text(word: &ShellWord) -> Option<&str> {
+    match word.parts.as_slice() {
+        [ShellWordPart::Text {
+            text,
+            expand: true,
+            glob: true,
+        }] => Some(text),
+        _ => None,
+    }
+}
+
+fn compound_kind(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "if" => "if",
+        "while" => "while",
+        "until" => "until",
+        "for" => "for",
+        "case" => "case",
+        "{" => "brace group",
+        _ => return None,
+    })
+}
+
+fn valid_function_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn is_function_definition(words: &[ShellWord]) -> bool {
+    let Some(first) = words.first().and_then(unquoted_word_text) else {
+        return false;
+    };
+    if let Some(name) = first.strip_suffix("()") {
+        return valid_function_name(name);
+    }
+    valid_function_name(first) && words.get(1).and_then(unquoted_word_text) == Some("()")
+}
+
+fn matching_brace(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 1_usize;
+    let mut index = 0_usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                depth += 1;
+                index += 2;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn refused_parameter_operator(text: &str) -> bool {
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        let body_start = &rest[start + 2..];
+        let Some(end) = matching_brace(body_start) else {
+            return false;
+        };
+        let body = &body_start[..end];
+        if body.starts_with('#') || body.starts_with(|ch: char| ch.is_ascii_digit()) {
+            return true;
+        }
+        let name_end = body
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(body.len());
+        if let Some(operator) = body[name_end..].chars().next() {
+            match operator {
+                '-' | '=' | '?' | '+' | '%' | '#' => return true,
+                ':'
+                    if body[name_end..]
+                        .chars()
+                        .nth(1)
+                        .is_some_and(|next| matches!(next, '-' | '=' | '?' | '+')) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        rest = &body_start[end + 1..];
+    }
+    false
+}
+
+fn expandable_word_text(word: &ShellWord) -> String {
+    let mut text = String::new();
+    for part in &word.parts {
+        match part {
+            ShellWordPart::Text {
+                text: part_text,
+                expand: true,
+                ..
+            } => text.push_str(part_text),
+            ShellWordPart::Text { .. }
+            | ShellWordPart::CommandSubstitution { .. }
+            | ShellWordPart::ArithmeticExpansion { .. } => text.push('X'),
+        }
+    }
+    text
+}
+
+fn word_refusal(word: &ShellWord, depth: usize) -> Option<String> {
+    if refused_parameter_operator(&expandable_word_text(word)) {
+        return Some(PARAMETER_OPERATORS_REFUSED.to_string());
+    }
+    for part in &word.parts {
+        match part {
+            ShellWordPart::CommandSubstitution { source, .. } => {
+                if depth < MAX_REFUSAL_DEPTH
+                    && let Some(rejection) = source_rejection(source, false, depth + 1)
+                {
+                    return Some(rejection);
+                }
+            }
+            ShellWordPart::ArithmeticExpansion { source, .. }
+                if refused_parameter_operator(source) =>
+            {
+                return Some(PARAMETER_OPERATORS_REFUSED.to_string());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn nested_command_refusal(words: &[ShellWord]) -> Option<String> {
+    let mut arguments = words;
+    loop {
+        let static_arguments: Vec<String> =
+            arguments.iter().map_while(static_word_text).collect();
+        let mut index = 0_usize;
+        while static_arguments
+            .get(index)
+            .is_some_and(|argument| matches!(argument.as_str(), "-p" | "--"))
+        {
+            index += 1;
+        }
+        let name = static_arguments.get(index)?;
+        if matches!(name.as_str(), "-v" | "-V") {
+            return None;
+        }
+        if UNSUPPORTED_BUILTINS.contains(&name.as_str()) {
+            return Some(format!("`{name}` is not supported"));
+        }
+        if is_whole_line_builtin(name) {
+            return Some(format!(
+                "{name} changes shell state or needs the ish process, so it must be the only command on its line"
+            ));
+        }
+        if name != "command" {
+            return None;
+        }
+        arguments = arguments.get(index + 1..)?;
+    }
+}
+
+fn command_rejection(command: &SimpleCommand, whole_line: bool, depth: usize) -> Option<String> {
+    let leading = command
+        .words
+        .iter()
+        .take_while(|word| parse_env_assignment(&word.text()).is_some())
+        .count();
+    if let Some(kind) = command
+        .words
+        .get(leading)
+        .and_then(unquoted_word_text)
+        .and_then(compound_kind)
+    {
+        return Some(format!("{kind} commands are not supported"));
+    }
+    if is_function_definition(&command.words) {
+        return Some("function definitions are not supported".to_string());
+    }
+    if let Some(name) = command.words.get(leading).and_then(static_word_text) {
+        if UNSUPPORTED_BUILTINS.contains(&name.as_str()) {
+            return Some(format!("`{name}` is not supported"));
+        }
+        if name == "set" {
+            let static_arguments: Vec<String> = command.words[leading + 1..]
+                .iter()
+                .map_while(static_word_text)
+                .collect();
+            if let Some(argument) = static_arguments.first()
+                && !valid_env_name(argument)
+            {
+                return Some("set: expected a variable name".to_string());
+            }
+        }
+        let command_is_whole_line = whole_line && command.redirections.is_empty() && leading == 0;
+        if !command_is_whole_line && is_whole_line_builtin(&name) {
+            return Some(format!(
+                "{name} changes shell state or needs the ish process, so it must be the only command on its line"
+            ));
+        }
+        if name == "command"
+            && let Some(rejection) = nested_command_refusal(&command.words[leading + 1..])
+        {
+            return Some(rejection);
+        }
+    }
+    for word in &command.words {
+        if let Some(rejection) = word_refusal(word, depth) {
+            return Some(rejection);
+        }
+    }
+    for redirection in &command.redirections {
+        if let Some(rejection) = word_refusal(&redirection.target, depth) {
+            return Some(rejection);
+        }
+    }
+    None
+}
+
+fn token_compound_rejection(tokens: &[ShellToken]) -> Option<String> {
+    let mut at_command_start = true;
+    for token in tokens {
+        match token {
+            ShellToken::Word(word) => {
+                if at_command_start
+                    && let Some(kind) = unquoted_word_text(word).and_then(compound_kind)
+                {
+                    return Some(format!("{kind} commands are not supported"));
+                }
+                at_command_start = false;
+            }
+            ShellToken::Pipe
+            | ShellToken::PipeErr
+            | ShellToken::And
+            | ShellToken::Or
+            | ShellToken::Semi => at_command_start = true,
+            ShellToken::Background | ShellToken::Redir(_) => {}
+        }
+    }
+    None
+}
+
+fn source_rejection(source: &str, top_level: bool, depth: usize) -> Option<String> {
+    let tokens = lex_shell(source).ok()?;
+    if tokens
+        .iter()
+        .any(|token| matches!(token, ShellToken::Background))
+    {
+        return Some(BACKGROUND_JOBS_REFUSED.to_string());
+    }
+    if let Some(rejection) = token_compound_rejection(&tokens) {
+        return Some(rejection);
+    }
+    let parsed = ShellParser::new(source).parse_line().ok()?;
+    let whole_line = top_level
         && parsed.chains.len() == 1
         && parsed.chains[0].op == ChainOp::Start
         && parsed.chains[0].pipeline.commands.len() == 1;
-
     for chain in &parsed.chains {
         for command in &chain.pipeline.commands {
-            let leading = command
-                .words
-                .iter()
-                .take_while(|word| parse_env_assignment(&word.text()).is_some())
-                .count();
-            let Some(first) = command.words.get(leading) else {
-                continue;
-            };
-            let Some(name) = static_word_text(first) else {
-                continue;
-            };
-            let command_is_whole_line =
-                whole_line && command.redirections.is_empty() && leading == 0;
-            if name == "source" || name == "." {
-                return Some(format!("`{name}` is not supported"));
-            }
-            if name == "set" {
-                let static_arguments: Vec<String> = command.words[leading + 1..]
-                    .iter()
-                    .map_while(static_word_text)
-                    .collect();
-                if let Some(argument) = static_arguments.first()
-                    && !valid_env_name(argument)
-                {
-                    return Some("set: expected a variable name".to_string());
-                }
-            }
-            if !command_is_whole_line && is_whole_line_builtin(&name) {
-                return Some(format!(
-                    "{name} changes shell state or needs the ish process, so it must be the only command on its line"
-                ));
+            if let Some(rejection) = command_rejection(command, whole_line, depth) {
+                return Some(rejection);
             }
         }
     }
     None
+}
+
+fn plan_rejection(line: &str) -> Option<String> {
+    source_rejection(line, true, 0)
 }
 
 /// Runs one submitted line: interactive rewrites, the session-level commands
@@ -409,25 +648,6 @@ fn handle_submitted_line(
                     return LineOutcome::Exit(code);
                 }
                 return LineOutcome::Continue;
-            }
-            "exec" => {
-                // The command replaces the shell: run it, then leave with its
-                // status. A command that cannot start leaves the shell running,
-                // as a failed `exec` does.
-                let command = line.trim_start().strip_prefix("exec").unwrap_or("").trim();
-                if command.is_empty() {
-                    return LineOutcome::Continue;
-                }
-                let output = execute_line(session, command);
-                let _ = stdout.write_all(&output.stdout);
-                let _ = stdout.flush();
-                let _ = stderr.write_all(&output.stderr);
-                if matches!(output.status, 126 | 127) {
-                    session.last_status = output.status;
-                    return LineOutcome::Continue;
-                }
-                session.history.compact();
-                return LineOutcome::Exit(output.status);
             }
             "alias" if is_simple_word_line(&line) => {
                 let words = alias::lex_words(line.trim_start().strip_prefix("alias").unwrap_or(""));
@@ -999,7 +1219,7 @@ pub fn check_source(source_name: &str, text: &str) -> CliOutput {
 
 fn execute_shell_line(session: &mut Session, line: ShellLine) -> CommandOutput {
     if line.background {
-        return execute_background_line(session, line);
+        return refusal_output(BACKGROUND_JOBS_REFUSED);
     }
 
     let last_status = session.last_status;
@@ -1007,8 +1227,6 @@ fn execute_shell_line(session: &mut Session, line: ShellLine) -> CommandOutput {
     run_chains(session, line.chains, last_status, last_process_status)
 }
 
-/// Runs the chains of a list in order. A command that stops (Ctrl-Z) becomes
-/// the suspended job and the rest of the list waits in it for `fg`.
 fn run_chains(
     session: &mut Session,
     chains: Vec<Chain>,
@@ -1018,8 +1236,7 @@ fn run_chains(
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
 
-    let mut chains = chains.into_iter();
-    while let Some(chain) = chains.next() {
+    for chain in chains {
         let should_run = match chain.op {
             ChainOp::Start | ChainOp::Sequence => true,
             ChainOp::And => last_status == 0,
@@ -1039,14 +1256,7 @@ fn run_chains(
         if last_process_status.is_some() {
             session.last_process_status = last_process_status.clone();
         }
-        let stopped_here = last_status == 148
-            && session.job.as_ref().is_some_and(|job| {
-                job.state == InteractiveJobState::Stopped && Some(job.pid) != job_before
-            });
-        if stopped_here {
-            if let Some(job) = session.job.as_mut() {
-                job.continuation = chains.by_ref().collect();
-            }
+        if new_stopped_job(session, job_before) {
             break;
         }
     }
@@ -1060,88 +1270,13 @@ fn run_chains(
     }
 }
 
-fn execute_background_line(session: &mut Session, mut line: ShellLine) -> CommandOutput {
-    if line.chains.len() != 1 || line.chains[0].op != ChainOp::Start {
-        return background_rejection("background jobs require one simple external command");
-    }
-    let chain = line.chains.remove(0);
-    if chain.pipeline.commands.len() != 1 {
-        return background_rejection("background pipelines are not supported");
-    }
-    let command = chain.pipeline.commands.into_iter().next().unwrap();
-    if let Err(message) = validate_assignment_prefix(&command) {
-        return expansion_error_output(ExpansionError::usage(message));
-    }
-    if session_builtin(&command.words).is_some() {
-        return background_rejection("session builtins cannot run in the background");
-    }
-    if command
-        .words
-        .iter()
-        .all(|word| parse_env_assignment(&word.text()).is_some())
-    {
-        return background_rejection("assignment-only input cannot run in the background");
-    }
-    if session.job.is_some() {
-        return CommandOutput {
-            status: 1,
-            stdout: Vec::new(),
-            stderr: text_bytes("xshi: background job already exists\n"),
-            process_status: Some(ProcessStatus::exited(1)),
-            history_source: None,
-        };
-    }
-    let source = shell_line_source(std::slice::from_ref(&command));
-    let invocation = match external_invocation(session, &command) {
-        Ok(invocation) => invocation,
-        Err(error) => return expansion_error_output(error),
-    };
-    let options = SpawnManagedOptions {
-        stdin: ManagedStdio::Inherit,
-        stdout: ManagedStdio::Inherit,
-        stderr: ManagedStdio::Inherit,
-        group: ProcessGroupConfig::NewRoot,
-        reset_signals: true,
-        spawn: Default::default(),
-    };
-    match spawn_managed(&invocation, options) {
-        Ok(child) => {
-            let pid = child.pid;
-            let pgid = new_root_process_group_id(child.pid);
-            let display = invocation_display(&invocation);
-            session.job = Some(InteractiveJob {
-                child,
-                pid,
-                pgid,
-                command: display.clone(),
-                state: InteractiveJobState::RunningBackground,
-                terminal_attrs: None,
-                last_status: None,
-                notified: false,
-                continuation: Vec::new(),
-            });
-            CommandOutput {
-                status: 0,
-                stdout: text_bytes(format!("[1] {pid} {display}\n")),
-                stderr: Vec::new(),
-                process_status: Some(ProcessStatus::exited(0)),
-                history_source: Some(source),
-            }
-        }
-        Err(error) => {
-            let status = process_error_status(&invocation.target, error);
-            status_from_process_output(CommandOutput {
-                status: 0,
-                stdout: Vec::new(),
-                stderr: Vec::new(),
-                process_status: Some(status),
-                history_source: Some(source),
-            })
-        }
-    }
+fn new_stopped_job(session: &Session, job_before: Option<u32>) -> bool {
+    session.job.as_ref().is_some_and(|job| {
+        job.state == InteractiveJobState::Stopped && Some(job.pid) != job_before
+    })
 }
 
-fn background_rejection(message: &str) -> CommandOutput {
+fn refusal_output(message: &str) -> CommandOutput {
     CommandOutput {
         status: 2,
         stdout: Vec::new(),
@@ -1345,18 +1480,17 @@ fn run_builtin_stage(session: &mut Session, command: &SimpleCommand) -> CommandO
             kind,
             SessionBuiltin::Cd
                 | SessionBuiltin::Unset
-                | SessionBuiltin::Eval
+                | SessionBuiltin::History
                 | SessionBuiltin::Z
                 | SessionBuiltin::Denv
                 | SessionBuiltin::Fg
-                | SessionBuiltin::Bg
         ) || (matches!(
             kind,
             SessionBuiltin::Alias | SessionBuiltin::Export | SessionBuiltin::Set
         ) && !args.is_empty());
         let output = if mutating {
             let mut detached = session.fork_for_substitution();
-            detached.capturing = false;
+            detached.capturing = kind == SessionBuiltin::History;
             execute_session_builtin(&mut detached, kind, &args)
         } else {
             execute_session_builtin(session, kind, &args)
@@ -1450,6 +1584,7 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
     let mut carry: Option<Vec<u8>> = None;
 
     for (index, command) in commands.iter().enumerate().take(last_builtin + 1) {
+        let job_before = session.job.as_ref().map(|job| job.pid);
         let merge_stderr = pipes
             .get(index)
             .is_some_and(|pipe| *pipe == PipeOp::StdoutStderr);
@@ -1491,6 +1626,15 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
             statuses.push(output.status);
             stderr.extend_from_slice(&output.stderr);
             carry = None;
+            if new_stopped_job(session, job_before) {
+                return CommandOutput {
+                    status: 148,
+                    stdout: Vec::new(),
+                    stderr,
+                    process_status: Some(ProcessStatus::exited(148)),
+                    history_source: None,
+                };
+            }
         }
     }
 
@@ -1634,26 +1778,12 @@ fn execute_session_builtin(
     if kind == SessionBuiltin::Fg {
         return execute_fg_builtin(session, args);
     }
-    if kind == SessionBuiltin::Bg {
-        return execute_bg_builtin(session, args);
-    }
 
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let status = match kind {
-        SessionBuiltin::Fg | SessionBuiltin::Bg => unreachable!("job builtins returned above"),
+        SessionBuiltin::Fg => unreachable!("fg returned above"),
         SessionBuiltin::Noop => 0,
-        SessionBuiltin::Eval => {
-            let source = args.join(" ");
-            if source.trim().is_empty() {
-                0
-            } else {
-                let output = execute_line(session, &source);
-                stdout.extend_from_slice(&output.stdout);
-                stderr.extend_from_slice(&output.stderr);
-                output.status
-            }
-        }
         SessionBuiltin::Cd => builtin_cd(session, args, &mut stderr),
         SessionBuiltin::Export => {
             if args.is_empty() {
@@ -1829,17 +1959,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
     match wait_managed(&mut job.child, WaitMode::InteractiveForeground, &mut policy) {
         Ok((ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status), _)) => {
             drop(foreground);
-            let finished = status_command_output(status, Vec::new());
-            let rest = std::mem::take(&mut job.continuation);
-            if rest.is_empty() {
-                return finished;
-            }
-            session.last_status = finished.status;
-            session.dollar_status = finished.status;
-            let mut rest = run_chains(session, rest, finished.status, finished.process_status);
-            rest.stdout.splice(0..0, finished.stdout);
-            rest.stderr.splice(0..0, finished.stderr);
-            rest
+            status_command_output(status, Vec::new())
         }
         Ok((ChildWaitOutcome::Stopped { signal: _ }, _)) => {
             // Stopped again: the job stays suspended in the slot, silently.
@@ -1878,84 +1998,6 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
                 history_source: None,
             }
         }
-    }
-}
-
-fn execute_bg_builtin(session: &mut Session, args: &[String]) -> CommandOutput {
-    if !args.is_empty() {
-        return CommandOutput {
-            status: 2,
-            stdout: Vec::new(),
-            stderr: text_bytes("bg: expected no arguments\n"),
-            process_status: Some(ProcessStatus::exited(2)),
-            history_source: None,
-        };
-    }
-    let Some(job) = session.job.as_mut() else {
-        return CommandOutput {
-            status: 1,
-            stdout: Vec::new(),
-            stderr: text_bytes("xshi: bg: no background job\n"),
-            process_status: Some(ProcessStatus::exited(1)),
-            history_source: None,
-        };
-    };
-    match poll_managed(&mut job.child) {
-        Ok(ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status)) => {
-            let stderr = text_bytes(format!(
-                "xshi: completed: {} (pid={}, {})\n",
-                job.command,
-                job.pid,
-                process_status_label(&status)
-            ));
-            session.job = None;
-            return CommandOutput {
-                status: 1,
-                stdout: Vec::new(),
-                stderr,
-                process_status: Some(ProcessStatus::exited(1)),
-                history_source: None,
-            };
-        }
-        Ok(ChildWaitOutcome::Stopped { .. }) => {
-            job.state = InteractiveJobState::Stopped;
-        }
-        Ok(ChildWaitOutcome::StillRunning) => {}
-        Err(error) => {
-            return CommandOutput {
-                status: 1,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xshi: bg: {}\n", error.message)),
-                process_status: Some(ProcessStatus::exited(1)),
-                history_source: None,
-            };
-        }
-    }
-    match job.state {
-        InteractiveJobState::Stopped => {
-            ProcessGroup::from_pgid(job.pgid).signal(libc::SIGCONT);
-            job.state = InteractiveJobState::RunningBackground;
-            job.notified = false;
-            // Nothing waits for a background job, so the list ends here.
-            job.continuation.clear();
-            CommandOutput {
-                status: 0,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!(
-                    "xshi: resumed: {} (pid={})\n",
-                    job.command, job.pid
-                )),
-                process_status: Some(ProcessStatus::exited(0)),
-                history_source: None,
-            }
-        }
-        InteractiveJobState::RunningBackground => CommandOutput {
-            status: 1,
-            stdout: Vec::new(),
-            stderr: text_bytes("xshi: bg: job already running\n"),
-            process_status: Some(ProcessStatus::exited(1)),
-            history_source: None,
-        },
     }
 }
 
@@ -2091,7 +2133,6 @@ fn run_external_foreground(
                         terminal_attrs: attrs,
                         last_status: None,
                         notified: true,
-                        continuation: Vec::new(),
                     });
                     return CommandOutput {
                         status: 148,
@@ -2463,6 +2504,22 @@ fn validate_assignment_prefix(command: &SimpleCommand) -> Result<(), String> {
     Ok(())
 }
 
+fn shell_compound_header(source: &str, first: &str) -> bool {
+    let Ok(tokens) = lex_shell(source) else {
+        return false;
+    };
+    let has = |keyword: &str| {
+        tokens.iter().any(
+            |token| matches!(token, ShellToken::Word(word) if unquoted_word_text(word) == Some(keyword)),
+        )
+    };
+    match first {
+        "if" => has("then") && has("fi"),
+        "for" | "while" => has("do") && has("done"),
+        _ => false,
+    }
+}
+
 fn is_xsh_source(source: &str) -> bool {
     let trimmed = source.trim_start();
     let first = trimmed
@@ -2477,6 +2534,9 @@ fn is_xsh_source(source: &str) -> bool {
     }
     if first == "export" {
         return looks_like_xsh_export(trimmed);
+    }
+    if matches!(first, "if" | "for" | "while") && shell_compound_header(trimmed, first) {
+        return false;
     }
     matches!(
         first,
@@ -3322,10 +3382,8 @@ fn apply_builtin_redirections(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionBuiltin {
-    Eval,
     Export,
     Fg,
-    Bg,
     Noop,
     Cd,
     Set,
@@ -3348,10 +3406,8 @@ fn session_builtin(words: &[ShellWord]) -> Option<SessionBuiltin> {
 
 fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
     Some(match name {
-        "eval" => SessionBuiltin::Eval,
         "export" => SessionBuiltin::Export,
         "fg" => SessionBuiltin::Fg,
-        "bg" => SessionBuiltin::Bg,
         ":" => SessionBuiltin::Noop,
         "cd" => SessionBuiltin::Cd,
         "set" => SessionBuiltin::Set,
@@ -3371,53 +3427,13 @@ fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChainOp, InteractiveJobState, ProcessGroup, ProcessStatus, Session, ShellParser,
-        ShellRedirectionKind, ShellToken, ShellWord, ShellWordPart, execute_line, is_xsh_source,
-        lex_shell, reap_interactive_job, set_env_bytes, shell_status, validate_assignment_prefix,
+        ChainOp, ProcessStatus, Session, ShellParser, ShellRedirectionKind, ShellToken, ShellWord,
+        ShellWordPart, execute_line, is_xsh_source, lex_shell, plan_rejection, set_env_bytes,
+        shell_status, validate_assignment_prefix,
     };
     use crate::xshi::interactive::denv::DenvState;
     use crate::xshi::interactive::history::History;
     use crate::xshi::interactive::shell::SimpleCommand;
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::time::{Duration, Instant};
-
-    struct JobCleanup(libc::pid_t);
-
-    impl Drop for JobCleanup {
-        fn drop(&mut self) {
-            if self.0 > 0 {
-                ProcessGroup::from_pgid(self.0).signal(libc::SIGKILL);
-            }
-        }
-    }
-
-    fn wait_for_job_state(session: &mut Session, expected: InteractiveJobState) -> Vec<u8> {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut stderr = Vec::new();
-        while session
-            .job
-            .as_ref()
-            .is_some_and(|job| job.state != expected)
-        {
-            reap_interactive_job(session, &mut stderr);
-            assert!(Instant::now() < deadline, "job did not reach {expected:?}");
-            std::thread::yield_now();
-        }
-        assert!(session.job.is_some(), "job completed before {expected:?}");
-        stderr
-    }
-
-    fn wait_for_job_completion(session: &mut Session) -> Vec<u8> {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut stderr = Vec::new();
-        while session.job.is_some() {
-            reap_interactive_job(session, &mut stderr);
-            assert!(Instant::now() < deadline, "job did not complete");
-            std::thread::yield_now();
-        }
-        stderr
-    }
 
     fn shell_word(text: &str) -> ShellWord {
         ShellWord {
@@ -3587,52 +3603,61 @@ mod tests {
     }
 
     #[test]
-    fn parses_trailing_background_marker() {
-        let line = ShellParser::new("sleep 1 &").parse_line().unwrap();
-        assert!(line.background);
-        assert_eq!(line.chains.len(), 1);
+    fn ish_refused_syntax_is_rejected_before_running() {
+        for (line, message) in [
+            ("sleep 1 &", "background jobs (`&`) are not supported"),
+            ("sleep 1 & echo ran", "background jobs (`&`) are not supported"),
+            ("if true; then echo ran; fi", "if commands are not supported"),
+            ("for i in a; do echo ran; done", "for commands are not supported"),
+            ("while false; do :; done", "while commands are not supported"),
+            ("until false; do :; done", "until commands are not supported"),
+            ("case x in x) :;; esac", "case commands are not supported"),
+            ("f() { echo ran; }", "function definitions are not supported"),
+            ("eval echo ran", "`eval` is not supported"),
+            ("exec echo ran", "`exec` is not supported"),
+            ("source /dev/null", "`source` is not supported"),
+            ("trap ignored TERM", "`trap` is not supported"),
+            ("echo ${HOME:-ran}", "parameter operators are not supported"),
+            ("echo ${#HOME}", "parameter operators are not supported"),
+            ("echo ${HOME%x}", "parameter operators are not supported"),
+            ("echo $(( ${HOME:-1} ))", "parameter operators are not supported"),
+            ("echo \"${HOME:-ran}\"", "parameter operators are not supported"),
+            ("echo $(eval ran)", "`eval` is not supported"),
+            ("echo `eval ran`", "`eval` is not supported"),
+            ("z nothing; echo ran", "must be the only command on its line"),
+            ("command exit", "must be the only command on its line"),
+        ] {
+            let rejection = plan_rejection(line).unwrap_or_else(|| panic!("{line} was accepted"));
+            assert!(
+                rejection.contains(message),
+                "{line}: {rejection} did not contain {message}"
+            );
+        }
 
-        let chain = ShellParser::new("sleep 1 && echo ok &")
-            .parse_line()
-            .unwrap();
-        assert!(chain.background);
-        assert_eq!(chain.chains.len(), 2);
-
-        assert!(ShellParser::new("&").parse_line().is_err());
-        assert!(
-            lex_shell("true && echo ok")
-                .unwrap()
-                .contains(&ShellToken::And)
-        );
+        for line in [
+            "echo ${HOME}",
+            "echo '${HOME:-literal}'",
+            "echo \\${HOME:-literal}",
+            "echo ok${HOME}; echo fine",
+            "sleep 1 && echo fine",
+        ] {
+            assert_eq!(plan_rejection(line), None, "{line}");
+        }
     }
 
     #[test]
-    fn rejects_unsupported_background_shapes() {
-        let mut session = Session::for_test();
-        let cases = [
-            (
-                "/bin/true && /bin/echo ok &",
-                "background jobs require one simple external command",
-            ),
-            (
-                "/bin/echo ok | /usr/bin/wc -c &",
-                "background pipelines are not supported",
-            ),
-            ("cd /tmp &", "session builtins cannot run in the background"),
-            (
-                "FOO=bar &",
-                "assignment-only input cannot run in the background",
-            ),
-        ];
+    fn xsh_control_starts_are_not_shell_compound_commands() {
+        assert!(is_xsh_source("if true { print 1 }"));
+        assert!(is_xsh_source("for x in [1] { print x }"));
+        assert!(is_xsh_source("while false { print 1 }"));
+        assert!(!is_xsh_source("if true; then echo x; fi"));
+        assert!(!is_xsh_source("for i in a; do echo $i; done"));
+        assert!(!is_xsh_source("while false; do :; done"));
 
-        for (source, expected) in cases {
-            let output = execute_line(&mut session, source);
-            assert_eq!(output.status, 2, "{source}");
-            assert!(
-                String::from_utf8(output.stderr).unwrap().contains(expected),
-                "{source}"
-            );
-        }
+        let mut session = Session::for_test();
+        let output = execute_line(&mut session, "if true { print 1 }");
+        assert_eq!(output.status, 0, "{:?}", output.stderr);
+        assert_eq!(output.stdout, b"1\n");
     }
 
     #[test]
@@ -3646,18 +3671,10 @@ mod tests {
             "fg".to_string(),
             vec!["echo".to_string(), "alias".to_string()],
         );
-        session.aliases.set(
-            "bg".to_string(),
-            vec!["echo".to_string(), "alias".to_string()],
-        );
 
         let fg = execute_line(&mut session, "fg");
         assert_eq!(fg.status, 0);
         assert_eq!(String::from_utf8(fg.stdout).unwrap(), "alias\n");
-
-        let bg = execute_line(&mut session, "bg");
-        assert_eq!(bg.status, 0);
-        assert_eq!(String::from_utf8(bg.stdout).unwrap(), "alias\n");
     }
 
     #[test]
@@ -3705,70 +3722,6 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&list.stderr)
         );
-    }
-
-    #[test]
-    fn single_background_job_rejects_second_slot_and_reaps_without_changing_prompt_status() {
-        let mut session = Session::for_test();
-        let started = execute_line(&mut session, "/bin/sleep 30 &");
-        assert_eq!(started.status, 0);
-        let pgid = session.job.as_ref().expect("background job slot").pgid;
-        let mut cleanup = JobCleanup(pgid);
-        assert_eq!(
-            session.job.as_ref().unwrap().state,
-            InteractiveJobState::RunningBackground
-        );
-
-        let second = execute_line(&mut session, "/bin/sleep 30 &");
-        assert_eq!(second.status, 1);
-        assert!(String::from_utf8_lossy(&second.stderr).contains("background job already exists"));
-        assert_eq!(session.job.as_ref().unwrap().pgid, pgid);
-
-        let already_running = execute_line(&mut session, "bg");
-        assert_eq!(already_running.status, 1);
-        assert!(String::from_utf8_lossy(&already_running.stderr).contains("job already running"));
-
-        session.last_status = 42;
-        ProcessGroup::from_pgid(pgid).signal(libc::SIGTERM);
-        let notice = wait_for_job_completion(&mut session);
-        cleanup.0 = 0;
-        assert!(String::from_utf8_lossy(&notice).contains("xshi: completed:"));
-        assert_eq!(session.last_status, 42);
-        assert_eq!(execute_line(&mut session, "bg").status, 1);
-        assert_eq!(execute_line(&mut session, "fg").status, 1);
-    }
-
-    #[test]
-    fn stopped_background_job_resumes_then_foregrounds_to_its_exit_status() {
-        let root = tempfile::tempdir().expect("temporary directory");
-        let command = root.path().join("stop-then-exit");
-        fs::write(&command, b"#!/bin/sh\nkill -STOP $$\nexit 7\n").expect("stopping command");
-        fs::set_permissions(&command, fs::Permissions::from_mode(0o755))
-            .expect("make stopping command executable");
-        let source = format!("{} &", command.display());
-        let mut session = Session::for_test();
-
-        assert_eq!(execute_line(&mut session, &source).status, 0);
-        let mut cleanup = JobCleanup(session.job.as_ref().unwrap().pgid);
-        let stopped = wait_for_job_state(&mut session, InteractiveJobState::Stopped);
-        assert!(String::from_utf8_lossy(&stopped).contains("xshi: stopped:"));
-        let resumed = execute_line(&mut session, "bg");
-        assert_eq!(resumed.status, 0);
-        assert_eq!(
-            session.job.as_ref().unwrap().state,
-            InteractiveJobState::RunningBackground
-        );
-        assert!(String::from_utf8_lossy(&resumed.stderr).contains("xshi: resumed:"));
-        wait_for_job_completion(&mut session);
-        cleanup.0 = 0;
-
-        assert_eq!(execute_line(&mut session, &source).status, 0);
-        let mut cleanup = JobCleanup(session.job.as_ref().unwrap().pgid);
-        wait_for_job_state(&mut session, InteractiveJobState::Stopped);
-        let foreground = execute_line(&mut session, "fg");
-        cleanup.0 = 0;
-        assert_eq!(foreground.status, 7);
-        assert!(session.job.is_none());
     }
 
     #[test]

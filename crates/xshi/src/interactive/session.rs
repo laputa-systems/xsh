@@ -4,7 +4,6 @@ use super::alias::AliasMap;
 use super::denv::DenvState;
 use super::history::History;
 use super::prompt::Prompt;
-use super::shell::Chain;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
@@ -56,14 +55,10 @@ pub(super) struct InteractiveJob {
     pub(super) terminal_attrs: Option<rustix::termios::Termios>,
     pub(super) last_status: Option<ProcessStatus>,
     pub(super) notified: bool,
-    /// The rest of the `&&`/`||`/`;` list the job was stopped in the middle
-    /// of; `fg` runs it once the job finishes.
-    pub(super) continuation: Vec<Chain>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum InteractiveJobState {
-    RunningBackground,
     Stopped,
 }
 

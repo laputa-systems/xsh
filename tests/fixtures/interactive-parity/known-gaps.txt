@@ -1,1 +1,0 @@
-history_reset_refuses_pipeline_and_command_substitution

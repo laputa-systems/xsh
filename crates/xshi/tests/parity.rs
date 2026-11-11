@@ -1527,46 +1527,6 @@ fn dollar_completion_works_inside_double_quotes_and_ignores_escaped_dollars() {
 }
 
 #[test]
-fn fg_resumes_the_rest_of_an_and_or_list() {
-    let fixture = Fixture::new()
-        .executable("bin/ok", "#!/bin/sh\necho ready\nsleep 2\n")
-        .executable("bin/bad", "#!/bin/sh\necho ready\nsleep 2\nexit 3\n");
-    run_xshi_only(&fixture, |sh| {
-        sh.line_until("./bin/ok && echo continued-$((1+1))", "ready");
-        sh.keys_to_prompt(key::CTRL_Z);
-        assert!(
-            !sh.screen_text().contains("continued-2"),
-            "the list waits while the job is stopped"
-        );
-        sh.line("fg");
-        assert!(
-            sh.screen_text().contains("continued-2"),
-            "{}",
-            sh.screen_text()
-        );
-
-        sh.line_until("./bin/bad || echo fallback-$((1+1))", "ready");
-        sh.keys_to_prompt(key::CTRL_Z);
-        sh.line("fg");
-        assert!(
-            sh.screen_text().contains("fallback-2"),
-            "{}",
-            sh.screen_text()
-        );
-
-        sh.line_until(
-            "./bin/bad && echo skipped-$((1+1)); echo after-$((1+1))",
-            "ready",
-        );
-        sh.keys_to_prompt(key::CTRL_Z);
-        sh.line("fg");
-        let screen = sh.screen_text();
-        assert!(!screen.contains("skipped-2"), "{screen}");
-        assert!(screen.contains("after-2"), "{screen}");
-    });
-}
-
-#[test]
 fn forced_exit_terminates_a_stopped_job() {
     let fixture = Fixture::new().executable(
         "bin/job",
