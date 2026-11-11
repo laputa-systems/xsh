@@ -120,4 +120,32 @@ def assignmentsArtifact : RawArtifact where
     ⟨bridgeId! 2, "wrapped", 0, 0, 1, 1, bridgeId! 2, 2⟩]
   observations := [⟨bridgeId! 1, [], .value 31⟩, ⟨bridgeId! 2, [], .failure .integerOverflow⟩]
 
+def booleanSourceTextCodes : List Nat :=
+  [112, 117, 114, 101, 32, 101, 120, 99, 101, 101, 100, 115, 40, 118, 97, 108, 117, 101, 58, 32,
+   73, 110, 116, 44, 32, 108, 105, 109, 105, 116, 58, 32, 73, 110, 116, 41, 32, 45, 62, 32,
+   66, 111, 111, 108, 32, 123, 10, 32, 32, 114, 101, 116, 117, 114, 110, 32, 118, 97, 108, 117,
+   101, 32, 62, 32, 108, 105, 109, 105, 116, 10, 125, 10, 10, 112, 117, 114, 101, 32, 98, 101,
+   108, 111, 119, 40, 118, 97, 108, 117, 101, 58, 32, 73, 110, 116, 44, 32, 108, 105, 109, 105,
+   116, 58, 32, 73, 110, 116, 41, 32, 45, 62, 32, 66, 111, 111, 108, 32, 123, 10, 32, 32,
+   114, 101, 116, 117, 114, 110, 32, 118, 97, 108, 117, 101, 32, 60, 32, 108, 105, 109, 105, 116,
+   10, 125, 10]
+
+def booleanSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1, String.ofList (booleanSourceTextCodes.map Char.ofNat)⟩
+
+def booleanArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprParam, 1, 1⟩,
+    ⟨bridgeId! 3, .exprBinary, 2, 4⟩, ⟨bridgeId! 4, .stmtReturn, 6, 1⟩,
+    ⟨bridgeId! 5, .exprParam, 9, 1⟩, ⟨bridgeId! 6, .exprParam, 10, 1⟩,
+    ⟨bridgeId! 7, .exprBinary, 11, 4⟩, ⟨bridgeId! 8, .stmtReturn, 15, 1⟩]
+  extra := [0, 1, 0, 0, 1, 2, 2, 1, 3, 0, 1, 1, 4, 5, 3, 6, 1, 7]
+  ops := [.gt, .lt]
+  blocks := [⟨bridgeId! 1, 7, 2, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 16, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "exceeds", 0, 2, 0, 1, bridgeId! 1, 3⟩,
+    ⟨bridgeId! 2, "below", 2, 2, 1, 1, bridgeId! 2, 3⟩]
+  observations := [⟨bridgeId! 1, [12, 9], .value 1⟩, ⟨bridgeId! 1, [3, 9], .value 0⟩,
+    ⟨bridgeId! 2, [3, 9], .value 1⟩, ⟨bridgeId! 2, [12, 9], .value 0⟩]
+
 end Xsh.Conformance.Vertical

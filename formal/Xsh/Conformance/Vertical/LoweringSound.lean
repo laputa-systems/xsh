@@ -656,12 +656,12 @@ theorem call_lowers {src : List (String × Option Callee)} {owner : BridgeId}
 
 
 theorem conditional_lowers {src : List (String × Option Callee)} {cs : List (Option Callee)}
-    {owner : BridgeId} {scope : List (String × Nat)} {comparison : FragmentOp}
+    {owner : BridgeId} {scope : List (String × Nat)} {op : FragmentOp}
     {left right : SourceAtom} {thenValue elseValue : SourceValue} {s s' : LoweringState}
     {row : Word32} (wf : BlocksIndexed s)
-    (h : Lower.expression owner scope (.conditional comparison left right thenValue elseValue) s =
+    (h : Lower.expression owner scope (.conditional op left right thenValue elseValue) s =
       some (row, s')) :
-    ∃ e, (SourceExpression.conditional comparison left right thenValue elseValue).expression?
+    ∃ e, (SourceExpression.conditional op left right thenValue elseValue).expression?
         src scope = some e ∧ Lowers cs s s' row e := by
   simp only [Lower.expression, run_bind, run_require] at h
   obtain ⟨_, _, ⟨isComparison, rfl⟩, condition, s2, hcond, thenRow, s3, hthen, table, s4, htable,
@@ -675,8 +675,8 @@ theorem conditional_lowers {src : List (String × Option Callee)} {cs : List (Op
   have spanLe : StateLE s5 { s5 with spans := rest } := StateLE.of_eq rfl rfl rfl rfl
   have wf6 : BlocksIndexed { s5 with spans := rest } := BlocksIndexed.congr rfl el.wf
   have tableFrame := push_block_frame htable
-  have comparisonHolds : comparison.isComparison = true := by simpa using isComparison
-  refine ⟨.conditional (comparison.expression first second) thenE elseE, ?_, ?_⟩
+  have comparisonHolds : op.isComparison = true := by simpa using isComparison
+  refine ⟨.conditional (op.expression first second) thenE elseE, ?_, ?_⟩
   · simp [SourceExpression.expression?, comparisonHolds, hfirst, hsecond, foundThen, foundElse]
   · refine lowers_row (cl.le.trans (tl.le.trans (blockLe.trans (el.le.trans spanLe)))) wf6
       ⟨by simp [el.functions.1, tableFrame.1, tl.functions.1, cl.functions.1],
@@ -713,11 +713,18 @@ theorem expression_lowers {src : List (String × Option Callee)} {owner : Bridge
     obtain ⟨e, found, lowers⟩ := value_lowers wf h
     exact ⟨e, by simpa [SourceExpression.expression?] using found, lowers⟩
   | call callee arguments => exact call_lowers wf aligned h
-  | conditional comparison left right thenValue elseValue => exact conditional_lowers wf h
+  | conditional op left right thenValue elseValue => exact conditional_lowers wf h
   | assigned target assignedValue result =>
     simp only [Lower.expression] at h
     obtain ⟨e, found, lowers⟩ := value_lowers wf h
     exact ⟨e, by simpa [SourceExpression.expression?] using found, lowers⟩
+  | comparison op left right =>
+    simp only [Lower.expression, run_bind, run_require] at h
+    obtain ⟨_, s1, ⟨isComparison, rfl⟩, h⟩ := h
+    obtain ⟨first, second, hfirst, hsecond, lowers⟩ := comparison_lowers wf h
+    have holds : op.isComparison = true := by simpa using isComparison
+    exact ⟨op.expression first second,
+      by simp [SourceExpression.expression?, holds, hfirst, hsecond], lowers⟩
 
 
 theorem bridge_id_beq (a b : BridgeId) : (a == b) = (a.raw == b.raw) := by
@@ -1127,6 +1134,7 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
   | value _ => simp [SourceExpression.isAssigned] at assigned
   | call _ _ => simp [SourceExpression.isAssigned] at assigned
   | conditional _ _ _ _ _ => simp [SourceExpression.isAssigned] at assigned
+  | comparison _ _ _ => simp [SourceExpression.isAssigned] at assigned
   | assigned target assignedValue returned =>
   cases lets with
   | nil =>

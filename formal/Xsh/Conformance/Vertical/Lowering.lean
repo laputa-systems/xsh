@@ -37,8 +37,9 @@ def SourceValue.expression? (scope : List (String × Nat)) : SourceValue → Opt
       some (op.expression (← left.expression? scope) (← right.expression? scope))
 
 /-- The base expression a source result denotes: a name resolves to its parameter or its let, a
-call carries the body of the earlier function it names, and a conditional is a comparison with
-its two values. `callees` holds every earlier function with its callee form, which a function
+call carries the body of the earlier function it names, a conditional is a comparison with
+its two values, a comparison is its two atoms under the operation, and an assigned form is the
+value it returns. `callees` holds every earlier function with its callee form, which a function
 with a let does not have. -/
 def SourceExpression.expression? (callees : List (String × Option Callee))
     (scope : List (String × Nat)) : SourceExpression → Option BaseExpr
@@ -48,12 +49,15 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
       if arguments.length == found.parameters then pure () else none
       some (.call (parameterNames found.parameters) found.body
         (← arguments.mapM (·.expression? scope)))
-  | .conditional comparison left right thenValue elseValue => do
-      if comparison.isComparison then pure () else none
-      some (.conditional (comparison.expression (← left.expression? scope)
+  | .conditional op left right thenValue elseValue => do
+      if op.isComparison then pure () else none
+      some (.conditional (op.expression (← left.expression? scope)
           (← right.expression? scope))
         (← thenValue.expression? scope) (← elseValue.expression? scope))
   | .assigned _ _ result => result.expression? scope
+  | .comparison op left right => do
+      if op.isComparison then pure () else none
+      some (op.expression (← left.expression? scope) (← right.expression? scope))
 
 /-- The assignment a function's returned form carries, as the base machine would run it: it must
 assign the function's one let, and its value is read in the function's scope. -/
@@ -227,15 +231,18 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
       let table ← Lower.pushBlock owner 0 (count :: rows.flatMap fun row => [0, row])
       let span ← Lower.takeSpan
       Lower.pushRow .exprDirectPureCall [← Lower.word (index + 1), table.raw, span]
-  | .conditional comparison left right thenValue elseValue => do
-      Lower.require comparison.isComparison
-      let condition ← Lower.comparison scope comparison left right
+  | .conditional op left right thenValue elseValue => do
+      Lower.require op.isComparison
+      let condition ← Lower.comparison scope op left right
       let thenRow ← Lower.valueBlock owner scope thenValue
       let table ← Lower.pushBlock owner 0 [1, condition, thenRow]
       let elseRow ← Lower.valueBlock owner scope elseValue
       let span ← Lower.takeSpan
       Lower.pushRow .exprIf [table.raw, elseRow, span]
   | .assigned _ _ result => Lower.value scope result
+  | .comparison op left right => do
+      Lower.require op.isComparison
+      Lower.comparison scope op left right
 
 /-- The rows after a function's let statements: the rows of its returned expression, the
 return, its body block, and its function row. -/

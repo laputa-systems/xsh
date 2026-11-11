@@ -14,9 +14,16 @@ accepts exactly the valid derivations of the declarative rules and takes
 nothing from the candidate, with a non-vacuity witness and rejected forgeries.
 The test-only Rust bridge exports checker facts for the failures and calls
 fixtures, and Lean certifies the corresponding fact documents. A third
-source/IR certificate covers one integer variable and one plain assignment.
+source/IR certificate covers one integer variable and one plain assignment. A
+fourth covers two Bool-returning comparison functions: the admitted grammar
+takes `-> Bool` only with a comparison of two atoms, the lowerer emits the same
+`ExprBinary` comparison rows, and the recorded observations are true and false.
+`lowering_means_the_source` stays universal over the widened parsed functions.
+Result control (`Ok`/`Err` and `?`) is the next step: its rows carry Result
+values and propagation, and a genuine failure needs an error producer, so it
+is a separate widening rather than part of this one.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds five ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds six ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -27,7 +34,7 @@ Not reached: the connected milestone. The proofs cover the Lean
 lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
 Rust's execution of the IR rest on the artifacts and the recorded runs.
 Next, widen the lowered shape toward the milestone
-(record locals, Bool and Result control); add a parse and
+(record locals and Result control); add a parse and
 projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
 consistency theorem. The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
@@ -36,8 +43,9 @@ The independent kernels hold the whole export in memory. Earlier checks at the
 8 GiB address-space cap found that a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
 and 3.9 KB still failed con-leche, so the original certified documents are
-2.4 KB and 3.9 KB. A certificate that evaluates a string literal or repeats a document
-decode can pass the bundled kernel and still exceed the cap.
+2.4 KB and 3.9 KB; the boolean pair is smaller. A certificate that evaluates
+a string literal or repeats a document decode can pass the bundled kernel and
+still exceed the cap.
 
 **Resume:** complete one connected
 compiler proof milestone (see [the typing and formal successor
@@ -57,7 +65,7 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds five ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds six ARTIFACT_CERTIFIED
 records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
@@ -79,7 +87,8 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   own and agree with Rust only on these artifacts (a source admission proof
   does not exist, and the lowerer theorem is about the Lean lowerer); span
   words are read from the document; the lowered shape has no loops, strings,
-  records or Bool and Result control, and a call to a function
+  records, Result control or a call of a Bool function, though a Bool-returning
+  comparison of two atoms is covered, and a call to a function
   with a let is outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
@@ -888,6 +897,32 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   its admitted table. The table is not yet connected to the source-to-IR
   relation, and the foreign FullProgram decoder and execution simulation
   remain open.
+
+- 2026-11-10: Bool comparison control. The admitted source grammar now parses
+  `-> Bool` only when the returned expression is a comparison of two atoms;
+  `-> Int` refuses a comparison and `-> Bool` refuses every other result shape.
+  The new `SourceExpression.comparison` lowers to the existing `ExprBinary`
+  comparison row (no new tag), and `lowering_means_the_source` was extended by
+  one case and remains universal over the parsed functions. `FunctionOutcome`
+  gained `truth`, recorded as the value bit `1` or `0`, and
+  `program_outcome_is_a_completed_machine_run` covers the boolean case. The
+  test-only bridge exports `formal-bridge-boolean-control.xsh` (two
+  parameterized comparison functions, `Gt` and `Lt`, four calls) and the Lean
+  `BooleanCertificate` certifies the pair, rejecting wrong operations, swapped
+  operands, wrong recorded truths or arguments, malformed IR, changed source
+  and a wrong lowering. `artifact_certificates` now holds six. This is a
+  bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's
+  parser reading and execution are evidence through the bridge run only, and
+  that run used this worktree's verification build rather than the frozen
+  commit, so it is not a `RUST_CONFORMANCE` case. Under the 8 GiB address-space
+  cap the bundled `leanchecker --fresh Xsh` accepted the root, and the
+  paranoid check accepted it with `lean4lean`, `nanoda`, `con-leche` at four
+  workers, the Lean default kernel and `con-ron` at two workers; `con-ron`'s
+  default worker count cannot fit the cap. The repository's `check-fresh.py`
+  stopped before any kernel because its fixed 180 s clean build exceeded the
+  wall limit on this host; the direct paranoid check used the existing build.
+  Result control stays open; its Result values, `Ok`/`Err` rows, `?`
+  propagation and an error producer are a larger widening.
 
 ## For the owner afterwards
 

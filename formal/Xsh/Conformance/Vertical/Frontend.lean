@@ -57,6 +57,7 @@ def tokenize : Nat → List Nat → Option (List Token)
       else if code == 58 then continueWith .colon rest
       else if code == 44 then continueWith .comma rest
       else if code == 62 then continueWith (.operator .gt) rest
+      else if code == 60 then continueWith (.operator .lt) rest
       else if code == 43 then continueWith (.operator .add) rest
       else if code == 42 then continueWith (.operator .mul) rest
       else if code == 47 then continueWith (.operator .div) rest
@@ -90,6 +91,7 @@ inductive SourceExpression where
   | conditional (comparison : FragmentOp) (left right : SourceAtom)
       (thenValue elseValue : SourceValue)
   | assigned (target : String) (assignedValue : SourceValue) (result : SourceValue)
+  | comparison (op : FragmentOp) (left right : SourceAtom)
   deriving DecidableEq, Repr
 
 structure SourceFunction where
@@ -162,8 +164,15 @@ def parseExpression (tokens : List Token) : Option (SourceExpression × List Tok
         let (arguments, rest) ← parseArguments (more.length + 1) more
         some (.call name arguments, rest)
   | _ => do
-      let (value, rest) ← parseValue tokens
-      some (.value value, rest)
+      let (first, afterFirst) ← parseAtom tokens
+      match afterFirst with
+      | .operator op :: afterOperator => do
+          let (second, rest) ← parseAtom afterOperator
+          if op.isComparison then
+            some (.comparison op first second, rest)
+          else
+            some (.value (.binary op first second), rest)
+      | _ => some (.value (.atom first), afterFirst)
 
 /-- The `let` and `var` lines, with the names the `var` lines declare. -/
 def parseLets : Nat → List Token → Option (List (String × Nat) × List String × List Token)
@@ -213,25 +222,38 @@ def parseParameters (fuel : Nat) : List Token → Option (List String × List To
   | .rightParen :: rest => some ([], rest)
   | tokens => parseParameterList fuel tokens
 
+/-- The declared return type admits only its own result shape: `Int` every value form, `Bool` a
+comparison of two atoms. The tree keeps the result expression, which determines the meaning; the
+annotation itself is checked here and not stored. -/
+def admitsResult (booleanResult : Bool) : SourceExpression → Bool
+  | .comparison _ _ _ => booleanResult
+  | _ => !booleanResult
+
+def parseFunctionBody (booleanResult : Bool) (name : String) (parameters : List String)
+    (tokens : List Token) : Option (SourceFunction × List Token) := do
+  let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
+  let (assignment, afterAssignment) ← parseAssignment vars afterLets
+  match afterAssignment with
+  | .word "return" :: more => do
+      let (returned, afterResult) ← parseExpression more
+      let result ← attachAssignment assignment returned
+      if admitsResult booleanResult result then pure () else none
+      match afterResult with
+      | .newline :: .rightBrace :: [] => some (⟨name, parameters, lets, result⟩, [])
+      | .newline :: .rightBrace :: .newline :: tail =>
+          some (⟨name, parameters, lets, result⟩, tail)
+      | _ => none
+  | _ => none
+
 def parseFunction (tokens : List Token) : Option (SourceFunction × List Token) :=
   match tokens with
   | .word "pure" :: .word name :: .leftParen :: afterParen => do
       let (parameters, afterParameters) ← parseParameters (afterParen.length + 1) afterParen
       match afterParameters with
-      | .arrow :: .word "Int" :: .leftBrace :: .newline :: rest => do
-          let (lets, vars, afterLets) ← parseLets (rest.length + 1) rest
-          let (assignment, afterAssignment) ← parseAssignment vars afterLets
-          match afterAssignment with
-          | .word "return" :: more => do
-              let (returned, afterResult) ← parseExpression more
-              let result ← attachAssignment assignment returned
-              match afterResult with
-              | .newline :: .rightBrace :: [] =>
-                  some (⟨name, parameters, lets, result⟩, [])
-              | .newline :: .rightBrace :: .newline :: tail =>
-                  some (⟨name, parameters, lets, result⟩, tail)
-              | _ => none
-          | _ => none
+      | .arrow :: .word "Int" :: .leftBrace :: .newline :: rest =>
+          parseFunctionBody false name parameters rest
+      | .arrow :: .word "Bool" :: .leftBrace :: .newline :: rest =>
+          parseFunctionBody true name parameters rest
       | _ => none
   | _ => none
 
@@ -271,6 +293,31 @@ theorem parameters_a_call_and_a_conditional_parse :
           .conditional .gt (.var "a") (.var "b") (.binary .sub (.var "a") (.var "b")) (.atom (.int 0))⟩,
         ⟨"h", [], [("x", 7)], .call "g" [.var "x", .int 2]⟩] := by
   decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem comparison_functions_parse :
+    parseSource ("pure exceeds(value: Int, limit: Int) -> Bool {\n  return value > limit\n}\n" ++
+        "pure below(value: Int, limit: Int) -> Bool {\n  return value < limit\n}\n") =
+      some [⟨"exceeds", ["value", "limit"], [],
+          .comparison .gt (.var "value") (.var "limit")⟩,
+        ⟨"below", ["value", "limit"], [],
+          .comparison .lt (.var "value") (.var "limit")⟩] := by
+  decide +kernel
+
+theorem a_bool_annotation_admits_only_a_comparison_result :
+    parseSource "pure f(a: Int, b: Int) -> Bool {\n  return a\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  return a + b\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  return a > b + 1\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  return if a > b { 1 } else { 0 }\n}\n" =
+        none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  var x = 1\n  x = 2\n  return a > b\n}\n" =
+        none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+theorem an_int_annotation_refuses_a_comparison_result :
+    parseSource "pure f(a: Int, b: Int) -> Int {\n  return a > b\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Int {\n  return a < b\n}\n" = none := by
+  constructor <;> decide +kernel
 
 theorem text_outside_the_admitted_productions_is_refused :
     parseSource "pure f() -> Int {\n  return 1 + 2 + 3\n}\n" = none ∧

@@ -115,10 +115,11 @@ pub(super) enum ProjectedOp {
     Div,
     Rem,
     Gt,
+    Lt,
 }
 
 impl ProjectedOp {
-    const ALL: [Self; 6] = [Self::Add, Self::Sub, Self::Mul, Self::Div, Self::Rem, Self::Gt];
+    const ALL: [Self; 7] = [Self::Add, Self::Sub, Self::Mul, Self::Div, Self::Rem, Self::Gt, Self::Lt];
 
     pub(super) fn from_binary_op(op: BinaryOp) -> Result<Self, String> {
         Self::ALL
@@ -135,6 +136,7 @@ impl ProjectedOp {
             Self::Div => BinaryOp::Div,
             Self::Rem => BinaryOp::Rem,
             Self::Gt => BinaryOp::Gt,
+            Self::Lt => BinaryOp::Lt,
         }
     }
 
@@ -153,6 +155,7 @@ impl ProjectedOp {
             Self::Div => "Div",
             Self::Rem => "Rem",
             Self::Gt => "Gt",
+            Self::Lt => "Lt",
         }
     }
 
@@ -720,7 +723,7 @@ fn decode_arithmetic_document(input: &str) -> Result<ArithmeticDocument, String>
     Ok(document)
 }
 
-fn call_integer_function(
+fn call_projected_function(
     program: &FullProgram,
     sources: &SourceMap,
     name: &str,
@@ -743,6 +746,7 @@ fn call_integer_function(
         .ok_or_else(|| format!("function {name:?} is absent"))?;
     match call {
         Ok(Value::Int(value)) => Ok(Outcome::Value(value as u64)),
+        Ok(Value::Bool(value)) => Ok(Outcome::Value(u64::from(value))),
         Ok(other) => Err(format!("function {name:?} returned {other:?}")),
         Err(error) => ProjectedFailure::from_name(&error.kind)
             .map(Outcome::Failure)
@@ -769,7 +773,7 @@ fn execute_schedule(
             Ok(Observation {
                 function: IrId::from_index(index)?,
                 arguments: call.arguments.iter().map(|argument| *argument as u64).collect(),
-                outcome: call_integer_function(program, sources, call.function, call.arguments)?,
+                outcome: call_projected_function(program, sources, call.function, call.arguments)?,
             })
         })
         .collect()
@@ -937,6 +941,18 @@ mod tests {
         ScheduledCall { function: "surplus", arguments: &[] },
     ];
 
+    const BOOLEAN_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-boolean-control.xsh"
+    ));
+
+    const BOOLEAN_SCHEDULE: [ScheduledCall; 4] = [
+        ScheduledCall { function: "exceeds", arguments: &[12, 9] },
+        ScheduledCall { function: "exceeds", arguments: &[3, 9] },
+        ScheduledCall { function: "below", arguments: &[3, 9] },
+        ScheduledCall { function: "below", arguments: &[12, 9] },
+    ];
+
     struct Fixture {
         source: SourceDocument,
         sources: SourceMap,
@@ -990,6 +1006,7 @@ mod tests {
         let failures = fixture_of(FAILURES_SOURCE.to_string(), &FAILURES_SCHEDULE);
         let calls = fixture_of(CALLS_SOURCE.to_string(), &CALLS_SCHEDULE);
         let assignments = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
+        let boolean = fixture_of(BOOLEAN_SOURCE.to_string(), &BOOLEAN_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
@@ -999,6 +1016,12 @@ mod tests {
                 &ASSIGNMENTS_SCHEDULE[..],
                 "assignmentsSourceDocumentCodes",
                 "assignmentsRawIrDocumentCodes",
+            ),
+            (
+                &boolean,
+                &BOOLEAN_SCHEDULE[..],
+                "booleanSourceDocumentCodes",
+                "booleanRawIrDocumentCodes",
             ),
         ] {
             let source_text = encode_source_document(&fixture.source);
@@ -1097,6 +1120,71 @@ mod tests {
         assert_eq!(table[0], 2);
         assert_eq!(document.rows[table[2] as usize].tag, ProjectedTag::ExprParam);
         assert_eq!(document.rows[table[4] as usize].tag, ProjectedTag::ExprInt);
+    }
+
+    #[test]
+    fn exported_boolean_rows_are_the_comparison_family() {
+        let fixture = fixture_of(BOOLEAN_SOURCE.to_string(), &BOOLEAN_SCHEDULE);
+        let document = &fixture.document;
+        let exceeds = function_body_statements(&fixture, "exceeds");
+        assert_eq!(exceeds.len(), 1);
+        assert_eq!(document.rows[exceeds[0]].tag, ProjectedTag::StmtReturn);
+        let returned = document.payload(&document.rows[exceeds[0]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprBinary);
+        let comparison = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(document.binary_ops[comparison[0] as usize], ProjectedOp::Gt);
+        assert_eq!(document.rows[comparison[1] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.rows[comparison[2] as usize].tag, ProjectedTag::ExprParam);
+        let below = function_body_statements(&fixture, "below");
+        assert_eq!(below.len(), 1);
+        let returned = document.payload(&document.rows[below[0]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprBinary);
+        let comparison = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(document.binary_ops[comparison[0] as usize], ProjectedOp::Lt);
+        assert_eq!(
+            document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(1), Outcome::Value(0), Outcome::Value(1), Outcome::Value(0)]
+        );
+    }
+
+    #[test]
+    fn mutated_boolean_programs_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture = fixture_of(BOOLEAN_SOURCE.to_string(), &BOOLEAN_SCHEDULE);
+        let check = |program: &FullProgram| {
+            check_artifact_against_program(
+                &fixture.document,
+                program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                &BOOLEAN_SCHEDULE,
+            )
+        };
+        assert!(check(&fixture.program).is_ok());
+
+        let mut reversed = fixture.program.clone();
+        let greater = reversed
+            .store
+            .binary_ops
+            .iter()
+            .position(|op| *op == BinaryOp::Gt)
+            .unwrap();
+        reversed.store.binary_ops[greater] = BinaryOp::Lt;
+        FullVerifier::verify(&reversed).expect("the reversed comparison is still well typed");
+        assert_eq!(
+            execute_schedule(&reversed, &fixture.sources, &BOOLEAN_SCHEDULE).unwrap()[0].outcome,
+            Outcome::Value(0)
+        );
+        assert!(check(&reversed).is_err());
+
+        let mut swapped = fixture.program.clone();
+        let binary = payload_start(&swapped, FullTag::ExprBinary, 0);
+        swapped.store.extra.swap(binary + 1, binary + 2);
+        FullVerifier::verify(&swapped).expect("the swapped operands are still well typed");
+        assert_eq!(
+            execute_schedule(&swapped, &fixture.sources, &BOOLEAN_SCHEDULE).unwrap()[0].outcome,
+            Outcome::Value(0)
+        );
+        assert!(check(&swapped).is_err());
     }
 
     #[test]

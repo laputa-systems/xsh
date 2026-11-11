@@ -12542,6 +12542,40 @@
       ],
       "proposition": "The selected scoped source is admitted, the fixed fact codes decode to the stated checker-fact document, and the scoped validator accepts that source and document. Ten altered decoded body and call fact records are rejected.",
       "boundary": "The pinned focused Rust bridge test compares the actual checker export and source with the Lean fact codes and source text. This is one bounded source/fact artifact; the rejection theorem changes decoded facts, not the original bytes. The matching final source-freeze replay, raw-IR correspondence, runtime execution, and general connected theorem remain open."
+    },
+    {
+      "id": "artifact.boolean-comparison-control",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.booleanSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.booleanRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.BooleanCertificate",
+      "certificate": "Xsh.Conformance.Vertical.boolean_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.boolean_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.boolean_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_boolean_source_parses_to_the_boolean_functions",
+        "Xsh.Conformance.Vertical.the_boolean_functions_lower_to_the_boolean_artifact",
+        "Xsh.Conformance.Vertical.the_boolean_artifact_validates",
+        "Xsh.Conformance.Vertical.the_boolean_functions_mean_the_same_as_the_boolean_artifact",
+        "Xsh.Conformance.Vertical.the_boolean_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.boolean_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_boolean_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_boolean_operation_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_boolean_operand_order_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_truth_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_boolean_argument_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_boolean_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_boolean_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_boolean_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (two functions of two integer parameters, each returning a comparison of its parameters under a declared `Bool` return); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool (`Gt` then `Lt`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `exceeds` on 12, 9 and on 3, 9 and `below` on 3, 9 and on 12, 9 end with true, false, true and false, recorded in that order, with a boolean recorded as one value bit. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong comparison operation or operand order, a wrong recorded truth or argument list, structurally malformed IR, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The declared `Bool` return type is checked by the parser and not stored in the tree; the comparison result determines the meaning. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string and records a boolean outcome as the value bit `1` or `0`. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The fixture has no calls, lets or Result control."
     }
   ],
   "source_identity": {

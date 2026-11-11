@@ -14,7 +14,7 @@ open Xsh.Semantics.Environments
 open Xsh.Semantics.BaseMachine
 
 /-- The base expression an operation denotes on two operands: arithmetic yields an integer and
-the comparison a boolean. -/
+the comparisons a boolean. -/
 def FragmentOp.expression : FragmentOp → BaseExpr → BaseExpr → BaseExpr
   | .add => .binary .add
   | .sub => .binary .subtract
@@ -22,15 +22,17 @@ def FragmentOp.expression : FragmentOp → BaseExpr → BaseExpr → BaseExpr
   | .div => .binary .divide
   | .rem => .binary .remainder
   | .gt => .compare .greater
+  | .lt => .compare .less
 
 def FragmentFailure.fault : FragmentFailure → IntegerFault
   | .divisionByZero => .divisionByZero
   | .integerOverflow => .overflow
 
-/-- What the IR meaning of a function ends with: the integer it completes with, or the
-specified failure the base machine terminates with. -/
+/-- What the IR meaning of a function ends with: the integer it completes with, the boolean a
+comparison completes with, or the specified failure the base machine terminates with. -/
 inductive FunctionOutcome where
   | value (result : Int)
+  | truth (result : Bool)
   | failure (kind : FragmentFailure)
   deriving DecidableEq
 
@@ -321,17 +323,20 @@ def FunctionProgram.settled? (program : FunctionProgram) :
   | none => some (.ok program.bindings)
   | some assignment => assignment.settle? program.bindings
 
-/-- The outcome the base machine completes with: an integer, or one of the two specified
-arithmetic failures, raised by the assignment or by the returned expression. Other faults, host
-requests and fuel exhaustion are not outcomes of this subset, and neither is a call with the
-wrong number of arguments. -/
+/-- The outcome the base machine completes with: an integer, a boolean, or one of the two
+specified arithmetic failures, raised by the assignment or by the returned expression. Other
+faults, host requests and fuel exhaustion are not outcomes of this subset, and neither is a call
+with the wrong number of arguments. -/
 def FunctionProgram.outcome? (program : FunctionProgram) (arguments : List Int) :
     Option FunctionOutcome :=
   if arguments.length == program.parameters then
     match program.settled? with
     | some (.ok bindings) =>
         match runFuel runBudget (program.machineWith bindings arguments) with
-        | .completed (.value value) => (integerPayload? value).map fun result => .value result.val
+        | .completed (.value value) =>
+            match integerPayload? value with
+            | some result => some (.value result.val)
+            | none => (booleanPayload? value).map FunctionOutcome.truth
         | .completed (.fault (.arithmetic .divisionByZero)) => some (.failure .divisionByZero)
         | .completed (.fault (.arithmetic .overflow)) => some (.failure .integerOverflow)
         | _ => none
@@ -347,9 +352,11 @@ def functionOutcome? (artifact : RawArtifact) (function : FunctionRow) (argument
 def resultBits (value : Int) : Nat := (value % 18446744073709551616).toNat
 
 /-- A recorded outcome agrees with a meaning when both are the same failure, or both are values
-and the record holds that integer's 64-bit pattern. -/
+and the record holds that integer's 64-bit pattern, or both are booleans and the record holds one
+bit (`1` for true). -/
 def outcomeRecorded : FunctionOutcome → ObservedOutcome → Bool
   | .value result, .value bits => resultBits result == bits.val
+  | .truth result, .value bits => (if result then 1 else 0) == bits.val
   | .failure kind, .failure recorded => kind == recorded
   | _, _ => false
 
@@ -502,15 +509,18 @@ theorem settle_error_is_a_machine_fault {assignment : Assignment} {bindings : Li
     | internalStuck => rw [run] at settled; simp at settled
   · simp at settled
 
-/-- A program outcome is exactly a completed base machine run: an integer value or one of the
-two specified arithmetic faults of the returned expression, run against the settled bindings, or
-the same fault raised by the assignment's right-hand side. -/
+/-- A program outcome is exactly a completed base machine run: an integer or boolean value or one
+of the two specified arithmetic faults of the returned expression, run against the settled
+bindings, or the same fault raised by the assignment's right-hand side. -/
 theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
     {arguments : List Int} {outcome : FunctionOutcome}
     (result : program.outcome? arguments = some outcome) :
     (∃ bindings final value, program.settled? = some (.ok bindings) ∧
       runFuel runBudget (program.machineWith bindings arguments) = .completed (.value final) ∧
       integerPayload? final = some value ∧ outcome = .value value.val) ∨
+    (∃ bindings final truth, program.settled? = some (.ok bindings) ∧
+      runFuel runBudget (program.machineWith bindings arguments) = .completed (.value final) ∧
+      booleanPayload? final = some truth ∧ outcome = .truth truth) ∨
     (∃ bindings kind, program.settled? = some (.ok bindings) ∧
       runFuel runBudget (program.machineWith bindings arguments) =
         .completed (.fault (.arithmetic kind.fault)) ∧ outcome = .failure kind) ∨
@@ -530,8 +540,8 @@ theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
           | none => simp [FunctionProgram.settled?, assignmentCase] at settled
           | some assignment =>
               simp only [FunctionProgram.settled?, assignmentCase] at settled
-              exact .inr (.inr ⟨assignment, kind, rfl, settle_error_is_a_machine_fault settled,
-                result.symm⟩)
+              exact .inr (.inr (.inr ⟨assignment, kind, rfl, settle_error_is_a_machine_fault settled,
+                result.symm⟩))
       | ok bindings =>
           dsimp only at result
           cases run : runFuel runBudget (program.machineWith bindings arguments) with
@@ -540,20 +550,26 @@ theorem program_outcome_is_a_completed_machine_run {program : FunctionProgram}
               cases completed with
               | value final =>
                   cases payload : integerPayload? final with
-                  | none => simp [payload] at result
                   | some value =>
                       simp only [payload, Option.map_some, Option.some.injEq] at result
                       exact .inl ⟨bindings, final, value, rfl, run, payload, result.symm⟩
+                  | none =>
+                      cases truth : booleanPayload? final with
+                      | some value =>
+                          simp only [payload, truth, Option.map_some, Option.some.injEq] at result
+                          exact .inr (.inl ⟨bindings, final, value, rfl, run, truth, result.symm⟩)
+                      | none => simp [payload, truth] at result
               | fault fault =>
                   cases fault <;> try (simp at result; done)
                   rename_i arithmetic
                   cases arithmetic with
                   | overflow =>
                       simp only [Option.some.injEq] at result
-                      exact .inr (.inl ⟨bindings, .integerOverflow, rfl, run, result.symm⟩)
+                      exact .inr (.inr (.inl ⟨bindings, .integerOverflow, rfl, run, result.symm⟩))
                   | divisionByZero =>
                       simp only [Option.some.injEq] at result
-                      exact .inr (.inl ⟨bindings, .divisionByZero, rfl, run, result.symm⟩)
+                      exact .inr (.inr (.inl ⟨bindings, .divisionByZero, rfl, run,
+                        result.symm⟩))
           | hostRequest waiting => rw [run] at result; simp at result
           | outOfFuel => rw [run] at result; simp at result
           | internalStuck => rw [run] at result; simp at result

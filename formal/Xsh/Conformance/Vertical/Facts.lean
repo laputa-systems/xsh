@@ -73,14 +73,14 @@ inductive ExpressionHolds (callees : Callees) (scope : Scope) :
       AtomsHold scope arguments nodes →
         ExpressionHolds callees scope (.call callee arguments)
           (nodes ++ [.call index arguments.length])
-  | conditional {comparison : FragmentOp} {left right : SourceAtom}
+  | conditional {op : FragmentOp} {left right : SourceAtom}
       {thenValue elseValue : SourceValue}
       {leftNodes rightNodes thenNodes elseNodes : List NodeFact} :
-      comparison.isComparison = true → AtomHolds scope left leftNodes →
+      op.isComparison = true → AtomHolds scope left leftNodes →
       AtomHolds scope right rightNodes → ValueHolds scope thenValue thenNodes →
       ValueHolds scope elseValue elseNodes →
-        ExpressionHolds callees scope (.conditional comparison left right thenValue elseValue)
-          (leftNodes ++ rightNodes ++ [.operate comparison .int .bool] ++ thenNodes ++ elseNodes ++
+        ExpressionHolds callees scope (.conditional op left right thenValue elseValue)
+          (leftNodes ++ rightNodes ++ [.operate op .int .bool] ++ thenNodes ++ elseNodes ++
             [.branch])
 
 /-- Parameters resolve by position, then lets by position; every name is distinct and every let
@@ -146,14 +146,15 @@ def expressionFacts (callees : Callees) (scope : Scope) : SourceExpression → O
       check (arguments.length == entry.2)
       let nodes ← atomsFacts scope arguments
       some (nodes ++ [.call index arguments.length])
-  | .conditional comparison left right thenValue elseValue => do
-      check comparison.isComparison
+  | .conditional op left right thenValue elseValue => do
+      check op.isComparison
       let leftNodes ← atomFacts scope left
       let rightNodes ← atomFacts scope right
       let thenNodes ← valueFacts scope thenValue
       let elseNodes ← valueFacts scope elseValue
-      some (leftNodes ++ rightNodes ++ [.operate comparison .int .bool] ++ thenNodes ++ elseNodes ++
+      some (leftNodes ++ rightNodes ++ [.operate op .int .bool] ++ thenNodes ++ elseNodes ++
         [.branch])
+  | .comparison _ _ _ => none
   | .assigned _ _ _ => none
 
 def functionFacts (callees : Callees) (function : SourceFunction) : Option FunctionFacts := do
@@ -277,7 +278,7 @@ theorem expression_facts_iff {callees : Callees} {scope : Scope} {expression : S
       subst joined
       refine .call (arity := entry.2) indexFound (by simp [entryFound]) ?_ (atoms_facts_iff.mp argumentsFound)
       simpa using check_eq_some.mp counted
-    | conditional comparison left right thenValue elseValue =>
+    | conditional _op left right thenValue elseValue =>
       simp only [expressionFacts, Option.bind_eq_bind, check_bind] at found
       split at found
       · rename_i isComparison
@@ -289,6 +290,7 @@ theorem expression_facts_iff {callees : Callees} {scope : Scope} {expression : S
           (value_facts_iff.mp thenFound) (value_facts_iff.mp elseFound)
       · simp at found
     | assigned target assignedValue returned => simp [expressionFacts] at found
+    | comparison op left right => simp [expressionFacts] at found
   · intro holds
     cases holds with
     | value valueHolds => exact value_facts_iff.mpr valueHolds
