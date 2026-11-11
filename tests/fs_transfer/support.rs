@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rustix::fs::{self as rfs, XattrFlags};
 use rustix::io::Errno;
-use xsh_root::transfer::{Cancellation, Progress, TreeTransfer, transfer_tree};
+use xsh_root::transfer::{
+    Action, Cancellation, Observation, Progress, PublishRequest, TreeTransfer, observe_entry,
+    publish_tree, transfer_tree,
+};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -81,6 +84,103 @@ pub fn transfer_named(
         OsStr::new(source_name),
         destination_parent,
         OsStr::new(destination_name),
+    )
+}
+
+pub fn open_directory(path: &Path) -> io::Result<File> {
+    let path = if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    };
+    File::open(path)
+}
+
+pub fn observe_path(path: &Path) -> Observation {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().expect("fixture path has a final name");
+    let directory = open_directory(parent).expect("open fixture parent");
+    observe_entry(directory.as_fd(), name).expect("observe fixture entry")
+}
+
+pub fn publish(
+    source_parent: &Path,
+    source_name: &OsStr,
+    destination_parent: &Path,
+    destination_name: &OsStr,
+    action: Action,
+    expected_source: Observation,
+    expected_destination: Option<Observation>,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    publish_durable(
+        source_parent,
+        source_name,
+        destination_parent,
+        destination_name,
+        action,
+        expected_source,
+        expected_destination,
+        false,
+        progress,
+    )
+}
+
+pub fn publish_durable(
+    source_parent: &Path,
+    source_name: &OsStr,
+    destination_parent: &Path,
+    destination_name: &OsStr,
+    action: Action,
+    expected_source: Observation,
+    expected_destination: Option<Observation>,
+    durable: bool,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    let source = open_directory(source_parent)?;
+    let destination = open_directory(destination_parent)?;
+    publish_at(
+        source.as_fd(),
+        source_name,
+        destination.as_fd(),
+        destination_name,
+        action,
+        expected_source,
+        expected_destination,
+        durable,
+        progress,
+    )
+}
+
+pub fn publish_at(
+    source_parent: std::os::fd::BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: std::os::fd::BorrowedFd<'_>,
+    destination_name: &OsStr,
+    action: Action,
+    expected_source: Observation,
+    expected_destination: Option<Observation>,
+    durable: bool,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    let cancellation = Cancellation::default();
+    publish_tree(
+        PublishRequest {
+            source_parent,
+            source_name,
+            destination_parent,
+            destination_name,
+            expected_source,
+            expected_destination,
+            action,
+            durable,
+            cancellation: &cancellation,
+            progress,
+        },
+        |_| Ok(()),
     )
 }
 

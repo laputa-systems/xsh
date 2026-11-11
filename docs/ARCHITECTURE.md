@@ -28,9 +28,28 @@ record (mode, ownership, timestamps, extended attributes, POSIX access ACL
 bytes, inode flags), hardlink-group preservation during a tree copy,
 cooperative cancellation, and byte/hole progress. Regular-file bytes use the
 clone, `copy_file_range`, read/write chain, and source objects are opened with
-`O_NOFOLLOW` and checked against their captured identities. The module has no
-script-visible contract. Staged publication, journals, and collision policy
-belong to later slices and will build on these types.
+`O_NOFOLLOW` and checked against their captured identities.
+
+The same module owns staged publication and the crash journal. A transfer is
+built inside a private mode-0700 session directory beside the destination and
+published with `RENAME_NOREPLACE`; replacement records both objects in the
+journal before `RENAME_EXCHANGE` and retires the displaced object only after
+capturing and revalidating it. The journal format is the versioned
+`.fdu-quarantine-v2-*` protocol (header, stage, retirement and replacement
+intent records) with a nonblocking root lock; recovery restores only verified
+captures and never replays a publication or deletion. Directories owned by the
+journal are `fsync`ed at each record and namespace boundary, and a synchronous
+destination parent is available for durable callers. Linux only.
+
+Collision planning (`preflight`, `decide`, `into_basename`) maps `--into`
+operands, rejects duplicate outputs, repeated or overlapping sources, and
+source/destination ancestry conflicts, and selects transfer, replace, merge,
+skip or same-entry before mutation. Merge execution copies into an existing
+destination directory and retains its metadata. The quarantine journal is
+required by the shell's `cp`, `mv`, `rsync` and `rmrf`, not only by the future
+`fdu`; the per-operation record spool is an in-process memory bound whose
+durable state is the journal, so no separate receipt spool is retained. The
+module has no script-visible contract.
 
 ## The `libxsh` facade
 

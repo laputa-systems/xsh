@@ -6,14 +6,21 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf};
 
 use rustix::fs::{
-    self, AtFlags, FileType, Gid, IFlags, Mode, OFlags, SeekFrom, Timespec, Timestamps, Uid,
-    XattrFlags,
+    self, AtFlags, FileType, Gid, IFlags, Mode, OFlags, SeekFrom, StatxFlags, Timespec, Timestamps,
+    Uid, XattrFlags,
 };
 use rustix::io::Errno;
 
+pub(super) mod journal;
+pub(super) mod policy;
+pub(super) mod stage;
+
+pub(super) use policy::preflight;
+pub(super) use stage::{merge, publish};
+
 use super::{
-    Cancellation, CopyMethod, CopyStats, Metadata, MetadataTarget, Preservation, Progress,
-    Timestamp, TreeTransfer, Xattr, TRANSFER_BUFFER_BYTES,
+    Cancellation, CopyMethod, CopyStats, EntryIdentity, Metadata, MetadataTarget, Observation,
+    Preservation, Progress, Timestamp, TreeTransfer, Xattr, TRANSFER_BUFFER_BYTES,
 };
 use crate::FileKind;
 
@@ -62,69 +69,84 @@ const WRITE_NEW_FLAGS: OFlags = OFlags::RDWR
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Observation {
-    device: u64,
-    inode: u64,
-    kind: FileKind,
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    links: u64,
-    size: u64,
-    atime: Timestamp,
-    mtime: Timestamp,
-    ctime: Timestamp,
-}
-
-impl Observation {
-    fn from_stat(stat: &fs::Stat) -> Self {
-        let mode = stat.st_mode;
-        Self {
+fn observation_from_stat(stat: &fs::Stat) -> Observation {
+    let mode = stat.st_mode;
+    Observation {
+        identity: EntryIdentity {
             device: stat.st_dev,
             inode: stat.st_ino,
             kind: crate::mutate::file_kind(FileType::from_raw_mode(mode as _)),
-            mode: mode & 0o7777,
-            uid: stat.st_uid,
-            gid: stat.st_gid,
-            links: stat.st_nlink,
-            size: u64::try_from(stat.st_size).unwrap_or(0),
-            atime: Timestamp {
-                seconds: stat.st_atime,
-                nanoseconds: stat.st_atime_nsec as u32,
-            },
-            mtime: Timestamp {
-                seconds: stat.st_mtime,
-                nanoseconds: stat.st_mtime_nsec as u32,
-            },
-            ctime: Timestamp {
-                seconds: stat.st_ctime,
-                nanoseconds: stat.st_ctime_nsec as u32,
-            },
-        }
-    }
-
-    fn same_identity(self, other: Self) -> bool {
-        self.device == other.device && self.inode == other.inode && self.kind == other.kind
-    }
-
-    fn same_version(self, actual: Self) -> bool {
-        let mut expected = self;
-        expected.atime = actual.atime;
-        expected == actual
+        },
+        mode: mode & 0o7777,
+        uid: stat.st_uid,
+        gid: stat.st_gid,
+        links: stat.st_nlink,
+        size: u64::try_from(stat.st_size).unwrap_or(0),
+        atime: Timestamp {
+            seconds: stat.st_atime,
+            nanoseconds: stat.st_atime_nsec as u32,
+        },
+        mtime: Timestamp {
+            seconds: stat.st_mtime,
+            nanoseconds: stat.st_mtime_nsec as u32,
+        },
+        ctime: Timestamp {
+            seconds: stat.st_ctime,
+            nanoseconds: stat.st_ctime_nsec as u32,
+        },
     }
 }
 
-fn observe(parent: BorrowedFd<'_>, name: &OsStr) -> io::Result<Observation> {
+pub(super) fn observe(parent: BorrowedFd<'_>, name: &OsStr) -> io::Result<Observation> {
     fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
-        .map(|stat| Observation::from_stat(&stat))
+        .map(|stat| observation_from_stat(&stat))
         .map_err(Into::into)
 }
 
-fn observe_fd(fd: BorrowedFd<'_>) -> io::Result<Observation> {
+pub(super) fn observe_fd(fd: BorrowedFd<'_>) -> io::Result<Observation> {
     fs::fstat(fd)
-        .map(|stat| Observation::from_stat(&stat))
+        .map(|stat| observation_from_stat(&stat))
         .map_err(Into::into)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct MountIdentity {
+    pub device: u64,
+    pub mount_id: u64,
+}
+
+pub(super) fn directory_state(
+    fd: BorrowedFd<'_>,
+) -> io::Result<(EntryIdentity, MountIdentity)> {
+    let wanted = StatxFlags::INO | StatxFlags::MNT_ID;
+    let metadata = loop {
+        match fs::statx(fd, c"", AtFlags::EMPTY_PATH, wanted) {
+            Err(Errno::INTR) => continue,
+            result => break result?,
+        }
+    };
+    if !StatxFlags::from_bits_retain(metadata.stx_mask).contains(wanted) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "kernel did not report the directory identity and mount ID",
+        ));
+    }
+    let device = fs::makedev(metadata.stx_dev_major, metadata.stx_dev_minor);
+    Ok((
+        EntryIdentity {
+            device,
+            inode: metadata.stx_ino,
+            kind: FileKind::Directory,
+        },
+        MountIdentity {
+            device,
+            mount_id: metadata.stx_mnt_id,
+        },
+    ))
+}
+
+pub(super) fn mount_identity(fd: BorrowedFd<'_>) -> io::Result<MountIdentity> {
+    directory_state(fd).map(|(_, mount)| mount)
 }
 
 fn require_unchanged(
@@ -154,7 +176,7 @@ fn metadata_from(
     flags: u32,
 ) -> Metadata {
     Metadata {
-        kind: observed.kind,
+        kind: observed.identity.kind,
         mode: observed.mode,
         uid: observed.uid,
         gid: observed.gid,
@@ -1190,7 +1212,7 @@ impl TransferState<'_> {
             let path = relative.join(name);
             let observed = observe(source_directory, name)?;
             self.progress.discovered_files += 1;
-            match observed.kind {
+            match observed.identity.kind {
                 FileKind::Directory => {
                     let source_child = open_directory(source_directory, name, observed)?;
                     fs::mkdirat(destination_directory, name, Mode::from_raw_mode(0o700))?;
@@ -1212,8 +1234,8 @@ impl TransferState<'_> {
                     self.directories.push(DirectoryRecord {
                         relative: path,
                         metadata,
-                        device: published.device,
-                        inode: published.inode,
+                        device: published.identity.device,
+                        inode: published.identity.inode,
                     });
                     self.progress.completed_files += 1;
                 }
@@ -1245,7 +1267,9 @@ impl TransferState<'_> {
             self.cancellation.check()?;
             let directory = open_relative_directory(destination_root, &record.relative)?;
             let published = observe_fd(directory.as_fd())?;
-            if published.device != record.device || published.inode != record.inode {
+            if published.identity.device != record.device
+                || published.identity.inode != record.inode
+            {
                 return Err(io::Error::other(
                     "destination directory identity changed",
                 ));
@@ -1274,13 +1298,13 @@ impl TransferState<'_> {
         self.cancellation.check()?;
         if record_hardlink
             && observed.links > 1
-            && matches!(observed.kind, FileKind::File | FileKind::Symlink)
+            && matches!(observed.identity.kind, FileKind::File | FileKind::Symlink)
             && let Some(index) = self
                 .hardlinks
                 .iter()
                 .position(|group| {
-                    group.source_device == observed.device
-                        && group.source_inode == observed.inode
+                    group.source_device == observed.identity.device
+                        && group.source_inode == observed.identity.inode
                 })
         {
             self.link_hardlink(index, destination_root, destination_directory, destination_name)?;
@@ -1288,7 +1312,7 @@ impl TransferState<'_> {
             return Ok(());
         }
 
-        let published = match observed.kind {
+        let published = match observed.identity.kind {
             FileKind::File => {
                 let source = fs::openat(
                     source_directory,
@@ -1380,13 +1404,13 @@ impl TransferState<'_> {
         if record_hardlink && observed.links > 1 {
             let parent = observe_fd(destination_directory)?;
             self.hardlinks.push(HardlinkGroup {
-                source_device: observed.device,
-                source_inode: observed.inode,
-                published_device: published.device,
-                published_inode: published.inode,
+                source_device: observed.identity.device,
+                source_inode: observed.identity.inode,
+                published_device: published.identity.device,
+                published_inode: published.identity.inode,
                 relative: relative.to_path_buf(),
-                parent_device: parent.device,
-                parent_inode: parent.inode,
+                parent_device: parent.identity.device,
+                parent_inode: parent.identity.inode,
                 name: destination_name.to_os_string(),
             });
         }
@@ -1405,13 +1429,15 @@ impl TransferState<'_> {
         let parent =
             open_relative_directory(destination_root, group.relative.parent().unwrap_or(Path::new("")))?;
         let parent_observation = observe_fd(parent.as_fd())?;
-        if parent_observation.device != group.parent_device
-            || parent_observation.inode != group.parent_inode
+        if parent_observation.identity.device != group.parent_device
+            || parent_observation.identity.inode != group.parent_inode
         {
             return Err(io::Error::other("hardlink group parent changed"));
         }
         let existing = observe(parent.as_fd(), &group.name)?;
-        if existing.device != group.published_device || existing.inode != group.published_inode {
+        if existing.identity.device != group.published_device
+            || existing.identity.inode != group.published_inode
+        {
             return Err(io::Error::other("hardlink group member changed"));
         }
         self.cancellation.check()?;
@@ -1423,7 +1449,9 @@ impl TransferState<'_> {
             AtFlags::empty(),
         )?;
         let linked = observe(destination_directory, destination_name)?;
-        if linked.device != group.published_device || linked.inode != group.published_inode {
+        if linked.identity.device != group.published_device
+            || linked.identity.inode != group.published_inode
+        {
             let cleanup = fs::unlinkat(destination_directory, destination_name, AtFlags::empty());
             return Err(with_cleanup(
                 io::Error::other("hardlink identity changed while linking"),
@@ -1489,7 +1517,7 @@ fn run_tree(
         buffer: vec![0; TRANSFER_BUFFER_BYTES],
     };
 
-    match source.kind {
+    match source.identity.kind {
         FileKind::Directory => {
             if directory_chain_contains(destination_parent, source)? {
                 return Err(io::Error::new(
@@ -1521,8 +1549,8 @@ fn run_tree(
             state.directories.push(DirectoryRecord {
                 relative: PathBuf::new(),
                 metadata,
-                device: published.device,
-                inode: published.inode,
+                device: published.identity.device,
+                inode: published.identity.inode,
             });
             state.finalize_directories(destination_directory.as_fd())?;
             state.progress.completed_files += 1;
@@ -1589,12 +1617,16 @@ fn directory_chain_contains(
     let mut current = fs::openat(start, ".", DIRECTORY_FLAGS, Mode::empty())?;
     loop {
         let observed = observe_fd(current.as_fd())?;
-        if observed.device == expected.device && observed.inode == expected.inode {
+        if observed.identity.device == expected.identity.device
+            && observed.identity.inode == expected.identity.inode
+        {
             return Ok(true);
         }
         let parent = fs::openat(current.as_fd(), "..", DIRECTORY_FLAGS, Mode::empty())?;
         let parent_observed = observe_fd(parent.as_fd())?;
-        if parent_observed.device == observed.device && parent_observed.inode == observed.inode {
+        if parent_observed.identity.device == observed.identity.device
+            && parent_observed.identity.inode == observed.identity.inode
+        {
             return Ok(false);
         }
         current = parent;
