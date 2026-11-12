@@ -10,9 +10,21 @@ differential covers files, packages (apk), services (OpenRC), commands and
 failures, and agrees on resulting state, change and no-op behavior, and
 success. pyinfra has no `creates`-style command guard, and it stops at "No
 hosts remaining" with exit 1 where xsh-infra reports per-resource outcomes and
-exits 3. Open: native macOS (deferred), a full-init Alpine VM, a Laputa/xinit
-adapter, and two-process cancellation at every mutation boundary. Parallel
-connection setup uses `ssh.connect_all`.
+exits 3.
+
+The previously open execution cases are qualified. Two-process cancellation
+(`7cd069a`) has 11 Alpine scenarios covering before, after and in-flight
+boundaries and convergence on rerun. A pinned Alpine 3.22.8 KVM guest with
+OpenRC as PID 1 passes the file, system, command, failure, process and
+cancellation suites (`df05b26`). The Laputa `xsh` dialect and xinit adapter
+(`e293bfd`, vendored as Laputa `be2fbe3`) pass plan, apply, unchanged rerun and
+check against a qemu-maintained guest over native SSH. The 180-case Alpine
+container suite also passes. Laputa package, account and OpenRC resources,
+and xinit `enabled`, remain refused under that dialect. These results retain
+their recorded source and platform identities.
+
+Open: native macOS qualification, deferred by the owner. Parallel connection
+setup uses `ssh.connect_all`.
 See the [roadmap](../ROADMAP.md#sequence).
 
 ## Summary

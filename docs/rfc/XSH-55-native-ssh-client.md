@@ -127,8 +127,9 @@ its change.
 ### Agent establishment and private-key buffers
 
 2026-11-12, Linux x86-64 musl. A separate review reproduced two gaps in the
-previous bounds. Independent verification of the fixed implementation remains
-pending. The client remains experimental.
+previous bounds, then independently verified the fixes with the original
+backlog and allocator probes and 35 focused tests. The full 144-test OpenSSH
+fixture suite and package clippy pass. The client remains experimental.
 
 | Defect | Fix and regression |
 |---|---|
