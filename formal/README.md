@@ -33,6 +33,17 @@ recursive error causes and nominal identity. The data laws do not establish
 admissibility, complete type membership, execution safety or Rust conformance;
 the fragment machines have not yet migrated to this foundation.
 
+[`Core/Membership.lean`](Xsh/Core/Membership.lean) defines membership for the
+represented value-type families, with row, export and union judgments. It
+retains the environment-path list view, exact and open exports, and semantic
+nominal provenance. [`Core/MembershipDecision.lean`](Xsh/Core/MembershipDecision.lean)
+constructs a terminating decision and proves its result agrees with those
+judgments. Retained stream and callable contracts are explicit predicates with
+caller-supplied decisions. The model controls cover acceptance and rejection;
+they are not Rust conformance evidence. Type admissibility, valid semantic
+worlds, establishing and preserving the retained contracts, and integration
+with source and execution remain open. TYPE-MEMBER is still planned.
+
 The experimental foreign-IR bridge also decodes candidate instruction rows,
 binary-operation tables, locations, and string pools before passing a
 reconstructed program to `FullVerifier`. Other semantic tables still come from

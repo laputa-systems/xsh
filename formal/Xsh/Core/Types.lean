@@ -97,7 +97,7 @@ inductive TypeTerm (Label Declaration Variable : Type) : TypeKind → Type where
   | tagged (declaration : Declaration) : TypeTerm Label Declaration Variable .value
   | errorFamily (declaration : Declaration) : TypeTerm Label Declaration Variable .value
   | errorVariant (family : Declaration) (variant : Label) : TypeTerm Label Declaration Variable .value
-  | errorFacet (declaration : Declaration) : TypeTerm Label Declaration Variable .value
+  | errorFacet (facet : Label) : TypeTerm Label Declaration Variable .value
   | nonEmpty (element : TypeTerm Label Declaration Variable .value) : TypeTerm Label Declaration Variable .value
   | relativePath : TypeTerm Label Declaration Variable .value
   | nominal (declaration : Declaration) (fields : TypeTerm Label Declaration Variable .row) :
@@ -159,7 +159,7 @@ def substitute (replacement : TypeSubstitution Label Declaration Source Target) 
   | _, .tagged declaration => .tagged declaration
   | _, .errorFamily declaration => .errorFamily declaration
   | _, .errorVariant family variant => .errorVariant family variant
-  | _, .errorFacet declaration => .errorFacet declaration
+  | _, .errorFacet facet => .errorFacet facet
   | _, .nonEmpty element => .nonEmpty (substitute replacement element)
   | _, .relativePath => .relativePath
   | _, .nominal declaration fields => .nominal declaration (substitute replacement fields)

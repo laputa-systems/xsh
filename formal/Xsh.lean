@@ -1,4 +1,4 @@
-import Xsh.Core.Values
+import Xsh.Core.MembershipControls
 import Xsh.Foundation
 import Xsh.Syntax.Core
 import Xsh.Syntax.Foundation.ResolvedIdentity
