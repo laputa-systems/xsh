@@ -2,7 +2,7 @@ use super::{
     Evaluator, Arc, BTreeMap, CommandPlan, Duration, Instant, LoweredValue, NativeArgumentValues,
     ProcessStatus, RecordMap, RuntimeError, RuntimeOp, Span, StreamValue, Value, display_spawn_argv,
     lowered_bool_arg_or, lowered_command_arg, lowered_duration_arg, lowered_int_arg,
-    lowered_int_arg_or, lowered_int_list_arg, lowered_path_arg, lowered_record_arg,
+    lowered_int_arg_or, lowered_int_list_arg, lowered_optional_int_arg, lowered_path_arg, lowered_record_arg,
     lowered_str_arg_owned, lowered_str_list_arg, lowered_value_from_runtime_any, module_error,
     pid1_event_record, pid1_shutdown_record, process_module, spawned_child_record,
     unix_fake_tty_attrs, unix_module, unix_require_arg,
@@ -232,8 +232,11 @@ macro_rules! with_unix_call_rows {
                     }
                     None => None,
                 };
-                let event = unix_module::wait_pid1_event_native(deadline, $span)?;
-                Ok(Value::ok(pid1_event_record(event)))
+                let wake_fd = lowered_optional_int_arg($values.get(1), "unix.wait_pid1_event", $span)?;
+                match unix_module::wait_pid1_event_native(deadline, wake_fd, $span) {
+                    Ok(event) => Ok(Value::ok(pid1_event_record(event))),
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
             }
             callable; RuntimeOp::UnixShutdownProcessGroups => {
                 let groups = lowered_int_list_arg(

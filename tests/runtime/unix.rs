@@ -91,3 +91,82 @@ print ${{result.matched >= 1}} ${{result.signaled >= 1}}
     assert!(!status.success(), "{status}");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn unix_pid1_wake_descriptor_preserves_bytes_and_validates_readiness() {
+    let output = run_temp_script("pid1-wake-readiness", r#"
+unix.pid1_setup([], allow_non_pid1: true)
+tempdir dir {
+  let fifo = fp"{dir}/wake"
+  fs.mkfifo(fifo, 0o600)
+  let fd = unix.open_fd(fifo, write: true, nonblock: true)?
+  defer unix.close_fd(fd)
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: fd)?.kind == "timeout"
+  assert unix.write_fd(fd, b"wake")? == 4
+  assert unix.wait_pid1_event(timeout: 1h, wake_fd: fd)?.kind == "poll"
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: fd)?.kind == "poll"
+  assert unix.read_fd(fd, 4)? == b"wake"
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: null)?.kind == "timeout"
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: -1) is Err(_)
+  let closed = unix.open_fd(fifo, write: true, nonblock: true)?
+  unix.close_fd(closed)
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: closed) is Err(_)
+  let hangup = fp"{dir}/hangup"
+  fs.mkfifo(hangup, 0o600)
+  let reader = unix.open_fd(hangup, nonblock: true)?
+  let writer = unix.open_fd(hangup, write: true, nonblock: true)?
+  unix.close_fd(writer)
+  assert unix.wait_pid1_event(timeout: 0ms, wake_fd: reader) is Err(_)
+  unix.close_fd(reader)
+}
+print "ready"
+"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+}
+
+#[test]
+fn unix_pid1_wake_descriptor_preserves_signal_delivery() {
+    let ready = temp_path("pid1-wake-signal-ready");
+    let _ = std::fs::remove_file(&ready);
+    let source = format!(r#"
+unix.pid1_setup(["TERM"], allow_non_pid1: true)
+tempdir dir {{
+  let fifo = fp"{{dir}}/wake"
+  fs.mkfifo(fifo, 0o600)
+  let fd = unix.open_fd(fifo, write: true, nonblock: true)?
+  defer unix.close_fd(fd)
+  Path({ready}).write("ready")
+  let event = unix.wait_pid1_event(timeout: 1h, wake_fd: fd)?
+  assert event.kind == "signal"
+  assert event.signal == "TERM"
+}}
+print "signal"
+"#, ready = xsh_string_literal(ready.to_str().unwrap()));
+    let output = run_cancelable_temp_script("pid1-wake-signal", &source, [], &ready, libc::SIGTERM);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "signal\n");
+    let _ = std::fs::remove_file(ready);
+}
+
+#[test]
+fn unix_pid1_wake_descriptor_preserves_child_reaping() {
+    let output = run_temp_script("pid1-wake-child", r#"
+unix.pid1_setup([], allow_non_pid1: true)
+tempdir dir {
+  let fifo = fp"{dir}/wake"
+  fs.mkfifo(fifo, 0o600)
+  let fd = unix.open_fd(fifo, write: true, nonblock: true)?
+  defer unix.close_fd(fd)
+  let child = unix.spawn_process_group(process.command_argv("/bin/true", ["true"]))?
+  let event = unix.wait_pid1_event(timeout: 2s, wake_fd: fd)?
+  assert event.kind == "children"
+  assert event.children.len() == 1
+  assert event.children[0].pid == child.pid
+  assert event.children[0].status.exited_with(0)
+}
+print "child"
+"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "child\n");
+}

@@ -6866,6 +6866,12 @@ let text = notes.replace("DRAFT", with: "FINAL")
   `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
   have no environment gate or dry-run switch. Native tests use
   `test.unix_fake` (§17) instead of the host.
+- `unix.wait_pid1_event(timeout:, wake_fd: null)` waits for supervisor child
+  exits and handled signals. A readable `wake_fd` returns `kind: "poll"`
+  without reading the descriptor. The caller owns draining and closing it;
+  a closed descriptor, hangup or descriptor error fails the call. The existing
+  100 ms child/signal observation bound and timeout behavior are preserved.
+  Omitting `wake_fd` keeps the existing one-poll behavior without a timeout.
 - Process-control primitives report the kernel's view and never emulate it;
   every failure carries `failure.errno`. `process.signals()` lists the named
   signals in number order, starting with the pseudo-signal `EXIT` (0) and

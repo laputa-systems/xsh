@@ -132,16 +132,12 @@ pub(crate) fn pid1_setup_native(
     Ok(())
 }
 
-// Wait for the next PID 1 event. With no `deadline`, this is a single bounded
-// poll: it checks for pending children/signals, sleeps one `WAIT_POLL` grain,
-// re-checks, and otherwise returns a `Poll` event (historical behavior). With a
-// `deadline`, it instead blocks across multiple grains until a child or signal
-// arrives or the deadline elapses, returning a `Timeout` event in the latter
-// case — so a supervisor can sleep until its next scheduled action.
 pub(crate) fn wait_pid1_event_native(
     deadline: Option<Instant>,
+    wake_fd: Option<i64>,
     span: Span,
 ) -> Result<Pid1Event, RuntimeError> {
+    let wake_fd = wake_fd.map(|fd| raw_fd_arg(fd, "unix-wait-pid1-event", span)).transpose()?;
     loop {
         let children = drain_child_events_native(span)?;
         if !children.is_empty() {
@@ -153,7 +149,9 @@ pub(crate) fn wait_pid1_event_native(
 
         match deadline {
             None => {
-                std::thread::sleep(WAIT_POLL);
+                if wait_pid1_wake(wake_fd, WAIT_POLL, span)? {
+                    return Ok(Pid1Event::poll());
+                }
                 let children = drain_child_events_native(span)?;
                 if !children.is_empty() {
                     return Ok(Pid1Event::children(children));
@@ -166,12 +164,42 @@ pub(crate) fn wait_pid1_event_native(
             Some(deadline) => {
                 let now = Instant::now();
                 if now >= deadline {
+                    if wait_pid1_wake(wake_fd, Duration::ZERO, span)? {
+                        return Ok(Pid1Event::poll());
+                    }
                     return Ok(Pid1Event::timeout());
                 }
-                std::thread::sleep(std::cmp::min(WAIT_POLL, deadline - now));
+                if wait_pid1_wake(wake_fd, std::cmp::min(WAIT_POLL, deadline - now), span)? {
+                    return Ok(Pid1Event::poll());
+                }
             }
         }
     }
+}
+
+fn wait_pid1_wake(fd: Option<RawFd>, timeout: Duration, span: Span) -> Result<bool, RuntimeError> {
+    use rustix::event::{PollFd, PollFlags};
+    let Some(fd) = fd else {
+        std::thread::sleep(timeout);
+        return Ok(false);
+    };
+    // SAFETY: the descriptor is borrowed for this poll only; poll reports a closed descriptor as NVAL.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+    let mut descriptors = [PollFd::new(&borrowed, PollFlags::IN)];
+    let timeout = rustix::time::Timespec {
+        tv_sec: timeout.as_secs() as i64,
+        tv_nsec: i64::from(timeout.subsec_nanos()),
+    };
+    match rustix::event::poll(&mut descriptors, Some(&timeout)) {
+        Ok(_) => {}
+        Err(rio::Errno::INTR) => return Ok(false),
+        Err(error) => return Err(RuntimeError::host("unix-wait-pid1-event", &io::Error::from(error)).with_span(span)),
+    }
+    let events = descriptors[0].revents();
+    if events.intersects(PollFlags::NVAL | PollFlags::ERR | PollFlags::HUP) {
+        return Err(RuntimeError::new("unix-wait-pid1-event", "wake descriptor is closed or has a terminal condition").with_span(span));
+    }
+    Ok(events.contains(PollFlags::IN))
 }
 
 pub(crate) fn reap_child_events(span: Span) -> Result<Value, RuntimeError> {

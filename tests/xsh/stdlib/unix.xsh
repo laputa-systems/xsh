@@ -250,6 +250,8 @@ test test_wait_pid1_event_timeout_kind { |ctx|
   # signal handlers here.)
   test.unix_fake(ctx, {event_kind: "timeout"})
   assert unix.wait_pid1_event(timeout: 5ms)?.kind == "timeout"
+  assert unix.wait_pid1_event(timeout: 5ms, wake_fd: null)?.kind == "timeout"
+  assert unix.wait_pid1_event(timeout: 5ms, wake_fd: 9)?.kind == "timeout"
   assert unix.wait_pid1_event()?.kind == "timeout"
 }
 

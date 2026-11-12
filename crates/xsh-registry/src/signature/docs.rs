@@ -1784,7 +1784,12 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Reaping consumes wait status from the host and must be coordinated with the process owner that spawned the child.",
             &["unix", "process", "reaping"],
         )),
-        ("unix", "pid1_setup" | "wait_pid1_event" | "shutdown_process_groups") => Some((
+        ("unix", "wait_pid1_event") => Some((
+            "Waits for Unix supervisor lifecycle events or a readable wake descriptor.",
+            "With wake_fd, readability returns kind poll without consuming data. The caller retains and closes the descriptor; closed, hung-up or errored descriptors fail. Pending children and signals are checked with the existing 100 ms lifecycle bound. Without wake_fd, existing timeout and one-poll behavior is preserved.",
+            &["unix", "process", "lifecycle", "privileged"],
+        )),
+        ("unix", "pid1_setup" | "shutdown_process_groups") => Some((
             "Coordinates Unix PID 1 or process-group lifecycle state.",
             "The operation owns a process-lifecycle boundary and can affect descendants outside the immediate call.",
             &["unix", "process", "lifecycle", "privileged"],

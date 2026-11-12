@@ -3128,7 +3128,10 @@ fn unix_module() -> ModuleSig {
         (
             "wait_pid1_event",
             sig(
-                vec![default_param("timeout", Type::Duration)],
+                vec![
+                    default_param("timeout", Type::Duration),
+                    default_param("wake_fd", Type::Optional(Box::new(Type::Int))),
+                ],
                 result(unix_pid1_event_type()),
                 false,
                 RuntimeOp::UnixWaitPid1Event,

@@ -686,7 +686,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.tty_table() -> {chars: List[{index: Int, name: Str, sane: Int}], flags: List[{field: Str, mask: Int, name: Str, sane: Bool, value: Int}], speeds: List[Int]}` — Returns the termios flag, control character, and baud rate names of the host.
 - `unix.ttyname(fd: Int = default) -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.uptime_seconds() -> Result[Int, Error]` — Reads Unix host uptime in seconds.
-- `unix.wait_pid1_event(timeout: Duration = default) -> Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.wait_pid1_event(timeout: Duration = default, wake_fd: Int? = default) -> Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]` — Waits for Unix supervisor lifecycle events or a readable wake descriptor.
 - `unix.window_size(fd: Int = default) -> Result[{cols: Int, rows: Int, xpixel: Int, ypixel: Int}, Error]` — Reads or sets a terminal's window size.
 - `unix.write_fd(fd: Int, data: Bytes) -> Result[Int, Error]` — Writes one chunk to a descriptor.
 
