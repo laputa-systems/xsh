@@ -138,10 +138,6 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-uu-dd-2.xsh::test_uu_dd_seek_past_dev",
     "core/tests/test-uu-dd-2.xsh::test_uu_dd_skip_past_dev",
     "core/tests/test-uu-mv-1.xsh::test_uu_mv_acl",
-    "core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_french_embedded_blanks",
-    "core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_french_locale",
-    "core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_hungarian_locale",
-    "core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_japanese_locale",
     "tests/xsh/stdlib/fs_prims.xsh::test_copy_file_reflink_clones_or_fails_with_an_errno",
   ]),
   Exclusion(missing: "real root with network administration and dnsmasq, which the confined lane root lacks", tests: [

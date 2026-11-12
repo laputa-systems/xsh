@@ -36,16 +36,6 @@ pure padded(number: Int, width: Int) -> Str {
   "000000".byte_slice(0, length: width - value.byte_len()) + value
 }
 
-# Match the upstream charmap probe, including its UTF-8 output criterion.
-proc locale_available(s: uu.Scene, locale: Str) [fs, process, error] -> Result[Bool, Error] {
-  match process.which("locale") { Err(_) => return Ok(false), Ok(_) => {} }
-  let out = uu.at(s, ".locale-out")
-  let err = uu.at(s, ".locale-err")
-  let plan = process.command_argv(process.which("locale")?, [p"locale", p"charmap"], s.root, {LC_ALL: locale}, b"", out, err)
-  let _ = process.run(plan)?
-  Ok(out.read_text()?.trim() == "UTF-8")
-}
-
 # origin: uutils test_sort::test_keys_invalid_field_option
 test test_uu_sort_keys_invalid_field_option { |ctx|
   {
@@ -464,7 +454,7 @@ test test_uu_sort_month_default2 { |ctx|
 # origin: uutils test_sort::test_month_sort_french_embedded_blanks
 test test_uu_sort_month_sort_french_embedded_blanks { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "fr_FR.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
+  if system.locale_time_info("fr_FR.UTF-8") is Err(_) { test.skip("requested month metadata unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("juin\nav   ril\nmars\n"), vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "av   ril\nmars\njuin\n")
@@ -473,7 +463,7 @@ test test_uu_sort_month_sort_french_embedded_blanks { |ctx|
 # origin: uutils test_sort::test_month_sort_french_locale
 test test_uu_sort_month_sort_french_locale { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "fr_FR.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
+  if system.locale_time_info("fr_FR.UTF-8") is Err(_) { test.skip("requested month metadata unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("mai\ndéc.\njanv.\njuin\nfévr.\nmars\navril\njuil.\naoût\nsept.\noct.\nnov.\n"), vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "janv.\nfévr.\nmars\navril\nmai\njuin\njuil.\naoût\nsept.\noct.\nnov.\ndéc.\n")
@@ -482,7 +472,7 @@ test test_uu_sort_month_sort_french_locale { |ctx|
 # origin: uutils test_sort::test_month_sort_hungarian_locale
 test test_uu_sort_month_sort_hungarian_locale { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "hu_HU.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
+  if system.locale_time_info("hu_HU.UTF-8") is Err(_) { test.skip("requested month metadata unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("máj\ndec\njan\njún\nfebr\nmárc\nápr\njúl\naug\nszept\nokt\nnov\n"), vars: {LC_ALL: "hu_HU.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "jan\nfebr\nmárc\nápr\nmáj\njún\njúl\naug\nszept\nokt\nnov\ndec\n")
@@ -491,7 +481,7 @@ test test_uu_sort_month_sort_hungarian_locale { |ctx|
 # origin: uutils test_sort::test_month_sort_japanese_locale
 test test_uu_sort_month_sort_japanese_locale { |ctx|
   let s = uu.scene(ctx)?
-  if !locale_available(s, "ja_JP.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
+  if system.locale_time_info("ja_JP.UTF-8") is Err(_) { test.skip("requested month metadata unavailable") }
   let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("5月\n12月\n1月\n6月\n2月\n3月\n4月\n7月\n8月\n9月\n10月\n11月\n"), vars: {LC_ALL: "ja_JP.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "1月\n2月\n3月\n4月\n5月\n6月\n7月\n8月\n9月\n10月\n11月\n12月\n")
