@@ -1118,7 +1118,7 @@ p"{observed}".write(args.join("|"))?
   let rust_plan = tests.rust_plan(workflow_context, tests.Verification, privileged: true)?
   assert [spec.stage for spec in rust_plan] == [
     "test-products",
-    "test-rust", "test-rust", "test-rust", "test-rust", "test-rust",
+    "test-rust", "test-rust", "test-rust", "test-rust", "test-rust", "test-rust",
     "test-soundness", "test-debug-assertions", "test-xsht",
     "test-linux-priv", "test-linux-priv",
   ]

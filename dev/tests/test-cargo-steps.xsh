@@ -547,7 +547,7 @@ docs.build_release(ctx)?
   var expected_stdout = [
     "[docs-build target=x86_64-unknown-linux-musl] cargo build --release",
   ]
-  for _ in ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra"] {
+  for _ in ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra", "fs_transfer"] {
     expected_stdout += [
       "[test-rust-build target=x86_64-unknown-linux-musl] cargo test --locked --profile verification",
       "[test-rust target=x86_64-unknown-linux-musl] cargo test --locked --profile verification",
@@ -580,7 +580,7 @@ docs.build_release(ctx)?
     f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={linker} {preloaded}",
     f"build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi {preloaded}",
   ]
-  for target in ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra"] {
+  for target in ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra", "fs_transfer"] {
     expected_log += [
       f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test {target} --no-run {preloaded}",
       f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test {target} -- --skip split:: --skip runtime::coverage:: preload=",
@@ -669,6 +669,7 @@ docs.build_release(ctx)?
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test symbol_plateau -- --skip split:: --skip runtime::coverage:: preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test core_compat_boundaries -- --skip split:: --skip runtime::coverage:: preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test core_compat_extra -- --skip split:: --skip runtime::coverage:: preload=",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test fs_transfer -- --skip split:: --skip runtime::coverage:: preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness preload=",
     "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip lint_performance::repository_lint_is_clean_within_wall_budget preload=",
