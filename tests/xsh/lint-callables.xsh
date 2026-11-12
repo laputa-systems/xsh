@@ -23,7 +23,7 @@ proc assert_checks(file: Path) [process, env, error] {
 test test_callable_alias_forwarder_fix_preserves_signature_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "callable-alias")?
   let file = fp"{root}/forwarder.xsh"
-  let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nexport pure format(value: Str, prefix: Str = \"label:\") -> Str { render(value, prefix) }\nprint format(value: \"one\")\n"
+  let source = "##! Callable forwarding fixture.\npure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\n## Formats a value with a prefix.\nexport pure format(value: Str, prefix: Str = \"label:\") -> Str { render(value, prefix) }\nprint format(value: \"one\")\n"
   file.write(source)
   let reported = lint(file, ["--only", "lint.prefer-callable-alias"])?
   assert "warn[lint.prefer-callable-alias]" in reported.stderr, reported.stderr
