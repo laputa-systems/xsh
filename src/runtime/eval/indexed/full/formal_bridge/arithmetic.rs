@@ -1069,6 +1069,17 @@ mod tests {
         ScheduledCall { function: "runs", arguments: &[-9] },
     ];
 
+    const SEVERAL_LET_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-integer-several-let-calls.xsh"
+    ));
+
+    const SEVERAL_LET_SCHEDULE: [ScheduledCall; 3] = [
+        ScheduledCall { function: "scales", arguments: &[5] },
+        ScheduledCall { function: "runs", arguments: &[5] },
+        ScheduledCall { function: "runs", arguments: &[-9] },
+    ];
+
     const PROPAGATION_SCHEDULE: [ScheduledCall; 5] = [
         ScheduledCall { function: "keeps", arguments: &[7] },
         ScheduledCall { function: "stops", arguments: &[5] },
@@ -1140,6 +1151,7 @@ mod tests {
         let let_call = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
         let computed_let =
             fixture_of(COMPUTED_LET_SOURCE.to_string(), &COMPUTED_LET_SCHEDULE);
+        let several_let = fixture_of(SEVERAL_LET_SOURCE.to_string(), &SEVERAL_LET_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
@@ -1179,6 +1191,12 @@ mod tests {
                 &COMPUTED_LET_SCHEDULE[..],
                 "computedLetSourceDocumentCodes",
                 "computedLetRawIrDocumentCodes",
+            ),
+            (
+                &several_let,
+                &SEVERAL_LET_SCHEDULE[..],
+                "severalLetSourceDocumentCodes",
+                "severalLetRawIrDocumentCodes",
             ),
         ] {
             let source_text = encode_source_document(&fixture.source);
@@ -2270,6 +2288,139 @@ mod tests {
                 .iter()
                 .position(|row| row.tag == ProjectedTag::ExprParam)
                 .unwrap() as u32;
+        });
+    }
+
+    #[test]
+    fn exported_integer_several_let_rows_are_the_computed_family_in_order() {
+        let fixture = fixture_of(SEVERAL_LET_SOURCE.to_string(), &SEVERAL_LET_SCHEDULE);
+        let document = &fixture.document;
+
+        let scales = function_body_statements(&fixture, "scales");
+        assert_eq!(scales.len(), 3);
+        assert_eq!(document.rows[scales[0]].tag, ProjectedTag::StmtLetInt);
+        assert_eq!(document.rows[scales[1]].tag, ProjectedTag::StmtLetInt);
+        assert_eq!(document.rows[scales[2]].tag, ProjectedTag::StmtReturn);
+
+        let first = document.payload(&document.rows[scales[0]]).unwrap();
+        assert_eq!(first[0], 2);
+        let first_value = document.payload(&document.rows[first[1] as usize]).unwrap();
+        assert_eq!(document.binary_ops[first_value[0] as usize], ProjectedOp::Add);
+        assert_eq!(document.rows[first_value[1] as usize].tag, ProjectedTag::IntSlot);
+        assert_eq!(document.payload(&document.rows[first_value[1] as usize]).unwrap(), [0]);
+        assert_eq!(document.rows[first_value[2] as usize].tag, ProjectedTag::IntInt);
+
+        let second = document.payload(&document.rows[scales[1]]).unwrap();
+        assert_eq!(second[0], 3);
+        let second_value = document.payload(&document.rows[second[1] as usize]).unwrap();
+        assert_eq!(document.binary_ops[second_value[0] as usize], ProjectedOp::Mul);
+        assert_eq!(document.rows[second_value[1] as usize].tag, ProjectedTag::IntSlot);
+        assert_eq!(document.payload(&document.rows[second_value[1] as usize]).unwrap(), [2]);
+        assert_eq!(document.rows[second_value[2] as usize].tag, ProjectedTag::IntInt);
+
+        let returned = document.payload(&document.rows[scales[2]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprBinary);
+        let difference = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(document.binary_ops[difference[0] as usize], ProjectedOp::Sub);
+        assert_eq!(document.rows[difference[1] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.payload(&document.rows[difference[1] as usize]).unwrap(), [3]);
+        assert_eq!(document.rows[difference[2] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.payload(&document.rows[difference[2] as usize]).unwrap(), [0]);
+
+        let runs = function_body_statements(&fixture, "runs");
+        assert_eq!(runs.len(), 1);
+        let returned = document.payload(&document.rows[runs[0]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprDirectPureCall);
+        let call = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(call[0], 1);
+        let arguments = document.blocks[call[1] as usize - 1];
+        let table = &document.extra
+            [arguments.start as usize..(arguments.start + arguments.len) as usize];
+        assert_eq!((table[0], table[1]), (1, 0));
+        assert_eq!(document.rows[table[2] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.payload(&document.rows[table[2] as usize]).unwrap(), [0]);
+        assert_eq!(
+            document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(13), Outcome::Value(13), Outcome::Value(-1_i64 as u64)]
+        );
+    }
+
+    #[test]
+    fn integer_several_let_calls_run_through_both_bindings() {
+        let fixture = fixture_of(SEVERAL_LET_SOURCE.to_string(), &SEVERAL_LET_SCHEDULE);
+        let observations =
+            execute_schedule(&fixture.program, &fixture.sources, &SEVERAL_LET_SCHEDULE).unwrap();
+        assert_eq!(
+            observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(13), Outcome::Value(13), Outcome::Value(-1_i64 as u64)]
+        );
+    }
+
+    #[test]
+    fn mutated_integer_several_let_programs_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture = fixture_of(SEVERAL_LET_SOURCE.to_string(), &SEVERAL_LET_SCHEDULE);
+        let check = |document: &ArithmeticDocument, program: &FullProgram| {
+            check_artifact_against_program(
+                document,
+                program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                &SEVERAL_LET_SCHEDULE,
+            )
+        };
+        assert!(check(&fixture.document, &fixture.program).is_ok());
+
+        let mut wrong_operation = fixture.program.clone();
+        let add = wrong_operation
+            .store
+            .binary_ops
+            .iter()
+            .position(|op| *op == BinaryOp::Add)
+            .unwrap();
+        wrong_operation.store.binary_ops[add] = BinaryOp::Mul;
+        FullVerifier::verify(&wrong_operation).expect("the multiplied binding is still well typed");
+        assert_eq!(
+            execute_schedule(&wrong_operation, &fixture.sources, &SEVERAL_LET_SCHEDULE).unwrap()[0]
+                .outcome,
+            Outcome::Value(35)
+        );
+        assert!(check(&fixture.document, &wrong_operation).is_err());
+
+        let mut wrong_record = fixture.document.clone();
+        wrong_record.observations[0].outcome = Outcome::Value(14);
+        assert!(validate_arithmetic_document(&wrong_record).is_ok());
+        assert!(check(&wrong_record, &fixture.program).is_err());
+    }
+
+    #[test]
+    fn structurally_malformed_several_let_rows_are_rejected() {
+        let fixture = fixture_of(SEVERAL_LET_SOURCE.to_string(), &SEVERAL_LET_SCHEDULE);
+        let reject = |name: &str, mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err(), "{name} must be rejected");
+        };
+        let bindings: Vec<usize> = fixture
+            .document
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.tag == ProjectedTag::StmtLetInt)
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(bindings.len(), 2);
+        reject("a second binding naming itself as its value", &|document| {
+            document.extra[document.rows[bindings[1]].lhs as usize + 1] = bindings[1] as u32;
+        });
+        reject("a second binding whose value is an expression row", &|document| {
+            document.extra[document.rows[bindings[1]].lhs as usize + 1] = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::ExprParam)
+                .unwrap() as u32;
+        });
+        reject("a second binding whose value is a statement row", &|document| {
+            document.extra[document.rows[bindings[1]].lhs as usize + 1] = bindings[0] as u32;
         });
     }
 

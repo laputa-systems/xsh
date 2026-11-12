@@ -12708,6 +12708,44 @@
       ],
       "proposition": "The source document parses in the admitted productions (two integer functions of one parameter: `scales` has one computed integer let `step = value + 4` and returns the sum of its parameter and the let; `runs` calls `scales` on its parameter); the parameter takes slot 0 and the let slot 2, where the exporter places them; lowering the parsed functions emits the let's value as the integer-family `IntSlot`, `IntInt` and `IntBinary` rows followed by `StmtLetInt [2, valueRow]`, then the parameter reads, `ExprBinary` and `StmtReturn` of the callee, and for the caller the argument row, argument block, `ExprDirectPureCall`, `StmtReturn` and body rows, reproducing the raw-IR document's rows, payload words, operation pool (`Add`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the three recorded calls end with 14 for `scales` on 5, 14 for `runs` on 5 and -14 for `runs` on -9, in the recorded order. The callee form of a function without an assignment or a propagation carries its computed bindings; a call applies the callee by binding the parameters and then each binding's value, whose parameter reads are replaced by the argument expressions, so the call's arguments are the parameter expressions followed by the binding values. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted call, a callee body whose let read is replaced by its parameter, a binding whose value is a literal instead of the computed expression, wrong recorded outcomes, malformed rows, a substituted source and a wrong lowering are all refused; the literal-for-computed mutant is well typed and returns 10 where 14 is recorded.",
       "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers a call of a function with one integer parameter and one computed let whose value is an integer expression over that parameter and literals, from a function of one integer parameter; several lets, a callee with an assigned binding, a computed value that reads anything but the parameter and literals, a parameterless call, an error producer and a record local are outside it. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
+    },
+    {
+      "id": "artifact.integer-several-let-calls",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.severalLetSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.severalLetRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.SeveralLetCertificate",
+      "certificate": "Xsh.Conformance.Vertical.severalLet_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.severalLet_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.severalLet_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_several_let_source_parses_to_the_several_let_functions",
+        "Xsh.Conformance.Vertical.the_several_let_functions_lower_to_the_several_let_artifact",
+        "Xsh.Conformance.Vertical.the_several_let_artifact_validates",
+        "Xsh.Conformance.Vertical.the_several_let_functions_mean_the_same_as_the_several_let_artifact",
+        "Xsh.Conformance.Vertical.the_several_let_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.several_let_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_several_let_artifact_is_certified",
+        "Xsh.Conformance.Vertical.the_swapped_several_let_operator_is_well_formed",
+        "Xsh.Conformance.Vertical.the_swapped_several_let_operator_means_something_else"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_several_let_callee_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_several_let_binding_read_is_rejected",
+        "Xsh.Conformance.Vertical.a_reordered_several_let_binding_is_rejected",
+        "Xsh.Conformance.Vertical.a_swapped_several_let_operator_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_several_let_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_several_let_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_several_let_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_several_let_lowering_is_rejected",
+        "Xsh.Conformance.Vertical.a_reordered_several_let_source_tree_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (two integer functions of one parameter: `scales` has two computed integer lets `a = value + 4` and `b = a * 2` and returns the difference of the second binding and the parameter; `runs` calls `scales` on its parameter); each later binding value may read the parameter and the earlier bindings; the parameter takes slot 0 and the bindings slots 2 and 3, where the exporter places them; lowering the parsed functions emits the first value's integer-family `IntSlot`, `IntInt` and `IntBinary` rows and `StmtLetInt [2, valueRow]`, the second value's rows reading the first binding at slot 2 and `StmtLetInt [3, valueRow]`, then the parameter and binding reads, `ExprBinary` and `StmtReturn` of the callee, and for the caller the argument row, argument block, `ExprDirectPureCall`, `StmtReturn` and body rows, reproducing the raw-IR document's rows, payload words, operation pool (`Add`, `Mul`, `Sub`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the three recorded calls end with 13 for `scales` on 5, 13 for `runs` on 5 and -1 for `runs` on -9, in the recorded order. A callee's computed bindings are part of its callee form in source order; a call applies the parameters and each binding value, replacing each earlier binding slot inside a later value by that earlier binding's applied value, so the call's arguments are the parameter expressions followed by the binding values. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted call, a callee whose second binding read is replaced by the parameter, reordered binding statements, a swapped first operator, wrong recorded outcomes, malformed rows, a substituted source, a wrong lowering and a source tree with the two bindings reordered are all refused; the swapped-operator mutant validates once its own outcomes are recorded, so it is well formed, and computes 35 for `scales` on 5 where 13 is recorded, while the reordered statements read slot 2 before it is bound and leave every recorded call without an outcome.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers a call of a function with one integer parameter and a sequence of computed integer lets whose values read the parameter, integer literals and earlier bindings, from a function of one integer parameter; a callee with an assigned binding, an error producer and a record local are outside it. The substitution of an earlier binding's applied value into a later binding value is observable-equivalent only because the admitted values are pure; an effectful binding value is outside this domain. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
     }
   ],
   "source_identity": {

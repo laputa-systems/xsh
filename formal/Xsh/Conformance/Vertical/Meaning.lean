@@ -135,9 +135,18 @@ def Callee.bindingNames (callee : Callee) : List NameId :=
 def Callee.applyParameters (callee : Callee) : List NameId :=
   parameterNames callee.parameters ++ callee.bindingNames
 
+/-- The applied values of a binding sequence, in order: each binding's value has the declared
+substitution applied and every earlier binding's slot replaced by that earlier binding's applied
+value, so a later binding reads what the earlier one denotes. -/
+def applyLetBindings (substitution : List (Xsh.Syntax.RawName × BaseExpr)) :
+    List LetBinding → List BaseExpr
+  | [] => []
+  | binding :: rest =>
+      let value := substituteExpressions substitution binding.value
+      value :: applyLetBindings (substitution ++ [(NameId.mk binding.slot, value)]) rest
+
 def Callee.applyArguments (callee : Callee) (values : List BaseExpr) : List BaseExpr :=
-  values ++ callee.bindings.map fun binding =>
-    substituteExpressions ((parameterNames callee.parameters).zip values) binding.value
+  values ++ applyLetBindings ((parameterNames callee.parameters).zip values) callee.bindings
 
 def Callee.apply (callee : Callee) (values : List BaseExpr) : BaseExpr :=
   .call callee.applyParameters callee.body (callee.applyArguments values)
@@ -417,17 +426,17 @@ def FunctionProgram.expressionAt (program : FunctionProgram) (arguments : List I
 
 /-- The base machine run of a function body: one call binds the parameters and every let binding,
 arguments in order, then the body. A binding's value has the parameters replaced by the argument
-expressions, which are pure parameter reads or literals in the admitted programs. -/
+expressions and every earlier binding's slot replaced by that binding's applied value, which are
+pure parameter reads or literals in the admitted programs. -/
 def FunctionProgram.machineWith (program : FunctionProgram) (bindings : List LetBinding)
     (arguments : List Int) : MachineConfig :=
   let parameters := parameterNames program.parameters
   let values := arguments.map BaseExpr.integerLiteral
+  let appliedBindings := applyLetBindings (parameters.zip values) bindings
   let applied :=
     if parameters.isEmpty && bindings.isEmpty then program.expression
     else .call (parameters ++ bindings.map fun binding => NameId.mk binding.slot)
-      program.expression
-      (values ++ bindings.map fun binding =>
-        substituteExpressions (parameters.zip values) binding.value)
+      program.expression (values ++ appliedBindings)
   machineOf [] applied
 
 def runBudget : Nat := 128

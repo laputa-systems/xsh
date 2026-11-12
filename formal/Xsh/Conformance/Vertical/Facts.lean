@@ -158,6 +158,7 @@ def expressionFacts (callees : Callees) (scope : Scope) : SourceExpression → O
   | .assigned _ _ _ => none
   | .constructed _ _ => none
   | .computedLet _ _ _ => none
+  | .computedLets _ _ => none
 
 def functionFacts (callees : Callees) (function : SourceFunction) : Option FunctionFacts := do
   let scope ← function.scope
@@ -295,6 +296,7 @@ theorem expression_facts_iff {callees : Callees} {scope : Scope} {expression : S
     | comparison op left right => simp [expressionFacts] at found
     | constructed isOk payload => simp [expressionFacts] at found
     | computedLet target value result => simp [expressionFacts] at found
+    | computedLets bindings result => simp [expressionFacts] at found
   · intro holds
     cases holds with
     | value valueHolds => exact value_facts_iff.mpr valueHolds

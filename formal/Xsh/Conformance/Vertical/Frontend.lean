@@ -100,6 +100,7 @@ inductive SourceExpression where
   | comparison (op : FragmentOp) (left right : SourceAtom)
   | constructed (isOk : Bool) (value : SourceValue)
   | computedLet (target : String) (value : SourceValue) (result : SourceValue)
+  | computedLets (bindings : List (String × SourceValue)) (result : SourceValue)
   deriving DecidableEq, Repr
 
 /-- A `let` line whose value is a call under `?`: the target, the callee and its arguments. -/
@@ -231,16 +232,32 @@ def parsePropagation : List Token → Option (Option SourcePropagation × List T
         | _ => none
   | tokens => some (none, tokens)
 
-/-- A computed `let` line: `let target = atom op atom`. A literal binding is taken by
-`parseLets` instead, and any other `let` line is left for `parsePropagation`. -/
-def parseComputedLet : List Token → Option (Option (String × SourceValue) × List Token)
-  | tokens@(.word "let" :: .word name :: .equals :: rest) =>
-      if isKeyword name then none
-      else
-        match parseValue rest with
-        | some (value@(.binary _ _ _), .newline :: after) => some (some (name, value), after)
-        | _ => some (none, tokens)
-  | tokens => some (none, tokens)
+/-- A run of computed `let` lines. Each line's value may read the function's parameter and the
+bindings before it; a literal line is not consumed. -/
+def parseComputedLets : Nat → List Token → Option (List (String × SourceValue) × List Token)
+  | 0, _ => none
+  | fuel + 1, tokens =>
+      match tokens with
+      | .word "let" :: .word name :: .equals :: rest =>
+          if isKeyword name then some ([], tokens)
+          else
+            match parseValue rest with
+            | some (value@(.binary _ _ _), .newline :: after) => do
+                let (more, remaining) ← parseComputedLets fuel after
+                some ((name, value) :: more, remaining)
+            | _ => some ([], tokens)
+      | _ => some ([], tokens)
+
+/-- The result a run of computed lets returns: none for no binding, the single-binding form for
+one, and the sequence form for several. A literal or other binding is outside the admitted
+productions. -/
+def buildComputedResult (computed : List (String × SourceValue))
+    (result : SourceExpression) : Option SourceExpression :=
+  match computed, result with
+  | [], result => some result
+  | [(target, value)], .value resultValue => some (.computedLet target value resultValue)
+  | _ :: _ :: _, .value resultValue => some (.computedLets computed resultValue)
+  | _, _ => none
 
 /-- An optional assignment line to a declared var, an integer value. -/
 def parseAssignment (vars : List String) :
@@ -308,6 +325,15 @@ def SourceAtom.isParameterOrLiteral (parameters : List String) : SourceAtom → 
   | .int _ => true
   | .var name => parameters.contains name
 
+/-- Every binding name is new and every binding value reads only integer literals and the names
+allowed before it. -/
+def computedBindingsAdmitted (allowed : List String) :
+    List (String × SourceValue) → Bool
+  | [] => true
+  | (name, value) :: rest =>
+      !allowed.contains name && value.atoms.all (·.isParameterOrLiteral allowed) &&
+        computedBindingsAdmitted (allowed ++ [name]) rest
+
 def admitsResult : ResultShape → ExpressionShape → Bool
   | .integer, .comparison => false
   | .integer, .constructed => false
@@ -322,7 +348,7 @@ def admitsResult : ResultShape → ExpressionShape → Bool
 def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
     (tokens : List Token) : Option (SourceFunction × List Token) := do
   let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
-  let (computed, afterComputed) ← parseComputedLet afterLets
+  let (computed, afterComputed) ← parseComputedLets (afterLets.length + 1) afterLets
   let (propagation, afterPropagation) ← parsePropagation afterComputed
   let (assignment, afterAssignment) ← parseAssignment vars afterPropagation
   match propagation with
@@ -332,23 +358,17 @@ def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List S
       else none
   | none => pure ()
   match computed with
-  | some (target, value) =>
+  | [] => pure ()
+  | bindings =>
       if lets.isEmpty && assignment.isNone && propagation.isNone && shape == .integer &&
-          parameters.length == 1 && !parameters.contains target &&
-          value.atoms.all (·.isParameterOrLiteral parameters) then
+          parameters.length == 1 && computedBindingsAdmitted parameters bindings then
         pure ()
       else none
-  | none => pure ()
   match afterAssignment with
   | .word "return" :: more => do
       let (returned, afterResult) ← parseExpression more
       let result ← attachAssignment assignment returned
-      let result ← match computed with
-        | none => pure result
-        | some (target, value) =>
-            match result with
-            | .value resultValue => pure (.computedLet target value resultValue)
-            | _ => none
+      let result ← buildComputedResult computed result
       if admitsResult shape result.shape then pure () else none
       match propagation with
       | some found =>
@@ -505,6 +525,36 @@ theorem propagation_outside_the_admitted_productions_is_refused :
           "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)??\n  return Ok(kept)\n}\n") =
         none := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+/-- A sequence of computed lets parses with each later binding reading the parameter and the
+bindings before it. -/
+theorem several_computed_lets_parse :
+    parseSource ("pure scales(value: Int) -> Int {\n  let a = value + 4\n" ++
+        "  let b = a * 2\n  return b - value\n}\n\n" ++
+        "pure runs(value: Int) -> Int {\n  return scales(value)\n}\n") =
+      some [⟨"scales", ["value"], [], none,
+          .computedLets [("a", .binary .add (.var "value") (.int 4)),
+            ("b", .binary .mul (.var "a") (.int 2))]
+            (.binary .sub (.var "b") (.var "value"))⟩,
+        ⟨"runs", ["value"], [], none, .call "scales" [.var "value"]⟩] := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+/-- A forward read, a self read, a repeated binding name, a parameter shadow and a literal let
+before a computed one are outside the admitted computed-let sequence. -/
+theorem computed_let_sequences_outside_the_productions_are_refused :
+    parseSource ("pure f(value: Int) -> Int {\n  let a = b + 1\n  let b = value * 2\n" ++
+        "  return a + b\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let a = a + 1\n  let b = value * 2\n" ++
+        "  return a + b\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let a = value + 1\n  let a = value * 2\n" ++
+        "  return a\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let value = value + 1\n" ++
+        "  return value\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let a = 4\n  let b = value + a\n" ++
+        "  return b\n}\n") = none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 theorem text_outside_the_admitted_productions_is_refused :
     parseSource "pure f() -> Int {\n  return 1 + 2 + 3\n}\n" = none ∧

@@ -50,11 +50,22 @@ that parameter and literals, the lowerer emits the value as the integer-family
 form carries the binding so a call applies it, evaluating it once beside the
 parameter; the recorded calls are 14, 14 and -14. The substitution approach
 does not extend to computed values, so the base-machine binding is now an
-`BaseExpr` value and the callee's application supplies it.
+`BaseExpr` value and the callee's application supplies it. A ninth covers a
+sequence of computed lets: the admitted grammar takes one integer parameter and
+several `let name = atom op atom` lines, each reading the parameter, literals
+and the bindings before it, and the fixture binds `a = value + 4` and
+`b = a * 2` and returns `b - value`; the lowerer emits each integer-family value
+and its `StmtLetInt` binding in source order at slots 2 and 3, and the callee
+form carries both bindings so a call applies them in order; the recorded calls
+are 13, 13 and -1. Applying a later binding replaces an earlier binding's slot
+by that earlier binding's applied value, so the machine evaluates the earlier
+value again inside the later one; the admitted values are pure integer
+expressions, so that gives the same value and the same first failure as
+evaluating each binding once in order.
 The next widening is an error producer or a record local; each needs a new row
 form rather than another certificate-only check.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds ten ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds eleven ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -85,7 +96,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 888
+**State:** `formal/coverage.json` is the only inventory. It lists 961
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -96,7 +107,7 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds ten ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds eleven ARTIFACT_CERTIFIED
 records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
@@ -110,10 +121,12 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   `formal-bridge-integer-calls.xsh`: `excess`, two integer parameters and a
   conditional on a comparison, and `surplus`, a `let` and a call of `excess`;
   `formal-bridge-integer-let-calls.xsh`: `bumps`, one integer parameter and
-  one literal `let`, and `runs`, which calls it on its parameter; and
+  one literal `let`, and `runs`, which calls it on its parameter;
   `formal-bridge-integer-computed-let-calls.xsh`: `scales`, one integer
   parameter and one computed `let`, and `runs`, which calls it on its
-  parameter) go
+  parameter; and `formal-bridge-integer-several-let-calls.xsh`: `scales`, one
+  integer parameter and two computed lets where the second reads the first,
+  and `runs`, which calls it on its parameter) go
   through a test-only exporter and decoder (`formal_bridge/arithmetic.rs`) that
   emit the real compiler's lowering. `Xsh.Conformance.Vertical.Certificate` and
   `...CallsCertificate` kernel-check that each source's bytes parse in an
@@ -126,10 +139,11 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   records or a call of a Bool function, though a Bool-returning comparison of
   two atoms, `Result[Int, Int]` construction, one `?` binding of a call to an
   earlier callable `Result[Int, Int]` function, a call of a function with one
-  integer parameter and one integer literal let, and a call of a function with
-  one integer parameter and one computed let are covered; several lets, a
-  callee with an assigned binding, an error producer and a record local are
-  outside it. One plain integer assignment is modeled separately;
+  integer parameter and one integer literal let, a call of a function with one
+  integer parameter and one computed let, and a call of a function with one
+  integer parameter and a sequence of computed lets are covered; a callee with
+  an assigned binding, a computed binding whose value has effects, an error
+  producer and a record local are outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments or computed lets. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
   evidence only through the recorded runs.
@@ -1140,6 +1154,69 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
   `con-ron`, accepted the export. The audit and the fresh check ran through
   `/bin/bash` with the pinned 4.35.0 toolchain first. Several lets, an error
+  producer and a record local stay next.
+
+- 2026-11-12: Several computed lets. The admitted grammar now takes a function
+  of one integer parameter and a sequence of computed `let name = atom op atom`
+  lines, where each value may read the parameter, integer literals and the
+  bindings before it; `computed_let_sequences_outside_the_productions_are_refused`
+  shows that a forward read, a self read, a repeated binding name, a parameter
+  shadow and a literal let before a computed one are refused. One binding still
+  parses as `computedLet`, so the eighth certificate is unchanged. The
+  test-only bridge fixture `formal-bridge-integer-several-let-calls.xsh`
+  (`scales`, `let a = value + 4; let b = a * 2`, returning `b - value`; `runs`)
+  records the calls 13, 13 and -1. The exporter places the parameter at slot 0
+  and the bindings at slots 2 and 3; `Lower.computedBindings` emits each value
+  in the integer family and its `StmtLetInt` before the return, and
+  `computedBindingsFrom?` gives the source meaning the same bindings in source
+  order. `Callee.applyArguments` and `FunctionProgram.machineWith` now apply
+  the bindings through `applyLetBindings`, which replaces an earlier binding's
+  slot in a later value by that earlier binding's applied value. For one
+  binding, or literal bindings, this is the previous application, so every
+  earlier certificate holds unchanged. For a sequence the machine evaluates the
+  earlier value again inside the later one; the admitted values are pure
+  integer expressions, so that gives the value and the first failure of
+  evaluating each binding once in order. An effectful binding value is outside
+  the domain. `computed_bindings_lower` proves the emitted rows read as the
+  source bindings, `computed_bindings_from_some` proves every emitted sequence
+  has a source meaning, and `function_lowers_computedLets` composes them;
+  `lowering_means_the_source` remains universal over the parsed functions. The
+  new `SeveralLetCertificate` certifies the pair. Its parse theorem follows the
+  propagation restructuring: `severalLetTextCodes` holds the 147 text codes and
+  `the_several_let_text_codes_parse` decides on them, so no kernel decodes the
+  document's string literal. It rejects a retargeted call, a second binding
+  read replaced by the parameter (5 where 13 is recorded), reordered binding
+  statements (slot 2 is read before it is bound, so no call has an outcome), a
+  swapped first operator, wrong recorded outcomes, malformed rows, a changed
+  source, a wrong lowering and a source tree with the two bindings reordered.
+  `the_swapped_several_let_operator_is_well_formed` shows the swapped mutant
+  validates once its own outcomes 35, 35 and -63 are recorded, so its refusal
+  comes from meaning alone; the Rust test makes the same swap, passes
+  `FullVerifier`, runs to 35 and is refused by the recorded-run check.
+  `artifact_certificates` now holds eleven. This is a bounded artifact and a
+  Lean-only theorem about the Lean lowerer: Rust's parser reading and execution
+  are evidence through the bridge run only, and that run used this worktree's
+  verification build rather than the frozen commit, so it is not a
+  `RUST_CONFORMANCE` case. The source document is 208 bytes and the raw-IR
+  document is 3,043 bytes. `cargo test --profile verification --lib
+  formal_bridge` passed 56 tests, including the four new several-let tests and
+  `exported_documents_are_the_lean_certified_bytes`, which requires Rust's
+  exported bytes to equal the two Lean code lists. The clean `lake build`
+  completed 246 jobs; the axiom audit passed for 27,989 declarations and all six
+  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
+  under the 8 GiB cap; and `lake check --paranoid`, run under the same cap with
+  the repository's sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both
+  `con-leche` and `con-ron`, accepted the export with the Lean paranoid kernel,
+  `lean4lean` (115,636 declarations), `nanoda`, `con-leche` and `con-ron`
+  (115,639 each) and the Lean default kernel, using only `propext`,
+  `Quot.sound` and `Classical.choice`. The audit, the fresh check and the
+  paranoid check ran through `/bin/bash` with the pinned 4.35.0 toolchain
+  first; the sandbox wrapper names its Python interpreter by absolute path, as
+  `check-fresh.py` does, because a wrapper started through
+  `#!/usr/bin/env python3` saw an empty `sys.executable` under Lake.
+  `formal/tests/inventory/test_check_inventory.py` still fails one test, as it
+  did before this entry: its frozen certificate set names six records and the
+  inventory now holds eleven. A callee with an assigned binding, an error
   producer and a record local stay next.
 
 ## For the owner afterwards
