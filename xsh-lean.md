@@ -110,7 +110,9 @@ Those observations need a representation and proof before an error-producer clai
 The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
 accepted the certificates at `e52dcf2b2` under the 8 GiB cap. The combined integration
-with derived declaration slots still needs its fresh six-kernel check.
+with derived declaration slots also passes all six kernels under that cap and
+the 1,620-second deadline after native execution ends. The preceding overlapping
+run times out during the final checker and remains incomplete evidence.
 The independent kernels hold the whole export in memory. Earlier checks at the
 8 GiB address-space cap found that a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB
@@ -128,8 +130,9 @@ resume leaves Lean paused.
 
 **State:** `formal/coverage.json` is the only inventory. It lists 990
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
-selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
-correspondence. All 77 universal obligations stay planned. G1's five base
+selected model behavior. The source and IR links cover their admitted domains;
+Rust, OS and clock correspondence remain separate boundaries. All 77 universal
+obligations stay planned. G1's five base
 theorems (`Xsh.Proofs.Base.{Env,Num,Step,Progress,Runner}`) are fragment
 roots: they hold for the base expression machine, which is not the frozen
 core.
