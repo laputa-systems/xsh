@@ -120,4 +120,164 @@ def assignmentsArtifact : RawArtifact where
     ⟨bridgeId! 2, "wrapped", 0, 0, 1, 1, bridgeId! 2, 2⟩]
   observations := [⟨bridgeId! 1, [], .value 31⟩, ⟨bridgeId! 2, [], .failure .integerOverflow⟩]
 
+def booleanSourceTextCodes : List Nat :=
+  [112, 117, 114, 101, 32, 101, 120, 99, 101, 101, 100, 115, 40, 118, 97, 108, 117, 101, 58, 32,
+   73, 110, 116, 44, 32, 108, 105, 109, 105, 116, 58, 32, 73, 110, 116, 41, 32, 45, 62, 32,
+   66, 111, 111, 108, 32, 123, 10, 32, 32, 114, 101, 116, 117, 114, 110, 32, 118, 97, 108, 117,
+   101, 32, 62, 32, 108, 105, 109, 105, 116, 10, 125, 10, 10, 112, 117, 114, 101, 32, 98, 101,
+   108, 111, 119, 40, 118, 97, 108, 117, 101, 58, 32, 73, 110, 116, 44, 32, 108, 105, 109, 105,
+   116, 58, 32, 73, 110, 116, 41, 32, 45, 62, 32, 66, 111, 111, 108, 32, 123, 10, 32, 32,
+   114, 101, 116, 117, 114, 110, 32, 118, 97, 108, 117, 101, 32, 60, 32, 108, 105, 109, 105, 116,
+   10, 125, 10]
+
+def booleanSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1, String.ofList (booleanSourceTextCodes.map Char.ofNat)⟩
+
+def booleanArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprParam, 1, 1⟩,
+    ⟨bridgeId! 3, .exprBinary, 2, 4⟩, ⟨bridgeId! 4, .stmtReturn, 6, 1⟩,
+    ⟨bridgeId! 5, .exprParam, 9, 1⟩, ⟨bridgeId! 6, .exprParam, 10, 1⟩,
+    ⟨bridgeId! 7, .exprBinary, 11, 4⟩, ⟨bridgeId! 8, .stmtReturn, 15, 1⟩]
+  extra := [0, 1, 0, 0, 1, 2, 2, 1, 3, 0, 1, 1, 4, 5, 3, 6, 1, 7]
+  ops := [.gt, .lt]
+  blocks := [⟨bridgeId! 1, 7, 2, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 16, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "exceeds", 0, 2, 0, 1, bridgeId! 1, 3⟩,
+    ⟨bridgeId! 2, "below", 2, 2, 1, 1, bridgeId! 2, 3⟩]
+  observations := [⟨bridgeId! 1, [12, 9], .value 1⟩, ⟨bridgeId! 1, [3, 9], .value 0⟩,
+    ⟨bridgeId! 2, [3, 9], .value 1⟩, ⟨bridgeId! 2, [12, 9], .value 0⟩]
+
+def resultSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure keeps(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n\npure stops(value: Int) -> Result[Int, Int] {\n  return Err(value)\n}\n\npure adds(value: Int) -> Result[Int, Int] {\n  return Ok(value + 1)\n}\n"⟩
+
+def resultArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprOk, 1, 1⟩,
+    ⟨bridgeId! 3, .stmtReturn, 2, 1⟩, ⟨bridgeId! 4, .exprParam, 5, 1⟩,
+    ⟨bridgeId! 5, .exprErr, 6, 2⟩, ⟨bridgeId! 6, .stmtReturn, 8, 1⟩,
+    ⟨bridgeId! 7, .exprParam, 11, 1⟩, ⟨bridgeId! 8, .exprInt, 12, 2⟩,
+    ⟨bridgeId! 9, .exprBinary, 14, 4⟩, ⟨bridgeId! 10, .exprOk, 18, 1⟩,
+    ⟨bridgeId! 11, .stmtReturn, 19, 1⟩]
+  extra := [0, 0, 1, 1, 2, 0, 3, 0, 4, 1, 5, 0, 1, 0, 0, 6, 7, 2, 8, 9, 1, 10]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 3, 2, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 9, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩,
+    ⟨bridgeId! 3, 20, 2, ⟨none⟩, ⟨some (bridgeId! 3)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "keeps", 0, 1, 0, 1, bridgeId! 1, 2⟩,
+    ⟨bridgeId! 2, "stops", 1, 1, 1, 1, bridgeId! 2, 2⟩,
+    ⟨bridgeId! 3, "adds", 2, 1, 2, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [7], .ok 7⟩, ⟨bridgeId! 2, [5], .err 5⟩,
+    ⟨bridgeId! 3, [4], .ok 5⟩, ⟨bridgeId! 3, [18446744073709551615], .ok 0⟩]
+
+def propagationSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure keeps(value: Int) -> Result[Int, Int] {\n  return Ok(value + 1)\n}\n\npure stops(value: Int) -> Result[Int, Int] {\n  return Err(value)\n}\n\npure passes(value: Int) -> Result[Int, Int] {\n  let kept = keeps(value)?\n  return Ok(kept)\n}\n\npure blocks(value: Int) -> Result[Int, Int] {\n  let kept = stops(value)?\n  return Ok(kept)\n}\n"⟩
+
+def propagationArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .exprParam, 0, 1⟩, ⟨bridgeId! 2, .exprInt, 1, 2⟩,
+    ⟨bridgeId! 3, .exprBinary, 3, 4⟩, ⟨bridgeId! 4, .exprOk, 7, 1⟩,
+    ⟨bridgeId! 5, .stmtReturn, 8, 1⟩, ⟨bridgeId! 6, .exprParam, 11, 1⟩,
+    ⟨bridgeId! 7, .exprErr, 12, 2⟩, ⟨bridgeId! 8, .stmtReturn, 14, 1⟩,
+    ⟨bridgeId! 9, .exprParam, 17, 1⟩, ⟨bridgeId! 10, .exprDirectPureCall, 21, 3⟩,
+    ⟨bridgeId! 11, .exprTry, 24, 2⟩, ⟨bridgeId! 12, .stmtLet, 26, 3⟩,
+    ⟨bridgeId! 13, .exprParam, 29, 1⟩, ⟨bridgeId! 14, .exprOk, 30, 1⟩,
+    ⟨bridgeId! 15, .stmtReturn, 31, 1⟩, ⟨bridgeId! 16, .exprParam, 35, 1⟩,
+    ⟨bridgeId! 17, .exprDirectPureCall, 39, 3⟩, ⟨bridgeId! 18, .exprTry, 42, 2⟩,
+    ⟨bridgeId! 19, .stmtLet, 44, 3⟩, ⟨bridgeId! 20, .exprParam, 47, 1⟩,
+    ⟨bridgeId! 21, .exprOk, 48, 1⟩, ⟨bridgeId! 22, .stmtReturn, 49, 1⟩]
+  extra := [0, 1, 0, 0, 0, 1, 2, 2, 3, 1, 4, 0, 5, 0, 6, 1, 7, 0, 1, 0, 8, 1, 3, 3, 9, 4,
+    2, 10, 0, 2, 12, 13, 2, 11, 14, 0, 1, 0, 15, 2, 5, 5, 16, 6, 2, 17, 0, 2, 19, 20, 2, 18,
+    21]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 9, 2, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 15, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩,
+    ⟨bridgeId! 3, 18, 3, ⟨none⟩, ⟨some (bridgeId! 3)⟩, 0⟩,
+    ⟨bridgeId! 4, 32, 3, ⟨none⟩, ⟨some (bridgeId! 3)⟩, 3⟩,
+    ⟨bridgeId! 5, 36, 3, ⟨none⟩, ⟨some (bridgeId! 4)⟩, 0⟩,
+    ⟨bridgeId! 6, 50, 3, ⟨none⟩, ⟨some (bridgeId! 4)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "keeps", 0, 1, 0, 1, bridgeId! 1, 2⟩,
+    ⟨bridgeId! 2, "stops", 1, 1, 1, 1, bridgeId! 2, 2⟩,
+    ⟨bridgeId! 3, "passes", 2, 1, 2, 1, bridgeId! 4, 3⟩,
+    ⟨bridgeId! 4, "blocks", 3, 1, 3, 1, bridgeId! 6, 3⟩]
+  observations := [⟨bridgeId! 1, [7], .ok 8⟩, ⟨bridgeId! 2, [5], .err 5⟩,
+    ⟨bridgeId! 3, [7], .ok 8⟩, ⟨bridgeId! 4, [5], .err 5⟩,
+    ⟨bridgeId! 3, [18446744073709551613], .ok 18446744073709551614⟩]
+
+def letCallSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure bumps(value: Int) -> Int {\n  let step = 2\n  return value + step\n}\n\npure runs(value: Int) -> Int {\n  return bumps(value)\n}\n"⟩
+
+def letCallArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .intInt, 0, 2⟩, ⟨bridgeId! 2, .stmtLetInt, 2, 2⟩,
+    ⟨bridgeId! 3, .exprParam, 4, 1⟩, ⟨bridgeId! 4, .exprParam, 5, 1⟩,
+    ⟨bridgeId! 5, .exprBinary, 6, 4⟩, ⟨bridgeId! 6, .stmtReturn, 10, 1⟩,
+    ⟨bridgeId! 7, .exprParam, 14, 1⟩, ⟨bridgeId! 8, .exprDirectPureCall, 18, 3⟩,
+    ⟨bridgeId! 9, .stmtReturn, 21, 1⟩]
+  extra := [2, 0, 2, 0, 0, 2, 0, 2, 3, 2, 4, 2, 1, 5, 0, 1, 0, 6, 1, 2, 3, 7, 1, 8]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 11, 3, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 15, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 22, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "bumps", 0, 1, 0, 1, bridgeId! 1, 3⟩,
+    ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨7, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨5, by decide⟩], .value ⟨7, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
+      .value ⟨18446744073709551609, by decide⟩⟩]
+
+def computedLetSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure scales(value: Int) -> Int {\n  let step = value + 4\n  return value + step\n}\n\npure runs(value: Int) -> Int {\n  return scales(value)\n}\n"⟩
+
+def computedLetArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
+    ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
+    ⟨bridgeId! 5, .exprParam, 8, 1⟩, ⟨bridgeId! 6, .exprParam, 9, 1⟩,
+    ⟨bridgeId! 7, .exprBinary, 10, 4⟩, ⟨bridgeId! 8, .stmtReturn, 14, 1⟩,
+    ⟨bridgeId! 9, .exprParam, 18, 1⟩, ⟨bridgeId! 10, .exprDirectPureCall, 22, 3⟩,
+    ⟨bridgeId! 11, .stmtReturn, 25, 1⟩]
+  extra := [0, 4, 0, 0, 0, 1, 2, 2, 0, 2, 0, 4, 5, 2, 6, 2, 3, 7, 0, 1, 0, 8, 1, 2, 3, 9, 1, 10]
+  ops := [.add]
+  blocks := [⟨bridgeId! 1, 15, 3, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 19, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 26, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "scales", 0, 1, 0, 1, bridgeId! 1, 3⟩,
+    ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨14, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨5, by decide⟩], .value ⟨14, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
+      .value ⟨18446744073709551602, by decide⟩⟩]
+
+def severalLetSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure scales(value: Int) -> Int {\n  let a = value + 4\n  let b = a * 2\n  return b - value\n}\n\npure runs(value: Int) -> Int {\n  return scales(value)\n}\n"⟩
+
+def severalLetArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
+    ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
+    ⟨bridgeId! 5, .intSlot, 8, 1⟩, ⟨bridgeId! 6, .intInt, 9, 2⟩,
+    ⟨bridgeId! 7, .intBinary, 11, 3⟩, ⟨bridgeId! 8, .stmtLetInt, 14, 2⟩,
+    ⟨bridgeId! 9, .exprParam, 16, 1⟩, ⟨bridgeId! 10, .exprParam, 17, 1⟩,
+    ⟨bridgeId! 11, .exprBinary, 18, 4⟩, ⟨bridgeId! 12, .stmtReturn, 22, 1⟩,
+    ⟨bridgeId! 13, .exprParam, 27, 1⟩, ⟨bridgeId! 14, .exprDirectPureCall, 31, 3⟩,
+    ⟨bridgeId! 15, .stmtReturn, 34, 1⟩]
+  extra := [0, 4, 0, 0, 0, 1, 2, 2, 2, 2, 0, 1, 4, 5, 3, 6, 3, 0, 2, 8, 9, 2, 10, 3, 3, 7,
+    11, 0, 1, 0, 12, 1, 2, 3, 13, 1, 14]
+  ops := [.add, .mul, .sub]
+  blocks := [⟨bridgeId! 1, 23, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 28, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 35, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "scales", 0, 1, 0, 1, bridgeId! 1, 4⟩,
+    ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨13, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨5, by decide⟩], .value ⟨13, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
+      .value ⟨18446744073709551615, by decide⟩⟩]
+
 end Xsh.Conformance.Vertical

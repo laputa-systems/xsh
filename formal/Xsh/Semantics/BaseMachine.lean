@@ -10,7 +10,8 @@ open Xsh.Values
 open Xsh.Values.IntegerOps
 open Xsh.Semantics.Environments
 
-/-- Type tags supported by the scalar-and-integer-expression machine fragment. -/
+/-- Type tags supported by the scalar-and-integer-expression machine fragment. `result` is the
+`Result[Int, Int]` tag the constructor forms produce. -/
 inductive BaseType where
   | null
   | boolean
@@ -19,6 +20,7 @@ inductive BaseType where
   | duration
   | string
   | bytes
+  | result
   deriving DecidableEq
 
 /-- `time.now()` requests signed epoch milliseconds from the host. Clock accuracy and the
@@ -37,6 +39,7 @@ def hasBaseType : BaseType → CompositeValue → Prop
   | .duration, .duration _ => True
   | .string, .string _ => True
   | .bytes, .bytes _ => True
+  | .result, .result _ _ => True
   | _, _ => False
 
 abbrev BaseStore := TypedStore BaseType CompositeValue hasBaseType
@@ -57,7 +60,7 @@ def scalarTypedValue? : CompositeValue → Option BaseTypedValue
   | .duration value => some ⟨.duration, .duration value, trivial⟩
   | .string value => some ⟨.string, .string value, trivial⟩
   | .bytes value => some ⟨.bytes, .bytes value, trivial⟩
-  | .list _ | .record _ | .tagged _ _ _ => none
+  | .list _ | .record _ | .tagged _ _ _ | .result _ _ => none
 
 /-- Integer comparisons produce booleans; they are the only boolean-producing operation. -/
 inductive ComparisonOperator where
@@ -82,7 +85,9 @@ def ComparisonOperator.holds : ComparisonOperator → Int → Int → Bool
 `conditional` selects one integer branch by a boolean condition and evaluates only that branch.
 `call` is a call of a pure integer function that has no recursion and no captures: the callee body
 is part of the node, its `parameters` are bound to the integer values of `arguments` evaluated
-left to right in the caller, and the body is checked to mention no name outside its parameters. -/
+left to right in the caller, and the body is checked to mention no name outside its parameters.
+`resultOk` and `resultErr` are the two `Result[Int, Int]` constructors: the value is the payload,
+wrapped in the constructor it names. -/
 inductive BaseExpr where
   | integerLiteral (value : Int)
   | scalarLiteral (value : CompositeValue)
@@ -93,6 +98,8 @@ inductive BaseExpr where
   | compare (operator : ComparisonOperator) (left right : BaseExpr)
   | conditional (condition thenBranch elseBranch : BaseExpr)
   | call (parameters : List Xsh.Syntax.RawName) (body : BaseExpr) (arguments : List BaseExpr)
+  | resultOk (value : BaseExpr)
+  | resultErr (value : BaseExpr)
 
 /-- Failures are terminal outcomes of this fragment; exhaustion belongs to the runner. -/
 inductive BaseFault where
@@ -157,6 +164,14 @@ def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnviron
       some .integer
     else
       none
+  | .resultOk value =>
+    match inferBaseType? names activations store value with
+    | some .integer => some .result
+    | _ => none
+  | .resultErr value =>
+    match inferBaseType? names activations store value with
+    | some .integer => some .result
+    | _ => none
 
 def inferArgumentsInteger (names : LexicalEnvironment) (activations : ActivationEnvironment)
     (store : BaseStore) : List BaseExpr → Bool
@@ -195,6 +210,14 @@ def staticType (parameters : List Xsh.Syntax.RawName) : BaseExpr → Option Base
       some .integer
     else
       none
+  | .resultOk value =>
+    match staticType parameters value with
+    | some .integer => some .result
+    | _ => none
+  | .resultErr value =>
+    match staticType parameters value with
+    | some .integer => some .result
+    | _ => none
 
 def staticArgumentsInteger (parameters : List Xsh.Syntax.RawName) : List BaseExpr → Bool
   | [] => true
@@ -220,6 +243,7 @@ def checkBaseExpr (names : LexicalEnvironment) (activations : ActivationEnvironm
     checkIntegerExpr names activations store left && checkIntegerExpr names activations store right
   | expression@(.compare _ _ _) | expression@(.conditional _ _ _) | expression@(.call _ _ _) =>
     (inferBaseType? names activations store expression).isSome
+  | .resultOk value | .resultErr value => checkIntegerExpr names activations store value
 
 inductive BaseControl where
   | evaluate (expression : BaseExpr)
@@ -236,6 +260,8 @@ inductive BaseFrame where
   | branch (thenBranch elseBranch : BaseExpr)
   | callArgument (parameters : List Xsh.Syntax.RawName) (body : BaseExpr)
       (evaluated : List IntValue) (remaining : List BaseExpr)
+  | resultOk
+  | resultErr
 
 structure MachineConfig where
   names : LexicalEnvironment
@@ -279,6 +305,18 @@ def booleanPayload? (value : BaseTypedValue) : Option Bool :=
   | .boolean, .boolean truth => some truth
   | _, _ => none
 
+/-- The tag and integer payload of a `Result[Int, Int]` value. -/
+def resultPayload? (value : BaseTypedValue) : Option (Bool × IntValue) :=
+  match value.typeTag, value.value with
+  | .result, .result isOk integer => some (isOk, integer)
+  | _, _ => none
+
+def typedResult (isOk : Bool) (value : IntValue) : BaseTypedValue := {
+  typeTag := .result
+  value := .result isOk value
+  wellTyped := trivial
+}
+
 def typedBoolean (truth : Bool) : BaseTypedValue := {
   typeTag := .boolean
   value := .boolean truth
@@ -306,6 +344,8 @@ def substitute (bindings : List (Xsh.Syntax.RawName × IntValue)) : BaseExpr →
       (substitute bindings elseBranch)
   | .call parameters body arguments =>
     .call parameters body (substituteArguments bindings arguments)
+  | .resultOk value => .resultOk (substitute bindings value)
+  | .resultErr value => .resultErr (substitute bindings value)
 
 def substituteArguments (bindings : List (Xsh.Syntax.RawName × IntValue)) :
     List BaseExpr → List BaseExpr
@@ -381,6 +421,10 @@ def step (config : MachineConfig) : Option MachineConfig :=
       | argument :: remaining =>
         some (updateState config (.evaluate argument)
           (.callArgument parameters body [] remaining :: config.continuation))
+    | .resultOk value =>
+      some (updateState config (.evaluate value) (.resultOk :: config.continuation))
+    | .resultErr value =>
+      some (updateState config (.evaluate value) (.resultErr :: config.continuation))
   | .returned value =>
     match config.continuation with
     | [] => none
@@ -429,6 +473,14 @@ def step (config : MachineConfig) : Option MachineConfig :=
               updateState config (.evaluate argument)
                 (.callArgument parameters body (evaluated ++ [integer]) more :: rest)
           | none => updateState config (.failed .expectedInteger) rest)
+      | .resultOk =>
+        some (match integerPayload? value with
+          | some integer => updateState config (.returned (typedResult true integer)) rest
+          | none => updateState config (.failed .expectedInteger) rest)
+      | .resultErr =>
+        some (match integerPayload? value with
+          | some integer => updateState config (.returned (typedResult false integer)) rest
+          | none => updateState config (.failed .expectedInteger) rest)
   | .awaitingHost _ => none
   | .failed _ => none
 
@@ -441,11 +493,12 @@ every other frame consumes an integer. -/
 def BaseFrame.consumes : BaseFrame → BaseType
   | .branch _ _ => .boolean
   | .negate | .binaryLeft _ _ | .binaryRight _ _ | .compareLeft _ _ | .compareRight _ _
-  | .callArgument _ _ _ _ => .integer
+  | .callArgument _ _ _ _ | .resultOk | .resultErr => .integer
 
 /-- The type of the value a pending frame hands to the frame below it. -/
 def BaseFrame.produces : BaseFrame → BaseType
   | .compareLeft _ _ | .compareRight _ _ => .boolean
+  | .resultOk | .resultErr => .result
   | .negate | .binaryLeft _ _ | .binaryRight _ _ | .branch _ _ | .callArgument _ _ _ _ => .integer
 
 /-- A frame hands the type the frame below it consumes; the bottom frame hands anything. -/
@@ -483,6 +536,10 @@ def continuationChecked (names : LexicalEnvironment) (activations : ActivationEn
       inferArgumentsInteger names activations store remaining &&
       staticType parameters body == some .integer &&
       continuationChecked names activations store rest
+  | .resultOk :: rest =>
+    producesWhatNextConsumes .resultOk rest && continuationChecked names activations store rest
+  | .resultErr :: rest =>
+    producesWhatNextConsumes .resultErr rest && continuationChecked names activations store rest
 
 /-- A pending frame requires its consumed type of the control until the frame is discharged. -/
 def controlFitsContinuation (names : LexicalEnvironment) (activations : ActivationEnvironment)

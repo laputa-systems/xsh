@@ -21,10 +21,10 @@ theorem assignments_artifact_is_the_decoded_source_document :
 
 /-- The functions the assignments source document parses to. -/
 def assignmentsFunctions : List SourceFunction :=
-  [⟨"scaled", [], [("total", 5)],
+  [⟨"scaled", [], [("total", 5)], none,
       .assigned "total" (.binary .mul (.var "total") (.int 6))
         (.binary .add (.var "total") (.int 1))⟩,
-    ⟨"wrapped", [], [("top", 9223372036854775807)],
+    ⟨"wrapped", [], [("top", 9223372036854775807)], none,
       .assigned "top" (.binary .add (.var "top") (.int 1)) (.atom (.var "top"))⟩]
 
 set_option maxRecDepth 10000 in
@@ -164,13 +164,82 @@ against the same artifact: the product's operands exchanged (the same value, oth
 the assignment dropped (another value). -/
 theorem a_wrong_assignments_lowering_is_rejected :
     lowersTo assignmentsArtifact (assignmentsFunctions.set 0
-        ⟨"scaled", [], [("total", 5)],
+        ⟨"scaled", [], [("total", 5)], none,
           .assigned "total" (.binary .mul (.int 6) (.var "total"))
             (.binary .add (.var "total") (.int 1))⟩) = false ∧
       lowersTo assignmentsArtifact (assignmentsFunctions.set 0
-        ⟨"scaled", [], [("total", 5)], .value (.binary .add (.var "total") (.int 1))⟩) = false ∧
+        ⟨"scaled", [], [("total", 5)], none, .value (.binary .add (.var "total") (.int 1))⟩) = false ∧
       sourceAgrees assignmentsArtifact (assignmentsFunctions.set 0
-        ⟨"scaled", [], [("total", 5)], .value (.binary .add (.var "total") (.int 1))⟩) = false := by
+        ⟨"scaled", [], [("total", 5)], none, .value (.binary .add (.var "total") (.int 1))⟩) = false := by
   refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
+
+def assignedCallFunctions : List SourceFunction :=
+  [⟨"scaled", [], [("total", 5)], none,
+      .assigned "total" (.binary .mul (.var "total") (.int 6))
+        (.binary .add (.var "total") (.int 1))⟩,
+    ⟨"runs", ["value"], [], none, .call "scaled" []⟩,
+    ⟨"ignored", [], [("zero", 0)], none,
+      .assigned "zero" (.binary .div (.int 1) (.var "zero")) (.atom (.int 7))⟩,
+    ⟨"fails", ["value"], [], none, .call "ignored" []⟩]
+
+set_option maxRecDepth 10000 in
+theorem assigned_call_source_parses :
+    parseSourceCodes assignedCallsSourceTextCodes = some assignedCallFunctions := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem assigned_call_functions_lower :
+    (lowerFunctions [1, 2, 3, 4, 5] assignedCallFunctions).isSome = true := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem assigned_calls_preserve_updated_values_and_unused_assignment_faults :
+    ((sourcePrograms assignedCallFunctions).map fun program =>
+      program.bind fun found => found.outcome? (if found.parameters == 0 then [] else [0])) =
+        [some (.value 31), some (.value 31), some (.failure .divisionByZero),
+          some (.failure .divisionByZero)] := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem assigned_calls_reject_wrong_arity_and_forward_calls :
+    (lowerFunctions [1, 2, 3] [⟨"scaled", [], [("total", 5)], none,
+      .assigned "total" (.binary .mul (.var "total") (.int 6))
+        (.binary .add (.var "total") (.int 1))⟩,
+      ⟨"runs", ["value"], [], none, .call "scaled" [.int 1]⟩]).isSome = false ∧
+    (lowerFunctions [1, 2, 3] [⟨"runs", ["value"], [], none, .call "scaled" []⟩, ⟨"scaled", [], [("total", 5)], none,
+      .assigned "total" (.binary .mul (.var "total") (.int 6))
+        (.binary .add (.var "total") (.int 1))⟩]).isSome = false := by
+  decide +kernel
+
+def unusedAssignmentProgram : FunctionProgram :=
+  ⟨0, [⟨1, .integerLiteral 0⟩],
+    some ⟨1, .binary .divide (.integerLiteral 1) (.identifier (NameId.mk 1))⟩,
+    none, .integerLiteral 7⟩
+
+theorem unused_assignment_failure_survives_normalization :
+    ∃ callee, unusedAssignmentProgram.callee? = some callee ∧
+      unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) ∧
+      ∀ fuel, 12 ≤ fuel →
+        Xsh.Semantics.BaseMachine.runFuel fuel (machineOf [] (callee.apply [])) =
+          .completed (.fault (.arithmetic .divisionByZero)) := by
+  have admitted : (⟨"ignored", [], [("zero", 0)], none,
+      .assigned "zero" (.binary .div (.int 1) (.var "zero")) (.atom (.int 7))⟩ : SourceFunction).program? [] =
+      some unusedAssignmentProgram := rfl
+  obtain ⟨callee, result, callable, outcome, runs⟩ :=
+    source_assignment_normalization_is_correct "ignored" "zero" 0
+      (.binary .div (.int 1) (.var "zero")) (.atom (.int 7)) [] admitted
+  have direct : unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) := rfl
+  rw [direct] at outcome
+  cases result with
+  | value value => cases outcome
+  | fault fault =>
+    cases fault with
+    | overflow => cases outcome
+    | divisionByZero => exact ⟨callee, callable, direct, runs⟩
+
+theorem erasing_the_unused_assignment_changes_the_observation :
+    unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) ∧
+      (⟨0, [], none, none, .integerLiteral 7⟩ : FunctionProgram).outcome? [] = some (.value 7) := by
+  constructor <;> rfl
 
 end Xsh.Conformance.Vertical

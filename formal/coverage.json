@@ -10792,8 +10792,8 @@
       "declaration": "Xsh.Conformance.Vertical.program_outcome_is_a_completed_machine_run",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side.",
-      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. It proves nothing about Rust's lowering or execution of the same rows."
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let, at most one `?` binding of a call to an earlier callable function, and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side. The plain form of the outcome theorem is stated for programs without a propagation; `propagated_program_outcome_is_a_completed_machine_run` covers the one propagation binding and states that an `Ok` payload continues the returned expression and an `Err` payload ends the function. The fuel-independence theorem covers the continuation of the returned expression and is stated for the programs without a propagation.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. A propagation is two runs: the callee call completes with `Ok` and the returned expression runs with the payload bound to its slot, or the callee completes with `Err` and that payload is the function's outcome; a specified arithmetic fault of the callee or its arguments ends the function with that failure. `?` is admitted only as one `let target = callee(argument)?` binding of a one-parameter `Result[Int, Int]` function calling an earlier callable function with a constructor result. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.validated_observation_is_a_machine_run",
@@ -10810,8 +10810,8 @@
       "declaration": "Xsh.Conformance.Vertical.machine_run_outcome_is_independent_of_extra_fuel",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side.",
-      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. It proves nothing about Rust's lowering or execution of the same rows."
+      "scope": "The IR meaning of the integer-arithmetic local fixture: a function body of integer lets, at most one plain assignment to a let, at most one `?` binding of a call to an earlier callable function, and one return denotes base-machine configurations, and the validator accepts an artifact only when every recorded observation agrees with the completed outcome of the returned expression run against the bindings the assignment leaves, a returned integer or one of the two specified arithmetic failures, raised by the returned expression or by the assignment's right-hand side. The plain form of the outcome theorem is stated for programs without a propagation; `propagated_program_outcome_is_a_completed_machine_run` covers the one propagation binding and states that an `Ok` payload continues the returned expression and an `Err` payload ends the function. The fuel-independence theorem covers the continuation of the returned expression and is stated for the programs without a propagation.",
+      "boundary": "Covers the Lean base machine and the fixture's IR subset only: no loops, floats, host requests, or control flow beyond the integer conditional. The assignment is run by the machine against the store as it stands and its result replaces the var's value, a definitional model of the store write. A propagation is two runs: the callee call completes with `Ok` and the returned expression runs with the payload bound to its slot, or the callee completes with `Err` and that payload is the function's outcome; a specified arithmetic fault of the callee or its arguments ends the function with that failure. `?` is admitted only as one `let target = callee(argument)?` binding of a one-parameter `Result[Int, Int]` function calling an earlier callable function with a constructor result. It proves nothing about Rust's lowering or execution of the same rows."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.the_admitted_productions_parse",
@@ -10946,7 +10946,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For every list of parsed source functions in the admitted shape and every span words list, when the Lean lowerer succeeds the base-machine program each emitted function row denotes equals the program the source function denotes, function by function.",
-      "boundary": "A theorem about the Lean lowerer and the Lean source meaning. It does not show that Rust's lowerer emits the same rows on other programs, that Rust's parser reads the source as this tree, or that Rust executes the rows. A call to a function with a let or a var is outside the lowered shape, as are compound assignments, which Rust lowers through another row family."
+      "boundary": "A theorem about the Lean lowerer and the Lean source meaning. It does not show that Rust's lowerer emits the same rows on other programs, that Rust's parser reads the source as this tree, or that Rust executes the rows. Calls may carry admitted literal or computed lets and a nullary callee's assignment to its one literal binding. Parameterized assigned callees and compound assignments remain outside the lowered shape; Rust lowers compound assignments through another row family."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.lowers_to_means_the_source",
@@ -11109,6 +11109,1419 @@
       "status": "fragment",
       "scope": "An operation node decodes only with its own ordinal and a known operand type.",
       "boundary": "Finite decoder cases."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.kinded_principal_cons",
+      "module": "Xsh.Typing.Connected.Types",
+      "declaration": "Xsh.Typing.Connected.kinded_principal_cons",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A kind-preserving principal solution for one constraint composes with a kind-preserving principal solution for the substituted remainder to give a principal solution for the original constraint list.",
+      "boundary": "The constraints are the Lean equality and record-field relations. The premises require principal solutions; this theorem does not implement a solver, prove constraint generation, or establish Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.composed_generated_constraints_are_solved",
+      "module": "Xsh.Typing.Connected.Generation",
+      "declaration": "Xsh.Typing.Connected.composed_generated_constraints_are_solved",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The constraints generated for an explicitly constructed core block combining polymorphic calls, a record, a mutable local, and a Bool-controlled Result have a supplied solution.",
+      "boundary": "The core tree and substitution are Lean data. This witness does not establish that the generator is sound or complete, that the solution is principal, that source bytes parse to the tree, or that Rust emits corresponding facts or IR."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.accepted_expression_has_type",
+      "module": "Xsh.Typing.Connected.Sound",
+      "declaration": "Xsh.Typing.Connected.accepted_expression_has_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any fuel, scope, solution, source expression and candidate node, successful independent validation entails the declarative expression typing judgment.",
+      "boundary": "The supplied scope and substitution are assumptions. The admitted expression forms exclude effects, source parsing and execution, and no Rust facts or IR are involved."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.accepted_block_has_type",
+      "module": "Xsh.Typing.Connected.BlockSound",
+      "declaration": "Xsh.Typing.Connected.accepted_block_has_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any fuel, successful validation of a supported statement sequence entails its declarative block typing judgment, including scoped binders, mutable assignment and branch bodies.",
+      "boundary": "This is a static typing judgment. It does not prove function completion, execution, principal inference, source admission, effects, or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.generated_expression_certificate_sound",
+      "module": "Xsh.Typing.Connected.Certificate",
+      "declaration": "Xsh.Typing.Connected.generated_expression_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A successfully checked expression certificate has a declarative typing derivation and its substitution solves the constraints independently generated from that source expression.",
+      "boundary": "This checks a candidate and supplied solution; it does not prove that generation is complete or principal, or connect source bytes, Rust facts, target IR, effects, or execution."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.binary_signature_complete",
+      "module": "Xsh.Typing.Connected.Judgment",
+      "declaration": "Xsh.Typing.Connected.binary_signature_complete",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every declaratively typed supported binary operation has the matching executable signature.",
+      "boundary": "This covers the selected primitive operations only; it does not establish Rust operation selection or evaluation."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.independent_validator_rejects_changed_binding_and_literal",
+      "module": "Xsh.Typing.Connected.Validate",
+      "declaration": "Xsh.Typing.Connected.independent_validator_rejects_changed_binding_and_literal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The expression candidate checker rejects a changed binding and a changed literal for a constructed identity call.",
+      "boundary": "These are Lean examples, not exported Rust facts or source parsing evidence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.check_annotation_sound",
+      "module": "Xsh.Typing.Connected.Validate",
+      "declaration": "Xsh.Typing.Connected.check_annotation_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted annotations agree with the independently interpreted selected type names under the supplied substitution.",
+      "boundary": "The type-name environment and substitution are assumptions; no parser or Rust checker correspondence is established."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.derived_expression_certificate_sound",
+      "module": "Xsh.Typing.Connected.Derivation",
+      "declaration": "Xsh.Typing.Connected.derived_expression_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted expression certificate with a checked unification derivation has a well-sorted principal solution for its generated constraints and a declarative typing derivation.",
+      "boundary": "The checker supports its explicitly represented derivation steps, including known record fields; open-row solving, lacks constraints, completeness, generalization, effects, source and Rust correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
+      "module": "Xsh.Semantics.Connected.Values",
+      "declaration": "Xsh.Semantics.Connected.write_rejects_wrong_type_atomically",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A typed mutable connected store rejects a value of the wrong runtime type without changing the store.",
+      "boundary": "Runtime type interpretation and store behavior are independent Lean definitions; guards, source conformance and Rust execution remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.read_after_assignment",
+      "module": "Xsh.Semantics.Connected.Machine",
+      "declaration": "Xsh.Semantics.Connected.read_after_assignment",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "After an accepted typed-cell write, a read through the active binder returns the committed value.",
+      "boundary": "The machine is partial and does not yet establish preservation, progress, source parsing, effects policy or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.clock_request_survives_result_propagation",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.clock_request_survives_result_propagation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A clock request remains in a connected-machine trace through a successful Result constructor and propagation.",
+      "boundary": "The witness assumes a function table naming clock and Result constructors. It does not establish Rust correspondence, effect-bound checking or host-clock accuracy."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.derived_block_certificate_sound",
+      "module": "Xsh.Typing.Connected.BlockCertificate",
+      "declaration": "Xsh.Typing.Connected.derived_block_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted block candidate has a declarative typing derivation and the checked derivation is principal for its independently generated constraints.",
+      "boundary": "The scope, binder type witnesses, and result type are inputs. It does not establish completeness, source admission, effect typing, or target correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.certified_integer_local_executes",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.certified_integer_local_executes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The independently certified integer local binding, assignment and read has an execution that returns the assigned value from any machine with a fresh activation cell.",
+      "boundary": "The source and candidate are constructed Lean terms; this finite bridge is not general preservation, Rust conformance, source admission, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.execution_preserves_saved_cell_types",
+      "module": "Xsh.Semantics.Connected.Invariant",
+      "declaration": "Xsh.Semantics.Connected.execution_preserves_saved_cell_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled finite execution preserves the type and liveness of already typed cells retained by any saved activation mapping.",
+      "boundary": "This invariant does not establish current-control typing, machine progress, source admission or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.execution_preserves_immutable_cells",
+      "module": "Xsh.Semantics.Connected.Invariant",
+      "declaration": "Xsh.Semantics.Connected.execution_preserves_immutable_cells",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every modeled finite execution preserves the complete contents of pre-existing immutable cells, including saved global function bindings.",
+      "boundary": "The machine remains partial; this is not full typing preservation, Rust execution, or source-to-IR correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.validated_require_decision_preserves_type",
+      "module": "Xsh.Semantics.Connected.Invariant",
+      "declaration": "Xsh.Semantics.Connected.validated_require_decision_preserves_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For an independently validated named-record require and a matching runtime schema table, either supported guard decision steps to a Result whose runtime type projects to the checked type.",
+      "boundary": "The schema-table match is an explicit assumption; general preservation, source modules, Rust facts and IR remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.contextual_expression_certificate_sound",
+      "module": "Xsh.Typing.Connected.ContextCertificate",
+      "declaration": "Xsh.Typing.Connected.contextual_expression_certificate_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted contextual expression has a declarative typing derivation and a principal solution for generated constraints including its propagation error obligations.",
+      "boundary": "The context and scope are inputs; generator completeness, source admission, general machine preservation and Rust correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.record_guard_refusal_remains_a_result",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.record_guard_refusal_remains_a_result",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A constructed named-record require with a wrong field type is statically admitted and evaluates to an error Result; omitting its guard is rejected.",
+      "boundary": "The source, schema and machine table are Lean inputs. This is not Rust execution or a source-byte projection."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scheme_valued_ok_dispatches_after_read",
+      "module": "Xsh.Semantics.Connected.Witness",
+      "declaration": "Xsh.Semantics.Connected.scheme_valued_ok_dispatches_after_read",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A scheme-valued Ok binding instantiates on read and dispatches through argument evaluation to a Result value.",
+      "boundary": "The function table and stored scheme are assumptions; this is not general progress or Rust runtime correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.generated_function_scheme_is_principal",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.generated_function_scheme_is_principal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted generated function scheme is qualified-principal for its generated constraint set, after checking a candidate ordering and generalization.",
+      "boundary": "The function body, parameters, globals and residual requirements are Lean inputs. Solver completeness, source admission and Rust scheme correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.solved_projection_iff_row_lacks",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.solved_projection_iff_row_lacks",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For any closed uniquely named row, a solved projection constraint is equivalent to a field-plus-lacks decomposition modulo field permutation.",
+      "boundary": "This is a Lean semantic representation theorem; the correspondence to published Rust row schemes and their identity mappings remains open."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.qualified_call_preserves_required_field",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.qualified_call_preserves_required_field",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked instantiation of a qualified-principal scheme discharges its original field obligations.",
+      "boundary": "Kind-correct substitution and qualified source scheme are assumptions; actual Rust call instances and general runtime preservation remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.qualified_function_instance_sound",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.qualified_function_instance_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For an accepted concrete call substitution, the independently checked function scheme and body have matching constraints and typing under the composed substitution.",
+      "boundary": "The theorem assumes the call substitution is well-sorted and checks each body instance separately; generic-body typing for every qualified substitution and Rust correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.finite_function_instance_sound",
+      "module": "Xsh.Typing.Connected.Qualified",
+      "declaration": "Xsh.Typing.Connected.finite_function_instance_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked finite substitution gives a well-sorted concrete call instance and validates both generated constraints and body typing.",
+      "boundary": "This checks one instance at a time; generic-body typing for every qualified substitution, actual Rust facts and runtime simulation remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.field_function_instance_sound",
+      "module": "Xsh.Conformance.Connected.FieldFacts",
+      "declaration": "Xsh.Conformance.Connected.field_function_instance_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Matching field operations and selected bindings against generated qualified requirements yields a typed concrete body instance and satisfied field constraints.",
+      "boundary": "The supplied source sites and operation records are Lean inputs; their source admission and Rust document exchange remain open. Generic-body typing for all instances and runtime simulation are not proved."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_record_preserves_fields_and_checks_names",
+      "module": "Xsh.Conformance.Connected.FactsDocument",
+      "declaration": "Xsh.Conformance.Connected.decoded_record_preserves_fields_and_checks_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The connected facts decoder preserves represented record fields and rejects names absent from the supplied mapping.",
+      "boundary": "The mapping is an input, not yet authenticated against source; actual Rust-emitted bytes and runtime behavior remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scheme_variables_are_scoped_by_body_site",
+      "module": "Xsh.Conformance.Connected.FactsDocument",
+      "declaration": "Xsh.Conformance.Connected.scheme_variables_are_scoped_by_body_site",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Equal Rust type parameter ordinals in different body sites use the corresponding body-scoped mappings.",
+      "boundary": "Mappings and body sites are supplied inputs. The emitted Rust document, source admission and complete candidate certificate remain unconnected."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_field_instance_has_typed_body",
+      "module": "Xsh.Conformance.Connected.FieldLink",
+      "declaration": "Xsh.Conformance.Connected.decoded_field_instance_has_typed_body",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked decoded field scheme and call instance yield source-generated qualified constraints and a typed concrete body.",
+      "boundary": "Expected source operations, selected target and name/type mappings are supplied inputs. Sparse expression/read facts, effect obligations, actual emitted bytes and generic-body typing remain unverified."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_projection_uses_shared_wire",
+      "module": "Xsh.Conformance.Connected.ActualFacts",
+      "declaration": "Xsh.Conformance.Connected.decoded_projection_uses_shared_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Decoded projection facts use the shared wire document.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.validated_published_call_has_source_type",
+      "module": "Xsh.Conformance.Connected.CallFacts",
+      "declaration": "Xsh.Conformance.Connected.validated_published_call_has_source_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted published call has the stated source type under the supplied scope and substitution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_derives_time",
+      "module": "Xsh.Conformance.Connected.ClockAdmission",
+      "declaration": "Xsh.Conformance.Connected.clock_source_derives_time",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source derives the modeled time effect.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_tokens_parse",
+      "module": "Xsh.Conformance.Connected.ClockParse",
+      "declaration": "Xsh.Conformance.Connected.clock_tokens_parse",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock tokens parse to the stated declarations.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_admits_unit",
+      "module": "Xsh.Conformance.Connected.ClockSourceAdmit",
+      "declaration": "Xsh.Conformance.Connected.clock_source_admits_unit",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source admits the stated source unit.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_tokenizes",
+      "module": "Xsh.Conformance.Connected.ClockTokens",
+      "declaration": "Xsh.Conformance.Connected.clock_source_tokenizes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source tokenizes to the stated tokens.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_tokens_derive_time",
+      "module": "Xsh.Conformance.Connected.ClockTokensDerive",
+      "declaration": "Xsh.Conformance.Connected.clock_tokens_derive_time",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected parsed clock tokens derive the modeled time effect.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.connected_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.ConnectedDocumentProof",
+      "declaration": "Xsh.Conformance.Connected.connected_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fixed projection fact codes parse to the stated wire value.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.emitted_clock_effects_decode",
+      "module": "Xsh.Conformance.Connected.EffectFacts",
+      "declaration": "Xsh.Conformance.Connected.emitted_clock_effects_decode",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fixed clock effect wire decodes to the stated effect fact.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_identity_uses_shared_wire",
+      "module": "Xsh.Conformance.Connected.IdentityFacts",
+      "declaration": "Xsh.Conformance.Connected.decoded_identity_uses_shared_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Decoded identity facts use the shared wire document.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_qualified_fact_types_every_solution",
+      "module": "Xsh.Conformance.Connected.QualifiedFacts",
+      "declaration": "Xsh.Conformance.Connected.checked_qualified_fact_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked qualified expression fact has its stated type under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.qualified_function_nodes_every_solution",
+      "module": "Xsh.Conformance.Connected.QualifiedNodeFacts",
+      "declaration": "Xsh.Conformance.Connected.qualified_function_nodes_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted source-linked qualified function gives typed nodes for each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.generic_projection_transfer_controls",
+      "module": "Xsh.Conformance.Connected.ResourceControls",
+      "declaration": "Xsh.Conformance.Connected.generic_projection_transfer_controls",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Selected generic projection cases distinguish the modeled transfer controls.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_function_block_transfer",
+      "module": "Xsh.Conformance.Connected.ResourceFacts",
+      "declaration": "Xsh.Conformance.Connected.checked_function_block_transfer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The checked block transfer fact agrees with the modeled transfer.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_document_decodes",
+      "module": "Xsh.Conformance.Connected.ScopedDecode",
+      "declaration": "Xsh.Conformance.Connected.scoped_document_decodes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped fact codes decode to the stated document and scopes.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.ScopedDocumentProof",
+      "declaration": "Xsh.Conformance.Connected.scoped_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped fact codes parse to the stated wire value.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_store_site_types_every_solution",
+      "module": "Xsh.Conformance.Connected.ScopedOccurrences",
+      "declaration": "Xsh.Conformance.Connected.checked_store_site_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked storage site has a typed source expression and compatible storage under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.actual_scoped_source_is_admitted",
+      "module": "Xsh.Conformance.Connected.ScopedParse",
+      "declaration": "Xsh.Conformance.Connected.actual_scoped_source_is_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped source admits the stated source unit.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_source_tokenizes",
+      "module": "Xsh.Conformance.Connected.ScopedTokens",
+      "declaration": "Xsh.Conformance.Connected.scoped_source_tokenizes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped source tokenizes to the stated tokens.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.admits_located_projection_source",
+      "module": "Xsh.Conformance.Connected.SourceAdmission",
+      "declaration": "Xsh.Conformance.Connected.admits_located_projection_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected projection source passes the modeled located admission check.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.changed_region_occurrence_is_rejected",
+      "module": "Xsh.Conformance.Connected.SourceEffectModel",
+      "declaration": "Xsh.Conformance.Connected.changed_region_occurrence_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected changed effect-region occurrence is rejected.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.clock_source_validates_emitted_effects",
+      "module": "Xsh.Conformance.Connected.SourceEffects",
+      "declaration": "Xsh.Conformance.Connected.clock_source_validates_emitted_effects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected clock source validates its emitted effect record.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_expression_fact_matches",
+      "module": "Xsh.Conformance.Connected.SparseFacts",
+      "declaration": "Xsh.Conformance.Connected.checked_expression_fact_matches",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked sparse expression fact matches the independently validated expression type.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.store_compatible_runtime",
+      "module": "Xsh.Semantics.Connected.StoreRuntime",
+      "declaration": "Xsh.Semantics.Connected.store_compatible_runtime",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Symbolic storage compatibility implies runtime compatibility when both types convert.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.integer_value_shape",
+      "module": "Xsh.Semantics.Connected.TypedBinary",
+      "declaration": "Xsh.Semantics.Connected.integer_value_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A value with the exact integer runtime tag has the modeled integer shape.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scope_binding_unique",
+      "module": "Xsh.Semantics.Connected.TypedScope",
+      "declaration": "Xsh.Semantics.Connected.scope_binding_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Members of a binder-unique scope cannot share the same binder.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.context_validate_node_integer_sound",
+      "module": "Xsh.Typing.Connected.NodeBlockSound",
+      "declaration": "Xsh.Typing.Connected.context_validate_node_integer_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted contextual integer node has the stated node type.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.accepted_function_instance_has_node_type",
+      "module": "Xsh.Typing.Connected.NodeCertificate",
+      "declaration": "Xsh.Typing.Connected.accepted_function_instance_has_node_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted function instance has the modeled node type under its supplied solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.instantiation_sorts_compose",
+      "module": "Xsh.Typing.Connected.NodeJudgment",
+      "declaration": "Xsh.Typing.Connected.instantiation_sorts_compose",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Well-sorted substitutions compose with checked instantiation sorts.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validate_node_integer_sound",
+      "module": "Xsh.Typing.Connected.NodeSound",
+      "declaration": "Xsh.Typing.Connected.validate_node_integer_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted integer node has the stated node type.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validate_qualified_blocks_sound",
+      "module": "Xsh.Typing.Connected.QualifiedBlockSound",
+      "declaration": "Xsh.Typing.Connected.validate_qualified_blocks_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted qualified blocks and branches have corresponding typing judgments.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.c_validate_qualified_read_sound",
+      "module": "Xsh.Typing.Connected.QualifiedContextSound",
+      "declaration": "Xsh.Typing.Connected.c_validate_qualified_read_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted qualified read has its contextual typing judgment.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.cyclic_store_scheme_has_no_solution",
+      "module": "Xsh.Typing.Connected.QualifiedControls",
+      "declaration": "Xsh.Typing.Connected.cyclic_store_scheme_has_no_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "No substitution satisfies the selected cyclic field-and-store scheme.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.checked_ground_scheme_has_unique_rows",
+      "module": "Xsh.Typing.Connected.QualifiedFunction",
+      "declaration": "Xsh.Typing.Connected.checked_ground_scheme_has_unique_rows",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked ground scheme has unique rows in its substituted body and requirements.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.insert_field_substitutes",
+      "module": "Xsh.Typing.Connected.QualifiedJudgment",
+      "declaration": "Xsh.Typing.Connected.insert_field_substitutes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Substitution commutes with modeled sorted field insertion.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.qualified_context_node_instantiates",
+      "module": "Xsh.Typing.Connected.QualifiedNode",
+      "declaration": "Xsh.Typing.Connected.qualified_context_node_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A qualified node judgment instantiates under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validate_qualified_node_blocks_sound",
+      "module": "Xsh.Typing.Connected.QualifiedNodeBlockSound",
+      "declaration": "Xsh.Typing.Connected.validate_qualified_node_blocks_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted qualified node blocks and branches have corresponding typing judgments.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validated_qualified_node_instantiates",
+      "module": "Xsh.Typing.Connected.QualifiedNodeSound",
+      "declaration": "Xsh.Typing.Connected.validated_qualified_node_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted qualified node instantiates under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.validated_qualified_expression_instantiates",
+      "module": "Xsh.Typing.Connected.QualifiedSound",
+      "declaration": "Xsh.Typing.Connected.validated_qualified_expression_instantiates",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted qualified expression instantiates under each supplied sorted solution.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Typing.Connected.scoped_example_is_typed",
+      "module": "Xsh.Typing.Connected.ScopedControls",
+      "declaration": "Xsh.Typing.Connected.scoped_example_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected scoped mutable-local example passes the block validator.",
+      "boundary": "Only the stated Lean proposition is proved; complete source, Rust, raw-IR, and execution correspondence is not established by this entry."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.decoded_raw_tag_has_canonical_ordinal",
+      "module": "Xsh.Conformance.Connected.RawRows",
+      "declaration": "Xsh.Conformance.Connected.decoded_raw_tag_has_canonical_ordinal",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Each accepted raw tag has the ordinal assigned to its name by the partial Lean tag table.",
+      "boundary": "The tag table is a partial model; correspondence to all Rust tags, source instructions, and execution is not established by this theorem."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.write_preserves_activation_bound",
+      "module": "Xsh.Semantics.Connected.SafetyActivation",
+      "declaration": "Xsh.Semantics.Connected.write_preserves_activation_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem write_preserves_activation_bound about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.writable_contract_after_binding",
+      "module": "Xsh.Semantics.Connected.SafetyBindingPreservation",
+      "declaration": "Xsh.Semantics.Connected.writable_contract_after_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem writable_contract_after_binding about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.step_preserves_machine_memory_invariant",
+      "module": "Xsh.Semantics.Connected.SafetyCallScope",
+      "declaration": "Xsh.Semantics.Connected.step_preserves_machine_memory_invariant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem step_preserves_machine_memory_invariant about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.returned_caller_restores_scope",
+      "module": "Xsh.Semantics.Connected.SafetyCaller",
+      "declaration": "Xsh.Semantics.Connected.returned_caller_restores_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem returned_caller_restores_scope about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.missing_callable_cannot_invoke",
+      "module": "Xsh.Semantics.Connected.SafetyCalls",
+      "declaration": "Xsh.Semantics.Connected.missing_callable_cannot_invoke",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem missing_callable_cannot_invoke about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_expression_conditional_frame",
+      "module": "Xsh.Semantics.Connected.SafetyControl",
+      "declaration": "Xsh.Semantics.Connected.typed_expression_conditional_frame",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_expression_conditional_frame about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_expression_progress",
+      "module": "Xsh.Semantics.Connected.SafetyExpression",
+      "declaration": "Xsh.Semantics.Connected.typed_expression_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_expression_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_function_call_enters_scope",
+      "module": "Xsh.Semantics.Connected.SafetyFunctionEntry",
+      "declaration": "Xsh.Semantics.Connected.typed_function_call_enters_scope",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_function_call_enters_scope about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.checked_initial_machine_typed",
+      "module": "Xsh.Semantics.Connected.SafetyInitialization",
+      "declaration": "Xsh.Semantics.Connected.checked_initial_machine_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem checked_initial_machine_typed about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.allocate_preserves_activation_bound",
+      "module": "Xsh.Semantics.Connected.SafetyInvoke",
+      "declaration": "Xsh.Semantics.Connected.allocate_preserves_activation_bound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem allocate_preserves_activation_bound about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.incompatible_bad_step",
+      "module": "Xsh.Semantics.Connected.SafetyNoFault",
+      "declaration": "Xsh.Semantics.Connected.incompatible_bad_step",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem incompatible_bad_step about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_require_start",
+      "module": "Xsh.Semantics.Connected.SafetyNominalPreservation",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_require_start",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_require_start about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.parameter_cells_agree_after_binding",
+      "module": "Xsh.Semantics.Connected.SafetyParameterCells",
+      "declaration": "Xsh.Semantics.Connected.parameter_cells_agree_after_binding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem parameter_cells_agree_after_binding about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.parameter_bindings_scope_values",
+      "module": "Xsh.Semantics.Connected.SafetyParameterScope",
+      "declaration": "Xsh.Semantics.Connected.parameter_bindings_scope_values",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem parameter_bindings_scope_values about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.allocate_other_cell",
+      "module": "Xsh.Semantics.Connected.SafetyParameters",
+      "declaration": "Xsh.Semantics.Connected.allocate_other_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem allocate_other_cell about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_step_preservation",
+      "module": "Xsh.Semantics.Connected.SafetyPreservation",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_step_preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_step_preservation about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.record_types_preserve_names",
+      "module": "Xsh.Semantics.Connected.SafetyRecord",
+      "declaration": "Xsh.Semantics.Connected.record_types_preserve_names",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem record_types_preserve_names about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.result_value_shape",
+      "module": "Xsh.Semantics.Connected.SafetyResult",
+      "declaration": "Xsh.Semantics.Connected.result_value_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem result_value_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.compatible_ok_inner",
+      "module": "Xsh.Semantics.Connected.SafetyResultPreservation",
+      "declaration": "Xsh.Semantics.Connected.compatible_ok_inner",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem compatible_ok_inner about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scheme_function_type_shape",
+      "module": "Xsh.Semantics.Connected.SafetySavedScope",
+      "declaration": "Xsh.Semantics.Connected.scheme_function_type_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem scheme_function_type_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.scope_writable_contract_survives",
+      "module": "Xsh.Semantics.Connected.SafetyScopeStorage",
+      "declaration": "Xsh.Semantics.Connected.scope_writable_contract_survives",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem scope_writable_contract_survives about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.store_compatible_composes",
+      "module": "Xsh.Semantics.Connected.SafetyStoreComposition",
+      "declaration": "Xsh.Semantics.Connected.store_compatible_composes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem store_compatible_composes about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.integer_has_exact_type",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBinary",
+      "declaration": "Xsh.Semantics.Connected.integer_has_exact_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem integer_has_exact_type about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_tail_branch_complete",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBranchComplete",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_tail_branch_complete",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_tail_branch_complete about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ground_empty_branch",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBranchEntry",
+      "declaration": "Xsh.Semantics.Connected.ground_empty_branch",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem ground_empty_branch about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_invoke_value",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockBuiltins",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_invoke_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_invoke_value about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.pending_stack_activation_below",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCall",
+      "declaration": "Xsh.Semantics.Connected.pending_stack_activation_below",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem pending_stack_activation_below about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.function_has_exact_type",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCallArguments",
+      "declaration": "Xsh.Semantics.Connected.function_has_exact_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem function_has_exact_type about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_caller_resume",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCallerReturn",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_caller_resume",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_caller_resume about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.boolean_fit_is_boolean",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCompatibility",
+      "declaration": "Xsh.Semantics.Connected.boolean_fit_is_boolean",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem boolean_fit_is_boolean about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_value_block_complete",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockCompletion",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_value_block_complete",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_value_block_complete about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_empty_expression_branch",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockConditional",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_empty_expression_branch",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_empty_expression_branch about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.saved_frame_scope_survives_step",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockFramePreservation",
+      "declaration": "Xsh.Semantics.Connected.saved_frame_scope_survives_step",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem saved_frame_scope_survives_step about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.record_value_shape",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockFrames",
+      "declaration": "Xsh.Semantics.Connected.record_value_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem record_value_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ground_node_type",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockGround",
+      "declaration": "Xsh.Semantics.Connected.ground_node_type",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem ground_node_type about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.grounded_read_operationally_compatible",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockInvariant",
+      "declaration": "Xsh.Semantics.Connected.grounded_read_operationally_compatible",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem grounded_read_operationally_compatible about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.mono_runtime_is_not_scheme_function",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockInvoke",
+      "declaration": "Xsh.Semantics.Connected.mono_runtime_is_not_scheme_function",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem mono_runtime_is_not_scheme_function about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_propagated_control_shape",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockLocalProgress",
+      "declaration": "Xsh.Semantics.Connected.typed_propagated_control_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_propagated_control_shape about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.pending_head_binders_fresh",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockPendingProof",
+      "declaration": "Xsh.Semantics.Connected.pending_head_binders_fresh",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem pending_head_binders_fresh about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_expression_push",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockPreservation",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_expression_push",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_expression_push about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.ground_expression_progress",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockProgress",
+      "declaration": "Xsh.Semantics.Connected.ground_expression_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem ground_expression_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.field_lookup_preserves_callables",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockProjection",
+      "declaration": "Xsh.Semantics.Connected.field_lookup_preserves_callables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem field_lookup_preserves_callables about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.read_preserves_callable_provenance",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockRead",
+      "declaration": "Xsh.Semantics.Connected.read_preserves_callable_provenance",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem read_preserves_callable_provenance about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_empty_record",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockRecord",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_empty_record",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_empty_record about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.runtime_fields_insert",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockRecordFinish",
+      "declaration": "Xsh.Semantics.Connected.runtime_fields_insert",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem runtime_fields_insert about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.frame_block_scope_reindex",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockScopeTransport",
+      "declaration": "Xsh.Semantics.Connected.frame_block_scope_reindex",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem frame_block_scope_reindex about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.pending_safe_of_sublist",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockStatements",
+      "declaration": "Xsh.Semantics.Connected.pending_safe_of_sublist",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem pending_safe_of_sublist about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_return_stack_progress",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockUnwind",
+      "declaration": "Xsh.Semantics.Connected.typed_return_stack_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_return_stack_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.noncaller_frame_context",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockUnwinding",
+      "declaration": "Xsh.Semantics.Connected.noncaller_frame_context",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem noncaller_frame_context about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_expression_value",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockValues",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_expression_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_expression_value about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.boolean_initial_machine_is_typed",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockWitness",
+      "declaration": "Xsh.Semantics.Connected.boolean_initial_machine_is_typed",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem boolean_initial_machine_is_typed about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.allocate_preserves_store_callables",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockWorld",
+      "declaration": "Xsh.Semantics.Connected.allocate_preserves_store_callables",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem allocate_preserves_store_callables about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.step_preserves_global_context",
+      "module": "Xsh.Semantics.Connected.SafetyWorld",
+      "declaration": "Xsh.Semantics.Connected.step_preserves_global_context",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem step_preserves_global_context about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_excludes_internal_fault",
+      "module": "Xsh.Semantics.Connected.SafetyNoFault",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_excludes_internal_fault",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_excludes_internal_fault about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_safe_progress",
+      "module": "Xsh.Semantics.Connected.SafetyValueBlockLocalProgress",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_safe_progress",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_safe_progress about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_machine_execution_preservation",
+      "module": "Xsh.Semantics.Connected.SafetyInitialization",
+      "declaration": "Xsh.Semantics.Connected.typed_machine_execution_preservation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_machine_execution_preservation about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.typed_execution_fault_is_integer",
+      "module": "Xsh.Semantics.Connected.SafetyInitialization",
+      "declaration": "Xsh.Semantics.Connected.typed_execution_fault_is_integer",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem typed_execution_fault_is_integer about the connected semantic model, under its stated premises.",
+      "boundary": "This theorem does not by itself establish source admission, Rust conformance, or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.runtime_closed_storage_survives_extension",
+      "module": "Xsh.Semantics.Connected.SafetyReadGrounding",
+      "declaration": "Xsh.Semantics.Connected.runtime_closed_storage_survives_extension",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem runtime_closed_storage_survives_extension about grounding checked connected source, under its stated premises.",
+      "boundary": "These premises do not by themselves establish source-to-machine initialization or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.validated_scoped_document_candidate_types",
+      "module": "Xsh.Semantics.Connected.SafetySourceGrounding",
+      "declaration": "Xsh.Semantics.Connected.validated_scoped_document_candidate_types",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem validated_scoped_document_candidate_types about grounding checked connected source, under its stated premises.",
+      "boundary": "These premises do not by themselves establish source-to-machine initialization or raw-IR simulation."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.Connected.actual_scoped_call_grounded",
+      "module": "Xsh.Semantics.Connected.SafetyScopedFixture",
+      "declaration": "Xsh.Semantics.Connected.actual_scoped_call_grounded",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lean theorem actual_scoped_call_grounded about grounding checked connected source, under its stated premises.",
+      "boundary": "The certified body is one admitted source fixture; general source initialization and raw-IR simulation remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.checked_raw_store_correspondence_types_every_solution",
+      "module": "Xsh.Conformance.Connected.RawStore",
+      "declaration": "Xsh.Conformance.Connected.checked_raw_store_correspondence_types_every_solution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A checked raw StoreValue ordinal, statement site, and supplied binder-to-slot mapping agree with a scoped assignment fact for every sorted solution.",
+      "boundary": "The binder-to-slot mapping, raw right-hand expression, transfer mark, and execution correspondence remain unchecked."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
+      "module": "Xsh.Conformance.Connected.RawStoreFixture",
+      "declaration": "Xsh.Conformance.Connected.projected_scoped_store_checks_and_rejects_mutations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The projected scoped assignment checks and rejects changed ordinal, slot, statement location, tag name, and assignment operator.",
+      "boundary": "The rows are a projection of diagnostic output, not an exact decoded foreign artifact or a runtime simulation."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
+      "module": "Xsh.Conformance.Connected.ScopedCertificate",
+      "declaration": "Xsh.Conformance.Connected.scoped_assignment_retains_statement_and_expression_sites",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The admitted scoped fixture retains both the assignment statement and RHS expression sites.",
+      "boundary": "This fixture theorem does not establish general source-parser parity or raw execution."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.lex_append_prefix",
+      "module": "Xsh.Conformance.Transport.JsonLexPrefix",
+      "declaration": "Xsh.Conformance.Transport.lex_append_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Lexing a concatenation composes through its prefix state.",
+      "boundary": "This parser lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Transport.parse_append_prefix",
+      "module": "Xsh.Conformance.Transport.JsonParsePrefix",
+      "declaration": "Xsh.Conformance.Transport.parse_append_prefix",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Token parsing composes through its prefix state.",
+      "boundary": "This parser lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scopedLexResult",
+      "module": "Xsh.Conformance.Connected.ScopedLexProof",
+      "declaration": "Xsh.Conformance.Connected.scopedLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact scoped fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.parserStep26",
+      "module": "Xsh.Conformance.Connected.ScopedParseStates",
+      "declaration": "Xsh.Conformance.Connected.parserStep26",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The final scoped token segment advances the stated parser state.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.identityLexResult",
+      "module": "Xsh.Conformance.Connected.IdentityLexProof",
+      "declaration": "Xsh.Conformance.Connected.identityLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact identity fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.identity_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.IdentityDocumentProof",
+      "declaration": "Xsh.Conformance.Connected.identity_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact identity fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.connectedLexResult",
+      "module": "Xsh.Conformance.Connected.ConnectedLexProof",
+      "declaration": "Xsh.Conformance.Connected.connectedLexResult",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The exact connected fact bytes lex to the stated tokens.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.effect_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.Documents",
+      "declaration": "Xsh.Conformance.Connected.effect_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The selected effect fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_transfer_facts_parse_to_wire",
+      "module": "Xsh.Conformance.Connected.ScopedTransferDocuments",
+      "declaration": "Xsh.Conformance.Connected.scoped_transfer_facts_parse_to_wire",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scoped transfer fact bytes parse to the stated wire value.",
+      "boundary": "This fixture lemma does not establish source or Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Connected.scoped_assignment_transfer_matches_source_and_rejects_mutations",
+      "module": "Xsh.Conformance.Connected.ScopedTransferEvidence",
+      "declaration": "Xsh.Conformance.Connected.scoped_assignment_transfer_matches_source_and_rejects_mutations",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The scoped assignment transfer fact agrees with its outer-binding source occurrence and typed projected row; altered fact fields fail.",
+      "boundary": "The projection uses a supplied binder-to-slot map; foreign candidate marks and general checker correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.pure_integer_evaluation_steps",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.pure_integer_evaluation_steps",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every derivation of pure checked integer literals, typed local reads and arithmetic has a bounded BaseMachine MachineSteps path under arbitrary continuation frames, preserving the first arithmetic failure. The bound is the sum of operand transition bounds and the operation's administrative steps.",
+      "boundary": "The pure integer expression grammar only; typed reads must agree with the supplied machine environment. No calls, host operations, records, parsing, Rust implementation or whole-core soundness claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.assigned_literal_normalization_operationally_correct",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.assigned_literal_normalization_operationally_correct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A nullary function assigning its one valid literal local has the same integer value or arithmetic failure under actual FunctionProgram settlement and normalized Callee application. Pure evaluation derivations and explicit syntax-derived transition bounds cover the direct 128-step stages; the call may use any fuel at least its argument and body costs plus two administrative steps.",
+      "boundary": "Independent Lean pure integer semantics with one literal local and one assignment. The return must have a pure integer derivation for every possible updated local. No identical step-count assumption, effectful expressions, parameterized assigned callees, source-byte admission or Rust soundness claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.source_assignment_normalization_is_correct",
+      "module": "Xsh.Conformance.Vertical.LoweringSound",
+      "declaration": "Xsh.Conformance.Vertical.source_assignment_normalization_is_correct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Success of the existing SourceFunction.program? projection for every admitted nullary function with one literal local, one plain assignment and an integer return derives the pure evaluation and fuel premises. Its actual direct settlement observation equals its normalized callee's observation for every call fuel at least twelve transitions, including a failing assignment whose local is unused by the return.",
+      "boundary": "The admitted Lean SourceValue grammar over one local and integer literals, after supplied syntax. No assumption of operational equivalence appears in the premise. Parsing original source bytes, fact-to-IR consistency, parameterized assigned callees, other core constructs and Rust implementation soundness remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.parse_source_admitted",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.parse_source_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every successful parse of arbitrary original character codes derives independent complete lexical and function-grammar witnesses, including literal interpretation and ordered propagation targets.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.scope_projection",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.scope_projection",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every successful source-function scope computation derives an independent slot projection relation for the admitted function shape.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.check_sound",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.check_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Acceptance of exact UInt8 source bytes, candidate functions and slot tables derives independent grammar and projection witnesses, distinct function names and an empty module-input environment.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_projection_unique",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_projection_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For fixed original bytes and module inputs, two accepted tree and scope candidates are equal.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement. Uniqueness concerns checker outputs; it does not assert that the entire declarative grammar is unambiguous."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.admitted_lowering_means_source",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.admitted_lowering_means_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted original-byte tree and scope candidate plus exact Lean artifact reproduction imply that the artifact's function meanings equal those of the independently admitted source tree.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement. The premise checks Lean lowerer reproduction, not universal Rust lowering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.certified_codes_admitted",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.certified_codes_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every successful source-code certificate derives independent grammar admission, source identity, artifact validity, named observations and equality of source and IR function meanings.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement. Source-document decoding and Rust extraction remain separate boundaries."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.admitted_bytes_are_ascii",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.admitted_bytes_are_ascii",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every byte of an accepted original-byte candidate is less than 128.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.accepted_facts_match_ir",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.accepted_facts_match_ir",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted fact derivations and exact Lean lowering imply independent correspondence to actual function, local, read, operand, operation, call, branch, return and body rows, plus source/IR function-meaning equality.",
+      "boundary": "The accepted pure Int fact grammar intersected with the Lean lowerer: values, calls, conditionals and supported literal lets. No Bool-return, Result, assigned or computed-let fact derivation, or universal Rust conformance. Structural validity is not a premise of this root; the certified composition adds it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.certified_facts_match_certified_ir",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.certified_facts_match_certified_ir",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful source-bound fact and source/IR document certificates derive matching source IDs, independent correspondence from accepted facts to actual IR rows, artifact validity, observations and source/IR function-meaning equality.",
+      "boundary": "The accepted pure Int fact grammar intersected with the Lean lowerer: values, calls, conditionals and supported literal lets. No Bool-return, Result, assigned or computed-let fact derivation, or universal Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.checked_facts_exclude_unsupported_propagation",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.checked_facts_exclude_unsupported_propagation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every function in an accepted fact candidate has no propagation binding; both the executable validator and independent declarative rules reject this unsupported shape.",
+      "boundary": "The accepted pure Int fact grammar intersected with the Lean lowerer: values, calls, conditionals and supported literal lets. No Bool-return, Result, assigned or computed-let fact derivation, or universal Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.admitted_facts_match_ir",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.admitted_facts_match_ir",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the same exact original source bytes, admitted tree and scopes, checked facts and reproduced artifact, compose independent source admission, scope projection, facts-to-IR row consistency and equality of source/IR function meanings.",
+      "boundary": "The shared domain is the supported pure Int fact grammar intersected with the ASCII source checker and Lean lowerer, with no module inputs. No general parse-failure or diagnostic proof, Rust parser/lowerer agreement, arbitrary IR validation, or Rust execution claim."
     }
   ],
   "artifact_certificates": [
@@ -11249,6 +12662,227 @@
       ],
       "proposition": "For each of two pairs, a source document (`sourceDocumentCodes`, `callsSourceDocumentCodes`) and the checked-facts document the Rust checker published for it, both decode, the facts document names the source document, the source text parses in the admitted productions, and the CERT-FACTS validator accepts the decoded facts, which therefore are a valid derivation of the declarative rules for the parsed functions: every resolution, selected callee, argument count, operand and result type, scheme, let type, effect set and evaluation order the Rust checker published equals what the rules determine. The validator reads nothing from the candidate except the facts it lists. The rejection theorems show that a forged binding, selected operation, effect, scheme or let type, a changed evaluation order, a wrong declaration or argument count, a missing or extra function, a forged literal, changed bytes in either document, and a validator that trusts the candidate are caught.",
       "boundary": "The identity is the bytes of the two facts code lists, which the Rust bridge test `facts::tests::exported_facts_are_the_lean_certified_bytes` requires Rust's exporter to produce from the checker's published tables. The exporter is test-only bridge code that reads `CompactDeclOutput` and the checker's recorded binary operators; operand and result types, resolutions, selected callees, signatures and effect facts come from those tables, and literal values and evaluation order come from the parse. The Lean parser is independent; Rust correspondence for these sources is finite evidence from the named frozen-source bridge case; the facts cover the admitted productions (integer parameters, one let, a value, a call or a conditional) and carry no guard, nominal or module identity. Nothing relates the facts to the raw IR yet, and nothing shows the checker publishes correct facts for other programs."
+    },
+    {
+      "id": "artifact.scoped-checked-facts",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "candidate-fact-set",
+      "artifact_module": "Xsh.Conformance.Connected.ScopedDocuments",
+      "artifact_definitions": [
+        "Xsh.Conformance.Connected.scopedFactsCodes"
+      ],
+      "module": "Xsh.Conformance.Connected.ScopedCertificate",
+      "certificate": "Xsh.Conformance.Connected.actual_scoped_facts_are_checked",
+      "supporting_theorems": [],
+      "rejection_theorems": [
+        "Xsh.Conformance.Connected.actual_scoped_fact_mutations_are_rejected"
+      ],
+      "proposition": "The selected scoped source is admitted, the fixed fact codes decode to the stated checker-fact document, and the scoped validator accepts that source and document. Ten altered decoded body and call fact records are rejected.",
+      "boundary": "The pinned focused Rust bridge test compares the actual checker export and source with the Lean fact codes and source text. This is one bounded source/fact artifact; the rejection theorem changes decoded facts, not the original bytes. The matching final source-freeze replay, raw-IR correspondence, runtime execution, and general connected theorem remain open."
+    },
+    {
+      "id": "artifact.boolean-comparison-control",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.booleanSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.booleanRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.BooleanCertificate",
+      "certificate": "Xsh.Conformance.Vertical.boolean_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.boolean_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.boolean_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_boolean_source_parses_to_the_boolean_functions",
+        "Xsh.Conformance.Vertical.the_boolean_functions_lower_to_the_boolean_artifact",
+        "Xsh.Conformance.Vertical.the_boolean_artifact_validates",
+        "Xsh.Conformance.Vertical.the_boolean_functions_mean_the_same_as_the_boolean_artifact",
+        "Xsh.Conformance.Vertical.the_boolean_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.boolean_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_boolean_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_boolean_operation_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_boolean_operand_order_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_truth_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_boolean_argument_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_boolean_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_boolean_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_boolean_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (two functions of two integer parameters, each returning a comparison of its parameters under a declared `Bool` return); lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool (`Gt` then `Lt`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `exceeds` on 12, 9 and on 3, 9 and `below` on 3, 9 and on 12, 9 end with true, false, true and false, recorded in that order, with a boolean recorded as one value bit. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong comparison operation or operand order, a wrong recorded truth or argument list, structurally malformed IR, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The declared `Bool` return type is checked by the parser and not stored in the tree; the comparison result determines the meaning. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string and records a boolean outcome as the value bit `1` or `0`. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The fixture has no calls, lets or Result control."
+    },
+    {
+      "id": "artifact.result-construction-control",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.resultSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.resultRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.ResultCertificate",
+      "certificate": "Xsh.Conformance.Vertical.result_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.result_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.result_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_result_source_parses_to_the_result_functions",
+        "Xsh.Conformance.Vertical.the_result_functions_lower_to_the_result_artifact",
+        "Xsh.Conformance.Vertical.the_result_artifact_validates",
+        "Xsh.Conformance.Vertical.the_result_functions_mean_the_same_as_the_result_artifact",
+        "Xsh.Conformance.Vertical.the_result_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.result_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_result_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_constructor_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_constructor_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_result_payload_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_result_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_result_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_result_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (three functions of one integer parameter under a declared `Result[Int, Int]` return: two build a constructor over their parameter and one over an addition); the declared `Result[Int, Int]` return admits only an `Ok` or `Err` construction; lowering the parsed functions reproduces the raw-IR document's rows, payload words, operation pool (`Add`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `keeps` on 7, `stops` on 5, and `adds` on 4 and on -1 end with `Ok` of 7, `Err` of 5, and `Ok` of 5 and 0, recorded in that order, with a constructor outcome recorded as its own word and the payload's 64-bit pattern. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a wrong constructor, a wrong recorded constructor or payload, structurally malformed IR, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The declared `Result[Int, Int]` return type is checked by the parser and not stored in the tree; the constructor result determines the meaning. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers `Result[Int, Int]` construction only (`Ok` or `Err` of an integer value); `?` propagation, error producers, other `Result` payload types, matching and binding are outside it. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer. The fixture has no calls, lets or propagation."
+    },
+    {
+      "id": "artifact.result-propagation-control",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.propagationSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.propagationRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.PropagationCertificate",
+      "certificate": "Xsh.Conformance.Vertical.propagation_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.propagation_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.propagation_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_propagation_source_parses_to_the_propagation_functions",
+        "Xsh.Conformance.Vertical.the_propagation_functions_lower_to_the_propagation_artifact",
+        "Xsh.Conformance.Vertical.the_propagation_artifact_validates",
+        "Xsh.Conformance.Vertical.the_propagation_functions_mean_the_same_as_the_propagation_artifact",
+        "Xsh.Conformance.Vertical.the_propagation_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.propagation_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_propagation_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_propagation_call_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_propagation_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_propagation_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_propagation_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_propagation_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (four functions of one integer parameter under a declared `Result[Int, Int]` return: two build a constructor, one adds one before `Ok`, and two bind a call of an earlier callable function under `?` and return `Ok` of the bound payload); each propagation names an earlier callable function with a constructor result and that function's argument count; lowering the parsed functions emits the argument rows, argument block, `ExprDirectPureCall`, `ExprTry` and `StmtLet` rows with the target slot and absent annotation word, and reproduces the raw-IR document's rows, payload words, operation pool (`Add`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of `keeps` on 7, `stops` on 5, `passes` on 7 and on -3, and `blocks` on 5 end with `Ok` 8, `Err` 5, `Ok` 8, `Err` 5 and `Ok` -2, in the recorded order. A propagation whose callee completes with `Ok` continues with that payload bound to its slot (the `passes` run on -3 returns -2, the callee's payload, not the argument); one whose callee completes with `Err` ends the enclosing function with the same payload. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted propagation call, a wrong recorded propagation outcome or payload, structurally malformed propagation rows, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers one `let target = callee(argument)?` binding in a one-parameter `Result[Int, Int]` function, with the callee an earlier callable function returning a constructor; `?` on other operations, propagation through records, matches or other payload types, an error producer, and a function that both propagates and assigns are outside it. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
+    },
+    {
+      "id": "artifact.integer-let-calls",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.letCallSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.letCallRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.LetCallCertificate",
+      "certificate": "Xsh.Conformance.Vertical.letCall_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.letCall_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.letCall_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_let_call_source_parses_to_the_let_call_functions",
+        "Xsh.Conformance.Vertical.the_let_call_functions_lower_to_the_let_call_artifact",
+        "Xsh.Conformance.Vertical.the_let_call_artifact_validates",
+        "Xsh.Conformance.Vertical.the_let_call_functions_mean_the_same_as_the_let_call_artifact",
+        "Xsh.Conformance.Vertical.the_let_call_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.let_call_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_let_call_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_let_call_callee_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_let_call_binding_read_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_let_call_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_let_call_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_let_call_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_let_call_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (two integer functions of one parameter: `bumps` has one integer let `step` and returns the sum of its parameter and the let; `runs` calls `bumps` on its parameter); the parameter takes slot 0 and the let slot 2, where the exporter places them; lowering the parsed functions emits the `IntInt`, `StmtLetInt [2, valueRow]`, parameter reads, `ExprBinary` and `StmtReturn` rows of the callee and, for the caller, the argument row, argument block, `ExprDirectPureCall`, `StmtReturn` and body rows, reproducing the raw-IR document's rows, payload words, operation pool (`Add`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the three recorded calls end with 7 for `bumps` on 5, 7 for `runs` on 5 and -7 for `runs` on -9, in the recorded order. The callee form of a function without an assignment or a propagation is its parameter count and its body with each literal binding substituted for its slot, which is what an immutable let of a literal means, so a call row of such a function has a meaning. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted call, a callee body whose let read is replaced by its parameter, a wrong recorded outcome, structurally malformed rows, a changed source and a wrong lowering fail the same checks.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers a call of a function with one integer parameter and one integer let whose value is a literal, from a function of one integer parameter; a callee with an assigned binding, a computed let value, several lets, a parameterless call, an error producer and a record local are outside it. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
+    },
+    {
+      "id": "artifact.integer-computed-let-calls",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.computedLetSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.computedLetRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.ComputedLetCertificate",
+      "certificate": "Xsh.Conformance.Vertical.computedLet_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.computedLet_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.computedLet_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_computed_let_source_parses_to_the_computed_let_functions",
+        "Xsh.Conformance.Vertical.the_computed_let_functions_lower_to_the_computed_let_artifact",
+        "Xsh.Conformance.Vertical.the_computed_let_artifact_validates",
+        "Xsh.Conformance.Vertical.the_computed_let_functions_mean_the_same_as_the_computed_let_artifact",
+        "Xsh.Conformance.Vertical.the_computed_let_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.computed_let_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_computed_let_artifact_is_certified"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_computed_let_callee_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_computed_let_binding_read_is_rejected",
+        "Xsh.Conformance.Vertical.a_literal_in_place_of_the_computed_value_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_computed_let_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_computed_let_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_computed_let_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_computed_let_lowering_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (two integer functions of one parameter: `scales` has one computed integer let `step = value + 4` and returns the sum of its parameter and the let; `runs` calls `scales` on its parameter); the parameter takes slot 0 and the let slot 2, where the exporter places them; lowering the parsed functions emits the let's value as the integer-family `IntSlot`, `IntInt` and `IntBinary` rows followed by `StmtLetInt [2, valueRow]`, then the parameter reads, `ExprBinary` and `StmtReturn` of the callee, and for the caller the argument row, argument block, `ExprDirectPureCall`, `StmtReturn` and body rows, reproducing the raw-IR document's rows, payload words, operation pool (`Add`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the three recorded calls end with 14 for `scales` on 5, 14 for `runs` on 5 and -14 for `runs` on -9, in the recorded order. The callee form of a function without an assignment or a propagation carries its computed bindings; a call applies the callee by binding the parameters and then each binding's value, whose parameter reads are replaced by the argument expressions, so the call's arguments are the parameter expressions followed by the binding values. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted call, a callee body whose let read is replaced by its parameter, a binding whose value is a literal instead of the computed expression, wrong recorded outcomes, malformed rows, a substituted source and a wrong lowering are all refused; the literal-for-computed mutant is well typed and returns 10 where 14 is recorded.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers a call of a function with one integer parameter and one computed let whose value is an integer expression over that parameter and literals, from a function of one integer parameter; several lets, a callee with an assigned binding, a computed value that reads anything but the parameter and literals, a parameterless call, an error producer and a record local are outside it. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
+    },
+    {
+      "id": "artifact.integer-several-let-calls",
+      "evidence_class": "ARTIFACT_CERTIFIED",
+      "artifact_kind": "source-ir-pair",
+      "artifact_module": "Xsh.Conformance.Vertical.Documents",
+      "artifact_definitions": [
+        "Xsh.Conformance.Vertical.severalLetSourceDocumentCodes",
+        "Xsh.Conformance.Vertical.severalLetRawIrDocumentCodes"
+      ],
+      "module": "Xsh.Conformance.Vertical.SeveralLetCertificate",
+      "certificate": "Xsh.Conformance.Vertical.severalLet_artifact_certified",
+      "supporting_theorems": [
+        "Xsh.Conformance.Vertical.severalLet_artifact_is_the_decoded_raw_ir_document",
+        "Xsh.Conformance.Vertical.severalLet_artifact_is_the_decoded_source_document",
+        "Xsh.Conformance.Vertical.the_several_let_source_parses_to_the_several_let_functions",
+        "Xsh.Conformance.Vertical.the_several_let_functions_lower_to_the_several_let_artifact",
+        "Xsh.Conformance.Vertical.the_several_let_artifact_validates",
+        "Xsh.Conformance.Vertical.the_several_let_functions_mean_the_same_as_the_several_let_artifact",
+        "Xsh.Conformance.Vertical.the_several_let_artifact_names_the_expected_outcomes",
+        "Xsh.Conformance.Vertical.several_let_pair_is_certified",
+        "Xsh.Conformance.Vertical.the_unmodified_several_let_artifact_is_certified",
+        "Xsh.Conformance.Vertical.the_swapped_several_let_operator_is_well_formed",
+        "Xsh.Conformance.Vertical.the_swapped_several_let_operator_means_something_else"
+      ],
+      "rejection_theorems": [
+        "Xsh.Conformance.Vertical.a_wrong_several_let_callee_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_several_let_binding_read_is_rejected",
+        "Xsh.Conformance.Vertical.a_reordered_several_let_binding_is_rejected",
+        "Xsh.Conformance.Vertical.a_swapped_several_let_operator_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_recorded_several_let_outcome_is_rejected",
+        "Xsh.Conformance.Vertical.malformed_several_let_ir_is_rejected",
+        "Xsh.Conformance.Vertical.a_substituted_several_let_source_is_rejected",
+        "Xsh.Conformance.Vertical.a_wrong_several_let_lowering_is_rejected",
+        "Xsh.Conformance.Vertical.a_reordered_several_let_source_tree_is_rejected"
+      ],
+      "proposition": "The source document parses in the admitted productions (two integer functions of one parameter: `scales` has two computed integer lets `a = value + 4` and `b = a * 2` and returns the difference of the second binding and the parameter; `runs` calls `scales` on its parameter); each later binding value may read the parameter and the earlier bindings; the parameter takes slot 0 and the bindings slots 2 and 3, where the exporter places them; lowering the parsed functions emits the first value's integer-family `IntSlot`, `IntInt` and `IntBinary` rows and `StmtLetInt [2, valueRow]`, the second value's rows reading the first binding at slot 2 and `StmtLetInt [3, valueRow]`, then the parameter and binding reads, `ExprBinary` and `StmtReturn` of the callee, and for the caller the argument row, argument block, `ExprDirectPureCall`, `StmtReturn` and body rows, reproducing the raw-IR document's rows, payload words, operation pool (`Add`, `Mul`, `Sub`), blocks and function table exactly, with only the span words taken from the document; the artifact validates; and the base machine runs of the three recorded calls end with 13 for `scales` on 5, 13 for `runs` on 5 and -1 for `runs` on -9, in the recorded order. A callee's computed bindings are part of its callee form in source order; a call applies the parameters and each binding value, replacing each earlier binding slot inside a later value by that earlier binding's applied value, so the call's arguments are the parameter expressions followed by the binding values. That each function means the same under the source tree and the IR follows from `lowering_means_the_source`, a universal theorem about the Lean lowerer. The rejection theorems show that a retargeted call, a callee whose second binding read is replaced by the parameter, reordered binding statements, a swapped first operator, wrong recorded outcomes, malformed rows, a substituted source, a wrong lowering and a source tree with the two bindings reordered are all refused; the swapped-operator mutant validates once its own outcomes are recorded, so it is well formed, and computes 35 for `scales` on 5 where 13 is recorded, while the reordered statements read slot 2 before it is bound and leave every recorded call without an outcome.",
+      "boundary": "The identity is the bytes of the two code lists, which the Rust bridge test `exported_documents_are_the_lean_certified_bytes` requires Rust's exported documents to equal. The parser and lowerer are independent Lean definitions that agree with Rust on this artifact; nothing shows that Rust's parser reads the source as the same tree, that Rust's lowerer behaves this way on other programs, or that Rust executes the IR. The document keeps the arithmetic projection's `integer-calls-conditional-local-fixture-v3` scope string. The admitted domain covers a call of a function with one integer parameter and a sequence of computed integer lets whose values read the parameter, integer literals and earlier bindings, from a function of one integer parameter; a callee with an assigned binding, an error producer and a record local are outside it. The substitution of an earlier binding's applied value into a later binding value is observable-equivalent only because the admitted values are pure; an effectful binding value is outside this domain. The lowerer's correctness is proved for the Lean definition on the admitted shape, not for Rust's lowerer."
     }
   ],
   "source_identity": {

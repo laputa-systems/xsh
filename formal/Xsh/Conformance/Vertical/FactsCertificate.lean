@@ -201,11 +201,11 @@ theorem a_validator_that_trusts_the_candidate_accepts_a_forgery_that_the_validat
   decide +kernel
 
 theorem a_source_that_resolves_nothing_has_no_valid_facts :
-    validateFacts [⟨"f", [], [], .value (.atom (.var "missing"))⟩]
+    validateFacts [⟨"f", [], [], none, .value (.atom (.var "missing"))⟩]
         [⟨"f", [], [], .int, [], [.read (.parameter 0)]⟩] = false ∧
-    validateFacts [⟨"f", [], [], .value (.atom (.int 9223372036854775808))⟩]
+    validateFacts [⟨"f", [], [], none, .value (.atom (.int 9223372036854775808))⟩]
         [⟨"f", [], [], .int, [], [.literal 9223372036854775808]⟩] = false ∧
-    validateFacts [⟨"f", [], [], .call "g" []⟩, ⟨"g", [], [], .value (.atom (.int 1))⟩]
+    validateFacts [⟨"f", [], [], none, .call "g" []⟩, ⟨"g", [], [], none, .value (.atom (.int 1))⟩]
         [⟨"f", [], [], .int, [], [.call 1 0]⟩, ⟨"g", [], [], .int, [], [.literal 1]⟩] = false := by
   refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
 

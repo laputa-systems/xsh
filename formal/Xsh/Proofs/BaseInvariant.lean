@@ -71,6 +71,10 @@ theorem exprWork_substitute (bindings : List (Xsh.Syntax.RawName × IntValue)) :
         exprWork_substitute bindings thenBranch, exprWork_substitute bindings elseBranch]
   | .call _ body arguments => by
       simp [substitute, exprWork, argumentsWork_substituteArguments bindings arguments]
+  | .resultOk value => by
+      simp [substitute, exprWork, exprWork_substitute bindings value]
+  | .resultErr value => by
+      simp [substitute, exprWork, exprWork_substitute bindings value]
 
 theorem argumentsWork_substituteArguments (bindings : List (Xsh.Syntax.RawName × IntValue)) :
     ∀ arguments : List BaseExpr,
@@ -148,6 +152,16 @@ theorem step_decreases_work {config next : MachineConfig} (takesStep : step conf
           simp [work, updateState, controlWork, continuationWork, frameWork, exprWork,
             argumentsWork]
           omega
+      | resultOk value =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [work, updateState, controlWork, continuationWork, frameWork, exprWork]
+        omega
+      | resultErr value =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [work, updateState, controlWork, continuationWork, frameWork, exprWork]
+        omega
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -209,6 +223,22 @@ theorem step_decreases_work {config next : MachineConfig} (takesStep : step conf
                 call_body_has_the_work_of_the_callee]
             · simp [work, updateState, controlWork, continuationWork, frameWork, argumentsWork]
               omega
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
+        | resultOk =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
+        | resultErr =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split
+          · rw [work_update_without_control _ _ _ rfl]
+            simp [work, controlWork, continuationWork, frameWork]
           · rw [work_update_without_control _ _ _ rfl]
             simp [work, controlWork, continuationWork, frameWork]
     | awaitingHost request => simp [step] at takesStep
@@ -333,6 +363,14 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
       | call parameters body arguments =>
         cases arguments <;> simp only [step, Option.some.injEq] at takesStep <;>
           (subst takesStep; simp [updateState] at failed)
+      | resultOk value =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at failed
+      | resultErr value =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at failed
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -394,6 +432,20 @@ theorem step_failures_are_program_faults {config next : MachineConfig}
           | none => simp [found] at payload
           | some integer =>
             cases remaining <;> simp [updateState, found] at failed
+        | resultOk =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer => simp [updateState, found] at failed
+        | resultErr =>
+          have payload := Xsh.Proofs.BaseMachine.typed_integer_payload_is_present value valueType
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          cases found : integerPayload? value with
+          | none => simp [found] at payload
+          | some integer => simp [updateState, found] at failed
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 
@@ -452,6 +504,14 @@ theorem step_awaits_only_after_a_clock_read {config next : MachineConfig}
       | call parameters body arguments =>
         cases arguments <;> simp only [step, Option.some.injEq] at takesStep <;>
           (subst takesStep; simp [updateState] at awaiting)
+      | resultOk value =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at awaiting
+      | resultErr value =>
+        simp only [step, Option.some.injEq] at takesStep
+        subst takesStep
+        simp [updateState] at awaiting
     | returned value =>
       cases continuation with
       | nil => simp [step] at takesStep
@@ -494,6 +554,14 @@ theorem step_awaits_only_after_a_clock_read {config next : MachineConfig}
           split at awaiting
           · split at awaiting <;> simp [updateState] at awaiting
           · simp [updateState] at awaiting
+        | resultOk =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split at awaiting <;> simp [updateState] at awaiting
+        | resultErr =>
+          simp only [step, Option.some.injEq] at takesStep
+          subst takesStep
+          split at awaiting <;> simp [updateState] at awaiting
     | awaitingHost request => simp [step] at takesStep
     | failed fault => simp [step] at takesStep
 

@@ -38,13 +38,18 @@ inductive FragmentTag where
   | intSlot
   | intBinary
   | stmtAssignInt
+  | exprOk
+  | exprErr
+  | exprTry
+  | stmtLet
   deriving DecidableEq, Repr
 
 namespace FragmentTag
 
 def all : List FragmentTag :=
   [intInt, stmtLetInt, exprInt, exprParam, exprBinary, stmtReturn, stmtValue, exprValueBlock,
-    exprIf, exprDirectPureCall, intSlot, intBinary, stmtAssignInt]
+    exprIf, exprDirectPureCall, intSlot, intBinary, stmtAssignInt, exprOk, exprErr, exprTry,
+    stmtLet]
 
 def name : FragmentTag → String
   | intInt => "IntInt"
@@ -60,6 +65,10 @@ def name : FragmentTag → String
   | intSlot => "IntSlot"
   | intBinary => "IntBinary"
   | stmtAssignInt => "StmtAssignInt"
+  | exprOk => "ExprOk"
+  | exprErr => "ExprErr"
+  | exprTry => "ExprTry"
+  | stmtLet => "StmtLet"
 
 def word : FragmentTag → Word32
   | intInt => ⟨0, by decide⟩
@@ -75,11 +84,15 @@ def word : FragmentTag → Word32
   | intSlot => ⟨1, by decide⟩
   | intBinary => ⟨2, by decide⟩
   | stmtAssignInt => ⟨124, by decide⟩
+  | exprOk => ⟨104, by decide⟩
+  | exprErr => ⟨105, by decide⟩
+  | exprTry => ⟨107, by decide⟩
+  | stmtLet => ⟨115, by decide⟩
 
 def payloadWords : FragmentTag → Nat
-  | intInt | stmtLetInt | exprInt | exprValueBlock => 2
-  | exprParam | stmtReturn | stmtValue | intSlot => 1
-  | exprIf | exprDirectPureCall | intBinary => 3
+  | intInt | stmtLetInt | exprInt | exprValueBlock | exprErr | exprTry => 2
+  | exprParam | stmtReturn | stmtValue | intSlot | exprOk => 1
+  | exprIf | exprDirectPureCall | intBinary | stmtLet => 3
   | exprBinary | stmtAssignInt => 4
 
 def ofName? (text : String) : Option FragmentTag := all.find? fun tag => tag.name == text
@@ -89,7 +102,7 @@ def ofWord? (value : Word32) : Option FragmentTag := all.find? fun tag => tag.wo
 end FragmentTag
 
 /-- The binary operations of the integer fragment, named and numbered as the Rust `BinaryOp`
-enumeration: the five arithmetic operations and the one comparison the fixture exercises. -/
+enumeration: the five arithmetic operations and the two comparisons the fixtures exercise. -/
 inductive FragmentOp where
   | add
   | sub
@@ -97,11 +110,12 @@ inductive FragmentOp where
   | div
   | rem
   | gt
+  | lt
   deriving DecidableEq, Repr
 
 namespace FragmentOp
 
-def all : List FragmentOp := [add, sub, mul, div, rem, gt]
+def all : List FragmentOp := [add, sub, mul, div, rem, gt, lt]
 
 def name : FragmentOp → String
   | add => "Add"
@@ -110,6 +124,7 @@ def name : FragmentOp → String
   | div => "Div"
   | rem => "Rem"
   | gt => "Gt"
+  | lt => "Lt"
 
 def word : FragmentOp → Word32
   | add => ⟨11, by decide⟩
@@ -118,9 +133,11 @@ def word : FragmentOp → Word32
   | div => ⟨14, by decide⟩
   | rem => ⟨15, by decide⟩
   | gt => ⟨7, by decide⟩
+  | lt => ⟨5, by decide⟩
 
 def isComparison : FragmentOp → Bool
   | gt => true
+  | lt => true
   | add | sub | mul | div | rem => false
 
 def ofName? (text : String) : Option FragmentOp := all.find? fun op => op.name == text
@@ -178,9 +195,12 @@ def ofName? (text : String) : Option FragmentFailure := all.find? fun failure =>
 end FragmentFailure
 
 /-- What a recorded call of a function ended with: the 64-bit pattern of the integer it
-returned, or the specified failure it raised. -/
+returned, the 64-bit pattern of the integer an `Ok` or `Err` carried, or the specified failure it
+raised. -/
 inductive ObservedOutcome where
   | value (bits : Word64)
+  | ok (bits : Word64)
+  | err (bits : Word64)
   | failure (kind : FragmentFailure)
   deriving DecidableEq
 
@@ -271,14 +291,16 @@ def decodeWideWord (value : WireValue) : Option Word64 :=
   value.text?.bind decodeHex64?
 
 /-- An observation is the called function, the sixteen-digit bits of each argument, and either a
-value with its sixteen-digit bits or a failure with its specified name; any other outcome word,
-and any detail of the other shape, is rejected. -/
+value, `ok` or `err` with its sixteen-digit bits, or a failure with its specified name; any other
+outcome word, and any detail of the other shape, is rejected. -/
 def decodeObservation (value : WireValue) : Option Observation := do
   let fields ← value.closedObject? ["function", "arguments", "outcome", "detail"]
   let function ← idField fields "function"
   let arguments ← listField fields "arguments" decodeWideWord
   let outcome ← match textField fields "outcome" with
     | some "value" => (wideField fields "detail").map ObservedOutcome.value
+    | some "ok" => (wideField fields "detail").map ObservedOutcome.ok
+    | some "err" => (wideField fields "detail").map ObservedOutcome.err
     | some "failure" =>
         ((textField fields "detail").bind FragmentFailure.ofName?).map ObservedOutcome.failure
     | _ => none

@@ -13,10 +13,13 @@ inductive Token where
   | rightParen
   | leftBrace
   | rightBrace
+  | leftBracket
+  | rightBracket
   | equals
   | arrow
   | colon
   | comma
+  | question
   | operator (op : FragmentOp)
   | newline
   deriving DecidableEq, Repr
@@ -53,10 +56,14 @@ def tokenize : Nat → List Nat → Option (List Token)
       else if code == 41 then continueWith .rightParen rest
       else if code == 123 then continueWith .leftBrace rest
       else if code == 125 then continueWith .rightBrace rest
+      else if code == 91 then continueWith .leftBracket rest
+      else if code == 93 then continueWith .rightBracket rest
       else if code == 61 then continueWith .equals rest
       else if code == 58 then continueWith .colon rest
       else if code == 44 then continueWith .comma rest
+      else if code == 63 then continueWith .question rest
       else if code == 62 then continueWith (.operator .gt) rest
+      else if code == 60 then continueWith (.operator .lt) rest
       else if code == 43 then continueWith (.operator .add) rest
       else if code == 42 then continueWith (.operator .mul) rest
       else if code == 47 then continueWith (.operator .div) rest
@@ -90,12 +97,24 @@ inductive SourceExpression where
   | conditional (comparison : FragmentOp) (left right : SourceAtom)
       (thenValue elseValue : SourceValue)
   | assigned (target : String) (assignedValue : SourceValue) (result : SourceValue)
+  | comparison (op : FragmentOp) (left right : SourceAtom)
+  | constructed (isOk : Bool) (value : SourceValue)
+  | computedLet (target : String) (value : SourceValue) (result : SourceValue)
+  | computedLets (bindings : List (String × SourceValue)) (result : SourceValue)
+  deriving DecidableEq, Repr
+
+/-- A `let` line whose value is a call under `?`: the target, the callee and its arguments. -/
+structure SourcePropagation where
+  target : String
+  callee : String
+  arguments : List SourceAtom
   deriving DecidableEq, Repr
 
 structure SourceFunction where
   name : String
   parameters : List String
   lets : List (String × Nat)
+  propagation : Option SourcePropagation
   result : SourceExpression
   deriving DecidableEq, Repr
 
@@ -133,8 +152,24 @@ def parseArguments (fuel : Nat) : List Token → Option (List SourceAtom × List
   | .rightParen :: rest => some ([], rest)
   | tokens => parseArgumentList fuel tokens
 
+/-- `Ok(value)` and `Err(value)` are the two `Result` constructors over one value. -/
+def parseConstructor : List Token → Option (SourceExpression × List Token)
+  | .word "Ok" :: .leftParen :: rest => do
+      let (value, after) ← parseValue rest
+      match after with
+      | .rightParen :: remaining => some (.constructed true value, remaining)
+      | _ => none
+  | .word "Err" :: .leftParen :: rest => do
+      let (value, after) ← parseValue rest
+      match after with
+      | .rightParen :: remaining => some (.constructed false value, remaining)
+      | _ => none
+  | _ => none
+
 def parseExpression (tokens : List Token) : Option (SourceExpression × List Token) :=
   match tokens with
+  | .word "Ok" :: .leftParen :: _ => parseConstructor tokens
+  | .word "Err" :: .leftParen :: _ => parseConstructor tokens
   | .word "if" :: more => do
       let (left, afterLeft) ← parseAtom more
       match afterLeft with
@@ -162,8 +197,15 @@ def parseExpression (tokens : List Token) : Option (SourceExpression × List Tok
         let (arguments, rest) ← parseArguments (more.length + 1) more
         some (.call name arguments, rest)
   | _ => do
-      let (value, rest) ← parseValue tokens
-      some (.value value, rest)
+      let (first, afterFirst) ← parseAtom tokens
+      match afterFirst with
+      | .operator op :: afterOperator => do
+          let (second, rest) ← parseAtom afterOperator
+          if op.isComparison then
+            some (.comparison op first second, rest)
+          else
+            some (.value (.binary op first second), rest)
+      | _ => some (.value (.atom first), afterFirst)
 
 /-- The `let` and `var` lines, with the names the `var` lines declare. -/
 def parseLets : Nat → List Token → Option (List (String × Nat) × List String × List Token)
@@ -177,6 +219,45 @@ def parseLets : Nat → List Token → Option (List (String × Nat) × List Stri
               remaining)
           else some ([], [], tokens)
       | _ => some ([], [], tokens)
+
+/-- A propagation line: `let target = callee(arguments)?`. -/
+def parsePropagation : List Token → Option (Option SourcePropagation × List Token)
+  | .word "let" :: .word target :: .equals :: .word callee :: .leftParen :: afterParen =>
+      if isKeyword target || isKeyword callee then none
+      else do
+        let (arguments, rest) ← parseArguments (afterParen.length + 1) afterParen
+        match rest with
+        | .question :: .newline :: remaining =>
+            some (some ⟨target, callee, arguments⟩, remaining)
+        | _ => none
+  | tokens => some (none, tokens)
+
+/-- A run of computed `let` lines. Each line's value may read the function's parameter and the
+bindings before it; a literal line is not consumed. -/
+def parseComputedLets : Nat → List Token → Option (List (String × SourceValue) × List Token)
+  | 0, _ => none
+  | fuel + 1, tokens =>
+      match tokens with
+      | .word "let" :: .word name :: .equals :: rest =>
+          if isKeyword name then some ([], tokens)
+          else
+            match parseValue rest with
+            | some (value@(.binary _ _ _), .newline :: after) => do
+                let (more, remaining) ← parseComputedLets fuel after
+                some ((name, value) :: more, remaining)
+            | _ => some ([], tokens)
+      | _ => some ([], tokens)
+
+/-- The result a run of computed lets returns: none for no binding, the single-binding form for
+one, and the sequence form for several. A literal or other binding is outside the admitted
+productions. -/
+def buildComputedResult (computed : List (String × SourceValue))
+    (result : SourceExpression) : Option SourceExpression :=
+  match computed, result with
+  | [], result => some result
+  | [(target, value)], .value resultValue => some (.computedLet target value resultValue)
+  | _ :: _ :: _, .value resultValue => some (.computedLets computed resultValue)
+  | _, _ => none
 
 /-- An optional assignment line to a declared var, an integer value. -/
 def parseAssignment (vars : List String) :
@@ -213,25 +294,109 @@ def parseParameters (fuel : Nat) : List Token → Option (List String × List To
   | .rightParen :: rest => some ([], rest)
   | tokens => parseParameterList fuel tokens
 
+/-- The declared return type admits only its own result shape: `Int` every value form, `Bool` a
+comparison of two atoms, and `Result[Int, Int]` either constructor over a value. The tree keeps the
+result expression, which determines the meaning; the annotation itself is checked here and not
+stored. -/
+inductive ResultShape where
+  | integer
+  | boolean
+  | result
+  deriving DecidableEq, Repr
+
+/-- The shape a result expression has, which the declared return type must admit. -/
+inductive ExpressionShape where
+  | comparison
+  | constructed
+  | other
+  deriving DecidableEq, Repr
+
+def SourceExpression.shape : SourceExpression → ExpressionShape
+  | .comparison _ _ _ => .comparison
+  | .constructed _ _ => .constructed
+  | _ => .other
+
+def SourceValue.atoms : SourceValue → List SourceAtom
+  | .atom single => [single]
+  | .binary _ left right => [left, right]
+
+/-- The computed let value reads only the function's parameters and integer literals. -/
+def SourceAtom.isParameterOrLiteral (parameters : List String) : SourceAtom → Bool
+  | .int _ => true
+  | .var name => parameters.contains name
+
+/-- Every binding name is new and every binding value reads only integer literals and the names
+allowed before it. -/
+def computedBindingsAdmitted (allowed : List String) :
+    List (String × SourceValue) → Bool
+  | [] => true
+  | (name, value) :: rest =>
+      !allowed.contains name && value.atoms.all (·.isParameterOrLiteral allowed) &&
+        computedBindingsAdmitted (allowed ++ [name]) rest
+
+def admitsResult : ResultShape → ExpressionShape → Bool
+  | .integer, .comparison => false
+  | .integer, .constructed => false
+  | .integer, .other => true
+  | .boolean, .comparison => true
+  | .boolean, .constructed => false
+  | .boolean, .other => false
+  | .result, .comparison => false
+  | .result, .constructed => true
+  | .result, .other => false
+
+def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
+    (tokens : List Token) : Option (SourceFunction × List Token) := do
+  let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
+  let (computed, afterComputed) ← parseComputedLets (afterLets.length + 1) afterLets
+  let (propagation, afterPropagation) ← parsePropagation afterComputed
+  let (assignment, afterAssignment) ← parseAssignment vars afterPropagation
+  match propagation with
+  | some _ =>
+      if lets.isEmpty && assignment.isNone && shape == .result && parameters.length == 1 then
+        pure ()
+      else none
+  | none => pure ()
+  match computed with
+  | [] => pure ()
+  | bindings =>
+      if lets.isEmpty && assignment.isNone && propagation.isNone && shape == .integer &&
+          parameters.length == 1 && computedBindingsAdmitted parameters bindings then
+        pure ()
+      else none
+  match afterAssignment with
+  | .word "return" :: more => do
+      let (returned, afterResult) ← parseExpression more
+      let result ← attachAssignment assignment returned
+      let result ← buildComputedResult computed result
+      if admitsResult shape result.shape then pure () else none
+      match propagation with
+      | some found =>
+          if parameters.contains found.target then none
+          else pure ()
+      | none => pure ()
+      match afterResult with
+      | .newline :: .rightBrace :: [] => some (⟨name, parameters, lets, propagation, result⟩, [])
+      | .newline :: .rightBrace :: .newline :: tail =>
+          some (⟨name, parameters, lets, propagation, result⟩, tail)
+      | _ => none
+  | _ => none
+
+/-- The declared return type, which admits only the result shape it names. -/
+def parseReturnType : List Token → Option (ResultShape × List Token)
+  | .arrow :: .word "Int" :: rest => some (.integer, rest)
+  | .arrow :: .word "Bool" :: rest => some (.boolean, rest)
+  | .arrow :: .word "Result" :: .leftBracket :: .word "Int" :: .comma :: .word "Int" ::
+      .rightBracket :: rest => some (.result, rest)
+  | _ => none
+
 def parseFunction (tokens : List Token) : Option (SourceFunction × List Token) :=
   match tokens with
   | .word "pure" :: .word name :: .leftParen :: afterParen => do
       let (parameters, afterParameters) ← parseParameters (afterParen.length + 1) afterParen
-      match afterParameters with
-      | .arrow :: .word "Int" :: .leftBrace :: .newline :: rest => do
-          let (lets, vars, afterLets) ← parseLets (rest.length + 1) rest
-          let (assignment, afterAssignment) ← parseAssignment vars afterLets
-          match afterAssignment with
-          | .word "return" :: more => do
-              let (returned, afterResult) ← parseExpression more
-              let result ← attachAssignment assignment returned
-              match afterResult with
-              | .newline :: .rightBrace :: [] =>
-                  some (⟨name, parameters, lets, result⟩, [])
-              | .newline :: .rightBrace :: .newline :: tail =>
-                  some (⟨name, parameters, lets, result⟩, tail)
-              | _ => none
-          | _ => none
+      let (shape, afterShape) ← parseReturnType afterParameters
+      match afterShape with
+      | .leftBrace :: .newline :: rest => parseFunctionBody shape name parameters rest
       | _ => none
   | _ => none
 
@@ -250,10 +415,36 @@ def parseFunctions : Nat → List Token → Option (List SourceFunction)
           let functions ← parseFunctions fuel rest
           some (function :: functions)
 
+/-- A function a propagation may call: no let, no propagation and no assignment, returning a
+constructor, which is the callee form the meaning keeps. -/
+def SourceFunction.callableShape (function : SourceFunction) : Bool :=
+  function.lets.isEmpty && function.propagation.isNone && function.result.shape == .constructed &&
+    match function.result with
+    | .assigned _ _ _ => false
+    | _ => true
+
+/-- Every propagation names an earlier callable function with a constructor result and the
+argument count of that function. -/
+def functionsAdmitted (functions : List SourceFunction) : Bool :=
+  let rec go (earlier : List SourceFunction) : List SourceFunction → Bool
+    | [] => true
+    | function :: rest =>
+        let admitted :=
+          match function.propagation with
+          | none => true
+          | some propagation =>
+              match earlier.find? (fun callee => callee.name == propagation.callee) with
+              | some callee =>
+                  callee.callableShape && callee.parameters.length == propagation.arguments.length
+              | none => false
+        admitted && go (earlier ++ [function]) rest
+  go [] functions
+
 /-- The admitted source productions, from the character codes of the source. -/
 def parseSourceCodes (codes : List Nat) : Option (List SourceFunction) := do
   let tokens ← tokenize (codes.length + 1) codes
-  parseFunctions (tokens.length + 1) tokens
+  let functions ← parseFunctions (tokens.length + 1) tokens
+  if functionsAdmitted functions then some functions else none
 
 /-- The admitted source productions, from exact source bytes. -/
 def parseSource (text : String) : Option (List SourceFunction) :=
@@ -261,16 +452,109 @@ def parseSource (text : String) : Option (List SourceFunction) :=
 
 theorem the_admitted_productions_parse :
     parseSource "pure f() -> Int {\n  let a = 4\n  return a - 1\n}\n" =
-      some [⟨"f", [], [("a", 4)], .value (.binary .sub (.var "a") (.int 1))⟩] := by
+      some [⟨"f", [], [("a", 4)], none, .value (.binary .sub (.var "a") (.int 1))⟩] := by
   decide +kernel
 
 theorem parameters_a_call_and_a_conditional_parse :
     parseSource ("pure g(a: Int, b: Int) -> Int {\n  return if a > b { a - b } else { 0 }\n}\n" ++
         "pure h() -> Int {\n  let x = 7\n  return g(x, 2)\n}\n") =
-      some [⟨"g", ["a", "b"], [],
+      some [⟨"g", ["a", "b"], [], none,
           .conditional .gt (.var "a") (.var "b") (.binary .sub (.var "a") (.var "b")) (.atom (.int 0))⟩,
-        ⟨"h", [], [("x", 7)], .call "g" [.var "x", .int 2]⟩] := by
+        ⟨"h", [], [("x", 7)], none, .call "g" [.var "x", .int 2]⟩] := by
   decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem comparison_functions_parse :
+    parseSource ("pure exceeds(value: Int, limit: Int) -> Bool {\n  return value > limit\n}\n" ++
+        "pure below(value: Int, limit: Int) -> Bool {\n  return value < limit\n}\n") =
+      some [⟨"exceeds", ["value", "limit"], [], none,
+          .comparison .gt (.var "value") (.var "limit")⟩,
+        ⟨"below", ["value", "limit"], [], none,
+          .comparison .lt (.var "value") (.var "limit")⟩] := by
+  decide +kernel
+
+theorem a_bool_annotation_admits_only_a_comparison_result :
+    parseSource "pure f(a: Int, b: Int) -> Bool {\n  return a\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  return a + b\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  return a > b + 1\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  return if a > b { 1 } else { 0 }\n}\n" =
+        none ∧
+      parseSource "pure f(a: Int, b: Int) -> Bool {\n  var x = 1\n  x = 2\n  return a > b\n}\n" =
+        none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+theorem an_int_annotation_refuses_a_comparison_result :
+    parseSource "pure f(a: Int, b: Int) -> Int {\n  return a > b\n}\n" = none ∧
+      parseSource "pure f(a: Int, b: Int) -> Int {\n  return a < b\n}\n" = none := by
+  constructor <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem a_result_annotation_admits_only_constructor_results :
+    parseSource "pure f(a: Int) -> Result[Int, Int] {\n  return a\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Result[Int, Int] {\n  return a + 1\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Result[Int, Str] {\n  return Err(a)\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Int {\n  return Ok(a)\n}\n" = none ∧
+      parseSource "pure f(a: Int) -> Bool {\n  return Err(a)\n}\n" = none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem a_propagated_call_parses :
+    parseSource ("pure keeps(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+        "pure passes(value: Int) -> Result[Int, Int] {\n  let kept = keeps(value)?\n" ++
+        "  return Ok(kept)\n}\n") =
+      some [⟨"keeps", ["value"], [], none, .constructed true (.atom (.var "value"))⟩,
+        ⟨"passes", ["value"], [], some ⟨"kept", "keeps", [.var "value"]⟩,
+          .constructed true (.atom (.var "kept"))⟩] := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem propagation_outside_the_admitted_productions_is_refused :
+    parseSource "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)?\n  return Ok(kept)\n}\n" =
+        none ∧
+      parseSource "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)\n  return Ok(kept)\n}\n" =
+        none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int) -> Int {\n  let kept = g(value)?\n  return kept\n}\n") = none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int, other: Int) -> Result[Int, Int] {\n  let kept = g(value)?\n" ++
+          "  return Ok(kept)\n}\n") = none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int) -> Result[Int, Int] {\n  let value = g(value)?\n  return Ok(value)\n}\n") =
+        none ∧
+      parseSource ("pure g(value: Int) -> Result[Int, Int] {\n  return Ok(value)\n}\n" ++
+          "pure f(value: Int) -> Result[Int, Int] {\n  let kept = g(value)??\n  return Ok(kept)\n}\n") =
+        none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
+
+set_option maxRecDepth 10000 in
+/-- A sequence of computed lets parses with each later binding reading the parameter and the
+bindings before it. -/
+theorem several_computed_lets_parse :
+    parseSource ("pure scales(value: Int) -> Int {\n  let a = value + 4\n" ++
+        "  let b = a * 2\n  return b - value\n}\n\n" ++
+        "pure runs(value: Int) -> Int {\n  return scales(value)\n}\n") =
+      some [⟨"scales", ["value"], [], none,
+          .computedLets [("a", .binary .add (.var "value") (.int 4)),
+            ("b", .binary .mul (.var "a") (.int 2))]
+            (.binary .sub (.var "b") (.var "value"))⟩,
+        ⟨"runs", ["value"], [], none, .call "scales" [.var "value"]⟩] := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+/-- A forward read, a self read, a repeated binding name, a parameter shadow and a literal let
+before a computed one are outside the admitted computed-let sequence. -/
+theorem computed_let_sequences_outside_the_productions_are_refused :
+    parseSource ("pure f(value: Int) -> Int {\n  let a = b + 1\n  let b = value * 2\n" ++
+        "  return a + b\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let a = a + 1\n  let b = value * 2\n" ++
+        "  return a + b\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let a = value + 1\n  let a = value * 2\n" ++
+        "  return a\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let value = value + 1\n" ++
+        "  return value\n}\n") = none ∧
+      parseSource ("pure f(value: Int) -> Int {\n  let a = 4\n  let b = value + a\n" ++
+        "  return b\n}\n") = none := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> decide +kernel
 
 theorem text_outside_the_admitted_productions_is_refused :
     parseSource "pure f() -> Int {\n  return 1 + 2 + 3\n}\n" = none ∧

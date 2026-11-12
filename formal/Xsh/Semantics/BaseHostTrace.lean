@@ -139,7 +139,7 @@ private theorem integer_tag_has_integer_payload (value : BaseTypedValue)
   cases value with
   | mk typeTag payload wellTyped =>
     cases typeTag with
-    | null | boolean | float | duration | string | bytes => simp at tag
+    | null | boolean | float | duration | string | bytes | result => simp at tag
     | integer =>
       cases payload <;> simp [hasBaseType, integerPayload?] at wellTyped ⊢
 

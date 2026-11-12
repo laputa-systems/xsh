@@ -120,8 +120,8 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(818, len(result["fragment_roots"]))
-        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.checked-facts"}, result["artifact_certificates"])
+        self.assertEqual(975, len(result["fragment_roots"]))
+        self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual([], result["closed_obligations"])
         self.assertEqual("frozen-post-consolidation", coverage["source_state"])
@@ -1218,6 +1218,14 @@ class InventoryCheckerTests(unittest.TestCase):
         self.assertNotEqual(source, duplicate_verify)
         with self.assertRaisesRegex(CHECKER.InventoryError, "duplicate custom lowered value procedure verify"):
             CHECKER.parse_lowered_value_schema(duplicate_verify)
+
+    def test_function_lookup_finds_one_method_across_multiple_impl_blocks(self) -> None:
+        source = "impl Pool { fn export(&self) {} } impl Pool { fn verify(&self) { check(); } }"
+        body = CHECKER.function_tokens(source, "verify", "Pool")
+        self.assertEqual(body, ["{", "check", "(", ")", ";", "}"])
+        duplicate = source + " impl Pool { fn verify(&self) {} }"
+        with self.assertRaisesRegex(CHECKER.InventoryError, "expected one verify function in Pool, found 2"):
+            CHECKER.function_tokens(duplicate, "verify", "Pool")
 
     def test_type_tag_payload_buckets_reject_omitted_and_duplicate_routes(self) -> None:
         source = (ROOT / "src/runtime/eval/indexed/semantic.rs").read_text()
