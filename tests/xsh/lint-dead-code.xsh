@@ -270,7 +270,7 @@ test test_lint_callable_reachability_uses_import_aliases_and_reports_shared_modu
 }
 
 test test_lint_keeps_native_tests_exports_and_recursive_callables_live { |ctx|
-  let source = "export pure public_api() -> Int {\n  return helper()\n}\n\npure helper() -> Int {\n  return recursive_a()\n}\n\npure recursive_a() -> Int {\n  return recursive_b()\n}\n\npure recursive_b() -> Int {\n  return 1\n}\n\ntest test_callable_roots {\n  print public_api()\n}\n"
+  let source = "##! Callable reachability fixture.\n## Calls the reachable helper chain.\nexport pure public_api() -> Int {\n  return helper()\n}\n\npure helper() -> Int {\n  return recursive_a()\n}\n\npure recursive_a() -> Int {\n  return recursive_b()\n}\n\npure recursive_b() -> Int {\n  return 1\n}\n\ntest test_callable_roots {\n  print public_api()\n}\n"
   let reported = unused_callables(ctx, source)?
   assert reported.status.exited_with(0), reported.stderr
   assert headers(reported.stderr) == [], reported.stderr
