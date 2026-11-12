@@ -12,7 +12,7 @@ use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use crate::FileKind;
 
@@ -429,6 +429,61 @@ impl Progress {
     }
 }
 
+/// Transfer counters another thread may read while a transfer runs.
+///
+/// A request that carries one updates it together with its [`Progress`], so
+/// a caller can render progress for a single long operand.
+#[derive(Debug, Default)]
+pub struct LiveProgress {
+    discovered_files: AtomicU64,
+    completed_files: AtomicU64,
+    skipped_files: AtomicU64,
+    logical_bytes: AtomicU64,
+    streamed_bytes: AtomicU64,
+    hole_bytes: AtomicU64,
+    cloned_files: AtomicU64,
+}
+
+impl LiveProgress {
+    /// The counters recorded so far.
+    pub fn snapshot(&self) -> Progress {
+        Progress {
+            discovered_files: self.discovered_files.load(Ordering::Relaxed),
+            completed_files: self.completed_files.load(Ordering::Relaxed),
+            skipped_files: self.skipped_files.load(Ordering::Relaxed),
+            logical_bytes: self.logical_bytes.load(Ordering::Relaxed),
+            streamed_bytes: self.streamed_bytes.load(Ordering::Relaxed),
+            hole_bytes: self.hole_bytes.load(Ordering::Relaxed),
+            cloned_files: self.cloned_files.load(Ordering::Relaxed),
+            ..Progress::default()
+        }
+    }
+
+    fn advance(&self, before: &Progress, after: &Progress) {
+        for (counter, before, after) in [
+            (&self.discovered_files, before.discovered_files, after.discovered_files),
+            (&self.completed_files, before.completed_files, after.completed_files),
+            (&self.skipped_files, before.skipped_files, after.skipped_files),
+            (&self.logical_bytes, before.logical_bytes, after.logical_bytes),
+            (&self.streamed_bytes, before.streamed_bytes, after.streamed_bytes),
+            (&self.hole_bytes, before.hole_bytes, after.hole_bytes),
+            (&self.cloned_files, before.cloned_files, after.cloned_files),
+        ] {
+            let delta = after.saturating_sub(before);
+            if delta != 0 {
+                counter.fetch_add(delta, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+/// Adds what `after` counted beyond `before` to `live`, when there is one.
+pub(crate) fn advance_live(live: Option<&LiveProgress>, before: &Progress, after: &Progress) {
+    if let Some(live) = live {
+        live.advance(before, after);
+    }
+}
+
 /// One direct, non-staged transfer of a tree or leaf whose destination must be
 /// absent.
 pub struct TreeTransfer<'a> {
@@ -446,6 +501,8 @@ pub struct TreeTransfer<'a> {
     pub cancellation: &'a Cancellation,
     /// Updated as entries are discovered, completed and copied.
     pub progress: &'a mut Progress,
+    /// Updated alongside `progress` for observers on other threads.
+    pub live: Option<&'a LiveProgress>,
     /// Flags that must be applied only after publication.
     pub deferred_flags: &'a mut Vec<DeferredFlags>,
 }
@@ -913,6 +970,8 @@ pub struct PublishRequest<'a> {
     pub cancellation: &'a Cancellation,
     /// Updated as entries are discovered, completed and copied.
     pub progress: &'a mut Progress,
+    /// Updated alongside `progress` for observers on other threads.
+    pub live: Option<&'a LiveProgress>,
 }
 
 /// Transfers one entry into a private staging directory beside the
@@ -953,6 +1012,8 @@ pub struct MergeRequest<'a> {
     pub cancellation: &'a Cancellation,
     /// Updated as entries are discovered, completed and copied.
     pub progress: &'a mut Progress,
+    /// Updated alongside `progress` for observers on other threads.
+    pub live: Option<&'a LiveProgress>,
 }
 
 /// Recursively copies the contents of a source directory into an existing

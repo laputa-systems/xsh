@@ -1,0 +1,27 @@
+== frame command_v_rsync cursor=3,20
+|testuser@<HOST> ~ $ command -V rsync
+|rsync is a shell builtin
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame rsync cursor=8,20
+|testuser@<HOST> ~ $ command -V rsync
+|rsync is a shell builtin
+|
+|testuser@<HOST> ~ $ rsync source dst-dir
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rsync
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect synced
+|rsync sync bytes

@@ -36,6 +36,24 @@ impl AliasMap {
             std::borrow::Cow::Borrowed(line)
         }
     }
+
+    /// Expands the command word's alias, stepping over a leading `!` so
+    /// `! name` expands `name` rather than the bang.
+    pub(super) fn expand_command_line<'a>(&self, line: &'a str) -> std::borrow::Cow<'a, str> {
+        let trimmed = line.trim_start();
+        let leading = &line[..line.len() - trimmed.len()];
+        if let Some(after_bang) = trimmed.strip_prefix('!')
+            && after_bang.chars().next().is_some_and(char::is_whitespace)
+        {
+            return match self.expand_line(after_bang) {
+                std::borrow::Cow::Borrowed(_) => std::borrow::Cow::Borrowed(line),
+                std::borrow::Cow::Owned(expanded) => {
+                    std::borrow::Cow::Owned(format!("{leading}!{expanded}"))
+                }
+            };
+        }
+        self.expand_line(line)
+    }
 }
 
 /// Lexes a shell fragment into its raw word tokens, preserving quoting and

@@ -124,6 +124,7 @@ fn apply_operand(
             engine: xsh_root::transfer::EngineOptions::default(),
             cancellation: &Cancellation::default(),
             progress,
+            live: None,
         }),
         Action::Transfer | Action::Replace => publish_at(
             source_file.as_fd(),

@@ -134,6 +134,7 @@ fn cancellation_stops_workers_and_removes_the_partial_tree() {
         engine: EngineOptions::default(),
         cancellation: &cancellation,
         progress: &mut progress,
+        live: None,
         deferred_flags: &mut deferred,
     })
     .expect_err("a cancelled transfer must fail");
@@ -166,6 +167,7 @@ fn cancellation_cleans_a_partial_replacement_destination() {
             engine: EngineOptions::default(),
             cancellation: &cancellation,
             progress: &mut progress,
+            live: None,
         },
         |_| Ok(()),
     )
@@ -479,6 +481,7 @@ fn transfer_with(
         engine,
         cancellation: &cancellation,
         progress,
+        live: None,
         deferred_flags,
     })
 }
@@ -558,6 +561,7 @@ fn merge_refuses_a_nested_destination_mount_without_opt_in() {
         engine: EngineOptions::default(),
         cancellation: &Cancellation::default(),
         progress: &mut progress,
+        live: None,
     })
     .expect_err("a nested destination mount must be refused by default");
     assert!(
@@ -588,6 +592,7 @@ fn publication_and_observation_agree_on_the_same_entry() {
             engine: EngineOptions::default(),
             cancellation: &Cancellation::default(),
             progress: &mut progress,
+            live: None,
         },
         |_| Ok(()),
     )
@@ -1150,6 +1155,7 @@ fn descriptor_budget_rejects_unaffordable_parallelism_before_mutation() {
         },
         cancellation: &Cancellation::default(),
         progress: &mut progress,
+        live: None,
         deferred_flags: &mut deferred,
     })
     .expect_err("an unaffordable worker request must fail before mutation");

@@ -49,131 +49,168 @@ const SET_HELP: &str =
     "Usage: {name} [NAME [VALUE...]]\nSet and export a shell variable, or list the environment with no arguments.";
 const COMMAND_HELP: &str =
     "Usage: {name} [-v|-V] NAME...\n       {name} [-p] COMMAND [ARG...]\nRun a command without function lookup, or describe how NAME resolves.";
+const RMRF_HELP: &str =
+    "Usage: {name} [--] PATH...\nPermanently remove each PATH, including directory trees. Missing paths are ignored.";
+
+#[derive(Clone, Copy)]
+enum Help {
+    Text(&'static str),
+    Copy,
+    Move,
+    Sync,
+}
+
+impl Help {
+    fn render(self, name: &str) -> String {
+        match self {
+            Self::Text(text) => text.replace("{name}", name),
+            Self::Copy => super::fs_command::help(super::fs_command::FileOperation::Copy),
+            Self::Move => super::fs_command::help(super::fs_command::FileOperation::Move),
+            Self::Sync => super::sync_command::help(),
+        }
+    }
+}
 
 struct Builtin {
     name: &'static str,
-    help: &'static str,
+    help: Help,
 }
 
 const SHELL_BUILTINS: &[Builtin] = &[
     Builtin {
         name: "alias",
-        help: ALIAS_HELP,
+        help: Help::Text(ALIAS_HELP),
     },
     Builtin {
         name: "cd",
-        help: CHANGE_DIRECTORY_HELP,
+        help: Help::Text(CHANGE_DIRECTORY_HELP),
     },
     Builtin {
         name: "copy-scrollback",
-        help: COPY_SCROLLBACK_HELP,
+        help: Help::Text(COPY_SCROLLBACK_HELP),
     },
     Builtin {
         name: "c",
-        help: CLEAR_SCREEN_HELP,
+        help: Help::Text(CLEAR_SCREEN_HELP),
+    },
+    Builtin {
+        name: "cp",
+        help: Help::Copy,
     },
     Builtin {
         name: "fdu",
-        help: FDU_HELP,
+        help: Help::Text(FDU_HELP),
     },
     Builtin {
         name: "denv",
-        help: DENV_HELP,
+        help: Help::Text(DENV_HELP),
     },
     Builtin {
         name: "exit",
-        help: EXIT_HELP,
+        help: Help::Text(EXIT_HELP),
     },
     Builtin {
         name: "fg",
-        help: RESUME_JOB_HELP,
+        help: Help::Text(RESUME_JOB_HELP),
     },
     Builtin {
         name: "history",
-        help: HISTORY_HELP,
+        help: Help::Text(HISTORY_HELP),
+    },
+    Builtin {
+        name: "mv",
+        help: Help::Move,
     },
     Builtin {
         name: "xshi-dump",
-        help: DUMP_LAYOUT_HELP,
+        help: Help::Text(DUMP_LAYOUT_HELP),
     },
     Builtin {
         name: "l",
-        help: LIST_HELP,
+        help: Help::Text(LIST_HELP),
     },
     Builtin {
         name: "ll",
-        help: LIST_HIDDEN_HELP,
+        help: Help::Text(LIST_HIDDEN_HELP),
+    },
+    Builtin {
+        name: "rmrf",
+        help: Help::Text(RMRF_HELP),
+    },
+    Builtin {
+        name: "rsync",
+        help: Help::Sync,
     },
     Builtin {
         name: "type",
-        help: LOCATE_HELP,
+        help: Help::Text(LOCATE_HELP),
     },
     Builtin {
         name: "w",
-        help: LOCATE_HELP,
+        help: Help::Text(LOCATE_HELP),
     },
     Builtin {
         name: "which",
-        help: LOCATE_HELP,
+        help: Help::Text(LOCATE_HELP),
     },
     Builtin {
         name: "z",
-        help: JUMP_HELP,
+        help: Help::Text(JUMP_HELP),
     },
 ];
 
 const EPSH_BUILTINS: &[Builtin] = &[
     Builtin {
         name: "echo",
-        help: ECHO_HELP,
+        help: Help::Text(ECHO_HELP),
     },
     Builtin {
         name: "printf",
-        help: PRINTF_HELP,
+        help: Help::Text(PRINTF_HELP),
     },
     Builtin {
         name: "pwd",
-        help: PWD_HELP,
+        help: Help::Text(PWD_HELP),
     },
     Builtin {
         name: "true",
-        help: TRUE_HELP,
+        help: Help::Text(TRUE_HELP),
     },
     Builtin {
         name: "false",
-        help: FALSE_HELP,
+        help: Help::Text(FALSE_HELP),
     },
     Builtin {
         name: ":",
-        help: COLON_HELP,
+        help: Help::Text(COLON_HELP),
     },
     Builtin {
         name: "test",
-        help: TEST_HELP,
+        help: Help::Text(TEST_HELP),
     },
     Builtin {
         name: "[",
-        help: BRACKET_HELP,
+        help: Help::Text(BRACKET_HELP),
     },
     Builtin {
         name: "kill",
-        help: KILL_HELP,
+        help: Help::Text(KILL_HELP),
     },
     Builtin {
         name: "export",
-        help: EXPORT_HELP,
+        help: Help::Text(EXPORT_HELP),
     },
     Builtin {
         name: "unset",
-        help: UNSET_HELP,
+        help: Help::Text(UNSET_HELP),
     },
     Builtin {
         name: "set",
-        help: SET_HELP,
+        help: Help::Text(SET_HELP),
     },
     Builtin {
         name: "command",
-        help: COMMAND_HELP,
+        help: Help::Text(COMMAND_HELP),
     },
 ];
 
@@ -199,7 +236,7 @@ pub(super) fn all_builtin_names() -> impl Iterator<Item = &'static str> {
 
 /// Help text for a builtin, with its own name substituted.
 pub(super) fn help(name: &str) -> Option<String> {
-    lookup(name).map(|builtin| builtin.help.replace("{name}", name))
+    lookup(name).map(|builtin| builtin.help.render(name))
 }
 
 /// Locates a command through aliases, builtins, or PATH. `path_env` is the
@@ -224,7 +261,7 @@ pub(super) fn locate_command(
         writeln!(stdout, "alias: {name} {}", expansion.join(" ")).ok();
         let same_name = expansion
             .first()
-            .is_some_and(|first| strip_quotes(first) == name);
+            .is_some_and(|first| strip_quotes_for_lookup(first) == name);
         if !same_name {
             return 0;
         }
@@ -285,7 +322,7 @@ fn is_refused_builtin(name: &str) -> bool {
     )
 }
 
-fn strip_quotes(word: &str) -> &str {
+pub(super) fn strip_quotes_for_lookup(word: &str) -> &str {
     if word.len() >= 2 {
         let bytes = word.as_bytes();
         if (bytes[0] == b'\'' && bytes[word.len() - 1] == b'\'')

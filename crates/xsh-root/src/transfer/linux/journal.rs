@@ -2,7 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rustix::fs::{self, AtFlags, FileType, FlockOperation, Mode, OFlags};
 use rustix::io::Errno;
@@ -49,6 +49,7 @@ pub struct Session {
     name: OsString,
     mount: MountIdentity,
     next: AtomicU64,
+    recovery_required: AtomicBool,
     _active_root: ActiveRoot,
 }
 
@@ -438,6 +439,55 @@ fn retained(workspace: &OsStr, capture: Option<&OsStr>, error: io::Error) -> io:
     )
 }
 
+/// One entry of a [`Session::remove_batch`] call while it is in flight.
+struct BatchEntry {
+    index: usize,
+    intent: Intent,
+    capture: OsString,
+    record: OsString,
+    pending: OsString,
+    expected: EntryIdentity,
+    published: bool,
+    captured: bool,
+    unlinked: bool,
+}
+
+fn batch_failure(error: &io::Error) -> RemovalError {
+    RemovalError {
+        removed: false,
+        error: io::Error::new(error.kind(), error.to_string()),
+    }
+}
+
+fn batch_unfinished_outcomes(
+    outcomes: Vec<Option<Result<Removal, RemovalError>>>,
+) -> Vec<Result<Removal, RemovalError>> {
+    outcomes
+        .into_iter()
+        .map(|outcome| {
+            outcome.unwrap_or_else(|| Err(batch_failure(&invalid("batch entry was not attempted"))))
+        })
+        .collect()
+}
+
+fn fill_unsolved(outcomes: &mut [Option<Result<Removal, RemovalError>>], error: &io::Error) {
+    for outcome in outcomes.iter_mut() {
+        if outcome.is_none() {
+            *outcome = Some(Err(batch_failure(error)));
+        }
+    }
+}
+
+fn append_cleanup(error: &io::Error, cleanup: Option<&io::Error>) -> io::Error {
+    match cleanup {
+        Some(cleanup) => io::Error::new(
+            error.kind(),
+            format!("{error}; journal cleanup failed: {cleanup}"),
+        ),
+        None => io::Error::new(error.kind(), error.to_string()),
+    }
+}
+
 fn abandon_fresh_session(root: BorrowedFd<'_>, name: &OsStr) -> io::Result<()> {
     let observed = match retry(|| fs::statat(root, name, AtFlags::SYMLINK_NOFOLLOW)) {
         Ok(stat) => stat,
@@ -814,6 +864,7 @@ impl Session {
             name,
             mount,
             next: AtomicU64::new(0),
+            recovery_required: AtomicBool::new(false),
             _active_root: active_root,
         })
     }
@@ -1154,6 +1205,387 @@ impl Session {
                 Err(RemovalError { removed, error })
             }
         }
+    }
+
+    /// Retires entries that share one parent directory and ancestry.
+    ///
+    /// Journal records and namespace synchronization are grouped while each
+    /// entry keeps its own intent record, so recovery restores every capture
+    /// that was not yet unlinked. `authorize` observes
+    /// [`Boundary::IntentPublished`], [`Boundary::BeforeCapture`] and
+    /// [`Boundary::BeforeUnlink`]; an error there restores every capture.
+    /// One outcome is returned per request, in request order.
+    pub fn remove_batch(
+        &self,
+        parent: BorrowedFd<'_>,
+        requests: Vec<Retirement>,
+        mut authorize: impl FnMut(Boundary) -> io::Result<()>,
+    ) -> Vec<Result<Removal, RemovalError>> {
+        let mut outcomes: Vec<Option<Result<Removal, RemovalError>>> =
+            (0..requests.len()).map(|_| None).collect();
+        if requests.is_empty() {
+            return Vec::new();
+        }
+        if let Err(error) = self.require_owner() {
+            fill_unsolved(&mut outcomes, &error);
+            return batch_unfinished_outcomes(outcomes);
+        }
+        if requests
+            .iter()
+            .any(|request| request.parents != requests[0].parents)
+        {
+            fill_unsolved(
+                &mut outcomes,
+                &invalid("batch entries must share one directory ancestry"),
+            );
+            return batch_unfinished_outcomes(outcomes);
+        }
+        let (root_identity, root_mount) = match directory_state(self.root.as_fd()) {
+            Ok(state) => state,
+            Err(error) => {
+                fill_unsolved(&mut outcomes, &error);
+                return batch_unfinished_outcomes(outcomes);
+            }
+        };
+        if root_mount != self.mount {
+            fill_unsolved(&mut outcomes, &invalid("recovery root mount changed"));
+            return batch_unfinished_outcomes(outcomes);
+        }
+        if let Err(error) = self.validate_batch_parent(parent, &requests[0].parents) {
+            fill_unsolved(&mut outcomes, &error);
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        let mut prepared: Vec<BatchEntry> = Vec::new();
+        for (index, request) in requests.into_iter().enumerate() {
+            let expected = request.expected;
+            match retry(|| fs::statat(parent, &request.name, AtFlags::SYMLINK_NOFOLLOW)) {
+                Ok(stat) if entry_identity(&stat) == expected => {}
+                Ok(_) => {
+                    outcomes[index] = Some(Ok(Removal::Changed));
+                    continue;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    outcomes[index] = Some(Ok(Removal::AlreadyAbsent));
+                    continue;
+                }
+                Err(error) => {
+                    outcomes[index] = Some(Err(batch_failure(&error)));
+                    continue;
+                }
+            }
+            let id = self.next.fetch_add(1, Ordering::Relaxed);
+            let capture = OsString::from(format!("{id}.entry"));
+            let record = OsString::from(format!("{id}.intent"));
+            let pending = OsString::from(format!("pending-{id}"));
+            let intent = Intent {
+                root: root_identity,
+                parents: request.parents,
+                name: request.name,
+                expected: Some(expected),
+                kind: RecordKind::Retirement,
+            };
+            let written = intent.encode().and_then(|bytes| {
+                let file = write_pending(self.directory.as_fd(), &pending, &bytes)?;
+                file.sync_all()
+            });
+            match written {
+                Ok(()) => prepared.push(BatchEntry {
+                    index,
+                    intent,
+                    capture,
+                    record,
+                    pending,
+                    expected,
+                    published: false,
+                    captured: false,
+                    unlinked: false,
+                }),
+                Err(error) => {
+                    let _ = fs::unlinkat(self.directory.as_fd(), &pending, AtFlags::empty());
+                    outcomes[index] = Some(Err(batch_failure(&error)));
+                }
+            }
+        }
+        if prepared.is_empty() {
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        for entry in &mut prepared {
+            match fs::renameat_with(
+                self.directory.as_fd(),
+                &entry.pending,
+                self.directory.as_fd(),
+                &entry.record,
+                fs::RenameFlags::NOREPLACE,
+            ) {
+                Ok(()) => entry.published = true,
+                Err(error) => {
+                    if retry(|| {
+                        fs::statat(self.directory.as_fd(), &entry.record, AtFlags::SYMLINK_NOFOLLOW)
+                    })
+                    .is_ok()
+                    {
+                        entry.published = true;
+                    } else {
+                        let _ = fs::unlinkat(self.directory.as_fd(), &entry.pending, AtFlags::empty());
+                        outcomes[entry.index] = Some(Err(batch_failure(&error.into())));
+                    }
+                }
+            }
+        }
+        if !prepared.iter().any(|entry| entry.published) {
+            return batch_unfinished_outcomes(outcomes);
+        }
+        let abandoned = |error: io::Error, prepared: &[BatchEntry], outcomes: &mut [Option<Result<Removal, RemovalError>>]| {
+            let cleanup = self.abandon_batch_entries(prepared);
+            let error = append_cleanup(&error, cleanup.as_ref());
+            for entry in prepared {
+                if entry.published {
+                    outcomes[entry.index] = Some(Err(batch_failure(&error)));
+                }
+            }
+        };
+        if let Err(error) = sync(self.directory.as_fd()) {
+            abandoned(error, &prepared, &mut outcomes);
+            return batch_unfinished_outcomes(outcomes);
+        }
+        if let Err(error) = authorize(Boundary::IntentPublished) {
+            abandoned(error, &prepared, &mut outcomes);
+            return batch_unfinished_outcomes(outcomes);
+        }
+        if let Err(error) = authorize(Boundary::BeforeCapture)
+            .and_then(|()| self.validate_batch_parent(parent, &prepared[0].intent.parents))
+        {
+            abandoned(error, &prepared, &mut outcomes);
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        for entry in &mut prepared {
+            if !entry.published {
+                continue;
+            }
+            match fs::renameat_with(
+                parent,
+                &entry.intent.name,
+                self.directory.as_fd(),
+                &entry.capture,
+                fs::RenameFlags::NOREPLACE,
+            ) {
+                Ok(()) => entry.captured = true,
+                Err(Errno::NOENT) => outcomes[entry.index] = Some(Ok(Removal::AlreadyAbsent)),
+                Err(error) => {
+                    if retry(|| {
+                        fs::statat(self.directory.as_fd(), &entry.capture, AtFlags::SYMLINK_NOFOLLOW)
+                    })
+                    .is_ok()
+                    {
+                        entry.captured = true;
+                    } else {
+                        outcomes[entry.index] = Some(Err(batch_failure(&error.into())));
+                    }
+                }
+            }
+        }
+
+        let mut captured = 0_usize;
+        for entry in &prepared {
+            if entry.captured {
+                captured += 1;
+                continue;
+            }
+            if entry.published {
+                let _ = fs::unlinkat(self.directory.as_fd(), &entry.record, AtFlags::empty());
+            }
+            let _ = fs::unlinkat(self.directory.as_fd(), &entry.pending, AtFlags::empty());
+        }
+        if captured == 0 {
+            let _ = sync(self.directory.as_fd());
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        if let Err(error) = sync(parent).and_then(|()| sync(self.directory.as_fd())) {
+            self.restore_captured_batch(parent, &mut prepared, &mut outcomes, &error);
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        for entry in &mut prepared {
+            if !entry.captured {
+                continue;
+            }
+            let verified = retry(|| {
+                fs::statat(self.directory.as_fd(), &entry.capture, AtFlags::SYMLINK_NOFOLLOW)
+            })
+            .map(|stat| entry_identity(&stat));
+            let error = match verified {
+                Ok(found) if found == entry.expected => continue,
+                Ok(_) => invalid("captured object changed after it was moved"),
+                Err(error) => error,
+            };
+            match self.restore(parent, &entry.intent.name, &entry.capture, &entry.record) {
+                Ok(()) => {
+                    entry.captured = false;
+                    outcomes[entry.index] = Some(Ok(Removal::Changed));
+                }
+                Err(restoration) => {
+                    self.recovery_required.store(true, Ordering::Relaxed);
+                    outcomes[entry.index] =
+                        Some(Err(batch_failure(&append_cleanup(&error, Some(&restoration)))));
+                }
+            }
+        }
+
+        if let Err(error) = authorize(Boundary::BeforeUnlink) {
+            self.restore_captured_batch(parent, &mut prepared, &mut outcomes, &error);
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        let mut unlinked = 0_usize;
+        for entry in &mut prepared {
+            if !entry.captured {
+                continue;
+            }
+            let flags = if entry.expected.kind == FileKind::Directory {
+                AtFlags::REMOVEDIR
+            } else {
+                AtFlags::empty()
+            };
+            match fs::unlinkat(self.directory.as_fd(), &entry.capture, flags) {
+                Ok(()) | Err(Errno::NOENT) => {
+                    entry.unlinked = true;
+                    unlinked += 1;
+                }
+                Err(error) => {
+                    let error = io::Error::from(error);
+                    match self.restore(parent, &entry.intent.name, &entry.capture, &entry.record) {
+                        Ok(()) => entry.captured = false,
+                        Err(restoration) => {
+                            self.recovery_required.store(true, Ordering::Relaxed);
+                            outcomes[entry.index] = Some(Err(batch_failure(&append_cleanup(
+                                &error,
+                                Some(&restoration),
+                            ))));
+                            continue;
+                        }
+                    }
+                    outcomes[entry.index] = Some(Err(batch_failure(&error)));
+                }
+            }
+        }
+        if unlinked == 0 {
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        if let Err(error) = sync(self.directory.as_fd()).and_then(|()| sync(parent)) {
+            let error = io::Error::new(
+                error.kind(),
+                format!("entry removed; synchronization failed: {error}"),
+            );
+            for entry in &prepared {
+                if entry.unlinked {
+                    outcomes[entry.index] = Some(Err(RemovalError {
+                        removed: true,
+                        error: io::Error::new(error.kind(), error.to_string()),
+                    }));
+                }
+            }
+            self.recovery_required.store(true, Ordering::Relaxed);
+            return batch_unfinished_outcomes(outcomes);
+        }
+
+        for entry in &prepared {
+            if !entry.unlinked {
+                continue;
+            }
+            match fs::unlinkat(self.directory.as_fd(), &entry.record, AtFlags::empty()) {
+                Ok(()) | Err(Errno::NOENT) => {}
+                Err(error) => {
+                    outcomes[entry.index] = Some(Err(RemovalError {
+                        removed: true,
+                        error: error.into(),
+                    }));
+                }
+            }
+        }
+        if let Err(error) = sync(self.directory.as_fd()) {
+            let error = io::Error::new(
+                error.kind(),
+                format!("entry removed; synchronization failed: {error}"),
+            );
+            for entry in &prepared {
+                if entry.unlinked && outcomes[entry.index].is_none() {
+                    outcomes[entry.index] = Some(Err(RemovalError {
+                        removed: true,
+                        error: io::Error::new(error.kind(), error.to_string()),
+                    }));
+                }
+            }
+        }
+        for entry in &prepared {
+            if entry.unlinked && outcomes[entry.index].is_none() {
+                outcomes[entry.index] = Some(Ok(Removal::Removed));
+            }
+        }
+        batch_unfinished_outcomes(outcomes)
+    }
+
+    /// Whether a failed batch left captures the journal could not restore, so
+    /// further work in this root must stop until recovery runs.
+    pub fn recovery_required(&self) -> bool {
+        self.recovery_required.load(Ordering::Relaxed)
+    }
+
+    fn validate_batch_parent(&self, parent: BorrowedFd<'_>, parents: &[Ancestor]) -> io::Result<()> {
+        let checked = parent_of(self.root.as_fd(), parents, &self.mount)?;
+        if directory_state(checked.as_fd())? != directory_state(parent)? {
+            return Err(invalid("source parent identity or mount changed"));
+        }
+        Ok(())
+    }
+
+    fn restore_captured_batch(
+        &self,
+        parent: BorrowedFd<'_>,
+        prepared: &mut [BatchEntry],
+        outcomes: &mut [Option<Result<Removal, RemovalError>>],
+        error: &io::Error,
+    ) {
+        let mut cleanup_error = None;
+        for entry in prepared {
+            if !entry.captured {
+                continue;
+            }
+            match self.restore(parent, &entry.intent.name, &entry.capture, &entry.record) {
+                Ok(()) => entry.captured = false,
+                Err(restoration) => {
+                    cleanup_error.get_or_insert(restoration);
+                    self.recovery_required.store(true, Ordering::Relaxed);
+                }
+            }
+            outcomes[entry.index] =
+                Some(Err(batch_failure(&append_cleanup(error, cleanup_error.as_ref()))));
+        }
+    }
+
+    fn abandon_batch_entries(&self, entries: &[BatchEntry]) -> Option<io::Error> {
+        let mut trouble = None;
+        for entry in entries {
+            let _ = fs::unlinkat(self.directory.as_fd(), &entry.pending, AtFlags::empty());
+            if entry.published
+                && let Err(error) =
+                    fs::unlinkat(self.directory.as_fd(), &entry.record, AtFlags::empty())
+                && error != Errno::NOENT
+            {
+                trouble.get_or_insert(error.into());
+            }
+        }
+        if let Err(error) = sync(self.directory.as_fd()) {
+            trouble.get_or_insert(error);
+        }
+        if trouble.is_some() {
+            self.recovery_required.store(true, Ordering::Relaxed);
+        }
+        trouble
     }
 
     fn restore(

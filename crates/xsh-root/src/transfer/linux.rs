@@ -29,7 +29,8 @@ pub(super) use sync::sync;
 use super::{
     Cancellation, CopyMethod, CopyStats, DeferredFlags, DryRunEntry, EngineOptions, EntryIdentity,
     Metadata, MetadataTarget, MountIdentity, Observation, PolicyOptions, Preservation, Progress,
-    Action, Target, Timestamp, TreeTransfer, Xattr, decide, TRANSFER_BUFFER_BYTES,
+    Action, LiveProgress, Target, Timestamp, TreeTransfer, Xattr, advance_live, decide,
+    TRANSFER_BUFFER_BYTES,
 };
 use crate::FileKind;
 use journal::Session;
@@ -1204,6 +1205,7 @@ pub(super) fn check_recovery(fd: BorrowedFd<'_>) -> io::Result<()> {
 
 struct TransferContext<'a> {
     cancellation: &'a Cancellation,
+    live: Option<&'a LiveProgress>,
     engine: EngineOptions,
     stop: AtomicBool,
     groups: GroupRegistry,
@@ -1529,6 +1531,7 @@ pub(super) fn transfer_tree(request: TreeTransfer<'_>) -> io::Result<()> {
         engine,
         cancellation,
         progress,
+        live,
         deferred_flags,
     } = request;
     validate_entry_name(source_name, "source")?;
@@ -1542,6 +1545,7 @@ pub(super) fn transfer_tree(request: TreeTransfer<'_>) -> io::Result<()> {
         engine,
         cancellation,
         progress,
+        live,
         deferred_flags,
     );
     if result.is_err() {
@@ -1558,12 +1562,15 @@ fn run_tree(
     engine: EngineOptions,
     cancellation: &Cancellation,
     progress: &mut Progress,
+    live: Option<&LiveProgress>,
     deferred_flags: &mut Vec<DeferredFlags>,
 ) -> io::Result<()> {
     check_recovery(source_parent)?;
     check_recovery(destination_parent)?;
     let source = observe(source_parent, source_name)?;
+    let before = *progress;
     progress.discovered_files += 1;
+    advance_live(live, &before, progress);
     match source.identity.kind {
         FileKind::Directory => run_directory_tree(
             source_parent,
@@ -1574,6 +1581,7 @@ fn run_tree(
             engine,
             cancellation,
             progress,
+            live,
             deferred_flags,
         ),
         FileKind::File | FileKind::Symlink => run_leaf_tree(
@@ -1585,6 +1593,7 @@ fn run_tree(
             engine,
             cancellation,
             progress,
+            live,
             deferred_flags,
         ),
         _ => Err(io::Error::new(
@@ -1603,10 +1612,12 @@ fn run_leaf_tree(
     engine: EngineOptions,
     cancellation: &Cancellation,
     progress: &mut Progress,
+    live: Option<&LiveProgress>,
     deferred_flags: &mut Vec<DeferredFlags>,
 ) -> io::Result<()> {
     let context = TransferContext {
         cancellation,
+        live,
         engine,
         stop: AtomicBool::new(false),
         groups: GroupRegistry::default(),
@@ -1631,7 +1642,10 @@ fn run_leaf_tree(
         copy: true,
     };
     let mut buffer = vec![0; TRANSFER_BUFFER_BYTES];
-    context.transfer_leaf(&work, &mut buffer, progress)?;
+    let before = *progress;
+    let transferred = context.transfer_leaf(&work, &mut buffer, progress);
+    advance_live(live, &before, progress);
+    transferred?;
     deferred_flags.append(&mut context.deferred.lock().unwrap().clone());
     if engine.durable {
         sync_fd(destination_parent)?;
@@ -1649,6 +1663,7 @@ fn run_directory_tree(
     engine: EngineOptions,
     cancellation: &Cancellation,
     progress: &mut Progress,
+    live: Option<&LiveProgress>,
     deferred_flags: &mut Vec<DeferredFlags>,
 ) -> io::Result<()> {
     if directory_chain_contains(destination_parent, source)? {
@@ -1675,6 +1690,7 @@ fn run_directory_tree(
     require_unchanged_fd(source, source_directory.as_fd())?;
     let context = TransferContext {
         cancellation,
+        live,
         engine,
         stop: AtomicBool::new(false),
         groups: GroupRegistry::default(),
@@ -1741,7 +1757,10 @@ fn transfer_directory_tree(
                         if context.checkpoint().is_err() {
                             continue;
                         }
-                        if let Err(error) = context.transfer_leaf(&work, &mut buffer, &mut local) {
+                        let before = local;
+                        let transferred = context.transfer_leaf(&work, &mut buffer, &mut local);
+                        advance_live(context.live, &before, &local);
+                        if let Err(error) = transferred {
                             context.record_failure(error);
                         }
                     }
@@ -1824,7 +1843,9 @@ fn produce_directory_work(
             let name = OsStr::from_bytes(name.as_bytes());
             let path = relative.join(name);
             let observed = observe(source_directory.as_fd(), name)?;
+            let before = *progress;
             progress.discovered_files += 1;
+            advance_live(context.live, &before, progress);
             match observed.identity.kind {
                 FileKind::Directory => {
                     let child = open_directory(source_directory.as_fd(), name, observed)?;
@@ -1928,7 +1949,9 @@ fn finalize_directories(
             progress.synced_directories += 1;
         }
         defer_flags(context, &record.relative, &record.metadata);
+        let before = *progress;
         progress.completed_files += 1;
+        advance_live(context.live, &before, progress);
     }
     apply(
         MetadataTarget::Fd(context.destination_root.as_fd()),
@@ -1940,7 +1963,9 @@ fn finalize_directories(
         progress.synced_directories += 1;
     }
     defer_flags(context, Path::new(""), &root_metadata);
+    let before = *progress;
     progress.completed_files += 1;
+    advance_live(context.live, &before, progress);
     Ok(())
 }
 

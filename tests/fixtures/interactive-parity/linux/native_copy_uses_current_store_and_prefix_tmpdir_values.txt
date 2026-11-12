@@ -1,0 +1,61 @@
+== frame refused cursor=5,20
+|testuser@<HOST> ~ $ set TMPDIR scratch
+|
+|testuser@<HOST> ~ $ TMPDIR=missing cp source refused-copy
+|<SHELL>: cp: source: No such file or directory (os error 2)
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 TMPDIR=missing
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame refused_status cursor=8,20
+|testuser@<HOST> ~ $ set TMPDIR scratch
+|
+|testuser@<HOST> ~ $ TMPDIR=missing cp source refused-copy
+|<SHELL>: cp: source: No such file or directory (os error 2)
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 TMPDIR=missing
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame accepted_status cursor=13,20
+|testuser@<HOST> ~ $ set TMPDIR scratch
+|
+|testuser@<HOST> ~ $ TMPDIR=missing cp source refused-copy
+|<SHELL>: cp: source: No such file or directory (os error 2)
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-1
+|
+|testuser@<HOST> ~ $ cp source accepted-copy
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 TMPDIR=missing
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect refused_copy
+|absent
+== effect accepted_copy
+|selected scratch
+== effect selected_tmpdir
+|scratch

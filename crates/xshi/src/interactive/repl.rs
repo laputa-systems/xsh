@@ -1478,14 +1478,17 @@ fn navigate_history(
 
 fn try_alias_expand(line: &mut LineBuffer, aliases: &AliasMap) {
     let text = line.text();
-    // Only expand on the first space: if the trimmed text already contains a
-    // space, the alias was already expanded or the user typed arguments.
-    let trimmed = text.trim_end();
-    if trimmed.contains(' ') {
+    // Only expand on the first space after the command word (or after a
+    // leading `!`): further words mean the alias was already expanded or the
+    // user typed arguments.
+    let mut words = text.split_whitespace();
+    let first = words.next();
+    let command_name = if first == Some("!") { words.next() } else { first };
+    if command_name.is_none() || words.next().is_some() {
         return;
     }
 
-    let expanded = aliases.expand_line(text);
+    let expanded = aliases.expand_command_line(text);
     if let std::borrow::Cow::Owned(new_text) = expanded {
         line.set(&new_text);
     }

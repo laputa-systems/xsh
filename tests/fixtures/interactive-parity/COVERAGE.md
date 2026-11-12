@@ -8,18 +8,18 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 
 | ish test | xshi parity scenario |
 |---|---|
-| `native_fs_copy_and_move_lists_keep_successes_and_continue_after_failures` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_exact_targets_and_into_directories_preserve_real_bytes` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_multi_source_into_trailing_directory` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_redirections_prevent_failed_transfers_and_capture_stderr` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_parent_placement_accepts_command_alias_expanded_name_and_argument_substitution` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_standalone_negation_runs_in_the_shell_process` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_static_dynamic_and_nested_fork_contexts_refuse_before_redirections` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_quick_no_progress_copy_stays_quiet` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_ctrl_c_during_copy_returns_130_to_a_usable_prompt` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_ctrl_z_is_ignored_during_copy_and_external_job_control_still_works` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_sigterm_and_sighup_cancel_and_restore_the_terminal` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
-| `native_fs_broken_stderr_cancels_bounded_work_and_keeps_the_prompt_usable` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
+| `native_fs_copy_and_move_lists_keep_successes_and_continue_after_failures` | `native_fs_copy_and_move_lists_keep_successes_and_continue_after_failures` |
+| `native_fs_exact_targets_and_into_directories_preserve_real_bytes` | `native_fs_exact_targets_and_into_directories_preserve_real_bytes` |
+| `native_fs_multi_source_into_trailing_directory` | `native_fs_multi_source_into_trailing_directory` |
+| `native_fs_redirections_prevent_failed_transfers_and_capture_stderr` | `native_fs_redirections_prevent_failed_transfers_and_capture_stderr` |
+| `native_fs_parent_placement_accepts_command_alias_expanded_name_and_argument_substitution` | `native_fs_parent_placement_accepts_command_alias_expanded_name_and_argument_substitution` |
+| `native_fs_standalone_negation_runs_in_the_shell_process` | `native_fs_standalone_negation_runs_in_the_shell_process` |
+| `native_fs_static_dynamic_and_nested_fork_contexts_refuse_before_redirections` | `native_fs_static_dynamic_and_nested_fork_contexts_refuse_before_redirections` |
+| `native_fs_quick_no_progress_copy_stays_quiet` | `native_fs_quick_no_progress_copy_stays_quiet` |
+| `native_fs_ctrl_c_during_copy_returns_130_to_a_usable_prompt` | `native_fs_ctrl_c_during_copy_returns_130_to_a_usable_prompt` |
+| `native_fs_ctrl_z_is_ignored_during_copy_and_external_job_control_still_works` | `native_fs_ctrl_z_is_ignored_during_copy_and_external_job_control_still_works` |
+| `native_fs_sigterm_and_sighup_cancel_and_restore_the_terminal` | `native_fs_sigterm_cancels_and_restores_the_terminal`, `native_fs_sighup_cancels_and_restores_the_terminal` |
+| `native_fs_broken_stderr_cancels_bounded_work_and_keeps_the_prompt_usable` | `native_fs_broken_stderr_cancels_bounded_work_and_keeps_the_prompt_usable` |
 | `prompt_appears_on_startup` | `prompt_appears_on_startup` |
 | `echo_command` | `echo_command` |
 | `prompt_does_not_share_a_line_with_unterminated_external_output` | `prompt_does_not_share_a_line_with_unterminated_external_output` |
@@ -65,8 +65,8 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `set_path_affects_command_lookup` | `set_path_affects_command_lookup` |
 | `which_reflects_exported_path` | `which_reflects_exported_path` |
 | `which_uses_store_path_not_os_env` | `which_uses_store_path_not_os_env` |
-| `command_lookup_classifies_ish_commands_with_empty_path` | Excluded: S4 native fs lane (asserts `cp`/`mv` classification) |
-| `native_fs_rsync_interactive` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
+| `command_lookup_classifies_ish_commands_with_empty_path` | `command_lookup_classifies_ish_commands_with_empty_path` |
+| `native_fs_rsync_interactive` | `native_fs_rsync_interactive` |
 | `native_fs_fdu_interactive` | Excluded: S6 fdu lane (`fdu_pty.rs`/`fdu_snapshots.rs` owner) |
 | `tilde_expansion` | `tilde_expansion` |
 | `history_up_arrow` | `history_up_arrow` |
@@ -99,7 +99,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `alias_with_command_substitution` | `alias_with_command_substitution` |
 | `alias_preserves_quoted_word` | `alias_preserves_quoted_word` |
 | `which_builtin` | `which_builtin` |
-| `rmrf_removes_a_directory` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
+| `rmrf_removes_a_directory` | `rmrf_removes_a_directory` |
 | `which_external` | `which_external` |
 | `which_alias` | `which_alias` |
 | `which_same_name_alias_shows_underlying_binary` | `which_same_name_alias_shows_underlying_binary` |
@@ -166,7 +166,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `exit_twice_with_stopped_job_warns_then_exits` | `exit_twice_with_a_stopped_job_exits` |
 | `confirmed_exit_with_stopped_job_keeps_the_requested_status` | `confirmed_exit_with_a_stopped_job_keeps_the_requested_status` |
 | `pipeline_suspend_and_resume_retains_every_stage` | `pipeline_suspend_and_resume_retains_every_stage` |
-| `native_handlers_refuse_child_execution_before_target_redirections` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
+| `native_handlers_refuse_child_execution_before_target_redirections` | `native_handlers_refuse_child_execution_before_target_redirections` |
 | `external_input_redirections_preserve_foreground_terminal_ownership` | `external_input_redirections_preserve_foreground_terminal_ownership` + known-gap `closed_input_redirection_keeps_terminal_ownership` (`0<&-` parses as background) |
 | `ordinary_exit_148_does_not_create_a_suspended_job` | `ordinary_exit_148_does_not_create_a_suspended_job` |
 | `occupied_job_slot_restores_new_job_terminal_modes_before_continuing` | `occupied_job_slot_restores_new_job_terminal_modes_before_continuing` |
@@ -197,7 +197,7 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `ctrl_p_dump_is_private_and_omits_typed_text` | `ctrl_p_dump_is_private_and_omits_typed_text` |
 | `native_listing_and_standalone_cd_preserve_private_use_and_raw_path_bytes` | Owner-deferred: raw non-UTF-8 path bytes |
 | `prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes` | known-gap: non-UTF-8 command substitution refused (interactive/app.rs); Unicode and control cases in `prompt_identity_displays_unicode_user` (`prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes`) |
-| `native_copy_uses_current_store_and_prefix_tmpdir_values` | Excluded: S4 native fs lane (`cp`/`mv`/`rsync`/`rmrf`) |
+| `native_copy_uses_current_store_and_prefix_tmpdir_values` | `native_copy_uses_current_store_and_prefix_tmpdir_values` |
 | `osc133_marks_prompt_input_execution_and_completion` | `osc133_marks_prompt_input_execution_and_completion` |
 | `osc133_reports_command_status` | `osc133_reports_command_status` |
 | `osc133_cancelled_input_has_no_execution_marker` | `osc133_cancelled_input_has_no_execution_marker` |
@@ -426,8 +426,8 @@ same names unless a mapping is given.
 | `builtin_registry_drives_names_and_execution_classes` | `ported_tests.rs::builtin_is_builtin_known`, `builtin_is_builtin_unknown` |
 | `every_builtin_has_help` | `crates/xshi/src/interactive/builtin.rs` help table; no parity subject |
 | `fdu_help_and_rejections_and_summary` | Excluded: S4 native fs / S6 fdu lane |
-| `rsync_help_and_option_rejections` | Excluded: S4 native fs / S6 fdu lane |
-| `rsync_operand_mapping_and_trailing_slash_invariance` | Excluded: S4 native fs / S6 fdu lane |
-| `rsync_incremental_quick_check_skip` | Excluded: S4 native fs / S6 fdu lane |
-| `rsync_delete_and_dry_run` | Excluded: S4 native fs / S6 fdu lane |
-| `rsync_metadata_and_permissions_preserved` | Excluded: S4 native fs / S6 fdu lane |
+| `rsync_help_and_option_rejections` | `sync_command.rs::help_and_option_rejections_report_the_reference_statuses` |
+| `rsync_operand_mapping_and_trailing_slash_invariance` | `sync_command.rs::operand_mapping_is_invariant_under_a_trailing_slash` |
+| `rsync_incremental_quick_check_skip` | `tests/fs_transfer/engine.rs::sync_quick_check_skips_unchanged_and_updates_drifted_files` |
+| `rsync_delete_and_dry_run` | `tests/fs_transfer/engine.rs::sync_delete_removes_destination_only_entries_and_keeps_others`, `sync_dry_run_reports_without_mutating_either_tree` |
+| `rsync_metadata_and_permissions_preserved` | `sync_command.rs::modes_and_modification_times_are_preserved` |

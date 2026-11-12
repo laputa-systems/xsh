@@ -7,8 +7,9 @@ use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags};
 
 use crate::FileKind;
 use crate::transfer::{
-    Action, Ancestor, Boundary, EntryIdentity, MergeRequest, MetadataTarget, Observation,
-    Publication, PublishRequest, Removal, Retirement, Target, TreeTransfer, decide,
+    Action, Ancestor, Boundary, EntryIdentity, LiveProgress, MergeRequest, MetadataTarget,
+    Observation, Publication, PublishRequest, Removal, Retirement, Target, TreeTransfer,
+    advance_live, decide,
 };
 
 use super::journal::{Session, read_names};
@@ -34,6 +35,7 @@ pub(crate) fn publish(
         engine,
         cancellation,
         progress,
+        live,
     } = request;
     validate_entry_name(source_name, "source")?;
     validate_entry_name(destination_name, "destination")?;
@@ -98,6 +100,7 @@ pub(crate) fn publish(
             engine,
             cancellation,
             progress,
+            live,
             deferred_flags: &mut deferred,
         })?;
         authorize(Boundary::TransferComplete)?;
@@ -409,6 +412,7 @@ pub(crate) fn merge(request: MergeRequest<'_>) -> io::Result<()> {
         engine,
         cancellation,
         progress,
+        live,
     } = request;
     validate_entry_name(source_name, "source")?;
     validate_entry_name(destination_name, "destination")?;
@@ -430,6 +434,7 @@ pub(crate) fn merge(request: MergeRequest<'_>) -> io::Result<()> {
         engine,
         cancellation,
         progress,
+        live,
     };
     merge_directory(
         &mut context,
@@ -446,6 +451,7 @@ struct MergeContext<'a> {
     engine: crate::transfer::EngineOptions,
     cancellation: &'a crate::transfer::Cancellation,
     progress: &'a mut crate::transfer::Progress,
+    live: Option<&'a LiveProgress>,
 }
 
 fn merge_directory(
@@ -469,11 +475,14 @@ fn merge_directory(
         };
         let target = destination_child.map_or(Target::Absent, Target::Existing);
         let action = decide(source_child, target, &context.options)?;
+        let before = *context.progress;
         context.progress.discovered_files += 1;
+        if matches!(action, Action::Skip | Action::SameEntry) {
+            context.progress.skipped_files += 1;
+        }
+        advance_live(context.live, &before, context.progress);
         match action {
-            Action::Skip | Action::SameEntry => {
-                context.progress.skipped_files += 1;
-            }
+            Action::Skip | Action::SameEntry => {}
             Action::Merge => {
                 let source_directory = open_checked_directory(source, &name, source_child)?;
                 let destination_observed =
@@ -507,10 +516,13 @@ fn merge_directory(
                         engine: context.engine,
                         cancellation: context.cancellation,
                         progress: context.progress,
+                        live: context.live,
                     },
                     |_| Ok(()),
                 )?;
+                let before = *context.progress;
                 context.progress.completed_files += 1;
+                advance_live(context.live, &before, context.progress);
             }
         }
     }

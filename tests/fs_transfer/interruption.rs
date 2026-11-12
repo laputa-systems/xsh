@@ -326,6 +326,7 @@ fn child_replace_at_boundary() {
             engine: xsh_root::transfer::EngineOptions::default(),
             cancellation: &cancellation,
             progress: &mut progress,
+            live: None,
         },
         |point| {
             if format!("{point:?}") == boundary {
@@ -366,6 +367,7 @@ fn child_copy_for_sigkill() {
             engine: xsh_root::transfer::EngineOptions::default(),
             cancellation: &cancellation,
             progress: &mut progress,
+            live: None,
         },
         |_| Ok(()),
     )

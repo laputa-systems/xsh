@@ -124,8 +124,179 @@ fn crash_child() {
 }
 
 #[test]
-#[ignore = "deferred: batch retirement belongs to the S4 rmrf journal"]
-fn killed_batch_restores_every_unlinked_capture() {}
+#[ignore = "subprocess fixture for batch journal interruption"]
+fn crash_batch_child() {
+    let Some(root) = std::env::var_os("XSH_JOURNAL_CRASH_ROOT") else {
+        return;
+    };
+    let boundary = std::env::var("XSH_JOURNAL_CRASH_BOUNDARY").expect("crash boundary");
+    let root = PathBuf::from(root);
+    let root_file = File::open(&root).expect("open crash root");
+    let session = Session::start(root_file.as_fd()).expect("start crash session");
+    let requests = ["source-a", "source-b", "source-c"]
+        .into_iter()
+        .map(|name| {
+            Retirement::new(Vec::new(), name.into(), identity_of(&root.join(name)))
+                .expect("build batch retirement")
+        })
+        .collect();
+    let results = session.remove_batch(root_file.as_fd(), requests, |point| {
+        if format!("{point:?}") == boundary {
+            println!("ready");
+            std::io::stdout().flush().expect("flush readiness");
+            loop {
+                std::thread::park();
+            }
+        }
+        Ok(())
+    });
+    drop(results);
+    panic!("crash boundary was not reached");
+}
+
+#[test]
+fn killed_batch_restores_every_unlinked_capture() {
+    for boundary in [
+        Boundary::IntentPublished,
+        Boundary::BeforeCapture,
+        Boundary::BeforeUnlink,
+    ] {
+        let fixture = Fixture::new();
+        for name in ["source-a", "source-b", "source-c"] {
+            fs::write(fixture.0.join(name), name.as_bytes()).expect("write batch source");
+        }
+        fs::write(fixture.0.join("untouched"), b"kept").expect("write untouched entry");
+        let mut child = Command::new(std::env::current_exe().expect("current test binary"))
+            .args([
+                "--exact",
+                "recovery::crash_batch_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("XSH_JOURNAL_CRASH_ROOT", &fixture.0)
+            .env("XSH_JOURNAL_CRASH_BOUNDARY", format!("{boundary:?}"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn batch journal child");
+        wait_ready(&mut child, boundary);
+        child.kill().expect("kill batch journal child");
+        assert!(!child.wait().expect("reap batch journal child").success());
+        let error = recover(&fixture.0).expect_err("recovery must report the interruption");
+        assert!(
+            error
+                .to_string()
+                .contains("interrupted filesystem operation state recovered"),
+            "{boundary:?}: {error}"
+        );
+        for name in ["source-a", "source-b", "source-c"] {
+            assert_eq!(
+                fs::read(fixture.0.join(name)).expect("read restored batch source"),
+                name.as_bytes(),
+                "{boundary:?}"
+            );
+        }
+        assert_eq!(
+            fs::read(fixture.0.join("untouched")).expect("read untouched entry"),
+            b"kept"
+        );
+        assert_eq!(
+            fs::read_dir(&fixture.0).expect("read recovery root").count(),
+            4,
+            "{boundary:?}"
+        );
+        recover(&fixture.0).expect("a second recovery is a no-op");
+    }
+}
+
+#[test]
+fn batch_retirement_removes_entries_and_reports_absent_and_changed_names() {
+    let fixture = Fixture::new();
+    for name in ["first", "second", "changed"] {
+        fs::write(fixture.0.join(name), name.as_bytes()).expect("write batch entry");
+    }
+    let root = fixture.root();
+    let session = Session::start(root.as_fd()).expect("start session");
+    let requests = vec![
+        Retirement::new(Vec::new(), "first".into(), identity_of(&fixture.0.join("first")))
+            .expect("build first retirement"),
+        Retirement::new(Vec::new(), "changed".into(), identity_of(&fixture.0.join("changed")))
+            .expect("build changed retirement"),
+        Retirement::new(Vec::new(), "second".into(), identity_of(&fixture.0.join("second")))
+            .expect("build second retirement"),
+        Retirement::new(Vec::new(), "missing".into(), identity_of(&fixture.0.join("first")))
+            .expect("build missing retirement"),
+    ];
+    fs::write(fixture.0.join("replacement"), b"replacement").expect("write replacement entry");
+    fs::rename(fixture.0.join("replacement"), fixture.0.join("changed"))
+        .expect("replace changed entry");
+    let results = session.remove_batch(root.as_fd(), requests, |_| Ok(()));
+    let outcomes: Vec<Removal> = results
+        .into_iter()
+        .map(|result| result.expect("batch entry outcome"))
+        .collect();
+    assert_eq!(
+        outcomes,
+        [
+            Removal::Removed,
+            Removal::Changed,
+            Removal::Removed,
+            Removal::AlreadyAbsent
+        ]
+    );
+    assert!(!session.recovery_required());
+    session.finish().expect("finish session");
+    assert!(!fixture.0.join("first").exists());
+    assert!(!fixture.0.join("second").exists());
+    assert_eq!(
+        fs::read(fixture.0.join("changed")).expect("read live replacement"),
+        b"replacement"
+    );
+    assert_eq!(fs::read_dir(&fixture.0).expect("read root").count(), 1);
+}
+
+#[test]
+fn refused_batch_boundary_restores_every_capture_at_its_name() {
+    for refused in [Boundary::BeforeCapture, Boundary::BeforeUnlink] {
+        let fixture = Fixture::new();
+        for name in ["first", "second"] {
+            fs::write(fixture.0.join(name), name.as_bytes()).expect("write batch entry");
+        }
+        let root = fixture.root();
+        let session = Session::start(root.as_fd()).expect("start session");
+        let requests = ["first", "second"]
+            .into_iter()
+            .map(|name| {
+                Retirement::new(Vec::new(), name.into(), identity_of(&fixture.0.join(name)))
+                    .expect("build batch retirement")
+            })
+            .collect();
+        let results = session.remove_batch(root.as_fd(), requests, |boundary| {
+            if boundary == refused {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "deletion cancelled",
+                ));
+            }
+            Ok(())
+        });
+        for result in results {
+            let error = result.expect_err("a refused boundary fails every entry");
+            assert!(!error.removed, "{refused:?}");
+            assert_eq!(error.error.kind(), std::io::ErrorKind::Interrupted);
+        }
+        assert!(!session.recovery_required());
+        session.finish().expect("a refused batch leaves no journal records");
+        for name in ["first", "second"] {
+            assert_eq!(
+                fs::read(fixture.0.join(name)).expect("read restored entry"),
+                name.as_bytes(),
+                "{refused:?}"
+            );
+        }
+        assert_eq!(fs::read_dir(&fixture.0).expect("read root").count(), 2);
+    }
+}
 
 #[test]
 fn killed_retirement_under_restrictive_umask_recovers_records() {

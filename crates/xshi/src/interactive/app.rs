@@ -275,6 +275,7 @@ fn is_whole_line_builtin(name: &str) -> bool {
             | "denv"
             | "exit"
             | "fg"
+            | "rmrf"
             | "xshi-dump"
             | "z"
             | "w"
@@ -306,6 +307,13 @@ const UNSUPPORTED_BUILTINS: &[&str] = &[
     "readonly", "shift", "eval", ".", "source", "read", "local", "exec", "wait", "trap", "umask",
     "getopts", "return", "break", "continue",
 ];
+const PARENT_PROCESS_COMMANDS: &[&str] = &["cp", "mv", "rsync", "l", "ll", "c", "history"];
+const PARENT_PROCESS_REFUSAL: &str =
+    "requires the original shell process and cannot run in a forked context";
+
+fn parent_process_command(name: &str) -> bool {
+    PARENT_PROCESS_COMMANDS.contains(&name)
+}
 
 fn unquoted_word_text(word: &ShellWord) -> Option<&str> {
     match word.parts.as_slice() {
@@ -428,6 +436,7 @@ fn word_refusal(word: &ShellWord, depth: usize) -> Option<String> {
     for part in &word.parts {
         match part {
             ShellWordPart::CommandSubstitution { source, .. } => {
+                let (_, source) = strip_negation(source);
                 if depth < MAX_REFUSAL_DEPTH
                     && let Some(rejection) = source_rejection(source, false, depth + 1)
                 {
@@ -632,7 +641,7 @@ fn handle_submitted_line(
             .add_in_dir(&history_line, Some(&history_cwd));
     }
 
-    let plan_line = session.aliases.expand_line(&line);
+    let plan_line = expand_line_aliases(session, &line);
     if let Some(rejection) = plan_rejection(&plan_line) {
         let _ = stderr.write_all(wrapped_diagnostic(&format!("xshi: {rejection}")).as_bytes());
         let _ = stderr.flush();
@@ -731,7 +740,7 @@ fn handle_submitted_line(
 fn is_intercepted_line(line: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     match first {
-        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "cd" => {
+        "alias" | "history" | "denv" | "fg" | "z" | "w" | "which" | "type" | "cd" | "rmrf" => {
             is_simple_word_line(line)
         }
         _ => false,
@@ -1071,17 +1080,35 @@ fn base64_encode(input: &[u8]) -> String {
 }
 
 pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput {
+    super::foreground::begin_line();
     if is_xsh_source(source) {
         return run_xsh_source(session, "<interactive>", source);
     }
 
     // Aliases expand textually on the first word of the whole line, as the
     // reference shell does before dispatch.
-    let expanded = session.aliases.expand_line(source);
+    let expanded = expand_line_aliases(session, source);
     let source = expanded.as_ref();
+    let (negated, source) = strip_negation(source);
+    if let Some(rejection) = plan_rejection(source) {
+        return negate(
+            CommandOutput {
+                status: 2,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xshi: {rejection}\n")),
+                process_status: Some(ProcessStatus::exited(2)),
+                history_source: Some(source.to_string()),
+            },
+            negated,
+            source,
+        );
+    }
 
     match ShellParser::new(source).parse_line() {
-        Ok(line) => execute_shell_line(session, line, source),
+        Ok(line) => {
+            let output = execute_shell_line(session, line, source);
+            negate(output, negated, source)
+        }
         Err(message) => CommandOutput {
             status: 2,
             stdout: Vec::new(),
@@ -1090,6 +1117,35 @@ pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput
             history_source: Some(source.to_string()),
         },
     }
+}
+
+fn expand_line_aliases<'a>(session: &Session, line: &'a str) -> std::borrow::Cow<'a, str> {
+    session.aliases.expand_command_line(line)
+}
+
+/// Strips a leading `!` pipeline negation.
+pub(super) fn strip_negation(source: &str) -> (bool, &str) {
+    let trimmed = source.trim_start();
+    let Some(rest) = trimmed.strip_prefix('!') else {
+        return (false, source);
+    };
+    match rest.as_bytes().first() {
+        None => (true, ""),
+        Some(byte) if byte.is_ascii_whitespace() => (true, rest.trim_start()),
+        _ => (false, source),
+    }
+}
+
+/// Applies `!` to a command's status: success and failure invert, and a line
+/// a native command's cancellation ended keeps status 130.
+fn negate(mut output: CommandOutput, negated: bool, source: &str) -> CommandOutput {
+    if !negated || super::foreground::line_cancelled() {
+        return output;
+    }
+    output.status = if output.status == 0 { 1 } else { 0 };
+    output.process_status = Some(ProcessStatus::exited(output.status));
+    output.history_source.get_or_insert_with(|| source.to_string());
+    output
 }
 
 fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOutput {
@@ -1255,6 +1311,8 @@ fn run_chains(
     mut last_process_status: Option<ProcessStatus>,
     source: &str,
 ) -> CommandOutput {
+    let mut chains = chains;
+    let negated = strip_chain_negation(&mut chains);
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
 
@@ -1278,18 +1336,42 @@ fn run_chains(
         if last_process_status.is_some() {
             session.last_process_status = last_process_status.clone();
         }
-        if new_stopped_job(session, job_before) {
+        if new_stopped_job(session, job_before) || super::foreground::line_cancelled() {
             break;
         }
     }
 
-    CommandOutput {
+    let output = CommandOutput {
         status: last_status,
         stdout,
         stderr,
         process_status: last_process_status,
         history_source: None,
+    };
+    negate(output, negated, source)
+}
+
+/// Removes a leading `!` chain the parser kept separate from the command it
+/// negates.
+fn strip_chain_negation(chains: &mut Vec<Chain>) -> bool {
+    let Some(first) = chains.first() else {
+        return false;
+    };
+    if first.op != ChainOp::Start || first.pipeline.commands.len() != 1 {
+        return false;
     }
+    let command = &first.pipeline.commands[0];
+    if command.words.first().map(ShellWord::text).as_deref() != Some("!") {
+        return false;
+    }
+    let remainder = command.words[1..].to_vec();
+    if remainder.is_empty() {
+        chains.remove(0);
+    } else {
+        let first = chains.first_mut().expect("the leading chain exists");
+        first.pipeline.commands[0].words = remainder;
+    }
+    true
 }
 
 fn new_stopped_job(session: &Session, job_before: Option<libc::pid_t>) -> bool {
@@ -1297,6 +1379,18 @@ fn new_stopped_job(session: &Session, job_before: Option<libc::pid_t>) -> bool {
         .job
         .as_ref()
         .is_some_and(|job| Some(job.process_group().id()) != job_before)
+}
+
+/// The refusal for a command that must run in the shell process itself, met
+/// in a pipeline stage or command substitution before its redirections.
+fn parent_process_refusal(name: &str) -> CommandOutput {
+    CommandOutput {
+        status: 2,
+        stdout: Vec::new(),
+        stderr: text_bytes(format!("{name} {PARENT_PROCESS_REFUSAL}\n")),
+        process_status: Some(ProcessStatus::exited(2)),
+        history_source: None,
+    }
 }
 
 fn refusal_output(message: &str) -> CommandOutput {
@@ -1309,7 +1403,44 @@ fn refusal_output(message: &str) -> CommandOutput {
     }
 }
 
-fn execute_pipeline(session: &mut Session, pipeline: Pipeline, source: &str) -> CommandOutput {
+fn execute_pipeline(session: &mut Session, mut pipeline: Pipeline, source: &str) -> CommandOutput {
+    let negated = strip_pipeline_negation(&mut pipeline);
+    let output = execute_pipeline_commands(session, pipeline, source);
+    if negated {
+        negate(output, true, source)
+    } else {
+        output
+    }
+}
+
+/// Removes a leading `!` command word, the pipeline-negation spelling the
+/// reference shell accepts. It may arrive as its own parsed chain when a
+/// variable expansion follows it.
+fn strip_pipeline_negation(pipeline: &mut Pipeline) -> bool {
+    let Some(first) = pipeline.commands.first_mut() else {
+        return false;
+    };
+    let leading = first
+        .words
+        .iter()
+        .take_while(|word| parse_env_assignment(&word.text()).is_some())
+        .count();
+    let Some(word) = first.words.get(leading) else {
+        return false;
+    };
+    if word.text() != "!" {
+        return false;
+    }
+    first.words.remove(leading);
+    pipeline.commands.retain(|command| !command.words.is_empty());
+    true
+}
+
+fn execute_pipeline_commands(
+    session: &mut Session,
+    pipeline: Pipeline,
+    source: &str,
+) -> CommandOutput {
     if pipeline.commands.len() == 1 {
         return execute_simple_command(session, pipeline.commands.into_iter().next().unwrap());
     }
@@ -1587,24 +1718,79 @@ impl StdoutCapture {
     }
 }
 
+/// The leading assignment count and kind of a session builtin named by the
+/// command's expanded program word.
+fn session_builtin_for(
+    session: &Session,
+    command: &SimpleCommand,
+) -> Option<(usize, SessionBuiltin)> {
+    let index = stage_command_index(session, command)?;
+    let name = expand_word_to_string(session, command.words.get(index)?).ok()?;
+    session_builtin_name(&name).map(|kind| (index, kind))
+}
+
 fn is_builtin_stage(session: &Session, command: &SimpleCommand) -> bool {
-    let leading = command
-        .words
-        .iter()
-        .take_while(|word| parse_env_assignment(&word.text()).is_some())
-        .count();
-    let Some(first) = command.words.get(leading) else {
+    let Some(index) = stage_command_index(session, command) else {
         return false;
     };
-    let Ok(name) = expand_word_to_string(session, first) else {
+    let Some(word) = command.words.get(index) else {
+        return false;
+    };
+    let Ok(name) = expand_word_to_string(session, word) else {
         return false;
     };
     session_builtin_name(&name).is_some() || internal_command_name(&name).is_some()
 }
 
+/// The index of the program a stage runs, skipping assignment prefixes and
+/// `command` dispatch wrappers.
+fn stage_command_index(session: &Session, command: &SimpleCommand) -> Option<usize> {
+    let mut index = command
+        .words
+        .iter()
+        .take_while(|word| parse_env_assignment(&word.text()).is_some())
+        .count();
+    loop {
+        let word = command.words.get(index)?;
+        let name = expand_word_to_string(session, word).ok()?;
+        if name != "command" {
+            return Some(index);
+        }
+        let describes = command
+            .words
+            .get(index + 1)
+            .and_then(|word| expand_word_to_string(session, word).ok())
+            .is_some_and(|option| matches!(option.as_str(), "-v" | "-V"));
+        if describes {
+            return Some(index);
+        }
+        index += 1;
+        loop {
+            let word = command.words.get(index)?;
+            let Ok(text) = expand_word_to_string(session, word) else {
+                return None;
+            };
+            if matches!(text.as_str(), "-p" | "--") {
+                index += 1;
+                continue;
+            }
+            break;
+        }
+    }
+}
+
+fn parent_process_stage(session: &Session, command: &SimpleCommand) -> Option<String> {
+    let index = stage_command_index(session, command)?;
+    let name = expand_word_to_string(session, command.words.get(index)?).ok()?;
+    parent_process_command(&name).then_some(name)
+}
+
 /// Runs one builtin as a pipeline stage. Builtins that change shell state run
 /// in a detached copy, as in a subshell; display builtins read the live session.
 fn run_builtin_stage(session: &mut Session, command: &SimpleCommand) -> CommandOutput {
+    if let Some(name) = parent_process_stage(session, command) {
+        return parent_process_refusal(&name);
+    }
     let leading = command
         .words
         .iter()
@@ -1835,6 +2021,30 @@ fn execute_mixed_pipeline(
     }
 }
 
+/// Implements the `command` builtin after wrapper stripping: `-v`/`-V`
+/// describe a command, and anything else was already dispatched.
+fn run_command_builtin(
+    session: &Session,
+    args: &[String],
+    stdout: &mut Vec<u8>,
+    stderr: &mut Vec<u8>,
+) -> i32 {
+    let Some(first) = args.first() else {
+        return 0;
+    };
+    if !matches!(first.as_str(), "-v" | "-V") {
+        return 0;
+    }
+    let verbose = first == "-V";
+    let mut status = 0;
+    for name in &args[1..] {
+        if command_description(session, name, verbose, stdout, stderr) != 0 {
+            status = 1;
+        }
+    }
+    status
+}
+
 fn execute_simple_command(session: &mut Session, command: SimpleCommand) -> CommandOutput {
     if command.words.is_empty() {
         return CommandOutput {
@@ -1856,28 +2066,45 @@ fn execute_simple_command(session: &mut Session, command: SimpleCommand) -> Comm
         };
     }
 
-    if let Some(kind) = session_builtin(&command.words) {
+    if let Some((leading, kind)) = session_builtin_for(session, &command) {
+        if session.capturing
+            && let Some(name) = parent_process_stage(session, &command)
+        {
+            return parent_process_refusal(&name);
+        }
         let args = if matches!(kind, SessionBuiltin::Alias) {
-            command.words[1..]
+            command.words[leading + 1..]
                 .iter()
                 .map(ShellWord::text)
                 .collect::<Vec<_>>()
         } else {
-            match expand_command_words(session, &command.words[1..]) {
+            match expand_command_words(session, &command.words[leading + 1..]) {
                 Ok(args) => args,
                 Err(error) => return expansion_error_output(error),
             }
         };
+        let plan = if command.redirections.is_empty() {
+            None
+        } else {
+            match open_builtin_redirections(session, &command.redirections) {
+                Ok(plan) => Some(plan),
+                Err(output) => return output,
+            }
+        };
+        if let Some(native) = NativeFileCommand::of(kind) {
+            let name = expand_word_to_string(session, &command.words[leading]).unwrap_or_default();
+            return run_native_file_command(session, &command, native, &name, &args, plan);
+        }
         let output = execute_session_builtin(session, kind, &args);
-        return apply_builtin_redirections(
-            session,
-            &command.redirections,
-            BuiltinRun {
-                status: output.status,
-                stdout: output.stdout,
-                stderr: output.stderr,
-            },
-        );
+        let run = BuiltinRun {
+            status: output.status,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        };
+        return match plan {
+            Some(plan) => plan.apply(run),
+            None => run.into_output(),
+        };
     }
 
     if command
@@ -1969,6 +2196,10 @@ fn execute_session_builtin(
                 session.unset_var(name.as_bytes());
             }
             0
+        }
+        SessionBuiltin::Command => run_command_builtin(session, args, &mut stdout, &mut stderr),
+        SessionBuiltin::File(_) | SessionBuiltin::RemoveTree | SessionBuiltin::Sync => {
+            unreachable!("native file commands are dispatched before session builtins")
         }
         SessionBuiltin::Alias => run_alias(session, args, &mut stdout, &mut stderr),
         SessionBuiltin::Which => {
@@ -3452,13 +3683,54 @@ fn apply_builtin_redirections(
     if redirections.is_empty() {
         return run.into_output();
     }
+    match open_builtin_redirections(session, redirections) {
+        Ok(plan) => plan.apply(run),
+        Err(output) => output,
+    }
+}
+
+/// Opened redirection sinks, so a builtin's targets exist before it runs.
+struct RedirectionPlan {
+    files: Vec<fs::File>,
+    stdout_sink: Sink,
+    stderr_sink: Sink,
+}
+
+impl RedirectionPlan {
+    fn apply(self, run: BuiltinRun) -> CommandOutput {
+        let mut files = self.files;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        for (sink, bytes) in [(self.stdout_sink, run.stdout), (self.stderr_sink, run.stderr)] {
+            match sink {
+                Sink::Stdout => stdout.extend_from_slice(&bytes),
+                Sink::Stderr => stderr.extend_from_slice(&bytes),
+                Sink::File(index) => {
+                    let _ = files[index].write_all(&bytes);
+                }
+            }
+        }
+        CommandOutput {
+            status: run.status,
+            stdout,
+            stderr,
+            process_status: Some(ProcessStatus::exited(run.status)),
+            history_source: None,
+        }
+    }
+}
+
+fn open_builtin_redirections(
+    session: &Session,
+    redirections: &[super::shell::Redirection],
+) -> Result<RedirectionPlan, CommandOutput> {
     let mut files: Vec<fs::File> = Vec::new();
     let mut stdout_sink = Sink::Stdout;
     let mut stderr_sink = Sink::Stderr;
     for redirection in redirections {
         let target = match expand_word_to_string(session, &redirection.target) {
             Ok(target) => target,
-            Err(error) => return expansion_error_output(error),
+            Err(error) => return Err(expansion_error_output(error)),
         };
         let path = if Path::new(&target).is_absolute() {
             PathBuf::from(&target)
@@ -3489,66 +3761,43 @@ fn apply_builtin_redirections(
         match redirection.kind {
             ShellRedirectionKind::Stdin => {
                 if let Err(error) = fs::File::open(&path) {
-                    return BuiltinRun {
+                    return Err(BuiltinRun {
                         status: 1,
                         stdout: Vec::new(),
                         stderr: text_bytes(format!("xshi: {target}: {error}\n")),
                     }
-                    .into_output();
+                    .into_output());
                 }
             }
             ShellRedirectionKind::StdoutWrite | ShellRedirectionKind::StdoutAppend => {
-                match open(
+                stdout_sink = open(
                     redirection.kind == ShellRedirectionKind::StdoutAppend,
                     &mut files,
-                ) {
-                    Ok(sink) => stdout_sink = sink,
-                    Err(output) => return output,
-                }
+                )?;
             }
             ShellRedirectionKind::StderrWrite | ShellRedirectionKind::StderrAppend => {
-                match open(
+                stderr_sink = open(
                     redirection.kind == ShellRedirectionKind::StderrAppend,
                     &mut files,
-                ) {
-                    Ok(sink) => stderr_sink = sink,
-                    Err(output) => return output,
-                }
+                )?;
             }
             ShellRedirectionKind::BothWrite | ShellRedirectionKind::BothAppend => {
-                match open(
+                let sink = open(
                     redirection.kind == ShellRedirectionKind::BothAppend,
                     &mut files,
-                ) {
-                    Ok(sink) => {
-                        stdout_sink = sink;
-                        stderr_sink = sink;
-                    }
-                    Err(output) => return output,
-                }
+                )?;
+                stdout_sink = sink;
+                stderr_sink = sink;
             }
             ShellRedirectionKind::StdoutToStderr => stdout_sink = stderr_sink,
             ShellRedirectionKind::StderrToStdout => stderr_sink = stdout_sink,
         }
     }
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    for (sink, bytes) in [(stdout_sink, run.stdout), (stderr_sink, run.stderr)] {
-        match sink {
-            Sink::Stdout => stdout.extend_from_slice(&bytes),
-            Sink::Stderr => stderr.extend_from_slice(&bytes),
-            Sink::File(index) => {
-                let _ = files[index].write_all(&bytes);
-            }
-        }
-    }
-    CommandOutput {
-        status: run.status,
-        stdout,
-        stderr,
-        process_status: Some(ProcessStatus::exited(run.status)),
-        history_source: None,
-    }
+    Ok(RedirectionPlan {
+        files,
+        stdout_sink,
+        stderr_sink,
+    })
 }
 
 
@@ -3569,12 +3818,10 @@ enum SessionBuiltin {
     ListHidden,
     Which,
     History,
-}
-
-fn session_builtin(words: &[ShellWord]) -> Option<SessionBuiltin> {
-    words
-        .first()
-        .and_then(|name| session_builtin_name(&name.text()))
+    Command,
+    File(super::fs_command::FileOperation),
+    RemoveTree,
+    Sync,
 }
 
 fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
@@ -3594,8 +3841,187 @@ fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
         "ll" => SessionBuiltin::ListHidden,
         "w" | "which" | "type" => SessionBuiltin::Which,
         "history" => SessionBuiltin::History,
+        "command" => SessionBuiltin::Command,
+        "cp" => SessionBuiltin::File(super::fs_command::FileOperation::Copy),
+        "mv" => SessionBuiltin::File(super::fs_command::FileOperation::Move),
+        "rmrf" => SessionBuiltin::RemoveTree,
+        "rsync" => SessionBuiltin::Sync,
         _ => return None,
     })
+}
+
+/// A builtin that runs on XSH's transfer engine in the shell process.
+#[derive(Clone, Copy)]
+enum NativeFileCommand {
+    File(super::fs_command::FileOperation),
+    RemoveTree,
+    Sync,
+}
+
+impl NativeFileCommand {
+    fn of(kind: SessionBuiltin) -> Option<Self> {
+        match kind {
+            SessionBuiltin::File(operation) => Some(Self::File(operation)),
+            SessionBuiltin::RemoveTree => Some(Self::RemoveTree),
+            SessionBuiltin::Sync => Some(Self::Sync),
+            _ => None,
+        }
+    }
+}
+
+/// Resolves `HOME` and `TMPDIR` the way the command's own environment would
+/// see them: exported values, overridden by assignment prefixes.
+fn native_file_context(
+    session: &Session,
+    assignments: &[ShellWord],
+) -> Result<super::fs_command::FileContext, CommandOutput> {
+    let exported = |name: &[u8]| {
+        session
+            .env
+            .get(name)
+            .map(|value| String::from_utf8_lossy(value).into_owned())
+    };
+    let mut home = exported(b"HOME");
+    let mut scratch = exported(b"TMPDIR");
+    for word in assignments {
+        let expanded = expand_word_to_string(session, word).map_err(expansion_error_output)?;
+        match parse_env_assignment(&expanded) {
+            Some(("HOME", value)) => home = Some(value.to_owned()),
+            Some(("TMPDIR", value)) => scratch = Some(value.to_owned()),
+            _ => {}
+        }
+    }
+    Ok(super::fs_command::FileContext {
+        cwd: session.cwd.clone(),
+        home: home.filter(|home| !home.is_empty()).map(PathBuf::from),
+        scratch: scratch.map_or_else(|| PathBuf::from("/tmp"), PathBuf::from),
+    })
+}
+
+fn native_stream<'a>(
+    sink: Sink,
+    files: &[fs::File],
+    buffer: &'a mut Vec<u8>,
+) -> io::Result<super::foreground::Sink<'a>> {
+    match sink {
+        Sink::Stdout | Sink::Stderr => Ok(super::foreground::Sink::Buffer(buffer)),
+        Sink::File(index) => Ok(super::foreground::Sink::File(files[index].try_clone()?)),
+    }
+}
+
+/// Runs `cp`, `mv`, `rsync` or `rmrf` with its streams bound to the opened
+/// redirection targets, so a failing target stops the work as it happens.
+fn run_native_file_command(
+    session: &Session,
+    command: &SimpleCommand,
+    native: NativeFileCommand,
+    name: &str,
+    args: &[String],
+    plan: Option<RedirectionPlan>,
+) -> CommandOutput {
+    let assignments = command
+        .words
+        .iter()
+        .take_while(|word| parse_env_assignment(&word.text()).is_some())
+        .count();
+    let context = match native_file_context(session, &command.words[..assignments]) {
+        Ok(context) => context,
+        Err(output) => return output,
+    };
+    let (files, stdout_sink, stderr_sink) = match plan {
+        Some(plan) => (plan.files, plan.stdout_sink, plan.stderr_sink),
+        None => (Vec::new(), Sink::Stdout, Sink::Stderr),
+    };
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let status = {
+        let streams = native_stream(stdout_sink, &files, &mut out)
+            .and_then(|stdout| Ok((stdout, native_stream(stderr_sink, &files, &mut err)?)));
+        match streams {
+            Ok((stdout, stderr)) => {
+                let mut streams = super::foreground::Streams { stdout, stderr };
+                match native {
+                    NativeFileCommand::File(operation) => {
+                        super::fs_command::run(operation, args, &context, &mut streams)
+                    }
+                    NativeFileCommand::RemoveTree => {
+                        super::rmrf::run(name, args, &context, &mut streams)
+                    }
+                    NativeFileCommand::Sync => super::sync_command::run(args, &context, &mut streams),
+                }
+            }
+            Err(error) => {
+                writeln!(err, "xshi: {name}: {error}").ok();
+                1
+            }
+        }
+    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    for (sink, bytes) in [(stdout_sink, out), (stderr_sink, err)] {
+        match sink {
+            Sink::Stdout => stdout.extend_from_slice(&bytes),
+            Sink::Stderr => stderr.extend_from_slice(&bytes),
+            Sink::File(_) => {}
+        }
+    }
+    CommandOutput {
+        status,
+        stdout,
+        stderr,
+        process_status: Some(ProcessStatus::exited(status)),
+        history_source: None,
+    }
+}
+
+fn command_description(
+    session: &Session,
+    name: &str,
+    verbose: bool,
+    stdout: &mut Vec<u8>,
+    stderr: &mut Vec<u8>,
+) -> i32 {
+    use io::Write as _;
+    if let Some(expansion) = session.aliases.get(name) {
+        writeln!(stdout, "alias: {name} {}", expansion.join(" ")).ok();
+        let same_name = expansion
+            .first()
+            .is_some_and(|first| super::builtin::strip_quotes_for_lookup(first) == name);
+        if !same_name {
+            return 0;
+        }
+    }
+    let builtin = is_builtin_name(name) || internal_command_name(name).is_some();
+    if builtin {
+        if verbose {
+            writeln!(stdout, "{name} is a shell builtin").ok();
+        } else {
+            writeln!(stdout, "{name}").ok();
+        }
+        return 0;
+    }
+    let path_env = session
+        .env
+        .get(b"PATH".as_slice())
+        .map_or(&[][..], Vec::as_slice);
+    if name.contains('/') {
+        writeln!(stdout, "{name}").ok();
+        return 0;
+    }
+    if let Some(found) = super::path::scan_path(name, path_env) {
+        if verbose {
+            writeln!(stdout, "{name} is {}", found.display()).ok();
+        } else {
+            writeln!(stdout, "{}", found.display()).ok();
+        }
+        return 0;
+    }
+    let _ = writeln!(stderr, "xshi: command: {name}: not found");
+    1
+}
+
+fn is_builtin_name(name: &str) -> bool {
+    session_builtin_name(name).is_some() || internal_command_name(name).is_some()
 }
 
 #[cfg(test)]

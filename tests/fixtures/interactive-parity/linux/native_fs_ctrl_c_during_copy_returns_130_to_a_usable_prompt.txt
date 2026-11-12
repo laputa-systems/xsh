@@ -1,0 +1,22 @@
+== frame status cursor=0,0
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-130
+== frame alive cursor=0,0
+|testuser@<HOST> ~ $ /bin/echo native-fs-alive
+|native-fs-alive
+== effect copy_while_staging
+|absent
+== effect cancel_notice
+|<SHELL>: cp: source-tree: operation cancelled
+|<SHELL>: cp: cancelled; retained source source-tree
+|<SHELL>: cp: cancelled: <N> entries processed; 1 source operands unfinished
+== effect stage
+|removed
+== effect source_retained
+|present
+== effect copy_tree
+|absent
+== effect scratch_empty
+|empty
+== effect modes
+|restored

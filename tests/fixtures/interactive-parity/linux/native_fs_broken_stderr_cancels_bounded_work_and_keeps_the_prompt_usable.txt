@@ -1,0 +1,33 @@
+== frame status cursor=6,20
+|testuser@<HOST> ~ $ cp --verbose --jobs 4 --into copy-into source-tree/* 2>/dev/
+|full
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_output_error cursor=9,20
+|testuser@<HOST> ~ $ cp --verbose --jobs 4 --into copy-into source-tree/* 2>/dev/
+|full
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-1
+|
+|testuser@<HOST> ~ $ /bin/echo native-fs-after-output-error
+|native-fs-after-output-error
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect scratch_empty
+|empty

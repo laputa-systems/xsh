@@ -1,0 +1,267 @@
+== frame l_pipeline cursor=3,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame l_substitution cursor=7,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame c_pipeline cursor=10,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame c_substitution cursor=14,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command c >native-target)
+|c requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame history_pipeline cursor=17,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command c >native-target)
+|c requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command history >native-target | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame history_substitution cursor=21,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command c >native-target)
+|c requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command history >native-target | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command history >native-target)
+|history requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame parent_pipeline cursor=23,20
+|testuser@<HOST> ~ $ command l >native-target | /bin/cat
+|l requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command c >native-target)
+|c requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command history >native-target | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command history >native-target)
+|history requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ printf parent-safe | /bin/cat
+|parent-safe
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame parent_substitution cursor=23,20
+|testuser@<HOST> ~ $ echo $(command l >native-target)
+|l requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command c >native-target)
+|c requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command history >native-target | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command history >native-target)
+|history requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ printf parent-safe | /bin/cat
+|parent-safe
+|testuser@<HOST> ~ $ echo $(printf substitution-safe)
+|substitution-safe
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame parent_listing cursor=23,20
+|
+|
+|testuser@<HOST> ~ $ command c >native-target | /bin/cat
+|c requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command c >native-target)
+|c requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ command history >native-target | /bin/cat
+|history requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo $(command history >native-target)
+|history requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ printf parent-safe | /bin/cat
+|parent-safe
+|testuser@<HOST> ~ $ echo $(printf substitution-safe)
+|substitution-safe
+|
+|testuser@<HOST> ~ $ l >native-parent
+|
+|testuser@<HOST> ~ $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 command
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect l_pipeline_target
+|absent
+== effect l_substitution_target
+|absent
+== effect c_pipeline_target
+|absent
+== effect c_substitution_target
+|absent
+== effect history_pipeline_target
+|absent
+== effect history_substitution_target
+|absent
+== effect native_parent_names
+|native-parent
+|visible-entry

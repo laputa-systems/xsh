@@ -1,0 +1,139 @@
+== frame static_pipeline cursor=7,20
+|testuser@<HOST> ~ $ /bin/echo ignored | cp source static-copy > static-redirecti
+|on
+|cp requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame dynamic_pipeline cursor=16,20
+|testuser@<HOST> ~ $ /bin/echo ignored | cp source static-copy > static-redirecti
+|on
+|cp requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-2
+|
+|testuser@<HOST> ~ $ export NATIVE_FS_COMMAND=cp
+|
+|testuser@<HOST> ~ $ /bin/echo ignored | $NATIVE_FS_COMMAND source dynamic-copy >
+| dynamic-redirection
+|cp requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame nested_substitution cursor=23,20
+|testuser@<HOST> ~ $ /bin/echo ignored | cp source static-copy > static-redirecti
+|on
+|cp requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-2
+|
+|testuser@<HOST> ~ $ export NATIVE_FS_COMMAND=cp
+|
+|testuser@<HOST> ~ $ /bin/echo ignored | $NATIVE_FS_COMMAND source dynamic-copy >
+| dynamic-redirection
+|cp requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-2
+|
+|testuser@<HOST> ~ $ echo "$(cp source nested-copy > nested-redirection)"
+|cp requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame deep_substitution cursor=23,20
+|testuser@<HOST> ~ $ export NATIVE_FS_COMMAND=cp
+|
+|testuser@<HOST> ~ $ /bin/echo ignored | $NATIVE_FS_COMMAND source dynamic-copy >
+| dynamic-redirection
+|cp requires the original shell process and cannot run in a forked context
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-2
+|
+|testuser@<HOST> ~ $ echo "$(cp source nested-copy > nested-redirection)"
+|cp requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $ echo "$(echo $(cp source deep-copy > deep-redirection))"
+|cp requires the original shell process and cannot run in a forked context
+|
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect static-copy
+|absent
+== effect static-redirection
+|absent
+== effect dynamic-copy
+|absent
+== effect dynamic-redirection
+|absent
+== effect nested-copy
+|absent
+== effect nested-redirection
+|absent
+== effect deep-copy
+|absent
+== effect deep-redirection
+|absent

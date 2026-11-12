@@ -1,0 +1,77 @@
+== frame copy_status cursor=5,20
+|testuser@<HOST> ~ $ cp s1 s2 target
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame move_status cursor=10,20
+|testuser@<HOST> ~ $ cp s1 s2 target
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $ mv m1 m2 target
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mv
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame glob_status cursor=15,20
+|testuser@<HOST> ~ $ cp s1 s2 target
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $ mv m1 m2 target
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $ mv pack/* .
+|
+|testuser@<HOST> ~ $ echo native-fs-status-$?
+|native-fs-status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mv
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mv
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect after_multi_source
+|file 5 target/s1
+|file 6 target/s2
+|file 7 target/m1
+|file 8 target/m2
+== effect pack_after_move
+== effect p1
+|p-first
+== effect p2
+|p-second
+== effect m1_source
+|absent
+== effect m2_source
+|absent

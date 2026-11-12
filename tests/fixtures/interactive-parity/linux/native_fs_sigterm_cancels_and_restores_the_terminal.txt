@@ -1,0 +1,12 @@
+== effect copy_while_staging
+|absent
+== effect exit
+|Code(143)
+== effect stage
+|removed
+== effect source_retained
+|present
+== effect copy_tree
+|absent
+== effect scratch_empty
+|empty

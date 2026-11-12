@@ -1,0 +1,23 @@
+== frame rmrf cursor=1,20
+|testuser@<HOST> ~ $ rmrf victim/
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rmrf
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=4,20
+|testuser@<HOST> ~ $ rmrf victim/
+|testuser@<HOST> ~ $ echo status-$?
+|status-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rmrf
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect victim
+|<absent>
+== effect home
+|.config
+|.local
+|.tmp

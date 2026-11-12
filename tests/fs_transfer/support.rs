@@ -71,6 +71,7 @@ pub fn transfer(
         engine: EngineOptions::default(),
         cancellation: &cancellation,
         progress: &mut progress,
+        live: None,
         deferred_flags: &mut deferred,
     })?;
     Ok(progress)
@@ -185,6 +186,7 @@ pub fn publish_at(
             },
             cancellation: &cancellation,
             progress,
+            live: None,
         },
         |_| Ok(()),
     )

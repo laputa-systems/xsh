@@ -42,6 +42,8 @@ mod denv;
 mod extended;
 #[path = "parity/fdu.rs"]
 mod fdu;
+#[path = "parity/fs.rs"]
+mod fs;
 #[path = "parity/history.rs"] mod history;
 #[path = "parity/scenarios.rs"]
 mod scenarios;
@@ -186,6 +188,13 @@ impl Fixture {
         self
     }
 
+    /// A file whose contents are arbitrary bytes.
+    pub(crate) fn file_bytes(mut self, path: &str, body: &[u8]) -> Self {
+        self = self.file(path, "");
+        self.files.last_mut().expect("just pushed").body = body.to_vec();
+        self
+    }
+
     pub(crate) fn file_at(mut self, path: &str, body: &str, mtime: i64) -> Self {
         self = self.file(path, body);
         self.files.last_mut().expect("just pushed").mtime = mtime;
@@ -261,6 +270,8 @@ impl Fixture {
         self
     }
 
+    /// An environment variable for the shell; `{HOME}` in `value` becomes the
+    /// scratch HOME path.
     pub(crate) fn env(mut self, name: &str, value: &str) -> Self {
         self.env.push((name.to_owned(), value.to_owned()));
         self
@@ -568,7 +579,13 @@ impl Live {
             binary: binary.to_path_buf(),
             cwd,
             size: (cols, fixture.rows),
-            env: fixture.env.clone(),
+            env: fixture
+                .env
+                .iter()
+                .map(|(name, value)| {
+                    (name.clone(), value.replace("{HOME}", &home.to_string_lossy()))
+                })
+                .collect(),
             args: fixture.args.clone(),
             launcher: fixture.launcher.clone(),
         };
@@ -767,6 +784,21 @@ impl Live {
         self.term.signal(signal).expect("signal the shell");
     }
 
+    /// Sends bytes and returns at once, without waiting for an answer or for
+    /// the terminal to go quiet, so a scenario can observe work in flight.
+    pub(crate) fn send_now(&mut self, bytes: &[u8]) {
+        let deadline = self.deadline();
+        self.term
+            .send_bytes(deadline, bytes)
+            .expect("write to shell PTY");
+    }
+
+    /// The emulated terminal's represented modes, for comparing the state a
+    /// command leaves behind with the state before it.
+    pub(crate) fn terminal_modes(&self) -> String {
+        format!("{:?}", self.term.terminal_state().modes)
+    }
+
     /// Sends bytes the shell handles without repainting (for example Ctrl+P).
     pub(crate) fn keys_silent(&mut self, bytes: &[u8]) {
         let deadline = self.deadline();
@@ -951,7 +983,9 @@ impl Live {
             .replace(&format!("@{} ", self.host), "@<HOST> ")
             .replace("xshi-dump", "ish-dump")
             .replace("xshi layout dump", "ish layout dump")
-            .replace(".cache/xshi/", ".cache/ish/");
+            .replace(".cache/xshi/", ".cache/ish/")
+            .replace(".config/xshi", ".config/ish")
+            .replace(".local/share/xshi", ".local/share/ish");
         normalize_dump_names(&normalize_pgid(&normalize_ls_row(&normalize_shell_name(
             &normalize_pty_paths(&text),
         ))))
@@ -1077,6 +1111,73 @@ impl Live {
         self.effects.push((name.to_owned(), lines.join("\n")));
     }
 
+    /// Records the sorted names, kinds and byte lengths of entries under a
+    /// HOME directory, one path per line, so tree transfers are visible.
+    pub(crate) fn effect_tree(&mut self, name: &str, relative: &str) {
+        fn walk(base: &Path, directory: &Path, lines: &mut Vec<String>) {
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                lines.push(format!("<unreadable> {relative}", relative = directory.display()));
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let kind = match entry.file_type() {
+                    Ok(kind) if kind.is_dir() => "dir",
+                    Ok(kind) if kind.is_symlink() => "link",
+                    _ => "file",
+                };
+                let relative = path.strip_prefix(base).unwrap_or(&path);
+                let length = std::fs::symlink_metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or_default();
+                lines.push(format!("{kind} {length} {}", relative.display()));
+                if kind == "dir" {
+                    walk(base, &path, lines);
+                }
+            }
+        }
+        let base = self.home.join(relative);
+        let mut lines = Vec::new();
+        if base.is_dir() {
+            walk(&self.home, &base, &mut lines);
+        } else if base.exists() {
+            let length = std::fs::symlink_metadata(&base)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default();
+            lines.push(format!("file {length} {relative}"));
+        } else {
+            lines.push("<absent>".to_owned());
+        }
+        lines.sort();
+        self.effects.push((name.to_owned(), lines.join("\n")));
+    }
+
+    /// Records `text` under `name` as a persistent effect.
+    pub(crate) fn effect(&mut self, name: &str, text: &str) {
+        self.effects.push((name.to_owned(), text.to_owned()));
+    }
+
+    /// Waits until a native transfer is filling a staged tree: a
+    /// `.fdu-quarantine-v2-*` session under HOME holds a non-empty `*.entry`
+    /// directory, the condition ish's own native filesystem tests wait for.
+    /// Returns that staging path so a scenario can check it was cleaned up.
+    pub(crate) fn wait_for_staging(&mut self) -> PathBuf {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            let _ = self.term.drain(self.term.deadline(Duration::from_millis(5)));
+            if let Some(stage) = staged_entry(&self.home) {
+                return stage;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{}: native filesystem staging did not begin; screen:\n{}",
+                self.kind.label(),
+                self.term.screen()
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     /// Records the sorted names of entries directly under a HOME directory.
     pub(crate) fn effect_listing(&mut self, name: &str, relative: &str) {
         let mut names: Vec<String> = match std::fs::read_dir(self.home.join(relative)) {
@@ -1138,6 +1239,29 @@ impl Live {
             effects: self.effects,
         }
     }
+}
+
+/// The first non-empty `*.entry` staging directory inside a journal session
+/// under `home`.
+fn staged_entry(home: &Path) -> Option<PathBuf> {
+    for session in std::fs::read_dir(home).ok()?.flatten() {
+        if !session
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".fdu-quarantine-v2-")
+        {
+            continue;
+        }
+        for entry in std::fs::read_dir(session.path()).into_iter().flatten().flatten() {
+            if entry.file_name().to_string_lossy().ends_with(".entry")
+                && entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && std::fs::read_dir(entry.path()).is_ok_and(|mut entries| entries.next().is_some())
+            {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
 }
 
 fn parse_json_string(encoded: &str) -> Option<String> {

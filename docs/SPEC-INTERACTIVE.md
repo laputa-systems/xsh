@@ -391,7 +391,8 @@ output cap; any failure yields no candidates.
 
 Answered by the shell itself: `cd` (`cd -`, `~`), `exit`, `fg`, `export`,
 `set`, `unset`, `alias`, `history`, `z`, `denv`,
-`l`, `ll`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, and `:`.
+`l`, `ll`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, `cp`, `mv`,
+`rsync`, `rmrf`, and `:`.
 `echo` (`-n`, `-e`, `-E`), `pwd`, `true`, and `false` are internal so they work
 in pipelines. `w`, `which`, and `type` print `NAME: builtin` followed by the
 builtin's usage block; `command`, `test`, `printf`, and the other POSIX names
@@ -412,7 +413,22 @@ variable name is refused (`set -e` reports `set: expected a variable name`).
   OSC 52.
 - `z QUERY` jumps to the best frecency match among directories recorded by
   `cd` and `z` in history and announces the destination on stderr.
-- Builtin output may be redirected and piped like a program's.
+- `cp`, `mv`, `rsync`, and `rmrf` run in the shell process on XSH's internal
+  transfer engine, with the reference shell's option grammar, operand mapping,
+  and diagnostics. A copy is staged beside its destination and published by
+  rename; a move renames within one file system and otherwise copies, then
+  retires the source through the journal. `rmrf` indexes a directory, retires
+  its contents in journaled batches, and refuses `/`, `HOME`, the current
+  directory and its parents, and mount points. A missing path is ignored.
+- While one of them runs, a terminal shows a progress line after 200 ms unless
+  `--no-progress` is given; Ctrl+Z is ignored; Ctrl+C cancels it, reports what
+  was left unfinished, and ends the line with status `130`; `SIGTERM` and
+  `SIGHUP` cancel it, clean up, and exit with `128` plus the signal number.
+- Builtin output may be redirected like a program's. `cp`, `mv`, `rsync`, `l`,
+  `ll`, `c`, and `history` need the shell process: in a pipeline stage or a
+  command substitution they are refused before their redirections open, with
+  `NAME requires the original shell process and cannot run in a forked context`
+  and status `2`. `rmrf` must be the only command on its line.
 
 ## 12. Jobs And Signals
 
