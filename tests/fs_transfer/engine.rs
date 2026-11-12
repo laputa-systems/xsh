@@ -341,7 +341,10 @@ fn blocking_flags_are_deferred_until_after_publication() {
         );
         return;
     };
+    let source_flags = RestoreFlags::capture(&source.join("file")).expect("capture source flags");
+    let source_root_flags = RestoreFlags::capture(&source).expect("capture source root flags");
     set_flag(&source.join("file"), flag, true).expect("set source flag");
+    set_flag(&source, flag, true).expect("set source root flag");
 
     let staging = work.join("staged");
     let mut progress = TransferProgress::default();
@@ -362,6 +365,7 @@ fn blocking_flags_are_deferred_until_after_publication() {
         0,
         "a staged object must not carry a blocking flag before publication"
     );
+    assert_eq!(read_flags(&staging) & flag, 0, "the staged root must remain publishable");
     let entry = deferred
         .iter()
         .find(|entry| entry.relative == std::path::Path::new("file"))
@@ -370,26 +374,30 @@ fn blocking_flags_are_deferred_until_after_publication() {
     let root_entry = deferred
         .iter()
         .find(|entry| entry.relative.as_os_str().is_empty())
-        .expect("the tree root must be finalized after publication");
-    assert_eq!(root_entry.flags, 0);
+        .expect("the blocking root flag must be recorded as deferred");
+    assert_eq!(root_entry.flags & flag, flag);
+
+    let published_flags = RestoreFlags::capture(&staging.join("file")).expect("capture staged flags");
+    let published_root_flags = RestoreFlags::capture(&staging).expect("capture staged root flags");
+    let published = work.join("published");
+    fs::rename(&staging, &published).expect("publish staged tree");
+    assert!(!staging.exists());
 
     let parent = open_directory(&work).expect("open work");
-    apply_deferred_flags(parent.as_fd(), OsStr::new("staged"), &deferred)
+    apply_deferred_flags(parent.as_fd(), OsStr::new("published"), &deferred)
         .expect("apply deferred flags after publication");
-    assert_eq!(read_flags(&staging.join("file")) & flag, flag);
+    assert_eq!(read_flags(&published.join("file")) & flag, flag);
+    assert_eq!(read_flags(&published) & flag, flag);
+    assert_eq!(fs::read(published.join("file")).expect("read published file"), b"flag payload");
 
-    let parent = open_directory(&work).expect("reopen work");
-    let cleared = deferred
-        .iter()
-        .map(|entry| DeferredFlags {
-            relative: entry.relative.clone(),
-            flags: entry.flags & !flag,
-        })
-        .collect::<Vec<_>>();
-    apply_deferred_flags(parent.as_fd(), OsStr::new("staged"), &cleared)
-        .expect("clear deferred flags");
-    assert_eq!(read_flags(&staging.join("file")) & flag, 0);
-    let _ = fs::remove_dir_all(&staging);
+    drop(published_root_flags);
+    drop(published_flags);
+    assert_eq!(read_flags(&published) & flag, 0);
+    assert_eq!(read_flags(&published.join("file")) & flag, 0);
+    drop(source_root_flags);
+    drop(source_flags);
+    assert_eq!(read_flags(&source.join("file")) & flag, 0);
+    fs::remove_dir_all(&published).expect("remove published fixture");
 }
 
 #[test]
@@ -459,6 +467,31 @@ fn set_flag(path: &std::path::Path, flag: u32, enabled: bool) -> io::Result<()> 
     }
     rustix::fs::ioctl_setflags(&file, IFlags::from_bits_retain(flags))?;
     Ok(())
+}
+
+struct RestoreFlags {
+    file: File,
+    flags: IFlags,
+}
+
+impl RestoreFlags {
+    fn capture(path: &std::path::Path) -> io::Result<Self> {
+        let file = File::open(path)?;
+        let flags = rustix::fs::ioctl_getflags(&file)?;
+        Ok(Self { file, flags })
+    }
+}
+
+impl Drop for RestoreFlags {
+    fn drop(&mut self) {
+        if let Err(error) = rustix::fs::ioctl_setflags(&self.file, self.flags) {
+            if std::thread::panicking() {
+                eprintln!("could not restore fixture inode flags: {error}");
+            } else {
+                panic!("could not restore fixture inode flags: {error}");
+            }
+        }
+    }
 }
 
 fn transfer_with(

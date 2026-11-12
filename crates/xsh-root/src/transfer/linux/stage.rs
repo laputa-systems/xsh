@@ -228,6 +228,7 @@ pub(crate) fn apply_deferred_flags(
         let relative = &entry.relative;
         let root = fs::openat(parent, name, DIRECTORY_FLAGS, Mode::empty());
         let (target, expected_directory) = match root {
+            Ok(root) if relative.as_os_str().is_empty() => (root, None),
             Ok(root) => {
                 let (target_parent, target_name) = deferred_parent(root.as_fd(), relative)?;
                 let target = fs::openat(
