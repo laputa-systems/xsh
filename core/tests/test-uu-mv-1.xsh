@@ -248,24 +248,32 @@ test test_uu_mv_inter_partition_copying_mv_unlinks_dest_symlink_error_message { 
 
 # origin: uutils test_mv::test_acl
 test test_uu_mv_acl { |ctx|
-  let s = uu.scene(ctx)?
-  uu.mkdir(s, "a")
-  uu.mkdir(s, "b")
-  uu.touch(s, "a/file")
   let setter = if let Ok(tool) = process.which("setfacl") {
     tool
   } else {
     test.skip("setfacl is not installed")
-    p"/usr/bin/setfacl"
+    return
   }
-  # The original command resolves a outside the scene. Its failed setup skips.
-  let setup = process.run(process.command_argv(setter, [setter, "-m", "group::rwx", "a"], stdout: uu.at(s, "acl-out"), stderr: uu.at(s, "acl-err")))?
-  if ! setup.exited_with(0) { test.skip("setfacl failed on its original working-directory operand") }
-  uu.succeeds(uu.invoke(s, "mv", [uu.at(s, "a/file").display(), "b"])?)
-  # The upstream comparison falls back to an empty list for absent paths.
-  let left = if let Ok(names) = fs.xattr_list(p"a/file") { names |> sort |> collect() } else { [] }
-  let right = if let Ok(names) = fs.xattr_list(p"b/file") { names |> sort |> collect() } else { [] }
-  assert left == right
+  let s = uu.scene(ctx)?
+  uu.mkdir(s, "a")
+  uu.mkdir(s, "b")
+  uu.write(s, "a/file", "acl payload")
+  let setup = process.run(process.command_argv(setter, [setter, "-m", "user:12345:r--", "a/file"], s.root, stdout: uu.at(s, "acl-out"), stderr: uu.at(s, "acl-err")))?
+  assert setup.exited_with(0), uu.at(s, "acl-err").read_text()?
+  let expected = fs.xattr_get(uu.at(s, "a/file"), "system.posix_acl_access")?
+  assert ! expected.is_empty()
+  let mode = fs.stat(uu.at(s, "a/file"))?.mode.bit_and(0o7777)
+  uu.succeeds(uu.invoke(s, "mv", ["a/file", "b"])?)
+  assert ! uu.at(s, "a/file").exists()?
+  assert fs.xattr_get(uu.at(s, "b/file"), "system.posix_acl_access")? == expected
+  let other = other_fs(s)?
+  defer cleanup_other(other)
+  let target = fp"{other}/file"
+  uu.succeeds(uu.invoke(s, "mv", ["b/file", target.display()])?)
+  assert ! uu.at(s, "b/file").exists()?
+  assert target.read_text()? == "acl payload"
+  assert fs.xattr_get(target, "system.posix_acl_access")? == expected
+  assert fs.stat(target)?.mode.bit_and(0o7777) == mode
 }
 
 # origin: uutils test_mv::test_move_should_not_fallback_to_copy
