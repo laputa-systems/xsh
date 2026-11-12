@@ -898,10 +898,12 @@ impl Live {
     /// position and visibility, and every run of styled cells.
     pub(crate) fn frame(&mut self, label: &str) {
         let screen = self.term.screen();
-        let mut rows = Vec::new();
+        let mut rows: Vec<String> = (0..screen.row_count()).map(|row| screen.row(row).unwrap_or_default()).collect();
+        let wrapped: Vec<bool> = (0..screen.row_count()).map(|row| screen.row_wrapped(row).unwrap_or(false)).collect();
+        normalize_diagnostic_brand_wraps(&mut rows, &wrapped, usize::from(screen.size().columns()));
+        for row in &mut rows { *row = self.normalize(row.trim_end()); }
         let mut styles = Vec::new();
         for row in 0..screen.row_count() {
-            rows.push(self.normalize(screen.row(row).unwrap_or_default().trim_end()));
             let mut run: Option<(String, String)> = None;
             let mut flush = |run: &mut Option<(String, String)>, live: &Self| {
                 if let Some((attributes, text)) = run.take() {
@@ -1447,7 +1449,36 @@ fn normalize_ls_row(row: &str) -> String {
     format!("{mode} {nlink} <USER> <GROUP> {size} {remainder}")
 }
 
-/// Recorded transcripts may contain older host-specific `l` columns.
+fn normalize_completion_entry_offsets(row: &str) -> String {
+    if !row.starts_with("completion.entries: [CompletionEntry {") { return row.to_string(); }
+    let mut packed = String::new();
+    let mut rest = row;
+    let mut offset = 0;
+    while let Some((before, fields)) = rest.split_once("name_start: ") {
+        let Some((_, fields)) = fields.split_once(", name_len: ") else { return row.to_string(); };
+        let Some((length, tail)) = fields.split_once(',') else { return row.to_string(); };
+        let Ok(length) = length.parse::<usize>() else { return row.to_string(); };
+        packed.push_str(before);
+        packed.push_str(&format!("name_start: {offset}, name_len: {length},"));
+        offset += length;
+        rest = tail;
+    }
+    packed.push_str(rest);
+    packed
+}
+
+#[test]
+fn completion_entry_offsets_ignore_only_arena_storage_order() {
+    let row = "completion.entries: [CompletionEntry { mtime: 1, name_start: 2, name_len: 2, name_display_width: 2, flags: 0 }, CompletionEntry { mtime: 1, name_start: 0, name_len: 2, name_display_width: 2, flags: 0 }]";
+    let normalized = normalize_completion_entry_offsets(row);
+    assert!(normalized.contains("name_start: 0, name_len: 2"));
+    assert!(normalized.contains("name_start: 2, name_len: 2"));
+    assert_eq!(normalize_completion_entry_offsets(&normalized), normalized);
+    assert_ne!(normalize_completion_entry_offsets(&row.replace("flags: 0", "flags: 1")), normalized);
+    assert_ne!(normalize_completion_entry_offsets(&row.replace("name_len: 2", "name_len: 3")), normalized);
+    assert_ne!(normalize_completion_entry_offsets(&row.replace("mtime: 1", "mtime: 2")), normalized);
+}
+
 fn normalize_listing_transcript(transcript: &str) -> String {
     let mut out = String::with_capacity(transcript.len());
     for chunk in transcript.split_inclusive('\n') {
@@ -1456,7 +1487,7 @@ fn normalize_listing_transcript(transcript: &str) -> String {
             .map_or((chunk, ""), |line| (line, "\n"));
         if let Some(row) = line.strip_prefix('|') {
             out.push('|');
-            out.push_str(&normalize_ls_row(row));
+            out.push_str(&normalize_completion_entry_offsets(&normalize_ls_row(row)));
         } else {
             out.push_str(line);
         }
@@ -1488,6 +1519,41 @@ fn normalize_pty_paths(text: &str) -> String {
 
 /// Message prefixes name the shell (`ish: cd: ...` / `xshi: cd: ...`); that
 /// identity is the one intentional textual difference between the two.
+fn normalize_diagnostic_brand_wraps(rows: &mut [String], wrapped: &[bool], columns: usize) {
+    let mut index = 0;
+    while index < rows.len() {
+        let Some(prefix) = ["xshi:", "epsh:"].into_iter().find(|prefix| rows[index].starts_with(prefix)) else {
+            index += 1;
+            continue;
+        };
+        let mut end = index;
+        while end + 1 < rows.len() && wrapped[end] { end += 1; }
+        let text = rows[index..=end].concat();
+        if text.is_ascii() {
+            let text = format!("ish:{}", &text[prefix.len()..]);
+            let parts: Vec<String> = text.as_bytes().chunks(columns.max(1)).map(|part| String::from_utf8(part.to_vec()).unwrap()).collect();
+            if parts.len() == end - index + 1 {
+                rows[index..=end].clone_from_slice(&parts);
+            }
+        }
+        index = end + 1;
+    }
+}
+
+#[test]
+fn diagnostic_brand_normalization_reflows_only_the_shell_prefix() {
+    let message = "exit changes shell state or needs the ish process, so it must be the only command on its line";
+    let source = format!("xshi: {message}");
+    let mut rows: Vec<String> = source.as_bytes().chunks(80).map(|part| String::from_utf8(part.to_vec()).unwrap()).collect();
+    normalize_diagnostic_brand_wraps(&mut rows, &[true, false], 80);
+    assert_eq!(rows.concat(), format!("ish: {message}"));
+    assert!(rows[0].ends_with("only c"));
+    let mut user_rows = vec!["user text xshi: stays exactly as displayed".to_string(), "wrapped continuation".to_string()];
+    let original = user_rows.clone();
+    normalize_diagnostic_brand_wraps(&mut user_rows, &[true, false], 80);
+    assert_eq!(user_rows, original);
+}
+
 fn normalize_shell_name(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut previous: Option<char> = None;

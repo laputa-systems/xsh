@@ -47,7 +47,7 @@ pub(super) fn jump(
         } else if dir == "~" {
             home.to_string()
         } else {
-            dir.to_string()
+            dir.clone()
         };
 
         // Recency weight: later entries score higher (i/len gives 0..1).
@@ -87,21 +87,21 @@ pub(super) fn jump(
     }
 }
 
-/// Extract the target directory from a cd/z history entry.
-fn extract_cd_target(entry: &str) -> Option<&str> {
-    let trimmed = entry.trim();
-    // Handle: "cd dir", "z dir", "cd dir && ...", "cd dir; ..."
-    let rest = trimmed
-        .strip_prefix("cd ")
-        .or_else(|| trimmed.strip_prefix("z "))?;
-
-    // Take just the first argument (stop at whitespace, &&, ||, ;, |)
-    let arg = rest
-        .trim_start()
-        .split(|c: char| c.is_whitespace() || c == '&' || c == '|' || c == ';')
-        .next()?;
-
-    if arg.is_empty() { None } else { Some(arg) }
+fn extract_cd_target(entry: &str) -> Option<String> {
+    use super::shell::{lex_shell, ShellToken, ShellWordPart};
+    let tokens = lex_shell(entry).ok()?;
+    let mut words = tokens.iter();
+    let ShellToken::Word(name) = words.next()? else { return None; };
+    if !matches!(name.text().as_str(), "cd" | "z") { return None; }
+    let ShellToken::Word(target) = words.next()? else { return None; };
+    let mut value = String::new();
+    for part in &target.parts {
+        match part {
+            ShellWordPart::Text { text, expand, .. } if !expand || !text.contains('$') => value.push_str(text),
+            _ => return None,
+        }
+    }
+    Some(value)
 }
 
 #[cfg(test)]
@@ -110,26 +110,32 @@ mod tests {
 
     #[test]
     fn extract_cd_simple() {
-        assert_eq!(extract_cd_target("cd /tmp"), Some("/tmp"));
-        assert_eq!(extract_cd_target("cd ~/d/ish"), Some("~/d/ish"));
-        assert_eq!(extract_cd_target("z ish"), Some("ish"));
+        assert_eq!(extract_cd_target("cd /tmp").as_deref(), Some("/tmp"));
+        assert_eq!(extract_cd_target("cd ~/d/ish").as_deref(), Some("~/d/ish"));
+        assert_eq!(extract_cd_target("z ish").as_deref(), Some("ish"));
     }
 
     #[test]
     fn extract_cd_from_command_list() {
-        assert_eq!(extract_cd_target("cd /tmp && ls"), Some("/tmp"));
-        assert_eq!(extract_cd_target("cd src; make"), Some("src"));
+        assert_eq!(extract_cd_target("cd /tmp && ls").as_deref(), Some("/tmp"));
+        assert_eq!(extract_cd_target("cd src; make").as_deref(), Some("src"));
+    }
+
+    #[test]
+    fn extract_cd_quoted_history() {
+        assert_eq!(extract_cd_target("cd 'project space'").as_deref(), Some("project space"));
+        assert_eq!(extract_cd_target("cd project\\ space").as_deref(), Some("project space"));
+        assert_eq!(extract_cd_target("cd \"$PROJECT\"").as_deref(), None);
     }
 
     #[test]
     fn extract_cd_no_match() {
-        assert_eq!(extract_cd_target("git commit -m fix"), None);
-        assert_eq!(extract_cd_target("echo cd"), None);
+        assert_eq!(extract_cd_target("git commit -m fix").as_deref(), None);
+        assert_eq!(extract_cd_target("echo cd").as_deref(), None);
     }
 
     #[test]
     fn extract_cd_dash() {
-        assert_eq!(extract_cd_target("cd -"), Some("-"));
-        // The caller filters out "-"
+        assert_eq!(extract_cd_target("cd -").as_deref(), Some("-"));
     }
 }

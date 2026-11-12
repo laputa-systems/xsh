@@ -29,8 +29,13 @@ fn append_command_source(command: &SimpleCommand, out: &mut String) {
     }
     for redirection in &command.redirections {
         out.push(' ');
+        if redirection.kind == ShellRedirectionKind::StdinClose {
+            out.push_str("0<&-");
+            continue;
+        }
         out.push_str(match redirection.kind {
             ShellRedirectionKind::Stdin => "<",
+            ShellRedirectionKind::StdinClose => unreachable!("handled self-contained redirection"),
             ShellRedirectionKind::StdoutWrite => ">",
             ShellRedirectionKind::StdoutAppend => ">>",
             ShellRedirectionKind::StderrWrite => "2>",

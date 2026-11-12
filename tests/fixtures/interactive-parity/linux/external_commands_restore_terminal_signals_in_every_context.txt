@@ -1,6 +1,6 @@
 == frame direct cursor=4,20
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $
@@ -9,11 +9,11 @@
 @4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 == frame pipeline cursor=8,20
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status | /bin/cat
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $
@@ -24,15 +24,15 @@
 @8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 == frame list cursor=12,20
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status | /bin/cat
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $ true && /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $
@@ -45,19 +45,19 @@
 @12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
 == frame substitution cursor=15,20
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $ /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status | /bin/cat
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $ true && /bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status
-|SigIgn: 0000000000000000
+|SigIgn: 0000000200000000
 |SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $ echo $(/bin/grep -E 'SigIgn:|SigCgt:' /proc/self/status)
-|SigIgn: 0000000000000000 SigCgt: 0000000000000000
+|SigIgn: 0000000200000000 SigCgt: 0000000000000000
 |
 |testuser@<HOST> ~ $
 @0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

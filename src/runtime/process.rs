@@ -879,6 +879,10 @@ pub enum ProcessRedirection {
         stream: RedirectionStream,
         fd: i32,
     },
+    /// Closes the child's descriptor at this position in the redirection list.
+    ChildClose {
+        stream: RedirectionStream,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -4388,6 +4392,9 @@ pub(crate) fn validate_input_sources(redirections: &[ProcessRedirection]) -> Res
                             stream: RedirectionStream::Stdin,
                             ..
                         }
+                        | ProcessRedirection::ChildClose {
+                            stream: RedirectionStream::Stdin,
+                        }
                 )
             })
             .count()
@@ -4410,7 +4417,7 @@ pub(crate) fn inherit_standard_streams(
         let stream = match redirection {
             ProcessRedirection::Input { .. } => RedirectionStream::Stdin,
             ProcessRedirection::File { stream, .. } | ProcessRedirection::Dup { stream, .. } => *stream,
-            ProcessRedirection::ChildDup { .. } => break,
+            ProcessRedirection::ChildDup { .. } | ProcessRedirection::ChildClose { .. } => break,
         };
         inherited &= !(1 << stream_fd(stream));
     }
@@ -4428,7 +4435,7 @@ pub(crate) fn apply_redirections(
     // here so a failure is still reported as a redirection error.
     let split = redirections
         .iter()
-        .position(|redirection| matches!(redirection, ProcessRedirection::ChildDup { .. }))
+        .position(|redirection| matches!(redirection, ProcessRedirection::ChildDup { .. } | ProcessRedirection::ChildClose { .. }))
         .unwrap_or(redirections.len());
     let (parent_side, child_side) = redirections.split_at(split);
     apply_parent_redirections(command, parent_side)?;
@@ -4456,6 +4463,9 @@ pub(crate) fn apply_redirections(
             }
             ProcessRedirection::ChildDup { stream, fd } => {
                 child_dup(command, *stream, *fd)?;
+            }
+            ProcessRedirection::ChildClose { stream } => {
+                child_close(command, *stream);
             }
         }
     }
@@ -4505,7 +4515,7 @@ fn apply_parent_redirections(
                 let stdio = duplicate_fd(*fd)?;
                 apply_file_stdio(command, *stream, stdio);
             }
-            ProcessRedirection::ChildDup { .. } => {
+            ProcessRedirection::ChildDup { .. } | ProcessRedirection::ChildClose { .. } => {
                 unreachable!("child-side redirections are applied by apply_redirections")
             }
         }
@@ -4519,6 +4529,20 @@ fn stream_fd(stream: RedirectionStream) -> i32 {
         RedirectionStream::Stdin => libc::STDIN_FILENO,
         RedirectionStream::Stdout => libc::STDOUT_FILENO,
         RedirectionStream::Stderr => libc::STDERR_FILENO,
+    }
+}
+
+fn child_close(command: &mut Command, stream: RedirectionStream) {
+    let fd = stream_fd(stream);
+    // SAFETY: close is async-signal-safe and acts only on this child's standard descriptor.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::close(fd) == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EBADF) { Ok(()) } else { Err(error) }
+        });
     }
 }
 
@@ -4942,6 +4966,33 @@ mod tests {
             b"redirected"
         );
         std::fs::remove_file(output_path).expect("remove redirected output");
+    }
+
+    #[test]
+    fn child_close_preserves_redirection_order_and_parent_stdio() {
+        let parent_stdin = rio::fcntl_getfd(std::io::stdin()).ok();
+        let run = |redirections: &[ProcessRedirection]| {
+            let mut command = Command::new("/usr/bin/python3");
+            command.args(["-c", "import os, sys\ntry: os.fstat(0)\nexcept OSError as error:\n if error.errno != 9: raise\n sys.stdout.write('closed')\nelse: sys.stdout.write('open')"]);
+            command.stdout(ChildStdio::Piped);
+            apply_redirections(&mut command, redirections).expect("prepare child redirections");
+            let mut child = command.spawn().expect("run child");
+            let mut output = Vec::new();
+            std::io::Read::read_to_end(&mut child.stdout.take().expect("capture child stdout"), &mut output)
+                .expect("read child output");
+            assert!(child.wait().expect("wait child").success());
+            output
+        };
+        let close = ProcessRedirection::ChildClose { stream: RedirectionStream::Stdin };
+        let open = ProcessRedirection::File {
+            stream: RedirectionStream::Stdin,
+            mode: FileRedirectionMode::Read,
+            path: PathBuf::from("/dev/null"),
+        };
+        assert_eq!(run(&[close.clone()]), b"closed");
+        assert_eq!(run(&[close.clone(), open.clone()]), b"open");
+        assert_eq!(run(&[open, close]), b"closed");
+        assert_eq!(rio::fcntl_getfd(std::io::stdin()).ok(), parent_stdin);
     }
 
     #[test]

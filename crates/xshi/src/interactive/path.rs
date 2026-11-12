@@ -192,7 +192,9 @@ pub fn complete_commands(prefix: &str, comp: &mut super::complete::Completions, 
                 Ok(s) => s,
                 Err(_) => continue,
             };
-            comp.push(name, false, false, true);
+            if !super::builtin::is_refused_builtin(name) {
+                comp.push(name, false, false, true);
+            }
         }
 
         // SAFETY: Close the directory handle opened above.

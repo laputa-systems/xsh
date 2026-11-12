@@ -634,7 +634,7 @@ proc interactive(app: App) [env, fs, process, io, time, error] -> Result[Unit, E
     }
     let ready = unix.poll_fd(0, ["readable"], timeout_ms: wait_ms)?
     if "readable" in ready {
-      let chunk = unix.read_fd(0, 256)?
+      let chunk = unix.read_fd(0, 1)?
       let decoded = if chunk.is_empty() {
         input.finish(decoder)
       } else {

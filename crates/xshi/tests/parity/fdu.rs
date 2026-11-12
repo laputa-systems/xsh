@@ -265,10 +265,25 @@ fn rapid_input_handoff_burst_does_not_drop_queued_quit() {
         &tree_fixture(),
         |sh| {
             sh.keys(b"fdu --interactive root\rq");
+            sh.wait_prompt();
             sh.frame("after_burst");
             sh.keys(b"q\r");
             sh.wait_prompt();
             sh.frame("after_quit");
+        },
+    );
+}
+
+#[test]
+fn quit_preserves_the_remaining_command_in_the_same_input_burst() {
+    run_scenario(
+        "fdu_quit_preserves_command_typeahead",
+        &tree_fixture(),
+        |sh| {
+            sh.keys(b"fdu --interactive root\rqecho handoff-survived >handoff-marker\r");
+            sh.wait_prompt();
+            sh.line("cat handoff-marker");
+            sh.effect_file("queued_command", "handoff-marker");
         },
     );
 }
