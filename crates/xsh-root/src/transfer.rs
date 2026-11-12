@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use crate::FileKind;
+pub use crate::FileKind;
 
 /// A byte buffer size for buffered transfers.
 pub const TRANSFER_BUFFER_BYTES: usize = 256 * 1024;
@@ -356,14 +356,19 @@ impl Cancellation {
 
     /// Fails with [`std::io::ErrorKind::Interrupted`] once cancelled.
     pub fn check(&self) -> io::Result<()> {
-        if self.is_cancelled() {
-            Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "transfer cancelled",
-            ))
-        } else {
-            Ok(())
-        }
+        check_cancelled(self)
+    }
+}
+
+/// Fails with [`std::io::ErrorKind::Interrupted`] once `cancellation` is set.
+pub fn check_cancelled(cancellation: &Cancellation) -> io::Result<()> {
+    if cancellation.is_cancelled() {
+        Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "transfer cancelled",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -511,6 +516,14 @@ pub fn observe_entry(parent: BorrowedFd<'_>, name: &OsStr) -> io::Result<Observa
 /// Observes an already-open file or directory descriptor.
 pub fn observe_fd(fd: BorrowedFd<'_>) -> io::Result<Observation> {
     platform::observe_fd(fd)
+}
+
+/// Opens one entry as a directory without following a final symbolic link.
+///
+/// The returned descriptor is the traversal anchor a caller uses to build
+/// [`RetirementGroup`] ancestry for a journaled tree retirement.
+pub fn open_entry_directory(parent: BorrowedFd<'_>, name: &OsStr) -> io::Result<OwnedFd> {
+    platform::open_entry_directory(parent, name)
 }
 
 /// Whether an operation copies or moves its sources.
@@ -861,6 +874,32 @@ impl Retirement {
             expected,
         })
     }
+
+    pub(crate) fn parents(&self) -> &[Ancestor] {
+        &self.parents
+    }
+
+    pub(crate) fn name(&self) -> &OsStr {
+        &self.name
+    }
+
+    pub(crate) fn expected(&self) -> EntryIdentity {
+        self.expected
+    }
+}
+
+/// One directory's share of a batch retirement.
+///
+/// Entries sharing a parent publish their intent records and synchronize the
+/// namespace once as a group; each entry keeps its own record, so recovery
+/// restores any entry that was captured before an interruption without
+/// touching live names.
+#[derive(Clone, Debug)]
+pub struct RetirementGroup {
+    /// Ancestors from the recovery root to the entries' parent directory.
+    pub ancestors: Vec<Ancestor>,
+    /// The entries to retire, all named within that parent.
+    pub entries: Vec<Retirement>,
 }
 
 /// The two objects named by an atomic replacement.

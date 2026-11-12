@@ -1,0 +1,23 @@
+== frame after_transfers cursor=8,20
+|testuser@<HOST> ~ $ cp exact-source exact-target
+|
+|testuser@<HOST> ~ $ cp --into copy-into into-source
+|
+|testuser@<HOST> ~ $ mv move-source move-target
+|
+|testuser@<HOST> ~ $ mv --into move-into move-into-source
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mv
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 mv
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect copy_into
+|file 7 copy-into/into-source
+== effect move_into
+|file 7 move-into/move-into-source

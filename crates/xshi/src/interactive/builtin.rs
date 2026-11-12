@@ -49,6 +49,10 @@ const SET_HELP: &str =
     "Usage: {name} [NAME [VALUE...]]\nSet and export a shell variable, or list the environment with no arguments.";
 const COMMAND_HELP: &str =
     "Usage: {name} [-v|-V] NAME...\n       {name} [-p] COMMAND [ARG...]\nRun a command without function lookup, or describe how NAME resolves.";
+const COPY_HELP: &str = "Usage: {name} [OPTIONS] SOURCE DESTINATION\n       {name} [OPTIONS] SOURCE... DIRECTORY\n       {name} [OPTIONS] --into DIRECTORY SOURCE...\nCopy objects and directory trees in the shell process.";
+const MOVE_HELP: &str = "Usage: {name} [OPTIONS] SOURCE DESTINATION\n       {name} [OPTIONS] SOURCE... DIRECTORY\n       {name} [OPTIONS] --into DIRECTORY SOURCE...\nMove objects and directory trees in the shell process.";
+const SYNC_HELP: &str =
+    "Usage: {name} [OPTIONS] SOURCE... DIRECTORY\n       {name} [OPTIONS] --into DIRECTORY SOURCE...\n       {name} [OPTIONS] --contents SOURCE DIRECTORY\nSynchronize files and directories locally.";
 
 struct Builtin {
     name: &'static str,
@@ -73,6 +77,10 @@ const SHELL_BUILTINS: &[Builtin] = &[
         help: CLEAR_SCREEN_HELP,
     },
     Builtin {
+        name: "cp",
+        help: COPY_HELP,
+    },
+    Builtin {
         name: "fdu",
         help: FDU_HELP,
     },
@@ -93,6 +101,10 @@ const SHELL_BUILTINS: &[Builtin] = &[
         help: HISTORY_HELP,
     },
     Builtin {
+        name: "mv",
+        help: MOVE_HELP,
+    },
+    Builtin {
         name: "xshi-dump",
         help: DUMP_LAYOUT_HELP,
     },
@@ -103,6 +115,14 @@ const SHELL_BUILTINS: &[Builtin] = &[
     Builtin {
         name: "ll",
         help: LIST_HIDDEN_HELP,
+    },
+    Builtin {
+        name: "rmrf",
+        help: super::rmrf::RMRF_HELP,
+    },
+    Builtin {
+        name: "rsync",
+        help: SYNC_HELP,
     },
     Builtin {
         name: "type",
@@ -224,7 +244,7 @@ pub(super) fn locate_command(
         writeln!(stdout, "alias: {name} {}", expansion.join(" ")).ok();
         let same_name = expansion
             .first()
-            .is_some_and(|first| strip_quotes(first) == name);
+            .is_some_and(|first| strip_quotes_for_lookup(first) == name);
         if !same_name {
             return 0;
         }
@@ -285,7 +305,7 @@ fn is_refused_builtin(name: &str) -> bool {
     )
 }
 
-fn strip_quotes(word: &str) -> &str {
+pub(super) fn strip_quotes_for_lookup(word: &str) -> &str {
     if word.len() >= 2 {
         let bytes = word.as_bytes();
         if (bytes[0] == b'\'' && bytes[word.len() - 1] == b'\'')

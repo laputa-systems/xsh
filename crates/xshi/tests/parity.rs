@@ -42,6 +42,8 @@ mod denv;
 mod extended;
 #[path = "parity/fdu.rs"]
 mod fdu;
+#[path = "parity/fs.rs"]
+mod fs;
 #[path = "parity/history.rs"] mod history;
 #[path = "parity/scenarios.rs"]
 mod scenarios;
@@ -932,7 +934,9 @@ impl Live {
             .replace(&format!("@{} ", self.host), "@<HOST> ")
             .replace("xshi-dump", "ish-dump")
             .replace("xshi layout dump", "ish layout dump")
-            .replace(".cache/xshi/", ".cache/ish/");
+            .replace(".cache/xshi/", ".cache/ish/")
+            .replace(".config/xshi", ".config/ish")
+            .replace(".local/share/xshi", ".local/share/ish");
         normalize_dump_names(&normalize_pgid(&normalize_ls_row(&normalize_shell_name(
             &normalize_pty_paths(&text),
         ))))
@@ -1056,6 +1060,96 @@ impl Live {
             lines.push(format!("file {}", mode(&dump)));
         }
         self.effects.push((name.to_owned(), lines.join("\n")));
+    }
+
+    /// Records the sorted names, kinds and byte lengths of entries under a
+    /// HOME directory, one path per line, so tree transfers are visible.
+    pub(crate) fn effect_tree(&mut self, name: &str, relative: &str) {
+        fn walk(base: &Path, directory: &Path, lines: &mut Vec<String>) {
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                lines.push(format!("<unreadable> {relative}", relative = directory.display()));
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let kind = match entry.file_type() {
+                    Ok(kind) if kind.is_dir() => "dir",
+                    Ok(kind) if kind.is_symlink() => "link",
+                    _ => "file",
+                };
+                let relative = path.strip_prefix(base).unwrap_or(&path);
+                let length = std::fs::symlink_metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or_default();
+                lines.push(format!("{kind} {length} {}", relative.display()));
+                if kind == "dir" {
+                    walk(base, &path, lines);
+                }
+            }
+        }
+        let base = self.home.join(relative);
+        let mut lines = Vec::new();
+        if base.is_dir() {
+            walk(&self.home, &base, &mut lines);
+        } else if base.exists() {
+            let length = std::fs::symlink_metadata(&base)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default();
+            lines.push(format!("file {length} {relative}"));
+        } else {
+            lines.push("<absent>".to_owned());
+        }
+        lines.sort();
+        self.effects.push((name.to_owned(), lines.join("\n")));
+    }
+
+    /// Polls HOME for a live quarantine staging entry, the way ish's native
+    /// filesystem tests wait for a transfer to reach its staging phase.
+    pub(crate) fn wait_for_staging(&mut self, description: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+
+        while std::time::Instant::now() < deadline {
+            self.term
+                .drain(self.term.deadline(Duration::from_millis(20)))
+                .expect("drain shell output");
+            for session in std::fs::read_dir(&self.home).into_iter().flatten().flatten() {
+                if session
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".fdu-quarantine-v2-")
+                {
+                    return;
+                }
+            }
+        }
+        panic!(
+            "{}: staging did not begin; screen:\n{}",
+            self.kind.label(),
+            self.term.screen()
+        );
+    }
+
+    /// Whether the shell has left any engine staging entry under HOME.
+    pub(crate) fn staging_entry_present(&self) -> bool {
+        std::fs::read_dir(&self.home).into_iter().flatten().flatten().any(
+            |entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".fdu-quarantine-v2-")
+            },
+        )
+    }
+
+    /// Waits for the shell to exit and returns the status without recording it.
+    pub(crate) fn exit_status(&mut self) -> ExitStatus {
+        let deadline = self.deadline();
+        let status = self
+            .term
+            .wait_for_exit(deadline)
+            .expect("wait for shell exit");
+        self.exited = Some(status);
+        status
     }
 
     /// Records the sorted names of entries directly under a HOME directory.

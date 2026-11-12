@@ -1,0 +1,2 @@
+== effect sigterm_exit
+|Code(143)

@@ -1,0 +1,22 @@
+== frame quick_copy cursor=2,20
+|testuser@<HOST> ~ $ cp source copy
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame quiet_copy cursor=4,20
+|testuser@<HOST> ~ $ cp source copy
+|
+|testuser@<HOST> ~ $ cp --no-progress source quiet-copy
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cp
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect copy
+|tiny bytes
+== effect quiet_copy
+|tiny bytes

@@ -2118,6 +2118,26 @@ fn open_relative_directory(root: BorrowedFd<'_>, relative: &Path) -> io::Result<
     Ok(current)
 }
 
+pub(super) fn open_entry_directory(
+    parent: BorrowedFd<'_>,
+    name: &OsStr,
+) -> io::Result<OwnedFd> {
+    validate_entry_name(name, "directory")?;
+    let directory = fs::openat(
+        parent,
+        name,
+        DIRECTORY_FLAGS.union(OFlags::NOFOLLOW),
+        Mode::empty(),
+    )?;
+    if observe_fd(directory.as_fd())?.identity.kind != FileKind::Directory {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "entry is not a directory",
+        ));
+    }
+    Ok(directory)
+}
+
 fn directory_chain_contains(
     start: BorrowedFd<'_>,
     expected: Observation,

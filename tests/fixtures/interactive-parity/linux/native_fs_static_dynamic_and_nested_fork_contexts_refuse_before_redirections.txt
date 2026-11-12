@@ -1,0 +1,12 @@
+== effect static_absent
+|<NotFound>
+== effect dynamic_absent
+|<NotFound>
+== effect nested_absent
+|<NotFound>
+== effect deep_absent
+|<NotFound>
+== effect static_redirection_absent
+|<NotFound>
+== effect dynamic_redirection_absent
+|<NotFound>

@@ -1,0 +1,2 @@
+== effect sighup_exit
+|Code(129)

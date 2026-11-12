@@ -2445,6 +2445,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "xsh",
+ "xsh-root",
 ]
 
 [[package]]

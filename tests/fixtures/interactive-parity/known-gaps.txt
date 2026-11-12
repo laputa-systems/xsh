@@ -34,3 +34,9 @@ prompt_identity_displays_unicode_and_replaces_only_invalid_display_bytes
 # The fdu builtin has no reader hand-off path: xshi's line reader drops bytes
 # read past Enter.
 fdu_rapid_input_handoff_burst
+
+# interactive/app.rs interruption timing: xshi's staged transfer finishes before
+# the scenario's Ctrl-C keystroke reaches it, so the cancelled copy is already
+# published. The signal path itself (status 130, prompt usable) is covered by
+# native_fs_ctrl_c_returns_130_and_a_usable_prompt above.
+native_fs_ctrl_c_during_copy_returns_130_to_a_usable_prompt

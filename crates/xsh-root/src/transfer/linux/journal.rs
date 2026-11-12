@@ -1156,6 +1156,157 @@ impl Session {
         }
     }
 
+    /// Captures and removes one directory's entries under a single group
+    /// intent publication and namespace synchronization.
+    ///
+    /// An entry that is absent or changed before capture is reported as
+    /// [`Removal::AlreadyAbsent`] or [`Removal::Changed`]. Once a capture has
+    /// been unlinked it is never restored; an interruption leaves the
+    /// remaining intent records for recovery, which restores every capture
+    /// that was renamed into the journal before the interruption.
+    pub fn retire_batch(
+        &self,
+        group: &crate::transfer::RetirementGroup,
+        authorize: impl FnMut(Boundary, BorrowedFd<'_>, &OsStr) -> io::Result<()>,
+    ) -> io::Result<Vec<Removal>> {
+        self.require_owner()?;
+        self.retire_group_entries(group, authorize)
+    }
+
+    fn retire_group_entries(
+        &self,
+        group: &crate::transfer::RetirementGroup,
+        mut authorize: impl FnMut(Boundary, BorrowedFd<'_>, &OsStr) -> io::Result<()>,
+    ) -> io::Result<Vec<Removal>> {
+        let parent = parent_of(self.root.as_fd(), &group.ancestors, &self.mount)?;
+        let parent_fd = parent.as_fd();
+        let mut published = Vec::with_capacity(group.entries.len());
+        let mut skipped = Vec::with_capacity(group.entries.len());
+        for request in &group.entries {
+            if request.parents() != group.ancestors.as_slice() {
+                return Err(invalid(
+                    "batch entry ancestry does not match its group parent",
+                ));
+            }
+            match retry(|| fs::statat(parent_fd, request.name(), AtFlags::SYMLINK_NOFOLLOW)) {
+                Ok(stat) if entry_identity(&stat) != request.expected() => {
+                    published.push(None);
+                    skipped.push(Removal::Changed);
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    published.push(None);
+                    skipped.push(Removal::AlreadyAbsent);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+            published.push(Some(self.publish_group_intent(request)?));
+        }
+        if !published.iter().any(Option::is_some) {
+            return Ok(skipped);
+        }
+        sync(self.directory.as_fd())?;
+        let mut captures: Vec<Option<(OsString, OsString)>> = Vec::with_capacity(group.entries.len());
+        let mut outcomes: Vec<Option<Removal>> = Vec::with_capacity(group.entries.len());
+        for (request, intent) in group.entries.iter().zip(&published) {
+            let Some((id, record)) = intent else {
+                captures.push(None);
+                outcomes.push(Some(Removal::AlreadyAbsent));
+                continue;
+            };
+            let capture = OsString::from_vec([id.as_slice(), b".entry"].concat());
+            match retry(|| fs::statat(parent_fd, request.name(), AtFlags::SYMLINK_NOFOLLOW)) {
+                Ok(stat) if entry_identity(&stat) != request.expected() => {
+                    captures.push(None);
+                    outcomes.push(Some(Removal::Changed));
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    captures.push(None);
+                    outcomes.push(Some(Removal::AlreadyAbsent));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+            let checked = parent_of(self.root.as_fd(), &request.parents(), &self.mount)?;
+            if directory_state(checked.as_fd())? != directory_state(parent_fd)? {
+                return Err(invalid("batch parent identity or mount changed"));
+            }
+            authorize(Boundary::BeforeCapture, parent_fd, request.name())?;
+            fs::renameat_with(
+                parent_fd,
+                request.name(),
+                &self.directory,
+                &capture,
+                fs::RenameFlags::NOREPLACE,
+            )?;
+            authorize(Boundary::Captured, self.directory.as_fd(), &capture)?;
+            if entry_identity(&retry(|| {
+                fs::statat(self.directory.as_fd(), &capture, AtFlags::SYMLINK_NOFOLLOW)
+            })?) != request.expected()
+            {
+                self.restore(parent_fd, request.name(), &capture, record)?;
+                captures.push(None);
+                outcomes.push(Some(Removal::Changed));
+                continue;
+            }
+            captures.push(Some((capture, record.clone())));
+            outcomes.push(None);
+        }
+        sync(self.directory.as_fd())?;
+        sync(parent_fd)?;
+        for (index, request) in group.entries.iter().enumerate() {
+            let Some((capture, record)) = &captures[index] else {
+                continue;
+            };
+            authorize(Boundary::BeforeUnlink, self.directory.as_fd(), capture)?;
+            fs::unlinkat(
+                &self.directory,
+                capture,
+                if request.expected().kind == FileKind::Directory {
+                    AtFlags::REMOVEDIR
+                } else {
+                    AtFlags::empty()
+                },
+            )?;
+            authorize(Boundary::Unlinked, self.directory.as_fd(), capture)?;
+            fs::unlinkat(&self.directory, record, AtFlags::empty())?;
+            authorize(Boundary::IntentRemoved, parent_fd, request.name())?;
+            outcomes[index] = Some(Removal::Removed);
+        }
+        sync(self.directory.as_fd())?;
+        sync(parent_fd)?;
+        authorize(Boundary::ParentSynced, parent_fd, OsStr::new(""))?;
+        Ok(outcomes
+            .into_iter()
+            .map(|outcome| outcome.expect("every batch entry has a resolved outcome"))
+            .collect())
+    }
+
+    fn publish_group_intent(&self, request: &Retirement) -> io::Result<(Vec<u8>, OsString)> {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        let id = format!("{id}").into_bytes();
+        let record = OsString::from_vec([id.as_slice(), b".intent"].concat());
+        let pending = OsString::from_vec([b"pending-".as_slice(), id.as_slice()].concat());
+        let intent = Intent {
+            root: directory_state(self.root.as_fd())?.0,
+            parents: request.parents().to_vec(),
+            name: request.name().to_os_string(),
+            expected: Some(request.expected()),
+            kind: RecordKind::Retirement,
+        };
+        publish(
+            self.directory.as_fd(),
+            &pending,
+            &record,
+            &intent.encode()?,
+        )?;
+        Ok((id, record))
+    }
+
     fn restore(
         &self,
         parent: BorrowedFd<'_>,

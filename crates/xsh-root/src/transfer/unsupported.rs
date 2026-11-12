@@ -63,6 +63,13 @@ pub(super) fn observe_fd(_fd: BorrowedFd<'_>) -> io::Result<Observation> {
     Err(unsupported())
 }
 
+pub(super) fn open_entry_directory(
+    _parent: BorrowedFd<'_>,
+    _name: &OsStr,
+) -> io::Result<std::os::fd::OwnedFd> {
+    Err(unsupported())
+}
+
 pub(super) fn mount_identity(_fd: BorrowedFd<'_>) -> io::Result<MountIdentity> {
     Err(unsupported())
 }

@@ -1,0 +1,11 @@
+== effect negated_copy
+|<NotFound>
+== effect moved_success
+|negated copy bytes
+== effect nested_negated
+|negated copy bytes
+== effect alias_negated
+|negated copy bytes
+== effect negated_move_success
+|negated copy bytes
+== effect nested_redirection
