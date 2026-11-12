@@ -12729,6 +12729,33 @@
       "status": "fragment",
       "scope": "Scalar map keys embed injectively into the shared scalar domain; repeated top-level nominal erasure has no further effect.",
       "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.Membership.nonempty_is_list",
+      "module": "Xsh.Core.Membership",
+      "declaration": "Xsh.Core.Membership.nonempty_is_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For every represented element type and candidate, NonEmpty membership implies List membership, including retained environment-path snapshots.",
+      "boundary": "Shared membership definitions only; admissibility, source typing, world validity and Rust execution correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Core.Membership.check_iff",
+      "module": "Xsh.Core.MembershipDecision",
+      "declaration": "Xsh.Core.Membership.check_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The structurally terminating decision agrees with shared membership for every represented value type and candidate, given decisions for the explicit retained reference contracts.",
+      "boundary": "Retained contract predicates and their decisions are parameters, not conclusions established from source or execution. Type admissibility, valid semantic worlds and Rust correspondence remain open; TYPE-MEMBER stays planned."
+    },
+    {
+      "id": "fragment.Xsh.Core.MembershipControls.decisions_match_controls",
+      "module": "Xsh.Core.MembershipControls",
+      "declaration": "Xsh.Core.MembershipControls.decisions_match_controls",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The fixed model table checks every represented value-type family with acceptance and rejection cases, including nominal provenance, exact exports, callable kind and validation boundaries.",
+      "boundary": "Finite model controls with synthetic retained contracts; no Rust artifact, full-core obligation, source admission or execution agreement is certified."
     }
   ],
   "artifact_certificates": [
