@@ -44,6 +44,21 @@ they are not Rust conformance evidence. Type admissibility, valid semantic
 worlds, establishing and preserving the retained contracts, and integration
 with source and execution remain open. TYPE-MEMBER is still planned.
 
+[`Core/SymbolicEffects.lean`](Xsh/Core/SymbolicEffects.lean) represents finite
+symbolic effect expressions with an arbitrary number of parameters and a mask
+for each parameter. Exact inclusion and permission coverage are proved
+equivalent to their judgments for every assignment. Only direct permissions
+receive `io` closure; variable masks retain exact membership. Substitution agrees
+with replacing assignments and preserves both relations for known replacements.
+Unknown contracts propagate through each live substituted dependency and remain
+distinct from a known empty contract. An erased error-only dependency gives a
+counterexample to unconditional capture/substitution commutation with unknown
+replacements. These are laws of the model: a false comparison witnesses an
+assignment that fails, not an immediate Rust predicate rejection. Source
+extraction, the Rust three-valued predicate decision, symbolic callable types,
+inference integration and execution correspondence remain open. All universal
+effect obligations remain planned.
+
 The experimental foreign-IR bridge also decodes candidate instruction rows,
 binary-operation tables, locations, and string pools before passing a
 reconstructed program to `FullVerifier`. Other semantic tables still come from
