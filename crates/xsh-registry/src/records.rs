@@ -51,6 +51,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("FsRemoveManifestResult", fs_remove_manifest_result_type()),
         ("FsRootChildrenResult", fs_root_children_result_type()),
         ("FsRootReadResult", fs_root_read_result_type()),
+        ("FsRootRegularRead", fs_root_regular_read_type()),
         ("FsRootReadlinkResult", fs_root_readlink_result_type()),
         ("Group", group_record_type()),
         ("LinuxBlockDevice", linux_block_device_type()),
@@ -485,6 +486,20 @@ pub fn fs_root_read_result_type() -> Type {
             Type::Optional(Box::new(Type::Str)),
         ),
         ("truncated".to_string(), Type::Bool),
+    ]))
+}
+
+pub fn fs_root_regular_read_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("data".to_string(), Type::Bytes),
+        ("kind".to_string(), Type::Str),
+        ("mode".to_string(), Type::Int),
+        ("size".to_string(), Type::Int),
+        ("uid".to_string(), Type::Int),
+        ("gid".to_string(), Type::Int),
+        ("nlink".to_string(), Type::Int),
+        ("dev".to_string(), Type::Int),
+        ("ino".to_string(), Type::Int),
     ]))
 }
 

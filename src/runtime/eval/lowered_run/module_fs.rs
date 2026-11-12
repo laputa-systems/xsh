@@ -109,6 +109,32 @@ impl Evaluator {
         Ok(ControlFlow::Continue(value))
     }
 
+    pub(super) fn eval_lowered_fs_root_read_regular_values(
+        &mut self, values: NativeArgumentValues, span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let value = {
+            let max_bytes = lowered_int_arg_or(
+                values.get(2).cloned(),
+                1_048_576,
+                "fs.root_read_regular",
+                span,
+            )?;
+            let path = lowered_path_arg(
+                values.get(1).cloned().expect("checked value length"),
+                "fs.root_read_regular",
+                span,
+            )?;
+            let root = values.first().cloned().expect("checked value length");
+            let rel = pathbuf_from_path_value(&path);
+            lowered_runtime_result(
+                lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
+                    .and_then(|dir| fs_module::rooted_read_regular(dir, &rel, max_bytes, span)),
+                span,
+            )?
+        };
+        Ok(ControlFlow::Continue(value))
+    }
+
     pub(super) fn eval_lowered_fs_root_read_text_values(
         &mut self, mut values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
