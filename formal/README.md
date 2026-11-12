@@ -24,6 +24,15 @@ suite, and replay runner have not been introduced. The ledger's bridge cases are
 the fourteen named arithmetic and facts tests; other private bridge fixtures
 are not conformance cases.
 
+The shared data foundation in [`Core/Types.lean`](Xsh/Core/Types.lean) and
+[`Core/Values.lean`](Xsh/Core/Values.lean) represents the non-recovery type
+families and raw value candidates. It reuses the existing scalar and integer
+validation domains. Its kinded substitutions preserve callable metadata and
+module contracts. Values retain raw Float bits, typed semantic references,
+recursive error causes and nominal identity. The data laws do not establish
+admissibility, complete type membership, execution safety or Rust conformance;
+the fragment machines have not yet migrated to this foundation.
+
 The experimental foreign-IR bridge also decodes candidate instruction rows,
 binary-operation tables, locations, and string pools before passing a
 reconstructed program to `FullVerifier`. Other semantic tables still come from
@@ -125,8 +134,8 @@ From `formal/`, run the [project axiom audit](scripts/audit-axioms.sh), its
 self-test, and the [fresh paranoid check](scripts/check-fresh.py):
 
 ```sh
-scripts/audit-axioms.sh
-scripts/audit-axioms.sh --self-test
+/bin/bash scripts/audit-axioms.sh
+/bin/bash scripts/audit-axioms.sh --self-test
 python3 scripts/check-fresh.py
 python3 -B tests/test_check_fresh.py
 ```

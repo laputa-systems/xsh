@@ -128,7 +128,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 990
+**State:** `formal/coverage.json` is the only inventory. It lists 998
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. The source and IR links cover their admitted domains;
 Rust, OS and clock correspondence remain separate boundaries. All 77 universal
@@ -145,6 +145,15 @@ records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
 formal/scripts/check-inventory.py` validates the inventory against this plan.
+
+The shared `Xsh.Core` data foundation now separates kinded type terms from
+raw value candidates. It retains callable labels/defaults/rest/effects, exact
+and open module exports, validation bounds, raw Float bits, semantic references,
+recursive errors and causes, and the scalar map-key domains. Substitution laws,
+effect-set denotation, scalar-key injection and nominal-erasure idempotence are
+algebraic properties only. Admissibility, full membership, complete syntax and
+steps, and migration of the existing fragment machines remain open. This closes
+no universal obligation and adds no Rust conformance claim.
 
 **Open items:**
 

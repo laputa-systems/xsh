@@ -413,7 +413,7 @@ abbrev Bytes := List UInt8
 structure NativePath where
   bytes : Bytes
   noNul : ∀ byte, byte ∈ bytes → byte ≠ 0
-  deriving Repr
+  deriving Repr, DecidableEq
 
 def NativePath.fromBytes? (bytes : Bytes) : Option NativePath :=
   if h : ∀ byte, byte ∈ bytes → byte ≠ 0 then some ⟨bytes, h⟩ else none
