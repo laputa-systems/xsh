@@ -338,7 +338,7 @@ theorem reads_call {F : LoweringState} {callees : List (Option Callee)}
     (countMatches : count.val = callee.parameters) (fits : rows.length = callee.parameters)
     (before : ∀ argument ∈ rows, argument.val < row.val)
     (readsArguments : ReadsAll F callees rows exprs) :
-    Reads F callees row (.call (parameterNames callee.parameters) callee.body exprs) := by
+    Reads F callees row (callee.apply exprs) := by
   intro fuel above
   cases fuel with
   | zero => omega

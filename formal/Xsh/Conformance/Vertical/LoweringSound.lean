@@ -632,7 +632,7 @@ theorem call_lowers {src : List (String × Option Callee)} {owner : BridgeId}
   have wf2 : BlocksIndexed s9 := push_block_indexed wf1 htable
   have wf3 : BlocksIndexed { s9 with spans := rest } := BlocksIndexed.congr rfl wf2
   have blockFrame := push_block_frame htable
-  refine ⟨.call (parameterNames callee0.parameters) callee0.body exprs, ?_, ?_⟩
+  refine ⟨callee0.apply exprs, ?_, ?_⟩
   · have lookedUp : (src.lookup callee).bind id = some callee0 := by
       rw [looked, hcallee0]; rfl
     have countFits : arguments.length = callee0.parameters := by
@@ -751,6 +751,10 @@ theorem expression_lowers {src : List (String × Option Callee)} {owner : Bridge
     exact ⟨op.expression first second,
       by simp [SourceExpression.expression?, holds, hfirst, hsecond], lowers⟩
   | constructed isOk value => exact constructed_lowers wf h
+  | computedLet target value result =>
+    simp only [Lower.expression] at h
+    obtain ⟨e, found, lowers⟩ := value_lowers wf h
+    exact ⟨e, by simpa [SourceExpression.expression?] using found, lowers⟩
 
 
 theorem bridge_id_beq (a b : BridgeId) : (a == b) = (a.raw == b.raw) := by
@@ -871,7 +875,7 @@ theorem propagation_lowers {src : List (String × Option Callee)} {owner : Bridg
       ∀ (F : LoweringState), StateLE s' F →
         F.RowAt row.val .stmtLet [word, tryRow, 0] ∧
         propagationOf? (F.context (src.map (·.2))) row =
-          some ⟨word, parameterNames callee.parameters, callee.body, args⟩ := by
+          some ⟨word, callee.applyParameters, callee.body, callee.applyArguments args⟩ := by
   simp only [Lower.propagation, run_bind, run_lift, Lower.word] at h
   obtain ⟨callRow, s1, hcall, trySpan, s2, htrySpan, tried, s3, htry, slot, s4, ⟨hslot, rfl⟩,
     w, s5, ⟨hw, rfl⟩, push⟩ := h
@@ -887,7 +891,7 @@ theorem propagation_lowers {src : List (String × Option Callee)} {owner : Bridg
   · rw [if_pos countFits] at hsrc
     simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at hsrc
     obtain ⟨args, foundArguments, he⟩ := hsrc
-    have he' : e = .call (parameterNames callee.parameters) callee.body args := by
+    have he' : e = callee.apply args := by
       simpa using he.symm
     subst he'
     have countFitsEq : propagation.arguments.length = callee.parameters := by
@@ -944,11 +948,11 @@ theorem fresh_bool (bindings : List LetBinding) (slot : Word32)
     simp [headFresh]
 
 theorem body_let_cons {ctx : MeaningContext} {statement slot valueRow : Word32}
-    {next : Word32} {more : List Word32} {value : IntValue} {bindings : List LetBinding}
+    {next : Word32} {more : List Word32} {value : BaseExpr} {bindings : List LetBinding}
     {assignment : Option Assignment} {propagation : Option Propagation} {result : BaseExpr}
     (statementAt : readInstruction? ctx.tables statement = some (.stmtLetInt, [slot, valueRow]))
     (valueBefore : valueRow.val < statement.val)
-    (literal : literalValue? ctx valueRow = some value)
+    (bound : intExpression? ctx (ctx.tables.tags.size + 1) valueRow = some value)
     (rest : body? ctx (next :: more) = some (bindings, assignment, propagation, result))
     (fresh : ∀ binding ∈ bindings, binding.slot ≠ slot) :
     body? ctx (statement :: next :: more) =
@@ -959,8 +963,14 @@ theorem body_let_cons {ctx : MeaningContext} {statement slot valueRow : Word32}
   have freshChecked : check (!bindings.any fun binding => binding.slot.val == slot.val) = some () := by
     unfold check; exact if_pos freshBool
   rw [body?.eq_2]
-  simp only [bodyStep, statementAt, beforeChecked, literal, rest, freshChecked,
+  simp only [bodyStep, statementAt, beforeChecked, bound, rest, freshChecked,
     Option.bind_eq_bind, Option.bind_some]
+
+theorem int_expression_of_literal {ctx : MeaningContext} {row low high : Word32}
+    (read : readInstruction? ctx.tables row = some (.intInt, [low, high])) :
+    intExpression? ctx (ctx.tables.tags.size + 1) row =
+      some (.integerLiteral (signedOfWords low high)) := by
+  simp [intExpression?, read]
 
 theorem literal_value_of {ctx : MeaningContext} {row low high : Word32} {value : IntValue}
     (read : readInstruction? ctx.tables row = some (.intInt, [low, high]))
@@ -970,6 +980,33 @@ theorem literal_value_of {ctx : MeaningContext} {row low high : Word32} {value :
   simp only [read, Option.bind]
   exact valid
 
+theorem validate_int_value {value : Int} {bound : IntValue}
+    (valid : validateInt? value = some bound) : bound.val = value := by
+  simp only [validateInt?] at valid
+  split at valid
+  · simp only [Option.some.injEq] at valid
+    subst valid
+    rfl
+  · simp at valid
+
+theorem literal_binding_some {slot : Word32} {value : Int} {bound : IntValue}
+    (valid : validateInt? value = some bound) :
+    (⟨slot, .integerLiteral bound.val⟩ : LetBinding).literalInt?.isSome = true := by
+  simp [LetBinding.literalInt?, validate_int_value valid, valid]
+
+theorem literal_expression_of_valid {ctx : MeaningContext} {row low high : Word32}
+    {value : IntValue} (read : readInstruction? ctx.tables row = some (.intInt, [low, high]))
+    (valid : validateInt? (signedOfWords low high) = some value) :
+    intExpression? ctx (ctx.tables.tags.size + 1) row = some (.integerLiteral value.val) := by
+  have valueIs : value.val = signedOfWords low high := by
+    simp only [validateInt?] at valid
+    split at valid
+    · simp only [Option.some.injEq] at valid
+      subst valid
+      rfl
+    · simp at valid
+  rw [int_expression_of_literal read, valueIs]
+
 theorem body_let_return {F : LoweringState} {cs : List (Option Callee)}
     {binding literal returned slot low high operand : Word32} {value : IntValue} {e : BaseExpr}
     (bindingAt : F.RowAt binding.val .stmtLetInt [slot, literal])
@@ -977,9 +1014,10 @@ theorem body_let_return {F : LoweringState} {cs : List (Option Callee)}
     (valid : validateInt? (signedOfWords low high) = some value)
     (returnAt : F.RowAt returned.val .stmtReturn [operand]) (before : operand.val < returned.val)
     (rowBound : returned.val < F.rows.length) (reads : Reads F cs operand e) :
-    body? (F.context cs) [binding, returned] = some ([⟨slot, value⟩], none, none, e) :=
+    body? (F.context cs) [binding, returned] =
+      some ([⟨slot, .integerLiteral value.val⟩], none, none, e) :=
   body_let_cons (readInstruction_of_rowAt bindingAt) literalBefore
-    (literal_value_of (readInstruction_of_rowAt literalAt) valid)
+    (literal_expression_of_valid (readInstruction_of_rowAt literalAt) valid)
     (body_return returnAt before rowBound reads) (fun _ member => by cases member)
 
 theorem body_let_assign_return {F : LoweringState} {cs : List (Option Callee)}
@@ -994,9 +1032,9 @@ theorem body_let_assign_return {F : LoweringState} {cs : List (Option Callee)}
     (returnAt : F.RowAt returned.val .stmtReturn [operand]) (before : operand.val < returned.val)
     (rowBound : returned.val < F.rows.length) (reads : Reads F cs operand e) :
     body? (F.context cs) [binding, assign, returned] =
-      some ([⟨slot, value⟩], some ⟨assignSlot, valueExpression⟩, none, e) :=
+      some ([⟨slot, .integerLiteral value.val⟩], some ⟨assignSlot, valueExpression⟩, none, e) :=
   body_let_cons (readInstruction_of_rowAt bindingAt) literalBefore
-    (literal_value_of (readInstruction_of_rowAt literalAt) valid)
+    (literal_expression_of_valid (readInstruction_of_rowAt literalAt) valid)
     (body_assign_return assignAt plain valueBefore assignBound valueReads
       (return_expression_of returnAt before rowBound reads))
     (fun _ member => by cases member)
@@ -1028,7 +1066,7 @@ theorem function_program_of {artifact : RawArtifact} {callees : List (Option Cal
 
 theorem function_tail_lowers {src : List (String × Option Callee)} {f : SourceFunction}
     {scope : List (String × Nat)} {owner : BridgeId} {s s' : LoweringState}
-    {functionsBefore parametersStart : Nat} {statements : List Word32}
+    {functionsBefore parametersStart extraSlots : Nat} {statements : List Word32}
     {bindings : List LetBinding} {assignment : Option Assignment}
     {propagation : Option Propagation} (wf : BlocksIndexed s)
     (aligned : Aligned s src)
@@ -1038,7 +1076,7 @@ theorem function_tail_lowers {src : List (String × Option Callee)} {f : SourceF
           Reads F (src.map (·.2)) operand e →
           body? (F.context (src.map (·.2))) (statements ++ [returned]) =
             some (bindings, assignment, propagation, e))
-    (h : Lower.functionTail f scope owner functionsBefore parametersStart statements s =
+    (h : Lower.functionTail f scope owner functionsBefore parametersStart extraSlots statements s =
       some ((), s')) :
     ∃ e row, f.result.expression? src scope = some e ∧
       s'.functions = s.functions ++ [row] ∧
@@ -1168,9 +1206,26 @@ theorem assignment_lowers {scope : List (String × Nat)}
     subst same
     exact ⟨(push_row_at push rfl).mono le, vl'.reads (spanLe.trans (pushLe.trans le))⟩
 
+/-- When a function's result is not a computed let, its computed-let statements are empty. -/
+theorem computed_let_statements_none {function : SourceFunction} {scope : List (String × Nat)}
+    (notComputed : ∀ (name : String) (value result : SourceValue),
+      function.result ≠ .computedLet name value result) :
+    Lower.computedLetStatements function scope = pure [] := by
+  unfold Lower.computedLetStatements
+  cases hres : function.result <;> simp_all
+
+theorem computed_bindings_none {function : SourceFunction} {scope : List (String × Nat)}
+    (notComputed : ∀ (name : String) (value result : SourceValue),
+      function.result ≠ .computedLet name value result) :
+    function.computedBindings? scope = some [] := by
+  unfold SourceFunction.computedBindings?
+  cases hres : function.result <;> simp_all
+
 theorem function_lowers_plain {src : List (String × Option Callee)} {f : SourceFunction}
     {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
     (propagationNone : f.propagation = none)
+    (notComputed : ∀ (name : String) (value result : SourceValue),
+      f.result ≠ .computedLet name value result)
     (plain : f.result.isAssigned = false) (h : Lower.function f s = some ((), s')) :
     ∃ program row, f.program? src = some program ∧ program.callee?.isSome = (f.callable) ∧
       program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
@@ -1183,11 +1238,21 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
   obtain ⟨name, parameters, lets, propagation, result⟩ := f
   dsimp only at plainResult
   subst propagationNone
+  have notComputed' : ∀ (n : String) (v r : SourceValue),
+      result ≠ .computedLet n v r := notComputed
+  have computedNone : ∀ scope : List (String × Nat),
+      Lower.computedLetStatements ⟨name, parameters, lets, none, result⟩ scope = pure [] := by
+    intro scope
+    unfold Lower.computedLetStatements
+    cases hres : result <;> simp_all
   cases lets with
   | nil =>
-    simp only [Lower.function, run_bind, run_lift, run_get, run_pure, run_require] at h
-    obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, _, _, ⟨_, rfl⟩,
-      tail⟩ := h
+    simp only [Lower.function, computedNone, run_bind, run_lift, run_get, run_pure,
+      run_require] at h
+    obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, computedList, stateA,
+      ⟨computedValue, rfl⟩, tail0⟩ := h
+    subst computedValue
+    obtain ⟨_, stateB, ⟨_, rfl⟩, tail⟩ := tail0
     obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
       function_tail_lowers (statements := []) (bindings := []) (assignment := none)
         (propagation := none) wf aligned
@@ -1199,18 +1264,22 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
     have assignmentNone :
         (⟨name, parameters, [], none, result⟩ : SourceFunction).assignment? scope = some none := by
       cases result <;> simp_all [SourceFunction.assignment?, SourceExpression.isAssigned]
-    simp [SourceFunction.program?, hscope, hsrc, assignmentNone]
+    simp [SourceFunction.program?, hscope, hsrc, assignmentNone,
+      computed_bindings_none (function := ⟨name, parameters, [], none, result⟩) notComputed']
   | cons binding more =>
     obtain ⟨bindingName, value⟩ := binding
     cases more with
     | nil =>
       cases parameters with
       | nil =>
-        simp only [Lower.function, run_bind, run_lift, run_get, run_pure, Lower.word, run_require,
-          assignments_plain plainResult] at h
-        obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, words, _, hlit,
-          literalRow, _, hpush1, slotWord, _, ⟨hslot, rfl⟩, bindingRow, _, hpush2, assigned, _,
-          ⟨hassigned, rfl⟩, tail⟩ := h
+        simp only [Lower.function, computedNone, run_bind, run_lift, run_get, run_pure,
+          Lower.word, run_require, assignments_plain plainResult] at h
+        obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, computedList, stateA,
+          ⟨computedValue, rfl⟩, tail0⟩ := h
+        subst computedValue
+        obtain ⟨_, stateB, ⟨_, rfl⟩, tail⟩ := tail0
+        obtain ⟨words, _, hlit, literalRow, _, hpush1, slotWord, _, ⟨hslot, rfl⟩, bindingRow, _,
+          hpush2, assigned, _, ⟨hassigned, rfl⟩, tail⟩ := tail
         subst hassigned
         obtain ⟨ok, rfl, low, high, rfl, lowEq, highEq⟩ := literal_words_run hlit
         obtain ⟨bound, hbound⟩ := validate_int_of_literal ok
@@ -1228,7 +1297,7 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
         have rowsGrow := (push_row_blocks hpush1).2.2
         obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
           function_tail_lowers (statements := [bindingRow])
-            (bindings := [⟨⟨letSlot, by decide⟩, bound⟩]) (assignment := none)
+            (bindings := [⟨⟨letSlot, by decide⟩, .integerLiteral bound.val⟩]) (assignment := none)
             (propagation := none) wf2 alignedLet
             (fun F leF returned operand e' at_ before bound' rd => by
               have literalAt := (push_row_at hpush1 rfl).mono
@@ -1240,8 +1309,9 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
                 rw [signed_of_words_literal ok lowEq highEq]; exact hbound
               simpa using body_let_return bindingAt literalBefore literalAt valid at_ before bound' rd)
             tail
-        refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, bound⟩], none, none, e⟩, row, ?_,
-          by simp [FunctionProgram.callee?, SourceFunction.callable, plainResult], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
+        refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, .integerLiteral bound.val⟩], none, none, e⟩, row, ?_,
+          by simp [FunctionProgram.callee?, SourceFunction.callable, plainResult,
+            literal_binding_some hbound], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
         · have assignmentNone :
               (⟨name, [], [(bindingName, value)], none, result⟩ : SourceFunction).assignment?
                 scope = some none := by
@@ -1256,11 +1326,14 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
       | cons p ps =>
         cases ps with
         | nil =>
-          simp only [Lower.function, run_bind, run_lift, run_get, run_pure, Lower.word, run_require,
-            assignments_plain plainResult] at h
-          obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, words, _, hlit,
-            literalRow, _, hpush1, slotWord, _, ⟨hslot, rfl⟩, bindingRow, _, hpush2, assigned, _,
-            ⟨hassigned, rfl⟩, tail⟩ := h
+          simp only [Lower.function, computedNone, run_bind, run_lift, run_get, run_pure,
+            Lower.word, run_require, assignments_plain plainResult] at h
+          obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, computedList,
+            stateA, ⟨computedValue, rfl⟩, tail0⟩ := h
+          subst computedValue
+          obtain ⟨_, stateB, ⟨_, rfl⟩, tail⟩ := tail0
+          obtain ⟨words, _, hlit, literalRow, _, hpush1, slotWord, _, ⟨hslot, rfl⟩, bindingRow, _,
+            hpush2, assigned, _, ⟨hassigned, rfl⟩, tail⟩ := tail
           subst hassigned
           obtain ⟨ok, rfl, low, high, rfl, lowEq, highEq⟩ := literal_words_run hlit
           obtain ⟨bound, hbound⟩ := validate_int_of_literal ok
@@ -1278,7 +1351,7 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
           have rowsGrow := (push_row_blocks hpush1).2.2
           obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
             function_tail_lowers (statements := [bindingRow])
-              (bindings := [⟨⟨2, by decide⟩, bound⟩]) (assignment := none)
+              (bindings := [⟨⟨2, by decide⟩, .integerLiteral bound.val⟩]) (assignment := none)
               (propagation := none) wf2 alignedLet
               (fun F leF returned operand e' at_ before bound' rd => by
                 have literalAt := (push_row_at hpush1 rfl).mono
@@ -1290,8 +1363,9 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
                   rw [signed_of_words_literal ok lowEq highEq]; exact hbound
                 simpa using body_let_return bindingAt literalBefore literalAt valid at_ before bound' rd)
               tail
-          refine ⟨⟨1, [⟨⟨2, by decide⟩, bound⟩], none, none, e⟩, row, ?_,
-            by simp [FunctionProgram.callee?, SourceFunction.callable, plainResult], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
+          refine ⟨⟨1, [⟨⟨2, by decide⟩, .integerLiteral bound.val⟩], none, none, e⟩, row, ?_,
+            by simp [FunctionProgram.callee?, SourceFunction.callable, plainResult,
+            literal_binding_some hbound], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
           · have assignmentNone :
                 (⟨name, [p], [(bindingName, value)], none, result⟩ : SourceFunction).assignment?
                   scope = some none := by
@@ -1318,9 +1392,8 @@ theorem function_lowers_plain {src : List (String × Option Callee)} {f : Source
         | cons q qs =>
           simp [Lower.function, SourceFunction.scope?, run_bind, Lower.fail] at h
     | cons _ _ =>
-      simp only [Lower.function, run_bind, run_lift, run_get] at h
-      obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, tail⟩ := h
-      exact absurd tail (by simp [Lower.fail])
+      simp_all [Lower.function, computedNone, Lower.computedLetStatements, Lower.fail,
+        run_bind, run_lift, run_get, run_pure]
 
 
 theorem function_lowers_assigned {src : List (String × Option Callee)} {f : SourceFunction}
@@ -1342,28 +1415,35 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
   | conditional _ _ _ _ _ => simp [SourceExpression.isAssigned] at assigned
   | comparison _ _ _ => simp [SourceExpression.isAssigned] at assigned
   | constructed _ _ => simp [SourceExpression.isAssigned] at assigned
+  | computedLet _ _ _ => simp [SourceExpression.isAssigned] at assigned
   | assigned target assignedValue returned =>
+  have computedNone : ∀ scope : List (String × Nat),
+      Lower.computedLetStatements ⟨name, parameters, lets, none,
+        .assigned target assignedValue returned⟩ scope = pure [] := by
+    intro scope
+    simp [Lower.computedLetStatements]
   cases lets with
   | nil =>
-    simp only [Lower.function, run_bind, run_lift, run_get, run_require] at h
-    obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, _, _, ⟨notAssigned, _⟩,
-      _⟩ := h
-    simp [SourceExpression.isAssigned] at notAssigned
+    simp_all [Lower.function, computedNone, SourceExpression.isAssigned, run_bind, run_lift,
+      run_get, run_pure, run_require]
   | cons binding more =>
     obtain ⟨bindingName, value⟩ := binding
     cases more with
     | cons _ _ =>
-      simp only [Lower.function, run_bind, run_lift, run_get] at h
-      obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, tail⟩ := h
-      exact absurd tail (by simp [Lower.fail])
+      simp_all [Lower.function, computedNone, Lower.computedLetStatements, Lower.fail,
+        run_bind, run_lift, run_get, run_pure]
     | nil =>
       cases parameters with
       | nil =>
-        simp only [Lower.function, Lower.assignments, run_bind, run_lift, run_get, run_pure,
-          Lower.word, run_require] at h
-        obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, words, _, hlit,
-          literalRow, _, hpush1, slotWord, _, ⟨hslot, rfl⟩, bindingRow, _, hpush2, assignedList, _,
-          ⟨_, _, ⟨targetEq, rfl⟩, assignRow, sC, hassign, hlist, hsC⟩, tail⟩ := h
+        simp only [Lower.function, computedNone, Lower.assignments, run_bind, run_lift,
+          run_get, run_pure, Lower.word, run_require] at h
+        obtain ⟨scope, _, ⟨hscope, rfl⟩, _, _, ⟨rfl, rfl⟩, owner, _, ⟨hown, rfl⟩, computedList,
+          stateA, ⟨computedValue, rfl⟩, tail0⟩ := h
+        subst computedValue
+        obtain ⟨_, stateB, ⟨_, rfl⟩, tail⟩ := tail0
+        obtain ⟨words, _, hlit, literalRow, _, hpush1, slotWord, _, ⟨hslot, rfl⟩, bindingRow, _,
+          hpush2, assignedList, _, ⟨_, _, ⟨targetEq, rfl⟩, assignRow, sC, hassign, hlist, hsC⟩,
+          tail⟩ := tail
         subst hlist
         rw [hsC] at tail
         obtain ⟨ok, rfl, low, high, rfl, lowEq, highEq⟩ := literal_words_run hlit
@@ -1395,7 +1475,7 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
             aligned
         obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
           function_tail_lowers (statements := [bindingRow, assignRow])
-            (bindings := [⟨⟨letSlot, by decide⟩, bound⟩])
+            (bindings := [⟨⟨letSlot, by decide⟩, .integerLiteral bound.val⟩])
             (assignment := some ⟨⟨letSlot, by decide⟩, ae⟩) (propagation := none)
             assignWf alignedAssign
             (fun F leF returned operand e' at_ before bound' rd => by
@@ -1413,8 +1493,9 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
               simpa using body_let_assign_return bindingAt literalBefore literalAt valid assignAt rfl
                 valueBefore assignBoundF valueReads at_ before bound' rd)
             tail
-        refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, bound⟩], some ⟨⟨letSlot, by decide⟩, ae⟩, none, e⟩,
-          row, ?_, by simp [FunctionProgram.callee?, SourceFunction.callable, assigned], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
+        refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, .integerLiteral bound.val⟩], some ⟨⟨letSlot, by decide⟩, ae⟩, none, e⟩,
+          row, ?_, by simp [FunctionProgram.callee?, SourceFunction.callable, assigned,
+            literal_binding_some hbound], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
         · simp [SourceFunction.program?, SourceFunction.assignment?, hscope, hbound, hsrcAssign, hsrc,
             hslot]
         · rw [fa, assignFa, frame2.1, frame1.1]
@@ -1458,7 +1539,7 @@ theorem function_lowers_propagated {src : List (String × Option Callee)} {f : S
   have alignedProp : Aligned s2 src := Aligned.congr propFa propFb aligned
   obtain ⟨e, row, hsrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
     function_tail_lowers (statements := [statement]) (bindings := []) (assignment := none)
-      (propagation := some ⟨word, parameterNames callee.parameters, callee.body, args⟩)
+      (propagation := some ⟨word, callee.applyParameters, callee.body, callee.applyArguments args⟩)
       propWf alignedProp
       (fun F leF returned operand e' at_ before bound rd => by
         obtain ⟨bindingAt, propRead⟩ := propReads F leF
@@ -1470,19 +1551,150 @@ theorem function_lowers_propagated {src : List (String × Option Callee)} {f : S
         scope = some none :=
     assignment_plain (f := ⟨name, parameters, [], some propagation, result⟩) conditionParts.2
   have propagationRead : propagationProgram? src scope propagation =
-      some ⟨word, parameterNames callee.parameters, callee.body, args⟩ := by
+      some ⟨word, callee.applyParameters, callee.body, callee.applyArguments args⟩ := by
     simp [propagationProgram?, lookedUp, countFits, hslot, hword, foundArguments, beq_iff_eq]
   have programProof : SourceFunction.program?
       src ⟨name, parameters, [], some propagation, result⟩ =
       some ⟨parameters.length, [], none,
-        some ⟨word, parameterNames callee.parameters, callee.body, args⟩, e⟩ := by
+        some ⟨word, callee.applyParameters, callee.body, callee.applyArguments args⟩, e⟩ := by
     simp [SourceFunction.program?, hscope, propagationRead, assignmentNone, hsrc]
   refine ⟨⟨parameters.length, [], none,
-      some ⟨word, parameterNames callee.parameters, callee.body, args⟩, e⟩, row, programProof,
+      some ⟨word, callee.applyParameters, callee.body, callee.applyArguments args⟩, e⟩,
+    row, programProof,
     ?_, rfl, ?_, ?_, propLe.trans le, wf', hname, hparams, reads⟩
   · simp [FunctionProgram.callee?, SourceFunction.callable, propagated]
   · rw [fa, propFa]
   · rw [fb, propFb]
+
+theorem function_lowers_computed {src : List (String × Option Callee)} {f : SourceFunction}
+    {s s' : LoweringState} {bindingName : String} {boundValue resultValue : SourceValue}
+    (wf : BlocksIndexed s) (aligned : Aligned s src)
+    (propagationNone : f.propagation = none)
+    (computed : f.result = .computedLet bindingName boundValue resultValue)
+    (h : Lower.function f s = some ((), s')) :
+    ∃ program row, f.program? src = some program ∧ program.callee?.isSome = (f.callable) ∧
+      program.parameters = f.parameters.length ∧ s'.functions = s.functions ++ [row] ∧
+      s'.callable = s.callable ++ [f.callable] ∧
+      StateLE s s' ∧ BlocksIndexed s' ∧
+      row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
+      ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
+        functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
+  have plainResult : f.result.isAssigned = false := by rw [computed]; rfl
+  obtain ⟨name, parameters, lets, propagation, result⟩ := f
+  dsimp only at computed
+  subst computed
+  subst propagationNone
+  cases lets with
+  | cons binding more =>
+      cases more with
+      | nil =>
+          simp_all [Lower.function, Lower.computedLetStatements, Lower.fail, run_bind,
+            run_lift, run_get, run_require]
+      | cons _ _ =>
+          simp_all [Lower.function, Lower.computedLetStatements, Lower.fail, run_bind,
+            run_lift, run_get, run_require]
+  | nil =>
+      simp only [Lower.function, run_bind, run_lift, run_get,
+        run_pure, Lower.word, run_require] at h
+      obtain ⟨scope, s1, ⟨hscope, rfl⟩, a1, s2, ⟨rfl, rfl⟩, owner, s3, ⟨hown, rfl⟩,
+        computed, s4, hcomputed, _, s5, ⟨_, rfl⟩, tail⟩ := h
+      cases parameters with
+      | nil =>
+          simp [Lower.computedLetStatements, Lower.fail, run_bind] at hcomputed
+      | cons p ps =>
+        cases ps with
+        | cons q qs =>
+            simp [Lower.computedLetStatements, Lower.fail, run_bind] at hcomputed
+        | nil =>
+          change (do
+            let valueRow ← Lower.intValue (List.filter (fun entry => entry.1 != bindingName) scope)
+              boundValue
+            let slotWord ← Lower.word 2
+            let bindingRow ← Lower.pushRow .stmtLetInt [slotWord, valueRow]
+            pure [bindingRow]) s3 = some (computed, s5) at hcomputed
+          rw [run_bind] at hcomputed
+          obtain ⟨valueRow, sV, hval, htail⟩ := hcomputed
+          rw [run_bind] at htail
+          obtain ⟨slotWord, sW, hslot, htail⟩ := htail
+          rw [run_bind] at htail
+          obtain ⟨bindingRow, sB, hpush, hfinal⟩ := htail
+          simp only [run_pure, Option.some.injEq, Prod.mk.injEq] at hfinal
+          obtain ⟨rfl, rfl⟩ := hfinal
+          obtain ⟨e, hsrcValue, vl⟩ := int_value_lowers (cs := src.map (·.2)) wf hval
+          have hslot' : Lower.lift (Word32.decode? 2) sV = some (slotWord, sW) := by
+            simpa [Lower.word] using hslot
+          have wordRun := run_lift.mp hslot'
+          have slotDecoded := wordRun.1
+          have sWEq := wordRun.2
+          have slotEq : slotWord = ⟨2, by decide⟩ := Fin.ext (decode_val slotDecoded)
+          subst slotEq
+          subst sWEq
+          have frame := push_row_frame hpush
+          have blocks := (push_row_blocks hpush).1
+          have wf2 : BlocksIndexed s5 := BlocksIndexed.congr blocks vl.wf
+          have alignedLet : Aligned s5 src :=
+            Aligned.congr (by rw [frame.1]; exact vl.functions.1)
+              (by rw [frame.2]; exact vl.functions.2) aligned
+          obtain ⟨_, _, bindingIndex, _⟩ := push_row_run hpush
+          have scopeEq : scope = [(p, 0), (bindingName, 2)] := by
+            have parts : ¬p = bindingName ∧ scope = [(p, 0), (bindingName, 2)] := by
+              simpa [SourceFunction.scope?] using hscope.symm
+            exact parts.2
+          subst scopeEq
+          have different : (p == bindingName) = false := by
+            cases same : (p == bindingName) with
+            | false => rfl
+            | true => simp [SourceFunction.scope?, same] at hscope
+          have valueScopeEq : List.filter (fun entry => entry.1 != bindingName)
+              [(p, 0), (bindingName, 2)] = [(p, 0)] := by
+            have positive : (p != bindingName) = true := by
+              simp only [bne_iff_ne, ne_eq]
+              intro same
+              subst same
+              simp at different
+            simp [positive]
+          obtain ⟨bodyExpr, row, hbodySrc, fa, fb, le, wf', hname, hparams, reads⟩ :=
+            function_tail_lowers (statements := [bindingRow]) (bindings :=
+                [⟨⟨2, by decide⟩, e⟩]) (assignment := none) (propagation := none) wf2 alignedLet
+              (fun F leF returned operand e' at_ before bound rd => by
+                have bindingAt := (push_row_at hpush rfl).mono leF
+                have bindingBefore : valueRow.val < bindingRow.val := by
+                  rw [bindingIndex]; exact vl.before
+                have read : intExpression? (F.context (src.map (·.2)))
+                    ((F.context (src.map (·.2))).tables.tags.size + 1) valueRow = some e := by
+                  refine vl.reads ((push_row_le hpush).trans leF) _ ?_
+                  simp [LoweringState.tables]
+                  have bound' := state_le_rows_length leF
+                  have grow := (push_row_blocks hpush).2.2
+                  omega
+                simpa [valueScopeEq] using body_let_cons
+                  (readInstruction_of_rowAt bindingAt) bindingBefore read
+                  (body_return at_ before bound rd) (fun _ member => by cases member))
+              tail
+          have assignmentNone :
+              (⟨name, [p], [], none, .computedLet bindingName boundValue resultValue⟩ :
+                SourceFunction).assignment? [(p, 0), (bindingName, 2)] = some none := by
+            simp [SourceFunction.assignment?]
+          have hbodyValue : SourceValue.expression? [(p, 0), (bindingName, 2)] resultValue =
+              some bodyExpr := by
+            simpa [SourceExpression.expression?] using hbodySrc
+          have reverse : (bindingName == p) = false := by
+            simp only [Bool.not_eq_true, beq_eq_false_iff_ne, ne_eq] at different ⊢
+            exact fun same => different same.symm
+          have s5Frame : s5.functions = s3.functions ∧ s5.callable = s3.callable :=
+            ⟨by rw [frame.1]; exact vl.functions.1, by rw [frame.2]; exact vl.functions.2⟩
+          have le3 : StateLE s3 s5 := vl.le.trans (push_row_le hpush)
+          rw [s5Frame.1] at fa
+          rw [s5Frame.2] at fb
+          refine ⟨⟨1, [⟨⟨2, by decide⟩, e⟩], none, none, bodyExpr⟩, row, ?_,
+            by
+              simp [FunctionProgram.callee?]
+              split <;> rfl,
+            rfl, fa, fb, le3.trans le, wf', hname, hparams, reads⟩
+          simp [SourceFunction.program?, SourceFunction.computedBindings?,
+            SourceExpression.expression?, hscope, hsrcValue, hbodyValue, ← valueScopeEq,
+            hslot', slotDecoded, assignmentNone, List.lookup, reverse]
+
 
 theorem function_lowers {src : List (String × Option Callee)} {f : SourceFunction}
     {s s' : LoweringState} (wf : BlocksIndexed s) (aligned : Aligned s src)
@@ -1495,26 +1707,35 @@ theorem function_lowers {src : List (String × Option Callee)} {f : SourceFuncti
       row.name = f.name ∧ row.paramsLen.val = f.parameters.length ∧
       ∀ (F : LoweringState), StateLE s' F → ∀ (sourceId : BridgeId) (observations : List Observation),
         functionProgram? (F.toArtifact sourceId observations) (src.map (·.2)) row = some program := by
-  cases propagationCase : f.propagation with
-  | some propagation =>
-      simpa [Option.isNone, propagationCase] using
-        function_lowers_propagated wf aligned propagationCase h
-  | none =>
-      cases hassigned : f.result.isAssigned with
-      | false =>
-          simpa [Option.isNone, propagationCase] using
-            function_lowers_plain wf aligned propagationCase hassigned h
-      | true =>
-          simpa [Option.isNone, propagationCase] using
-            function_lowers_assigned wf aligned propagationCase hassigned h
+  by_cases computed : ∃ (n : String) (v r : SourceValue), f.result = .computedLet n v r
+  · obtain ⟨n, v, r, same⟩ := computed
+    cases propagationCase : f.propagation with
+    | some propagation =>
+        simpa [Option.isNone, propagationCase] using
+          function_lowers_propagated wf aligned propagationCase h
+    | none =>
+        simpa [Option.isNone, propagationCase] using
+          function_lowers_computed wf aligned propagationCase same h
+  · cases propagationCase : f.propagation with
+    | some propagation =>
+        simpa [Option.isNone, propagationCase] using
+          function_lowers_propagated wf aligned propagationCase h
+    | none =>
+        cases hassigned : f.result.isAssigned with
+        | false =>
+            simpa [Option.isNone, propagationCase] using
+              function_lowers_plain wf aligned propagationCase
+                (fun n v r same => computed ⟨n, v, r, same⟩) hassigned h
+        | true =>
+            simpa [Option.isNone, propagationCase] using
+              function_lowers_assigned wf aligned propagationCase hassigned h
 
 
 theorem callee_parameters {program : FunctionProgram} {callee : Callee}
     (found : program.callee? = some callee) : callee.parameters = program.parameters := by
   unfold FunctionProgram.callee? at found
   split at found
-  · simp only [Option.some.injEq] at found
-    subst found; rfl
+  · split at found <;> (simp only [Option.some.injEq] at found; subst found; rfl)
   · simp at found
 
 theorem lower_all :

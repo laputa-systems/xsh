@@ -99,6 +99,7 @@ inductive SourceExpression where
   | assigned (target : String) (assignedValue : SourceValue) (result : SourceValue)
   | comparison (op : FragmentOp) (left right : SourceAtom)
   | constructed (isOk : Bool) (value : SourceValue)
+  | computedLet (target : String) (value : SourceValue) (result : SourceValue)
   deriving DecidableEq, Repr
 
 /-- A `let` line whose value is a call under `?`: the target, the callee and its arguments. -/
@@ -230,6 +231,17 @@ def parsePropagation : List Token → Option (Option SourcePropagation × List T
         | _ => none
   | tokens => some (none, tokens)
 
+/-- A computed `let` line: `let target = atom op atom`. A literal binding is taken by
+`parseLets` instead, and any other `let` line is left for `parsePropagation`. -/
+def parseComputedLet : List Token → Option (Option (String × SourceValue) × List Token)
+  | tokens@(.word "let" :: .word name :: .equals :: rest) =>
+      if isKeyword name then none
+      else
+        match parseValue rest with
+        | some (value@(.binary _ _ _), .newline :: after) => some (some (name, value), after)
+        | _ => some (none, tokens)
+  | tokens => some (none, tokens)
+
 /-- An optional assignment line to a declared var, an integer value. -/
 def parseAssignment (vars : List String) :
     List Token → Option (Option (String × SourceValue) × List Token)
@@ -287,6 +299,15 @@ def SourceExpression.shape : SourceExpression → ExpressionShape
   | .constructed _ _ => .constructed
   | _ => .other
 
+def SourceValue.atoms : SourceValue → List SourceAtom
+  | .atom single => [single]
+  | .binary _ left right => [left, right]
+
+/-- The computed let value reads only the function's parameters and integer literals. -/
+def SourceAtom.isParameterOrLiteral (parameters : List String) : SourceAtom → Bool
+  | .int _ => true
+  | .var name => parameters.contains name
+
 def admitsResult : ResultShape → ExpressionShape → Bool
   | .integer, .comparison => false
   | .integer, .constructed => false
@@ -301,7 +322,8 @@ def admitsResult : ResultShape → ExpressionShape → Bool
 def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List String)
     (tokens : List Token) : Option (SourceFunction × List Token) := do
   let (lets, vars, afterLets) ← parseLets (tokens.length + 1) tokens
-  let (propagation, afterPropagation) ← parsePropagation afterLets
+  let (computed, afterComputed) ← parseComputedLet afterLets
+  let (propagation, afterPropagation) ← parsePropagation afterComputed
   let (assignment, afterAssignment) ← parseAssignment vars afterPropagation
   match propagation with
   | some _ =>
@@ -309,10 +331,24 @@ def parseFunctionBody (shape : ResultShape) (name : String) (parameters : List S
         pure ()
       else none
   | none => pure ()
+  match computed with
+  | some (target, value) =>
+      if lets.isEmpty && assignment.isNone && propagation.isNone && shape == .integer &&
+          parameters.length == 1 && !parameters.contains target &&
+          value.atoms.all (·.isParameterOrLiteral parameters) then
+        pure ()
+      else none
+  | none => pure ()
   match afterAssignment with
   | .word "return" :: more => do
       let (returned, afterResult) ← parseExpression more
       let result ← attachAssignment assignment returned
+      let result ← match computed with
+        | none => pure result
+        | some (target, value) =>
+            match result with
+            | .value resultValue => pure (.computedLet target value resultValue)
+            | _ => none
       if admitsResult shape result.shape then pure () else none
       match propagation with
       | some found =>

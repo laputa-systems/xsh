@@ -70,11 +70,77 @@ def readInstruction? (tables : Tables) (index : Word32) : Option (FragmentTag ×
   let payload ← Decode.readPayload? tables row.data.range
   if payload.length == tag.payloadWords then pure (tag, payload) else none
 
-/-- A function already read: the number of integer parameters and the body expression, which
-mentions its parameters by slot and nothing else. -/
+mutual
+/-- Replace each name by an expression. A call node's body is a parameter scope of its own, so it
+is not rewritten; a binding value mentions only parameters and literals. -/
+def substituteExpressions (substitution : List (Xsh.Syntax.RawName × BaseExpr)) :
+    BaseExpr → BaseExpr
+  | .integerLiteral value => .integerLiteral value
+  | .scalarLiteral value => .scalarLiteral value
+  | .timeNow => .timeNow
+  | .identifier name => (substitution.lookup name).getD (.identifier name)
+  | .negate operand => .negate (substituteExpressions substitution operand)
+  | .binary operator left right =>
+      .binary operator (substituteExpressions substitution left)
+        (substituteExpressions substitution right)
+  | .compare operator left right =>
+      .compare operator (substituteExpressions substitution left)
+        (substituteExpressions substitution right)
+  | .conditional condition thenBranch elseBranch =>
+      .conditional (substituteExpressions substitution condition)
+        (substituteExpressions substitution thenBranch)
+        (substituteExpressions substitution elseBranch)
+  | .call parameters body arguments =>
+      .call parameters body (substituteExpressionArguments substitution arguments)
+  | .resultOk value => .resultOk (substituteExpressions substitution value)
+  | .resultErr value => .resultErr (substituteExpressions substitution value)
+
+def substituteExpressionArguments (substitution : List (Xsh.Syntax.RawName × BaseExpr)) :
+    List BaseExpr → List BaseExpr
+  | [] => []
+  | argument :: rest =>
+      substituteExpressions substitution argument ::
+        substituteExpressionArguments substitution rest
+end
+
+/-- A `let` binding: the slot it binds and the integer expression that gives its value. A literal
+binding holds an integer literal; a computed binding holds the expression the let evaluates. -/
+structure LetBinding where
+  slot : Word32
+  value : BaseExpr
+
+/-- The checked integer a literal binding holds. -/
+def LetBinding.literalInt? (binding : LetBinding) : Option IntValue :=
+  match binding.value with
+  | .integerLiteral value => validateInt? value
+  | _ => none
+
+/-- The parameters of a callee as the names its body uses: slot `k` is the `k`-th parameter. -/
+def parameterNames (count : Nat) : List NameId :=
+  (List.range count).filterMap fun slot => (Word32.decode? slot).map NameId.mk
+
+/-- A function already read: the number of integer parameters, the body expression, which mentions
+its parameters by slot, and the bindings the call evaluates before the body. -/
 structure Callee where
   parameters : Nat
   body : BaseExpr
+  bindings : List LetBinding := []
+
+/-- The call an application of a callee denotes: its parameters and its bindings are both bound by
+the call, and each binding's value has the callee's parameter reads replaced by the argument
+expressions. The machine evaluates every argument in order and binds all of them in the body. -/
+def Callee.bindingNames (callee : Callee) : List NameId :=
+  callee.bindings.map fun binding => NameId.mk binding.slot
+
+def Callee.applyParameters (callee : Callee) : List NameId :=
+  parameterNames callee.parameters ++ callee.bindingNames
+
+def Callee.applyArguments (callee : Callee) (values : List BaseExpr) : List BaseExpr :=
+  values ++ callee.bindings.map fun binding =>
+    substituteExpressions ((parameterNames callee.parameters).zip values) binding.value
+
+def Callee.apply (callee : Callee) (values : List BaseExpr) : BaseExpr :=
+  .call callee.applyParameters callee.body (callee.applyArguments values)
 
 /-- What reading one row needs beyond the tables: the operation pool, the block table and the
 callees a call row may name. -/
@@ -83,10 +149,6 @@ structure MeaningContext where
   ops : List FragmentOp
   blocks : List Block
   callees : List (Option Callee)
-
-/-- The parameters of a callee as the names its body uses: slot `k` is the `k`-th parameter. -/
-def parameterNames (count : Nat) : List NameId :=
-  (List.range count).filterMap fun slot => (Word32.decode? slot).map NameId.mk
 
 def blockWords? (context : MeaningContext) (id : Word32) : Option (List Word32) := do
   let block ← context.blocks.find? fun block => block.id.raw == id
@@ -148,7 +210,7 @@ def expression? (context : MeaningContext) : Nat → Word32 → Option BaseExpr
               let rows ← argumentRows? index entries
               check (rows.length == callee.parameters)
               let values ← rows.mapM (expression? context fuel)
-              some (.call (parameterNames callee.parameters) callee.body values)
+              some (callee.apply values)
           | [] => none
       | .exprOk, [value] => do
           check (decide (value.val < index.val))
@@ -175,10 +237,6 @@ def intExpression? (context : MeaningContext) : Nat → Word32 → Option BaseEx
           let rightExpression ← intExpression? context fuel right
           some (operation.expression leftExpression rightExpression)
       | _, _ => none
-
-structure LetBinding where
-  slot : Word32
-  value : IntValue
 
 /-- The value an `IntInt` row's two payload words hold, which must be a signed 64-bit integer. -/
 def literalOf : FragmentTag → List Word32 → Option IntValue
@@ -250,16 +308,16 @@ def bodyStep (context : MeaningContext) (statement : Word32) (rest : List Word32
           some ([], some ⟨slot, value⟩, none, result)
       | .stmtLetInt, [slot, valueRow], _ :: _ => do
           check (decide (valueRow.val < statement.val))
-          let value ← literalValue? context valueRow
+          let value ← intExpression? context (context.tables.tags.size + 1) valueRow
           let (bindings, assignment, propagation, result) ← deeper
           check (!bindings.any fun binding => binding.slot.val == slot.val)
           some (⟨slot, value⟩ :: bindings, assignment, propagation, result)
       | _, _, _ => none
 
-/-- A function body is zero or more `StmtLetInt` of an `IntInt` literal on distinct slots, at most
-one `StmtAssignInt` of a plain integer value, then one `StmtReturn` of an expression; or one
-propagation binding of a call under `?` followed by the return. Every statement refers only to
-earlier rows. -/
+/-- A function body is zero or more `StmtLetInt` bindings of an integer-family value on distinct
+slots, at most one `StmtAssignInt` of a plain integer value, then one `StmtReturn` of an
+expression; or one propagation binding of a call under `?` followed by the return. Every statement
+refers only to earlier rows. -/
 def body? (context : MeaningContext) :
     List Word32 → Option (List LetBinding × Option Assignment × Option Propagation × BaseExpr)
   | [] => none
@@ -298,15 +356,19 @@ def functionProgram? (artifact : RawArtifact) (callees : List (Option Callee))
   let (bindings, assignment, propagation, expression) ← body? (artifact.context callees) statements
   pure ⟨function.paramsLen.val, bindings, assignment, propagation, expression⟩
 
-/-- The callee form of a function without an assignment or a propagation: its parameter count and
-its body with the function's literal bindings substituted for their slots. An immutable let of a
-literal means the substituted body, so a call of such a function binds nothing the base machine's
-call node cannot substitute. -/
+/-- The callee form of a function without an assignment or a propagation: its parameter count, its
+body, and its bindings. A literal binding is substituted for its slot, since its value has no
+evaluation to preserve. A computed binding is carried with the callee and applied by the call,
+which evaluates it once in argument order, so a call of such a function binds what the let binds. -/
 def FunctionProgram.callee? (program : FunctionProgram) : Option Callee :=
   if program.assignment.isNone && program.propagation.isNone then
-    some ⟨program.parameters,
-      substitute (program.bindings.map fun binding => (NameId.mk binding.slot, binding.value))
-        program.expression⟩
+    if program.bindings.all (fun binding => binding.literalInt?.isSome) then
+      some ⟨program.parameters,
+        substitute (program.bindings.filterMap fun binding =>
+          binding.literalInt?.map fun value => (NameId.mk binding.slot, value))
+          program.expression, []⟩
+    else
+      some ⟨program.parameters, program.expression, program.bindings⟩
   else none
 
 /-- The programs of the functions in table order; a call may name only a function before the
@@ -338,8 +400,8 @@ def machineOf (bindings : List LetBinding) (expression : BaseExpr) : MachineConf
         bindCell activations (BinderId.mk binding.slot) ⟨0, BinderId.mk binding.slot⟩)
       [])
     (fun cell =>
-      (bindings.find? fun binding => decide (cell = ⟨0, BinderId.mk binding.slot⟩)).map
-        fun binding => ⟨typedInteger binding.value, .immutable⟩)
+      (bindings.find? fun binding => decide (cell = ⟨0, BinderId.mk binding.slot⟩)).bind
+        fun binding => binding.literalInt?.map fun value => ⟨typedInteger value, .immutable⟩)
     expression
 
 /-- A function without parameters runs as itself; a function with parameters runs as a call of
@@ -353,9 +415,20 @@ def FunctionProgram.withArguments (program : FunctionProgram) (expression : Base
 def FunctionProgram.expressionAt (program : FunctionProgram) (arguments : List Int) : BaseExpr :=
   program.withArguments program.expression arguments
 
+/-- The base machine run of a function body: one call binds the parameters and every let binding,
+arguments in order, then the body. A binding's value has the parameters replaced by the argument
+expressions, which are pure parameter reads or literals in the admitted programs. -/
 def FunctionProgram.machineWith (program : FunctionProgram) (bindings : List LetBinding)
     (arguments : List Int) : MachineConfig :=
-  machineOf bindings (program.expressionAt arguments)
+  let parameters := parameterNames program.parameters
+  let values := arguments.map BaseExpr.integerLiteral
+  let applied :=
+    if parameters.isEmpty && bindings.isEmpty then program.expression
+    else .call (parameters ++ bindings.map fun binding => NameId.mk binding.slot)
+      program.expression
+      (values ++ bindings.map fun binding =>
+        substituteExpressions (parameters.zip values) binding.value)
+  machineOf [] applied
 
 def runBudget : Nat := 128
 
@@ -380,7 +453,8 @@ def Propagation.run? (propagation : Propagation) (program : FunctionProgram)
     | .completed (.value final) =>
         match resultPayload? final with
         | some (true, payload) =>
-            some (.continued (bindings ++ [⟨propagation.slot, payload⟩]))
+            some (.continued (bindings ++
+              [⟨propagation.slot, .integerLiteral payload.val⟩]))
         | some (false, payload) => some (.returned payload)
         | none => none
     | .completed (.fault (.arithmetic .divisionByZero)) => some (.failed .divisionByZero)
@@ -398,7 +472,9 @@ def Assignment.settle? (assignment : Assignment) (bindings : List LetBinding) :
     | .completed (.value value) =>
         (integerPayload? value).map fun result =>
           .ok (bindings.map fun binding =>
-            if binding.slot == assignment.slot then ⟨binding.slot, result⟩ else binding)
+            if binding.slot == assignment.slot then
+              ⟨binding.slot, .integerLiteral result.val⟩
+            else binding)
     | .completed (.fault (.arithmetic .divisionByZero)) => some (.error .divisionByZero)
     | .completed (.fault (.arithmetic .overflow)) => some (.error .integerOverflow)
     | _ => none
@@ -504,9 +580,7 @@ def rowWellFormed (artifact : RawArtifact) (tables : Tables) (index : Nat) : Boo
           | .stmtValue, [operand] => decide (operand.val < index) && expressionAt operand
           | .stmtLetInt, [_, valueRow] =>
               decide (valueRow.val < index) &&
-                match readInstruction? tables valueRow with
-                | some (.intInt, _) => true
-                | _ => false
+                (intExpression? context (tables.tags.size + 1) valueRow).isSome
           | .exprTry, [value, _] =>
               decide (value.val < index) &&
                 match readInstruction? tables value with
@@ -693,7 +767,7 @@ theorem propagation_run_cases {propagation : Propagation} {program : FunctionPro
     (∃ final payload,
       runFuel runBudget (machineOf bindings (program.withArguments propagation.call arguments)) =
         .completed (.value final) ∧ resultPayload? final = some (true, payload) ∧
-      outcome = .continued (bindings ++ [⟨propagation.slot, payload⟩])) ∨
+      outcome = .continued (bindings ++ [⟨propagation.slot, .integerLiteral payload.val⟩])) ∨
     (∃ final payload,
       runFuel runBudget (machineOf bindings (program.withArguments propagation.call arguments)) =
         .completed (.value final) ∧ resultPayload? final = some (false, payload) ∧
@@ -725,11 +799,11 @@ theorem propagation_run_cases {propagation : Propagation} {program : FunctionPro
                   have outcomeIs : outcome = .returned value := by simpa using run.symm
                   exact .inr (.inl ⟨final, value, rfl, payload, outcomeIs⟩)
                 · have runValue : propagation.run? program bindings arguments =
-                      some (.continued (bindings ++ [⟨propagation.slot, value⟩])) := by
+                      some (.continued (bindings ++ [⟨propagation.slot, .integerLiteral value.val⟩])) := by
                     simp [Propagation.run?, guardFalse, h, payload]
                   rw [runValue] at run
                   have outcomeIs : outcome =
-                      .continued (bindings ++ [⟨propagation.slot, value⟩]) := by
+                      .continued (bindings ++ [⟨propagation.slot, .integerLiteral value.val⟩]) := by
                     simpa using run.symm
                   exact .inl ⟨final, value, rfl, payload, outcomeIs⟩
         | fault fault =>
@@ -819,7 +893,7 @@ theorem propagated_program_outcome_is_a_completed_machine_run {program : Functio
           runFuel runBudget
               (machineOf bindings (program.withArguments propagation.call arguments)) =
             .completed (.value final) ∧ resultPayload? final = some (true, payload) ∧
-          extended = bindings ++ [⟨propagation.slot, payload⟩] ∧
+          extended = bindings ++ [⟨propagation.slot, .integerLiteral payload.val⟩] ∧
           program.continuationOutcome? extended arguments = some outcome))) := by
   unfold FunctionProgram.outcome? at result
   split at result
@@ -847,7 +921,7 @@ theorem propagated_program_outcome_is_a_completed_machine_run {program : Functio
               · rw [runPropagation, outcomeEq] at result
                 dsimp only at result
                 exact .inr ⟨bindings, rfl, .inr (.inr
-                  ⟨bindings ++ [⟨propagation.slot, payload⟩], final, payload, run, payloadEq, rfl,
+                  ⟨bindings ++ [⟨propagation.slot, .integerLiteral payload.val⟩], final, payload, run, payloadEq, rfl,
                     result⟩)⟩
               · rw [runPropagation, outcomeEq] at result
                 dsimp only at result

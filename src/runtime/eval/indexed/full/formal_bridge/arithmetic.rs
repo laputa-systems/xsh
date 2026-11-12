@@ -369,8 +369,8 @@ fn validate_arithmetic_document(document: &ArithmeticDocument) -> Result<(), Str
         match row.tag {
             ProjectedTag::IntInt | ProjectedTag::ExprInt | ProjectedTag::ExprParam => {}
             ProjectedTag::StmtLetInt => {
-                if document.row_before(words[1], index)?.tag != ProjectedTag::IntInt {
-                    return Err("StmtLetInt value is not an IntInt row".to_string());
+                if !document.row_before(words[1], index)?.tag.is_int_row() {
+                    return Err("StmtLetInt value is not an integer row".to_string());
                 }
             }
             ProjectedTag::ExprBinary => {
@@ -1058,6 +1058,17 @@ mod tests {
         ScheduledCall { function: "runs", arguments: &[-9] },
     ];
 
+    const COMPUTED_LET_SOURCE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/runtime/formal-bridge-integer-computed-let-calls.xsh"
+    ));
+
+    const COMPUTED_LET_SCHEDULE: [ScheduledCall; 3] = [
+        ScheduledCall { function: "scales", arguments: &[5] },
+        ScheduledCall { function: "runs", arguments: &[5] },
+        ScheduledCall { function: "runs", arguments: &[-9] },
+    ];
+
     const PROPAGATION_SCHEDULE: [ScheduledCall; 5] = [
         ScheduledCall { function: "keeps", arguments: &[7] },
         ScheduledCall { function: "stops", arguments: &[5] },
@@ -1127,6 +1138,8 @@ mod tests {
         let propagation =
             fixture_of(PROPAGATION_SOURCE.to_string(), &PROPAGATION_SCHEDULE);
         let let_call = fixture_of(LET_CALL_SOURCE.to_string(), &LET_CALL_SCHEDULE);
+        let computed_let =
+            fixture_of(COMPUTED_LET_SOURCE.to_string(), &COMPUTED_LET_SCHEDULE);
         let mut documents = Vec::new();
         for (fixture, schedule, source_name, raw_name) in [
             (&failures, &FAILURES_SCHEDULE[..], "sourceDocumentCodes", "rawIrDocumentCodes"),
@@ -1160,6 +1173,12 @@ mod tests {
                 &LET_CALL_SCHEDULE[..],
                 "letCallSourceDocumentCodes",
                 "letCallRawIrDocumentCodes",
+            ),
+            (
+                &computed_let,
+                &COMPUTED_LET_SCHEDULE[..],
+                "computedLetSourceDocumentCodes",
+                "computedLetRawIrDocumentCodes",
             ),
         ] {
             let source_text = encode_source_document(&fixture.source);
@@ -2134,6 +2153,123 @@ mod tests {
         reject("a let binding whose value is not an integer row", &|document| {
             document.extra[document.rows[binding_row].lhs as usize + 1] =
                 document.rows.len() as u32;
+        });
+    }
+
+    #[test]
+    fn exported_integer_computed_let_rows_are_the_integer_family() {
+        let fixture = fixture_of(COMPUTED_LET_SOURCE.to_string(), &COMPUTED_LET_SCHEDULE);
+        let document = &fixture.document;
+
+        let scales = function_body_statements(&fixture, "scales");
+        assert_eq!(scales.len(), 2);
+        assert_eq!(document.rows[scales[0]].tag, ProjectedTag::StmtLetInt);
+        let binding = document.payload(&document.rows[scales[0]]).unwrap();
+        assert_eq!(binding[0], 2);
+        let value = document.rows[binding[1] as usize];
+        assert_eq!(value.tag, ProjectedTag::IntBinary);
+        let binary = document.payload(&value).unwrap();
+        assert_eq!(document.binary_ops[binary[0] as usize], ProjectedOp::Add);
+        assert_eq!(document.rows[binary[1] as usize].tag, ProjectedTag::IntSlot);
+        assert_eq!(document.payload(&document.rows[binary[1] as usize]).unwrap(), [0]);
+        assert_eq!(document.rows[binary[2] as usize].tag, ProjectedTag::IntInt);
+        assert_eq!(document.rows[scales[1]].tag, ProjectedTag::StmtReturn);
+        let returned = document.payload(&document.rows[scales[1]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprBinary);
+        let sum = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(document.rows[sum[1] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.payload(&document.rows[sum[1] as usize]).unwrap(), [0]);
+        assert_eq!(document.rows[sum[2] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.payload(&document.rows[sum[2] as usize]).unwrap(), [2]);
+
+        let runs = function_body_statements(&fixture, "runs");
+        assert_eq!(runs.len(), 1);
+        let returned = document.payload(&document.rows[runs[0]]).unwrap()[0] as usize;
+        assert_eq!(document.rows[returned].tag, ProjectedTag::ExprDirectPureCall);
+        let call = document.payload(&document.rows[returned]).unwrap();
+        assert_eq!(call[0], 1);
+        let arguments = document.blocks[call[1] as usize - 1];
+        let table = &document.extra
+            [arguments.start as usize..(arguments.start + arguments.len) as usize];
+        assert_eq!((table[0], table[1]), (1, 0));
+        assert_eq!(document.rows[table[2] as usize].tag, ProjectedTag::ExprParam);
+        assert_eq!(document.payload(&document.rows[table[2] as usize]).unwrap(), [0]);
+        assert_eq!(
+            document.observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(14), Outcome::Value(14), Outcome::Value(-14_i64 as u64)]
+        );
+    }
+
+    #[test]
+    fn integer_computed_let_calls_run_through_the_binding() {
+        let fixture = fixture_of(COMPUTED_LET_SOURCE.to_string(), &COMPUTED_LET_SCHEDULE);
+        let observations =
+            execute_schedule(&fixture.program, &fixture.sources, &COMPUTED_LET_SCHEDULE).unwrap();
+        assert_eq!(
+            observations.iter().map(|observation| observation.outcome).collect::<Vec<_>>(),
+            [Outcome::Value(14), Outcome::Value(14), Outcome::Value(-14_i64 as u64)]
+        );
+    }
+
+    #[test]
+    fn mutated_integer_computed_let_programs_are_rejected_by_the_verifier_or_the_recorded_run() {
+        let fixture = fixture_of(COMPUTED_LET_SOURCE.to_string(), &COMPUTED_LET_SCHEDULE);
+        let check = |document: &ArithmeticDocument, program: &FullProgram| {
+            check_artifact_against_program(
+                document,
+                program,
+                &fixture.parsed.arena,
+                &fixture.sources,
+                &COMPUTED_LET_SCHEDULE,
+            )
+        };
+        assert!(check(&fixture.document, &fixture.program).is_ok());
+
+        let mut wrong_operation = fixture.program.clone();
+        let add = wrong_operation
+            .store
+            .binary_ops
+            .iter()
+            .position(|op| *op == BinaryOp::Add)
+            .unwrap();
+        wrong_operation.store.binary_ops[add] = BinaryOp::Sub;
+        FullVerifier::verify(&wrong_operation).expect("the subtraction is still well typed");
+        assert_eq!(
+            execute_schedule(&wrong_operation, &fixture.sources, &COMPUTED_LET_SCHEDULE).unwrap()[0]
+                .outcome,
+            Outcome::Value(4)
+        );
+        assert!(check(&fixture.document, &wrong_operation).is_err());
+
+        let mut wrong_record = fixture.document.clone();
+        wrong_record.observations[0].outcome = Outcome::Value(15);
+        assert!(validate_arithmetic_document(&wrong_record).is_ok());
+        assert!(check(&wrong_record, &fixture.program).is_err());
+    }
+
+    #[test]
+    fn structurally_malformed_computed_let_rows_are_rejected() {
+        let fixture = fixture_of(COMPUTED_LET_SOURCE.to_string(), &COMPUTED_LET_SCHEDULE);
+        let reject = |name: &str, mutate: &dyn Fn(&mut ArithmeticDocument)| {
+            let mut document = fixture.document.clone();
+            mutate(&mut document);
+            assert!(validate_arithmetic_document(&document).is_err(), "{name} must be rejected");
+        };
+        let binding_row = fixture
+            .document
+            .rows
+            .iter()
+            .position(|row| row.tag == ProjectedTag::StmtLetInt)
+            .unwrap();
+        reject("a computed let value naming its own row", &|document| {
+            document.extra[document.rows[binding_row].lhs as usize + 1] = binding_row as u32;
+        });
+        reject("a computed let value that is an expression row", &|document| {
+            document.extra[document.rows[binding_row].lhs as usize + 1] = document
+                .rows
+                .iter()
+                .position(|row| row.tag == ProjectedTag::ExprParam)
+                .unwrap() as u32;
         });
     }
 

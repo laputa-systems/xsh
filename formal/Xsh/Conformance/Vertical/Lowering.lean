@@ -16,11 +16,12 @@ def SourceExpression.isAssigned : SourceExpression → Bool
   | .assigned _ _ _ => true
   | _ => false
 
-/-- The slot each name of a function reads: the parameters are the first slots in order, or the
-one let takes the slot after the unused first. A function with one parameter and one let uses the
-parameter slot, the reserved slot after it, and then the let, which is where the exporter places
-the binding of such a function. A propagation function has one parameter and its target at the
-slot after the reserved one. -/
+/-- The slot each name of a function reads: the parameters are the first slots in order, the one
+literal let takes the slot after the unused first, and a computed let takes the same slot beside
+its parameter. A function with one parameter and one let uses the parameter slot, the reserved
+slot after it, and then the let, which is where the exporter places the binding of such a
+function. A propagation function has one parameter and its target at the slot after the reserved
+one. -/
 def SourceFunction.scope? (function : SourceFunction) : Option (List (String × Nat)) :=
   match function.parameters, function.lets, function.propagation with
   | [parameter], [], some propagation =>
@@ -31,6 +32,12 @@ def SourceFunction.scope? (function : SourceFunction) : Option (List (String × 
       if function.result.isAssigned then none
       else if parameter == name then none
       else some [(parameter, 0), (name, 2)]
+  | [parameter], [], none =>
+      match function.result with
+      | .computedLet name _ _ =>
+          if parameter == name then none
+          else some [(parameter, 0), (name, 2)]
+      | _ => some [(parameter, 0)]
   | _ :: _, [], none =>
       if function.parameters.Nodup then some (function.parameters.zip (List.range function.parameters.length))
       else none
@@ -60,8 +67,8 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
   | .call callee arguments => do
       let found ← (callees.lookup callee).bind id
       if arguments.length == found.parameters then pure () else none
-      some (.call (parameterNames found.parameters) found.body
-        (← arguments.mapM (·.expression? scope)))
+      let values ← arguments.mapM (·.expression? scope)
+      some (found.apply values)
   | .conditional op left right thenValue elseValue => do
       if op.isComparison then pure () else none
       some (.conditional (op.expression (← left.expression? scope)
@@ -73,6 +80,7 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
       some (op.expression (← left.expression? scope) (← right.expression? scope))
   | .constructed isOk payload => do
       some (constructorExpression isOk (← payload.expression? scope))
+  | .computedLet _ _ result => result.expression? scope
 
 /-- The assignment a function's returned form carries, as the base machine would run it: it must
 assign the function's one let, and its value is read in the function's scope. -/
@@ -87,7 +95,8 @@ def SourceFunction.assignment? (function : SourceFunction) (scope : List (String
 
 /-- The propagation a source function denotes: the callee is an earlier function with a callee
 form, the argument expressions are read in the function's scope, and the target slot is the one
-the scope gives it. -/
+the scope gives it. The call is the applied callee, so a computed binding of the callee is one of
+its arguments. -/
 def propagationProgram? (callees : List (String × Option Callee))
     (scope : List (String × Nat)) (propagation : SourcePropagation) : Option Propagation := do
   let found ← (callees.lookup propagation.callee).bind id
@@ -95,25 +104,43 @@ def propagationProgram? (callees : List (String × Option Callee))
   let slot ← scope.lookup propagation.target
   let word ← Word32.decode? slot
   let arguments ← propagation.arguments.mapM (·.expression? scope)
-  some ⟨word, parameterNames found.parameters, found.body, arguments⟩
+  some ⟨word, found.applyParameters, found.body, found.applyArguments arguments⟩
 
 /-- A function the lowerer records as directly callable: it has no propagation binding and no
 assignment, so the IR meaning reads it as a callee whose literal bindings are substituted. -/
 def SourceFunction.callable (function : SourceFunction) : Bool :=
   function.propagation.isNone && !function.result.isAssigned
 
-/-- The base-machine program a source function denotes, straight from the parsed tree. -/
+/-- The binding a computed-let result declares, evaluated in the parameters' scope. Any other
+result declares none. -/
+def SourceFunction.computedBindings? (function : SourceFunction)
+    (scope : List (String × Nat)) : Option (List LetBinding) :=
+  match function.result with
+  | .computedLet name value _ => do
+      let slot ← scope.lookup name
+      let word ← Word32.decode? slot
+      let valueScope := scope.filter fun entry => entry.1 != name
+      let bound ← value.expression? valueScope
+      some [(⟨word, bound⟩ : LetBinding)]
+  | _ => some []
+
+/-- The base-machine program a source function denotes, straight from the parsed tree. A computed
+let binds its value expression, read in the parameters' scope, before the returned expression that
+reads it. -/
 def SourceFunction.program? (callees : List (String × Option Callee)) (function : SourceFunction) :
     Option FunctionProgram := do
   let scope ← function.scope?
-  let bindings ← match function.lets with
-    | [] => some []
-    | [(name, value)] => do
-        let slot ← scope.lookup name
-        let word ← Word32.decode? slot
-        let bound ← validateInt? value
-        some [(⟨word, bound⟩ : LetBinding)]
-    | _ => none
+  let bindings ← match function.propagation with
+    | some _ => some []
+    | none =>
+      match function.lets with
+      | [] => function.computedBindings? scope
+      | [(name, value)] => do
+          let bound ← validateInt? value
+          let slot ← scope.lookup name
+          let word ← Word32.decode? slot
+          some [(⟨word, .integerLiteral bound.val⟩ : LetBinding)]
+      | _ => none
   let assignment ← function.assignment? scope
   let propagation ← match function.propagation with
     | none => some none
@@ -286,11 +313,14 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
       let row ← Lower.pushRow (if isOk then .exprOk else .exprErr)
         (if isOk then [valueRow] else [valueRow, 0])
       pure row
+  | .computedLet _ _ result => Lower.value scope result
 
 /-- The rows after a function's let statements: the rows of its returned expression, the
-return, its body block, and its function row. -/
+return, its body block, and its function row. `extraSlots` counts bindings emitted as statements
+that are not in the function's literal lets. -/
 def Lower.functionTail (function : SourceFunction) (scope : List (String × Nat))
-    (owner : BridgeId) (functionsBefore parametersStart : Nat) (statements : List Word32) :
+    (owner : BridgeId) (functionsBefore parametersStart extraSlots : Nat)
+    (statements : List Word32) :
     Lower Unit := do
   let result ← Lower.expression owner scope function.result
   let returned ← Lower.pushRow .stmtReturn [result]
@@ -300,10 +330,27 @@ def Lower.functionTail (function : SourceFunction) (scope : List (String × Nat)
   let row : FunctionRow := ⟨owner, function.name, ← Lower.word parametersStart, parameters,
     ← Lower.word functionsBefore, 1, body,
     ← Lower.word (function.parameters.length + function.lets.length +
-      (if function.propagation.isSome then 1 else 0) + 1)⟩
+      (if function.propagation.isSome then 1 else 0) + extraSlots + 1)⟩
   modify fun state =>
     { state with functions := state.functions ++ [row],
                  callable := state.callable ++ [function.callable] }
+
+/-- The computed-let statements a function emits before its returned expression: the integer value
+rows and the `StmtLetInt` binding at the slot the exporter uses. A function whose result is not a
+computed let has none. -/
+def Lower.computedLetStatements (function : SourceFunction) (scope : List (String × Nat)) :
+    Lower (List Word32) :=
+  match function.result with
+  | .computedLet name value _ =>
+      if function.lets.isEmpty then
+        match function.parameters with
+        | [_] => do
+            let valueRow ← Lower.intValue (scope.filter fun entry => entry.1 != name) value
+            let binding ← Lower.pushRow .stmtLetInt [← Lower.word 2, valueRow]
+            pure [binding]
+        | _ => Lower.fail
+      else Lower.fail
+  | _ => pure []
 
 /-- A propagation binding: the callee call row, the `?` row over it, and the `StmtLet` row that
 binds the payload to the target slot. -/
@@ -317,7 +364,7 @@ def Lower.propagation (owner : BridgeId) (scope : List (String × Nat))
 
 /-- Lower one function in the observed row order: its integer let, the rows of its returned
 expression, the return, and then its body block. A propagation function lowers its binding before
-the return. -/
+the return, and a computed let lowers its integer value rows before the binding. -/
 def Lower.function (function : SourceFunction) : Lower Unit := do
   let scope ← Lower.lift function.scope?
   let before ← get
@@ -327,25 +374,29 @@ def Lower.function (function : SourceFunction) : Lower Unit := do
   | some propagation => do
       Lower.require (function.lets.isEmpty && !function.result.isAssigned)
       let statement ← Lower.propagation owner scope propagation
-      Lower.functionTail function scope owner before.functions.length parametersStart [statement]
+      Lower.functionTail function scope owner before.functions.length parametersStart 0 [statement]
   | none =>
     match function.lets with
     | [] => do
+        let computed ← Lower.computedLetStatements function scope
         Lower.require (!function.result.isAssigned)
-        Lower.functionTail function scope owner before.functions.length parametersStart []
-    | [(name, value)] =>
+        Lower.functionTail function scope owner before.functions.length parametersStart
+          computed.length computed
+    | [(name, value)] => do
+        let computed ← Lower.computedLetStatements function scope
+        Lower.require computed.isEmpty
         match function.parameters with
         | [] =>
             let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
             let binding ← Lower.pushRow .stmtLetInt [← Lower.word letSlot, literal]
             let assigned ← Lower.assignments name scope function.result
-            Lower.functionTail function scope owner before.functions.length parametersStart
+            Lower.functionTail function scope owner before.functions.length parametersStart 0
               (binding :: assigned)
         | [_] =>
             let literal ← Lower.pushRow .intInt (← Lower.literalWords value)
             let binding ← Lower.pushRow .stmtLetInt [← Lower.word 2, literal]
             let assigned ← Lower.assignments name scope function.result
-            Lower.functionTail function scope owner before.functions.length parametersStart
+            Lower.functionTail function scope owner before.functions.length parametersStart 0
               (binding :: assigned)
         | _ => Lower.fail
     | _ => Lower.fail

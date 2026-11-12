@@ -43,11 +43,18 @@ emits the callee's `IntInt`, `StmtLetInt`, parameter, `ExprBinary` and
 callee's literal binding in its callee form, recording 7, 7 and -7. The
 callee form of a function without an assignment or a propagation is its body
 with each literal binding substituted for its slot; `callee?` admits it, so
-the call row has a meaning.
+the call row has a meaning. An eighth covers a computed let: the admitted
+grammar takes one integer parameter and one `let y = atom op atom` binding over
+that parameter and literals, the lowerer emits the value as the integer-family
+`IntSlot` and `IntInt`/`IntBinary` rows before `StmtLetInt`, and the callee
+form carries the binding so a call applies it, evaluating it once beside the
+parameter; the recorded calls are 14, 14 and -14. The substitution approach
+does not extend to computed values, so the base-machine binding is now an
+`BaseExpr` value and the callee's application supplies it.
 The next widening is an error producer or a record local; each needs a new row
 form rather than another certificate-only check.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds nine ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds ten ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -89,7 +96,7 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds nine ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds ten ARTIFACT_CERTIFIED
 records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
@@ -102,8 +109,11 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   one integer `let` and one binary return and each a specified failure;
   `formal-bridge-integer-calls.xsh`: `excess`, two integer parameters and a
   conditional on a comparison, and `surplus`, a `let` and a call of `excess`;
-  and `formal-bridge-integer-let-calls.xsh`: `bumps`, one integer parameter and
-  one literal `let`, and `runs`, which calls it on its parameter) go
+  `formal-bridge-integer-let-calls.xsh`: `bumps`, one integer parameter and
+  one literal `let`, and `runs`, which calls it on its parameter; and
+  `formal-bridge-integer-computed-let-calls.xsh`: `scales`, one integer
+  parameter and one computed `let`, and `runs`, which calls it on its
+  parameter) go
   through a test-only exporter and decoder (`formal_bridge/arithmetic.rs`) that
   emit the real compiler's lowering. `Xsh.Conformance.Vertical.Certificate` and
   `...CallsCertificate` kernel-check that each source's bytes parse in an
@@ -115,11 +125,12 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   words are read from the document; the lowered shape has no loops, strings,
   records or a call of a Bool function, though a Bool-returning comparison of
   two atoms, `Result[Int, Int]` construction, one `?` binding of a call to an
-  earlier callable `Result[Int, Int]` function, and a call of a function with one
-  integer parameter and one integer literal let are covered; a computed let, a
+  earlier callable `Result[Int, Int]` function, a call of a function with one
+  integer parameter and one integer literal let, and a call of a function with
+  one integer parameter and one computed let are covered; several lets, a
   callee with an assigned binding, an error producer and a record local are
   outside it. One plain integer assignment is modeled separately;
-  CERT-FACTS does not admit assignments. No CERT-SOUND validator exists, and
+  CERT-FACTS does not admit assignments or computed lets. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
   evidence only through the recorded runs.
 - G1's base theorems cover the base machine only: integer expressions,
@@ -1082,6 +1093,54 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   The audit and the fresh check ran through `/bin/bash` with the pinned 4.35.0
   toolchain first. A parameterless function with no let is outside the admitted
   lowerer domain, and an error producer or a record local stays next.
+
+- 2026-11-11: Computed-let call control. The admitted grammar now takes a
+  function of one integer parameter and one computed `let step = atom op atom`
+  over that parameter and literals, plus a caller that calls it on its
+  parameter. `SourceExpression` gained `computedLet`; `parseComputedLet` reads
+  the line and `parseFunctionBody` admits it only when the function has exactly
+  one parameter, no literal let, no propagation, no assignment, an `Int` return
+  and a value whose atoms are that parameter or integer literals. The exporter
+  places the parameter at slot 0 and the let at slot 2; `SourceFunction.scope?`
+  admits that pair and `Program.scope?` is unchanged for every other shape.
+  `Lower.computedLetStatements` emits the let's value with the existing
+  `Lower.intValue` as `IntSlot`/`IntInt`/`IntBinary` rows and then
+  `StmtLetInt [2, valueRow]`; `Lower.functionTail` takes an `extraSlots` count
+  instead of deriving the slot count from the result shape.
+  `SourceFunction.computedBindings?` gives the source meaning its binding. The
+  meaning's substitution approach does not extend to computed values, so
+  `LetBinding.value` is now a `BaseExpr`: a literal binding holds an
+  `integerLiteral`, `machineOf` binds only literal bindings (via
+  `LetBinding.literalInt?`), and a function's body runs as one call whose
+  arguments are its integer arguments followed by each binding's value, with the
+  parameter reads inside a binding value replaced by the argument expressions
+  (`substituteExpressions`, structural so the kernel reduces it). `Callee`
+  gained `bindings`, `Callee.apply` is the applied form, and both
+  `expression?` and `propagationProgram?` use it. `lowering_means_the_source`
+  stays universal: `function_lowers_computed` is the new branch and
+  `function_lowers_plain` now receives the proof that the result is not a
+  computed let. The test-only bridge exports
+  `formal-bridge-integer-computed-let-calls.xsh` (`scales`, `runs`; three
+  recorded calls) and the Lean `ComputedLetCertificate` certifies the pair,
+  rejecting a call naming a function the callee table does not hold, a callee
+  body whose let read is replaced by its parameter, a well-typed binding whose
+  value is a literal instead of the computed expression (returns 10 where 14 is
+  recorded), wrong recorded outcomes, malformed rows, a changed source and a
+  wrong lowering. `artifact_certificates` now holds ten. This is a bounded
+  artifact and a Lean-only theorem about the Lean lowerer: Rust's parser reading
+  and execution are evidence through the bridge run only, and that run used this
+  worktree's verification build rather than the frozen commit, so it is not a
+  `RUST_CONFORMANCE` case. The raw-IR document is 2,512 bytes.
+  `cargo test --profile verification --lib formal_bridge` passed 52 tests,
+  including `exported_documents_are_the_lean_certified_bytes`, which requires
+  Rust's exported bytes to equal the two Lean code lists. The clean `lake build`
+  completed 245 jobs; the axiom audit passed for 27,823 declarations and all six
+  self-test controls were rejected; `lake env leanchecker --fresh Xsh` passed
+  under the 8 GiB cap; and `lake check --paranoid`, run with the repository's
+  sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
+  `con-ron`, accepted the export. The audit and the fresh check ran through
+  `/bin/bash` with the pinned 4.35.0 toolchain first. Several lets, an error
+  producer and a record local stay next.
 
 ## For the owner afterwards
 
