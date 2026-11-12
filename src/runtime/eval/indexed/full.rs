@@ -969,6 +969,13 @@ impl Default for FullStore {
 }
 
 impl FullStore {
+    fn is_script_main(&self, function: usize) -> Result<bool, IrVerifyError> {
+        let metadata = self.function_metadata.get(function)
+            .ok_or_else(|| IrVerifyError::new("script entry target is out of bounds"))?;
+        Ok(metadata.owner == IR_NONE && metadata.callable_kind == CallableKind::Proc
+            && self.string(self.functions[function].name)? == "main")
+    }
+
     fn capture_use_span(&self, capture: &FullCapture) -> Option<Span> {
         let id = IrLocationId::from_raw(capture.use_location)?.index();
         let location = self.locations.get(id)?;
@@ -6458,6 +6465,30 @@ fn verify_driver_annotation(
     Ok(())
 }
 
+fn verify_script_entry_parameter_runtime_validation(
+    store: &FullStore,
+    parameter: usize,
+    expected: &Type,
+) -> Result<(), IrVerifyError> {
+    let validation = store.param_cold.binary_search_by_key(&(parameter as u32), |cold| cold.param)
+        .ok().map(|index| store.param_cold[index].validation)
+        .filter(|validation| *validation != IR_NONE)
+        .map(|validation| store.validations.get(validation as usize)
+            .ok_or_else(|| IrVerifyError::new("script entry parameter validation is out of bounds")))
+        .transpose()?;
+    if crate::runtime::eval::driver_annotation_requires_validation(lowered_type_from_type(expected)?, expected)
+        && validation.is_none()
+    {
+        return Err(IrVerifyError::new("script entry parameter is missing its runtime validation"));
+    }
+    if let Some(validation) = validation
+        && store.semantic.to_type(validation.type_id)? != *expected
+    {
+        return Err(IrVerifyError::new("script entry parameter validation disagrees with its signature"));
+    }
+    Ok(())
+}
+
 fn verify_unsigned_parameter_runtime_validation(
     store: &FullStore,
     parameter: usize,
@@ -6912,6 +6943,21 @@ impl<'p> FullExecution<'p> {
 
     pub(in crate::runtime::eval) fn target_variant(&self, instruction: u32, invocation: &PreparedInvocationBindings) -> Result<(Name, Arc<str>, Option<Arc<crate::sema::wire_enums::WireEnumMapping>>), IrVerifyError> {
         self.program().target_variant(self.owner, instruction, invocation)
+    }
+
+    pub(in crate::runtime::eval) fn script_main_splice_parameters(&self, instruction: u32) -> Result<Option<Vec<Type>>, IrVerifyError> {
+        let decoder = self.decoder();
+        let (function, mut args) = match decoder.expression_view(instruction as usize)? {
+            schema::ExprView::Call { function, args, .. } => (function.id.index(), args),
+            schema::ExprView::SelfCall { args, .. } if driver_owner_index(self.owner).is_none() =>
+                (IrFunctionId::from_raw(self.owner).ok_or_else(|| IrVerifyError::new("script entry caller is invalid"))?.index(), args),
+            _ => return Ok(None),
+        };
+        if !decoder.store.is_script_main(function)? { return Ok(None); }
+        // Quantified calls retain their own authenticated invocation binding.
+        if !matches!(decoder.store.functions[function].contract, FullCallableContract::Ground(_)) { return Ok(None); }
+        if !args.any(|arg| matches!(arg, Ok(decode::CallArgView::Splice(_)))) { return Ok(None); }
+        verify_schemes::invocation_parameter_types(decoder.store, function, &Default::default()).map(Some)
     }
 
     pub(in crate::runtime::eval) fn index_literal_mode(&self, instruction: u32, distance: crate::runtime::eval::EndDistance, invocation: &PreparedInvocationBindings) -> Result<PreparedIndexLiteral, IrVerifyError> {
@@ -19880,6 +19926,9 @@ impl FullVerifier {
                             params.start + offset,
                             &parameter_type,
                         )?;
+                        if store.is_script_main(index)? {
+                            verify_script_entry_parameter_runtime_validation(store, params.start + offset, &parameter_type)?;
+                        }
                     }
                     FullCallableContract::Scheme(_) if param.flags & 2 != 0 && param.flags & 4 == 0 => {
                         return Err(IrVerifyError::new(
@@ -42739,6 +42788,10 @@ pure foreign(payload, count: Int) {
             for force_frames in [false, true] {
                 for (name, source, arguments, expected) in [
                     ("default", "proc main(target: Path = p\"default\") [io, error] { print target.display() }\nmain(@args)?\n", Vec::new(), "default\n"),
+                    ("conditional-path", "proc main(target: Path) [io, error] { print target.display() }\nif args.len() == 1 { main(@args)? }\n", vec!["a path"], "a path\na path\n"),
+                    ("nonfinal-path", "proc main(target: Path) [io, error] { print target.display() }\nmain(@args)?\nprint \"after\"\n", vec!["a path"], "a path\nafter\na path\n"),
+                    ("conditional-default", "proc main(target: Path = p\"default\") [io, error] { print target.display() }\nif args.len() == 0 { main(@args)? }\n", Vec::new(), "default\ndefault\n"),
+                    ("conditional-optional", "proc main(target: Path? = null) [io, error] { if target != null { print target.display() } else { print \"none\" } }\nif args.len() < 2 { main(@args)? }\n", vec!["a path"], "a path\na path\n"),
                     ("rest", "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\n", vec!["a", "b"], "a,b\n"),
                     ("nonfinal", "proc main(...words: List[Str]) [io, error] { print words.join(\",\") }\nmain(@args)?\nprint \"after\"\n", vec!["original"], "original\nafter\noriginal\n"),
                     ("pure", "pure main(...words: List[Str]) -> Str { words.join(\",\") }\nprint main(@args)\n", vec!["original"], "original\n"),
@@ -42778,6 +42831,47 @@ pure foreign(payload, count: Int) {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_compact_declarations(&parsed.arena, &sources, sources.files()[0].id());
             assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckStandardModuleShadow)), "{:?}", checked.diagnostics);
+        });
+    }
+
+    #[test]
+    fn explicit_entry_splice_authenticates_the_root_proc_target() {
+        run_with_large_stack(|| {
+            let program = fixture("explicit-entry-splice.xsh", "proc other(target: Path) [io, error] { print target.display() }\nproc main(target: Path) [io, error] { print target.display() }\nif args.len() == 1 { main(@args)? }\n");
+            FullVerifier::verify(&program).unwrap();
+            let entry = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "main").unwrap();
+            let other = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "other").unwrap();
+            let mut wrong_owner = program.clone();
+            wrong_owner.store.function_metadata[entry].owner = program.store.functions[other].name;
+            FullVerifier::verify(&wrong_owner).expect_err("a module-owned main is not the script entry");
+            let mut wrong_name = program.clone();
+            wrong_name.store.functions[entry].name = program.store.functions[other].name;
+            FullVerifier::verify(&wrong_name).expect_err("an ordinary Proc cannot bind a fixed splice");
+            let call = program.store.checked_call_targets.iter().find(|fact| fact.function.index() == entry
+                && program.store.tags[fact.instruction as usize] == FullTag::ExprCall).unwrap();
+            let mut wrong_target = program.clone();
+            let payload = wrong_target.store.data[call.instruction as usize].range().bounds(wrong_target.store.extra.len()).unwrap();
+            wrong_target.store.extra[payload.start] = IrFunctionId::new(other).unwrap().raw();
+            FullVerifier::verify(&wrong_target).expect_err("a retargeted splice must retain its actual checked target");
+        });
+    }
+
+    #[test]
+    fn script_entry_splice_requires_its_actual_parameter_validation() {
+        run_with_large_stack(|| {
+            let program = fixture("entry-validation.xsh", "proc main(target: RelPath? = null) { print \"ok\" }\nif args.len() < 2 { main(@args)? }\n");
+            FullVerifier::verify(&program).unwrap();
+            let entry = program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == "main").unwrap();
+            let parameter = program.store.functions[entry].params.start;
+            let cold = program.store.param_cold.iter().position(|cold| cold.param == parameter).unwrap();
+            let mut missing = program.clone();
+            missing.store.param_cold[cold].validation = IR_NONE;
+            FullVerifier::verify(&missing).expect_err("the entry binder must install the promised validation");
+            let mut weaker = program.clone();
+            let validation = weaker.store.param_cold[cold].validation as usize;
+            let ty = SemanticPoolBuilder::default().intern_type(&mut weaker.store.semantic, &Type::Optional(Box::new(Type::Path))).unwrap();
+            weaker.store.validations[validation].type_id = ty;
+            FullVerifier::verify(&weaker).expect_err("the entry binder must retain the exact RelPath restriction");
         });
     }
 

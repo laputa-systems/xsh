@@ -5900,13 +5900,9 @@ impl Evaluator {
         });
         if let Some(param_types) = indexed_param_types {
             for (index, arg) in args.iter_mut().enumerate() {
-                let parameter = param_types.get(index).map(|ty| match ty.unvalidated() {
-                    Type::Optional(payload) => payload.unvalidated(),
-                    ty => ty,
-                });
-                if parameter == Some(&Type::Path)
+                if let Some(parameter) = param_types.get(index)
                     && let Value::Str(text) = arg
-                    && let Ok(path) = PathValue::from_text(&text)
+                    && let Some(path) = script_main_path_argument(parameter, text)
                 {
                     *arg = Value::Path(path);
                 }
@@ -8431,6 +8427,14 @@ fn compact_lowerability_diagnostic(span: Span, message: &str, code: DiagnosticCo
     crate::diagnostic::Diagnostic::error(message)
         .with_code(code)
         .with_label(crate::diagnostic::Label::primary(span, message))
+}
+
+fn script_main_path_argument(parameter: &Type, text: &str) -> Option<PathValue> {
+    let parameter = match parameter.unvalidated() {
+        Type::Optional(payload) => payload.unvalidated(),
+        ty => ty,
+    };
+    (parameter == &Type::Path).then(|| PathValue::from_text(text).ok()).flatten()
 }
 
 fn compact_top_level_stmt_is_skippable(

@@ -4403,11 +4403,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         function: LoweredFunctionKey,
         kind: CallableKind,
-        values: Vec<LoweredValue>,
+        mut values: Vec<LoweredValue>,
         instruction: u32,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        if let Some(parameters) = self.calls[index].execution.script_main_splice_parameters(instruction)
+            .map_err(|error| indexed_error(error, span))?
+        {
+            for (value, parameter) in values.iter_mut().zip(parameters.iter()) {
+                if let LoweredValue::Str(text) = value
+                    && let Some(path) = crate::runtime::eval::script_main_path_argument(parameter, text)
+                { *value = LoweredValue::Path(path); }
+            }
+        }
         let mut resolved = self.resolve_active_call(index, function, kind, true, span)?;
         resolved.applications = self.calls[index].execution.program()
             .invocation_applications(instruction, resolved.index, &self.calls[index].applications)

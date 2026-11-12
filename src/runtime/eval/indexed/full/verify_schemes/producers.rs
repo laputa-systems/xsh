@@ -5137,6 +5137,25 @@ impl<'a> ProducerProof<'a> {
         if super::super::driver_owner_index(decoder.owner).is_none() && matches!(self.store.functions[function_index(decoder.owner)?].contract, FullCallableContract::Scheme(_)) { return Ok(()); }
         let FullCallableContract::Ground(signature) = self.store.functions[function].contract else { return Ok(()) };
         let count = self.store.semantic.signature_param_count(signature)?;
+        if self.store.is_script_main(function)? && arguments.iter().any(|argument| matches!(argument, ProducerArgument::Splice(_))) {
+            // The authenticated root Proc entry binds dynamic argv at runtime,
+            // including count, defaults and Path conversion. Other calls must
+            // establish each fixed parameter statically below.
+            for position in 0..count {
+                let ty = self.contract_type(self.store.semantic.signature_param(signature, position)?.1)?;
+                if !super::runtime_complete_value_check_type(&ty, &mut self.budget, 0)? {
+                    return Err(IrVerifyError::new("script entry parameter has no complete runtime check"));
+                }
+            }
+            for &argument in arguments {
+                match argument {
+                    ProducerArgument::Single(instruction) | ProducerArgument::Splice(instruction) =>
+                        self.expression(decoder.owner, instruction, Arc::new(Type::Any), false),
+                    ProducerArgument::Default(_) => return Err(IrVerifyError::new("script entry splice has an encoded default argument")),
+                }
+            }
+            return Ok(());
+        }
         let store = self.store;
         self.call_arguments_with(decoder, arguments, count, Some(function),
             |position| store.semantic.signature_param(signature, position).map(|(_, _, flags)| flags),
