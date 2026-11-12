@@ -313,3 +313,38 @@ parity!(
         sh.frame_rows_containing("alive", "alive");
     }
 );
+
+parity!(exit_expands_its_status_operand, Fixture::new(), |sh: &mut Live| {
+    sh.line("false");
+    sh.text("exit $?");
+    sh.enter();
+    sh.expect_exit("dollar_status");
+    let mut quoted = sh.spawn_peer();
+    quoted.text("exit '7'");
+    quoted.enter();
+    quoted.expect_exit("quoted_status");
+    sh.absorb(quoted, "quoted");
+});
+
+// Wide enough that the refusal fits one row: the shell-name prefixes differ in
+// length, so an 80-column hard wrap would split the normalized text differently.
+parity!(
+    exit_refuses_invalid_operands_without_exiting,
+    Fixture::new().size(24, 120),
+    |sh: &mut Live| {
+        sh.line("exit abc; echo status=$?");
+        sh.frame("in_a_list");
+        sh.line("exit abc");
+        sh.line("echo status=$?");
+        sh.frame("non_numeric");
+        sh.line("exit 1 2");
+        sh.line("echo status=$?");
+        sh.frame("too_many");
+        sh.line("exit $((1/0))");
+        sh.line("echo status=$?");
+        sh.frame("expansion_error");
+        sh.text("exit 4");
+        sh.enter();
+        sh.expect_exit("exit_status");
+    }
+);

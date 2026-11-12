@@ -51,6 +51,9 @@ fn install_restore_handler(signal: i32) -> io::Result<()> {
 }
 
 extern "C" fn restore_terminal_on_signal(signal: i32) {
+    if signal == libc::SIGTERM || signal == libc::SIGHUP {
+        super::signal::end_foreground_job();
+    }
     // SAFETY: OnceLock::get is a single atomic load, the termios was set before
     // this handler was installed, and tcsetattr, write and _exit are
     // async-signal-safe.

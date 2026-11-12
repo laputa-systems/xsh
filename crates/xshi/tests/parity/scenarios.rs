@@ -1586,17 +1586,6 @@ parity!(
 );
 
 parity!(
-    exit_code_ignores_garbage,
-    Fixture::new(),
-    |sh: &mut Live| {
-        sh.line("false");
-        sh.text("exit notanumber");
-        sh.enter();
-        sh.expect_exit("exit_garbage");
-    }
-);
-
-parity!(
     exit_without_argument_is_success,
     Fixture::new(),
     |sh: &mut Live| {

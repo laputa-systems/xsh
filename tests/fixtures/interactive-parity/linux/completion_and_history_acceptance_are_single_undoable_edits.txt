@@ -1,0 +1,73 @@
+== frame completed_single cursor=0,31
+|testuser@<HOST> ~ $ echo unique
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_completion cursor=0,27
+|testuser@<HOST> ~ $ echo un
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame redo_completion cursor=0,31
+|testuser@<HOST> ~ $ echo unique
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_paste cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame accepted_from_grid cursor=1,30
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo alpha
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame undo_accepted cursor=1,27
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo al
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame cancelled cursor=2,27
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo al^C
+|testuser@<HOST> ~ $ echo al
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame undo_after_cancel cursor=2,20
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo al^C
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame history_accepted cursor=3,33
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo al^C
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo recalled
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame redo_after_history cursor=3,33
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo al^C
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo recalled
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame undo_history cursor=3,20
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $ echo al^C
+|testuser@<HOST> ~ $ ^C
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

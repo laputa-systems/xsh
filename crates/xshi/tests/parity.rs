@@ -148,6 +148,7 @@ pub(crate) struct Fixture {
     args: Vec<String>,
     /// `.envrc` files (relative to HOME) trusted before the shell starts.
     allow: Vec<String>,
+    launcher: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -169,6 +170,7 @@ impl Fixture {
             cols: Cols::Absolute(80),
             args: Vec::new(),
             allow: Vec::new(),
+            launcher: None,
         }
     }
 
@@ -292,6 +294,13 @@ impl Fixture {
     /// An extra command-line argument for the shell under test.
     pub(crate) fn arg(mut self, arg: &str) -> Self {
         self.args.push(arg.to_owned());
+        self
+    }
+
+    /// Runs the shell as `"$1"` of a `/bin/sh -c SCRIPT` session leader, so
+    /// the outer terminal outlives the shell and the script can inspect it.
+    pub(crate) fn launcher(mut self, script: &str) -> Self {
+        self.launcher = Some(script.to_owned());
         self
     }
 }
@@ -507,6 +516,7 @@ struct Launch {
     size: (u16, u16),
     env: Vec<(String, String)>,
     args: Vec<String>,
+    launcher: Option<String>,
 }
 
 /// One running shell under a PTY with its recorded transcript.
@@ -560,6 +570,7 @@ impl Live {
             size: (cols, fixture.rows),
             env: fixture.env.clone(),
             args: fixture.args.clone(),
+            launcher: fixture.launcher.clone(),
         };
         Self::start(kind, launch, Some(scratch), home, host)
     }
@@ -607,7 +618,15 @@ impl Live {
             TestEnv::hermetic_utf8("C.UTF-8")
         }
         .expect("a hermetic locale must be available on PTY test platforms");
-        let mut command = CommandSpec::new(&launch.binary)
+        let command = match &launch.launcher {
+            Some(script) => CommandSpec::new("/bin/sh")
+                .arg("-c")
+                .arg(script)
+                .arg("sh")
+                .arg(&launch.binary),
+            None => CommandSpec::new(&launch.binary),
+        };
+        let mut command = command
             .current_dir(&launch.cwd)
             .env("HOME", &home)
             .env("USER", USER)

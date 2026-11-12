@@ -1,0 +1,96 @@
+== frame complete_word cursor=0,29
+|testuser@<HOST> ~ $ cat alpha
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+== frame complete_word_submitted cursor=2,20
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame closing_quote cursor=2,31
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $ cat 'alpha'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+== frame closing_quote_submitted cursor=4,20
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $ cat 'alpha'
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame later_argument cursor=4,29
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $ cat 'alpha'
+|
+|testuser@<HOST> ~ $ cat alpha next
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+== frame later_argument_submitted cursor=7,20
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $ cat 'alpha'
+|
+|testuser@<HOST> ~ $ cat alpha next
+|cat: can't open 'next': No such file or directory
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame escaped_suffix cursor=7,29
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $ cat 'alpha'
+|
+|testuser@<HOST> ~ $ cat alpha next
+|cat: can't open 'next': No such file or directory
+|
+|testuser@<HOST> ~ $ cat alpha next
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+== frame escaped_suffix_submitted cursor=10,20
+|testuser@<HOST> ~ $ cat alpha
+|
+|testuser@<HOST> ~ $ cat 'alpha'
+|
+|testuser@<HOST> ~ $ cat alpha next
+|cat: can't open 'next': No such file or directory
+|
+|testuser@<HOST> ~ $ cat alpha next
+|cat: can't open 'next': No such file or directory
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

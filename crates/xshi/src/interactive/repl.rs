@@ -70,6 +70,7 @@ enum Mode {
     Completion {
         state: CompletionState,
         base_line: LineBuffer,
+        origin: LineBuffer,
     },
     HistorySearch {
         query: LineBuffer,
@@ -149,7 +150,7 @@ fn capture_layout_dump(
 
     match mode {
         Mode::Normal => {}
-        Mode::Completion { state, base_line } => {
+        Mode::Completion { state, base_line, .. } => {
             let _ = writeln!(
                 out,
                 "completion.base_line.cursor_byte: {}",
@@ -636,6 +637,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                 let base_line = line.clone();
                                 let mut cs = start_completion(&base_line, ui.cols, session, comp);
                                 if cs.comp.len() == 1 {
+                                    undo.before_edit(&line, EditGroup::Other);
                                     preview_completion(&mut line, &cs, &base_line);
                                     ui.completion_buffer = cs.comp;
                                 } else if !cs.comp.is_empty() {
@@ -643,6 +645,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                     preview_completion(&mut line, &cs, &base_line);
                                     mode = Mode::Completion {
                                         state: cs,
+                                        origin: base_line.clone(),
                                         base_line,
                                     };
                                 } else {
@@ -665,7 +668,11 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                         let _ = tw.flush_to_stdout();
                     }
 
-                    Mode::Completion { state, base_line } => {
+                    Mode::Completion {
+                        state,
+                        base_line,
+                        origin,
+                    } => {
                         match handle_completion_key(key, state, base_line) {
                             CompletionAction::Navigate => {
                                 preview_completion(&mut line, state, base_line);
@@ -710,17 +717,20 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                     mode = Mode::Completion {
                                         state: cs,
                                         base_line: base_line.clone(),
+                                        origin: origin.clone(),
                                     };
                                     let _ = tw.flush_to_stdout();
                                     continue;
                                 } else {
                                     line = base_line.clone();
+                                    undo.commit_if_changed(origin, &line);
                                     ui.completion_buffer = cs.comp;
                                     mode = Mode::Normal;
                                 }
                             }
                             CompletionAction::Accept => {
                                 preview_completion(&mut line, state, base_line);
+                                undo.commit_if_changed(origin, &line);
                                 ui.completion_buffer = std::mem::take(&mut state.comp);
                                 mode = Mode::Normal;
                             }
@@ -776,6 +786,7 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                             let _ = tw.flush_to_stdout();
                         }
                         HistoryAction::Accept(text) => {
+                            undo.before_edit(&line, EditGroup::Other);
                             line.set(&text);
                             ui.history_match_buffer = std::mem::take(matches);
                             history_cache.clear();
@@ -983,8 +994,9 @@ enum KeyAction {
 }
 
 /// Prepares an edited buffer for execution. A backslash-newline is removed,
-/// a newline inside quotes stays data, a newline after an operator continues
-/// the command, and any other newline separates commands.
+/// a newline inside quotes stays data, a comment is dropped, a newline after
+/// an operator continues the command, and any other newline separates
+/// commands.
 fn submit_text(input: &str) -> String {
     if !input.contains('\n') && !input.contains("\\\n") {
         return input.to_string();
@@ -993,6 +1005,7 @@ fn submit_text(input: &str) -> String {
     let mut chars = input.chars().peekable();
     let mut in_single = false;
     let mut in_double = false;
+    let mut token_start = true;
     while let Some(ch) = chars.next() {
         if in_single {
             result.push(ch);
@@ -1013,6 +1026,18 @@ fn submit_text(input: &str) -> String {
             continue;
         }
         match ch {
+            '#' if token_start => {
+                while chars.next_if(|next| *next != '\n').is_some() {}
+                continue;
+            }
+            '\\' => {
+                result.push(ch);
+                if let Some(escaped) = chars.next() {
+                    result.push(escaped);
+                }
+                token_start = false;
+                continue;
+            }
             '\'' => {
                 in_single = true;
                 result.push(ch);
@@ -1032,6 +1057,10 @@ fn submit_text(input: &str) -> String {
             }
             _ => result.push(ch),
         }
+        token_start = matches!(
+            ch,
+            ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>'
+        );
     }
     result
 }
@@ -1093,7 +1122,17 @@ impl UndoState {
         if self.group == Some(group) && group == EditGroup::Typing {
             return;
         }
-        let entry = UndoEntry::from_line(line);
+        self.commit(UndoEntry::from_line(line));
+        self.group = Some(group);
+    }
+
+    fn commit_if_changed(&mut self, origin: &LineBuffer, line: &LineBuffer) {
+        if origin.text() != line.text() {
+            self.commit(UndoEntry::from_line(origin));
+        }
+    }
+
+    fn commit(&mut self, entry: UndoEntry) {
         if self.undo.last() != Some(&entry) {
             self.undo.push(entry);
             if self.undo.len() > 256 {
@@ -1101,7 +1140,7 @@ impl UndoState {
             }
         }
         self.redo.clear();
-        self.group = Some(group);
+        self.group = None;
     }
 
     fn undo(&mut self, line: &mut LineBuffer) -> bool {
@@ -1566,8 +1605,8 @@ fn is_command_position(before_cursor: &str, word_start: usize) -> bool {
 }
 
 /// Start of the completion word, respecting quotes. Returns
-/// `(byte_offset_of_word_start, currently_inside_single_quote)`.
-pub(super) fn find_comp_word_start(s: &str) -> (usize, bool) {
+/// `(byte_offset_of_word_start, inside_single_quote, inside_double_quote)`.
+pub(super) fn find_comp_word_start(s: &str) -> (usize, bool, bool) {
     let mut in_single = false;
     let mut in_double = false;
     let mut word_start = 0;
@@ -1595,7 +1634,23 @@ pub(super) fn find_comp_word_start(s: &str) -> (usize, bool) {
             }
         }
     }
-    (word_start, in_single)
+    (word_start, in_single, in_double)
+}
+
+fn find_comp_word_end(after_cursor: &str, mut in_single: bool, mut in_double: bool) -> usize {
+    let bytes = after_cursor.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'\\' if !in_single && i + 1 < bytes.len() => i += 1,
+            b' ' | b'\t' | b'\n' if !in_single && !in_double => return i,
+            _ => {}
+        }
+        i += 1;
+    }
+    i
 }
 
 /// Whether a completion string needs quoting for the shell.
@@ -1673,7 +1728,7 @@ pub(super) fn start_completion(
     let home = home_string(session);
     let text = line.text();
     let before_cursor = &text[..line.cursor()];
-    let (word_start, in_single) = find_comp_word_start(before_cursor);
+    let (word_start, in_single, _) = find_comp_word_start(before_cursor);
     let existing = existing_cmd_args(before_cursor, word_start);
     let raw_word = &before_cursor[word_start..];
 
@@ -1890,8 +1945,17 @@ fn preview_completion(line: &mut LineBuffer, state: &CompletionState, base_line:
 
     let text = base_line.text().to_string();
     let before_cursor = &text[..base_line.cursor()];
-    let (word_start, _) = find_comp_word_start(before_cursor);
-    let after_cursor = &text[base_line.cursor()..];
+    let (word_start, in_single, in_double) = find_comp_word_start(before_cursor);
+    let variable = state.dir_prefix.ends_with('$');
+    let after_word = &text[base_line.cursor()..];
+    let word_end = if variable {
+        after_word
+            .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+            .unwrap_or(after_word.len())
+    } else {
+        find_comp_word_end(after_word, in_single, in_double)
+    };
+    let after_cursor = &after_word[word_end..];
 
     let mut inner = state.dir_prefix.clone();
     inner.push_str(name);
@@ -1906,7 +1970,6 @@ fn preview_completion(line: &mut LineBuffer, state: &CompletionState, base_line:
     // next Tab press start_completion strips the outer quotes for lookup.
     // Keep ~/ outside the quotes so tilde expansion still works. Embedded
     // single quotes become '\'' (end quote, escaped quote, reopen).
-    let variable = state.dir_prefix.ends_with('$');
     let replacement = if variable {
         inner
     } else if state.in_quote || needs_quoting(&inner) || inner.contains('\'') {
@@ -2144,37 +2207,56 @@ fn render_dir_picker_mode(
     }
 }
 
-/// Whether the input needs a continuation line (open quotes, trailing
-/// operator, and so on).
+/// Whether the input needs a continuation line: an open quote, a trailing
+/// backslash, or a trailing `|`, `||`, or `&&`. A `#` that starts a token
+/// hides the rest of its line.
 fn needs_continuation(input: &str) -> bool {
-    let trimmed = input.trim_end();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let (in_single, in_double, escape) = scan_quote_state(trimmed.as_bytes());
-    if in_single || in_double || escape {
-        return true;
-    }
-    trimmed.ends_with('|') || trimmed.ends_with("&&") || trimmed.ends_with("||")
-}
-
-fn scan_quote_state(input: &[u8]) -> (bool, bool, bool) {
+    let bytes = input.as_bytes();
     let mut in_single = false;
     let mut in_double = false;
     let mut escape = false;
-    for &b in input {
+    let mut in_comment = false;
+    let mut token_start = true;
+    let mut code_end = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        if in_comment {
+            if b == b'\n' {
+                in_comment = false;
+                token_start = true;
+            }
+            continue;
+        }
         if escape {
             escape = false;
+            if b != b'\n' {
+                code_end = i + 1;
+            }
+            token_start = false;
             continue;
         }
         match b {
             b'\\' if !in_single => escape = true,
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
+            b'#' if token_start && !in_single && !in_double => {
+                in_comment = true;
+                continue;
+            }
             _ => {}
         }
+        token_start = !in_single
+            && !in_double
+            && !escape
+            && matches!(b, b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>');
+        if escape || !b.is_ascii_whitespace() || in_single || in_double {
+            code_end = i + 1;
+        }
     }
-    (in_single, in_double, escape)
+    if in_single || in_double || escape {
+        return true;
+    }
+    let code = &bytes[..code_end];
+    code.ends_with(b"|") || code.ends_with(b"&&")
 }
 
 /// Handles Ctrl+D on an empty line. A stopped job makes the first attempt a
@@ -2198,8 +2280,8 @@ fn handle_exit(session: &mut Session, ui: &mut Ui) -> ReadResult {
 #[cfg(test)]
 mod tests {
     use super::{
-        EditGroup, LineBuffer, UndoState, submit_text, suggestion_word_accept_len,
-        variable_prefix_end,
+        EditGroup, LineBuffer, UndoState, needs_continuation, submit_text,
+        suggestion_word_accept_len, variable_prefix_end,
     };
 
     #[test]
@@ -2284,5 +2366,31 @@ mod tests {
             "echo \"open\nclose\""
         );
         assert_eq!(submit_text("printf '%s' 'a\nb'"), "printf '%s' 'a\nb'");
+        assert_eq!(submit_text("echo a # it's\necho b"), "echo a ;echo b");
+        assert_eq!(submit_text("echo a && # done\necho b"), "echo a && echo b");
+        assert_eq!(submit_text("echo a\\\n#b\necho c"), "echo a#b;echo c");
+        assert_eq!(submit_text("echo a\\ #b\necho c"), "echo a\\ #b;echo c");
+    }
+
+    #[test]
+    fn comments_do_not_hold_complete_commands_in_continuation() {
+        for input in [
+            "echo okay # don't wait",
+            "echo okay # |",
+            "echo okay # trailing \\",
+            "echo okay;# &&",
+            "echo a\n# 'open\necho b",
+        ] {
+            assert!(!needs_continuation(input), "{input:?} must submit");
+        }
+        for input in [
+            "echo a#'b",
+            "echo 'a # b",
+            "echo a |",
+            "echo a && # done",
+            "echo a \\",
+        ] {
+            assert!(needs_continuation(input), "{input:?} must continue");
+        }
     }
 }

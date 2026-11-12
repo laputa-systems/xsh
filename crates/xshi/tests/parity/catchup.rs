@@ -814,3 +814,82 @@ fn delegated_ish_c_emits_no_osc133_markers() {
         String::from_utf8_lossy(&combined)
     );
 }
+
+const ANNOUNCED_SLEEP: &str =
+    "/bin/sh -c 'printf \"CHILD:%s:%s:%s\\n\" $$ $PPID READY; exec /bin/sleep 60'";
+
+fn announced_pids(sh: &Live) -> (i32, i32) {
+    let screen = sh.screen_text();
+    let end = screen.find(":READY").expect("child announced readiness");
+    let start = screen[..end].rfind("CHILD:").expect("child announced its pids") + "CHILD:".len();
+    let (child, parent) = screen[start..end].split_once(':').expect("child and parent pids");
+    (child.parse().expect("child pid"), parent.parse().expect("parent pid"))
+}
+
+fn gone_else_killed(pid: i32) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    // SAFETY: signal 0 only checks that the process exists.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        if std::time::Instant::now() >= deadline {
+            // SAFETY: the pid belongs to the scenario's own child.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    true
+}
+
+fn end_child(sh: &mut Live, command: &str, signal: i32) {
+    sh.line_until(command, ":READY");
+    let (child, _) = announced_pids(sh);
+    let started = std::time::Instant::now();
+    sh.signal(signal);
+    sh.expect_exit_restored("exit_status");
+    let prompt = started.elapsed() < std::time::Duration::from_millis(1500);
+    sh.effects.push(("exited_within_1500ms".to_owned(), prompt.to_string()));
+    sh.effects.push(("child_gone".to_owned(), gone_else_killed(child).to_string()));
+}
+
+parity!(
+    sigterm_and_sighup_end_a_blocked_foreground_child_and_exit_promptly,
+    Fixture::new(),
+    |sh: &mut Live| {
+        end_child(sh, ANNOUNCED_SLEEP, libc::SIGTERM);
+        let mut hangup = sh.spawn_peer();
+        end_child(&mut hangup, ANNOUNCED_SLEEP, libc::SIGHUP);
+        sh.absorb(hangup, "sighup");
+    }
+);
+
+const HANGUP_IGNORING_SLEEP: &str = "/bin/sh -c 'trap \"\" HUP; printf \"CHILD:%s:%s:%s\\n\" $$ $PPID READY; exec /bin/sleep 60'";
+
+parity!(
+    sigterm_and_sighup_end_a_foreground_child_that_ignores_hangup,
+    Fixture::new(),
+    |sh: &mut Live| {
+        end_child(sh, HANGUP_IGNORING_SLEEP, libc::SIGTERM);
+        let mut hangup = sh.spawn_peer();
+        end_child(&mut hangup, HANGUP_IGNORING_SLEEP, libc::SIGHUP);
+        sh.absorb(hangup, "sighup");
+    }
+);
+
+parity!(
+    fatal_crash_signal_during_a_command_restores_the_outer_terminal,
+    Fixture::new()
+        .launcher(r#""$1"; status=$?; stty -a > "$HOME/outer-modes"; exit $status"#),
+    |sh: &mut Live| {
+        sh.line_until(ANNOUNCED_SLEEP, ":READY");
+        let (child, shell) = announced_pids(sh);
+        // SAFETY: SIGABRT goes to the shell under test, the child's parent.
+        assert_eq!(unsafe { libc::kill(shell, libc::SIGABRT) }, 0);
+        sh.expect_exit_restored("exit_status");
+        let modes = String::from_utf8_lossy(&read_home(sh, "outer-modes")).into_owned();
+        let words: Vec<&str> = modes.split_whitespace().collect();
+        for mode in ["icanon", "echo", "isig"] {
+            sh.effects.push((format!("outer_{mode}"), words.contains(&mode).to_string()));
+        }
+        sh.effects.push(("child_gone".to_owned(), gone_else_killed(child).to_string()));
+    }
+);

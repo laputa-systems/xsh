@@ -1,0 +1,84 @@
+== frame in_a_list cursor=2,20
+|testuser@<HOST> ~ $ exit abc; echo status=$?
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame non_numeric cursor=7,20
+|testuser@<HOST> ~ $ exit abc; echo status=$?
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $ exit abc
+|<SHELL>: exit: abc: numeric argument required
+|testuser@<HOST> ~ $ echo status=$?
+|status=2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame too_many cursor=12,20
+|testuser@<HOST> ~ $ exit abc; echo status=$?
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $ exit abc
+|<SHELL>: exit: abc: numeric argument required
+|testuser@<HOST> ~ $ echo status=$?
+|status=2
+|
+|testuser@<HOST> ~ $ exit 1 2
+|<SHELL>: exit: too many arguments
+|testuser@<HOST> ~ $ echo status=$?
+|status=2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame expansion_error cursor=17,20
+|testuser@<HOST> ~ $ exit abc; echo status=$?
+|<SHELL>: exit changes shell state or needs the ish process, so it must be the only command on its line
+|testuser@<HOST> ~ $ exit abc
+|<SHELL>: exit: abc: numeric argument required
+|testuser@<HOST> ~ $ echo status=$?
+|status=2
+|
+|testuser@<HOST> ~ $ exit 1 2
+|<SHELL>: exit: too many arguments
+|testuser@<HOST> ~ $ echo status=$?
+|status=2
+|
+|testuser@<HOST> ~ $ exit $((1/0))
+|<SHELL>: exit: expansion error: 0:0: arithmetic error: division by zero
+|testuser@<HOST> ~ $ echo status=$?
+|status=1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect exit_status
+|Code(4)

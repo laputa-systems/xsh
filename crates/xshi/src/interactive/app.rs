@@ -32,7 +32,7 @@ use xsh::frontend::syntax::arena::ArenaProgram;
 use xsh::frontend::syntax::node::RunKind;
 use xsh::process::{
     CancellationDecision, CancellationPolicy, ChildWaitOutcome, FileRedirectionMode,
-    ForegroundTerminal, ManagedStdio, PipelineJob, ProcessGroup, ProcessGroupConfig,
+    ManagedStdio, PipelineJob, ProcessGroup, ProcessGroupConfig,
     ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind,
     ProcessStatus, ProcessStatusKind, RedirectionStream, SpawnManagedOptions, WaitMode,
     initialize_interactive_process_group, poll_managed, run_capture_with_policy,
@@ -885,11 +885,33 @@ fn handle_exit_command(
     line: &str,
     stderr: &mut io::Stderr,
 ) -> Option<i32> {
-    let code: i32 = line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|word| word.parse().ok())
-        .unwrap_or(0);
+    let refuse = |session: &mut Session, stderr: &mut io::Stderr, message: String, status: i32| {
+        let _ = writeln!(stderr, "xshi: exit: {message}");
+        session.last_status = status;
+        session.dollar_status = status;
+        session.last_process_status = Some(ProcessStatus::exited(status));
+        None
+    };
+    let words = lex_shell(line).unwrap_or_default();
+    let mut operands = Vec::new();
+    for token in words.iter().skip(1) {
+        if let ShellToken::Word(word) = token {
+            match expand_word(session, word) {
+                Ok(fields) => operands.extend(fields),
+                Err(error) => {
+                    return refuse(session, stderr, format!("expansion error: {}", error.message), 1);
+                }
+            }
+        }
+    }
+    let code = match operands.as_slice() {
+        [] => 0,
+        [status] => match status.parse::<i32>() {
+            Ok(code) => code,
+            Err(_) => return refuse(session, stderr, format!("{status}: numeric argument required"), 2),
+        },
+        _ => return refuse(session, stderr, "too many arguments".to_owned(), 2),
+    };
     if session.job.is_some() {
         if ui.exit_warned {
             terminate_job(session);
@@ -1419,7 +1441,7 @@ fn run_foreground_pipeline(
         Err(mut error) => return pipeline_start_error(session, &mut error),
     };
     let group = job.process_group();
-    let foreground = ForegroundTerminal::take(group);
+    let foreground = signal::ForegroundJob::take(group);
     let outcomes = match job.wait() {
         Ok(outcomes) => outcomes,
         Err(error) => {
@@ -2084,7 +2106,7 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
 
     let _ = writeln!(io::stderr(), "xshi: resuming: {}", job.command);
     let group = job.process_group();
-    let foreground = ForegroundTerminal::take(group);
+    let foreground = signal::ForegroundJob::take(group);
     if let Some(attrs) = job.terminal_attrs.as_ref() {
         restore_terminal_attrs(attrs);
     }
@@ -2256,7 +2278,7 @@ fn run_external_foreground(
     let mut spawn_error_message: Option<String> = None;
     let status = match spawn_managed(&invocation, options) {
         Ok(mut child) => {
-            let foreground = ForegroundTerminal::take(child.process_group());
+            let foreground = signal::ForegroundJob::take(child.process_group());
             let mut policy = InteractiveNoCancellation;
             match wait_managed(&mut child, WaitMode::InteractiveForeground, &mut policy) {
                 Ok((ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status), _)) => {
@@ -3253,7 +3275,7 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn error(&self, message: impl Into<String>) -> ExpansionError {
-        ExpansionError::usage(format!("arithmetic expansion: {}", message.into()))
+        ExpansionError::usage(format!("0:0: arithmetic error: {}", message.into()))
     }
 }
 

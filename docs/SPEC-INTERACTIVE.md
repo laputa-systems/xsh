@@ -90,8 +90,11 @@ the first prompt saw, so a stopped or killed child cannot leave its own modes
 on the terminal. When the shell starts with SIGTERM, SIGHUP, SIGABRT, SIGBUS,
 SIGFPE, SIGILL, SIGSEGV, or SIGTRAP at a non-ignored disposition, that signal
 restores those attributes and exits with status `128 + signal`, as the
-reference shell does. An inherited ignored disposition, as under `nohup`,
-stays ignored. SIGKILL cannot be handled and leaves the terminal as it was.
+reference shell does. SIGTERM or SIGHUP during a foreground job first kills
+the job's process group with SIGKILL, reaps it, and takes the terminal back,
+so a blocked child ends with the shell even when it ignores hangups. An
+inherited ignored disposition, as under `nohup`, stays ignored. SIGKILL cannot
+be handled and leaves the terminal as it was.
 
 ## 4. Session State And Statuses
 
@@ -124,7 +127,9 @@ any other builtin.
 | `cmd $(failing)` | the substitution's status is ignored |
 | Ctrl-C at the prompt | `130` |
 | foreground command stopped by Ctrl-Z | `148` |
-| `exit [N]` | `N` (garbage or missing: `0`) |
+| `exit [N]` | `N` after expansion (missing: `0`) |
+| `exit` with a non-numeric or extra operand | `2`, and the shell keeps running |
+| `exit` whose operand fails to expand | `1`, and the shell keeps running |
 | Ctrl-D on an empty line | success |
 
 Exec failures print `NAME: not found`, `NAME: permission denied`, or
@@ -327,7 +332,10 @@ Up/Down move between them. Bracketed paste inserts text without executing it
 and is rejected above 8,192 bytes. Submitting a multi-line buffer follows shell
 line rules: a backslash-newline joins, a newline inside quotes is data, a
 newline after `|`, `&&`, `||`, or `;` continues the command, and any other
-newline separates commands.
+newline separates commands. Enter opens a continuation line for an open quote,
+a trailing backslash, or a trailing `|`, `||`, or `&&`. A `#` that starts a
+word hides the rest of its line from that check and from submission, so
+`echo okay # don't wait` runs at once.
 
 The autosuggestion ghost text shows the rest of the newest matching history
 entry after the cursor when the buffer is at least three characters, single
@@ -361,7 +369,14 @@ Path candidates are sorted by modification time, newest first, and colored
 (directories blue, symlinks cyan, executables green). Hidden names appear only
 for a prefix that starts with `.`; prefix matches win over substring matches;
 `~/` is preserved; a path whose intermediate components are prefixes resolves
-fish-style. Names needing quoting are single-quoted on insertion.
+fish-style, each component expanding to at most the first 64 directories in
+path order. Names needing quoting are single-quoted on insertion.
+
+Candidates match the word text before the cursor. Accepting one replaces the
+whole word around the cursor, including a closing quote, and leaves later
+arguments unchanged; a `$NAME` completion replaces only the name. An accepted
+completion or history-search match is one undo step and clears redo; a
+cancelled completion adds none.
 
 A single candidate or a longer common prefix is inserted. Otherwise a column-major
 grid of up to six columns and at most one fewer row than the terminal height

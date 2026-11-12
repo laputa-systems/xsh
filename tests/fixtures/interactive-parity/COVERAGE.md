@@ -4,7 +4,7 @@ Generated from the `#[test]` lists in `/home/josh/d/ish/tests/`. A scenario name
 means `crates/xshi/tests/parity/` records it from ish and requires xshi to
 match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 
-## tests/pty.rs (202)
+## tests/pty.rs (206)
 
 | ish test | xshi parity scenario |
 |---|---|
@@ -28,6 +28,8 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `cd_and_pwd` | `cd_and_pwd` |
 | `exit_with_ctrl_d` | `exit_with_ctrl_d` |
 | `exit_command` | `exit_command` |
+| `exit_expands_its_status_operand` | `exit_expands_its_status_operand` |
+| `exit_refuses_invalid_operands_without_exiting` | `exit_refuses_invalid_operands_without_exiting` |
 | `ctrl_c_cancels_input` | `ctrl_c_cancels_input` |
 | `sigint_during_editing_cancels_the_line` | `sigint_during_editing_cancels_the_line` |
 | `line_editing_backspace` | `line_editing_backspace` |
@@ -187,7 +189,9 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `interactive_final_z_matches_quoted_directory_history` | known-gap: z ignores quoted directory history (interactive/z.rs) (`interactive_final_z_matches_quoted_directory_history`) |
 | `external_commands_run_in_the_directory_a_list_cd_selected` | `external_commands_run_in_the_directory_a_list_cd_selected` |
 | `sigterm_and_sighup_restore_the_terminal_and_exit_with_the_signal_status` | `sigterm_and_sighup_restore_the_terminal_and_exit_with_the_signal_status` |
+| `sigterm_and_sighup_end_a_blocked_foreground_child_and_exit_promptly` | `sigterm_and_sighup_end_a_blocked_foreground_child_and_exit_promptly` |
 | `fatal_crash_signals_restore_the_terminal_and_exit_with_the_signal_status` | `fatal_crash_signals_restore_the_terminal_and_exit_with_the_signal_status` |
+| `fatal_crash_signal_during_a_command_restores_the_outer_terminal` | `fatal_crash_signal_during_a_command_restores_the_outer_terminal` |
 | `second_ctrl_z_is_refused_and_the_first_job_stays_resumable` | `second_ctrl_z_is_refused_and_the_first_job_stays_resumable` |
 | `state_builtin_in_a_list_and_undocumented_syntax_are_refused_without_running_anything` | `state_builtin_in_a_list_and_undocumented_syntax_are_refused_without_running_anything` |
 | `ctrl_p_dump_is_private_and_omits_typed_text` | `ctrl_p_dump_is_private_and_omits_typed_text` |
@@ -210,6 +214,19 @@ match. `known-gap` entries are listed in `known-gaps.txt` with the owning code.
 | `alternate_screen_sequences_pass_through_relay` | `alternate_screen_sequences_pass_through_relay` |
 | `osc52_copy_scrollback_emits_base64_session_log` | `osc52_copy_scrollback_emits_base64_session_log` |
 | `shell_sighup_at_prompt_exits_and_restores_terminal` | `shell_sighup_at_prompt_exits_and_restores_terminal` |
+
+## src/editor/tests.rs and src/complete.rs (cases added in 15dbc90..c30a151)
+
+Unit cases ish added after the goldens were first recorded. The editor cases
+replay through the PTY; the resolver case is an xshi unit test.
+
+| ish test | xshi parity scenario |
+|---|---|
+| `comments_do_not_hold_complete_commands_in_continuation` | `comments_do_not_hold_complete_commands_in_continuation`; `repl.rs::comments_do_not_hold_complete_commands_in_continuation` |
+| `partial_path_completion_through_the_editor_is_bounded_to_the_directory_budget` | `partial_path_completion_through_the_editor_is_bounded_to_the_directory_budget` |
+| `completion_and_history_acceptance_are_single_undoable_edits` | `completion_and_history_acceptance_are_single_undoable_edits` |
+| `completion_replaces_the_whole_word_around_the_cursor` | `completion_replaces_the_whole_word_around_the_cursor` |
+| `partial_directory_resolution_keeps_the_first_sorted_directories_within_budget` | `complete.rs::partial_directory_resolution_keeps_the_first_sorted_directories_within_budget` |
 
 ## tests/history_search_paste.rs (3)
 

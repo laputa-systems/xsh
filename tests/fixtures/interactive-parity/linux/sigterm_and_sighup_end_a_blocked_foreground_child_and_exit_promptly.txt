@@ -1,0 +1,12 @@
+== effect exit_status
+|Code(143)
+== effect exited_within_1500ms
+|true
+== effect child_gone
+|true
+== effect sighup/exit_status
+|Code(129)
+== effect sighup/exited_within_1500ms
+|true
+== effect sighup/child_gone
+|true

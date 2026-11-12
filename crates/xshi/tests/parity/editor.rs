@@ -163,6 +163,7 @@ fn spawn_violation_free(kind: ShellKind, binary: &Path, fixture: &Fixture) -> Li
         size: (cols, fixture.rows),
         env: fixture.env.clone(),
         args: fixture.args.clone(),
+        launcher: None,
     };
     let environment = if cfg!(target_os = "linux") {
         TestEnv::hermetic_ascii()
@@ -487,3 +488,124 @@ fn editor_osc133_prompt_command_markers() {
         first_difference(&expected, &actual)
     );
 }
+
+parity!(
+    comments_do_not_hold_complete_commands_in_continuation,
+    Fixture::new(),
+    |sh: &mut Live| {
+        for (label, input) in [
+            ("apostrophe", "echo okay # don't wait"),
+            ("pipe", "echo okay # |"),
+            ("backslash", "echo okay # trailing \\"),
+            ("after_semicolon", "echo okay;# &&"),
+            ("comment_line", "echo a\n# 'open\necho b"),
+            ("quote_in_trailing_comment", "echo a # it's\necho b"),
+            ("operator_before_comment_line", "echo a && # done\necho b"),
+        ] {
+            sh.keys(&crate::paste(input));
+            sh.keys_to_prompt(key::ENTER);
+            sh.frame(label);
+        }
+        for (label, input) in [
+            ("hash_inside_word", "echo a#'b"),
+            ("hash_inside_quotes", "echo 'a # b"),
+            ("trailing_pipe", "echo a |"),
+            ("operator_before_comment", "echo a && # done"),
+            ("trailing_backslash", "echo a \\"),
+        ] {
+            sh.keys(&crate::paste(input));
+            sh.enter();
+            sh.frame(label);
+            sh.keys_to_prompt(key::CTRL_C);
+        }
+    }
+);
+
+fn partial_budget_fixture() -> Fixture {
+    let mut fixture = Fixture::new().size(40, 80);
+    for branch in 0..70 {
+        fixture = fixture.file(&format!("branch{branch:02}/item{branch:02}"), "");
+    }
+    fixture
+}
+
+parity!(
+    partial_path_completion_through_the_editor_is_bounded_to_the_directory_budget,
+    partial_budget_fixture(),
+    |sh: &mut Live| {
+        sh.text("cat br/item");
+        sh.keys(key::TAB);
+        sh.frame("grid");
+    }
+);
+
+parity!(
+    completion_and_history_acceptance_are_single_undoable_edits,
+    Fixture::new()
+        .file("alpha", "")
+        .file("alpine", "")
+        .file("unique", "")
+        .history(&["echo recalled"]),
+    |sh: &mut Live| {
+        sh.keys(&crate::paste("echo un"));
+        sh.keys(key::TAB);
+        sh.frame("completed_single");
+        sh.keys(CTRL_UNDERSCORE);
+        sh.frame("undo_completion");
+        sh.keys(ALT_R);
+        sh.frame("redo_completion");
+        sh.keys(CTRL_UNDERSCORE);
+        sh.keys(CTRL_UNDERSCORE);
+        sh.frame("undo_paste");
+        sh.keys_to_prompt(key::CTRL_C);
+
+        sh.keys(&crate::paste("echo al"));
+        sh.keys(key::TAB);
+        sh.keys(key::TAB);
+        sh.keys(key::ENTER);
+        sh.frame("accepted_from_grid");
+        sh.keys(CTRL_UNDERSCORE);
+        sh.frame("undo_accepted");
+        sh.keys_to_prompt(key::CTRL_C);
+
+        sh.keys(&crate::paste("echo al"));
+        sh.keys(key::TAB);
+        sh.keys(key::TAB);
+        sh.keys(key::ESC);
+        sh.frame("cancelled");
+        sh.keys(CTRL_UNDERSCORE);
+        sh.frame("undo_after_cancel");
+        sh.keys_to_prompt(key::CTRL_C);
+
+        sh.keys(&crate::paste("x"));
+        sh.keys(CTRL_UNDERSCORE);
+        sh.keys(key::CTRL_R);
+        sh.keys(&crate::paste("recalled"));
+        sh.keys(key::ENTER);
+        sh.frame("history_accepted");
+        sh.keys(ALT_R);
+        sh.frame("redo_after_history");
+        sh.keys(CTRL_UNDERSCORE);
+        sh.frame("undo_history");
+    }
+);
+
+parity!(
+    completion_replaces_the_whole_word_around_the_cursor,
+    Fixture::new().file("alpha", ""),
+    |sh: &mut Live| {
+        for (label, input, lefts) in [
+            ("complete_word", "cat alpha", 3),
+            ("closing_quote", "cat 'al'", 1),
+            ("later_argument", "cat alp next", 5),
+            ("escaped_suffix", "cat al\\ x next", 8),
+        ] {
+            sh.keys(&crate::paste(input));
+            sh.repeat(key::LEFT, lefts);
+            sh.keys(key::TAB);
+            sh.frame(label);
+            sh.keys_to_prompt(key::ENTER);
+            sh.frame(&format!("{label}_submitted"));
+        }
+    }
+);

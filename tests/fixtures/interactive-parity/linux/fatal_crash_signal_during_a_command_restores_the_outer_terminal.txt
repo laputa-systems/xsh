@@ -1,0 +1,10 @@
+== effect exit_status
+|Code(134)
+== effect outer_icanon
+|true
+== effect outer_echo
+|true
+== effect outer_isig
+|true
+== effect child_gone
+|true

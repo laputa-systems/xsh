@@ -1,0 +1,316 @@
+== frame apostrophe cursor=3,20
+|testuser@<HOST> ~ $ echo okay # don't wait
+|okay
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame pipe cursor=6,20
+|testuser@<HOST> ~ $ echo okay # don't wait
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # |
+|okay
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame backslash cursor=9,20
+|testuser@<HOST> ~ $ echo okay # don't wait
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # |
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # trailing \
+|okay
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_semicolon cursor=12,20
+|testuser@<HOST> ~ $ echo okay # don't wait
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # |
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # trailing \
+|okay
+|
+|testuser@<HOST> ~ $ echo okay;# &&
+|okay
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame comment_line cursor=18,20
+|testuser@<HOST> ~ $ echo okay # don't wait
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # |
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # trailing \
+|okay
+|
+|testuser@<HOST> ~ $ echo okay;# &&
+|okay
+|
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame quote_in_trailing_comment cursor=23,20
+|testuser@<HOST> ~ $ echo okay # don't wait
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # |
+|okay
+|
+|testuser@<HOST> ~ $ echo okay # trailing \
+|okay
+|
+|testuser@<HOST> ~ $ echo okay;# &&
+|okay
+|
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame operator_before_comment_line cursor=23,20
+|
+|testuser@<HOST> ~ $ echo okay # trailing \
+|okay
+|
+|testuser@<HOST> ~ $ echo okay;# &&
+|okay
+|
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a && # done
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame hash_inside_word cursor=23,2
+|testuser@<HOST> ~ $ echo okay # trailing \
+|okay
+|
+|testuser@<HOST> ~ $ echo okay;# &&
+|okay
+|
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a && # done
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a#'b
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame hash_inside_quotes cursor=23,2
+|
+|testuser@<HOST> ~ $ echo okay;# &&
+|okay
+|
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a && # done
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a#'b
+|  ^C
+|testuser@<HOST> ~ $ echo 'a # b
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame trailing_pipe cursor=23,2
+|okay
+|
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a && # done
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a#'b
+|  ^C
+|testuser@<HOST> ~ $ echo 'a # b
+|  ^C
+|testuser@<HOST> ~ $ echo a |
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame operator_before_comment cursor=23,2
+|testuser@<HOST> ~ $ echo a
+|  # 'open
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a && # done
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a#'b
+|  ^C
+|testuser@<HOST> ~ $ echo 'a # b
+|  ^C
+|testuser@<HOST> ~ $ echo a |
+|  ^C
+|testuser@<HOST> ~ $ echo a && # done
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame trailing_backslash cursor=23,2
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a # it's
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a && # done
+|  echo b
+|a
+|b
+|
+|testuser@<HOST> ~ $ echo a#'b
+|  ^C
+|testuser@<HOST> ~ $ echo 'a # b
+|  ^C
+|testuser@<HOST> ~ $ echo a |
+|  ^C
+|testuser@<HOST> ~ $ echo a && # done
+|  ^C
+|testuser@<HOST> ~ $ echo a \
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@22 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

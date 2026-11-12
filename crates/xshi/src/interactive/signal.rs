@@ -1,11 +1,64 @@
 use super::sys;
 use std::os::fd::RawFd;
+use std::sync::atomic::{AtomicI32, Ordering};
+use xsh::process::{ForegroundTerminal, ProcessGroup};
 
 // SAFETY: These are written once in init() before any signal can fire,
 // then only read from handler() (async-signal context) and read_signal()
 // (main thread). The shell is single-threaded, so no data race.
 static mut PIPE_WRITE: RawFd = -1;
 static mut PIPE_READ: RawFd = -1;
+
+static FOREGROUND_JOB_GROUP: AtomicI32 = AtomicI32::new(0);
+
+/// The terminal handed to a foreground job. While it is held, SIGTERM and
+/// SIGHUP end the job's process group before the shell exits.
+pub struct ForegroundJob {
+    _terminal: Option<ForegroundTerminal>,
+}
+
+impl ForegroundJob {
+    pub fn take(group: ProcessGroup) -> Self {
+        let terminal = ForegroundTerminal::take(group);
+        if terminal.is_some() {
+            FOREGROUND_JOB_GROUP.store(group.id(), Ordering::SeqCst);
+        }
+        Self {
+            _terminal: terminal,
+        }
+    }
+}
+
+impl Drop for ForegroundJob {
+    fn drop(&mut self) {
+        FOREGROUND_JOB_GROUP.store(0, Ordering::SeqCst);
+    }
+}
+
+/// Kills and reaps the foreground job's process group and takes the terminal
+/// back. Async-signal-safe.
+pub(super) fn end_foreground_job() {
+    let group = FOREGROUND_JOB_GROUP.swap(0, Ordering::SeqCst);
+    // SAFETY: getpgrp, kill, waitpid, and tcsetpgrp are async-signal-safe, and
+    // the group is a job this shell started in its own process group.
+    unsafe {
+        let shell = libc::getpgrp();
+        if group <= 0 || group == shell {
+            return;
+        }
+        libc::kill(-group, libc::SIGKILL);
+        loop {
+            if libc::waitpid(-group, std::ptr::null_mut(), 0) > 0 {
+                continue;
+            }
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            break;
+        }
+        libc::tcsetpgrp(libc::STDIN_FILENO, shell);
+    }
+}
 
 /// Creates the signal self-pipe and installs the SIGWINCH handler.
 /// Returns the read-end fd for polling.

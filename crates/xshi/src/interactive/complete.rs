@@ -685,17 +685,27 @@ pub fn complete_partial_path(
     if is_dir(dir_trimmed) {
         return (Completions::new(), Vec::new());
     }
+    let Ok(cwd) = std::env::current_dir() else {
+        return (Completions::new(), Vec::new());
+    };
+    let absolute = std::path::Path::new(partial).is_absolute();
 
-    let resolved_dirs = resolve_partial_dir(dir_trimmed);
     let mut comp = Completions::new();
     let mut groups = Vec::new();
-
-    for rdir in resolved_dirs {
+    for directory in resolve_partial_dir(&cwd.join(dir_trimmed)) {
+        let displayed = if absolute {
+            directory.as_path()
+        } else {
+            directory.strip_prefix(&cwd).unwrap_or(&directory)
+        };
+        let Some(displayed) = displayed.to_str() else {
+            continue;
+        };
         let start = comp.entries.len();
-        complete_in_dir(&rdir, prefix, dirs_only, &mut comp);
+        complete_in_dir(displayed, prefix, dirs_only, &mut comp);
         let count = comp.entries.len() - start;
         if count > 0 {
-            groups.push((format!("{rdir}/"), start, count));
+            groups.push((format!("{displayed}/"), start, count));
         }
     }
     (comp, groups)
@@ -716,124 +726,52 @@ fn is_dir(path: &str) -> bool {
     rc == 0 && st.st_mode & libc::S_IFMT == libc::S_IFDIR
 }
 
-/// Recursively resolve a directory path where each component is a prefix.
-/// e.g., "/home/user/de" → ["/home/user/dev", "/home/user/Desktop", ...]
-fn resolve_partial_dir(dir: &str) -> Vec<String> {
-    // This picker-side walk also keeps libc to preserve stack-buffer behavior.
-    let dir = dir.trim_end_matches('/');
-    if dir.is_empty() {
+const PARTIAL_DIRECTORY_LIMIT: usize = 64;
+
+/// Resolves a directory path where each component is a prefix, e.g.
+/// "/home/user/de" → ["/home/user/Desktop", "/home/user/dev"]. Each component
+/// keeps at most the first `PARTIAL_DIRECTORY_LIMIT` directories in path
+/// order, bounded while the directory is read.
+fn resolve_partial_dir(path: &std::path::Path) -> Vec<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    if path.is_dir() {
+        return vec![path.to_path_buf()];
+    }
+    let (Some(parent), Some(component)) = (path.parent(), path.file_name()) else {
         return Vec::new();
-    }
-
-    // Base: if it exists as a directory, return it
-    if is_dir(dir) {
-        return vec![dir.to_string()];
-    }
-
-    // Split parent / component
-    let (parent, component) = match dir.rfind('/') {
-        Some(0) => ("/", &dir[1..]),
-        Some(i) => (&dir[..i], &dir[i + 1..]),
-        None => (".", dir),
     };
-
-    if component.is_empty() {
-        return Vec::new();
-    }
-
-    let comp_bytes = component.as_bytes();
-
-    // Recursively resolve parent
-    let parents = resolve_partial_dir(parent);
-
-    let mut results = Vec::new();
-    for p in &parents {
-        // Open directory with libc
-        let p_bytes = p.as_bytes();
-        let mut dir_buf = [0u8; 4096];
-        if p_bytes.len() >= dir_buf.len() {
+    let mut directories = Vec::new();
+    for parent in resolve_partial_dir(parent) {
+        let remaining = PARTIAL_DIRECTORY_LIMIT - directories.len();
+        let Ok(entries) = std::fs::read_dir(parent) else {
             continue;
-        }
-        dir_buf[..p_bytes.len()].copy_from_slice(p_bytes);
-        dir_buf[p_bytes.len()] = 0;
-
-        let dp = unsafe { libc::opendir(dir_buf.as_ptr() as *const libc::c_char) };
-        if dp.is_null() {
-            continue;
-        }
-
-        // Stack buffer for "parent/name\0" for stat
-        let mut path_buf = [0u8; 4096];
-        let prefix_len = if p == "." {
-            0
-        } else {
-            let len = p_bytes.len();
-            path_buf[..len].copy_from_slice(p_bytes);
-            if p_bytes.last() != Some(&b'/') {
-                path_buf[len] = b'/';
-                len + 1
-            } else {
-                len
-            }
         };
-
-        loop {
-            let ent = unsafe { libc::readdir(dp) };
-            if ent.is_null() {
-                break;
-            }
-            let name_cstr = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
-            let name_bytes = name_cstr.to_bytes();
-
-            if name_bytes == b"." || name_bytes == b".." {
+        let mut nearest = std::collections::BinaryHeap::with_capacity(remaining + 1);
+        for entry in entries.flatten() {
+            if !entry
+                .file_name()
+                .as_bytes()
+                .starts_with(component.as_bytes())
+            {
                 continue;
             }
-            if !name_bytes.starts_with(comp_bytes) {
+            let path = entry.path();
+            let beyond_budget = nearest.len() == remaining
+                && nearest.peek().is_some_and(|largest| &path >= largest);
+            if beyond_budget || !path.is_dir() {
                 continue;
             }
-            if name_bytes.first() == Some(&b'.') && !comp_bytes.starts_with(b".") {
-                continue;
-            }
-
-            // stat to check if it's a directory
-            let total = prefix_len + name_bytes.len();
-            if total >= path_buf.len() {
-                continue;
-            }
-            path_buf[prefix_len..total].copy_from_slice(name_bytes);
-            path_buf[total] = 0;
-
-            let mut st: libc::stat = unsafe { std::mem::zeroed() };
-            if unsafe { libc::stat(path_buf.as_ptr() as *const libc::c_char, &mut st) } != 0 {
-                continue;
-            }
-            if st.st_mode & libc::S_IFMT != libc::S_IFDIR {
-                continue;
-            }
-
-            let name = match std::str::from_utf8(name_bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-
-            if p == "/" {
-                results.push(format!("/{name}"));
-            } else if p == "." {
-                results.push(name.to_string());
-            } else {
-                results.push(format!("{p}/{name}"));
+            nearest.push(path);
+            if nearest.len() > remaining {
+                nearest.pop();
             }
         }
-
-        unsafe { libc::closedir(dp) };
-
-        // Cap expansion to avoid combinatorial explosion
-        if results.len() > 64 {
-            results.truncate(64);
+        directories.extend(nearest.into_sorted_vec());
+        if directories.len() == PARTIAL_DIRECTORY_LIMIT {
             break;
         }
     }
-    results
+    directories
 }
 
 /// Case-insensitive substring search: does `haystack` contain `needle`?
@@ -1230,17 +1168,32 @@ mod tests {
 
     #[test]
     fn partial_path_resolves_this_repo() {
-        let resolved = resolve_partial_dir("sr");
+        let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let resolved = resolve_partial_dir(&crate_dir.join("sr"));
         assert!(
-            resolved.iter().any(|d| d == "src"),
+            resolved.contains(&crate_dir.join("src")),
             "expected 'src' in {resolved:?}"
         );
     }
 
     #[test]
-    fn partial_path_two_levels() {
-        let resolved = resolve_partial_dir("sr");
-        assert!(!resolved.is_empty());
+    fn partial_directory_resolution_keeps_the_first_sorted_directories_within_budget() {
+        let root = std::env::temp_dir().join(format!("xshi-partial-budget-{}", std::process::id()));
+        for branch in 0..70 {
+            for leaf in 0..2 {
+                std::fs::create_dir_all(root.join(format!("branch{branch:02}/sub{leaf}"))).unwrap();
+            }
+        }
+        let resolved = resolve_partial_dir(&root.join("br"));
+        let expected: Vec<_> = (0..PARTIAL_DIRECTORY_LIMIT)
+            .map(|branch| root.join(format!("branch{branch:02}")))
+            .collect();
+        assert_eq!(resolved, expected);
+        let nested = resolve_partial_dir(&root.join("br/su"));
+        assert_eq!(nested.len(), PARTIAL_DIRECTORY_LIMIT);
+        assert_eq!(nested.first(), Some(&root.join("branch00/sub0")));
+        assert_eq!(nested.last(), Some(&root.join("branch31/sub1")));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
