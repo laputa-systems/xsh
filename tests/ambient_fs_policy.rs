@@ -146,6 +146,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "filesystem module is the boundary for ambient fs APIs",
     ),
     (
+        "src/modules/fs/scan.rs",
+        "filesystem scan is an ambient fs API over caller-supplied paths after filesystem-effect admission",
+    ),
+    (
         "src/modules/fs/control.rs",
         "filesystem control primitives operate on caller-supplied paths",
     ),
