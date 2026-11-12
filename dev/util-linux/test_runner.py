@@ -26,6 +26,15 @@ class ContainerTests(unittest.TestCase):
         handle.start()
         self.addCleanup(handle.stop)
 
+    def test_container_uses_the_pinned_image_id(self):
+        with patch("check.subprocess.run", side_effect=[
+            subprocess.CompletedProcess([], 0, b"result", b""),
+            subprocess.CompletedProcess([], 0, b"removed", b""),
+        ]) as run:
+            self.assertEqual(check.container("printf result"), b"result")
+        self.assertEqual(run.call_args_list[0].args[0][-4:],
+                         [check.IMAGE_ID, "sh", "-ec", "printf result"])
+
     def test_cleanup_failure_cannot_qualify_success(self):
         with patch("check.subprocess.run", side_effect=[
             subprocess.CompletedProcess([], 0, b"result", b""),

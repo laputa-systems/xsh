@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "dev/consolidation"))
 from native_image import IMAGE_ID
 
-IMAGE = "xsh-test@" + IMAGE_ID
+IMAGE = IMAGE_ID
 COHORT = ("lslocks", "lsipc", "lsmem", "mountpoint", "namei")
 PACKAGE_COMMIT = "087ea48145e24307010ba91f403c5ff8f402568c"
 PRODUCT_SOURCE = "57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1"
