@@ -16,7 +16,7 @@ instructions and open items.
 | 1 | G0 release candidate | done | [G0](#g0-release-candidate) | Tagged `xsh-g0-rc1` at `b268b5007`. |
 | 2 | Pyramid: scoped verification | done | [Testing](TESTING.md#gates), [Release engineering](RELENG.md#historical-p0-product-sizes) | Closed 2026-10-29. Historical P0 measurements used O3 products. |
 | 3 | Inference: general type, row, and effect inference | done, residuals accepted | [Inference evidence](PERFORMANCE-INFERENCE.md#campaign-close) | Closed at `73b59f11d`; later repairs raise the core sites that erase alone to 4,670 of 4,677, with 246 of 250 joint views passing. The residual is XSH-66. |
-| 4 | Lean: connected compiler proof | restarted 2026-11-03 | [xsh-lean.md](../xsh-lean.md) | The vertical covers integer parameters, calls, conditionals and one plain assignment. The Lean lowerer is proved for its admitted shape. CERT-FACTS validates fact documents projected from checker output for two fixtures. Eighteen finite Rust cases passed at the integrated source freeze; see the live doc's Status. |
+| 4 | Lean: connected compiler proof | active; full-core obligations open | [xsh-lean.md](../xsh-lean.md), [formal inventory](../formal/coverage.json) | The shared type/value foundation and membership decision exist. Connect the production membership operation through the first [functional-core pilot](#internal-functional-cores), alongside the existing source/facts/IR work. All 77 universal obligations remain planned; model proofs and finite bridge cases do not close them. |
 | 5 | Performance and deployment | deferred until the rest of the backlog is done | [TODO.md](../TODO.md) | Current-source qualification is XSH-3; XSH-1, XSH-14 and XSH-19 remain open. Timed gates are deferred by owner choice. |
 | 6 | Deser cutover | current-source qualification active | [SPEC](SPEC.md#structured-text-codecs), [DESIGN.md](DESIGN.md) | Historical Linux functional run on 2026-11-03: Deser crate suites, codec, JSON, INI, CSV, TOML and YAML modules, and a full native run (15,243 passed, 11 host-environment failures that pass in the pinned `xsh-test` container, 152 skipped). Laputa's network plan input is the strict-consumer proof (former XSH-41): exact validation, with a related `require` repair here. Native macOS qualification is deferred by the owner; no macOS host is available. Current-source S6 runtime, startup and build CPU-time qualification remains open. |
 | 7 | Supervised DHCPv4 and syslog (XSH-53, XSH-54) | done | [Core commands](CORE.md), [qualification evidence](TESTING.md#dhcp-client) | Roll out the existing services through Laputa's packages and xinit; re-qualify the selected XSH products, not a new DHCP/logging implementation. |
@@ -24,6 +24,7 @@ instructions and open items.
 | 9 | SSH-native remote XSH: native client (XSH-55), xsh-infra (XSH-56) | Linux implementations delivered; qualification open | [Remote XSH](#ssh-native-remote-xsh), [XSH-55 RFC](rfc/XSH-55-native-ssh-client.md), [XSH-56 RFC](rfc/XSH-56-xsh-infra.md) | XSH-55 delivered the native client, `known_hosts` and ssh-agent trust, hybrid post-quantum key exchange, rekeying in both directions, typed `SshError` outcomes and a loopback OpenSSH fixture, and Laputa's R6 library administers one headless x86-64 VM over it (see the RFC's audit). An internal source review on 2026-11-05 fixed five protocol and cancellation defects and ran the client suite on glibc and musl; a second round fixed seven further risks and reran the suite on glibc only. Open: native macOS qualification (deferred by the owner), an independent protocol and security review before any claim beyond experimental, the review's remaining risks (unwiped SHA-256 contexts in the vendored Graviola, and a writer that never returns keeping `exec_stream` from returning), environment and working-directory options in Laputa's `remote_run`, and an acknowledged remote cancellation action. xsh-infra's remote execution is complete only over this client. |
 | 10 | Archive and compression consolidation (XSH-57) | implemented; qualification gaps open | [SPEC](SPEC.md#15-standard-modules), [testing evidence](TESTING.md#archive-and-compression) | Laputa call sites migrated. Open: macOS and privileged coverage and built-in enum pattern matching; `xsht api enum:NAME` lists variants. Revisit ZIP creation and repacking if a caller needs them. |
 | 11 | Syntax consolidation without feature removal | done | [SYNTAX-AUDIT.md](SYNTAX-AUDIT.md) | Every decided removal and reservation landed; see the audit's [Phase B status](SYNTAX-AUDIT.md#phase-b-status) and [final metrics](SYNTAX-AUDIT.md#final-metrics). |
+| 12 | Internal functional cores | planned; pilots first | [Sequence and acceptance](#internal-functional-cores) | Start structural membership correspondence and supplied-time deadline selection under separate ownership. Require production use, a named formal relation, and removed complexity before expanding to cleanup and unwinding. |
 
 When inference changes a Pyramid input or contract, rerun the affected checks.
 Lean's source-bound correspondence uses the qualified source available after
@@ -32,6 +33,154 @@ remain distinct evidence.
 
 The Deser cutover remains in place. Its performance thresholds are open; the
 earlier waiver is not a pass. Native macOS qualification remains deferred.
+
+## Internal functional cores
+
+**Status: planned.** Make small semantic functions and explicit state
+transitions an organizing principle inside the implementation. Semantic
+functions receive their operands, relevant state, and observations explicitly.
+Adapters acquire observations, perform host operations, and attach diagnostics
+and source blame. Owned mutable storage remains an implementation choice.
+
+The source basis is the owner's assessment of SX
+[`9e9e4e5`](https://github.com/joshuarli/sx/tree/9e9e4e5bf3fcb834748eafedd227e22f5c95b527)
+and XSH `ed917341e`, rechecked against the current implementation. SX's
+[core/capability boundary](https://github.com/joshuarli/sx/blob/9e9e4e5bf3fcb834748eafedd227e22f5c95b527/docs/ROADMAP.md#rules-for-every-campaign)
+and [request/response machine](https://github.com/joshuarli/sx/blob/9e9e4e5bf3fcb834748eafedd227e22f5c95b527/rust/sx-kernel/src/machine.rs)
+are useful patterns. Its native cores remain trusted implementations, and
+its mutation lowering admits fewer aliasing and escape cases than XSH.
+Adopt explicit semantic dependencies while preserving XSH's language contract.
+
+Use [`duration.rs`](../src/duration.rs) as the implementation template:
+typed operands, explicit results and semantic errors, one decision shared by
+constant preparation and execution, and thin runtime adapters. Keep components
+internal modules. The [existing architecture](ARCHITECTURE.md#packages) governs
+whether a later concrete consumer justifies a separate crate.
+
+### Sequence and ownership
+
+Continue full Linux and Asterinas native qualification as a separate gate.
+Start each pilot from an identified source freeze after its focused baseline
+passes. Qualification repairs and test-cost work can continue independently;
+partial runs cannot become a passing baseline. Performance, deployment, and
+owner-deferred platform work keep their existing scope and gates.
+
+| Order | Work | Boundary and owner | Completion condition |
+|---|---|---|---|
+| 1A | Structural membership correspondence | `src/runtime/eval/type_view.rs`, its production adapters, and `formal/Xsh/Core/Membership*.lean` | A declared common domain, explicit retained-contract assumptions, and evidence connecting the production decision to the independent Lean judgment. |
+| 1B | Deadline selection | Deadline handling in `src/runtime/eval.rs` and native `within` behavior | A production selection function takes supplied monotonic time; deterministic policy checks and real adapter checks preserve ordering and delivery behavior. |
+| 2 | Arithmetic/validation and effect algebra | Existing semantic owners, including `src/duration.rs` and `src/sema/effects.rs` | Share demonstrably duplicated decisions and formalize existing relations without moving already functional code merely for uniformity. |
+| 3 | Cleanup and unwinding | `CleanupGroup` in the explicit runner | After both pilots meet their acceptance criteria, isolate action selection and error precedence before considering wider scheduling or resource transitions. |
+
+Pilots 1A and 1B may proceed in parallel with separate ownership. Neither
+requires completion of the other's implementation. Cleanup depends on their
+accepted boundary discipline, including deadline shielding. It does not require
+a blanket arithmetic or effect-system rewrite.
+
+### Pilot 1A: structural membership
+
+Specify the admitted value views and closed, non-recovery type constructors
+before changing code. Start with structural families already represented in
+both implementations. State exact acceptance, rejection, and unsupported cases,
+including scalar distinctions, key restrictions, record fields, and nominal
+identity where admitted. Extend the domain deliberately after the first link.
+
+Preserve borrowed `ValueView` access across runtime, lowered, and computed-field
+representations. Keep the existing allocation boundary: no second generic value
+tree, record materialization, value cloning, or stream pulling to make the
+formal interface convenient. Production argument/result validation must use
+the same decision being compared; a test-only reimplementation is insufficient.
+
+Document each production route's interpretation of retained stream, callable,
+scheme, generic, and environment-path contracts. The Rust callback and Lean
+`ContractDecisions` must refer to corresponding facts. Name the validity and
+preservation assumptions, and distinguish those assumptions from discharged
+properties. Rust's permissive `Unknown` and `Invalid` recovery cases stay
+outside the initial non-recovery correspondence domain.
+
+Membership, schema conversion, and callable/module authentication retain
+separate meanings. Inspect schema decoding's `&Evaluator` dependency and
+narrow it only when its actual immutable requirements can be named. A broad
+shared reference alone is not evidence of effects.
+
+Relate the admitted Rust inputs and results to `Membership.value` and
+`Membership.check_iff`. Compare acceptance and rejection through the production
+operation, include rejected corruptions, and minimize counterexamples. State
+unsupported cases explicitly. Finite differential agreement is implementation
+evidence; the existing Lean decision theorem proves agreement with its own
+judgment and does not by itself establish Rust correspondence or TYPE-MEMBER.
+
+### Pilot 1B: supplied-time deadline selection
+
+Begin with the selection rule over borrowed deadline state and supplied time.
+The evaluator retains clock acquisition, source-attributed timeout construction,
+and delivery through its existing checkpoints. Establish the monotonic-time
+abstraction and state relation explicitly. `BaseMachine`'s host-request/resume
+pattern is a template, not an existing proof of `Instant` deadline behavior.
+
+Require deterministic checks for unexpired scopes, earliest eligible expiry,
+outermost ordering on equal deadlines, delivered entries, and closed scopes.
+State the selection invariants in Lean against that abstraction, and identify
+whether Rust agreement is proved or covered only by conformance evidence.
+Preserve deadline identity and order through rearming and cleanup shielding and
+restoration. Keep clock-domain, unit, and representability boundaries explicit;
+coordinate their host qualification with [XSH-35](../TODO.md#xsh-35--p2--qualify-clock-domains-and-deadline-conversions).
+
+Retain native `within` tests for real sleeps, child cancellation, stream and
+worker checkpoints, swallowed interruptions, and cleanup. Those tests establish
+adapter behavior that supplied-time decision tests cannot. Expand into a full
+state/event transition component only when selection extraction simplifies the
+implementation. Do not add a universal request interpreter or serialized action
+object to ordinary synchronous operations.
+
+### Follow-up boundaries
+
+Arithmetic and validation follow the duration pattern where two production
+routes currently decide the same meaning. Effect work should preserve unknown
+versus known-empty contracts, exact inclusion versus permission coverage,
+concrete versus unresolved symbolic contributions, and error capture that
+retains other contributions. The existing effect algebra may need no physical
+extraction; connect its exact relations instead.
+
+For cleanup, first make the next action and failure disposition explicit.
+Preserve reverse defer order, changing `errdefer` eligibility, managed-release
+behavior, primary versus secondary errors, original exits and tracebacks,
+forced cancellation, and deadline shielding. The runner still executes deferred
+expressions and owns actual resources. Expand into frame scheduling or resource
+transfer only when the initial boundary removes complexity.
+
+### Acceptance and proof limits
+
+Each pilot must deliver all four outcomes:
+
+1. Inputs and types expose a smaller dependency surface, with observations
+   supplied at a visible boundary.
+2. A real production path uses the semantic function, and any superseded
+   decision is removed.
+3. Record the formal connection in the existing [inventory](../formal/coverage.json)
+   and its owner documentation: model, property, admitted domain, implementation
+   relation, evidence, and remaining assumptions. Keep one proof inventory.
+   Keep model proofs, artifact certificates, Rust evidence, and external host
+   assumptions distinct. Partial pilots close none of the 77
+   universal rows unless the existing whole-core closure rule is met.
+4. A before/after comparison shows removed duplication, a narrower context,
+   less fixture setup, or fewer route-specific cases. Moving files or adding
+   another wrapper alone does not meet this requirement.
+
+Keep Lean meaning independent of Rust layout and preserve the
+[six-layer contract](../xsh-lean.md#layers-and-representation). State refinement
+may permit several implementation steps per semantic step while preserving
+observable outcomes. Independent verifier authentication remains a trust
+boundary rather than duplicated decision logic to delete.
+
+Preserve practical mutation and exact evaluation order. In particular, compound
+assignment reads the target after evaluating its right-hand side and commits
+nothing on a failed update. Account for failure and divergence when considering
+rewrites. A proc's empty effect bound does not imply purity: `print` and `eprint`
+remain observable despite requiring no effect. No persistent-collection mandate,
+new language syntax, public API, or application-policy subsystem follows from
+this implementation work. Pure administration and service policy stay in
+ordinary XSH libraries over narrow host operations.
 
 ## SSH-native remote XSH
 
