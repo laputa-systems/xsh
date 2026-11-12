@@ -86,7 +86,8 @@ test test_needless_list_annotations_are_reported { |ctx|
 
 test test_needless_export_str_annotation_has_a_fix { |ctx|
   let root = test.temp_dir(ctx, name: "needless-export")?
-  assert_annotations_removed(fp"{root}/case.xsh", "export let rel: Str = \"1\"\n", "export let rel = \"1\"\n", 1)
+  let docs = "##! Export annotation fixture.\n## The release label.\n"
+  assert_annotations_removed(fp"{root}/case.xsh", docs + "export let rel: Str = \"1\"\n", docs + "export let rel = \"1\"\n", 1)
 }
 
 # The annotation is what gives a dynamic method result its type, so it is not
