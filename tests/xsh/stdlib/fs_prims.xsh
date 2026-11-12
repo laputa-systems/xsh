@@ -617,7 +617,6 @@ test test_copy_file_reflink_clones_or_fails_with_an_errno { |ctx|
       assert fallback.reflink_error == null
     }
     assert ! strict.exists()?
-    test.skip("the filesystem cannot clone files")
   }
 }
 

@@ -138,7 +138,6 @@ export const lane_exclusions: List[Exclusion] = [
     "core/tests/test-uu-dd-2.xsh::test_uu_dd_seek_past_dev",
     "core/tests/test-uu-dd-2.xsh::test_uu_dd_skip_past_dev",
     "core/tests/test-uu-mv-1.xsh::test_uu_mv_acl",
-    "tests/xsh/stdlib/fs_prims.xsh::test_copy_file_reflink_clones_or_fails_with_an_errno",
   ]),
   Exclusion(missing: "real root with network administration and dnsmasq, which the confined lane root lacks", tests: [
     "core/tests/test-dhcp-reference.xsh::test_dnsmasq_offers_and_acknowledges_the_clients_request_and_both_captures_agree",
