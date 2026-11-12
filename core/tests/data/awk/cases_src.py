@@ -522,7 +522,7 @@ group("num", [
     ("negative_index", 'BEGIN { a[-1] = 5; print a[-1], (-1 in a), ("-1" in a) }'),
     ("large_loop", 'BEGIN { for (i = 0; i < 20000; i++) s += i; print s }'),
     ("fp_loop", 'BEGIN { for (x = 0; x < 1; x += 0.1) n++; print n }'),
-    ("timestamp_funcs_exist", 'BEGIN { t = systime(); print (t > 1000000000) }'),
+    ("timestamp_funcs_exist", 'BEGIN { print typeof(systime()) }'),
     ("strftime_fixed", 'BEGIN { print strftime("%Y-%m-%d %H:%M:%S", 0, 1) }'),
     ("mktime_fixed", 'BEGIN { print mktime("2020 01 01 00 00 00") > 0 }'),
     ("gensub_basic", 'BEGIN { print gensub(/(a)(b)/, "\\\\2\\\\1", "g", "abab") }'),

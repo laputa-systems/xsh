@@ -1,3 +1,13 @@
+test test_awk_systime_uses_kernel_epoch_seconds { |ctx|
+  let before = time.now() / 1000
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { printf "%.0f\n", systime() }"""
+  let after = time.now() / 1000
+  let lower = if before < after { before } else { after }
+  let upper = if before > after { before } else { after }
+  let actual = output.trim().parse_int()?
+  assert actual >= lower and actual <= upper, f"systime {actual} is outside kernel epoch seconds {lower}..{upper}"
+}
+
 test test_awk_fields_begin_end_and_precedence { |ctx|
   let input = test.temp_file(ctx, name: "table", contents: b"one 2\ntwo 3\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { print "start" } { total += $2; print NR, $1, 2+3*4 } END { print total }""" $input

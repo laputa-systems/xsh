@@ -24,7 +24,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
-ORACLE = os.path.join(ROOT, "dev", "compat", "oracle.sh")
+ORACLE = os.path.join(ROOT, "dev", "reference", "oracle.sh")
 XSH = os.environ.get("XSH_BIN", os.path.join(ROOT, "target", "release", "xsh"))
 
 MATRIX_SHARD_SIZE = 8
