@@ -566,7 +566,7 @@ theorem atoms_lower {cs : List (Option Callee)} {scope : List (String × Nat)} :
       exact ReadsAll.cons (lowers.reads (le.trans leF)) (reads F leF)
 
 /-- The lowered functions and the source callees describe the same earlier functions: the same
-names in the same order, a callee form exactly for the functions without a let, and the
+names in the same order, a callee form exactly for the functions marked callable, and the
 parameter count the function row records. -/
 def Aligned (s : LoweringState) (src : List (String × Option Callee)) : Prop :=
   s.functions.map (·.name) = src.map (·.1) ∧ s.callable = src.map (fun entry => entry.2.isSome) ∧
@@ -1663,8 +1663,8 @@ theorem function_lowers_assigned {src : List (String × Option Callee)} {f : Sou
                 valueBefore assignBoundF valueReads at_ before bound' rd)
             tail
         refine ⟨⟨0, [⟨⟨letSlot, by decide⟩, .integerLiteral bound.val⟩], some ⟨⟨letSlot, by decide⟩, ae⟩, none, e⟩,
-          row, ?_, by simp [FunctionProgram.callee?, SourceFunction.callable, assigned,
-            literal_binding_some hbound], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
+          row, ?_, by simp [FunctionProgram.callee?, assignedCallee?, SourceFunction.callable,
+            LetBinding.literalInt?, validate_int_value hbound, hbound], rfl, ?_, ?_, ?_, wf', hname, hparams, reads⟩
         · simp [SourceFunction.program?, SourceFunction.assignment?, hscope, hbound, hsrcAssign, hsrc,
             hslot]
         · rw [fa, assignFa, frame2.1, frame1.1]
@@ -2014,8 +2014,39 @@ theorem callee_parameters {program : FunctionProgram} {callee : Callee}
     (found : program.callee? = some callee) : callee.parameters = program.parameters := by
   unfold FunctionProgram.callee? at found
   split at found
-  · split at found <;> (simp only [Option.some.injEq] at found; subst found; rfl)
+  · cases assignment : program.assignment with
+    | none =>
+      simp only [assignment] at found
+      split at found <;> (simp only [Option.some.injEq] at found; subst found; rfl)
+    | some assignment =>
+      simp only [assignment] at found
+      unfold assignedCallee? at found
+      split at found
+      · split at found
+        · split at found
+          · obtain ⟨initial, _, equality⟩ := Option.map_eq_some_iff.mp found
+            subst equality
+            rfl
+          · simp at found
+        · simp at found
+      · simp at found
   · simp at found
+
+
+theorem assigned_literal_call_begins_with_the_assignment (slot : Word32) (initial : IntValue)
+    (assigned returned : BaseExpr)
+    (valid : (⟨slot, .integerLiteral initial.val⟩ : LetBinding).literalInt? = some initial) :
+    let callee : Callee :=
+      ⟨0, returned, [⟨slot, substitute [(NameId.mk slot, initial)] assigned⟩]⟩
+    (⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none,
+      returned⟩ : FunctionProgram).callee? = some callee ∧
+    step (machineOf [] (callee.apply [])) =
+      some { machineOf [] (substituteExpressions [] (substitute [(NameId.mk slot, initial)] assigned))
+        with continuation := [.callArgument [NameId.mk slot] returned [] []] } := by
+  constructor
+  · exact assigned_literal_function_is_callable slot initial assigned returned valid
+  · rfl
+
 
 theorem lower_all :
     ∀ (functions : List SourceFunction) {s s' : LoweringState}

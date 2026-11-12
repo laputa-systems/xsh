@@ -10935,7 +10935,7 @@
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
       "scope": "For every list of parsed source functions in the admitted shape and every span words list, when the Lean lowerer succeeds the base-machine program each emitted function row denotes equals the program the source function denotes, function by function.",
-      "boundary": "A theorem about the Lean lowerer and the Lean source meaning. It does not show that Rust's lowerer emits the same rows on other programs, that Rust's parser reads the source as this tree, or that Rust executes the rows. A call to a function with a let or a var is outside the lowered shape, as are compound assignments, which Rust lowers through another row family."
+      "boundary": "A theorem about the Lean lowerer and the Lean source meaning. It does not show that Rust's lowerer emits the same rows on other programs, that Rust's parser reads the source as this tree, or that Rust executes the rows. Calls may carry admitted literal or computed lets and a nullary callee's assignment to its one literal binding. Parameterized assigned callees and compound assignments remain outside the lowered shape; Rust lowers compound assignments through another row family."
     },
     {
       "id": "fragment.Xsh.Conformance.Vertical.lowers_to_means_the_source",

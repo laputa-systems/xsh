@@ -1498,6 +1498,50 @@ mod tests {
     }
 
     #[test]
+    fn assigned_local_calls_preserve_updated_values_and_unused_assignment_faults() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/formal/tests/fixtures/assigned-calls.xsh"
+        ));
+        assert_eq!(lean_document("assignedCallsSourceTextCodes").as_deref(), Some(source));
+        let schedule = [
+            ScheduledCall { function: "scaled", arguments: &[] },
+            ScheduledCall { function: "runs", arguments: &[0] },
+            ScheduledCall { function: "ignored", arguments: &[] },
+            ScheduledCall { function: "fails", arguments: &[0] },
+        ];
+        let fixture = fixture_of(source.to_string(), &schedule);
+        assert_eq!(
+            fixture.document.observations.iter().map(|observation| observation.outcome)
+                .collect::<Vec<_>>(),
+            [Outcome::Value(31), Outcome::Value(31),
+                Outcome::Failure(ProjectedFailure::DivisionByZero),
+                Outcome::Failure(ProjectedFailure::DivisionByZero)]
+        );
+        for (caller, target) in [("runs", "scaled"), ("fails", "ignored")] {
+            let statements = function_body_statements(&fixture, caller);
+            assert_eq!(statements.len(), 1);
+            let returned = fixture.document.payload(&fixture.document.rows[statements[0]]).unwrap()[0];
+            let call = &fixture.document.rows[returned as usize];
+            assert_eq!(call.tag, ProjectedTag::ExprDirectPureCall);
+            let payload = fixture.document.payload(call).unwrap();
+            let callee = &fixture.document.functions[payload[0] as usize - 1];
+            assert_eq!(callee.name, target);
+            assert_eq!(callee.params_len, 0);
+        }
+        let mut changed = fixture.program.clone();
+        let division = changed.store.binary_ops.iter().position(|op| *op == BinaryOp::Div).unwrap();
+        changed.store.binary_ops[division] = BinaryOp::Add;
+        FullVerifier::verify(&changed).expect("the assigned sum remains well typed");
+        let observed = execute_schedule(&changed, &fixture.sources, &schedule).unwrap();
+        assert_eq!(observed[2].outcome, Outcome::Value(7));
+        assert_eq!(observed[3].outcome, Outcome::Value(7));
+        assert!(check_artifact_against_program(
+            &fixture.document, &changed, &fixture.parsed.arena, &fixture.sources, &schedule,
+        ).is_err());
+    }
+
+    #[test]
     fn structurally_malformed_assignments_are_rejected() {
         let fixture = fixture_of(ASSIGNMENTS_SOURCE.to_string(), &ASSIGNMENTS_SCHEDULE);
         let assignment_row = fixture

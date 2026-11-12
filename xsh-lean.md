@@ -62,6 +62,17 @@ by that earlier binding's applied value, so the machine evaluates the earlier
 value again inside the later one; the admitted values are pure integer
 expressions, so that gives the same value and the same first failure as
 evaluating each binding once in order.
+Nullary callees may now assign their one validated literal binding. The callee carries the
+assigned expression as a binding evaluated before its return, after substituting the initial
+literal in that expression. `assigned_literal_function_is_callable` and
+`assigned_literal_call_begins_with_the_assignment` state this construction and its first machine
+step for arbitrary assigned and returned expressions; `lowering_means_the_source` remains
+universal over the admitted parsed functions. The assigned-call source fixture exercises a
+returned updated value and a failing assignment whose slot the return ignores. It adds no
+artifact certificate or frozen Rust-conformance ledger entry. A general operational equivalence
+between the normalized assigned callee and the direct assignment-settlement run remains open;
+the current general statements establish the callee construction, evaluation order and Lean
+source-to-IR program equality.
 The next widening is an error producer or a record local; each needs a new row
 form rather than another certificate-only check.
 The Rust bridge comparisons passed at the matching source freeze.
@@ -141,8 +152,9 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   earlier callable `Result[Int, Int]` function, a call of a function with one
   integer parameter and one integer literal let, a call of a function with one
   integer parameter and one computed let, and a call of a function with one
-  integer parameter and a sequence of computed lets are covered; a callee with
-  an assigned binding, a computed binding whose value has effects, an error
+  integer parameter and a sequence of computed lets, and a nullary callee assigning its one
+  literal binding are covered; an assigned callee with parameters, a computed binding whose
+  value has effects, an error
   producer and a record local are outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments or computed lets. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
@@ -1218,6 +1230,44 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   did before this entry: its frozen certificate set names six records and the
   inventory now holds eleven. A callee with an assigned binding, an error
   producer and a record local stay next.
+
+- 2026-11-12: The assigned-local and call paths compose in the Lean lowerer. A nullary
+  callee with one validated literal binding may assign that binding before returning. Its
+  callee form substitutes the initial literal in the assignment's right-hand expression and
+  carries the resulting expression as a call argument, so the assignment still evaluates
+  when the return ignores its slot. The universal lowering theorem retains its statement;
+  the general callee-construction and first-step theorems quantify over the expressions.
+  The shared source fixture checks updated returns and unused-assignment division failures,
+  and refuses wrong arity and forward calls. This adds no artifact certificate: all eleven
+  existing records and all 77 planned universal obligations remain. The baseline inventory
+  suite already names eleven certificates and passes all 71 tests, superseding the stale
+  six-certificate failure recorded in the preceding log entry. Parameterized assigned
+  callees, error producers, records, source admission, fact-to-IR consistency and full Rust
+  correspondence remain open. Operational equivalence between the normalized assigned callee
+  and direct assignment settlement is not proved in general; the shared fixture checks both
+  outcomes for its named functions.
+  Verification on `campaign/resume-lean` from `a44591b34`: the pinned 4.35.0 root build
+  completed 246 jobs, the transitive axiom audit passed for 28,010 declarations, and all six
+  audit controls were rejected. The installed toolchain reports commit
+  `eb6cafb7290e8bd5f2937522d8d804f58f02bafc` (`Release`). The inventory validator retains 91 owners, 961 fragment
+  roots, eleven certificates and 77 planned obligations. The Linux verification command
+  `cargo test --offline --locked -j 4 --profile verification --target
+  x86_64-unknown-linux-musl -p xsh --lib formal_bridge::arithmetic::tests:: -- --nocapture`
+  passed all 33 tests using immutable image
+  `sha256:2d6f716aada6a0161fbf11d9b1a53c16fbc7747ab95c1e339c6aefdc07a56911`.
+  Its new mutant changes `Div` to `Add`, passes `FullVerifier`, returns 7 in place of the
+  division failure on both direct and called paths, and fails artifact reproduction. These
+  runs used the resumed branch with this patch, not the frozen source revision, and add no
+  frozen `RUST_CONFORMANCE` record.
+  All six fresh paranoid kernels accepted the same root export (SHA-256
+  `71ae122fc12138b8bca4b35e72765368f00ad8eb6c4a8baff9f1f7b78b12aa4c`): Lean paranoid,
+  lean4lean (115,658 declarations), nanoda, con-leche and con-ron (115,661 each), and Lean
+  default. The final axiom report is exactly `propext`, `Quot.sound`, `Classical.choice`.
+  The replay kept the 8 GiB address-space cap and sandbox, with jobs limited to 2 for
+  con-leche and con-ron and an absolute Python interpreter in the adapter. Its operational
+  watchdog was 3,600 seconds; the initial 1,080-second aggregate watchdog expired during
+  active lean4lean checking, and imposed no logical proof bound. The replay retained the
+  frozen proof input and did not relax a kernel or an axiom check.
 
 ## For the owner afterwards
 

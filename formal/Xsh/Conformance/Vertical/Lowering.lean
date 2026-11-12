@@ -73,8 +73,8 @@ def SourceValue.expression? (scope : List (String × Nat)) : SourceValue → Opt
 /-- The base expression a source result denotes: a name resolves to its parameter or its let, a
 call carries the body of the earlier function it names, a conditional is a comparison with
 its two values, a comparison is its two atoms under the operation, and an assigned form is the
-value it returns. `callees` holds every earlier function with its callee form, which a function
-with a let does not have. -/
+value it returns. `callees` holds every earlier function with its callee form, including its admitted bindings
+and assignment. -/
 def SourceExpression.expression? (callees : List (String × Option Callee))
     (scope : List (String × Nat)) : SourceExpression → Option BaseExpr
   | .value single => single.expression? scope
@@ -121,10 +121,10 @@ def propagationProgram? (callees : List (String × Option Callee))
   let arguments ← propagation.arguments.mapM (·.expression? scope)
   some ⟨word, found.applyParameters, found.body, found.applyArguments arguments⟩
 
-/-- A function the lowerer records as directly callable: it has no propagation binding and no
-assignment, so the IR meaning reads it as a callee whose literal bindings are substituted. -/
+/-- A function the lowerer records as directly callable: it has no propagation binding. An
+admitted assignment evaluates its updated binding as a call argument. -/
 def SourceFunction.callable (function : SourceFunction) : Bool :=
-  function.propagation.isNone && !function.result.isAssigned
+  function.propagation.isNone
 
 /-- The bindings a computed-let sequence declares, in source order: each value reads the
 parameter and the bindings before it, and each binding takes the next slot from the start the

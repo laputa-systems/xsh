@@ -346,8 +346,8 @@ def statementRows? (artifact : RawArtifact) (tables : Tables) (function : Functi
   | [] => none
 
 /-- A function as the base machine runs it: its parameter count, its let bindings, at most one
-assignment or one propagation binding, and its returned expression. A function has parameters or
-lets, not both: the slot a let takes beside parameters is not among the observed rows. -/
+assignment or one propagation binding, and its returned expression. Parameters take the first
+slots, and bindings use the slots recorded in their declaration rows. -/
 structure FunctionProgram where
   parameters : Nat
   bindings : List LetBinding
@@ -365,20 +365,45 @@ def functionProgram? (artifact : RawArtifact) (callees : List (Option Callee))
   let (bindings, assignment, propagation, expression) ← body? (artifact.context callees) statements
   pure ⟨function.paramsLen.val, bindings, assignment, propagation, expression⟩
 
-/-- The callee form of a function without an assignment or a propagation: its parameter count, its
-body, and its bindings. A literal binding is substituted for its slot, since its value has no
-evaluation to preserve. A computed binding is carried with the callee and applied by the call,
-which evaluates it once in argument order, so a call of such a function binds what the let binds. -/
-def FunctionProgram.callee? (program : FunctionProgram) : Option Callee :=
-  if program.assignment.isNone && program.propagation.isNone then
-    if program.bindings.all (fun binding => binding.literalInt?.isSome) then
-      some ⟨program.parameters,
-        substitute (program.bindings.filterMap fun binding =>
-          binding.literalInt?.map fun value => (NameId.mk binding.slot, value))
-          program.expression, []⟩
-    else
-      some ⟨program.parameters, program.expression, program.bindings⟩
+/-- An assigned literal binding is evaluated as a call argument before the returned expression.
+The initial literal is substituted in the assigned value; the assigned value itself remains an
+expression, so an arithmetic failure is preserved even when the return does not read its slot. -/
+def assignedCallee? (program : FunctionProgram) (assignment : Assignment) : Option Callee :=
+  if program.parameters == 0 then
+    match program.bindings with
+    | [binding] =>
+      if binding.slot == assignment.slot then
+        binding.literalInt?.map fun initial =>
+          ⟨program.parameters, program.expression,
+            [⟨assignment.slot, substitute [(NameId.mk binding.slot, initial)] assignment.expression⟩]⟩
+      else none
+    | _ => none
   else none
+
+/-- The callee form of a function without propagation. Literal bindings are substituted, computed
+bindings are carried as call arguments, and a nullary function assigning its one literal binding
+carries the assigned value as its call argument. -/
+def FunctionProgram.callee? (program : FunctionProgram) : Option Callee :=
+  if program.propagation.isNone then
+    match program.assignment with
+    | some assignment => assignedCallee? program assignment
+    | none =>
+      if program.bindings.all (fun binding => binding.literalInt?.isSome) then
+        some ⟨program.parameters,
+          substitute (program.bindings.filterMap fun binding =>
+            binding.literalInt?.map fun value => (NameId.mk binding.slot, value))
+            program.expression, []⟩
+      else
+        some ⟨program.parameters, program.expression, program.bindings⟩
+  else none
+
+theorem assigned_literal_function_is_callable (slot : Word32) (initial : IntValue)
+    (assigned returned : BaseExpr)
+    (valid : (⟨slot, .integerLiteral initial.val⟩ : LetBinding).literalInt? = some initial) :
+    (⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none,
+      returned⟩ : FunctionProgram).callee? =
+      some ⟨0, returned, [⟨slot, substitute [(NameId.mk slot, initial)] assigned⟩]⟩ := by
+  simp [FunctionProgram.callee?, assignedCallee?, valid]
 
 /-- The programs of the functions in table order; a call may name only a function before the
 caller, so a function reads against the callees of the functions already read. -/

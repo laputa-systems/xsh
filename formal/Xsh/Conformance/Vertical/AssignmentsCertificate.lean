@@ -173,4 +173,42 @@ theorem a_wrong_assignments_lowering_is_rejected :
         ⟨"scaled", [], [("total", 5)], none, .value (.binary .add (.var "total") (.int 1))⟩) = false := by
   refine ⟨?_, ?_, ?_⟩ <;> decide +kernel
 
+def assignedCallFunctions : List SourceFunction :=
+  [⟨"scaled", [], [("total", 5)], none,
+      .assigned "total" (.binary .mul (.var "total") (.int 6))
+        (.binary .add (.var "total") (.int 1))⟩,
+    ⟨"runs", ["value"], [], none, .call "scaled" []⟩,
+    ⟨"ignored", [], [("zero", 0)], none,
+      .assigned "zero" (.binary .div (.int 1) (.var "zero")) (.atom (.int 7))⟩,
+    ⟨"fails", ["value"], [], none, .call "ignored" []⟩]
+
+set_option maxRecDepth 10000 in
+theorem assigned_call_source_parses :
+    parseSourceCodes assignedCallsSourceTextCodes = some assignedCallFunctions := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem assigned_call_functions_lower :
+    (lowerFunctions [1, 2, 3, 4, 5] assignedCallFunctions).isSome = true := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem assigned_calls_preserve_updated_values_and_unused_assignment_faults :
+    ((sourcePrograms assignedCallFunctions).map fun program =>
+      program.bind fun found => found.outcome? (if found.parameters == 0 then [] else [0])) =
+        [some (.value 31), some (.value 31), some (.failure .divisionByZero),
+          some (.failure .divisionByZero)] := by
+  decide +kernel
+
+set_option maxRecDepth 10000 in
+theorem assigned_calls_reject_wrong_arity_and_forward_calls :
+    (lowerFunctions [1, 2, 3] [⟨"scaled", [], [("total", 5)], none,
+      .assigned "total" (.binary .mul (.var "total") (.int 6))
+        (.binary .add (.var "total") (.int 1))⟩,
+      ⟨"runs", ["value"], [], none, .call "scaled" [.int 1]⟩]).isSome = false ∧
+    (lowerFunctions [1, 2, 3] [⟨"runs", ["value"], [], none, .call "scaled" []⟩, ⟨"scaled", [], [("total", 5)], none,
+      .assigned "total" (.binary .mul (.var "total") (.int 6))
+        (.binary .add (.var "total") (.int 1))⟩]).isSome = false := by
+  decide +kernel
+
 end Xsh.Conformance.Vertical
