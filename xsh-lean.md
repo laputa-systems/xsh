@@ -50,11 +50,19 @@ that parameter and literals, the lowerer emits the value as the integer-family
 form carries the binding so a call applies it, evaluating it once beside the
 parameter; the recorded calls are 14, 14 and -14. The substitution approach
 does not extend to computed values, so the base-machine binding is now an
-`BaseExpr` value and the callee's application supplies it.
+`BaseExpr` value and the callee's application supplies it. A ninth covers a
+sequence of computed lets: the admitted grammar takes one integer parameter and
+`let a = value + 4; let b = a * 2`, where a later binding reads the parameter
+and earlier bindings; the lowerer emits both integer-family values and their
+`StmtLetInt` bindings at slots 2 and 3 in source order, and the callee form
+carries both bindings so a call applies them in order; the recorded calls are
+13, 13 and -1. Applying a later binding replaces an earlier binding's slot by
+that earlier binding's applied value, which preserves meaning because the
+admitted binding values are pure.
 The next widening is an error producer or a record local; each needs a new row
 form rather than another certificate-only check.
 The Rust bridge comparisons passed at the matching source freeze.
-`artifact_certificates` holds ten ARTIFACT_CERTIFIED records, including the
+`artifact_certificates` holds eleven ARTIFACT_CERTIFIED records, including the
 scoped fact artifact whose final matching-freeze replay remains open. The original
 two source/IR certificates each cover their own pair of exchange
 documents: the six-function document, once decoded in one declaration,
@@ -96,7 +104,7 @@ core.
 `finite_conformance.cases` holds four Float equality tests and fourteen
 arithmetic and facts bridge tests, run once each against a verification
 `xsh`/`xsht` pair and `xsh` library test binary built fresh from that commit in
-the pinned container. `artifact_certificates` holds ten ARTIFACT_CERTIFIED
+the pinned container. `artifact_certificates` holds eleven ARTIFACT_CERTIFIED
 records, apart from the fragment roots; the scoped fact artifact still needs
 its final matching-freeze replay. Each
 fragment's exclusions are recorded beside its roots. `python3
@@ -110,10 +118,12 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   `formal-bridge-integer-calls.xsh`: `excess`, two integer parameters and a
   conditional on a comparison, and `surplus`, a `let` and a call of `excess`;
   `formal-bridge-integer-let-calls.xsh`: `bumps`, one integer parameter and
-  one literal `let`, and `runs`, which calls it on its parameter; and
+  one literal `let`, and `runs`, which calls it on its parameter;
   `formal-bridge-integer-computed-let-calls.xsh`: `scales`, one integer
   parameter and one computed `let`, and `runs`, which calls it on its
-  parameter) go
+  parameter; and `formal-bridge-integer-several-let-calls.xsh`: `scales`, one
+  integer parameter and two computed lets where the second reads the first,
+  and `runs`, which calls it on its parameter) go
   through a test-only exporter and decoder (`formal_bridge/arithmetic.rs`) that
   emit the real compiler's lowering. `Xsh.Conformance.Vertical.Certificate` and
   `...CallsCertificate` kernel-check that each source's bytes parse in an
@@ -126,10 +136,11 @@ formal/scripts/check-inventory.py` validates the inventory against this plan.
   records or a call of a Bool function, though a Bool-returning comparison of
   two atoms, `Result[Int, Int]` construction, one `?` binding of a call to an
   earlier callable `Result[Int, Int]` function, a call of a function with one
-  integer parameter and one integer literal let, and a call of a function with
-  one integer parameter and one computed let are covered; several lets, a
-  callee with an assigned binding, an error producer and a record local are
-  outside it. One plain integer assignment is modeled separately;
+  integer parameter and one integer literal let, a call of a function with one
+  integer parameter and one computed let, and a call of a function with one
+  integer parameter and a sequence of computed lets are covered; a callee with
+  an assigned binding, a computed binding whose value has effects, an error
+  producer and a record local are outside it. One plain integer assignment is modeled separately;
   CERT-FACTS does not admit assignments or computed lets. No CERT-SOUND validator exists, and
   execution of the IR by Rust is
   evidence only through the recorded runs.
@@ -1140,6 +1151,41 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   sandbox adapter plus `--tmpfs /run` and `--jobs=2` for both `con-leche` and
   `con-ron`, accepted the export. The audit and the fresh check ran through
   `/bin/bash` with the pinned 4.35.0 toolchain first. Several lets, an error
+  producer and a record local stay next.
+
+- 2026-11-12: Several computed lets. The admitted grammar now takes a function
+  of one integer parameter and a sequence of computed `let` lines, where each
+  value may read the parameter, integer literals and the bindings before it;
+  a forward, self or duplicate read and a parameter shadow are refused. The
+  nine test-only bridge fixture `formal-bridge-integer-several-let-calls.xsh`
+  (`scales`, `let a = value + 4; let b = a * 2`, returning `b - value`; `runs`)
+  records the calls 13, 13 and -1. The exporter places the parameter at slot 0
+  and the bindings at slots 2 and 3; `Lower.computedBindings` emits each value
+  in the integer family and its `StmtLetInt` before the return, and
+  `computedBindingsFrom?` gives the source meaning the same bindings in source
+  order. `Callee.applyArguments` and `FunctionProgram.machineWith` apply the
+  bindings in order, replacing an earlier binding's slot in a later value by
+  that earlier binding's applied value; that is sound because the admitted
+  values are pure, so the base machine evaluates each binding once as its own
+  call argument and the substitution only carries the value forward. The
+  universal outcome theorem is unchanged. `computed_bindings_lower` proves the
+  emitted rows read as the source bindings and
+  `computed_bindings_from_some` proves every emitted sequence has a source
+  meaning; `function_lowers_computedLets` composes them, and
+  `lowering_means_the_source` remains universal over the parsed functions. The
+  new `SeveralLetCertificate` certifies the pair and rejects a retargeted call,
+  a second binding read replaced by the parameter, reordered binding
+  statements, a swapped first operator (which stays well formed and computes
+  35 for `scales` on 5), wrong recorded outcomes, malformed rows, a changed
+  source and a wrong lowering. `artifact_certificates` now holds eleven. This
+  is a bounded artifact and a Lean-only theorem about the Lean lowerer: Rust's
+  parser reading and execution are evidence through the bridge run only, and
+  that run used this worktree's verification build rather than the frozen
+  commit, so it is not a `RUST_CONFORMANCE` case. The source document is 208
+  bytes and the raw-IR document is 3,043 bytes. The Rust bridge export
+  comparison requires the two Lean code lists to equal the exported bytes; the
+  four new bridge tests pass individually. The remaining gates and counts are
+  recorded here after they ran. A callee with an assigned binding, an error
   producer and a record local stay next.
 
 ## For the owner afterwards

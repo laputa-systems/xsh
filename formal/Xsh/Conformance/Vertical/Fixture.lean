@@ -253,4 +253,31 @@ def computedLetArtifact : RawArtifact where
     ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
       .value ⟨18446744073709551602, by decide⟩⟩]
 
+def severalLetSourceDocument : SourceDocument :=
+  ⟨bridgeId! 1,
+    "pure scales(value: Int) -> Int {\n  let a = value + 4\n  let b = a * 2\n  return b - value\n}\n\npure runs(value: Int) -> Int {\n  return scales(value)\n}\n"⟩
+
+def severalLetArtifact : RawArtifact where
+  sourceId := bridgeId! 1
+  rows := [⟨bridgeId! 1, .intSlot, 0, 1⟩, ⟨bridgeId! 2, .intInt, 1, 2⟩,
+    ⟨bridgeId! 3, .intBinary, 3, 3⟩, ⟨bridgeId! 4, .stmtLetInt, 6, 2⟩,
+    ⟨bridgeId! 5, .intSlot, 8, 1⟩, ⟨bridgeId! 6, .intInt, 9, 2⟩,
+    ⟨bridgeId! 7, .intBinary, 11, 3⟩, ⟨bridgeId! 8, .stmtLetInt, 14, 2⟩,
+    ⟨bridgeId! 9, .exprParam, 16, 1⟩, ⟨bridgeId! 10, .exprParam, 17, 1⟩,
+    ⟨bridgeId! 11, .exprBinary, 18, 4⟩, ⟨bridgeId! 12, .stmtReturn, 22, 1⟩,
+    ⟨bridgeId! 13, .exprParam, 27, 1⟩, ⟨bridgeId! 14, .exprDirectPureCall, 31, 3⟩,
+    ⟨bridgeId! 15, .stmtReturn, 34, 1⟩]
+  extra := [0, 4, 0, 0, 0, 1, 2, 2, 2, 2, 0, 1, 4, 5, 3, 6, 3, 0, 2, 8, 9, 2, 10, 3, 3, 7,
+    11, 0, 1, 0, 12, 1, 2, 3, 13, 1, 14]
+  ops := [.add, .mul, .sub]
+  blocks := [⟨bridgeId! 1, 23, 4, ⟨none⟩, ⟨some (bridgeId! 1)⟩, 3⟩,
+    ⟨bridgeId! 2, 28, 3, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 0⟩,
+    ⟨bridgeId! 3, 35, 2, ⟨none⟩, ⟨some (bridgeId! 2)⟩, 3⟩]
+  functions := [⟨bridgeId! 1, "scales", 0, 1, 0, 1, bridgeId! 1, 4⟩,
+    ⟨bridgeId! 2, "runs", 1, 1, 1, 1, bridgeId! 3, 2⟩]
+  observations := [⟨bridgeId! 1, [⟨5, by decide⟩], .value ⟨13, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨5, by decide⟩], .value ⟨13, by decide⟩⟩,
+    ⟨bridgeId! 2, [⟨18446744073709551607, by decide⟩],
+      .value ⟨18446744073709551615, by decide⟩⟩]
+
 end Xsh.Conformance.Vertical

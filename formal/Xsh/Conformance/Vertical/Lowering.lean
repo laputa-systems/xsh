@@ -16,12 +16,23 @@ def SourceExpression.isAssigned : SourceExpression → Bool
   | .assigned _ _ _ => true
   | _ => false
 
+/-- The slots a computed-let sequence binds: the parameter is slot 0 and the bindings take the
+slots after the exporter's reserved one, in source order. Every binding name is distinct from the
+parameter and from the other bindings. -/
+def computedLetsScope? (parameter : String) :
+    Nat → List (String × SourceValue) → Option (List (String × Nat))
+  | _, [] => some []
+  | slot, (name, _) :: rest => do
+      if name == parameter || (rest.map (·.1)).contains name then none else pure ()
+      let others ← computedLetsScope? parameter (slot + 1) rest
+      some ((name, slot) :: others)
+
 /-- The slot each name of a function reads: the parameters are the first slots in order, the one
 literal let takes the slot after the unused first, and a computed let takes the same slot beside
 its parameter. A function with one parameter and one let uses the parameter slot, the reserved
 slot after it, and then the let, which is where the exporter places the binding of such a
-function. A propagation function has one parameter and its target at the slot after the reserved
-one. -/
+function. A sequence of computed lets continues at the following slots. A propagation function has
+one parameter and its target at the slot after the reserved one. -/
 def SourceFunction.scope? (function : SourceFunction) : Option (List (String × Nat)) :=
   match function.parameters, function.lets, function.propagation with
   | [parameter], [], some propagation =>
@@ -37,6 +48,9 @@ def SourceFunction.scope? (function : SourceFunction) : Option (List (String × 
       | .computedLet name _ _ =>
           if parameter == name then none
           else some [(parameter, 0), (name, 2)]
+      | .computedLets bindings _ => do
+          let bindings ← computedLetsScope? parameter 2 bindings
+          some ((parameter, 0) :: bindings)
       | _ => some [(parameter, 0)]
   | _ :: _, [], none =>
       if function.parameters.Nodup then some (function.parameters.zip (List.range function.parameters.length))
@@ -81,6 +95,7 @@ def SourceExpression.expression? (callees : List (String × Option Callee))
   | .constructed isOk payload => do
       some (constructorExpression isOk (← payload.expression? scope))
   | .computedLet _ _ result => result.expression? scope
+  | .computedLets _ result => result.expression? scope
 
 /-- The assignment a function's returned form carries, as the base machine would run it: it must
 assign the function's one let, and its value is read in the function's scope. -/
@@ -111,7 +126,19 @@ assignment, so the IR meaning reads it as a callee whose literal bindings are su
 def SourceFunction.callable (function : SourceFunction) : Bool :=
   function.propagation.isNone && !function.result.isAssigned
 
-/-- The binding a computed-let result declares, evaluated in the parameters' scope. Any other
+/-- The bindings a computed-let sequence declares, in source order: each value reads the
+parameter and the bindings before it, and each binding takes the next slot from the start the
+exporter reserves. -/
+def computedBindingsFrom? (parameter : String) (earlier : List (String × Nat)) :
+    Nat → List (String × SourceValue) → Option (List LetBinding)
+  | _, [] => some []
+  | slot, (name, value) :: rest => do
+      let word ← Word32.decode? slot
+      let bound ← value.expression? ((parameter, 0) :: earlier)
+      let others ← computedBindingsFrom? parameter (earlier ++ [(name, slot)]) (slot + 1) rest
+      some (⟨word, bound⟩ :: others)
+
+/-- The bindings a computed-let result declares, evaluated in the parameters' scope. Any other
 result declares none. -/
 def SourceFunction.computedBindings? (function : SourceFunction)
     (scope : List (String × Nat)) : Option (List LetBinding) :=
@@ -122,6 +149,11 @@ def SourceFunction.computedBindings? (function : SourceFunction)
       let valueScope := scope.filter fun entry => entry.1 != name
       let bound ← value.expression? valueScope
       some [(⟨word, bound⟩ : LetBinding)]
+  | .computedLets [] _ => none
+  | .computedLets bindings _ =>
+      match function.parameters with
+      | [parameter] => computedBindingsFrom? parameter [] 2 bindings
+      | _ => none
   | _ => some []
 
 /-- The base-machine program a source function denotes, straight from the parsed tree. A computed
@@ -314,6 +346,7 @@ def Lower.expression (owner : BridgeId) (scope : List (String × Nat)) :
         (if isOk then [valueRow] else [valueRow, 0])
       pure row
   | .computedLet _ _ result => Lower.value scope result
+  | .computedLets _ result => Lower.value scope result
 
 /-- The rows after a function's let statements: the rows of its returned expression, the
 return, its body block, and its function row. `extraSlots` counts bindings emitted as statements
@@ -335,6 +368,19 @@ def Lower.functionTail (function : SourceFunction) (scope : List (String × Nat)
     { state with functions := state.functions ++ [row],
                  callable := state.callable ++ [function.callable] }
 
+/-- The computed-let statements of a sequence, in source order: each value's integer-family rows
+and its `StmtLetInt` binding at the slot the exporter reserves, so a later value reads an earlier
+binding at the earlier binding's slot. -/
+def Lower.computedBindings (parameter : String) (earlier : List (String × Nat)) :
+    Nat → List (String × SourceValue) → Lower (List Word32)
+  | _, [] => pure []
+  | slot, (name, value) :: rest => do
+      let valueRow ← Lower.intValue ((parameter, 0) :: earlier) value
+      let slotWord ← Lower.word slot
+      let binding ← Lower.pushRow .stmtLetInt [slotWord, valueRow]
+      let others ← Lower.computedBindings parameter (earlier ++ [(name, slot)]) (slot + 1) rest
+      pure (binding :: others)
+
 /-- The computed-let statements a function emits before its returned expression: the integer value
 rows and the `StmtLetInt` binding at the slot the exporter uses. A function whose result is not a
 computed let has none. -/
@@ -348,6 +394,13 @@ def Lower.computedLetStatements (function : SourceFunction) (scope : List (Strin
             let valueRow ← Lower.intValue (scope.filter fun entry => entry.1 != name) value
             let binding ← Lower.pushRow .stmtLetInt [← Lower.word 2, valueRow]
             pure [binding]
+        | _ => Lower.fail
+      else Lower.fail
+  | .computedLets [] _ => Lower.fail
+  | .computedLets bindings _ =>
+      if function.lets.isEmpty then
+        match function.parameters with
+        | [parameter] => Lower.computedBindings parameter [] 2 bindings
         | _ => Lower.fail
       else Lower.fail
   | _ => pure []
