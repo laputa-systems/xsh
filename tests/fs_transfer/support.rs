@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rustix::fs::{self as rfs, XattrFlags};
 use rustix::io::Errno;
 use xsh_root::transfer::{
-    Action, Cancellation, Observation, Progress, PublishRequest, TreeTransfer, observe_entry,
-    publish_tree, transfer_tree,
+    Action, Cancellation, EngineOptions, Observation, Progress, PublishRequest, TreeTransfer,
+    observe_entry, publish_tree, transfer_tree,
 };
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -62,13 +62,16 @@ pub fn transfer(
     let destination = File::open(destination_parent)?;
     let cancellation = Cancellation::default();
     let mut progress = Progress::default();
+    let mut deferred = Vec::new();
     transfer_tree(TreeTransfer {
         source_parent: source.as_fd(),
         source_name,
         destination_parent: destination.as_fd(),
         destination_name,
+        engine: EngineOptions::default(),
         cancellation: &cancellation,
         progress: &mut progress,
+        deferred_flags: &mut deferred,
     })?;
     Ok(progress)
 }
@@ -176,7 +179,10 @@ pub fn publish_at(
             expected_source,
             expected_destination,
             action,
-            durable,
+            engine: EngineOptions {
+                durable,
+                ..EngineOptions::default()
+            },
             cancellation: &cancellation,
             progress,
         },

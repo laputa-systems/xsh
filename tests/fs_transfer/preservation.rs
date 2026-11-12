@@ -98,7 +98,7 @@ fn merge_retains_existing_directory_metadata_and_finalizes_new_directory_metadat
             merge: true,
             dry_run: false,
         },
-        durable: false,
+        engine: xsh_root::transfer::EngineOptions::default(),
         cancellation: &Cancellation::default(),
         progress: &mut progress,
     })

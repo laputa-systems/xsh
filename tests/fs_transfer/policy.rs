@@ -121,7 +121,7 @@ fn apply_operand(
                 .destination_observed
                 .expect("merge destination was observed"),
             options,
-            durable: false,
+            engine: xsh_root::transfer::EngineOptions::default(),
             cancellation: &Cancellation::default(),
             progress,
         }),

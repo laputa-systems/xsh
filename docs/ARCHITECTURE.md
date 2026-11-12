@@ -51,6 +51,35 @@ required by the shell's `cp`, `mv`, `rsync` and `rmrf`, not only by the future
 durable state is the journal, so no separate receipt spool is retained. The
 module has no script-visible contract.
 
+Tree traversal runs a bounded worker pool: a producer enumerates one source
+directory at a time and hands leaf work to workers over a bounded channel, so
+neither descriptor count nor queued entries grow with tree size. The worker
+count is the smaller of the descriptor budget, the remaining address space and
+the caller's `Jobs` request; an explicit request above the budget is an invalid
+input, and an implicit one that admits no worker fails operationally.
+
+Mount identity comes from `statx` `MNT_ID`. Recursive traversal refuses a
+nested source or destination mount unless the request sets
+`cross_file_systems`, and the same identity check gates a file that a nested
+mount replaced in place. Inode flags that Linux refuses to carry through a
+rename (`APPEND`, `IMMUTABLE`) are captured but never set inside staging; the
+tree transfer reports them as deferred and publication applies them at the
+final name, so a staged object stays renameable until it is visible.
+
+Local sync (`sync_tree`) maps `Exact`, `Into` and `Contents` operands, validates
+every mapping by identity before any mutation, and rejects overlaps that would
+let a destination redirect a write or delete a source. Regular files are
+skipped when kind, logical size and modification time agree; a differing file
+is written to a private staging name in the destination directory and renamed
+over the target, so a reader never observes a partial update and a failed or
+cancelled transfer leaves the previous destination in place with no staging
+artifact. `--delete` removes destination-only entries and counts only successful
+removals; a denied removal is reported with its path and fails the sync. File
+leaves transfer through the bounded worker pool. `durable` synchronizes each
+copied file's contents before publication and each destination directory after
+it. `dry_run` reports the planned actions for a transfer, merge or sync without
+creating staging or journal state.
+
 ## The `libxsh` facade
 
 `src/lib.rs` defines the public library surface. `tests/libxsh_api.rs` protects

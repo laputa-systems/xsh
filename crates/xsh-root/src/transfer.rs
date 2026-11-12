@@ -7,6 +7,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::io;
+use std::num::NonZeroUsize;
 use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,88 @@ use crate::FileKind;
 
 /// A byte buffer size for buffered transfers.
 pub const TRANSFER_BUFFER_BYTES: usize = 256 * 1024;
+
+/// The largest extended metadata capture one entry may allocate.
+pub const METADATA_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
+
+/// The largest worker count a transfer may request.
+pub const MAX_JOBS: usize = 32;
+
+/// The number of descriptors the engine reserves outside the transfer budget.
+pub const RESERVED_DESCRIPTORS: usize = 32;
+
+/// The smallest descriptor budget that admits a transfer.
+pub const MIN_DESCRIPTORS: usize = 16;
+
+/// The largest descriptor budget a transfer claims.
+pub const MAX_DESCRIPTORS: usize = 256;
+
+/// The descriptors one worker holds while copying an entry.
+pub const WORKER_DESCRIPTORS: usize = 6;
+
+/// The in-process record budget reserved from the address space.
+pub const RECORD_MEMORY_BYTES: usize = 64 * 1024 * 1024;
+
+/// The address space one worker may hold: stack, copy buffer and metadata.
+pub const WORKER_MEMORY_BYTES: usize =
+    512 * 1024 + TRANSFER_BUFFER_BYTES + METADATA_CAPTURE_BYTES;
+
+/// A requested number of transfer workers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Jobs(NonZeroUsize);
+
+impl Jobs {
+    /// Accepts a worker count in `1..=`[`MAX_JOBS`].
+    pub fn new(count: usize) -> io::Result<Self> {
+        match NonZeroUsize::new(count) {
+            Some(count) if count.get() <= MAX_JOBS => Ok(Self(count)),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "jobs must be in 1..=32",
+            )),
+        }
+    }
+
+    /// The requested worker count.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+/// Traversal, concurrency and durability choices for one engine operation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EngineOptions {
+    /// Descend into nested mount points instead of refusing them.
+    pub cross_file_systems: bool,
+    /// The requested worker count; the resource budget may refuse it.
+    pub jobs: Option<Jobs>,
+    /// Synchronize destination file contents and directory publication.
+    pub durable: bool,
+}
+
+/// The kernel's mount identity for one open directory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MountIdentity {
+    /// The device that holds the mount.
+    pub device: u64,
+    /// The mount identifier reported by `statx`.
+    pub mount_id: u64,
+}
+
+/// Reads the mount identity of an open directory through `statx`.
+pub fn mount_id(fd: BorrowedFd<'_>) -> io::Result<MountIdentity> {
+    platform::mount_identity(fd)
+}
+
+/// The number of workers the descriptor and address-space budgets admit.
+///
+/// An explicit [`EngineOptions::jobs`] above the budget is refused with
+/// [`std::io::ErrorKind::InvalidInput`]; an implicit request that cannot admit
+/// one worker fails operationally.
+pub fn worker_count(options: &EngineOptions) -> io::Result<usize> {
+    platform::worker_count(options)
+}
 
 /// A nanosecond-resolution file timestamp.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -328,6 +411,10 @@ pub struct Progress {
     pub hole_bytes: u64,
     /// Files that used a reflink clone.
     pub cloned_files: u64,
+    /// Regular files whose contents were synchronized in a durable transfer.
+    pub synced_files: u64,
+    /// Directories synchronized in a durable transfer.
+    pub synced_directories: u64,
 }
 
 impl Progress {
@@ -353,11 +440,29 @@ pub struct TreeTransfer<'a> {
     pub destination_parent: BorrowedFd<'a>,
     /// The single destination entry name within `destination_parent`.
     pub destination_name: &'a OsStr,
+    /// Traversal and durability choices.
+    pub engine: EngineOptions,
     /// Polled between entries and copy chunks.
     pub cancellation: &'a Cancellation,
     /// Updated as entries are discovered, completed and copied.
     pub progress: &'a mut Progress,
+    /// Flags that must be applied only after publication.
+    pub deferred_flags: &'a mut Vec<DeferredFlags>,
 }
+
+/// An inode flag set that must be applied after the object is published.
+///
+/// Linux refuses to rename or remove an object carrying these flags, so a
+/// staged transfer records them and its caller applies them at the final name
+/// with [`Metadata::apply_final`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeferredFlags {
+    /// The entry's path relative to the transferred root, empty for the root.
+    pub relative: PathBuf,
+    /// The captured inode flags.
+    pub flags: u32,
+}
+
 
 /// Copies regular-file bytes with the clone -> `copy_file_range` ->
 /// read/write fallback chain.
@@ -382,6 +487,19 @@ pub fn copy_data(
 /// object is checked against its captured identity.
 pub fn transfer_tree(request: TreeTransfer<'_>) -> io::Result<()> {
     platform::transfer_tree(request)
+}
+
+/// Applies deferred inode flags to a published entry.
+///
+/// [`transfer_tree`] and [`publish_tree`] defer flags that Linux refuses to
+/// carry through a rename. A staged publication applies them itself; a direct
+/// caller applies the returned list at the final name with this function.
+pub fn apply_deferred_flags(
+    parent: BorrowedFd<'_>,
+    name: &OsStr,
+    deferred: &[DeferredFlags],
+) -> io::Result<()> {
+    platform::apply_deferred_flags(parent, name, deferred, false)
 }
 
 /// Observes one entry within an open parent without following a final
@@ -789,8 +907,8 @@ pub struct PublishRequest<'a> {
     pub expected_destination: Option<Observation>,
     /// [`Action::Transfer`] or [`Action::Replace`].
     pub action: Action,
-    /// Synchronize the destination parent after publication.
-    pub durable: bool,
+    /// Traversal and durability choices.
+    pub engine: EngineOptions,
     /// Polled between entries and copy chunks.
     pub cancellation: &'a Cancellation,
     /// Updated as entries are discovered, completed and copied.
@@ -829,8 +947,8 @@ pub struct MergeRequest<'a> {
     pub expected_destination: Observation,
     /// The collision and merge choices applied to each child.
     pub options: PolicyOptions,
-    /// Synchronize each published child's destination parent.
-    pub durable: bool,
+    /// Traversal and durability choices.
+    pub engine: EngineOptions,
     /// Polled between entries and copy chunks.
     pub cancellation: &'a Cancellation,
     /// Updated as entries are discovered, completed and copied.
@@ -845,6 +963,126 @@ pub struct MergeRequest<'a> {
 /// separate journaled step.
 pub fn merge_tree(request: MergeRequest<'_>) -> io::Result<()> {
     platform::merge(request)
+}
+
+/// How a local sync maps its operands.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SyncOperands {
+    /// One source mapped to exactly one destination.
+    Exact {
+        /// The source operand.
+        source: PathBuf,
+        /// The destination operand.
+        destination: PathBuf,
+    },
+    /// Sources mapped to children of an existing directory.
+    Into {
+        /// The destination container.
+        directory: PathBuf,
+        /// The source operands.
+        sources: Vec<PathBuf>,
+    },
+    /// The contents of one source directory synchronized into a directory.
+    Contents {
+        /// The source directory.
+        source: PathBuf,
+        /// The destination directory.
+        directory: PathBuf,
+    },
+}
+
+/// The choices that shape a local sync.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SyncOptions {
+    /// Remove destination entries that the source does not name.
+    pub delete: bool,
+    /// Report the plan without mutating either tree.
+    pub dry_run: bool,
+    /// Traversal and durability choices.
+    pub engine: EngineOptions,
+}
+
+/// One local synchronization request.
+///
+/// Paths resolve against [`SyncRequest::cwd`]; the destination parent must
+/// already exist for [`SyncOperands::Exact`] and [`SyncOperands::Into`].
+/// Unchanged regular files are skipped when kind, size and modification time
+/// agree, and a differing destination is replaced through
+/// [`publish_tree`].
+pub struct SyncRequest<'a> {
+    /// The resolved working directory for operand paths.
+    pub cwd: BorrowedFd<'a>,
+    /// The operand mapping.
+    pub operands: SyncOperands,
+    /// The synchronization choices.
+    pub options: SyncOptions,
+    /// Polled between entries and copy chunks.
+    pub cancellation: &'a Cancellation,
+}
+
+/// Counters for one local sync.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SyncProgress {
+    /// Entries examined in both trees.
+    pub examined_files: u64,
+    /// Entries written to the destination.
+    pub transferred_files: u64,
+    /// Entries left unchanged.
+    pub skipped_files: u64,
+    /// Destination entries removed by `--delete`.
+    pub deleted_files: u64,
+    /// Logical bytes covered by transferred files.
+    pub logical_bytes: u64,
+    /// Bytes materialized at the destination.
+    pub streamed_bytes: u64,
+    /// Bytes left as sparse holes or reflink shares.
+    pub hole_bytes: u64,
+}
+
+/// Plans and performs one local sync.
+///
+/// A cancelled sync stops at the next entry boundary and leaves no staging
+/// artifact. An interrupted replacement leaves the previous destination in
+/// place.
+pub fn sync_tree(request: SyncRequest<'_>) -> io::Result<SyncProgress> {
+    platform::sync(request)
+}
+
+/// One planned action for a dry run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DryRunEntry {
+    /// The path relative to the source operand.
+    pub source: PathBuf,
+    /// The path relative to the destination operand.
+    pub destination: PathBuf,
+    /// The action a real run would take.
+    pub action: Action,
+}
+
+/// Plans a transfer, merge or replacement without mutating the namespace.
+///
+/// The plan observes each reached entry and applies [`PolicyOptions`] to it.
+/// It creates no staging or journal state and probes no clone support.
+pub fn dry_run(
+    source_parent: BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: BorrowedFd<'_>,
+    destination_name: &OsStr,
+    options: &PolicyOptions,
+    engine: &EngineOptions,
+    cancellation: &Cancellation,
+    plan: &mut Vec<DryRunEntry>,
+) -> io::Result<()> {
+    platform::dry_run(
+        source_parent,
+        source_name,
+        destination_parent,
+        destination_name,
+        options,
+        engine,
+        cancellation,
+        plan,
+    )
 }
 
 fn validate_name(name: &[u8]) -> io::Result<()> {

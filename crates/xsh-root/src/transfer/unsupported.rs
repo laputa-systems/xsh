@@ -1,10 +1,12 @@
 use std::ffi::OsStr;
 use std::io;
 use std::os::fd::BorrowedFd;
+use std::path::Path;
 
 use super::{
-    Boundary, Cancellation, CopyStats, MergeRequest, Metadata, MetadataTarget, Observation,
-    PathError, PolicyRequest, Preflight, Preservation, PublishRequest, TreeTransfer,
+    Boundary, Cancellation, CopyStats, DryRunEntry, EngineOptions, MergeRequest, Metadata,
+    MetadataTarget, MountIdentity, Observation, PathError, PolicyOptions, PolicyRequest, Preflight,
+    Preservation, PublishRequest, SyncProgress, SyncRequest, TreeTransfer,
 };
 
 fn unsupported() -> io::Error {
@@ -44,10 +46,16 @@ pub(super) fn transfer_tree(_request: TreeTransfer<'_>) -> io::Result<()> {
     Err(unsupported())
 }
 
-pub(super) fn observe(
+pub(super) fn apply_deferred_flags(
     _parent: BorrowedFd<'_>,
     _name: &OsStr,
-) -> io::Result<Observation> {
+    _deferred: &[super::DeferredFlags],
+    _durable: bool,
+) -> io::Result<()> {
+    Err(unsupported())
+}
+
+pub(super) fn observe(_parent: BorrowedFd<'_>, _name: &OsStr) -> io::Result<Observation> {
     Err(unsupported())
 }
 
@@ -55,11 +63,19 @@ pub(super) fn observe_fd(_fd: BorrowedFd<'_>) -> io::Result<Observation> {
     Err(unsupported())
 }
 
+pub(super) fn mount_identity(_fd: BorrowedFd<'_>) -> io::Result<MountIdentity> {
+    Err(unsupported())
+}
+
+pub(super) fn worker_count(_options: &EngineOptions) -> io::Result<usize> {
+    Err(unsupported())
+}
+
 pub(super) fn preflight(
     _cwd: BorrowedFd<'_>,
     _request: &PolicyRequest<'_>,
 ) -> Result<Preflight, PathError> {
-    Err(PathError::new(std::path::Path::new(""), unsupported()))
+    Err(PathError::new(Path::new(""), unsupported()))
 }
 
 pub(super) fn publish(
@@ -70,5 +86,22 @@ pub(super) fn publish(
 }
 
 pub(super) fn merge(_request: MergeRequest<'_>) -> io::Result<()> {
+    Err(unsupported())
+}
+
+pub(super) fn sync(_request: SyncRequest<'_>) -> io::Result<SyncProgress> {
+    Err(unsupported())
+}
+
+pub(super) fn dry_run(
+    _source_parent: BorrowedFd<'_>,
+    _source_name: &OsStr,
+    _destination_parent: BorrowedFd<'_>,
+    _destination_name: &OsStr,
+    _options: &PolicyOptions,
+    _engine: &EngineOptions,
+    _cancellation: &Cancellation,
+    _plan: &mut Vec<DryRunEntry>,
+) -> io::Result<()> {
     Err(unsupported())
 }

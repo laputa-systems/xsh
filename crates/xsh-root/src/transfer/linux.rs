@@ -1,9 +1,13 @@
+use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::mem::size_of;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::{Condvar, Mutex};
 
 use rustix::fs::{
     self, AtFlags, FileType, Gid, IFlags, Mode, OFlags, SeekFrom, StatxFlags, Timespec, Timestamps,
@@ -11,18 +15,24 @@ use rustix::fs::{
 };
 use rustix::io::Errno;
 
+pub(super) mod engine;
 pub(super) mod journal;
 pub(super) mod policy;
 pub(super) mod stage;
+pub(super) mod sync;
 
+pub(super) use engine::worker_count;
 pub(super) use policy::preflight;
-pub(super) use stage::{merge, publish};
+pub(super) use stage::{apply_deferred_flags, merge, publish};
+pub(super) use sync::sync;
 
 use super::{
-    Cancellation, CopyMethod, CopyStats, EntryIdentity, Metadata, MetadataTarget, Observation,
-    Preservation, Progress, Timestamp, TreeTransfer, Xattr, TRANSFER_BUFFER_BYTES,
+    Cancellation, CopyMethod, CopyStats, DeferredFlags, DryRunEntry, EngineOptions, EntryIdentity,
+    Metadata, MetadataTarget, MountIdentity, Observation, PolicyOptions, Preservation, Progress,
+    Action, Target, Timestamp, TreeTransfer, Xattr, decide, TRANSFER_BUFFER_BYTES,
 };
 use crate::FileKind;
+use journal::Session;
 
 const COPY_RANGE_CHUNK: usize = 8 * 1024 * 1024;
 const XATTR_CAPTURE_ATTEMPTS: usize = 8;
@@ -107,12 +117,6 @@ pub(super) fn observe_fd(fd: BorrowedFd<'_>) -> io::Result<Observation> {
     fs::fstat(fd)
         .map(|stat| observation_from_stat(&stat))
         .map_err(Into::into)
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct MountIdentity {
-    pub device: u64,
-    pub mount_id: u64,
 }
 
 pub(super) fn directory_state(
@@ -1166,233 +1170,115 @@ fn visit_nonzero_ranges(
     Ok(())
 }
 
-struct HardlinkGroup {
-    source_device: u64,
-    source_inode: u64,
-    published_device: u64,
-    published_inode: u64,
-    relative: PathBuf,
-    parent_device: u64,
-    parent_inode: u64,
-    name: OsString,
-}
-
 struct DirectoryRecord {
     relative: PathBuf,
     metadata: Metadata,
-    device: u64,
-    inode: u64,
+    published: EntryIdentity,
 }
 
-struct TransferState<'a> {
+struct PublishedGroup {
+    identity: EntryIdentity,
+    relative: PathBuf,
+}
+
+#[derive(Default)]
+struct GroupRegistry {
+    groups: Mutex<Vec<((u64, u64), PublishedGroup)>>,
+    ready: Condvar,
+}
+
+struct LeafWork {
+    parent: PathBuf,
+    source_name: OsString,
+    destination_name: OsString,
+    observed: Observation,
+    copy: bool,
+}
+
+pub(super) fn check_recovery(fd: BorrowedFd<'_>) -> io::Result<()> {
+    if Session::is_staging_root(fd)? {
+        return Ok(());
+    }
+    Session::check_recovery(fd)
+}
+
+struct TransferContext<'a> {
     cancellation: &'a Cancellation,
-    progress: &'a mut Progress,
-    hardlinks: Vec<HardlinkGroup>,
-    directories: Vec<DirectoryRecord>,
-    buffer: Vec<u8>,
+    engine: EngineOptions,
+    stop: AtomicBool,
+    groups: GroupRegistry,
+    source_root: OwnedFd,
+    destination_root: OwnedFd,
+    directories: Mutex<Vec<(PathBuf, EntryIdentity)>>,
+    source_mount: MountIdentity,
+    deferred: Mutex<Vec<DeferredFlags>>,
+    failure: Mutex<Option<io::Error>>,
 }
 
-impl TransferState<'_> {
-    fn copy_children(
-        &mut self,
-        source_directory: BorrowedFd<'_>,
-        destination_directory: BorrowedFd<'_>,
-        destination_root: BorrowedFd<'_>,
-        relative: &Path,
-    ) -> io::Result<()> {
-        let before = observe_fd(source_directory)?;
-        for entry in fs::Dir::read_from(source_directory)? {
-            self.cancellation.check()?;
-            let entry = entry?;
-            let bytes = entry.file_name().to_bytes();
-            if bytes == b"." || bytes == b".." {
-                continue;
-            }
-            let name = OsStr::from_bytes(bytes);
-            let path = relative.join(name);
-            let observed = observe(source_directory, name)?;
-            self.progress.discovered_files += 1;
-            match observed.identity.kind {
-                FileKind::Directory => {
-                    let source_child = open_directory(source_directory, name, observed)?;
-                    fs::mkdirat(destination_directory, name, Mode::from_raw_mode(0o700))?;
-                    let destination_child = fs::openat(
-                        destination_directory,
-                        name,
-                        DIRECTORY_FLAGS,
-                        Mode::empty(),
-                    )?;
-                    self.copy_children(
-                        source_child.as_fd(),
-                        destination_child.as_fd(),
-                        destination_root,
-                        &path,
-                    )?;
-                    let metadata = capture(MetadataTarget::Fd(source_child.as_fd()))?;
-                    require_unchanged_fd(observed, source_child.as_fd())?;
-                    let published = observe_fd(destination_child.as_fd())?;
-                    self.directories.push(DirectoryRecord {
-                        relative: path,
-                        metadata,
-                        device: published.identity.device,
-                        inode: published.identity.inode,
-                    });
-                    self.progress.completed_files += 1;
-                }
-                FileKind::File | FileKind::Symlink => {
-                    self.copy_leaf(
-                        source_directory,
-                        name,
-                        destination_directory,
-                        name,
-                        destination_root,
-                        &path,
-                        observed,
-                        true,
-                    )?;
-                }
-                _ => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Unsupported,
-                        "special objects cannot be transferred",
-                    ));
-                }
-            }
+impl TransferContext<'_> {
+    fn record_failure(&self, error: io::Error) {
+        self.stop.store(true, Ordering::Release);
+        let mut failure = self.failure.lock().unwrap();
+        if failure.is_none() {
+            *failure = Some(error);
         }
-        require_unchanged_fd(before, source_directory)
+        drop(failure);
+        self.groups.ready.notify_all();
     }
 
-    fn finalize_directories(&mut self, destination_root: BorrowedFd<'_>) -> io::Result<()> {
-        for record in std::mem::take(&mut self.directories) {
-            self.cancellation.check()?;
-            let directory = open_relative_directory(destination_root, &record.relative)?;
-            let published = observe_fd(directory.as_fd())?;
-            if published.identity.device != record.device
-                || published.identity.inode != record.inode
-            {
-                return Err(io::Error::other(
-                    "destination directory identity changed",
-                ));
-            }
-            apply(
-                MetadataTarget::Fd(directory.as_fd()),
-                &record.metadata,
-                Preservation::Copy,
-            )?;
-            apply_final(MetadataTarget::Fd(directory.as_fd()), &record.metadata)?;
+    fn checkpoint(&self) -> io::Result<()> {
+        self.cancellation.check()?;
+        if self.stop.load(Ordering::Acquire) {
+            return Err(io::Error::other("transfer stopped after an error"));
         }
         Ok(())
     }
 
-    fn copy_leaf(
-        &mut self,
-        source_directory: BorrowedFd<'_>,
-        source_name: &OsStr,
-        destination_directory: BorrowedFd<'_>,
-        destination_name: &OsStr,
-        destination_root: BorrowedFd<'_>,
-        relative: &Path,
-        observed: Observation,
-        record_hardlink: bool,
+    fn transfer_leaf(
+        &self,
+        work: &LeafWork,
+        buffer: &mut [u8],
+        progress: &mut Progress,
     ) -> io::Result<()> {
-        self.cancellation.check()?;
-        if record_hardlink
-            && observed.links > 1
-            && matches!(observed.identity.kind, FileKind::File | FileKind::Symlink)
-            && let Some(index) = self
-                .hardlinks
-                .iter()
-                .position(|group| {
-                    group.source_device == observed.identity.device
-                        && group.source_inode == observed.identity.inode
-                })
-        {
-            self.link_hardlink(index, destination_root, destination_directory, destination_name)?;
-            self.progress.completed_files += 1;
+        self.checkpoint()?;
+        let source_parent = open_verified_directory(
+            self.source_root.as_fd(),
+            &work.parent,
+            &self.directories,
+        )?;
+        let destination_parent = open_relative_directory(
+            self.destination_root.as_fd(),
+            &work.parent,
+        )?;
+        if !work.copy {
+            link_member(
+                self,
+                work,
+                source_parent.as_fd(),
+                destination_parent.as_fd(),
+            )?;
+            progress.completed_files += 1;
             return Ok(());
         }
-
-        let published = match observed.identity.kind {
-            FileKind::File => {
-                let source = fs::openat(
-                    source_directory,
-                    source_name,
-                    READ_FILE_FLAGS,
-                    Mode::empty(),
-                )?;
-                if !observed.same_version(observe_fd(source.as_fd())?) {
-                    return Err(io::Error::other("source changed while opening"));
-                }
-                let metadata = capture(MetadataTarget::Fd(source.as_fd()))?;
-                let destination = fs::openat(
-                    destination_directory,
-                    destination_name,
-                    WRITE_NEW_FLAGS,
-                    Mode::from_raw_mode(0o600),
-                )?;
-                let result = (|| {
-                    let stats = copy_data(
-                        source.as_fd(),
-                        destination.as_fd(),
-                        observed.size,
-                        &mut self.buffer,
-                        self.cancellation,
-                    )?;
-                    self.progress.record(stats);
-                    require_unchanged(source_directory, source_name, observed)?;
-                    apply(
-                        MetadataTarget::Fd(destination.as_fd()),
-                        &metadata,
-                        Preservation::Copy,
-                    )?;
-                    apply_final(MetadataTarget::Fd(destination.as_fd()), &metadata)
-                })();
-                if let Err(error) = result {
-                    let cleanup = fs::unlinkat(
-                        destination_directory,
-                        destination_name,
-                        AtFlags::empty(),
-                    );
-                    return Err(with_cleanup(error, cleanup));
-                }
-                observe_fd(destination.as_fd())?
-            }
-            FileKind::Symlink => {
-                let metadata = capture(MetadataTarget::Symlink {
-                    parent: source_directory,
-                    name: source_name,
-                })?;
-                let target = fs::readlinkat(source_directory, source_name, Vec::new())?;
-                require_unchanged(source_directory, source_name, observed)?;
-                fs::symlinkat(target.as_c_str(), destination_directory, destination_name)?;
-                let result = apply(
-                    MetadataTarget::Symlink {
-                        parent: destination_directory,
-                        name: destination_name,
-                    },
-                    &metadata,
-                    Preservation::Copy,
-                )
-                .and_then(|()| {
-                    apply_final(
-                        MetadataTarget::Symlink {
-                            parent: destination_directory,
-                            name: destination_name,
-                        },
-                        &metadata,
-                    )
-                })
-                .and_then(|()| require_unchanged(source_directory, source_name, observed));
-                if let Err(error) = result {
-                    let cleanup = fs::unlinkat(
-                        destination_directory,
-                        destination_name,
-                        AtFlags::empty(),
-                    );
-                    return Err(with_cleanup(error, cleanup));
-                }
-                observe(destination_directory, destination_name)?
-            }
+        let published = match work.observed.identity.kind {
+            FileKind::File => copy_file_leaf(
+                self,
+                source_parent.as_fd(),
+                &work.source_name,
+                destination_parent.as_fd(),
+                &work.destination_name,
+                &work.parent.join(&work.destination_name),
+                work.observed,
+                buffer,
+                progress,
+            )?,
+            FileKind::Symlink => copy_symlink_leaf(
+                source_parent.as_fd(),
+                &work.source_name,
+                destination_parent.as_fd(),
+                &work.destination_name,
+                work.observed,
+            )?,
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
@@ -1400,65 +1286,227 @@ impl TransferState<'_> {
                 ));
             }
         };
-
-        if record_hardlink && observed.links > 1 {
-            let parent = observe_fd(destination_directory)?;
-            self.hardlinks.push(HardlinkGroup {
-                source_device: observed.identity.device,
-                source_inode: observed.identity.inode,
-                published_device: published.identity.device,
-                published_inode: published.identity.inode,
-                relative: relative.to_path_buf(),
-                parent_device: parent.identity.device,
-                parent_inode: parent.identity.inode,
-                name: destination_name.to_os_string(),
-            });
+        if work.observed.links > 1 {
+            let key = (work.observed.identity.device, work.observed.identity.inode);
+            let mut groups = self.groups.groups.lock().unwrap();
+            if let Some(entry) = groups.iter_mut().find(|(existing, _)| *existing == key) {
+                entry.1 = PublishedGroup {
+                    identity: published.identity,
+                    relative: work.parent.join(&work.destination_name),
+                };
+            } else {
+                groups.push((
+                    key,
+                    PublishedGroup {
+                        identity: published.identity,
+                        relative: work.parent.join(&work.destination_name),
+                    },
+                ));
+            }
+            drop(groups);
+            self.groups.ready.notify_all();
         }
-        self.progress.completed_files += 1;
+        progress.completed_files += 1;
         Ok(())
     }
+}
 
-    fn link_hardlink(
-        &self,
-        index: usize,
-        destination_root: BorrowedFd<'_>,
-        destination_directory: BorrowedFd<'_>,
-        destination_name: &OsStr,
-    ) -> io::Result<()> {
-        let group = &self.hardlinks[index];
-        let parent =
-            open_relative_directory(destination_root, group.relative.parent().unwrap_or(Path::new("")))?;
-        let parent_observation = observe_fd(parent.as_fd())?;
-        if parent_observation.identity.device != group.parent_device
-            || parent_observation.identity.inode != group.parent_inode
-        {
-            return Err(io::Error::other("hardlink group parent changed"));
+fn link_member(
+    context: &TransferContext<'_>,
+    work: &LeafWork,
+    source_parent: BorrowedFd<'_>,
+    destination_parent: BorrowedFd<'_>,
+) -> io::Result<()> {
+    let key = (work.observed.identity.device, work.observed.identity.inode);
+    let group = {
+        let mut groups = context.groups.groups.lock().unwrap();
+        loop {
+            if let Some((_, group)) = groups.iter().find(|(existing, _)| *existing == key) {
+                break PublishedGroup {
+                    identity: group.identity,
+                    relative: group.relative.clone(),
+                };
+            }
+            context.cancellation.check()?;
+            if context.stop.load(Ordering::Acquire) {
+                return Err(io::Error::other(
+                    "transfer stopped before its hardlink group",
+                ));
+            }
+            let (next, _) = context
+                .groups
+                .ready
+                .wait_timeout(groups, std::time::Duration::from_millis(20))
+                .unwrap();
+            groups = next;
         }
-        let existing = observe(parent.as_fd(), &group.name)?;
-        if existing.identity.device != group.published_device
-            || existing.identity.inode != group.published_inode
-        {
-            return Err(io::Error::other("hardlink group member changed"));
-        }
-        self.cancellation.check()?;
-        fs::linkat(
-            parent.as_fd(),
-            &group.name,
-            destination_directory,
-            destination_name,
-            AtFlags::empty(),
+    };
+    let representative_parent = group
+        .relative
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    let representative_name = group
+        .relative
+        .file_name()
+        .ok_or_else(|| io::Error::other("hardlink representative has no name"))?
+        .to_os_string();
+    let parent = open_relative_directory(context.destination_root.as_fd(), representative_parent)?;
+    let existing = observe(parent.as_fd(), &representative_name)?;
+    if existing.identity != group.identity {
+        return Err(io::Error::other("hardlink representative changed"));
+    }
+    context.checkpoint()?;
+    fs::linkat(
+        parent.as_fd(),
+        &representative_name,
+        destination_parent,
+        &work.destination_name,
+        AtFlags::empty(),
+    )?;
+    let linked = observe(destination_parent, &work.destination_name)?;
+    if linked.identity != group.identity {
+        let cleanup = fs::unlinkat(destination_parent, &work.destination_name, AtFlags::empty());
+        return Err(with_cleanup(
+            io::Error::other("hardlink identity changed while linking"),
+            cleanup,
+        ));
+    }
+    require_unchanged(source_parent, &work.source_name, work.observed)
+}
+
+fn open_verified_directory(
+    root: BorrowedFd<'_>,
+    relative: &Path,
+    directories: &Mutex<Vec<(PathBuf, EntryIdentity)>>,
+) -> io::Result<OwnedFd> {
+    let directory = open_relative_directory(root, relative)?;
+    let expected = directories
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(path, _)| path == relative)
+        .map(|(_, identity)| *identity)
+        .ok_or_else(|| io::Error::other("traversal directory has no identity record"))?;
+    if observe_fd(directory.as_fd())?.identity != expected {
+        return Err(io::Error::other("traversal directory identity changed"));
+    }
+    Ok(directory)
+}
+
+fn copy_file_leaf(
+    context: &TransferContext<'_>,
+    source_parent: BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: BorrowedFd<'_>,
+    destination_name: &OsStr,
+    relative: &Path,
+    observed: Observation,
+    buffer: &mut [u8],
+    progress: &mut Progress,
+) -> io::Result<Observation> {
+    context.checkpoint()?;
+    let source = fs::openat(source_parent, source_name, READ_FILE_FLAGS, Mode::empty())?;
+    if !observed.same_version(observe_fd(source.as_fd())?) {
+        return Err(io::Error::other("source changed while opening"));
+    }
+    if !context.engine.cross_file_systems
+        && mount_identity(source.as_fd())? != context.source_mount
+    {
+        return Err(io::Error::other(
+            "nested source file mount requires --cross-file-systems",
+        ));
+    }
+    let metadata = capture(MetadataTarget::Fd(source.as_fd()))?;
+    let destination = fs::openat(
+        destination_parent,
+        destination_name,
+        WRITE_NEW_FLAGS,
+        Mode::from_raw_mode(0o600),
+    )?;
+    let result = (|| {
+        let stats = copy_data(
+            source.as_fd(),
+            destination.as_fd(),
+            observed.size,
+            buffer,
+            context.cancellation,
         )?;
-        let linked = observe(destination_directory, destination_name)?;
-        if linked.identity.device != group.published_device
-            || linked.identity.inode != group.published_inode
-        {
-            let cleanup = fs::unlinkat(destination_directory, destination_name, AtFlags::empty());
-            return Err(with_cleanup(
-                io::Error::other("hardlink identity changed while linking"),
-                cleanup,
-            ));
+        progress.record(stats);
+        require_unchanged(source_parent, source_name, observed)?;
+        apply(
+            MetadataTarget::Fd(destination.as_fd()),
+            &metadata,
+            Preservation::Copy,
+        )?;
+        if context.engine.durable {
+            sync_fd(destination.as_fd())?;
+            progress.synced_files += 1;
         }
-        Ok(())
+        observe_fd(destination.as_fd())
+    })();
+    match result {
+        Ok(published) => {
+            defer_flags(context, relative, &metadata);
+            Ok(published)
+        }
+        Err(error) => {
+            let cleanup = fs::unlinkat(destination_parent, destination_name, AtFlags::empty());
+            Err(with_cleanup(error, cleanup))
+        }
+    }
+}
+
+fn copy_symlink_leaf(
+    source_parent: BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: BorrowedFd<'_>,
+    destination_name: &OsStr,
+    observed: Observation,
+) -> io::Result<Observation> {
+    let metadata = capture(MetadataTarget::Symlink {
+        parent: source_parent,
+        name: source_name,
+    })?;
+    let target = fs::readlinkat(source_parent, source_name, Vec::new())?;
+    require_unchanged(source_parent, source_name, observed)?;
+    fs::symlinkat(target.as_c_str(), destination_parent, destination_name)?;
+    let result = apply(
+        MetadataTarget::Symlink {
+            parent: destination_parent,
+            name: destination_name,
+        },
+        &metadata,
+        Preservation::Copy,
+    )
+    .and_then(|()| require_unchanged(source_parent, source_name, observed));
+    if let Err(error) = result {
+        let cleanup = fs::unlinkat(destination_parent, destination_name, AtFlags::empty());
+        return Err(with_cleanup(error, cleanup));
+    }
+    observe(destination_parent, destination_name)
+}
+
+fn defer_flags(context: &TransferContext<'_>, relative: &Path, metadata: &Metadata) {
+    if metadata.flags & BLOCKING_FLAGS == 0 {
+        return;
+    }
+    let mut deferred = context.deferred.lock().unwrap();
+    if let Some(entry) = deferred.iter_mut().find(|entry| entry.relative == relative) {
+        entry.flags |= metadata.flags;
+    } else {
+        deferred.push(DeferredFlags {
+            relative: relative.to_path_buf(),
+            flags: metadata.flags,
+        });
+    }
+}
+
+pub(super) fn sync_fd(fd: BorrowedFd<'_>) -> io::Result<()> {
+    loop {
+        match fs::fsync(fd) {
+            Err(Errno::INTR) => continue,
+            result => return result.map_err(Into::into),
+        }
     }
 }
 
@@ -1478,16 +1526,23 @@ pub(super) fn transfer_tree(request: TreeTransfer<'_>) -> io::Result<()> {
         source_name,
         destination_parent,
         destination_name,
+        engine,
         cancellation,
         progress,
+        deferred_flags,
     } = request;
+    validate_entry_name(source_name, "source")?;
+    validate_entry_name(destination_name, "destination")?;
+    cancellation.check()?;
     let result = run_tree(
         source_parent,
         source_name,
         destination_parent,
         destination_name,
+        engine,
         cancellation,
         progress,
+        deferred_flags,
     );
     if result.is_err() {
         progress.failed_files += 1;
@@ -1500,71 +1555,37 @@ fn run_tree(
     source_name: &OsStr,
     destination_parent: BorrowedFd<'_>,
     destination_name: &OsStr,
+    engine: EngineOptions,
     cancellation: &Cancellation,
     progress: &mut Progress,
+    deferred_flags: &mut Vec<DeferredFlags>,
 ) -> io::Result<()> {
-    validate_entry_name(source_name, "source")?;
-    validate_entry_name(destination_name, "destination")?;
-    cancellation.check()?;
-
+    check_recovery(source_parent)?;
+    check_recovery(destination_parent)?;
     let source = observe(source_parent, source_name)?;
     progress.discovered_files += 1;
-    let mut state = TransferState {
-        cancellation,
-        progress,
-        hardlinks: Vec::new(),
-        directories: Vec::new(),
-        buffer: vec![0; TRANSFER_BUFFER_BYTES],
-    };
-
     match source.identity.kind {
-        FileKind::Directory => {
-            if directory_chain_contains(destination_parent, source)? {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "destination is inside the source directory",
-                ));
-            }
-            let source_directory = open_directory(source_parent, source_name, source)?;
-            fs::mkdirat(
-                destination_parent,
-                destination_name,
-                Mode::from_raw_mode(0o700),
-            )?;
-            let destination_directory = fs::openat(
-                destination_parent,
-                destination_name,
-                DIRECTORY_FLAGS,
-                Mode::empty(),
-            )?;
-            state.copy_children(
-                source_directory.as_fd(),
-                destination_directory.as_fd(),
-                destination_directory.as_fd(),
-                Path::new(""),
-            )?;
-            let metadata = capture(MetadataTarget::Fd(source_directory.as_fd()))?;
-            require_unchanged_fd(source, source_directory.as_fd())?;
-            let published = observe_fd(destination_directory.as_fd())?;
-            state.directories.push(DirectoryRecord {
-                relative: PathBuf::new(),
-                metadata,
-                device: published.identity.device,
-                inode: published.identity.inode,
-            });
-            state.finalize_directories(destination_directory.as_fd())?;
-            state.progress.completed_files += 1;
-            Ok(())
-        }
-        FileKind::File | FileKind::Symlink => state.copy_leaf(
+        FileKind::Directory => run_directory_tree(
             source_parent,
             source_name,
             destination_parent,
             destination_name,
-            destination_parent,
-            Path::new(""),
             source,
-            false,
+            engine,
+            cancellation,
+            progress,
+            deferred_flags,
+        ),
+        FileKind::File | FileKind::Symlink => run_leaf_tree(
+            source_parent,
+            source_name,
+            destination_parent,
+            destination_name,
+            source,
+            engine,
+            cancellation,
+            progress,
+            deferred_flags,
         ),
         _ => Err(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -1572,6 +1593,493 @@ fn run_tree(
         )),
     }
 }
+
+fn run_leaf_tree(
+    source_parent: BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: BorrowedFd<'_>,
+    destination_name: &OsStr,
+    source: Observation,
+    engine: EngineOptions,
+    cancellation: &Cancellation,
+    progress: &mut Progress,
+    deferred_flags: &mut Vec<DeferredFlags>,
+) -> io::Result<()> {
+    let context = TransferContext {
+        cancellation,
+        engine,
+        stop: AtomicBool::new(false),
+        groups: GroupRegistry::default(),
+        source_root: fs::openat(source_parent, c".", DIRECTORY_FLAGS, Mode::empty())?,
+        destination_root: fs::openat(destination_parent, c".", DIRECTORY_FLAGS, Mode::empty())?,
+        directories: Mutex::new(Vec::new()),
+        source_mount: mount_identity(source_parent)?,
+        deferred: Mutex::new(Vec::new()),
+        failure: Mutex::new(None),
+    };
+    let source_root_identity = observe_fd(context.source_root.as_fd())?.identity;
+    context
+        .directories
+        .lock()
+        .unwrap()
+        .push((PathBuf::new(), source_root_identity));
+    let work = LeafWork {
+        parent: PathBuf::new(),
+        source_name: source_name.to_os_string(),
+        destination_name: destination_name.to_os_string(),
+        observed: source,
+        copy: true,
+    };
+    let mut buffer = vec![0; TRANSFER_BUFFER_BYTES];
+    context.transfer_leaf(&work, &mut buffer, progress)?;
+    deferred_flags.append(&mut context.deferred.lock().unwrap().clone());
+    if engine.durable {
+        sync_fd(destination_parent)?;
+        progress.synced_directories += 1;
+    }
+    Ok(())
+}
+
+fn run_directory_tree(
+    source_parent: BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: BorrowedFd<'_>,
+    destination_name: &OsStr,
+    source: Observation,
+    engine: EngineOptions,
+    cancellation: &Cancellation,
+    progress: &mut Progress,
+    deferred_flags: &mut Vec<DeferredFlags>,
+) -> io::Result<()> {
+    if directory_chain_contains(destination_parent, source)? {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "destination is inside the source directory",
+        ));
+    }
+    let jobs = worker_count(&engine)?;
+    let source_directory = open_directory(source_parent, source_name, source)?;
+    fs::mkdirat(
+        destination_parent,
+        destination_name,
+        Mode::from_raw_mode(0o700),
+    )?;
+    let destination_directory = fs::openat(
+        destination_parent,
+        destination_name,
+        DIRECTORY_FLAGS,
+        Mode::empty(),
+    )?;
+    let destination_identity = observe_fd(destination_directory.as_fd())?.identity;
+    let root_metadata = capture(MetadataTarget::Fd(source_directory.as_fd()))?;
+    require_unchanged_fd(source, source_directory.as_fd())?;
+    let context = TransferContext {
+        cancellation,
+        engine,
+        stop: AtomicBool::new(false),
+        groups: GroupRegistry::default(),
+        source_mount: mount_identity(source_directory.as_fd())?,
+        source_root: source_directory,
+        destination_root: destination_directory,
+        directories: Mutex::new(Vec::new()),
+        deferred: Mutex::new(Vec::new()),
+        failure: Mutex::new(None),
+    };
+    context
+        .directories
+        .lock()
+        .unwrap()
+        .push((PathBuf::new(), source.identity));
+    let result = transfer_directory_tree(&context, source, jobs, root_metadata, progress);
+    match &result {
+        Ok(()) => {
+            deferred_flags.append(&mut context.deferred.lock().unwrap().clone());
+            if engine.durable {
+                sync_fd(destination_parent)?;
+                progress.synced_directories += 1;
+            }
+        }
+        Err(_) => {
+            let _ = remove_owned_observed(
+                destination_parent,
+                destination_name,
+                destination_identity,
+            );
+        }
+    }
+    result
+}
+
+fn transfer_directory_tree(
+    context: &TransferContext<'_>,
+    source: Observation,
+    jobs: usize,
+    root_metadata: Metadata,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    let (sender, receiver) = mpsc::sync_channel::<LeafWork>(256);
+    let receiver = Mutex::new(receiver);
+    let records = Mutex::new(Vec::<DirectoryRecord>::new());
+    let worker_progress = Mutex::new(Progress::default());
+    let produced = std::thread::scope(|scope| {
+        let mut workers = Vec::with_capacity(jobs);
+        for _ in 0..jobs {
+            let receiver = &receiver;
+            let worker_progress = &worker_progress;
+            let worker = std::thread::Builder::new()
+                .name("xsh-transfer".into())
+                .stack_size(512 * 1024)
+                .spawn_scoped(scope, move || {
+                    let mut buffer = vec![0; TRANSFER_BUFFER_BYTES];
+                    let mut local = Progress::default();
+                    loop {
+                        let work = {
+                            let receiver = receiver.lock().unwrap();
+                            receiver.recv()
+                        };
+                        let Ok(work) = work else { break };
+                        if context.checkpoint().is_err() {
+                            continue;
+                        }
+                        if let Err(error) = context.transfer_leaf(&work, &mut buffer, &mut local) {
+                            context.record_failure(error);
+                        }
+                    }
+                    let mut aggregate = worker_progress.lock().unwrap();
+                    aggregate.completed_files += local.completed_files;
+                    aggregate.logical_bytes += local.logical_bytes;
+                    aggregate.streamed_bytes += local.streamed_bytes;
+                    aggregate.hole_bytes += local.hole_bytes;
+                    aggregate.cloned_files += local.cloned_files;
+                    aggregate.synced_files += local.synced_files;
+                })
+                .expect("spawn transfer worker");
+            workers.push(worker);
+        }
+        let produced = produce_directory_work(
+            context,
+            source,
+            &sender,
+            &records,
+            progress,
+        );
+        drop(sender);
+        for worker in workers {
+            if worker.join().is_err() {
+                context.record_failure(io::Error::other("transfer worker panicked"));
+            }
+        }
+        produced
+    });
+    let worker = worker_progress.into_inner().unwrap();
+    progress.completed_files += worker.completed_files;
+    progress.logical_bytes += worker.logical_bytes;
+    progress.streamed_bytes += worker.streamed_bytes;
+    progress.hole_bytes += worker.hole_bytes;
+    progress.cloned_files += worker.cloned_files;
+    progress.synced_files += worker.synced_files;
+    if let Some(error) = context.failure.lock().unwrap().take() {
+        return Err(error);
+    }
+    produced?;
+    finalize_directories(
+        context,
+        &records.into_inner().unwrap(),
+        root_metadata,
+        progress,
+    )
+}
+
+fn produce_directory_work(
+    context: &TransferContext<'_>,
+    root: Observation,
+    sender: &mpsc::SyncSender<LeafWork>,
+    records: &Mutex<Vec<DirectoryRecord>>,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    let mut queue = VecDeque::from([PathBuf::new()]);
+    let mut representatives: Vec<((u64, u64), PathBuf)> = Vec::new();
+    while let Some(relative) = queue.pop_front() {
+        context.checkpoint()?;
+        let source_directory = open_verified_directory(
+            context.source_root.as_fd(),
+            &relative,
+            &context.directories,
+        )?;
+        let destination_directory =
+            open_relative_directory(context.destination_root.as_fd(), &relative)?;
+        let mut names = Vec::new();
+        for entry in fs::Dir::read_from(source_directory.as_fd())? {
+            context.checkpoint()?;
+            let entry = entry?;
+            let bytes = entry.file_name().to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            names.push(OsString::from_vec(bytes.to_vec()));
+        }
+        names.sort();
+        for name in names {
+            context.checkpoint()?;
+            let name = OsStr::from_bytes(name.as_bytes());
+            let path = relative.join(name);
+            let observed = observe(source_directory.as_fd(), name)?;
+            progress.discovered_files += 1;
+            match observed.identity.kind {
+                FileKind::Directory => {
+                    let child = open_directory(source_directory.as_fd(), name, observed)?;
+                    check_recovery(child.as_fd())?;
+                    if !context.engine.cross_file_systems
+                        && mount_identity(child.as_fd())? != context.source_mount
+                    {
+                        return Err(io::Error::other(
+                            "nested source mount requires --cross-file-systems",
+                        ));
+                    }
+                    let metadata = capture(MetadataTarget::Fd(child.as_fd()))?;
+                    require_unchanged_fd(observed, child.as_fd())?;
+                    fs::mkdirat(
+                        destination_directory.as_fd(),
+                        name,
+                        Mode::from_raw_mode(0o700),
+                    )?;
+                    let published = observe(destination_directory.as_fd(), name)?;
+                    context
+                        .directories
+                        .lock()
+                        .unwrap()
+                        .push((path.clone(), observed.identity));
+                    records.lock().unwrap().push(DirectoryRecord {
+                        relative: path.clone(),
+                        metadata,
+                        published: published.identity,
+                    });
+                    queue.push_back(path);
+                }
+                FileKind::File | FileKind::Symlink => {
+                    if observed.identity.kind == FileKind::File
+                        && !context.engine.cross_file_systems
+                    {
+                        let file = fs::openat(
+                            source_directory.as_fd(),
+                            name,
+                            READ_FILE_FLAGS,
+                            Mode::empty(),
+                        )?;
+                        if mount_identity(file.as_fd())? != context.source_mount {
+                            return Err(io::Error::other(
+                                "nested source file mount requires --cross-file-systems",
+                            ));
+                        }
+                    }
+                    let copy = observed.links < 2 || {
+                        let key = (observed.identity.device, observed.identity.inode);
+                        match representatives.iter().find(|(existing, _)| *existing == key) {
+                            Some((_, first)) => first == &path,
+                            None => {
+                                representatives.push((key, path.clone()));
+                                true
+                            }
+                        }
+                    };
+                    sender
+                        .send(LeafWork {
+                            parent: relative.clone(),
+                            source_name: name.to_os_string(),
+                            destination_name: name.to_os_string(),
+                            observed,
+                            copy,
+                        })
+                        .map_err(|_| io::Error::other("transfer workers ended early"))?;
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "special objects cannot be transferred",
+                    ));
+                }
+            }
+        }
+        require_unchanged_fd(root, context.source_root.as_fd())?;
+    }
+    Ok(())
+}
+
+fn finalize_directories(
+    context: &TransferContext<'_>,
+    records: &[DirectoryRecord],
+    root_metadata: Metadata,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    for record in records.iter().rev() {
+        context.checkpoint()?;
+        let directory =
+            open_relative_directory(context.destination_root.as_fd(), &record.relative)?;
+        if observe_fd(directory.as_fd())?.identity != record.published {
+            return Err(io::Error::other("destination directory identity changed"));
+        }
+        apply(
+            MetadataTarget::Fd(directory.as_fd()),
+            &record.metadata,
+            Preservation::Copy,
+        )?;
+        if context.engine.durable {
+            sync_fd(directory.as_fd())?;
+            progress.synced_directories += 1;
+        }
+        defer_flags(context, &record.relative, &record.metadata);
+        progress.completed_files += 1;
+    }
+    apply(
+        MetadataTarget::Fd(context.destination_root.as_fd()),
+        &root_metadata,
+        Preservation::Copy,
+    )?;
+    if context.engine.durable {
+        sync_fd(context.destination_root.as_fd())?;
+        progress.synced_directories += 1;
+    }
+    defer_flags(context, Path::new(""), &root_metadata);
+    progress.completed_files += 1;
+    Ok(())
+}
+
+fn remove_owned_observed(
+    parent: BorrowedFd<'_>,
+    name: &OsStr,
+    identity: EntryIdentity,
+) -> io::Result<()> {
+    let observed = match observe(parent, name) {
+        Ok(observed) => observed,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if observed.identity != identity {
+        return Err(io::Error::other("transferred entry identity changed"));
+    }
+    if identity.kind != FileKind::Directory {
+        return fs::unlinkat(parent, name, AtFlags::empty()).map_err(Into::into);
+    }
+    let directory = fs::openat(parent, name, DIRECTORY_FLAGS, Mode::empty())?;
+    if observe_fd(directory.as_fd())?.identity != identity {
+        return Err(io::Error::other("transferred directory identity changed"));
+    }
+    let _ = fs::fchmod(directory.as_fd(), Mode::RWXU);
+    for child in fs::Dir::read_from(directory.as_fd())? {
+        let child = child?;
+        let bytes = child.file_name().to_bytes();
+        if bytes == b"." || bytes == b".." {
+            continue;
+        }
+        let child_name = OsStr::from_bytes(bytes);
+        let child_observed = observe(directory.as_fd(), child_name)?;
+        remove_owned_observed(directory.as_fd(), child_name, child_observed.identity)?;
+    }
+    fs::unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(Into::into)
+}
+
+pub(super) fn dry_run(
+    source_parent: BorrowedFd<'_>,
+    source_name: &OsStr,
+    destination_parent: BorrowedFd<'_>,
+    destination_name: &OsStr,
+    options: &PolicyOptions,
+    engine: &EngineOptions,
+    cancellation: &Cancellation,
+    plan: &mut Vec<DryRunEntry>,
+) -> io::Result<()> {
+    validate_entry_name(source_name, "source")?;
+    validate_entry_name(destination_name, "destination")?;
+    cancellation.check()?;
+    let source = observe(source_parent, source_name)?;
+    let target = match observe(destination_parent, destination_name) {
+        Ok(observed) => Target::Existing(observed),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Target::Absent,
+        Err(error) => return Err(error),
+    };
+    let action = decide(source, target, options)?;
+    plan.push(DryRunEntry {
+        source: PathBuf::from(source_name),
+        destination: PathBuf::from(destination_name),
+        action,
+    });
+    if source.identity.kind != FileKind::Directory || matches!(action, Action::Skip | Action::SameEntry)
+    {
+        return Ok(());
+    }
+    let source_directory = open_directory(source_parent, source_name, source)?;
+    let source_mount = mount_identity(source_directory.as_fd())?;
+    let destination_directory = match target {
+        Target::Existing(observed) if options.merge => {
+            let directory = open_directory(destination_parent, destination_name, observed)?;
+            if !engine.cross_file_systems
+                && mount_identity(directory.as_fd())? != mount_identity(destination_parent)?
+            {
+                return Err(io::Error::other(
+                    "nested destination mount requires --cross-file-systems",
+                ));
+            }
+            Some(directory)
+        }
+        _ => None,
+    };
+    let mut queue = VecDeque::from([(PathBuf::new(), destination_directory.is_some())]);
+    while let Some((relative, merged)) = queue.pop_front() {
+        cancellation.check()?;
+        let directory = open_relative_directory(source_directory.as_fd(), &relative)?;
+        let target_directory = match (&destination_directory, merged) {
+            (Some(root), true) => Some(open_relative_directory(root.as_fd(), &relative)?),
+            _ => None,
+        };
+        let mut names = Vec::new();
+        for entry in fs::Dir::read_from(directory.as_fd())? {
+            let entry = entry?;
+            let bytes = entry.file_name().to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            names.push(OsString::from_vec(bytes.to_vec()));
+        }
+        names.sort();
+        for name in names {
+            cancellation.check()?;
+            let name = OsStr::from_bytes(name.as_bytes());
+            let child_source = relative.join(name);
+            let child_destination = relative.join(name);
+            let observed = observe(directory.as_fd(), name)?;
+            let target = match &target_directory {
+                Some(target_directory) => match observe(target_directory.as_fd(), name) {
+                    Ok(observed) => Target::Existing(observed),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Target::Absent,
+                    Err(error) => return Err(error),
+                },
+                None => Target::Absent,
+            };
+            let action = decide(observed, target, options)?;
+            plan.push(DryRunEntry {
+                source: Path::new(source_name).join(&child_source),
+                destination: Path::new(destination_name).join(&child_destination),
+                action,
+            });
+            if observed.identity.kind == FileKind::Directory
+                && !matches!(action, Action::Skip | Action::SameEntry)
+            {
+                let child = open_directory(directory.as_fd(), name, observed)?;
+                if !engine.cross_file_systems
+                    && mount_identity(child.as_fd())? != source_mount
+                {
+                    return Err(io::Error::other(
+                        "nested source mount requires --cross-file-systems",
+                    ));
+                }
+                let child_merged = target_directory.is_some() && action == Action::Merge;
+                queue.push_back((relative.join(name), child_merged));
+            }
+        }
+    }
+    Ok(())
+}
+
 
 fn validate_entry_name(name: &OsStr, role: &'static str) -> io::Result<()> {
     let bytes = name.as_bytes();

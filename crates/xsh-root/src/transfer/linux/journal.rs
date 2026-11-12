@@ -49,6 +49,7 @@ pub struct Session {
     name: OsString,
     mount: MountIdentity,
     next: AtomicU64,
+    _active_root: ActiveRoot,
 }
 
 impl std::fmt::Debug for Session {
@@ -88,6 +89,50 @@ impl Drop for RootLock {
 
 fn euid() -> u32 {
     rustix::process::geteuid().as_raw()
+}
+
+static ACTIVE_ROOTS: std::sync::Mutex<Vec<(u64, u64)>> = std::sync::Mutex::new(Vec::new());
+
+struct ActiveRoot {
+    identity: (u64, u64),
+    owner: u32,
+}
+
+impl ActiveRoot {
+    fn register(identity: EntryIdentity) -> Self {
+        let identity = (identity.device, identity.inode);
+        let owner = std::process::id();
+        ACTIVE_ROOTS
+            .lock()
+            .unwrap()
+            .push((identity.0, identity.1));
+        Self { identity, owner }
+    }
+
+    fn holds(identity: EntryIdentity) -> bool {
+        ACTIVE_ROOTS
+            .lock()
+            .unwrap()
+            .contains(&(identity.device, identity.inode))
+    }
+
+    fn register_directory(identity: EntryIdentity) -> ActiveRoot {
+        ActiveRoot::register(identity)
+    }
+}
+
+impl Drop for ActiveRoot {
+    fn drop(&mut self) {
+        if std::process::id() == self.owner {
+            let mut roots = ACTIVE_ROOTS.lock().unwrap();
+            if let Some(index) = roots
+                .iter()
+                .position(|identity| *identity == self.identity)
+            {
+                roots.remove(index);
+            }
+        }
+    }
 }
 
 fn invalid(message: &'static str) -> io::Error {
@@ -721,6 +766,7 @@ impl Session {
             ));
         }
         let mount = super::mount_identity(root_lock.as_fd())?;
+        let active_root = ActiveRoot::register(directory_state(root_lock.as_fd())?.0);
         let name = create_session_directory(root_lock.as_fd(), random_bytes)?;
         let initiated = (|| -> io::Result<OwnedFd> {
             let directory = open_created_directory(root_lock.as_fd(), &name)?;
@@ -731,6 +777,7 @@ impl Session {
                 if session_mount != mount {
                     return Err(invalid("quarantine is on another mount"));
                 }
+                ActiveRoot::register_directory(session_identity);
                 let mut header = MAGIC.to_vec();
                 put_file_identity(&mut header, directory_state(root_lock.as_fd())?.0);
                 header.extend_from_slice(&euid().to_le_bytes());
@@ -767,6 +814,7 @@ impl Session {
             name,
             mount,
             next: AtomicU64::new(0),
+            _active_root: active_root,
         })
     }
 
@@ -785,6 +833,9 @@ impl Session {
     ///
     /// A root with recovered state fails so the caller rescans before acting.
     pub fn check_recovery(root: BorrowedFd<'_>) -> io::Result<()> {
+        if ActiveRoot::holds(directory_state(root)?.0) {
+            return Ok(());
+        }
         let root_lock = lock(root)?;
         if recover(root_lock.as_fd())? {
             return Err(io::Error::other(
@@ -802,6 +853,11 @@ impl Session {
     /// The session directory name within the root.
     pub fn name(&self) -> &OsStr {
         &self.name
+    }
+
+    /// Whether `fd` names the private staging directory of a live journal.
+    pub(super) fn is_staging_root(fd: BorrowedFd<'_>) -> io::Result<bool> {
+        Ok(ActiveRoot::holds(directory_state(fd)?.0))
     }
 
     /// Reserves the next capture name for a staged object.

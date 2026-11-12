@@ -4,6 +4,8 @@
 mod support;
 #[path = "fs_transfer/copy.rs"]
 mod copy;
+#[path = "fs_transfer/engine.rs"]
+mod engine;
 #[path = "fs_transfer/interruption.rs"]
 mod interruption;
 #[path = "fs_transfer/metadata.rs"]

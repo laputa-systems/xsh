@@ -1,17 +1,18 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::path::Component;
 
 use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags};
 
 use crate::FileKind;
 use crate::transfer::{
-    Action, Ancestor, Boundary, EntryIdentity, MergeRequest, Observation, Publication,
-    PublishRequest, Removal, Retirement, Target, TreeTransfer, decide,
+    Action, Ancestor, Boundary, EntryIdentity, MergeRequest, MetadataTarget, Observation,
+    Publication, PublishRequest, Removal, Retirement, Target, TreeTransfer, decide,
 };
 
 use super::journal::{Session, read_names};
-use super::{observe, observe_fd, require_unchanged, validate_entry_name};
+use super::{apply_final, observe, observe_fd, require_unchanged, validate_entry_name};
 
 const DIRECTORY_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
@@ -30,7 +31,7 @@ pub(crate) fn publish(
         expected_source,
         expected_destination,
         action,
-        durable,
+        engine,
         cancellation,
         progress,
     } = request;
@@ -84,6 +85,7 @@ pub(crate) fn publish(
     let mut registration = None;
     let mut staged = None;
     let mut published = false;
+    let mut deferred = Vec::new();
     let result = (|| -> io::Result<()> {
         authorize(Boundary::SessionStarted)?;
         registration = Some(session.register_stage(&stage_name)?);
@@ -93,8 +95,10 @@ pub(crate) fn publish(
             source_name,
             destination_parent: session.directory(),
             destination_name: &stage_name,
+            engine,
             cancellation,
             progress,
+            deferred_flags: &mut deferred,
         })?;
         authorize(Boundary::TransferComplete)?;
         require_unchanged(source_parent, source_name, expected_source)?;
@@ -187,8 +191,9 @@ pub(crate) fn publish(
             }
             _ => unreachable!("publication action was validated"),
         }
-        if durable {
-            fs::fsync(destination_parent)?;
+        apply_deferred_flags(destination_parent, destination_name, &deferred, engine.durable)?;
+        if engine.durable {
+            super::sync_fd(destination_parent)?;
         }
         session.clear_stage(registration.as_deref().expect("stage registration was published"))?;
         authorize(Boundary::StageCleared)?;
@@ -208,6 +213,71 @@ pub(crate) fn publish(
             error,
         )),
     }
+}
+
+pub(crate) fn apply_deferred_flags(
+    parent: BorrowedFd<'_>,
+    name: &OsStr,
+    deferred: &[crate::transfer::DeferredFlags],
+    durable: bool,
+) -> io::Result<()> {
+    for entry in deferred {
+        let relative = &entry.relative;
+        let root = fs::openat(parent, name, DIRECTORY_FLAGS, Mode::empty());
+        let (target, expected_directory) = match root {
+            Ok(root) => {
+                let (target_parent, target_name) = deferred_parent(root.as_fd(), relative)?;
+                let target = fs::openat(
+                    target_parent.as_fd(),
+                    &target_name,
+                    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )?;
+                (target, Some(target_parent))
+            }
+            Err(error) if error == rustix::io::Errno::NOTDIR && relative.as_os_str().is_empty() => {
+                let target = fs::openat(
+                    parent,
+                    name,
+                    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )?;
+                (target, None)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let metadata = crate::transfer::Metadata {
+            flags: entry.flags,
+            ..crate::transfer::Metadata::default()
+        };
+        apply_final(MetadataTarget::Fd(target.as_fd()), &metadata)?;
+        if durable {
+            super::sync_fd(target.as_fd())?;
+        }
+        drop(expected_directory);
+    }
+    Ok(())
+}
+
+fn deferred_parent(
+    root: BorrowedFd<'_>,
+    relative: &std::path::Path,
+) -> io::Result<(OwnedFd, OsString)> {
+    let name = relative
+        .file_name()
+        .ok_or_else(|| io::Error::other("deferred flags have no final name"))?
+        .to_os_string();
+    let mut parent = fs::openat(root, c".", DIRECTORY_FLAGS, Mode::empty())?;
+    for component in relative.parent().unwrap_or_else(|| std::path::Path::new("")).components() {
+        let Component::Normal(component) = component else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "deferred flags path is not relative",
+            ));
+        };
+        parent = fs::openat(parent.as_fd(), component, DIRECTORY_FLAGS, Mode::empty())?;
+    }
+    Ok((parent, name))
 }
 
 fn cleanup(
@@ -336,7 +406,7 @@ pub(crate) fn merge(request: MergeRequest<'_>) -> io::Result<()> {
         expected_source,
         expected_destination,
         options,
-        durable,
+        engine,
         cancellation,
         progress,
     } = request;
@@ -357,7 +427,7 @@ pub(crate) fn merge(request: MergeRequest<'_>) -> io::Result<()> {
         open_checked_directory(destination_parent, destination_name, expected_destination)?;
     let mut context = MergeContext {
         options,
-        durable,
+        engine,
         cancellation,
         progress,
     };
@@ -373,7 +443,7 @@ pub(crate) fn merge(request: MergeRequest<'_>) -> io::Result<()> {
 
 struct MergeContext<'a> {
     options: crate::transfer::PolicyOptions,
-    durable: bool,
+    engine: crate::transfer::EngineOptions,
     cancellation: &'a crate::transfer::Cancellation,
     progress: &'a mut crate::transfer::Progress,
 }
@@ -386,6 +456,8 @@ fn merge_directory(
     source: BorrowedFd<'_>,
     destination: BorrowedFd<'_>,
 ) -> io::Result<()> {
+    super::check_recovery(source)?;
+    super::check_recovery(destination)?;
     let before = observe_fd(source)?;
     for name in read_names(source)? {
         context.cancellation.check()?;
@@ -432,7 +504,7 @@ fn merge_directory(
                         expected_source: source_child,
                         expected_destination,
                         action,
-                        durable: context.durable,
+                        engine: context.engine,
                         cancellation: context.cancellation,
                         progress: context.progress,
                     },
