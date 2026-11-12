@@ -218,11 +218,11 @@ pure key_hints(view: View) -> Str {
 }
 
 pure status_text(view: View, width: Int) -> Str {
-  let count = f"{view.indexed} entries" + match view.scan_errors {
+  let count = f"{view.indexed} entries" + (match view.scan_errors {
     0 => ""
     1 => " · 1 scan error"
     else => f" · {view.scan_errors} scan errors"
-  }
+  })
   if let plan = view.pending {
     let skipped = if plan.skipped.is_empty() { "" } else { f" · {plan.skipped.len()} skipped" }
     let plural = if plan.roots.len() == 1 { "" } else { "s" }
