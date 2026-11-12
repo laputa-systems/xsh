@@ -25,10 +25,13 @@ proc disk_usage(entry_path: Path, seen: List[Str]) [fs, error] -> Result[DiskUsa
 # origin: busybox du/du-h-works
 test test_bb_du_du_h_works_c6df7262 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "file", bytes.concat([b"\0" for _ in range(1048576)]))
+  uu.write_bytes(s, "file", bytes.zero(1048576)?)
   let r = uu.invoke(s, "du", ["-h", "file"])?
   uu.succeeds(r)
-  uu.stdout_only(r, "1.0M\tfile\n")
+  let blocks = fs.stat(uu.at(s, "file"))?.blocks_512
+  assert blocks >= 2048 and blocks < 20480, "the human-size fixture must allocate between one and ten MiB"
+  let tenths = (blocks * 10 + 2047) / 2048
+  uu.stdout_only(r, f"{tenths / 10}.{tenths % 10}M\tfile\n")
 }
 
 # origin: busybox du/du-k-works
@@ -36,8 +39,8 @@ test test_bb_du_du_k_works_97253bd7 { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "du.testdir")
   let directory = {ctx: ctx, root: uu.at(s, "du.testdir")}
-  uu.write_bytes(directory, "file1", bytes.concat([b"\0" for _ in range(65536)]))
-  uu.write_bytes(directory, "file2", bytes.concat([b"\0" for _ in range(16384)]))
+  uu.write_bytes(directory, "file1", bytes.zero(65536)?)
+  uu.write_bytes(directory, "file2", bytes.zero(16384)?)
   let r = uu.invoke(directory, "du", ["-k", "."])?
   uu.succeeds(r)
   uu.no_stderr(r)
@@ -49,8 +52,8 @@ test test_bb_du_du_l_works_bf1ec30b { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "du.testdir")
   let directory = {ctx: ctx, root: uu.at(s, "du.testdir")}
-  uu.write_bytes(directory, "file1", bytes.concat([b"\0" for _ in range(65536)]))
-  uu.write_bytes(directory, "file2", bytes.concat([b"\0" for _ in range(16384)]))
+  uu.write_bytes(directory, "file1", bytes.zero(65536)?)
+  uu.write_bytes(directory, "file2", bytes.zero(16384)?)
   uu.hard_link(directory, "file1", "file1.1")
   let r = uu.invoke(directory, "du", ["-l", "."])?
   uu.succeeds(r)
@@ -61,10 +64,11 @@ test test_bb_du_du_l_works_bf1ec30b { |ctx|
 # origin: busybox du/du-m-works
 test test_bb_du_du_m_works_3eda7af5 { |ctx|
   let s = uu.scene(ctx)?
-  uu.write_bytes(s, "file", bytes.concat([b"\0" for _ in range(1048576)]))
+  uu.write_bytes(s, "file", bytes.zero(1048576)?)
   let r = uu.invoke(s, "du", ["-m", "file"])?
   uu.succeeds(r)
-  uu.stdout_only(r, "1\tfile\n")
+  let blocks = fs.stat(uu.at(s, "file"))?.blocks_512
+  uu.stdout_only(r, f"{(blocks + 2047) / 2048}\tfile\n")
 }
 
 # origin: busybox du/du-s-works
