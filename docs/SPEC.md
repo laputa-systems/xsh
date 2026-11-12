@@ -6846,7 +6846,14 @@ let text = notes.replace("DRAFT", with: "FINAL")
   profile and is Linux only. It requires Landlock ABI 6 or newer: an older
   kernel, Landlock disabled at boot, or a declared path that cannot be opened
   fails the call with `ProcessError.Spawn` before anything is spawned, and no
-  weaker profile is substituted. The ruleset is built in the caller; the
+  weaker profile is substituted. `read` and `write` accept `Path` or `FsRoot`
+  entries. Stored `List[Path]` and `List[FsRoot]` values remain accepted. Give
+  mixed lists the explicit type `List[Union[Path, FsRoot]]`. A `Path` is opened
+  when the policy is built; an `FsRoot` contributes
+  its retained directory descriptor, so replacing its path or ancestors cannot
+  retarget the policy. The ruleset holds that directory even after the handle
+  closes. A symlink into an undeclared tree grants no access to its target.
+  The ruleset is built in the caller; the
   child sets `no_new_privs`, enters the Landlock domain and marks every
   descriptor above standard error close-on-exec, then executes. Beneath a
   `read` path the command may read, list and execute; beneath a `write` path

@@ -133,3 +133,66 @@ test test_linux_run_confined_fails_before_exec_for_a_missing_declared_path { |ct
   }
   assert !marker.exists()?
 }
+
+test test_linux_run_confined_keeps_typed_path_lists_and_accepts_mixed_roots { |ctx|
+  guard landlock_available()? else { return }
+  let w = workspace(ctx, "confined-authorities")?
+  let read: List[Path] = system_paths()? + [w.declared]
+  let write: List[Path] = [w.writable]
+  let plan = process.command_argv("/bin/sh", ["sh", "-c", f"cat '{w.declared}/input' > '{w.writable}/copy'"])
+  assert linux.run_confined(plan, read:, write:)?.ok
+  assert fp"{w.writable}/copy".read_text()? == "declared input\n"
+  let readable = fs.open_root(w.declared)?
+  let writable = fs.open_root(w.writable)?
+  let mixed_read: List[Union[Path, FsRoot]] = [p"/bin", p"/usr", p"/lib", readable]
+  let write_roots: List[FsRoot] = [writable]
+  assert linux.run_confined(plan, read: mixed_read, write: write_roots)?.ok
+  assert writable.read_text(p"copy")? == "declared input\n"
+}
+
+test test_linux_run_confined_held_roots_survive_ancestor_replacement_before_policy_setup { |ctx|
+  guard landlock_available()? else { return }
+  let base = test.temp_dir(ctx, name: "confined-held-swap")?
+  let parent = fp"{base}/parent"
+  let original = fp"{parent}/root"
+  fp"{original}/manuals".mkdir(parents: true)
+  fp"{original}/bin".mkdir()
+  p"/bin/sh".resolve()?.copy(to: fp"{original}/bin/sh")
+  fp"{original}/bin/sh".chmod(0o755)
+  fp"{original}/input".write("held input\n")
+  let outside = fp"{base}/outside"
+  fp"{outside}/root/manuals".mkdir(parents: true)
+  fp"{outside}/root/input".write("outside secret\n")
+  fp"{outside}/root/tool".write("#!/bin/sh\necho escaped > \"$1\"\n", mode: 0o755)
+  fp"{outside}/root/manuals/sentinel".write("outside unchanged\n")
+  let root = fs.open_root(original)?
+  let manuals = root.open_root(p"manuals")?
+  let script = f"""
+cat '{base}/retained/root/input' > '{base}/retained/root/manuals/copied' || exit 10
+cat '{original}/input' > '{base}/retained/root/manuals/escaped-read' && exit 11
+'{original}/tool' '{original}/manuals/sentinel' && exit 12
+echo changed > '{original}/manuals/sentinel' && exit 13
+exit 0
+"""
+  let plan = root.command(p"bin/sh", ["sh", "-c", script])?
+  parent.rename(to: fp"{base}/retained")
+  parent.symlink(to: outside)
+  let read: List[Union[Path, FsRoot]] = [@system_paths()?, root]
+  assert linux.run_confined(plan, read:, write: [manuals])?.ok
+  assert manuals.read_text(p"copied")? == "held input\n"
+  assert manuals.read_text(p"escaped-read")? == ""
+  assert fp"{outside}/root/manuals/sentinel".read_text()? == "outside unchanged\n"
+}
+
+test test_linux_run_confined_returns_spawn_error_for_a_closed_root { |ctx|
+  guard landlock_available()? else { return }
+  let root = fs.open_root(test.temp_dir(ctx, name: "confined-closed-root")?)?
+  let alias: Any = root
+  alias.require(FsRoot)?.close()
+  let plan = process.command_argv("/bin/sh", ["sh", "-c", "exit 0"])
+  match linux.run_confined(plan, read: [root]) {
+    Err(ProcessError.Spawn {..}) => {}
+    Err(problem) => test.fail(f"closed authority returned another error: {problem.message}")
+    Ok(_) => test.fail("closed authority started a command")
+  }
+}

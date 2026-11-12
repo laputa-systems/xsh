@@ -9,12 +9,42 @@
 //! is built in the parent, so the child only makes three system calls.
 
 use crate::runtime::value::RunError;
+use std::fmt;
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub enum FilesystemAuthority {
+    Path(PathBuf),
+    Root(Arc<OwnedFd>),
+}
+
+impl fmt::Debug for FilesystemAuthority {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Path(path) => formatter.debug_tuple("Path").field(path).finish(),
+            Self::Root(_) => formatter.write_str("FsRoot"),
+        }
+    }
+}
+
+impl PartialEq for FilesystemAuthority {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::Root(left), Self::Root(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for FilesystemAuthority {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Confinement {
-    pub read: Vec<PathBuf>,
-    pub write: Vec<PathBuf>,
+    pub read: Vec<FilesystemAuthority>,
+    pub write: Vec<FilesystemAuthority>,
     pub tcp: TcpAccess,
 }
 
@@ -57,13 +87,12 @@ pub(crate) use unsupported::prepare;
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{Confinement, TcpAccess, check_landlock_abi, failure};
+    use super::{Confinement, FilesystemAuthority, TcpAccess, check_landlock_abi, failure};
     use crate::runtime::spawn::Command;
     use crate::runtime::value::RunError;
     use rustix::fs::{FileType, Mode, OFlags};
     use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    use std::path::Path;
+    use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
     const ACCESS_FS_EXECUTE: u64 = 1 << 0;
     const ACCESS_FS_WRITE_FILE: u64 = 1 << 1;
@@ -145,11 +174,21 @@ mod linux {
         Ok(unsafe { OwnedFd::from_raw_fd(fd as i32) })
     }
 
-    fn allow_beneath(ruleset: &OwnedFd, path: &Path, access: u64) -> Result<(), RunError> {
-        let denied = |error: io::Error| failure(format!("cannot confine to {}: {error}", path.display()));
-        let parent = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
-            .map_err(|errno| denied(errno.into()))?;
-        let stat = rustix::fs::fstat(&parent).map_err(|errno| denied(errno.into()))?;
+    fn allow_beneath(ruleset: &OwnedFd, authority: &FilesystemAuthority, access: u64) -> Result<(), RunError> {
+        match authority {
+            FilesystemAuthority::Path(path) => {
+                let denied = |error: io::Error| failure(format!("cannot confine to {}: {error}", path.display()));
+                let parent = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())
+                    .map_err(|error| denied(error.into()))?;
+                allow_descriptor(ruleset, parent.as_fd(), access).map_err(denied)
+            }
+            FilesystemAuthority::Root(root) => allow_descriptor(ruleset, root.as_fd(), access)
+                .map_err(|error| failure(format!("cannot confine to held FsRoot: {error}"))),
+        }
+    }
+
+    fn allow_descriptor(ruleset: &OwnedFd, parent: BorrowedFd<'_>, access: u64) -> io::Result<()> {
+        let stat = rustix::fs::fstat(&parent)?;
         let allowed_access = if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
             access
         } else {
@@ -168,7 +207,7 @@ mod linux {
             )
         };
         if code != 0 {
-            return Err(denied(io::Error::last_os_error()));
+            return Err(io::Error::last_os_error());
         }
         Ok(())
     }
@@ -230,5 +269,55 @@ mod tests {
             assert_eq!(error.kind, KIND);
             assert_eq!(error.message, message);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepared_policy_keeps_directory_authority_after_all_source_descriptors_close() {
+        use super::{Confinement, FilesystemAuthority, TcpAccess, prepare};
+        use crate::runtime::spawn::{ChildStdio, Command};
+        use std::sync::Arc;
+        use xsh_root::Root;
+
+        let directory = tempfile::tempdir().expect("directory");
+        let parent = directory.path().join("parent");
+        let selected = parent.join("selected");
+        let retained = directory.path().join("retained");
+        let outside = directory.path().join("outside");
+        std::fs::create_dir_all(selected.join("manuals")).expect("selected directories");
+        std::fs::create_dir_all(outside.join("selected/manuals")).expect("outside directories");
+        std::fs::write(selected.join("input"), b"selected input").expect("selected input");
+        std::fs::write(outside.join("selected/input"), b"outside input").expect("outside input");
+        std::fs::write(outside.join("selected/manuals/sentinel"), b"unchanged").expect("sentinel");
+        let root = Root::open(&selected).expect("root");
+        let manuals = root.open_dir("manuals").expect("manual root");
+        let held = |root: &Root| FilesystemAuthority::Root(Arc::new(
+            rustix::io::fcntl_dupfd_cloexec(root, 3).expect("duplicate authority"),
+        ));
+        let mut read: Vec<_> = ["/bin", "/usr", "/lib", "/lib64"].into_iter()
+            .filter(|path| std::path::Path::new(path).exists())
+            .map(|path| FilesystemAuthority::Path(path.into())).collect();
+        read.push(held(&root));
+        let confinement = Confinement { read, write: vec![held(&manuals)], tcp: TcpAccess::Denied };
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "cat \"$RETAINED/input\" > \"$RETAINED/manuals/copy\" || exit 10; cat \"$ORIGINAL/input\" && exit 11; echo changed > \"$ORIGINAL/manuals/sentinel\" && exit 12; exit 0"])
+            .env("PATH", "/usr/bin:/bin")
+            .env("RETAINED", retained.join("selected"))
+            .env("ORIGINAL", &selected)
+            .stdout(ChildStdio::Null)
+            .stderr(ChildStdio::Null);
+        if let Err(error) = prepare(&confinement, &mut command) {
+            assert!(error.message.starts_with("confinement requires Landlock"), "{error:?}");
+            return;
+        }
+        drop(confinement);
+        drop(manuals);
+        drop(root);
+        std::fs::rename(&parent, &retained).expect("move ancestor after policy installation");
+        std::os::unix::fs::symlink(&outside, &parent).expect("replace ancestor");
+        let status = command.spawn().expect("spawn").wait().expect("reap");
+        assert!(status.success(), "{status}");
+        assert_eq!(std::fs::read(retained.join("selected/manuals/copy")).expect("copy"), b"selected input");
+        assert_eq!(std::fs::read(outside.join("selected/manuals/sentinel")).expect("sentinel"), b"unchanged");
     }
 }

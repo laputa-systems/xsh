@@ -2398,6 +2398,14 @@ fn json_module() -> ModuleSig {
     ])
 }
 
+fn confinement_authorities_type() -> Type {
+    Type::Union(vec![
+        Type::List(Box::new(Type::Union(vec![Type::Path, Type::FsRoot]))),
+        Type::List(Box::new(Type::Path)),
+        Type::List(Box::new(Type::FsRoot)),
+    ])
+}
+
 fn linux_module() -> ModuleSig {
     let list_str = || Type::List(Box::new(Type::Str));
     let list_path = || Type::List(Box::new(Type::Path));
@@ -2483,8 +2491,8 @@ fn linux_module() -> ModuleSig {
             sig(
                 vec![
                     param("command", Type::Command),
-                    default_param("read", list_path()),
-                    default_param("write", list_path()),
+                    default_param("read", confinement_authorities_type()),
+                    default_param("write", confinement_authorities_type()),
                     default_param("tcp", Type::Bool),
                 ],
                 Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
