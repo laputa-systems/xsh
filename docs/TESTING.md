@@ -540,6 +540,25 @@ container with a 0.01 CPU quota and a 1 GiB memory limit. Their driver waits for
 the child to open the device, then kills and reaps it. The ordinary gate runs
 this bounded case separately.
 
+### Block-device dd regression
+
+After preparing the verification products, run the two block-device cases in a
+separate privileged container. The fixture creates a 4 KiB loop device and
+refuses to replace an existing `/dev/sda1`. It checks failed and valid skips for
+stdin and named inputs, with and without conversion. Cleanup removes its node,
+detaches its loop device and deletes its image, including after a test failure.
+No physical disk is used.
+
+```sh
+mkdir -p .work/tmp/dd-block
+docker run --rm --init --privileged --network none --cpus=2 --memory=2g \
+  -v "$PWD:/work:ro" -v "$PWD/target/linux-test:/work/target:ro" \
+  -v "$PWD/.work/tmp/dd-block:/scratch" -w /work -e TMPDIR=/scratch xsh-test \
+  /bin/bash dev/campaign/dd-block-fixture.sh \
+  target/x86_64-unknown-linux-musl/verification/xsht \
+  target/x86_64-unknown-linux-musl/verification/xsh
+```
+
 ## Archive and compression
 
 The XSH-57 implementation was tested on Linux through `56f5fa9f8` and a later

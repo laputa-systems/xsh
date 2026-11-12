@@ -391,11 +391,17 @@ test test_uu_dd_skip_past_dev { |ctx|
   let s = uu.scene(ctx)?
   if ! p"/dev/sda1".exists() { test.skip("no /dev/sda1 device found") }
   if applet.current_euid() != 0 { test.skip("requires root user") }
-  let r = uu.invoke_from_path(s, "dd", ["bs=1", "skip=10000000000000000", "count=0", "status=noxfer"], p"/dev/sda1")?
-  uu.fails_with_code(r, 1)
-  uu.stderr_contains(r, "dd: 'standard input': cannot skip: Invalid argument")
-  uu.stderr_contains(r, "0+0 records in")
-  uu.stderr_contains(r, "0+0 records out")
+  for conversion in [[], ["conv=ucase"]] {
+    let args = conversion.extend(["bs=1", "skip=10000000000000000", "count=0", "status=noxfer"])
+    let stdin = uu.invoke_from_path(s, "dd", args, p"/dev/sda1")?
+    uu.fails_with_code(stdin, 1)
+    uu.no_stdout(stdin)
+    uu.stderr_is(stdin, "dd: 'standard input': cannot skip: Invalid argument\n0+0 records in\n0+0 records out\n")
+    let named = uu.invoke(s, "dd", args.extend(["if=/dev/sda1"]))?
+    uu.fails_with_code(named, 1)
+    uu.no_stdout(named)
+    uu.stderr_is(named, "dd: /dev/sda1: cannot skip: Invalid argument\n0+0 records in\n0+0 records out\n")
+  }
 }
 
 # origin: uutils test_dd::test_skip_zero

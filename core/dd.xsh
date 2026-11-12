@@ -388,7 +388,31 @@ proc reopen_without_direct(fd: Int, dest: Path, offset: Int, flags: List[Str]) [
   Ok(reopened)
 }
 
-proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
+proc skip_block_input(fd: Int, offset: Int, opts: Options, started: monotonic.Reading) [process, time, io, env, error] -> Result[Unit] {
+  if offset > 0 {
+    if let Err(failure) = unix.seek_fd(fd, offset, whence: "current") {
+      let label = if let input = opts.input { gnu.quote_bytes(input.bytes(), always: false) } else { "'standard input'" }
+      gnu.error(f"{label}: cannot skip: {gnu.strerror(failure)}")
+      report(opts, 0, 0, 0, 0, started)
+      exit 1
+    }
+  }
+  Ok()
+}
+
+proc skip_stdin_block(offset: Int, opts: Options, started: monotonic.Reading) [fs, process, time, io, env, error] -> Result[Bool] {
+  if offset > 0 {
+    if let Ok(entry) = fs.stat(p"/dev/stdin", follow_symlinks: true) {
+      if entry.kind == "block" {
+        skip_block_input(0, offset, opts, started)?
+        return Ok(true)
+      }
+    }
+  }
+  Ok(false)
+}
+
+proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int, started: monotonic.Reading) [fs, error, io, process, env, time] -> Result[Copied] {
   let dest = if let output = opts.output { output } else { fp"/dev/stdout" }
   var output_fd = null
   var output_kind = 0
@@ -429,8 +453,10 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   }
   let large_input = if let file = source { opts.ibs > 67108864 and file.kind != 1 } else { false }
   if let fd = input_fd {
-    let seekable = if let file = source { file.kind == 8 } else { false }
-    if seekable {
+    let kind = if let file = source { file.kind } else { 0 }
+    if kind == 6 {
+      skip_block_input(fd, skip, opts, started)?
+    } else if kind == 8 {
       if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
     } else {
       var discarded = 0
@@ -442,7 +468,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
         discarded += block.len()
       }
     }
-  } else if source == null {
+  } else if source == null and !skip_stdin_block(skip, opts, started)? {
     var discarded = 0
     while discarded < skip {
       let requested = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
@@ -625,7 +651,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   if opts.input_directory { require_directory_input(opts.input) }
   let plain = [flag for flag in opts.conv if ! (flag in ["notrunc", "nocreat", "sparse"])].is_empty()
   if plain {
-    guard let copied = plain_copy(opts, skip, seek, limit) else { |failure| gnu.error(gnu.strerror(failure)); exit 1 }
+    guard let copied = plain_copy(opts, skip, seek, limit, started) else { |failure| gnu.error(gnu.strerror(failure)); exit 1 }
     report(opts, copied.written, copied.complete, copied.partial, 0, started, output_failed: copied.failure != null)
     if let failure = copied.failure { gnu.error(failure); exit 1 }
     if copied.discard_failed { exit 1 }
@@ -633,16 +659,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   }
     var records = []
     var source_fd = null
-  var source_seekable = false
+  var source_kind = 0
+  let stdin_block_skipped = if opts.input == null { skip_stdin_block(skip, opts, started)? } else { false }
   if let input = opts.input {
     guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
-    if source.kind == 1 or ! opts.input_flags.is_empty() { source_fd = unix.open_fd(source.path, nonblock: false, flags: opts.input_flags)? }
-    source_seekable = source.kind == 8
+    if source.kind in [1, 6] or ! opts.input_flags.is_empty() { source_fd = unix.open_fd(source.path, nonblock: false, flags: opts.input_flags)? }
+    source_kind = source.kind
   }
   if let fd = source_fd {
     var discarded = 0
-    if source_seekable {
-      if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
+    if source_kind in [6, 8] {
+      if source_kind == 6 {
+        skip_block_input(fd, skip, opts, started)?
+      } else if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
       discarded = skip
     }
     while discarded < skip {
@@ -694,7 +723,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       records = chunks
     } else {
       var discarded = 0
-      while discarded < skip {
+      while !stdin_block_skipped and discarded < skip {
         let want = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
         guard let block = io.stdin_read(want) else { |failure| gnu.error(f"error reading 'standard input': {gnu.strerror(failure)}"); exit 1 }
         break when block.is_empty()
