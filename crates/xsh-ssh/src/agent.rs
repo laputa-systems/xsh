@@ -37,19 +37,54 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Connect to the agent socket; the agent may stay silent for at most `timeout` at a time.
+    /// Establish the agent connection within `timeout`; subsequent I/O may stay
+    /// silent for at most `timeout` at a time.
     pub fn connect(socket: &Path, timeout: Duration) -> Result<Self, Error> {
-        let stream = UnixStream::connect(socket)
-            .map_err(|error| agent_error(format!("cannot connect to {}: {error}", socket.display())))?;
-        stream
-            .set_nonblocking(true)
-            .map_err(|error| agent_error(format!("cannot bound agent I/O: {error}")))?;
-        Ok(Self {
-            stream,
-            idle: timeout,
-            deadline: None,
-            interrupt: None,
-        })
+        Self::connect_bounded(socket, timeout, None, None)
+    }
+
+    pub(crate) fn connect_bounded(
+        socket: &Path,
+        timeout: Duration,
+        deadline: Option<Instant>,
+        interrupt: Option<Interrupt>,
+    ) -> Result<Self, Error> {
+        use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with};
+
+        let failed = |error| agent_error(format!("cannot connect to {}: {error}", socket.display()));
+        let address = SocketAddrUnix::new(socket).map_err(failed)?;
+        let started = Instant::now();
+        loop {
+            let stream = socket_with(
+                AddressFamily::UNIX,
+                SocketType::STREAM,
+                SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
+                None,
+            ).map_err(failed)?;
+            let agent = Self { stream: UnixStream::from(stream), idle: timeout, deadline, interrupt: interrupt.clone() };
+            agent.wait_slice(started)?;
+            match connect(&agent.stream, &address) {
+                Ok(()) => return Ok(agent),
+                Err(error) if error == rustix::io::Errno::AGAIN => {
+                    // Linux AF_UNIX EAGAIN means the listen queue is full, not a pending connect.
+                    let slice = agent.wait_slice(started)?;
+                    let timespec = Timespec::try_from(slice).map_err(|error| agent_error(format!("agent wait failed: {error}")))?;
+                    match poll(&mut [], Some(&timespec)) {
+                        Ok(_) | Err(rustix::io::Errno::INTR) => {}
+                        Err(error) => return Err(agent_error(format!("agent wait failed: {error}"))),
+                    }
+                }
+                Err(error) if error == rustix::io::Errno::INPROGRESS || error == rustix::io::Errno::INTR => {
+                    agent.wait(PollFlags::OUT, started)?;
+                    if let Some(error) = agent.stream.take_error().map_err(|error| agent_error(format!("agent connect failed: {error}")))? {
+                        return Err(agent_error(format!("cannot connect to {}: {error}", socket.display())));
+                    }
+                    agent.stream.peer_addr().map_err(|error| agent_error(format!("agent connect failed: {error}")))?;
+                    return Ok(agent);
+                }
+                Err(error) => return Err(failed(error)),
+            }
+        }
     }
 
     /// End every exchange at `deadline` however steadily the agent answers, and as soon as
@@ -60,27 +95,32 @@ impl Agent {
         self
     }
 
+    fn wait_slice(&self, last_progress: Instant) -> Result<Duration, Error> {
+        if self.interrupt.as_ref().is_some_and(|interrupt| interrupt()) {
+            return Err(Error::Cancelled {
+                certainty: Certainty::NotSubmitted,
+            });
+        }
+        let now = Instant::now();
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            return Err(Error::Timeout {
+                certainty: Certainty::NotSubmitted,
+            });
+        }
+        let silent = now.duration_since(last_progress);
+        if silent >= self.idle {
+            return Err(agent_error(format!("agent did not answer within {:?}", self.idle)));
+        }
+        let mut slice = INTERRUPT_POLL.min(self.idle - silent);
+        if let Some(deadline) = self.deadline {
+            slice = slice.min(deadline.saturating_duration_since(now));
+        }
+        Ok(slice)
+    }
+
     fn wait(&self, events: PollFlags, last_progress: Instant) -> Result<(), Error> {
         loop {
-            if self.interrupt.as_ref().is_some_and(|interrupt| interrupt()) {
-                return Err(Error::Cancelled {
-                    certainty: Certainty::NotSubmitted,
-                });
-            }
-            let now = Instant::now();
-            if self.deadline.is_some_and(|deadline| now >= deadline) {
-                return Err(Error::Timeout {
-                    certainty: Certainty::NotSubmitted,
-                });
-            }
-            let silent = now.duration_since(last_progress);
-            if silent >= self.idle {
-                return Err(agent_error(format!("agent did not answer within {:?}", self.idle)));
-            }
-            let mut slice = INTERRUPT_POLL.min(self.idle - silent);
-            if let Some(deadline) = self.deadline {
-                slice = slice.min(deadline.saturating_duration_since(now));
-            }
+            let slice = self.wait_slice(last_progress)?;
             let mut descriptors = [PollFd::new(&self.stream, events)];
             let timespec = Timespec {
                 tv_sec: slice.as_secs() as _,
@@ -189,5 +229,78 @@ impl Agent {
             return Err(agent_error("agent returned a malformed Ed25519 signature"));
         }
         Ok(signature)
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::thread;
+
+    fn full_backlog() -> (tempfile::TempDir, UnixListener, UnixStream) {
+        use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with};
+        let directory = tempfile::tempdir().expect("agent directory");
+        let path = directory.path().join("agent.sock");
+        let socket = socket_with(AddressFamily::UNIX, SocketType::STREAM, SocketFlags::CLOEXEC, None).expect("socket");
+        bind(&socket, &SocketAddrUnix::new(&path).expect("address")).expect("bind");
+        listen(&socket, 0).expect("listen");
+        let listener = UnixListener::from(socket);
+        let queued = UnixStream::connect(path).expect("fill backlog");
+        (directory, listener, queued)
+    }
+
+    fn blocked_attempt(timeout: Duration, deadline: Option<Instant>, interrupt: Option<Interrupt>) -> Error {
+        let (directory, listener, _queued) = full_backlog();
+        let socket = directory.path().join("agent.sock");
+        let (sender, receiver) = mpsc::channel();
+        let child = thread::spawn(move || {
+            sender.send(Agent::connect_bounded(&socket, timeout, deadline, interrupt).map(|_| ())).expect("send");
+        });
+        let result = receiver.recv_timeout(Duration::from_secs(1));
+        if result.is_err() {
+            let _ = listener.accept().expect("release blocked connect");
+        }
+        child.join().expect("connect worker");
+        result.expect("agent connect must be bounded even with a full backlog").expect_err("full backlog must not appear connected")
+    }
+
+    #[test]
+    fn a_full_agent_backlog_obeys_the_idle_timeout() {
+        assert!(matches!(blocked_attempt(Duration::from_millis(30), None, None), Error::Agent { .. }));
+    }
+
+    #[test]
+    fn a_full_agent_backlog_obeys_the_authentication_deadline() {
+        let error = blocked_attempt(Duration::from_secs(3), Some(Instant::now() + Duration::from_millis(30)), None);
+        assert!(matches!(error, Error::Timeout { certainty: Certainty::NotSubmitted }));
+    }
+
+    #[test]
+    fn a_full_agent_backlog_obeys_cancellation() {
+        let checks = Arc::new(AtomicUsize::new(0));
+        let interrupt: Interrupt = Arc::new(move || checks.fetch_add(1, Ordering::Relaxed) > 0);
+        let error = blocked_attempt(Duration::from_secs(3), None, Some(interrupt));
+        assert!(matches!(error, Error::Cancelled { certainty: Certainty::NotSubmitted }));
+    }
+
+    #[test]
+    fn a_full_agent_backlog_connects_after_the_listener_accepts() {
+        let (directory, listener, _queued) = full_backlog();
+        let socket = directory.path().join("agent.sock");
+        let (sender, receiver) = mpsc::channel();
+        let child = thread::spawn(move || {
+            sender.send(Agent::connect(&socket, Duration::from_secs(2)).map(|agent| agent.stream.peer_addr().is_ok())).expect("send");
+        });
+        let premature = receiver.recv_timeout(Duration::from_millis(30));
+        let returned_early = premature.is_ok();
+        let _ = listener.accept().expect("drain backlog");
+        let connected = if returned_early { premature } else { receiver.recv_timeout(Duration::from_secs(1)) };
+        child.join().expect("connect worker");
+        assert!(!returned_early, "a full backlog is not an established connection");
+        assert!(connected.expect("connect returns after drain").expect("agent connects"));
     }
 }

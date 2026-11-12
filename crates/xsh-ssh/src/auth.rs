@@ -75,7 +75,7 @@ fn read_key_file(path: &Path) -> Result<Zeroizing<String>, Error> {
     if metadata.len() > MAX_KEY_FILE_BYTES {
         return Err(refuse(format!("larger than {MAX_KEY_FILE_BYTES} bytes")));
     }
-    let mut bytes = Zeroizing::new(Vec::new());
+    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_KEY_FILE_BYTES as usize + 1));
     file.take(MAX_KEY_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| refuse(format!("cannot read: {error}")))?;
@@ -99,14 +99,16 @@ fn is_encrypted(text: &str) -> bool {
     else {
         return false;
     };
-    let compact: Zeroizing<String> = Zeroizing::new(
-        body.chars()
-            .filter(|character| !character.is_whitespace())
-            .collect(),
-    );
-    let Ok(decoded) = BASE64.decode(compact.as_bytes()).map(Zeroizing::new) else {
+    let mut compact = Zeroizing::new(String::with_capacity(body.len()));
+    compact.extend(body.chars().filter(|character| !character.is_whitespace()));
+    let Ok(size) = BASE64.decode_len(compact.len()) else {
         return false;
     };
+    let mut decoded = Zeroizing::new(vec![0; size]);
+    let Ok(size) = BASE64.decode_mut(compact.as_bytes(), &mut decoded) else {
+        return false;
+    };
+    decoded.truncate(size);
     let Some(rest) = decoded.strip_prefix(b"openssh-key-v1\0") else {
         return false;
     };
@@ -165,8 +167,12 @@ fn credential(
             socket,
             fingerprint,
         } => {
-            let mut agent = Agent::connect(socket, transport.idle_timeout())?
-                .bounded(transport.deadline(), transport.interrupt());
+            let mut agent = Agent::connect_bounded(
+                socket,
+                transport.idle_timeout(),
+                transport.deadline(),
+                transport.interrupt(),
+            )?;
             let mut chosen = None;
             for blob in agent.identities()? {
                 if crate::host_key::fingerprint(&blob, provider)? == fingerprint.as_str() {

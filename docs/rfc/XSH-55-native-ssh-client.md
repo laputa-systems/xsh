@@ -38,7 +38,7 @@ OpenSSH 10.0 server in the loopback fixture, and Dropbear 2026.94 for the VM dri
 | Transport messages (ignore, debug, unimplemented) and a server key exchange accepted in every phase, including authentication | M | D after the review | `tests/authentication.rs` |
 | Unsupported CPU fails clearly before any instruction | M | D | `cpu::tests` |
 | Pinned fingerprint and `known_hosts`; unknown, changed, revoked fail before authentication; hashed and CA entries rejected; no TOFU, no automatic write | P pin only | D | `tests/connect.rs`, `known_hosts::tests`, `ssh_known_hosts_refuses_unknown_changed_and_revoked_keys` |
-| Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `encrypted_key_is_rejected_explicitly` |
+| Ed25519 key files; encrypted file refused; ssh-agent signing, bounded, never forwarded | P no agent | D | `tests/agent.rs`, `tests/authentication.rs`, `agent::tests`, `encrypted_key_is_rejected_explicitly` |
 | No password, keyboard-interactive, PTY, forwarding; secrets out of Debug and errors; zeroize where practical | P | D key file buffer, shared secret, decrypted payloads and stdin the client reads are wiped, and Graviola wipes its key and cipher state; its SHA-256 contexts and process dumps are not | `debug_does_not_expose_payloads`, `stdin_bytes_are_wiped_before_the_client_frees_them`, `docs/ssh.md` |
 | Required tests (pinned and `known_hosts`, auth, binary I/O, status and signal, absent status, premature disconnect, windows, stalled peers, reuse, both rekey directions, fragmented identification, malformed input, deadlines and cancellation, failure after submission) | P | D | `tests/connect.rs`, `exec.rs`, `stream.rs`, `protocol.rs`, `agent.rs`, `descriptors.rs` |
 | Feature-disabled and minimal builds | P they warned, which the distribution build denies | D | `cargo check -p xsh --no-default-features` and `--features net,tools`, warning-free |
@@ -123,6 +123,21 @@ its change.
 |---|---|---|
 | Medium | A server could send channel data, extended data, EOF, close or a completion before its reply to the `exec` request, and the command failed as a protocol error after submission. RFC 4254 section 5.4 lets the sender continue without waiting for a reply, and section 6.5 orders neither the reply nor the command's traffic; OpenSSH and Dropbear reply first, but the RFC does not require it. | `Channel::exec` holds those messages, bounded by the receive window and 1024 packets, and delivers them in order once the reply succeeds. `output_and_completion_before_the_exec_reply_are_delivered` |
 | Medium | `Connection::exec_stream` called the caller's writers synchronously, so one that blocked stopped the connection from answering keepalives, key exchanges and other requests, as a stalled output file once did. | The connection runs on one bounded scoped thread with nonblocking pipes for stdin and both outputs; the calling thread, which owns the non-`Send` writers and input source, feeds and drains them, holding at most the pipe capacity and the receive window. A writer that never returns still keeps the call from returning, but no longer stops service. `a_stalled_writer_does_not_stop_the_connection_from_being_served` |
+
+### Agent establishment and private-key buffers
+
+2026-11-12, Linux x86-64 musl. A separate review reproduced two gaps in the
+previous bounds. Independent verification of the fixed implementation remains
+pending. The client remains experimental.
+
+| Defect | Fix and regression |
+|---|---|
+| `Agent::connect` entered a blocking Unix-socket connect before installing the authentication deadline or interrupt. A full listen queue held a 50 ms connect beyond the probe's 300 ms watchdog. | Socket establishment is nonblocking. Linux `EAGAIN` retries a fresh owned socket within the idle timeout, operation deadline and cancellation checks. Writable readiness is used only for a pending connection, whose peer address must then exist. `agent::tests` covers a full backlog, deadline, cancellation and successful connection after draining it. `authentication_deadline_covers_agent_socket_establishment` and `authentication_cancellation_covers_agent_socket_establishment` exercise the real authentication caller. |
+| Private-key base64 strings grew while holding encoded key material. Wiping the final allocation left earlier reallocations unwiped. Base64 decode errors also freed partially decoded material before a `Zeroizing` wrapper existed. | Key-file reads and base64 collectors reserve their complete bound before filling. Both decoders write into `Zeroizing` buffers before validation. `private_key_loading_wipes_freed_and_reallocated_buffers_on_success_and_errors` inspects deallocation and reallocation for raw and encoded fixture seed bytes on success, malformed base64, missing footer, encrypted metadata and invalid padding. The original allocator probe reports zero leaked allocations for both the client loader and direct parser, previously two and one. |
+
+The vendored `OpenSshKeyV1::to_bytes` and `pem_encode` serialization paths also
+grow sensitive buffers. The client key-loading path calls neither method.
+Their reallocation behavior remains outside this loading-path qualification.
 
 The SHA-256 contexts remain unwiped as a dependency limit, not an `xsh-ssh`
 defect it can fix without a fork: `oxish-graviola` wraps Graviola's

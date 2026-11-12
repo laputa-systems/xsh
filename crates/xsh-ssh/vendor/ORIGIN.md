@@ -29,6 +29,11 @@ or cryptographic behavior changes. `oxish-proto/src/io.rs`, including the
 plaintext wiping and `WriteState::reserve()` and `clear()`, is byte-for-byte
 ssh-build.
 
+`oxish-proto/src/host_keys.rs` also reserves the complete input bound before
+collecting private-key base64 and decodes into a `Zeroizing` output buffer.
+This local loading-path change prevents reallocations from freeing encoded key
+copies and wipes partial decoded output when malformed base64 is refused.
+
 ## Manifest normalization
 
 Apart from the changes above, source files are byte-for-byte from ssh-build. The two OxiSH manifests were

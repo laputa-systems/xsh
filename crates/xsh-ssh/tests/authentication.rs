@@ -9,6 +9,66 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const DEBUG: u8 = 4;
 const UNIMPLEMENTED: u8 = 3;
 
+#[cfg(target_os = "linux")]
+enum AgentStop {
+    Deadline,
+    Cancellation,
+}
+
+#[cfg(target_os = "linux")]
+fn authentication_with_a_full_agent_backlog(stop: AgentStop) -> Error {
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
+    use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with};
+
+    let peer = spawn(Behavior::default(), |link| link.linger());
+    let directory = tempfile::tempdir().expect("agent directory");
+    let path = directory.path().join("agent.sock");
+    let socket = socket_with(AddressFamily::UNIX, SocketType::STREAM, SocketFlags::CLOEXEC, None).expect("socket");
+    bind(&socket, &SocketAddrUnix::new(&path).expect("address")).expect("bind");
+    listen(&socket, 0).expect("listen");
+    let listener = UnixListener::from(socket);
+    let _queued = UnixStream::connect(&path).expect("fill backlog");
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let mut config = peer.config(Duration::from_secs(3));
+    config.deadline = Duration::from_millis(100);
+    config.identity = xsh_ssh::Identity::Agent {
+        socket: path,
+        fingerprint: xsh_ssh::Fingerprint::parse(&peer.pin).expect("fingerprint"),
+    };
+    let flag = cancelled.clone();
+    config.interrupt = Some(Arc::new(move || flag.load(Ordering::SeqCst)));
+    let mut connection = Connection::connect(&config).expect("verified host connection");
+    cancelled.store(matches!(stop, AgentStop::Cancellation), Ordering::SeqCst);
+    let (sender, receiver) = mpsc::channel();
+    let child = std::thread::spawn(move || {
+        let result = connection.authenticate();
+        drop(connection);
+        sender.send(result).expect("send authentication outcome");
+    });
+    let result = receiver.recv_timeout(Duration::from_secs(1));
+    if result.is_err() {
+        let _ = listener.accept().expect("release blocked connect");
+    }
+    child.join().expect("authentication worker");
+    peer.finish();
+    result.expect("agent socket establishment must honor authentication bounds").expect_err("full agent queue")
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn authentication_deadline_covers_agent_socket_establishment() {
+    let error = authentication_with_a_full_agent_backlog(AgentStop::Deadline);
+    assert!(matches!(error, Error::Timeout { certainty: xsh_ssh::Certainty::NotSubmitted }));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn authentication_cancellation_covers_agent_socket_establishment() {
+    let error = authentication_with_a_full_agent_backlog(AgentStop::Cancellation);
+    assert!(matches!(error, Error::Cancelled { certainty: xsh_ssh::Certainty::NotSubmitted }));
+}
+
 fn transport_noise() -> Vec<Vec<u8>> {
     vec![
         message(IGNORE, &[&text(b"padding")]),
