@@ -12657,6 +12657,78 @@
       "status": "fragment",
       "scope": "The exported two-parameter, two-local body derives slots 0, 1, 3, 5 and rejects swapped local claims, a local claimed at a temporary row, and an unmatched site.",
       "boundary": "Swapped locals are caught here only because their initializers differ; identical initializers rely on checked uses."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectSet.ofList_contains",
+      "module": "Xsh.Core.Effects",
+      "declaration": "Xsh.Core.EffectSet.ofList_contains",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The computable finite effect set denotes the existing semantic effect vocabulary exactly.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectSet.ofList_denotation",
+      "module": "Xsh.Core.Effects",
+      "declaration": "Xsh.Core.EffectSet.ofList_denotation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "The computable finite effect set denotes the existing semantic effect vocabulary exactly.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.TypeTerm.substitute_identity",
+      "module": "Xsh.Core.Types",
+      "declaration": "Xsh.Core.TypeTerm.substitute_identity",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.TypeTerm.substitute_compose",
+      "module": "Xsh.Core.Types",
+      "declaration": "Xsh.Core.TypeTerm.substitute_compose",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.TypeTerm.substitute_congr",
+      "module": "Xsh.Core.Types",
+      "declaration": "Xsh.Core.TypeTerm.substitute_congr",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.TypeTerm.variable_free_substitution_irrelevant",
+      "module": "Xsh.Core.Types",
+      "declaration": "Xsh.Core.TypeTerm.variable_free_substitution_irrelevant",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.MapKey.scalar_injective",
+      "module": "Xsh.Core.Values",
+      "declaration": "Xsh.Core.MapKey.scalar_injective",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Scalar map keys embed injectively into the shared scalar domain; repeated top-level nominal erasure has no further effect.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
+    },
+    {
+      "id": "fragment.Xsh.Core.Value.eraseNominal_idempotent",
+      "module": "Xsh.Core.Values",
+      "declaration": "Xsh.Core.Value.eraseNominal_idempotent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Scalar map keys embed injectively into the shared scalar domain; repeated top-level nominal erasure has no further effect.",
+      "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
     }
   ],
   "artifact_certificates": [

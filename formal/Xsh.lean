@@ -1,3 +1,4 @@
+import Xsh.Core.Values
 import Xsh.Foundation
 import Xsh.Syntax.Core
 import Xsh.Syntax.Foundation.ResolvedIdentity
