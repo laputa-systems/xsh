@@ -418,11 +418,18 @@ impl<'a, 'ast> Visit<'ast> for UseCollector<'a> {
 
 // ── usage visitor ──────────────────────────────────────────────────────────────
 
+#[derive(Clone, Copy, PartialEq)]
+enum LibcBoundary {
+    Ordinary,
+    InheritedTransport,
+    ChildStdioClose,
+}
+
 struct LibcVisitor<'a> {
     file_path: &'a str,
     migratable: &'a [(String, String)],
     imports: &'a Imports,
-    raw_fd_boundary: bool,
+    boundary: LibcBoundary,
     function_depth: usize,
     module_depth: usize,
     violations: Vec<Violation>,
@@ -455,33 +462,38 @@ impl<'a> LibcVisitor<'a> {
 
 impl<'a, 'ast> Visit<'ast> for LibcVisitor<'a> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        let previous_boundary = self.raw_fd_boundary;
-        self.raw_fd_boundary = self.file_path == "src/runtime/eval/route_witness.rs"
-            && self.module_depth == 0
-            && self.function_depth == 0
-            && item.sig.ident == "inherited_transport_descriptor";
+        let previous_boundary = self.boundary;
+        self.boundary = if self.module_depth == 0 && self.function_depth == 0 {
+            match (self.file_path, item.sig.ident.to_string().as_str()) {
+                ("src/runtime/eval/route_witness.rs", "inherited_transport_descriptor") => LibcBoundary::InheritedTransport,
+                ("src/runtime/process.rs", "child_close") => LibcBoundary::ChildStdioClose,
+                _ => LibcBoundary::Ordinary,
+            }
+        } else {
+            LibcBoundary::Ordinary
+        };
         self.function_depth += 1;
         visit::visit_item_fn(self, item);
         self.function_depth -= 1;
-        self.raw_fd_boundary = previous_boundary;
+        self.boundary = previous_boundary;
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        let previous_boundary = self.raw_fd_boundary;
-        self.raw_fd_boundary = false;
+        let previous_boundary = self.boundary;
+        self.boundary = LibcBoundary::Ordinary;
         self.function_depth += 1;
         visit::visit_impl_item_fn(self, item);
         self.function_depth -= 1;
-        self.raw_fd_boundary = previous_boundary;
+        self.boundary = previous_boundary;
     }
 
     fn visit_trait_item_fn(&mut self, item: &'ast syn::TraitItemFn) {
-        let previous_boundary = self.raw_fd_boundary;
-        self.raw_fd_boundary = false;
+        let previous_boundary = self.boundary;
+        self.boundary = LibcBoundary::Ordinary;
         self.function_depth += 1;
         visit::visit_trait_item_fn(self, item);
         self.function_depth -= 1;
-        self.raw_fd_boundary = previous_boundary;
+        self.boundary = previous_boundary;
     }
 
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
@@ -492,7 +504,7 @@ impl<'a, 'ast> Visit<'ast> for LibcVisitor<'a> {
 
     fn visit_type_path(&mut self, type_path: &'ast syn::TypePath) {
         let segments = &type_path.path.segments;
-        let raw_stat_type = self.raw_fd_boundary
+        let raw_stat_type = self.boundary == LibcBoundary::InheritedTransport
             && type_path.qself.is_none()
             && segments.len() == 2
             && self
@@ -518,8 +530,11 @@ impl<'a, 'ast> Visit<'ast> for LibcVisitor<'a> {
                 .contains(&segs[0].ident.to_string())
         {
             let symbol = segs[1].ident.to_string();
-            let raw_fd_operation = self.raw_fd_boundary
-                && matches!(symbol.as_str(), "fstat" | "pread");
+            let raw_fd_operation = match self.boundary {
+                LibcBoundary::Ordinary => false,
+                LibcBoundary::InheritedTransport => matches!(symbol.as_str(), "fstat" | "pread"),
+                LibcBoundary::ChildStdioClose => symbol == "close",
+            };
             if !raw_fd_operation && let Some(sug) = self.suggestion_for(&symbol) {
                 let sug = sug.to_string();
                 self.flag(symbol, sug, segs[1].ident.span().start().line);
@@ -573,7 +588,7 @@ fn collect_libc_violations(
         file_path,
         migratable,
         imports: &imports,
-        raw_fd_boundary: false,
+        boundary: LibcBoundary::Ordinary,
         function_depth: 0,
         module_depth: 0,
         violations: Vec::new(),
@@ -626,6 +641,29 @@ fn no_migratable_libc_calls() {
         );
         panic!("libc hygiene check failed (see stderr above)");
     }
+}
+
+#[test]
+fn child_stdio_close_exception_matches_only_its_exact_ast_scope() {
+    let migratable = [("close".to_string(), "rustix::io::close()".to_string())];
+    let source = r#"
+fn child_close() {
+    unsafe { libc::close(0); }
+    fn nested() { unsafe { libc::close(0); } }
+}
+fn another_function() { unsafe { libc::close(0); } }
+mod nested {
+    fn child_close() { unsafe { libc::close(0); } }
+}
+impl Example {
+    fn child_close(&self) { unsafe { libc::close(0); } }
+}
+"#;
+    let ast = syn::parse_file(source).expect("parse scanner fixture");
+    let exact = collect_libc_violations(&ast, "src/runtime/process.rs", &migratable);
+    assert_eq!(exact.len(), 4);
+    let other = collect_libc_violations(&ast, "src/runtime/other.rs", &migratable);
+    assert_eq!(other.len(), 5);
 }
 
 #[test]
