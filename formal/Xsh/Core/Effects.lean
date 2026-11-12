@@ -215,15 +215,5 @@ theorem permissionClosure_denotation (effects : EffectSet) :
 
 end EffectSet
 
-inductive EffectBound where
-  | known (required : EffectSet)
-  | unrestricted
-  | unknown
-  deriving DecidableEq
-
-def EffectBound.denotation : EffectBound → EffectContract
-  | .known required => .checked required.denotation
-  | .unrestricted => .unrestricted
-  | .unknown => .unknown
 
 end Xsh.Core

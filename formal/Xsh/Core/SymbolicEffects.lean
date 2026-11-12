@@ -464,4 +464,57 @@ theorem erased_dependency_unknown_counterexample :
 
 end SymbolicContract
 
+inductive EffectBound (parameters : Nat) where
+  | known (required : EffectExpression parameters)
+  | unrestricted
+  | unknown
+  deriving DecidableEq
+
+namespace EffectBound
+
+def interpret (bound : EffectBound parameters)
+    (assignment : Fin parameters → Xsh.Semantics.Effects.FiniteEffectSet) :
+    Xsh.Semantics.Effects.EffectContract :=
+  match bound with
+  | .known required => .checked (required.denote assignment)
+  | .unrestricted => .unrestricted
+  | .unknown => .unknown
+
+def denotation (bound : EffectBound 0) : Xsh.Semantics.Effects.EffectContract :=
+  bound.interpret Fin.elim0
+
+def substitute (bound : EffectBound source)
+    (replacement : Fin source → SymbolicContract target) : EffectBound target :=
+  match bound with
+  | .known required =>
+      match (SymbolicContract.known required).substitute replacement with
+      | .known actual => .known actual
+      | .unknown => .unknown
+  | .unrestricted => .unrestricted
+  | .unknown => .unknown
+
+theorem interpret_known_substitution (bound : EffectBound source)
+    (replacement : Fin source → EffectExpression target)
+    (assignment : Fin target → Xsh.Semantics.Effects.FiniteEffectSet) :
+    (bound.substitute (fun parameter => .known (replacement parameter))).interpret assignment =
+      bound.interpret (fun parameter => (replacement parameter).denote assignment) := by
+  cases bound with
+  | known required =>
+    simp only [substitute, SymbolicContract.substitution_known, interpret]
+    congr 1
+    funext effect
+    exact propext (EffectExpression.substitution_semantics required replacement assignment effect)
+  | unrestricted => rfl
+  | unknown => rfl
+
+theorem substitution_unknown_iff (required : EffectExpression source)
+    (replacement : Fin source → SymbolicContract target) :
+    (known required).substitute replacement = .unknown ↔
+      ∃ parameter, required.coefficients.get parameter ≠ EffectSet.empty ∧ replacement parameter = .unknown := by
+  have unknown := SymbolicContract.substitution_unknown_iff required replacement
+  cases substituted : (SymbolicContract.known required).substitute replacement <;>
+    simp_all [substitute]
+
+end EffectBound
+
 end Xsh.Core

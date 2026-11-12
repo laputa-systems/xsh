@@ -12682,7 +12682,7 @@
       "declaration": "Xsh.Core.TypeTerm.substitute_identity",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "scope": "Kind-preserving type substitutions retain the explicit effect-parameter scope and obey identity, composition and extensionality; terms free of type variables do not depend on that substitution.",
       "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
     },
     {
@@ -12691,7 +12691,7 @@
       "declaration": "Xsh.Core.TypeTerm.substitute_compose",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "scope": "Kind-preserving type substitutions retain the explicit effect-parameter scope and obey identity, composition and extensionality; terms free of type variables do not depend on that substitution.",
       "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
     },
     {
@@ -12700,16 +12700,16 @@
       "declaration": "Xsh.Core.TypeTerm.substitute_congr",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "scope": "Kind-preserving type substitutions retain the explicit effect-parameter scope and obey identity, composition and extensionality; terms free of type variables do not depend on that substitution.",
       "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
     },
     {
-      "id": "fragment.Xsh.Core.TypeTerm.variable_free_substitution_irrelevant",
+      "id": "fragment.Xsh.Core.TypeTerm.type_variable_free_substitution_irrelevant",
       "module": "Xsh.Core.Types",
-      "declaration": "Xsh.Core.TypeTerm.variable_free_substitution_irrelevant",
+      "declaration": "Xsh.Core.TypeTerm.type_variable_free_substitution_irrelevant",
       "evidence_class": "SPEC_PROVED",
       "status": "fragment",
-      "scope": "Kind-preserving substitutions over the shared type algebra obey identity, composition and extensionality; terms with no variables do not depend on a substitution.",
+      "scope": "Kind-preserving type substitutions retain the explicit effect-parameter scope and obey identity, composition and extensionality; terms free of type variables do not depend on that substitution.",
       "boundary": "Algebraic data laws only. No type admissibility, general membership, complete evaluation, Rust conformance or full-core obligation is established."
     },
     {
@@ -12774,6 +12774,24 @@
       "status": "fragment",
       "scope": "Unknown propagation exactly through live masked dependencies for arbitrary source and target parameter counts; known substitutions agree with expression substitution.",
       "boundary": "No Rust substitution, variable-identity extraction or callback-failure correspondence. Capture/substitution commutation requires known replacements; the model rejects its unconditional unknown version."
+    },
+    {
+      "id": "fragment.Xsh.Core.TypeTerm.effect_type_substitution_commutes",
+      "module": "Xsh.Core.Types",
+      "declaration": "Xsh.Core.TypeTerm.effect_type_substitution_commutes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Effect and type substitution commute across all shared type families after transforming the type replacements, with independent effect scope arities and nested callable metadata.",
+      "boundary": "Model data and substitution laws only. No source instantiation, retained-contract authentication, admissibility, Rust correspondence or full-core execution claim."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectBound.interpret_known_substitution",
+      "module": "Xsh.Core.SymbolicEffects",
+      "declaration": "Xsh.Core.EffectBound.interpret_known_substitution",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Substitution of arbitrary known effect expressions agrees with interpretation for every bound, source and target scope arity, and assignment. Unrestricted and unknown bounds remain distinct.",
+      "boundary": "Unknown replacement propagation has a separate live-dependency law; no unconditional substitution composition, source binding or execution correspondence is claimed."
     }
   ],
   "artifact_certificates": [

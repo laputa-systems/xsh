@@ -55,9 +55,22 @@ distinct from a known empty contract. An erased error-only dependency gives a
 counterexample to unconditional capture/substitution commutation with unknown
 replacements. These are laws of the model: a false comparison witnesses an
 assignment that fails, not an immediate Rust predicate rejection. Source
-extraction, the Rust three-valued predicate decision, symbolic callable types,
+extraction, the Rust three-valued predicate decision, source effect instantiation,
 inference integration and execution correspondence remain open. All universal
 effect obligations remain planned.
+
+Shared type terms now carry an effect-parameter scope separately from type
+variables. Callable policies retain symbolic effect bounds and keep pure,
+procedure and producer kinds distinct. Type substitution preserves that scope;
+effect substitution can change it. One traversal implements both operations.
+Their general commutation law transforms the type replacements when applying
+the effect substitution. Known effect substitution agrees with interpreting
+the bound under the substituted assignment; unknown replacements propagate
+through live dependencies. The existing membership decision uses zero effect
+parameters and no type variables. Model controls check nested callable policies,
+defaulted labels, error capture and unknown replacements. Type admissibility,
+source binding, retained-contract authentication and machine integration remain
+open. These data and substitution laws close no full-core obligation.
 
 The experimental foreign-IR bridge also decodes candidate instruction rows,
 binary-operation tables, locations, and string pools before passing a

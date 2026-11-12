@@ -45,7 +45,7 @@ def decideKey (type : ValueType Declaration) (candidate : MapKey) : Decidable (k
   split <;> (try split) <;> first | exact decidePrimitive _ _ | infer_instance
 
 def Decision (world : MembershipWorld Declaration Identity Source) {kind : TypeKind}
-    (type : VariableFreeTypeTerm String Declaration kind) : Type :=
+    (type : TypeVariableFreeTerm 0 String Declaration kind) : Type :=
   match kind, type with
   | .value, type => ∀ candidate : Value Declaration Identity Source, Decidable (value world type candidate)
   | .row, type => ∀ fields : List (String × Value Declaration Identity Source), Decidable (row world type fields)
@@ -54,7 +54,7 @@ def Decision (world : MembershipWorld Declaration Identity Source) {kind : TypeK
   | .arguments, _ | .signature, _ => Unit
 
 def decideTerm (world : MembershipWorld Declaration Identity Source) (contracts : ContractDecisions world)
-    {kind : TypeKind} (type : VariableFreeTypeTerm String Declaration kind) : Decision world type :=
+    {kind : TypeKind} (type : TypeVariableFreeTerm 0 String Declaration kind) : Decision world type :=
   match type with
     | .variable id => nomatch id
     | .primitive type => fun candidate => by

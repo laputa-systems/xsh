@@ -5,11 +5,11 @@ namespace Xsh.Core
 
 open Xsh.Values
 
-abbrev ValueType (Declaration : Type) := VariableFreeTypeTerm String Declaration .value
-abbrev RecordType (Declaration : Type) := VariableFreeTypeTerm String Declaration .row
-abbrev ExportType (Declaration : Type) := VariableFreeTypeTerm String Declaration .exports
-abbrev UnionTail (Declaration : Type) := VariableFreeTypeTerm String Declaration .members
-abbrev SignatureType (Declaration : Type) := VariableFreeTypeTerm String Declaration .signature
+abbrev ValueType (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .value
+abbrev RecordType (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .row
+abbrev ExportType (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .exports
+abbrev UnionTail (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .members
+abbrev SignatureType (Declaration : Type) := TypeVariableFreeTerm 0 String Declaration .signature
 
 /-- Retained contracts describe semantic objects without inspecting suspended
 stream items or invoking callables. Establishing these predicates from source
