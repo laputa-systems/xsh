@@ -73,7 +73,8 @@ print ${marker.base64()}
 test test_prefer_slice_silences_unproven_bounds_and_malformed_pages { |ctx|
   let root = test.temp_dir(ctx, name: "prefer-slice-retained")?
   let file = fp"{root}/slice.xsh"
-  let source = """pure count() -> Int {
+  let source = """##! Slice boundary fixture.
+pure count() -> Int {
   return 3
 }
 pure selected(data: Bytes) -> List[Bytes] {
@@ -84,9 +85,11 @@ pure selected(data: Bytes) -> List[Bytes] {
   let overflow = data.slice(1, 9223372036854775807)
   [negative, uncertain, arithmetic, effect_count, overflow]
 }
+## Reads a field at the supplied offset and length.
 export pure exported_field(page: Bytes, offset: Int, length: Int) -> Bytes {
   page.slice(offset, length)
 }
+## Reads the fixed field from a page.
 export pure short_page(page: Bytes) -> Bytes {
   page.slice(120, length: 8)
 }
