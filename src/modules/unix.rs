@@ -425,6 +425,24 @@ fn remaining_process_groups(groups: &[i64]) -> Vec<i64> {
         .collect()
 }
 
+fn reap_process_groups_until_timeout(
+    groups: &[i64],
+    timeout: Duration,
+    reaped: &mut Vec<ChildEvent>,
+    span: Span,
+) -> Result<Vec<i64>, RuntimeError> {
+    let started = Instant::now();
+    loop {
+        reaped.extend(drain_child_events_native(span)?);
+        let remaining = remaining_process_groups(groups);
+        let wait = timeout.saturating_sub(started.elapsed());
+        if remaining.is_empty() || wait.is_zero() {
+            return Ok(remaining);
+        }
+        std::thread::sleep(wait.min(WAIT_POLL));
+    }
+}
+
 pub(crate) fn shutdown_process_groups_native(
     groups: &[i64],
     term_timeout: Duration,
@@ -445,24 +463,21 @@ pub(crate) fn shutdown_process_groups_native(
             term_sent += 1;
         }
     }
-    std::thread::sleep(term_timeout);
-
-    let mut reaped = drain_child_events_native(span)?;
-    let remaining_after_term = remaining_process_groups(groups);
+    let mut reaped = Vec::new();
+    let remaining_after_term = reap_process_groups_until_timeout(groups, term_timeout, &mut reaped, span)?;
     let mut kill_sent = 0_i64;
     for pid in &remaining_after_term {
         if signal_process_group(*pid, libc::SIGKILL, span)? {
             kill_sent += 1;
         }
     }
-    std::thread::sleep(kill_timeout);
-    reaped.extend(drain_child_events_native(span)?);
+    let remaining = reap_process_groups_until_timeout(groups, kill_timeout, &mut reaped, span)?;
 
     Ok(Pid1Shutdown {
         term_sent,
         kill_sent,
         reaped,
-        remaining: remaining_process_groups(groups),
+        remaining,
     })
 }
 

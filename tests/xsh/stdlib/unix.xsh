@@ -75,6 +75,76 @@ test test_unix_fake_child_events_are_typed { |ctx|
   assert events[0].status.signal_number()? == 15
 }
 
+test test_unix_shutdown_process_groups_reaps_prompt_term_without_spending_the_grace_period { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "shutdown-prompt")?
+  let output = test.expect(ctx, ready_sleeper + """
+unix.pid1_setup([], subreaper: true, allow_non_pid1: true)
+assert marker.exists()?
+let before = time.monotonic()?
+let cleanup = unix.shutdown_process_groups([child.pid], 2s, 100ms)?
+assert cleanup.remaining.is_empty()
+assert cleanup.term_sent == 1 and cleanup.kill_sent == 0
+assert cleanup.reaped.len() == 1
+assert cleanup.reaped[0].pid == child.pid
+assert cleanup.reaped[0].status.signaled()
+assert cleanup.reaped[0].status.signal_number()? == 15
+assert time.monotonic()? - before < 1000000000, "prompt TERM must not consume the maximum grace period"
+print "prompt"
+""", status: 0, args: [fp"{root}/ready"])?
+  assert output.stdout == "prompt\n"
+}
+
+test test_unix_shutdown_process_groups_preserves_other_exits_and_escalates_stubborn_groups { |ctx|
+  guard process_groups_are_supported() else {
+    test.skip("unix process groups need Linux or macOS")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "shutdown-stubborn")?
+  let script = r"""unix.pid1_setup([], subreaper: true, allow_non_pid1: true)
+let marker = Path(args[0])
+let command = process.command_argv("sh", ["sh", "-c", "sh -c 'trap \"\" TERM; printf \"%s\" \"$$\" > \"$1\"; exec sleep 30' sh \"$1\" & wait", "sh", marker])
+let child = unix.spawn_process_group(command)?
+defer { let _ = unix.shutdown_process_groups([child.pid], 0ms, 1s)? }
+var tries = 0
+while ! marker.exists()? and tries < 300 {
+  time.sleep(10ms)
+  tries += 1
+}
+assert marker.exists()?
+let descendant = marker.read_text()?.parse_int()?
+let other = unix.spawn_process_group(process.command_argv("sh", ["sh", "-c", "exit 17"]))?
+let cleanup = unix.shutdown_process_groups([child.pid], 100ms, 1s)?
+assert cleanup.remaining.is_empty()
+assert cleanup.term_sent == 1 and cleanup.kill_sent == 1
+var stubborn_reaped = false
+var leader_reaped = false
+var other_reaped = false
+for event in cleanup.reaped {
+  if event.pid == child.pid {
+    leader_reaped = event.status.signaled() and event.status.signal_number()? == 15
+  }
+  if event.pid == descendant {
+    stubborn_reaped = event.status.signaled() and event.status.signal_number()? == 9
+  }
+  if event.pid == other.pid {
+    other_reaped = event.status.exited_with(17)
+  }
+}
+assert leader_reaped and stubborn_reaped and other_reaped
+let absent = unix.shutdown_process_groups([child.pid], 2s, 2s)?
+assert absent.term_sent == 0 and absent.kill_sent == 0 and absent.remaining.is_empty()
+print "escalated"
+"""
+  let output = test.expect(ctx, script, status: 0, args: [fp"{root}/ready"])?
+  assert output.stdout == "escalated\n"
+  let invalid = test.run_xsh(ctx, "let _ = unix.shutdown_process_groups([0], 1ms)?\n", name: "invalid-shutdown.xsh")?
+  assert ! invalid.success and "pid-range" in invalid.stderr
+}
+
 test test_unix_fake_rejects_unknown_settings { |ctx|
   test.error_kind(test.unix_fake(ctx, {uptime_seconds: 17}), "test-unix-fake")
   test.error_kind(test.unix_fake(ctx, {log: true}), "test-unix-fake")
