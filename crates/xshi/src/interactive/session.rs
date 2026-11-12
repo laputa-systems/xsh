@@ -66,17 +66,6 @@ impl InteractiveJob {
             InteractiveJobProcess::Pipeline(pipeline) => pipeline.process_group(),
         }
     }
-
-    /// The member whose status the shell reports: the program itself, or the
-    /// pipeline's last stage.
-    pub(super) fn pid(&self) -> u32 {
-        match &self.process {
-            InteractiveJobProcess::Single(child) => child.pid,
-            InteractiveJobProcess::Pipeline(pipeline) => {
-                pipeline.pids().last().copied().unwrap_or_default()
-            }
-        }
-    }
 }
 
 impl Session {

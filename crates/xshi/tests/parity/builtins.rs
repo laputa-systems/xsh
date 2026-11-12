@@ -348,3 +348,138 @@ parity!(
         sh.expect_exit("exit_status");
     }
 );
+
+parity!(
+    pipeline_stage_that_stops_itself_suspends_the_whole_job,
+    Fixture::new().executable("bin/nil", "#!/bin/sh\ncat >/dev/null\n"),
+    |sh: &mut Live| {
+        sh.line_until("sh -c 'kill -STOP $$' | ./bin/nil", "stopped:");
+        sh.frame("stopped");
+        sh.line_until("fg", "resuming:");
+        sh.frame("resumed");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_interrupt");
+        sh.line("echo alive");
+        sh.frame("alive");
+    }
+);
+
+parity!(
+    pipeline_status_tolerates_an_upstream_sigpipe,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("yes | head -1");
+        sh.line("echo $?");
+        sh.frame("sigpipe_status");
+        sh.line("cat /dev/null | head -1");
+        sh.line("echo $?");
+        sh.frame("empty_upstream_status");
+    }
+);
+
+parity!(
+    pipeline_keeps_running_stages_when_a_later_stage_is_not_found,
+    Fixture::new().file("data.txt", "payload\n"),
+    |sh: &mut Live| {
+        sh.line("cat data.txt | nosuch | cat");
+        sh.frame("middle_missing");
+        sh.line("echo $?");
+        sh.frame("middle_status");
+        sh.line("cat data.txt | nosuch");
+        sh.frame("last_missing");
+        sh.line("echo $?");
+        sh.frame("last_status");
+    }
+);
+
+parity!(
+    forced_exit_with_a_stopped_pipeline_leaves_no_stage_behind,
+    Fixture::new().executable(
+        "bin/stages",
+        "#!/bin/sh\necho $$ > first-pid\necho ready\nsleep 60\n",
+    ),
+    |sh: &mut Live| {
+        sh.line_until("./bin/stages | cat", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.frame("stopped");
+        let pgid: libc::pid_t = std::fs::read_to_string(sh.home().join("first-pid"))
+            .expect("the stopped stage wrote its pid")
+            .trim()
+            .parse()
+            .expect("the stage pid is a number");
+        // SAFETY: kill takes no pointers, and signal 0 only probes whether
+        // any process in the group remains.
+        let alive = || unsafe { libc::kill(-pgid, 0) } == 0;
+        assert!(alive(), "the first stage {pgid} leads the stopped job's group");
+        sh.text("exit");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("first_exit");
+        sh.text("exit");
+        sh.enter();
+        sh.expect_exit("exit_status");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while alive() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!alive(), "a process of the stopped job {pgid} outlived the shell");
+    }
+);
+
+parity!(
+    pipeline_reports_a_missing_stage_while_the_job_runs,
+    Fixture::new().executable(
+        "bin/late",
+        "#!/bin/sh\nsleep 0.5\necho ready\nsleep 60\n",
+    ),
+    |sh: &mut Live| {
+        sh.line_until("nosuch | ./bin/late", "ready");
+        sh.keys_to_prompt(key::CTRL_Z);
+        sh.frame("stopped");
+        sh.line_until("fg", "resuming:");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_interrupt");
+        sh.line("echo $?");
+        sh.frame("status");
+    }
+);
+
+parity!(
+    fg_reports_a_stopped_pipeline_killed_from_outside,
+    Fixture::new().executable("bin/nil", "#!/bin/sh\ncat >/dev/null\n"),
+    |sh: &mut Live| {
+        sh.line_until(
+            "sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil",
+            "stopped:",
+        );
+        sh.frame("stopped");
+        sh.line("kill -KILL -$(cat pgid)");
+        sh.line("echo still-$?");
+        sh.frame("after_kill");
+        sh.line_until("fg", "resuming:");
+        sh.frame("resumed");
+        sh.line("echo after-fg-$?");
+        sh.frame("after_fg");
+    }
+);
+
+parity!(
+    a_stopped_pipeline_continued_from_outside_waits_for_fg,
+    Fixture::new().executable("bin/nil", "#!/bin/sh\nsleep 30\n"),
+    |sh: &mut Live| {
+        sh.line_until(
+            "sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil",
+            "stopped:",
+        );
+        sh.frame("stopped");
+        sh.line("kill -CONT -$(cat pgid)");
+        sh.line("echo continued-$?");
+        sh.frame("continued");
+        sh.line_until("fg", "resuming:");
+        sh.frame("resumed");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_interrupt");
+        sh.line("echo alive");
+        sh.frame("alive");
+    }
+);

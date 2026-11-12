@@ -1409,7 +1409,7 @@ fn run_captured_pipeline(
     match end {
         Ok(end) => {
             let status = end.status.unwrap_or_else(|| ProcessStatus::exited(0));
-            let stderr = pipeline_exec_diagnostics(session, &status);
+            let stderr = pipeline_exec_diagnostics(session, &status.segments);
             status_from_process_output(CommandOutput {
                 status: 0,
                 stdout,
@@ -1440,6 +1440,7 @@ fn run_foreground_pipeline(
         Ok(job) => job,
         Err(mut error) => return pipeline_start_error(session, &mut error),
     };
+    let _ = io::stderr().write_all(&pipeline_exec_diagnostics(session, job.refusals()));
     let group = job.process_group();
     let foreground = signal::ForegroundJob::take(group);
     let outcomes = match job.wait() {
@@ -1456,7 +1457,7 @@ fn run_foreground_pipeline(
         }
     };
     if !pipeline_stopped(&outcomes) {
-        let status = pipeline_status(&outcomes);
+        let status = job.status();
         drop(foreground);
         return status_from_process_output(CommandOutput {
             status: 0,
@@ -1475,7 +1476,7 @@ fn run_foreground_pipeline(
             job.resume();
             match job.wait() {
                 Ok(outcomes) if !pipeline_stopped(&outcomes) => {
-                    break pipeline_status(&outcomes);
+                    break job.status();
                 }
                 Ok(_) => {}
                 Err(error) => break process_error_status(target, error),
@@ -1512,18 +1513,6 @@ fn run_foreground_pipeline(
     }
 }
 
-/// The pipeline status rule: the last stage decides, and a stage killed by a
-/// signal counts as `128 + signal`.
-fn pipeline_status(outcomes: &[ChildWaitOutcome]) -> ProcessStatus {
-    let mut segments = Vec::new();
-    for outcome in outcomes {
-        if let ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) = outcome {
-            segments.extend(status.segments.iter().cloned());
-        }
-    }
-    ProcessStatus::from_segments(segments)
-}
-
 fn pipeline_stopped(outcomes: &[ChildWaitOutcome]) -> bool {
     outcomes
         .iter()
@@ -1543,15 +1532,18 @@ fn pipeline_start_error(session: &Session, error: &mut RunError) -> CommandOutpu
     status_from_process_output(CommandOutput {
         status: 0,
         stdout: Vec::new(),
-        stderr: pipeline_exec_diagnostics(session, &status),
+        stderr: pipeline_exec_diagnostics(session, &status.segments),
         process_status: Some(*status),
         history_source: None,
     })
 }
 
-fn pipeline_exec_diagnostics(session: &Session, status: &ProcessStatus) -> Vec<u8> {
+fn pipeline_exec_diagnostics<'a>(
+    session: &Session,
+    segments: impl IntoIterator<Item = &'a ProcessSegmentStatus>,
+) -> Vec<u8> {
     let mut stderr = Vec::new();
-    for segment in &status.segments {
+    for segment in segments {
         if segment.kind == ProcessSegmentStatusKind::Exec {
             let kind = segment.error_kind.clone().unwrap_or_default();
             let mut error = RunError::new(kind, segment.error_message.clone().unwrap_or_default());
@@ -2082,25 +2074,27 @@ fn execute_fg_builtin(session: &mut Session, _args: &[String]) -> CommandOutput 
             history_source: None,
         };
     };
-    match poll_job_terminated(&mut job) {
-        Ok(Some(status)) => {
-            let stderr = text_bytes(format!(
-                "xshi: completed: {} (pid={}, {})\n",
-                job.command,
-                job.pid(),
-                process_status_label(&status)
-            ));
-            return status_command_output(status, stderr);
-        }
-        Ok(None) => {}
-        Err(error) => {
-            return CommandOutput {
-                status: 1,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xshi: fg: {}\n", error.message)),
-                process_status: Some(ProcessStatus::exited(1)),
-                history_source: None,
-            };
+    if let InteractiveJobProcess::Single(child) = &mut job.process {
+        match poll_managed(child) {
+            Ok(ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status)) => {
+                let stderr = text_bytes(format!(
+                    "xshi: completed: {} (pid={}, {})\n",
+                    job.command,
+                    child.pid,
+                    process_status_label(&status)
+                ));
+                return status_command_output(status, stderr);
+            }
+            Ok(ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning) => {}
+            Err(error) => {
+                return CommandOutput {
+                    status: 1,
+                    stdout: Vec::new(),
+                    stderr: text_bytes(format!("xshi: fg: {}\n", error.message)),
+                    process_status: Some(ProcessStatus::exited(1)),
+                    history_source: None,
+                };
+            }
         }
     }
 
@@ -2160,23 +2154,6 @@ enum JobForegroundOutcome {
     Running,
 }
 
-fn poll_job_terminated(job: &mut InteractiveJob) -> Result<Option<ProcessStatus>, RunError> {
-    match &mut job.process {
-        InteractiveJobProcess::Single(child) => Ok(match poll_managed(child)? {
-            ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) => Some(status),
-            ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning => None,
-        }),
-        InteractiveJobProcess::Pipeline(pipeline) => {
-            let outcomes = pipeline.wait()?;
-            Ok(if pipeline_stopped(&outcomes) {
-                None
-            } else {
-                Some(pipeline_status(&outcomes))
-            })
-        }
-    }
-}
-
 fn resume_job(job: &mut InteractiveJob) {
     let group = job.process_group();
     match &mut job.process {
@@ -2203,7 +2180,7 @@ fn wait_job_foreground(job: &mut InteractiveJob) -> Result<JobForegroundOutcome,
             Ok(if pipeline_stopped(&outcomes) {
                 JobForegroundOutcome::Stopped
             } else {
-                JobForegroundOutcome::Finished(pipeline_status(&outcomes))
+                JobForegroundOutcome::Finished(pipeline.status())
             })
         }
     }

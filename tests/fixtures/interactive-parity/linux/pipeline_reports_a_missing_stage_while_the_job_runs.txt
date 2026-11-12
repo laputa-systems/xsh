@@ -1,0 +1,43 @@
+== frame stopped cursor=5,20
+|testuser@<HOST> ~ $ nosuch | ./bin/late
+|nosuch: not found
+|ready
+|^Z<SHELL>: stopped: nosuch | ./bin/late (pgid=<N>)
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 nosuch
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_interrupt cursor=7,20
+|testuser@<HOST> ~ $ nosuch | ./bin/late
+|nosuch: not found
+|ready
+|^Z<SHELL>: stopped: nosuch | ./bin/late (pgid=<N>)
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: nosuch | ./bin/late
+|^Ctestuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 nosuch
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=10,20
+|testuser@<HOST> ~ $ nosuch | ./bin/late
+|nosuch: not found
+|ready
+|^Z<SHELL>: stopped: nosuch | ./bin/late (pgid=<N>)
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: nosuch | ./bin/late
+|testuser@<HOST> ~ $ echo $?
+|130
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 nosuch
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

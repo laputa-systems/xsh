@@ -421,16 +421,29 @@ prompt's terminal attributes, prints `xshi: stopped: CMD (pgid=N)`, and gives
 status `148`. CMD is the last line as
 submitted. A pipeline is one job: Ctrl-Z stops every stage, and `fg` prints
 `xshi: resuming: CMD`, gives the job's process group the terminal, restores its
-saved terminal modes, and waits for every stage. A pipeline's status is its
-last stage's, and a stage killed by a signal counts as `128 + signal`. `fg`
-with no job is an error. When the command was stopped in the middle of a list
-(`a && b`, `a || b`, `a; b`), the rest of the list is dropped, as it is dropped
-by the reference shell. Background commands (`&`) and `bg` are refused or
-absent as described in §6 and §11.
+saved terminal modes, and waits for every stage. When one stage stops itself
+(`SIGSTOP` or `SIGTSTP`), the first stop the shell observes sends `SIGSTOP` to
+the job's whole process group, so a running peer never keeps the job in the
+foreground. A pipeline's status is its last stage's, and a stage killed by a
+signal counts as `128 + signal`; `yes | head -1` gives `0` because `head`
+decides. As in a core pipeline ([SPEC](SPEC.md) §11.2), an upstream stage
+killed by `SIGPIPE` is not a failed segment when a later stage exits with an
+accepted code. A stage that cannot start does not stop the stages that did:
+its `NAME: not found` diagnostic is printed when the job starts, the stage
+before it writes into a closed pipe, the stage after it reads end of input, and
+its refusal keeps its place among the segments, so the pipeline gives `127`
+only when that stage is the last. `fg` with no job is an error. When the
+command was stopped in the middle of a list (`a && b`, `a || b`, `a; b`), the
+rest of the list is dropped, as it is dropped by the reference shell.
+Background commands (`&`) and `bg` are refused or absent as described in §6 and
+§11.
 
 Before each prompt a single-command job is polled without blocking and its
-completion is reported; a suspended pipeline is only re-examined by `fg`. A
-second Ctrl-Z while the slot is occupied reports
+completion is reported. A suspended pipeline is not examined until `fg`, as in
+the reference shell: a pipeline continued or killed from outside stays in the
+slot, and `fg` prints `xshi: resuming: CMD` and waits for it as usual, so a
+pipeline killed by `SIGKILL` gives `137` without a completion notice. A second
+Ctrl-Z while the slot is occupied reports
 `xshi: a job is already suspended; resume it with fg before suspending another`
 and keeps the new command running in the foreground instead of replacing the
 slot. `exit` and Ctrl-D with a live job warn once. The `exit` warning says

@@ -730,13 +730,14 @@ impl ProcessSegmentStatus {
 /// chose to stop reading.
 fn tolerate_upstream_sigpipe(
     segments: &mut [ProcessSegmentStatus],
-    invocations: &[ProcessInvocation],
+    accepted: &[Option<AcceptedExitCodes>],
 ) {
     let downstream_accepted = |segment: &ProcessSegmentStatus| {
         segment.kind == ProcessSegmentStatusKind::Exit
-            && invocations
+            && accepted
                 .get(segment.index)
-                .and_then(|invocation| invocation.accepted_exit_codes)
+                .copied()
+                .flatten()
                 .map_or(segment.code == Some(0), |policy| policy.accepts(segment))
     };
     for position in 0..segments.len() {
@@ -1167,7 +1168,7 @@ pub fn run_pipeline_inherit_with_policy(
         return run_inherit_with_policy(&invocations[0], policy);
     }
     policy.before_shared_stdio();
-    let mut started = start_pipeline(invocations, false, None)?;
+    let mut started = start_pipeline(invocations, false, None, StageFailure::Halt)?;
     let cancellation = if let Some(group) = started.group {
         let _foreground = ForegroundTerminal::take(group);
         wait_children(
@@ -1203,9 +1204,18 @@ struct StartedPipeline {
 impl StartedPipeline {
     fn status(&self, invocations: &[ProcessInvocation]) -> ProcessStatus {
         let mut segments: Vec<_> = self.segment_statuses.iter().flatten().cloned().collect();
-        tolerate_upstream_sigpipe(&mut segments, invocations);
+        tolerate_upstream_sigpipe(&mut segments, &invocation_accept_policies(invocations));
         ProcessStatus::from_segments(segments)
     }
+}
+
+fn invocation_accept_policies(
+    invocations: &[ProcessInvocation],
+) -> Vec<Option<AcceptedExitCodes>> {
+    invocations
+        .iter()
+        .map(|invocation| invocation.accepted_exit_codes)
+        .collect()
 }
 
 fn pipeline_deadline(invocations: &[ProcessInvocation]) -> Option<Instant> {
@@ -1216,6 +1226,17 @@ fn pipeline_deadline(invocations: &[ProcessInvocation]) -> Option<Instant> {
         .map(|timeout| Instant::now() + timeout)
 }
 
+/// What `start_pipeline` does when a stage cannot be resolved or spawned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StageFailure {
+    /// Stop starting stages; the caller reports the recorded refusal.
+    Halt,
+    /// Record the refusal in that stage's place and keep starting later
+    /// stages, as the reference shell does when only one member of a
+    /// foreground pipeline cannot start.
+    Skip,
+}
+
 /// Spawns every segment into one process group, stopping at the first setup
 /// failure (recorded as that segment's status). `stderr` is a shared pipe
 /// every segment writes to, or `None` to inherit.
@@ -1223,6 +1244,7 @@ fn start_pipeline(
     invocations: &[ProcessInvocation],
     capture_stdout: bool,
     stderr: Option<&io::PipeWriter>,
+    stage_failure: StageFailure,
 ) -> Result<StartedPipeline, RunError> {
     if invocations.iter().skip(1).any(|invocation| {
         invocation
@@ -1256,6 +1278,9 @@ fn start_pipeline(
                 segment_statuses[index] =
                     Some(exec_failure_segment(index, &invocation.target, error));
                 previous_stdout = None;
+                if stage_failure == StageFailure::Skip {
+                    continue;
+                }
                 break;
             }
         };
@@ -1293,6 +1318,12 @@ fn start_pipeline(
         ) {
             Ok(command) => command,
             Err(error) => {
+                if stage_failure == StageFailure::Skip && !setup_error_is_hard(&error) {
+                    segment_statuses[index] =
+                        Some(exec_failure_segment(index, &invocation.target, error));
+                    previous_stdout = None;
+                    continue;
+                }
                 if let Some(group) = process_group {
                     group.kill();
                     for started in &mut children {
@@ -1352,6 +1383,9 @@ fn start_pipeline(
                     map_spawn_error(error),
                 ));
                 previous_stdout = None;
+                if stage_failure == StageFailure::Skip {
+                    continue;
+                }
                 break;
             }
         }
@@ -1382,7 +1416,7 @@ pub fn run_pipeline_capture_with_policy(
     } else {
         (None, None)
     };
-    let mut started = start_pipeline(invocations, true, stderr_writer.as_ref())?;
+    let mut started = start_pipeline(invocations, true, stderr_writer.as_ref(), StageFailure::Halt)?;
     drop(stderr_writer);
     let stdout = started.stdout.take();
     let stdout_fd = stdout.as_ref().map(AsRawFd::as_raw_fd);
@@ -3097,7 +3131,8 @@ impl ProcessGroup {
     }
 
     /// Starts every invocation as one foreground pipeline in a new process
-    /// group and returns the job that owns each stage.
+    /// group and returns the job that owns each stage. A stage that cannot
+    /// start keeps its refusal in its place while the other stages run.
     pub fn spawn_pipeline_job(
         invocations: &[ProcessInvocation],
     ) -> Result<PipelineJob, RunError> {
@@ -3192,17 +3227,20 @@ impl Cancellation {
 ///
 /// The job owns every stage until its exit status has been collected. A wait
 /// reports stopped stages as well as terminated ones, and `resume` continues
-/// the whole job through its process group.
+/// the whole job through its process group. A stage that stops on its own
+/// stops the rest of the job, so the job reports the stop instead of waiting
+/// for a peer that keeps running.
 pub struct PipelineJob {
     stages: Vec<JobStage>,
     group: ProcessGroup,
+    accepted: Vec<Option<AcceptedExitCodes>>,
     _cgroup: CgroupScope,
 }
 
 struct JobStage {
     index: usize,
     target: Vec<u8>,
-    pid: u32,
+    pid: Option<u32>,
     child: Option<Child>,
     input: Option<InputDelivery>,
     outcome: ChildWaitOutcome,
@@ -3216,7 +3254,7 @@ impl PipelineJob {
                 "a pipeline job needs at least one stage",
             ));
         }
-        let mut started = start_pipeline(invocations, false, None)?;
+        let mut started = start_pipeline(invocations, false, None, StageFailure::Skip)?;
         let group = match started.group {
             Some(group) => group,
             None => {
@@ -3224,7 +3262,12 @@ impl PipelineJob {
                     .with_status(started.status(invocations)));
             }
         };
-        if started.children.len() != invocations.len() {
+        let refused = started
+            .segment_statuses
+            .iter()
+            .filter(|status| status.is_some())
+            .count();
+        if started.children.len() + refused != invocations.len() {
             let status = started.status(invocations);
             group.kill();
             for child in &mut started.children {
@@ -3237,30 +3280,47 @@ impl PipelineJob {
             )
             .with_status(status));
         }
-        let stages = started
-            .children
-            .into_iter()
-            .map(|started| JobStage {
-                index: started.index,
+        let mut children = started.children.into_iter();
+        let mut stages = Vec::with_capacity(invocations.len());
+        for (index, invocation) in invocations.iter().enumerate() {
+            if let Some(segment) = started.segment_statuses[index].take() {
+                stages.push(JobStage {
+                    index,
+                    target: invocation.target.clone(),
+                    pid: None,
+                    child: None,
+                    input: None,
+                    outcome: ChildWaitOutcome::Exited(ProcessStatus::from_segments(vec![segment])),
+                });
+                continue;
+            }
+            let started = children
+                .next()
+                .expect("a started pipeline stage exists for every resolved invocation");
+            stages.push(JobStage {
+                index,
                 target: started.target,
-                pid: started
-                    .pid
-                    .expect("a started pipeline stage records its pid"),
+                pid: Some(
+                    started
+                        .pid
+                        .expect("a started pipeline stage records its pid"),
+                ),
                 child: Some(started.child),
                 input: started.input,
                 outcome: ChildWaitOutcome::StillRunning,
-            })
-            .collect();
+            });
+        }
         Ok(Self {
             stages,
             group,
+            accepted: invocation_accept_policies(invocations),
             _cgroup: started._cgroup,
         })
     }
 
-    /// The stage pids in pipeline order.
+    /// The stage pids in pipeline order. A stage that never started has none.
     pub fn pids(&self) -> Vec<u32> {
-        self.stages.iter().map(|stage| stage.pid).collect()
+        self.stages.iter().filter_map(|stage| stage.pid).collect()
     }
 
     pub fn process_group(&self) -> ProcessGroup {
@@ -3268,10 +3328,18 @@ impl PipelineJob {
     }
 
     /// Waits until every stage has either stopped or terminated, then returns
-    /// one outcome per stage in pipeline order.
+    /// one outcome per stage in pipeline order. The first stop this wait
+    /// observes sends `SIGSTOP` to the job's process group, so a stage that
+    /// stops on its own never leaves a peer running.
     pub fn wait(&mut self) -> Result<Vec<ChildWaitOutcome>, RunError> {
+        let mut stopping = false;
+        let mut observed_stop = false;
         loop {
-            self.collect_ready_events()?;
+            observed_stop |= self.collect_ready_events()?;
+            if observed_stop && !stopping {
+                signal_process_group_checked(self.group, libc::SIGSTOP)?;
+                stopping = true;
+            }
             if self
                 .stages
                 .iter()
@@ -3283,8 +3351,36 @@ impl PipelineJob {
                     .map(|stage| stage.outcome.clone())
                     .collect());
             }
-            self.wait_group_event()?;
+            observed_stop |= self.wait_group_event()?;
         }
+    }
+
+    /// The setup failures of the stages that never started, in pipeline order.
+    pub fn refusals(&self) -> impl Iterator<Item = &ProcessSegmentStatus> {
+        self.stages
+            .iter()
+            .filter(|stage| stage.pid.is_none())
+            .filter_map(|stage| match &stage.outcome {
+                ChildWaitOutcome::Exited(status) => Some(status.segments.iter()),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    /// The job's status once every stage has stopped or terminated: one
+    /// segment per stage in pipeline order, with an upstream stage killed by
+    /// `SIGPIPE` tolerated when a later stage stopped reading.
+    pub fn status(&self) -> ProcessStatus {
+        let mut segments = Vec::new();
+        for stage in &self.stages {
+            if let ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) =
+                &stage.outcome
+            {
+                segments.extend(status.segments.iter().cloned());
+            }
+        }
+        tolerate_upstream_sigpipe(&mut segments, &self.accepted);
+        ProcessStatus::from_segments(segments)
     }
 
     /// Sends `SIGCONT` to the job's process group and marks every stopped
@@ -3320,12 +3416,15 @@ impl PipelineJob {
         self.group.kill();
     }
 
-    fn collect_ready_events(&mut self) -> Result<(), RunError> {
+    fn collect_ready_events(&mut self) -> Result<bool, RunError> {
+        let mut stopped = false;
         for stage in &mut self.stages {
             if job_stage_terminated(&stage.outcome) {
                 continue;
             }
-            let pid = job_stage_pid(stage)?;
+            let Some(pid) = job_stage_pid(stage)? else {
+                continue;
+            };
             let flags = rprocess::WaitOptions::NOHANG
                 | rprocess::WaitOptions::UNTRACED
                 | rprocess::WaitOptions::CONTINUED;
@@ -3334,7 +3433,7 @@ impl PipelineJob {
                     Ok(None) => break,
                     Ok(Some((_, status))) => {
                         let continued = status.continued();
-                        record_job_stage(stage, status);
+                        stopped |= record_job_stage(stage, status);
                         if !continued {
                             break;
                         }
@@ -3344,10 +3443,10 @@ impl PipelineJob {
                 }
             }
         }
-        Ok(())
+        Ok(stopped)
     }
 
-    fn wait_group_event(&mut self) -> Result<(), RunError> {
+    fn wait_group_event(&mut self) -> Result<bool, RunError> {
         let pgid = rprocess::Pid::from_raw(self.group.pgid)
             .ok_or_else(|| RunError::new("wait", "job process group is out of range"))?;
         let flags = rprocess::WaitOptions::UNTRACED | rprocess::WaitOptions::CONTINUED;
@@ -3355,12 +3454,13 @@ impl PipelineJob {
             match rprocess::waitpgid(pgid, flags) {
                 Ok(Some((waited, status))) => {
                     let pid = waited.as_raw_pid() as u32;
-                    if let Some(stage) = self.stages.iter_mut().find(|stage| stage.pid == pid) {
-                        record_job_stage(stage, status);
-                    }
-                    return Ok(());
+                    return Ok(self
+                        .stages
+                        .iter_mut()
+                        .find(|stage| stage.pid == Some(pid))
+                        .is_some_and(|stage| record_job_stage(stage, status)));
                 }
-                Ok(None) => return Ok(()),
+                Ok(None) => return Ok(false),
                 Err(rustix::io::Errno::INTR) => {}
                 Err(error) => return Err(map_wait_error(io::Error::from(error))),
             }
@@ -3368,9 +3468,14 @@ impl PipelineJob {
     }
 }
 
-fn job_stage_pid(stage: &JobStage) -> Result<rprocess::Pid, RunError> {
-    rprocess::Pid::from_raw(stage.pid as i32)
-        .ok_or_else(|| RunError::new("wait", "job stage pid is out of range"))
+fn job_stage_pid(stage: &JobStage) -> Result<Option<rprocess::Pid>, RunError> {
+    stage
+        .pid
+        .map(|pid| {
+            rprocess::Pid::from_raw(pid as i32)
+                .ok_or_else(|| RunError::new("wait", "job stage pid is out of range"))
+        })
+        .transpose()
 }
 
 fn job_stage_terminated(outcome: &ChildWaitOutcome) -> bool {
@@ -3380,12 +3485,16 @@ fn job_stage_terminated(outcome: &ChildWaitOutcome) -> bool {
     )
 }
 
-fn record_job_stage(stage: &mut JobStage, status: rprocess::WaitStatus) {
-    stage.outcome = job_wait_outcome(status, stage.index, &stage.target, stage.pid);
+fn record_job_stage(stage: &mut JobStage, status: rprocess::WaitStatus) -> bool {
+    let Some(pid) = stage.pid else {
+        return false;
+    };
+    stage.outcome = job_wait_outcome(status, stage.index, &stage.target, pid);
     if job_stage_terminated(&stage.outcome) {
         stage.input = None;
         stage.child = None;
     }
+    matches!(stage.outcome, ChildWaitOutcome::Stopped { .. })
 }
 
 fn job_wait_outcome(
@@ -3423,11 +3532,13 @@ impl Drop for PipelineJob {
 }
 
 fn reap_job_stage(stage: &mut JobStage) -> Result<(), RunError> {
-    let pid = job_stage_pid(stage)?;
+    let Some(pid) = job_stage_pid(stage)? else {
+        return Ok(());
+    };
     loop {
         match rprocess::waitpid(Some(pid), rprocess::WaitOptions::empty()) {
             Ok(Some((_, status))) => {
-                stage.outcome = job_wait_outcome(status, stage.index, &stage.target, stage.pid);
+                record_job_stage(stage, status);
                 return Ok(());
             }
             Ok(None) => return Ok(()),

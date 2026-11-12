@@ -1,0 +1,62 @@
+== frame middle_missing cursor=3,20
+|testuser@<HOST> ~ $ cat data.txt | nosuch | cat
+|nosuch: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame middle_status cursor=6,20
+|testuser@<HOST> ~ $ cat data.txt | nosuch | cat
+|nosuch: not found
+|
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame last_missing cursor=9,20
+|testuser@<HOST> ~ $ cat data.txt | nosuch | cat
+|nosuch: not found
+|
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $ cat data.txt | nosuch
+|nosuch: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame last_status cursor=12,20
+|testuser@<HOST> ~ $ cat data.txt | nosuch | cat
+|nosuch: not found
+|
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $ cat data.txt | nosuch
+|nosuch: not found
+|
+|testuser@<HOST> ~ $ echo $?
+|127
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

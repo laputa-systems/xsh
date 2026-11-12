@@ -1,0 +1,72 @@
+== frame stopped cursor=3,20
+|testuser@<HOST> ~ $ sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil
+|<SHELL>: stopped: sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil (pgid=<N>)
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_kill cursor=8,20
+|testuser@<HOST> ~ $ sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil
+|<SHELL>: stopped: sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil (pgid=<N>)
+|
+|testuser@<HOST> ~ $ kill -KILL -$(cat pgid)
+|
+|testuser@<HOST> ~ $ echo still-$?
+|still-0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame resumed cursor=10,20
+|testuser@<HOST> ~ $ sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil
+|<SHELL>: stopped: sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil (pgid=<N>)
+|
+|testuser@<HOST> ~ $ kill -KILL -$(cat pgid)
+|
+|testuser@<HOST> ~ $ echo still-$?
+|still-0
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_fg cursor=13,20
+|testuser@<HOST> ~ $ sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil
+|<SHELL>: stopped: sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil (pgid=<N>)
+|
+|testuser@<HOST> ~ $ kill -KILL -$(cat pgid)
+|
+|testuser@<HOST> ~ $ echo still-$?
+|still-0
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: sh -c 'echo $$ > pgid; kill -STOP $$' | ./bin/nil
+|testuser@<HOST> ~ $ echo after-fg-$?
+|after-fg-137
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 kill
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
