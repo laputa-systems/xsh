@@ -12756,6 +12756,24 @@
       "status": "fragment",
       "scope": "The fixed model table checks every represented value-type family with acceptance and rejection cases, including nominal provenance, exact exports, callable kind and validation boundaries.",
       "boundary": "Finite model controls with synthetic retained contracts; no Rust artifact, full-core obligation, source admission or execution agreement is certified."
+    },
+    {
+      "id": "fragment.Xsh.Core.EffectExpression.covered_iff",
+      "module": "Xsh.Core.SymbolicEffects",
+      "declaration": "Xsh.Core.EffectExpression.covered_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Exact inclusion and permission coverage for finite symbolic expressions with arbitrarily many masked parameters; general assignment semantics and known-substitution preservation.",
+      "boundary": "No source extraction, Rust three-valued predicate correspondence, symbolic callable integration, inference closure or whole-core execution claim."
+    },
+    {
+      "id": "fragment.Xsh.Core.SymbolicContract.substitution_unknown_iff",
+      "module": "Xsh.Core.SymbolicEffects",
+      "declaration": "Xsh.Core.SymbolicContract.substitution_unknown_iff",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Unknown propagation exactly through live masked dependencies for arbitrary source and target parameter counts; known substitutions agree with expression substitution.",
+      "boundary": "No Rust substitution, variable-identity extraction or callback-failure correspondence. Capture/substitution commutation requires known replacements; the model rejects its unconditional unknown version."
     }
   ],
   "artifact_certificates": [
