@@ -42,7 +42,7 @@ test test_lint_reports_redundant_result_unit_ceremony { |ctx|
   let root = test.temp_dir(ctx, name: "result-unit")?
   let file = fp"{root}/ceremony.xsh"
   file.write(
-    "proc helper() -> Result[Unit] {\n  return Ok()\n}\n\nexport proc public() -> Result[Unit, Error] {\n  return Ok()\n}\n",
+    "##! Result ceremony fixture.\nproc helper() -> Result[Unit] {\n  return Ok()\n}\n\n## Completes successfully.\nexport proc public() -> Result[Unit, Error] {\n  return Ok()\n}\n",
   )
   assert_checks(file)
   let reported = lint(file, [])?
