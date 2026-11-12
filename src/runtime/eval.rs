@@ -5888,27 +5888,23 @@ impl Evaluator {
             return None;
         };
         let mut args = args.clone();
-        // CLI args arrive as `Str`; coerce each positional arg to its declared
-        // `main` param type where a lossless widening applies (notably
-        // `Str` → `Path`, e.g. `proc main(root: Path = p".", …)`). The lowered
-        // call binder requires the arg's runtime type to match the param, and
-        // CLI strings are the documented way to pass paths into `main`. A rest
-        // param's kind is `List`, so it (and any variadic extras past the fixed
-        // params) is left as `Str`.
         let main_name = Name::intern("main");
-        let indexed_param_kinds = self.indexed_program.as_ref().and_then(|program| {
+        let indexed_param_types = self.indexed_program.as_ref().and_then(|program| {
             program
-                .function_param_kinds(
+                .function_param_types(
                     LoweredFunctionKey::Name(main_name),
                     CallableKind::Proc,
                 )
                 .ok()
                 .flatten()
         });
-        if let Some(param_kinds) = indexed_param_kinds {
+        if let Some(param_types) = indexed_param_types {
             for (index, arg) in args.iter_mut().enumerate() {
-                if param_kinds.get(index).copied()
-                    == Some(LoweredParamKind::Typed(LoweredType::Path))
+                let parameter = param_types.get(index).map(|ty| match ty.unvalidated() {
+                    Type::Optional(payload) => payload.unvalidated(),
+                    ty => ty,
+                });
+                if parameter == Some(&Type::Path)
                     && let Value::Str(text) = arg
                     && let Ok(path) = PathValue::from_text(&text)
                 {

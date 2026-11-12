@@ -2520,15 +2520,16 @@ impl FullProgram {
         })
     }
 
-    pub(in crate::runtime::eval) fn function_param_kinds(
+    pub(in crate::runtime::eval) fn function_param_types(
         &self,
         key: LoweredFunctionKey,
         kind: CallableKind,
-    ) -> Result<Option<Vec<LoweredParamKind>>, IrVerifyError> {
+    ) -> Result<Option<Vec<Type>>, IrVerifyError> {
         let Some(view) = self.function_view(key, kind)? else {
             return Ok(None);
         };
-        Ok(Some(view.header()?.param_kinds.iter().copied().collect()))
+        verify_schemes::invocation_parameter_types(&self.store, view.index, &Default::default())
+            .map(Some)
     }
 
     pub(in crate::runtime::eval) fn function_view(
