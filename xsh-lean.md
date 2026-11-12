@@ -99,18 +99,18 @@ operand, operation, call and branch rows whenever the Lean lowerer reproduces th
 `FactsIR.admitted_facts_match_ir` composes both links over the same bytes, functions and artifact.
 The fact validator also rejects unsupported propagation bindings in both its executable and
 declarative rules. Wider Bool, Result, assigned and computed-let fact derivations remain open.
-The next connected step is to authenticate raw record and local-binding rows against the
-existing qualified `Connected` node semantics. That model already owns records, storage,
-projection and validation. The row correspondence must derive binding-to-slot identities,
-preserve field evaluation order, and authenticate RHS and transfer metadata. A supplied
-injective slot map leaves that provenance unproved. `RawRows` lacks record-entry decoding
-and `StmtLet` support, while the portable exchange omits semantic tables needed by Rust's
-clone-based decoder. Export those tables before claiming a foreign-IR validator. The existing
+The connected row comparison now reconstructs supported record and assignment expressions
+and derives local slots from exported declaration claims, checked initializer trees and
+mutability facts. The Rust claim table, positional parameter slots and single-assignment
+temporary convention remain assumptions. The next step is to authenticate transfer metadata
+and connect these checked rows to execution. The portable exchange still omits semantic
+tables needed by Rust's clone-based decoder. Export those tables before claiming a foreign-IR validator. The existing
 validation-error sentinel also omits structured Error identity, messages, paths and causes.
 Those observations need a representation and proof before an error-producer claim can include them.
 The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
-accepted the current certificates under the 8 GiB cap.
+accepted the certificates at `e52dcf2b2` under the 8 GiB cap. The combined integration
+with derived declaration slots still needs its fresh six-kernel check.
 The independent kernels hold the whole export in memory. Earlier checks at the
 8 GiB address-space cap found that a single declaration that
 decoded the 8.3 KB document failed three kernels, and two documents of 4.6 KB

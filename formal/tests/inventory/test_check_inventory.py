@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(975, len(result["fragment_roots"]))
+        self.assertEqual(990, len(result["fragment_roots"]))
         self.assertEqual({"artifact.integer-arithmetic-locals", "artifact.integer-calls-conditional", "artifact.integer-assignments", "artifact.boolean-comparison-control", "artifact.checked-facts", "artifact.scoped-checked-facts", "artifact.result-construction-control", "artifact.result-propagation-control", "artifact.integer-let-calls", "artifact.integer-computed-let-calls", "artifact.integer-several-let-calls"}, result["artifact_certificates"])
         self.assertEqual(77, len(result["obligations"]))
         self.assertEqual([], result["closed_obligations"])
