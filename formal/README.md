@@ -159,5 +159,9 @@ temporary workspace under `.work/tmp/`. Its sandbox passes the Lake thread
 limit to con-leche's `--jobs` option as well as to Lean. Con-ron uses one worker
 to fit its per-worker stack and scratch storage alongside the complete export
 within the same 8 GiB address-space limit.
+The fresh build limits [glibc malloc arenas](https://sourceware.org/glibc/manual/latest/html_node/Malloc-Tunable-Parameters.html)
+to the configured worker count. The official prebuilt compiler otherwise fails
+to create a thread under that limit on the qualification host. The same module
+compiles with bounded arenas and the unchanged address-space cap.
 If a build or checker exceeds its deadline, the command prints its captured
 progress and terminates the owned process group. A timeout does not qualify a check.

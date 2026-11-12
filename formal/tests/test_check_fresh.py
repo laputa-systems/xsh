@@ -61,6 +61,7 @@ class ParanoidCheckTests(unittest.TestCase):
 
         def fail_build(command, cwd, env, label):
             workspaces.append(cwd)
+            self.assertEqual(env["MALLOC_ARENA_MAX"], env["LEAN_NUM_THREADS"])
             scratch = Path(env["TMPDIR"]) / "interrupted-export"
             self.assertTrue(scratch.is_relative_to(cwd))
             scratch.write_text("incomplete export")

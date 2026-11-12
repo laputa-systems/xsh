@@ -97,6 +97,7 @@ def main() -> int:
     env["LAKE_CACHE_DIR"] = str(cache_root)
     env["LEAN_NUM_THREADS"] = threads
     env["LEAN_STACK_SIZE_KB"] = stack_size_kb
+    env["MALLOC_ARENA_MAX"] = threads
     bwrap = shutil.which("bwrap")
     if bwrap is None:
         print("bubblewrap is required for paranoid kernel checking", file=sys.stderr)
