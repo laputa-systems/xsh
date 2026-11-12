@@ -5729,6 +5729,20 @@ Contracts worth knowing without consulting the reference:
   preserves filesystem enumeration order, including partial results. `max_entries` defaults to
   65536 and accepts 0 through 65536; truncated results retain a prefix in
   the selected order and report `enumeration_succeeded: false`.
+  `FsRoot.read_regular(path, max_bytes)` opens the path beneath the root with
+  every symbolic link refused and without waiting for a peer, then decides on
+  the opened object rather than a prior `lstat`: an entry that is not a regular
+  file fails with kind `not-regular-file` (so a FIFO or device can neither
+  block nor stream), and a file longer than `max_bytes` fails with kind
+  `oversize` after reading at most one byte past the limit. Success returns
+  `FsRootRegularRead` with `data` and the `kind`, `mode`, `size`, `uid`, `gid`,
+  `nlink`, `dev` and `ino` of that same descriptor, so two calls can tell that
+  the path was replaced between them. `max_bytes` defaults to 1 MiB and accepts
+  0 through 16 MiB. Host failures keep kind `fs-root-read-regular` and the
+  kernel's errno; they include a refused symbolic link (`ELOOP`) and an entry
+  the kernel will not open, such as a socket. Unlike `read_result`,
+  `read_regular` never reports a bounded prefix: an oversized file is a
+  failure, not a truncated success.
   `FsRoot.rename(from:, to:, replace:)` renames beneath one root and refuses an
   existing destination unless `replace: true`; `FsRoot.fsync(path)` flushes a
   regular file or directory and refuses a symlink or special file;

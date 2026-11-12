@@ -5072,6 +5072,7 @@ impl Evaluator {
                 }
             }
             callable; RuntimeOp::FsRootReadResult if values.len() == 2 || values.len() == 3 => return self.eval_lowered_fs_root_read_result_values(values, span),
+            callable; RuntimeOp::FsRootReadRegular if values.len() == 2 || values.len() == 3 => return self.eval_lowered_fs_root_read_regular_values(values, span),
             callable; RuntimeOp::FsRootFilesystemStats if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.get(1).cloned().expect("checked value length"),

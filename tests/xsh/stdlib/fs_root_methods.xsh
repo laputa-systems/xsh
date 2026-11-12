@@ -333,6 +333,83 @@ test fs_root_fsync_flushes_files_and_directories_but_not_links { |ctx|
   assert root.fsync(p"missing") is Err(_)
 }
 
+test fs_root_read_regular_reports_the_opened_regular_file { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-read-regular")?)?
+  root.write(p"data", "payload")
+  root.chmod(p"data", 0o640)
+  fs.link(fp"{root.host_path()?}/data", fp"{root.host_path()?}/alias")
+  let opened = root.read_regular(p"data", max_bytes: 64)?
+  let stat = root.stat(p"data")?
+  assert opened.data == b"payload"
+  assert opened.kind == "file"
+  assert opened.size == 7
+  assert opened.mode.bit_and(0o777) == 0o640
+  assert opened.nlink == 2
+  assert opened.mode == stat.mode
+  assert opened.uid == stat.uid
+  assert opened.gid == stat.gid
+  assert [opened.dev, opened.ino] == [stat.dev, stat.ino]
+  assert root.read_regular(p"data")?.data == b"payload"
+}
+
+test fs_root_read_regular_refuses_symlinks_in_every_component { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-read-regular-links")?)?
+  root.write(p"real", "data")
+  root.mkdir(p"dir")
+  root.write(p"dir/file", "data")
+  root.symlink(target: p"real", path: p"final")
+  root.symlink(target: p"dir", path: p"link")
+  assert root.read_text(p"final")? == "data"
+  assert root.read_text(p"link/file")? == "data"
+  let final_refused = root.read_regular(p"final")
+  test.error_kind(final_refused, "fs-root-read-regular")
+  if let Err(failure) = final_refused { assert failure.errno == 40 or failure.errno == 62 }
+  let parent_refused = root.read_regular(p"link/file")
+  test.error_kind(parent_refused, "fs-root-read-regular")
+  if let Err(failure) = parent_refused { assert failure.errno == 40 or failure.errno == 62 }
+}
+
+test fs_root_read_regular_refuses_non_regular_entries_without_blocking { |ctx|
+  test.timeout(ctx, 10s)
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-read-regular-fifo")?)?
+  fs.mkfifo(fp"{root.host_path()?}/fifo", 0o600)
+  root.mkdir(p"dir")
+  root.symlink(target: p"fifo", path: p"fifo-link")
+  test.error_kind(root.read_regular(p"fifo"), "not-regular-file")
+  test.error_kind(root.read_regular(p"dir"), "not-regular-file")
+  test.error_kind(root.read_regular(p"fifo-link"), "fs-root-read-regular")
+  assert root.stat(p"fifo")?.kind == "fifo"
+}
+
+test fs_root_read_regular_refuses_an_oversized_file { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-read-regular-size")?)?
+  root.write(p"big", "12345")
+  root.write(p"empty", "")
+  test.error_kind(root.read_regular(p"big", max_bytes: 4), "oversize")
+  test.error_kind(root.read_regular(p"big", max_bytes: 0), "oversize")
+  assert root.read_regular(p"big", max_bytes: 5)?.data == b"12345"
+  let empty = root.read_regular(p"empty", max_bytes: 0)?
+  assert empty.data == b"" and empty.size == 0
+  test.error_kind(root.read_regular(p"big", max_bytes: -1), "fs-root-read-regular")
+  test.error_kind(root.read_regular(p"big", max_bytes: 16777217), "fs-root-read-regular")
+}
+
+test fs_root_read_regular_reports_the_replaced_opened_object { |ctx|
+  let root = fs.open_root(test.temp_dir(ctx, name: "root-read-regular-replace")?)?
+  root.write(p"control", "first")
+  root.write(p"next", "second!")
+  let original = root.stat(p"control")?
+  let replacement = root.stat(p"next")?
+  let first = root.read_regular(p"control")?
+  root.rename(from: p"next", to: p"control", replace: true)?
+  let second = root.read_regular(p"control")?
+  assert first.data == b"first" and first.size == 5
+  assert [first.dev, first.ino] == [original.dev, original.ino]
+  assert second.data == b"second!" and second.size == 7
+  assert [second.dev, second.ino] == [replacement.dev, replacement.ino]
+  assert first.ino != second.ino
+}
+
 test fs_root_extract_stays_beneath_the_retained_root { |ctx|
   let base = test.temp_dir(ctx, name: "root-extract")?
   let src = fp"{base}/src"

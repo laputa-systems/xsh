@@ -275,6 +275,7 @@ pub enum RuntimeOp {
     FsRootChildren,
     FsRootRead,
     FsRootReadResult,
+    FsRootReadRegular,
     FsRootFilesystemStats,
     FsRootReadText,
     FsRootWrite,

@@ -786,6 +786,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRoot.mkdir(path: RelPath, mode: Int = default, parents: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.open_root(path: RelPath) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
 - `FsRoot.read_bytes(path: RelPath) -> Result[Bytes, Error]` — Reads bytes or UTF-8 text below a rooted filesystem capability.
+- `FsRoot.read_regular(path: RelPath, max_bytes: Int = default) -> Result[{data: Bytes, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, nlink: Int, size: Int, uid: Int}, Error]` — Reads a bounded snapshot of one regular file below a rooted filesystem capability.
 - `FsRoot.read_result(path: RelPath, max_bytes: Int = default) -> Result[{data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}, Error]` — Reads a bounded byte snapshot below a rooted filesystem capability.
 - `FsRoot.read_text(path: RelPath) -> Result[Str, Error]` — Reads bytes or UTF-8 text below a rooted filesystem capability.
 - `FsRoot.readlink(path: RelPath) -> Result[Path, Error]` — Reads a symlink target below a rooted filesystem capability.
@@ -994,6 +995,7 @@ YAML 1.2 decoding, encoding, and files.
 - `FsRootFilesystemStats {available_bytes: Int?, block_size_bytes: Int?, errno: Int?, error_kind: Str?, state: Str, total_bytes: Int?, used_bytes: Int?}` — Describes filesystem capacity observed through a rooted directory capability.
 - `FsRootReadResult {data: Bytes?, errno: Int?, error_kind: Str?, state: Str, truncated: Bool}` — Describes a bounded read beneath a rooted filesystem capability.
 - `FsRootReadlinkResult {errno: Int?, error_kind: Str?, state: Str, target: Path?}` — Describes a symlink target observation beneath a rooted filesystem capability.
+- `FsRootRegularRead {data: Bytes, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, nlink: Int, size: Int, uid: Int}` — Describes one bounded regular-file read beneath a rooted filesystem capability.
 - `FsStat {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}` — Describes complete stat(2) or lstat(2) metadata for one path.
 - `FsStatvfs {block_size: Int, blocks: Int, blocks_available: Int, blocks_free: Int, files: Int, files_available: Int, files_free: Int, flags: Int, fragment_size: Int, fsid: Int, name_max: Int, nodev: Bool, noexec: Bool, nosuid: Bool, readonly: Bool, type_magic: Int?}` — Reports raw statvfs(3) counters for the filesystem holding a path.
 - `Group {gid: Int, members: List[Str], name: Str}` — Describes a Unix group account.

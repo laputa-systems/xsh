@@ -4892,6 +4892,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "State, errno, and error kind preserve missing, denied, truncated, and failed reads without parsing diagnostic text.",
             &["filesystem", "rooted", "read", "observation"],
         ),
+        "FsRootRegularRead" => (
+            "Describes one bounded regular-file read beneath a rooted filesystem capability.",
+            "Data and metadata come from the same opened descriptor: symlinks are refused in every component, non-regular entries and files larger than max_bytes fail, and dev with ino identify the object that was actually read.",
+            &["filesystem", "rooted", "read", "observation"],
+        ),
         "FsRootReadlinkResult" => (
             "Describes a symlink target observation beneath a rooted filesystem capability.",
             "The target remains a lossless Path; state, errno, and error kind distinguish missing, denied, and failed link reads.",

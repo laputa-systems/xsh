@@ -757,6 +757,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The typed result preserves state, errno, stable error kind, partial bytes, and truncation without converting failure text into state.",
             &["filesystem", "rooted", "read", "observation", "bounded"],
         )),
+        ("fs", "root_read_regular") => Some((
+            "Reads a bounded snapshot of one regular file below a rooted filesystem capability.",
+            "The path is opened beneath the root with symbolic links refused in every component and without waiting for a peer. The opened descriptor decides the result: an opened entry that is not a regular file fails with kind not-regular-file, a file larger than max_bytes fails with kind oversize, and kind, mode, size, uid, gid, nlink, dev and ino are read from that same descriptor. A file replaced at the path between two calls is reported by the identity of the descriptor each call opened.",
+            &["filesystem", "rooted", "read", "bounded", "observation"],
+        )),
         ("fs", "root_filesystem_stats") => Some((
             "Reads exact filesystem capacity counters below a rooted directory capability.",
             "The query uses a directory opened within the root; oversized kernel counters are reported as a range failure instead of being truncated.",
@@ -1975,6 +1980,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "read_bytes" => "root_read",
             "read_text" => "root_read_text",
             "read_result" => "root_read_result",
+            "read_regular" => "root_read_regular",
             "filesystem_stats" => "root_filesystem_stats",
             "children" => "root_children",
             "write" => "root_write",

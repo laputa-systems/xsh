@@ -64,7 +64,7 @@ pub(crate) fn open_file(
     mode: libc::mode_t,
     resolve: Resolve,
 ) -> io::Result<File> {
-    let fd = openat2(dirfd, path, flags | libc::O_CLOEXEC, mode, resolve)?;
+    let fd = openat2(dirfd, path, flags | libc::O_CLOEXEC | libc::O_NOCTTY, mode, resolve)?;
     file_from_fd(fd)
 }
 

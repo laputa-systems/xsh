@@ -25,6 +25,10 @@ static K_GID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("gid"));
 static K_MODIFIED: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("modified"));
 static K_ACCESSED: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("accessed"));
 static K_BLOCKS_512: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("blocks_512"));
+static K_DATA: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("data"));
+static K_DEV: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("dev"));
+static K_INO: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("ino"));
+static K_NLINK: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("nlink"));
 static K_EXECUTABLE: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("executable"));
 static K_GROUP_EXECUTABLE: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("group_executable"));
 static K_OTHER_EXECUTABLE: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("other_executable"));
@@ -416,6 +420,80 @@ pub(crate) fn rooted_read_result(
         error_kind: None,
         truncated,
     })
+}
+
+pub(crate) fn rooted_read_regular(
+    root: &Root,
+    path: &Path,
+    max_bytes: i64,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    const KIND: &str = "fs-root-read-regular";
+    const HARD_MAX_BYTES: i64 = 16_777_216;
+
+    if !(0..=HARD_MAX_BYTES).contains(&max_bytes) {
+        return Err(RuntimeError::new(
+            KIND,
+            format!("max_bytes must be between 0 and {HARD_MAX_BYTES}"),
+        )
+        .with_span(span));
+    }
+    let max_bytes = usize::try_from(max_bytes).map_err(|_| {
+        RuntimeError::new(KIND, "max_bytes is outside the supported integer range").with_span(span)
+    })?;
+
+    let file = root
+        .open_with(
+            path,
+            RootOpenOptions::new()
+                .read(true)
+                .no_symlinks(true)
+                .non_blocking(true),
+        )
+        .map_err(|error| RuntimeError::host(KIND, &error).with_span(span))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| RuntimeError::host(KIND, &error).with_span(span))?;
+    if !metadata.is_file() {
+        return Err(RuntimeError::new(
+            "not-regular-file",
+            "FsRoot.read_regular path must name a regular file",
+        )
+        .with_span(span));
+    }
+
+    let read_limit = u64::try_from(max_bytes)
+        .ok()
+        .and_then(|limit| limit.checked_add(1))
+        .ok_or_else(|| {
+            RuntimeError::new(KIND, "max_bytes cannot be incremented").with_span(span)
+        })?;
+    let capacity = usize::try_from(metadata.len())
+        .map_or(max_bytes, |len| len.min(max_bytes))
+        .saturating_add(1);
+    let mut data = Vec::with_capacity(capacity);
+    file.take(read_limit)
+        .read_to_end(&mut data)
+        .map_err(|error| RuntimeError::host(KIND, &error).with_span(span))?;
+    if data.len() > max_bytes {
+        return Err(RuntimeError::new(
+            "oversize",
+            format!("file exceeds max_bytes of {max_bytes} bytes"),
+        )
+        .with_span(span));
+    }
+
+    Ok(Value::Record(RecordMap::from([
+        (K_DATA.clone(), Value::Bytes(data)),
+        (K_KIND.clone(), Value::Str(V_KIND_FILE.clone())),
+        (K_MODE.clone(), Value::Int(i64::from(metadata.mode()))),
+        (K_SIZE.clone(), Value::Int(metadata.len() as i64)),
+        (K_UID.clone(), Value::Int(i64::from(metadata.uid()))),
+        (K_GID.clone(), Value::Int(i64::from(metadata.gid()))),
+        (K_NLINK.clone(), Value::Int(metadata.nlink() as i64)),
+        (K_DEV.clone(), Value::Int(metadata.dev() as i64)),
+        (K_INO.clone(), Value::Int(metadata.ino() as i64)),
+    ])))
 }
 
 pub(crate) fn rooted_filesystem_stats(

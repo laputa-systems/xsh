@@ -3,8 +3,9 @@
 use super::{
     ApiArgCheck, MethodReceiver, MethodReceiverSig, MethodSig, NamedMethodSigs, ParamSig,
     RuntimeOp, Type, btree_map, default_param, fs_entry_type, fs_root_children_result_type,
-    fs_root_filesystem_stats_type, fs_root_read_result_type, fs_root_readlink_result_type,
-    fs_root_type, labeled_param, net_response_type, param, regex_match_type, result,
+    fs_root_filesystem_stats_type, fs_root_read_result_type, fs_root_regular_read_type,
+    fs_root_readlink_result_type, fs_root_type, labeled_param, net_response_type, param,
+    regex_match_type, result,
     sig_with_arg_check,
 };
 use crate::enums::{
@@ -1108,6 +1109,16 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     result(fs_root_read_result_type()),
                     false,
                     RuntimeOp::FsRootReadResult,
+                ),
+                method(
+                    "read_regular",
+                    vec![
+                        param("path", Type::RelPath),
+                        default_param("max_bytes", Type::Int),
+                    ],
+                    result(fs_root_regular_read_type()),
+                    false,
+                    RuntimeOp::FsRootReadRegular,
                 ),
                 method(
                     "filesystem_stats",
