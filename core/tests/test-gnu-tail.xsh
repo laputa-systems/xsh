@@ -52,8 +52,9 @@ test test_gnu_tail_F_vs_rename_log { |ctx|
     let s = uu.scene(ctx)?
     uu.touch(s, "a")
     uu.touch(s, "b")
-    let child = following(s, fast(["-F", "a", "b"], mode))?
+    let child = following(s, fast(["--debug", "-F", "a", "b"], mode))?
     defer stop(child)
+    seen(s, "err", "tail: using ")
     uu.write(s, "a", "x\n")
     seen(s, "out", "==> a <==\nx\n")
     uu.at(s, "a").rename(to: uu.at(s, "b"), overwrite: true)
