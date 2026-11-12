@@ -1018,4 +1018,312 @@ theorem machine_run_outcome_is_independent_of_extra_fuel
   exact Xsh.Proofs.Base.Runner.base_runner.2.2.2.2.2.2.1 runBudget
     (program.machineWith bindings arguments) notExhausted extra
 
+def sequenceIntegerResults (operator : IntegerBinaryOp) : IntegerResult → IntegerResult → IntegerResult
+  | .fault fault, _ => .fault fault
+  | .value _, .fault fault => .fault fault
+  | .value left, .value right => applyBinary operator left right
+
+/-- Evaluation of pure integer literals, typed local reads and arithmetic. Both operand
+expressions belong to this grammar; the combined result retains the left operand's first fault. -/
+inductive PureIntegerEvaluation (reads : NameId → Option IntValue) :
+    BaseExpr → IntegerResult → Prop where
+  | literal (value : Int) : PureIntegerEvaluation reads (.integerLiteral value) (checkedInt value)
+  | read {name : NameId} {value : IntValue} (found : reads name = some value) :
+      PureIntegerEvaluation reads (.identifier name) (.value value)
+  | binary {left right : BaseExpr} {leftValue rightValue : IntegerResult}
+      (operator : IntegerBinaryOp) (leftRuns : PureIntegerEvaluation reads left leftValue)
+      (rightRuns : PureIntegerEvaluation reads right rightValue) :
+      PureIntegerEvaluation reads (.binary operator left right)
+        (sequenceIntegerResults operator leftValue rightValue)
+
+/-- A transition bound for expressions admitted by `PureIntegerEvaluation`. -/
+def pureIntegerCost : BaseExpr → Nat
+  | .binary _ left right => pureIntegerCost left + pureIntegerCost right + 3
+  | _ => 1
+
+theorem machine_steps_append {a b : Nat} {start middle finish : MachineConfig}
+    (before : MachineSteps a start middle) (after : MachineSteps b middle finish) :
+    MachineSteps (a + b) start finish := by
+  induction before with
+  | refl _ => simpa using after
+  | step first rest ih =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using MachineSteps.step first (ih after)
+
+theorem checked_integer_payload (value : IntValue) : checkedInt value.val = .value value := by
+  simp [checkedInt, validateInt?, value.property]
+
+theorem pure_integer_evaluation_substitute {values : List (NameId × IntValue)}
+    {expression : BaseExpr} {result : IntegerResult}
+    (evaluated : PureIntegerEvaluation (values.lookup ·) expression result) :
+    PureIntegerEvaluation (fun _ => none) (substitute values expression) result := by
+  induction evaluated with
+  | literal value => exact .literal value
+  | @read name value found =>
+      simpa [substitute, found, checked_integer_payload] using
+        (PureIntegerEvaluation.literal (reads := fun _ => none) value.val)
+  | binary operator left right ihLeft ihRight =>
+      exact .binary operator ihLeft ihRight
+
+theorem pure_integer_evaluation_steps {reads : NameId → Option IntValue}
+    {expression : BaseExpr} {result : IntegerResult}
+    (evaluated : PureIntegerEvaluation reads expression result) (environment : MachineConfig)
+    (agrees : ∀ name value, reads name = some value →
+      lookupBaseValue environment.names environment.activations environment.store name =
+        .ok (typedInteger value)) (continuation : List BaseFrame) :
+    ∃ steps rest, steps ≤ pureIntegerCost expression ∧
+      MachineSteps steps (updateState environment (.evaluate expression) continuation)
+        (updateState environment (controlOfIntegerResult result) rest) ∧
+      (∀ value, result = .value value → rest = continuation) := by
+  induction evaluated generalizing continuation with
+  | literal value =>
+      refine ⟨1, continuation, by simp [pureIntegerCost], .step ?_ (.refl _), ?_⟩
+      · rfl
+      · intro _ _; rfl
+  | read found =>
+      refine ⟨1, continuation, by simp [pureIntegerCost], .step ?_ (.refl _), ?_⟩
+      · simp [step, updateState, agrees _ _ found, controlOfIntegerResult]
+      · intro _ _; rfl
+  | @binary left right leftValue rightValue operator leftRuns rightRuns ihLeft ihRight =>
+      obtain ⟨leftSteps, leftRest, leftBound, leftPath, leftStack⟩ :=
+        ihLeft (.binaryLeft operator right :: continuation)
+      have enter : step (updateState environment (.evaluate (.binary operator left right)) continuation) =
+          some (updateState environment (.evaluate left) (.binaryLeft operator right :: continuation)) := rfl
+      cases leftValue with
+      | fault fault =>
+          refine ⟨leftSteps + 1, leftRest, ?_, .step enter leftPath, ?_⟩
+          · simp only [pureIntegerCost]; omega
+          · intro value impossible; cases impossible
+      | value leftValue =>
+          have sameLeft := leftStack leftValue rfl
+          subst leftRest
+          obtain ⟨rightSteps, rightRest, rightBound, rightPath, rightStack⟩ :=
+            ihRight (.binaryRight operator leftValue :: continuation)
+          have next : step (updateState environment (controlOfIntegerResult (.value leftValue))
+              (.binaryLeft operator right :: continuation)) =
+              some (updateState environment (.evaluate right) (.binaryRight operator leftValue :: continuation)) := by
+            rfl
+          have combinedPath := machine_steps_append (.step enter leftPath) (.step next rightPath)
+          cases rightValue with
+          | fault fault =>
+              refine ⟨_, rightRest, ?_, combinedPath, ?_⟩
+              · simp only [pureIntegerCost]; omega
+              · intro value impossible; cases impossible
+          | value rightValue =>
+              have sameRight := rightStack rightValue rfl
+              subst rightRest
+              have finish : step (updateState environment (controlOfIntegerResult (.value rightValue))
+                  (.binaryRight operator leftValue :: continuation)) =
+                  some (updateState environment (controlOfIntegerResult (applyBinary operator leftValue rightValue))
+                    continuation) := rfl
+              have path := machine_steps_append combinedPath (.step finish (.refl _))
+              refine ⟨_, continuation, ?_, path, ?_⟩
+              · simp only [pureIntegerCost]; omega
+              · intro _ _; rfl
+
+def integerBaseOutcome : IntegerResult → BaseOutcome
+  | .value value => .value (typedInteger value)
+  | .fault fault => .fault (.arithmetic fault)
+
+def integerFunctionOutcome : IntegerResult → FunctionOutcome
+  | .value value => .value value.val
+  | .fault .overflow => .failure .integerOverflow
+  | .fault .divisionByZero => .failure .divisionByZero
+
+theorem integer_control_terminal (environment : MachineConfig) (result : IntegerResult)
+    (rest : List BaseFrame) (returned : ∀ value, result = .value value → rest = []) :
+    terminalOutcome (updateState environment (controlOfIntegerResult result) rest) =
+      some (integerBaseOutcome result) := by
+  cases result with
+  | value value => rw [returned value rfl]; rfl
+  | fault fault => rfl
+
+theorem pure_integer_evaluation_completes {reads : NameId → Option IntValue}
+    {expression : BaseExpr} {result : IntegerResult}
+    (evaluated : PureIntegerEvaluation reads expression result) (environment : MachineConfig)
+    (agrees : ∀ name value, reads name = some value →
+      lookupBaseValue environment.names environment.activations environment.store name =
+        .ok (typedInteger value)) {fuel : Nat} (enough : pureIntegerCost expression ≤ fuel) :
+    runFuel fuel (updateState environment (.evaluate expression) []) =
+      .completed (integerBaseOutcome result) := by
+  obtain ⟨steps, rest, bound, path, stack⟩ := pure_integer_evaluation_steps evaluated environment agrees []
+  exact Xsh.Proofs.Base.Runner.a_finished_path_is_completed_with_enough_fuel path
+    (integer_control_terminal environment result rest stack) fuel (by omega)
+
+theorem pure_integer_substitution_cost {values : List (NameId × IntValue)}
+    {expression : BaseExpr} {result : IntegerResult}
+    (evaluated : PureIntegerEvaluation (values.lookup ·) expression result) :
+    pureIntegerCost (substitute values expression) = pureIntegerCost expression := by
+  induction evaluated with
+  | literal _ => rfl
+  | read found => simp [substitute, found, pureIntegerCost]
+  | binary operator left right ihLeft ihRight =>
+      simp only [substitute, pureIntegerCost, ihLeft, ihRight]
+
+theorem pure_integer_empty_expression_substitution {reads : NameId → Option IntValue}
+    {expression : BaseExpr} {result : IntegerResult}
+    (evaluated : PureIntegerEvaluation reads expression result) :
+    substituteExpressions [] expression = expression := by
+  induction evaluated with
+  | literal _ => rfl
+  | read _ => rfl
+  | binary operator left right ihLeft ihRight =>
+      simp [substituteExpressions, ihLeft, ihRight]
+
+theorem pure_integer_empty_agrees (environment : MachineConfig) :
+    ∀ name value, (fun _ : NameId => (none : Option IntValue)) name = some value →
+      lookupBaseValue environment.names environment.activations environment.store name =
+        .ok (typedInteger value) := by
+  intro name value impossible
+  cases impossible
+
+theorem pure_integer_argument_fault (slot : NameId) {argument returned : BaseExpr} {fault : IntegerFault}
+    (evaluated : PureIntegerEvaluation (fun _ => none) argument (.fault fault))
+    {fuel : Nat} (enough : pureIntegerCost argument + 1 ≤ fuel) :
+    runFuel fuel (machineOf [] (.call [slot] returned [argument])) =
+      .completed (.fault (.arithmetic fault)) := by
+  let environment := machineOf [] argument
+  obtain ⟨steps, rest, bound, path, stack⟩ := pure_integer_evaluation_steps evaluated environment
+    (pure_integer_empty_agrees environment) [.callArgument [slot] returned [] []]
+  have start : step (machineOf [] (.call [slot] returned [argument])) =
+      some (updateState environment (.evaluate argument) [.callArgument [slot] returned [] []]) := rfl
+  exact Xsh.Proofs.Base.Runner.a_finished_path_is_completed_with_enough_fuel (.step start path)
+    (by rfl) fuel (by omega)
+
+theorem pure_integer_argument_value (slot : NameId) {argument returned : BaseExpr}
+    {value : IntValue} {result : IntegerResult}
+    (argumentRuns : PureIntegerEvaluation (fun _ => none) argument (.value value))
+    (bodyRuns : PureIntegerEvaluation ([(slot, value)].lookup ·) returned result)
+    {fuel : Nat} (enough : pureIntegerCost argument + pureIntegerCost returned + 2 ≤ fuel) :
+    runFuel fuel (machineOf [] (.call [slot] returned [argument])) =
+      .completed (integerBaseOutcome result) := by
+  let environment := machineOf [] argument
+  obtain ⟨steps, rest, bound, path, stack⟩ := pure_integer_evaluation_steps argumentRuns environment
+    (pure_integer_empty_agrees environment) [.callArgument [slot] returned [] []]
+  have same := stack value rfl
+  subst rest
+  have bodyEvaluated := pure_integer_evaluation_substitute bodyRuns
+  obtain ⟨bodySteps, bodyRest, bodyBound, bodyPath, bodyStack⟩ :=
+    pure_integer_evaluation_steps bodyEvaluated environment (pure_integer_empty_agrees environment) []
+  have enter : step (machineOf [] (.call [slot] returned [argument])) =
+      some (updateState environment (.evaluate argument) [.callArgument [slot] returned [] []]) := rfl
+  have advance : step (updateState environment (controlOfIntegerResult (.value value))
+      [.callArgument [slot] returned [] []]) =
+      some (updateState environment (.evaluate (substitute [(slot, value)] returned)) []) := rfl
+  have wholePath := machine_steps_append (.step enter path) (.step advance bodyPath)
+  have cost := pure_integer_substitution_cost bodyRuns
+  exact Xsh.Proofs.Base.Runner.a_finished_path_is_completed_with_enough_fuel wholePath
+    (integer_control_terminal environment result bodyRest bodyStack) fuel (by omega)
+
+theorem literal_machine_reads (slot : Word32) (value : IntValue) (expression : BaseExpr) :
+    lookupBaseValue (machineOf [⟨slot, .integerLiteral value.val⟩] expression).names
+      (machineOf [⟨slot, .integerLiteral value.val⟩] expression).activations
+      (machineOf [⟨slot, .integerLiteral value.val⟩] expression).store (NameId.mk slot) =
+      .ok (typedInteger value) := by
+  simp [machineOf, initialConfig, lookupBaseValue, resolve_after_bind, resolveCell_bindCell,
+    LetBinding.literalInt?, validateInt?, value.property]
+
+theorem literal_machine_agrees (slot : Word32) (value : IntValue) (expression : BaseExpr) :
+    ∀ name found, [(NameId.mk slot, value)].lookup name = some found →
+      lookupBaseValue (machineOf [⟨slot, .integerLiteral value.val⟩] expression).names
+        (machineOf [⟨slot, .integerLiteral value.val⟩] expression).activations
+        (machineOf [⟨slot, .integerLiteral value.val⟩] expression).store name =
+        .ok (typedInteger found) := by
+  intro name found located
+  by_cases same : name = NameId.mk slot
+  · subst name
+    have equalKey : (NameId.mk slot == NameId.mk slot) = true := by
+      change decide (NameId.mk slot = NameId.mk slot) = true
+      simp
+    simp only [List.lookup, equalKey] at located
+    cases located
+    exact literal_machine_reads slot value expression
+  · have unequalKey : (name == NameId.mk slot) = false := by
+      change decide (name = NameId.mk slot) = false
+      simp [same]
+    simp [List.lookup, unequalKey] at located
+
+def integerSettled (slot : Word32) : IntegerResult → Except FragmentFailure (List LetBinding)
+  | .value value => .ok [⟨slot, .integerLiteral value.val⟩]
+  | .fault .overflow => .error .integerOverflow
+  | .fault .divisionByZero => .error .divisionByZero
+
+theorem literal_assignment_settles (slot : Word32) (initial : IntValue)
+    {assigned : BaseExpr} {result : IntegerResult}
+    (evaluated : PureIntegerEvaluation ([(NameId.mk slot, initial)].lookup ·) assigned result)
+    (enough : pureIntegerCost assigned ≤ runBudget) :
+    (⟨slot, assigned⟩ : Assignment).settle? [⟨slot, .integerLiteral initial.val⟩] =
+      some (integerSettled slot result) := by
+  have completed := pure_integer_evaluation_completes evaluated
+    (machineOf [⟨slot, .integerLiteral initial.val⟩] assigned)
+    (literal_machine_agrees slot initial assigned) enough
+  change runFuel runBudget (machineOf [⟨slot, .integerLiteral initial.val⟩] assigned) = _ at completed
+  cases result with
+  | value value => simp [Assignment.settle?, completed, integerBaseOutcome, integerSettled,
+      integerPayload?, typedInteger]
+  | fault fault =>
+    cases fault <;> simp [Assignment.settle?, completed, integerBaseOutcome, integerSettled]
+
+/-- Direct settlement uses its two existing bounded stages. A normalized call completes with the
+same integer or arithmetic fault once its argument and body costs plus two administrative steps
+fit the supplied call fuel. The body is pure for every possible assigned integer. -/
+theorem assigned_literal_normalization_operationally_correct (slot : Word32) (initial : IntValue)
+    {assigned returned : BaseExpr} {assignedResult : IntegerResult}
+    (assignmentRuns : PureIntegerEvaluation ([(NameId.mk slot, initial)].lookup ·) assigned assignedResult)
+    (returnedRuns : ∀ value, ∃ result,
+      PureIntegerEvaluation ([(NameId.mk slot, value)].lookup ·) returned result)
+    (assignedBudget : pureIntegerCost assigned ≤ runBudget)
+    (returnedBudget : pureIntegerCost returned + 3 ≤ runBudget) :
+    let program : FunctionProgram :=
+      ⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none, returned⟩
+    let callee : Callee :=
+      ⟨0, returned, [⟨slot, substitute [(NameId.mk slot, initial)] assigned⟩]⟩
+    program.callee? = some callee ∧ ∃ result,
+      program.outcome? [] = some (integerFunctionOutcome result) ∧
+      ∀ fuel, pureIntegerCost assigned + pureIntegerCost returned + 2 ≤ fuel →
+        runFuel fuel (machineOf [] (callee.apply [])) = .completed (integerBaseOutcome result) := by
+  dsimp only
+  constructor
+  · apply assigned_literal_function_is_callable
+    simp [LetBinding.literalInt?, validateInt?, initial.property]
+  · have settled := literal_assignment_settles slot initial assignmentRuns assignedBudget
+    have normalized := pure_integer_evaluation_substitute assignmentRuns
+    have normalizedCost := pure_integer_substitution_cost assignmentRuns
+    have empty := pure_integer_empty_expression_substitution normalized
+    cases assignedResult with
+    | fault fault =>
+      refine ⟨.fault fault, ?_, ?_⟩
+      · cases fault <;> simp [FunctionProgram.outcome?, FunctionProgram.settled?, settled,
+          integerSettled, integerFunctionOutcome]
+      · intro fuel enough
+        change runFuel fuel (machineOf [] (.call [NameId.mk slot] returned
+          [substituteExpressions [] (substitute [(NameId.mk slot, initial)] assigned)])) = _
+        rw [empty]
+        exact pure_integer_argument_fault (NameId.mk slot) normalized (by omega)
+    | value value =>
+      obtain ⟨result, bodyRuns⟩ := returnedRuns value
+      have argumentRuns : PureIntegerEvaluation (fun _ => none) (.integerLiteral value.val) (.value value) := by
+        simpa [checked_integer_payload] using (PureIntegerEvaluation.literal (reads := fun _ => none) value.val)
+      have directRun := pure_integer_argument_value (NameId.mk slot) argumentRuns bodyRuns
+        (fuel := runBudget) (by simp only [pureIntegerCost]; omega)
+      have outcome : (⟨0, [⟨slot, .integerLiteral initial.val⟩], some ⟨slot, assigned⟩, none,
+          returned⟩ : FunctionProgram).outcome? [] = some (integerFunctionOutcome result) := by
+        cases result with
+        | value final =>
+            simp [FunctionProgram.outcome?, FunctionProgram.settled?, settled, integerSettled,
+              FunctionProgram.continuationOutcome?, FunctionProgram.machineWith, parameterNames,
+              applyLetBindings, substituteExpressions, integerBaseOutcome, integerFunctionOutcome,
+              integerPayload?, typedInteger, directRun]
+        | fault fault =>
+            cases fault <;>
+              simp [FunctionProgram.outcome?, FunctionProgram.settled?, settled, integerSettled,
+                FunctionProgram.continuationOutcome?, FunctionProgram.machineWith, parameterNames,
+                applyLetBindings, substituteExpressions, integerBaseOutcome, integerFunctionOutcome, directRun]
+      refine ⟨result, outcome, ?_⟩
+      intro fuel enough
+      change runFuel fuel (machineOf [] (.call [NameId.mk slot] returned
+        [substituteExpressions [] (substitute [(NameId.mk slot, initial)] assigned)])) = _
+      rw [empty]
+      exact pure_integer_argument_value (NameId.mk slot) normalized bodyRuns (by omega)
+
+
 end Xsh.Conformance.Vertical

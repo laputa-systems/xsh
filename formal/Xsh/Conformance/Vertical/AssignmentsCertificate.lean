@@ -211,4 +211,35 @@ theorem assigned_calls_reject_wrong_arity_and_forward_calls :
         (.binary .add (.var "total") (.int 1))⟩]).isSome = false := by
   decide +kernel
 
+def unusedAssignmentProgram : FunctionProgram :=
+  ⟨0, [⟨1, .integerLiteral 0⟩],
+    some ⟨1, .binary .divide (.integerLiteral 1) (.identifier (NameId.mk 1))⟩,
+    none, .integerLiteral 7⟩
+
+theorem unused_assignment_failure_survives_normalization :
+    ∃ callee, unusedAssignmentProgram.callee? = some callee ∧
+      unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) ∧
+      ∀ fuel, 12 ≤ fuel →
+        Xsh.Semantics.BaseMachine.runFuel fuel (machineOf [] (callee.apply [])) =
+          .completed (.fault (.arithmetic .divisionByZero)) := by
+  have admitted : (⟨"ignored", [], [("zero", 0)], none,
+      .assigned "zero" (.binary .div (.int 1) (.var "zero")) (.atom (.int 7))⟩ : SourceFunction).program? [] =
+      some unusedAssignmentProgram := rfl
+  obtain ⟨callee, result, callable, outcome, runs⟩ :=
+    source_assignment_normalization_is_correct "ignored" "zero" 0
+      (.binary .div (.int 1) (.var "zero")) (.atom (.int 7)) [] admitted
+  have direct : unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) := rfl
+  rw [direct] at outcome
+  cases result with
+  | value value => cases outcome
+  | fault fault =>
+    cases fault with
+    | overflow => cases outcome
+    | divisionByZero => exact ⟨callee, callable, direct, runs⟩
+
+theorem erasing_the_unused_assignment_changes_the_observation :
+    unusedAssignmentProgram.outcome? [] = some (.failure .divisionByZero) ∧
+      (⟨0, [], none, none, .integerLiteral 7⟩ : FunctionProgram).outcome? [] = some (.value 7) := by
+  constructor <;> rfl
+
 end Xsh.Conformance.Vertical

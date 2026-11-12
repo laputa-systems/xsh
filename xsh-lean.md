@@ -69,10 +69,14 @@ literal in that expression. `assigned_literal_function_is_callable` and
 step for arbitrary assigned and returned expressions; `lowering_means_the_source` remains
 universal over the admitted parsed functions. The assigned-call source fixture exercises a
 returned updated value and a failing assignment whose slot the return ignores. It adds no
-artifact certificate or frozen Rust-conformance ledger entry. A general operational equivalence
-between the normalized assigned callee and the direct assignment-settlement run remains open;
-the current general statements establish the callee construction, evaluation order and Lean
-source-to-IR program equality.
+artifact certificate or frozen Rust-conformance ledger entry. The general operational
+correspondence is now proved: `source_assignment_normalization_is_correct` derives it from
+success of the existing source-program projection for every admitted nullary literal-local
+assignment. It derives the pure evaluation premises and five-step expression bounds, proves
+actual direct settlement has the same value or arithmetic failure as the normalized call, and
+allows any call fuel of at least twelve transitions. A generic theorem supports arbitrary pure
+integer arithmetic trees with explicit separate fuel bounds. An unused-assignment failure
+witness and an assignment-erasure counterexample preserve the observable-failure boundary.
 The next widening is an error producer or a record local; each needs a new row
 form rather than another certificate-only check.
 The Rust bridge comparisons passed at the matching source freeze.
@@ -86,10 +90,25 @@ source freeze is `1d27050bf`; see the log entry for the decision.
 Not reached: the connected milestone. The proofs cover the Lean
 lowerer, not Rust's, so Rust's lowering of other programs, its parser, and
 Rust's execution of the IR rest on the artifacts and the recorded runs.
-Next, widen the lowered shape toward the milestone
-(an error producer and a record local); add a parse and
-projection proof for the admitted productions (SRC-ADMIT); and a fact-to-IR
-consistency theorem. The integrator accepted `decide +kernel` for the
+The admitted ASCII productions now have independent lexical, grammar and scope-projection
+soundness proofs. The original-byte witness checker reconstructs candidate trees and slot
+tables, rejects module inputs, and proves accepted projections unique. This is successful
+parse soundness; general rejection, positions, diagnostics, imports and Rust parser agreement
+remain outside it. Accepted pure integer facts now correspond to actual IR function, binding,
+operand, operation, call and branch rows whenever the Lean lowerer reproduces the artifact.
+`FactsIR.admitted_facts_match_ir` composes both links over the same bytes, functions and artifact.
+The fact validator also rejects unsupported propagation bindings in both its executable and
+declarative rules. Wider Bool, Result, assigned and computed-let fact derivations remain open.
+The next connected step is to authenticate raw record and local-binding rows against the
+existing qualified `Connected` node semantics. That model already owns records, storage,
+projection and validation. The row correspondence must derive binding-to-slot identities,
+preserve field evaluation order, and authenticate RHS and transfer metadata. A supplied
+injective slot map leaves that provenance unproved. `RawRows` lacks record-entry decoding
+and `StmtLet` support, while the portable exchange omits semantic tables needed by Rust's
+clone-based decoder. Export those tables before claiming a foreign-IR validator. The existing
+validation-error sentinel also omits structured Error identity, messages, paths and causes.
+Those observations need a representation and proof before an error-producer claim can include them.
+The integrator accepted `decide +kernel` for the
 byte-level certificate theorems: it adds no axiom. All six fresh kernels
 accepted the current certificates under the 8 GiB cap.
 The independent kernels hold the whole export in memory. Earlier checks at the
@@ -107,7 +126,7 @@ while retaining the full-core obligations and the post-consolidation source
 freeze (G0b). Typing acceptance does not wait for this campaign. A typing-only
 resume leaves Lean paused.
 
-**State:** `formal/coverage.json` is the only inventory. It lists 961
+**State:** `formal/coverage.json` is the only inventory. It lists 964
 fragment theorem roots across 91 owners, all `SPEC_PROVED` propositions about
 selected model behavior. None establishes source, raw-IR, Rust, OS, or clock
 correspondence. All 77 universal obligations stay planned. G1's five base
@@ -1268,6 +1287,52 @@ The existing runtime applies verified indexed execution, uses heap-backed frames
   watchdog was 3,600 seconds; the initial 1,080-second aggregate watchdog expired during
   active lean4lean checking, and imposed no logical proof bound. The replay retained the
   frozen proof input and did not relax a kernel or an axiom check.
+
+- 2026-11-12: The assigned-callee operational-equivalence hole is closed for the admitted pure
+  nullary assignment shape. `PureIntegerEvaluation` describes checked integer literals, typed
+  local reads and arithmetic. `pure_integer_evaluation_steps` constructs actual `MachineSteps`
+  paths under arbitrary continuation frames and preserves the first arithmetic failure.
+  Literal substitution preserves the independent evaluation derivation; the call evaluates the
+  normalized assignment before entering the returned body. The general normalization theorem
+  relates actual `Assignment.settle?` and `FunctionProgram.outcome?` to that call, with separate
+  fuel costs rather than equal administrative step counts. The source-level corollary takes
+  only success of the existing `SourceFunction.program?` projection: it derives both pure
+  evaluation and the five-step expression bounds, so direct stages fit their existing
+  128-step budgets and every call fuel at least twelve suffices. The failure witness covers
+  every such fuel; erasing its unused failing assignment instead returns 7. This adds three
+  `SPEC_PROVED` fragment roots, for 964 total, and leaves all eleven artifact certificates and
+  all 77 universal obligations in their existing evidence classes and planned states.
+  Parameterized assignments, error producers, records and full Rust soundness remain open.
+  The source and fact links described below cover their own admitted domains. No Rust source or fixture changed, so the
+  previous 33-test bridge evidence remains applicable. Focused pinned Lean builds pass;
+  the combined axiom and independent-kernel qualification below also covers this proof patch.
+
+- 2026-11-12: The source and checker-fact links now compose with universal Lean lowering.
+  `SourceAdmissionSound` derives an independent complete lexical and function-grammar witness
+  from each successful parse, including maximal word and decimal tokens and the `->` boundary.
+  Its original-byte checker reconstructs the submitted tree and slot tables, rejects additional
+  module inputs, proves accepted candidates unique, and proves the admitted bytes are ASCII.
+  Nine accepted witnesses and nine rejection controls exercise the declared domain. This does
+  not discharge full SRC-ADMIT: general parse-failure behavior, positions, diagnostics, module
+  resolution and Rust parser agreement remain open.
+  `FactsIRConsistency` relates accepted pure integer facts to actual rows and ordered operands,
+  call ordinals and arities, literal-local slots, branch blocks and function bodies. The combined
+  `admitted_facts_match_ir` theorem joins original-byte admission, scope projection, fact-to-IR
+  correspondence and source/IR function-meaning equality for the same candidate. Unsupported
+  propagation previously escaped both fact rules and validation; both now reject it, with a
+  retained counterexample. Bool-return, Result, assignment and computed-let facts remain outside
+  this validator. Independent reviews found no demonstrated defect in the source, facts or
+  operational proofs. Arbitrary continuation frames belong to the pure-expression trace
+  theorem; the complete assignment-normalization theorem observes a top-level run.
+  The combined inventory has 975 fragment roots, eleven artifact certificates and 77 planned
+  universal obligations. All 71 inventory tests, the transitive axiom audit and its six negative
+  controls pass. All six fresh kernels accept the same export (SHA-256
+  `b075f505fc4fdbafc2ea4f3a8d48e9b2fc561de5081548efb2852538240edcb7`): Lean paranoid,
+  lean4lean (116,327 declarations), nanoda, con-leche and con-ron (116,330 each), and Lean
+  default. The final axiom report contains exactly `propext`, `Quot.sound`, `Classical.choice`.
+  The replay retains the 8 GiB address-space cap, the sandbox, jobs limited to two for
+  con-leche and con-ron, and the 3,600-second operational watchdog. The project axiom audit
+  covers 28,966 declarations. No new Rust conformance claim is made.
 
 ## For the owner afterwards
 

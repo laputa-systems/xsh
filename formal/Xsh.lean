@@ -116,6 +116,8 @@ import Xsh.Conformance.Vertical.SeveralLetCertificate
 import Xsh.Conformance.Vertical.Facts
 import Xsh.Conformance.Vertical.FactsDocument
 import Xsh.Conformance.Vertical.FactsCertificate
+import Xsh.Conformance.Vertical.SourceAdmissionSound
+import Xsh.Conformance.Vertical.FactsIRConsistency
 
 import Xsh.Semantics.Connected.StoreRuntime
 import Xsh.Semantics.Connected.SafetyCalls

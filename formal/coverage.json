@@ -12385,6 +12385,132 @@
       "status": "fragment",
       "scope": "The scoped assignment transfer fact agrees with its outer-binding source occurrence and typed projected row; altered fact fields fail.",
       "boundary": "The projection uses a supplied binder-to-slot map; foreign candidate marks and general checker correspondence remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.pure_integer_evaluation_steps",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.pure_integer_evaluation_steps",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every derivation of pure checked integer literals, typed local reads and arithmetic has a bounded BaseMachine MachineSteps path under arbitrary continuation frames, preserving the first arithmetic failure. The bound is the sum of operand transition bounds and the operation's administrative steps.",
+      "boundary": "The pure integer expression grammar only; typed reads must agree with the supplied machine environment. No calls, host operations, records, parsing, Rust implementation or whole-core soundness claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.assigned_literal_normalization_operationally_correct",
+      "module": "Xsh.Conformance.Vertical.Meaning",
+      "declaration": "Xsh.Conformance.Vertical.assigned_literal_normalization_operationally_correct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "A nullary function assigning its one valid literal local has the same integer value or arithmetic failure under actual FunctionProgram settlement and normalized Callee application. Pure evaluation derivations and explicit syntax-derived transition bounds cover the direct 128-step stages; the call may use any fuel at least its argument and body costs plus two administrative steps.",
+      "boundary": "Independent Lean pure integer semantics with one literal local and one assignment. The return must have a pure integer derivation for every possible updated local. No identical step-count assumption, effectful expressions, parameterized assigned callees, source-byte admission or Rust soundness claim."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.source_assignment_normalization_is_correct",
+      "module": "Xsh.Conformance.Vertical.LoweringSound",
+      "declaration": "Xsh.Conformance.Vertical.source_assignment_normalization_is_correct",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Success of the existing SourceFunction.program? projection for every admitted nullary function with one literal local, one plain assignment and an integer return derives the pure evaluation and fuel premises. Its actual direct settlement observation equals its normalized callee's observation for every call fuel at least twelve transitions, including a failing assignment whose local is unused by the return.",
+      "boundary": "The admitted Lean SourceValue grammar over one local and integer literals, after supplied syntax. No assumption of operational equivalence appears in the premise. Parsing original source bytes, fact-to-IR consistency, parameterized assigned callees, other core constructs and Rust implementation soundness remain open."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.parse_source_admitted",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.parse_source_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every successful parse of arbitrary original character codes derives independent complete lexical and function-grammar witnesses, including literal interpretation and ordered propagation targets.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.scope_projection",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.scope_projection",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every successful source-function scope computation derives an independent slot projection relation for the admitted function shape.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.check_sound",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.check_sound",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Acceptance of exact UInt8 source bytes, candidate functions and slot tables derives independent grammar and projection witnesses, distinct function names and an empty module-input environment.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.accepted_projection_unique",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.accepted_projection_unique",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For fixed original bytes and module inputs, two accepted tree and scope candidates are equal.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement. Uniqueness concerns checker outputs; it does not assert that the entire declarative grammar is unambiguous."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.admitted_lowering_means_source",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.admitted_lowering_means_source",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "An accepted original-byte tree and scope candidate plus exact Lean artifact reproduction imply that the artifact's function meanings equal those of the independently admitted source tree.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement. The premise checks Lean lowerer reproduction, not universal Rust lowering."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.certified_codes_admitted",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.certified_codes_admitted",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every successful source-code certificate derives independent grammar admission, source identity, artifact validity, named observations and equality of source and IR function meanings.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement. Source-document decoding and Rust extraction remain separate boundaries."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.SourceAdmission.admitted_bytes_are_ascii",
+      "module": "Xsh.Conformance.Vertical.SourceAdmissionSound",
+      "declaration": "Xsh.Conformance.Vertical.SourceAdmission.admitted_bytes_are_ascii",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every byte of an accepted original-byte candidate is less than 128.",
+      "boundary": "One-way soundness for the independent ASCII Lean grammar and successful scope projection. No general parse-failure, source-position or diagnostic theorem, grammar completeness, imports/module resolution, or Rust parser agreement."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.accepted_facts_match_ir",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.accepted_facts_match_ir",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Accepted fact derivations and exact Lean lowering imply independent correspondence to actual function, local, read, operand, operation, call, branch, return and body rows, plus source/IR function-meaning equality.",
+      "boundary": "The accepted pure Int fact grammar intersected with the Lean lowerer: values, calls, conditionals and supported literal lets. No Bool-return, Result, assigned or computed-let fact derivation, or universal Rust conformance. Structural validity is not a premise of this root; the certified composition adds it."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.certified_facts_match_certified_ir",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.certified_facts_match_certified_ir",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Successful source-bound fact and source/IR document certificates derive matching source IDs, independent correspondence from accepted facts to actual IR rows, artifact validity, observations and source/IR function-meaning equality.",
+      "boundary": "The accepted pure Int fact grammar intersected with the Lean lowerer: values, calls, conditionals and supported literal lets. No Bool-return, Result, assigned or computed-let fact derivation, or universal Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.checked_facts_exclude_unsupported_propagation",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.checked_facts_exclude_unsupported_propagation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Every function in an accepted fact candidate has no propagation binding; both the executable validator and independent declarative rules reject this unsupported shape.",
+      "boundary": "The accepted pure Int fact grammar intersected with the Lean lowerer: values, calls, conditionals and supported literal lets. No Bool-return, Result, assigned or computed-let fact derivation, or universal Rust conformance."
+    },
+    {
+      "id": "fragment.Xsh.Conformance.Vertical.FactsIR.admitted_facts_match_ir",
+      "module": "Xsh.Conformance.Vertical.FactsIRConsistency",
+      "declaration": "Xsh.Conformance.Vertical.FactsIR.admitted_facts_match_ir",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "For the same exact original source bytes, admitted tree and scopes, checked facts and reproduced artifact, compose independent source admission, scope projection, facts-to-IR row consistency and equality of source/IR function meanings.",
+      "boundary": "The shared domain is the supported pure Int fact grammar intersected with the ASCII source checker and Lean lowerer, with no module inputs. No general parse-failure or diagnostic proof, Rust parser/lowerer agreement, arbitrary IR validation, or Rust execution claim."
     }
   ],
   "artifact_certificates": [

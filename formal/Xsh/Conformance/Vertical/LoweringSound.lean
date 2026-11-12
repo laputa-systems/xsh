@@ -2179,4 +2179,108 @@ theorem certified_pair_means_the_same {source : SourceDocument} {raw : RawArtifa
   obtain ⟨functions, _, parsed, lowers, valid, named⟩ := certify_decoded_sound certified
   exact ⟨functions, parsed, lowers_to_means_the_source lowers, valid, named⟩
 
+theorem source_atom_has_pure_evaluation (binding : String) (slot : Word32)
+    {atom : SourceAtom} {expression : BaseExpr}
+    (admitted : atom.expression? [(binding, slot.val)] = some expression) (value : IntValue) :
+    ∃ result, PureIntegerEvaluation ([(NameId.mk slot, value)].lookup ·) expression result ∧
+      pureIntegerCost expression = 1 := by
+  cases atom with
+  | int literal =>
+      simp only [SourceAtom.expression?] at admitted
+      split at admitted
+      · cases admitted
+        exact ⟨_, .literal _, rfl⟩
+      · simp at admitted
+  | var name =>
+      simp only [SourceAtom.expression?, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at admitted
+      obtain ⟨foundSlot, located, word, decoded, rfl⟩ := admitted
+      have slotIs : foundSlot = slot.val := by
+        simp only [List.lookup] at located
+        split at located
+        · exact (Option.some.inj located).symm
+        · simp at located
+      subst foundSlot
+      have wordIs : word = slot := Fin.ext (decode_val decoded)
+      subst word
+      refine ⟨.value value, .read ?_, rfl⟩
+      simp [List.lookup]
+
+theorem source_value_has_pure_evaluation (binding : String) (slot : Word32)
+    {source : SourceValue} {expression : BaseExpr}
+    (admitted : source.expression? [(binding, slot.val)] = some expression) (value : IntValue) :
+    ∃ result, PureIntegerEvaluation ([(NameId.mk slot, value)].lookup ·) expression result ∧
+      pureIntegerCost expression ≤ 5 := by
+  cases source with
+  | atom atom =>
+      obtain ⟨result, evaluated, cost⟩ := source_atom_has_pure_evaluation binding slot admitted value
+      exact ⟨result, evaluated, by omega⟩
+  | binary operator left right =>
+      simp only [SourceValue.expression?, Option.bind_eq_bind] at admitted
+      split at admitted
+      · simp at admitted
+      · simp only [Option.bind_eq_some_iff, Option.some.injEq] at admitted
+        obtain ⟨leftExpr, leftRead, rightExpr, rightRead, rfl⟩ := admitted
+        obtain ⟨leftResult, leftRuns, leftCost⟩ := source_atom_has_pure_evaluation binding slot leftRead value
+        obtain ⟨rightResult, rightRuns, rightCost⟩ := source_atom_has_pure_evaluation binding slot rightRead value
+        rename_i arithmetic
+        cases operator <;> simp [FragmentOp.isComparison] at arithmetic
+        all_goals refine ⟨_, .binary _ leftRuns rightRuns, ?_⟩
+        all_goals simp [pureIntegerCost, FragmentOp.expression, leftCost, rightCost]
+
+theorem assigned_source_program_read (name binding : String) (initial : Nat)
+    (assigned returned : SourceValue) (callees : List (String × Option Callee)) :
+    (⟨name, [], [(binding, initial)], none,
+      .assigned binding assigned returned⟩ : SourceFunction).program? callees =
+      (do
+        let bounded ← validateInt? (initial : Int)
+        let assignedExpr ← assigned.expression? [(binding, letSlot)]
+        let returnedExpr ← returned.expression? [(binding, letSlot)]
+        some (⟨0, [⟨⟨letSlot, by decide⟩, .integerLiteral bounded.val⟩],
+          some ⟨⟨letSlot, by decide⟩, assignedExpr⟩, none, returnedExpr⟩ : FunctionProgram)) := by
+  have sourceScope : (⟨name, [], [(binding, initial)], none,
+      .assigned binding assigned returned⟩ : SourceFunction).scope? = some [(binding, letSlot)] := rfl
+  have lookup : [(binding, letSlot)].lookup binding = some letSlot := by simp [List.lookup]
+  have decoded : Word32.decode? letSlot = some (⟨letSlot, by decide⟩ : Word32) := by decide
+
+  cases checked : validateInt? (initial : Int) <;>
+    cases assignedRead : assigned.expression? [(binding, letSlot)] <;>
+    cases returnedRead : returned.expression? [(binding, letSlot)] <;>
+    simp [SourceFunction.program?, sourceScope, lookup, decoded, SourceFunction.assignment?,
+      SourceExpression.expression?, checked, assignedRead, returnedRead, Option.bind_eq_bind]
+
+
+/-- Success of the existing source-program projection for a nullary literal local, assignment
+and integer return supplies the pure-evaluation premises. Twelve transitions suffice for the
+normalized call, which has the direct settlement's observation. -/
+theorem source_assignment_normalization_is_correct (name binding : String) (initial : Nat)
+    (assigned returned : SourceValue) (callees : List (String × Option Callee))
+    {program : FunctionProgram}
+    (admitted : (⟨name, [], [(binding, initial)], none,
+      .assigned binding assigned returned⟩ : SourceFunction).program? callees = some program) :
+    ∃ callee result, program.callee? = some callee ∧
+      program.outcome? [] = some (integerFunctionOutcome result) ∧
+      ∀ fuel, 12 ≤ fuel → runFuel fuel (machineOf [] (callee.apply [])) =
+        .completed (integerBaseOutcome result) := by
+  rw [assigned_source_program_read name binding initial assigned returned callees] at admitted
+  simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at admitted
+  obtain ⟨bounded, checked, assignedExpr, assignedRead, returnedExpr, returnedRead, programIs⟩ := admitted
+  subst program
+  obtain ⟨assignedResult, assignmentRuns, assignmentCost⟩ :=
+    source_value_has_pure_evaluation binding ⟨letSlot, by decide⟩ assignedRead bounded
+  have bodyRuns : ∀ value, ∃ result,
+      PureIntegerEvaluation ([(NameId.mk ⟨letSlot, by decide⟩, value)].lookup ·) returnedExpr result := by
+    intro value
+    obtain ⟨result, runs, _⟩ :=
+      source_value_has_pure_evaluation binding ⟨letSlot, by decide⟩ returnedRead value
+    exact ⟨result, runs⟩
+  obtain ⟨_, _, returnedCost⟩ :=
+    source_value_has_pure_evaluation binding ⟨letSlot, by decide⟩ returnedRead bounded
+  obtain ⟨callable, result, outcome, runs⟩ :=
+    assigned_literal_normalization_operationally_correct ⟨letSlot, by decide⟩ bounded assignmentRuns bodyRuns
+      (by unfold runBudget; omega) (by unfold runBudget; omega)
+  refine ⟨_, result, callable, outcome, ?_⟩
+  intro fuel enough
+  exact runs fuel (by omega)
+
+
 end Xsh.Conformance.Vertical

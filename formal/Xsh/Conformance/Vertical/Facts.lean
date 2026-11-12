@@ -95,7 +95,7 @@ def SourceFunction.scope (function : SourceFunction) : Option Scope :=
 
 def FunctionHolds (callees : Callees) (function : SourceFunction) (facts : FunctionFacts) :
     Prop :=
-  ∃ scope nodes, function.scope = some scope ∧
+  function.propagation = none ∧ ∃ scope nodes, function.scope = some scope ∧
     ExpressionHolds callees scope function.result nodes ∧
     facts = ⟨function.name, function.parameters.map fun _ => .int, function.lets.map fun _ => .int,
       .int, [], nodes⟩
@@ -161,6 +161,7 @@ def expressionFacts (callees : Callees) (scope : Scope) : SourceExpression → O
   | .computedLets _ _ => none
 
 def functionFacts (callees : Callees) (function : SourceFunction) : Option FunctionFacts := do
+  check function.propagation.isNone
   let scope ← function.scope
   let nodes ← expressionFacts callees scope function.result
   some ⟨function.name, function.parameters.map fun _ => .int, function.lets.map fun _ => .int, .int,
@@ -314,10 +315,13 @@ theorem function_facts_iff {callees : Callees} {function : SourceFunction}
   · intro found
     simp only [functionFacts, Option.bind_eq_bind, Option.bind_eq_some_iff,
       Option.some.injEq] at found
-    obtain ⟨scope, scopeFound, nodes, nodesFound, joined⟩ := found
-    exact ⟨scope, nodes, scopeFound, expression_facts_iff.mp nodesFound, joined.symm⟩
-  · rintro ⟨scope, nodes, scopeFound, expressionHolds, rfl⟩
-    simp [functionFacts, scopeFound, expression_facts_iff.mpr expressionHolds]
+    obtain ⟨_, noPropagation, scope, scopeFound, nodes, nodesFound, joined⟩ := found
+    have absent : function.propagation = none := by
+      have := check_eq_some.mp noPropagation
+      simpa using this
+    exact ⟨absent, scope, nodes, scopeFound, expression_facts_iff.mp nodesFound, joined.symm⟩
+  · rintro ⟨absent, scope, nodes, scopeFound, expressionHolds, rfl⟩
+    simp [functionFacts, absent, scopeFound, expression_facts_iff.mpr expressionHolds]
 
 theorem function_facts_are_determined {callees : Callees} {function : SourceFunction}
     {first second : FunctionFacts} (a : FunctionHolds callees function first)
