@@ -140,13 +140,15 @@ export pure rust_plan(
   let profile_args = ["--locked", "--profile", profile_name(profile), "--target", ctx.target.triple]
   let debug_args = ["--locked", "--target", ctx.target.triple]
   var plan = product_builds(ctx, profile, all_products())?
-  for target in [
+  var test_targets = [
     "integration",
     "ambient_fs_policy",
     "symbol_plateau",
     "core_compat_boundaries",
     "core_compat_extra",
-  ] {
+  ]
+  test_targets += ["fs_transfer"] when ctx.target.os == "linux"
+  for target in test_targets {
     plan += [stages.command("test-rust", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh", "--test", target, "--",
         "--skip", "split::", "--skip", "runtime::coverage::"],

@@ -581,7 +581,10 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
         rust_gate(ctx, profile, "test-ssh-unit", ["-p", "xsh-ssh", "--lib"], debug: true)?,
         rust_gate(ctx, profile, "test-ssh-fifo", ["-p", "xsh-ssh", "--test", "fifo"], debug: true)?,
       ]
-      compile_gates += [rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?] when ctx.target.os == "linux"
+      compile_gates += [
+        rust_gate(ctx, profile, "test-root-unit", ["-p", "xsh-root", "--lib"], debug: true)?,
+        rust_gate(ctx, profile, "test-fs-transfer", ["-p", "xsh", "--test", "fs_transfer"])?,
+      ] when ctx.target.os == "linux"
       compile_gates += [
         rust_gate(ctx, profile, "test-root-security", ["-p", "xsh-root", "--test", "security"], debug: true)?,
         rust_gate(ctx, profile, "test-root-mutation", ["-p", "xsh-root", "--test", "mutation"], debug: true)?,
@@ -624,6 +627,7 @@ pure unit_gates(ctx: context.Context, profile: tests.TestProfile, area: Area) ->
     Interactive => [
       rust_gate(ctx, profile, "test-xshi-unit", ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true)?,
       rust_gate(ctx, profile, "test-xshi-cli", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"])?,
+      rust_gate(ctx, profile, "test-xshi-parity", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "parity", "--", "--test-threads=4"])?,
       rust_gate(ctx, profile, "test-xshi-preparation", ["-p", "xshi", "--features", "laputa-asterinas", "--test", "stdlib_preparation"])?,
       rust_gate(ctx, profile, "test-xshi-stub", ["-p", "xshi", "--test", "stub_cli"], debug: true)?,
     ]

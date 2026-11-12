@@ -733,6 +733,7 @@ const harnesses_run_outside_change_cases = [
   {package: "xsh-ssh", harness: "known_hosts"},
   {package: "xsh-ssh", harness: "protocol"},
   {package: "xsh-ssh", harness: "wipe"},
+  {package: "xsh-ssh", harness: "private_key_wipe"},
   {package: "xsh-archive", harness: "interop"},
   {package: "deser-csv", harness: "papaparse_test_suite"},
   {package: "deser-ini", harness: "corpus"},
@@ -813,6 +814,7 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
     {path: "src/diagnostic.rs", stage: "test-core-compat-extra", words: ["-p", "xsh", "--test", "core_compat_extra", "--skip", "split::", "--skip", "date_clock::test_date_set_valid"], debug: false},
     {path: "src/diagnostic.rs", stage: "test-ambient-fs-policy", words: ["-p", "xsh", "--test", "ambient_fs_policy"], debug: true},
     {path: "crates/xsh-root/src/lib.rs", stage: "test-root-security", words: ["-p", "xsh-root", "--test", "security"], debug: true},
+    {path: "crates/xsh-root/src/transfer.rs", stage: "test-fs-transfer", words: ["-p", "xsh", "--test", "fs_transfer"], debug: false},
     {path: "crates/xsh-net/src/lib.rs", stage: "test-net-unit", words: ["-p", "xsh-net", "--lib"], debug: true},
     {path: "crates/xsh-registry/tests/api_reference.rs", stage: "test-registry-reference", words: ["-p", "xsh-registry", "--test", "api_reference"], debug: true},
     {path: "crates/xsh-fuzz/src/driver.rs", stage: "test-effect-oracle", words: ["-p", "xsh-fuzz", "--test", "effect_oracle"], debug: true},
@@ -821,6 +823,7 @@ test test_rust_harnesses_beyond_the_primary_gates_run_in_their_owner_cases {
     {path: "crates/deser/deser-yaml/src/lib.rs", stage: "test-deser-yaml-integration", words: ["-p", "deser-yaml", "--test", "integration"], debug: true},
     {path: "crates/xshi/src/lib.rs", stage: "test-xshi-unit", words: ["-p", "xshi", "--features", "laputa-asterinas", "--lib"], debug: true},
     {path: "crates/xshi/src/lib.rs", stage: "test-xshi-cli", words: ["-p", "xshi", "--features", "laputa-asterinas", "--test", "cli"], debug: false},
+    {path: "crates/xshi/src/lib.rs", stage: "test-xshi-parity", words: ["-p", "xshi", "--features", "laputa-asterinas", "--test", "parity", "--test-threads=4"], debug: false},
   ]
   for owner in owners {
     let plan = gates.lane_plan(ctx, tests.Verification, gates.select([owner.path])?)?
@@ -940,7 +943,7 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
       }
       let ordinary = [spec for spec in plan |> where .stage == "test-rust"]
       assert [spec.argv[10] for spec in ordinary] == [
-        "integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra",
+        "integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra", "fs_transfer",
       ]
       for spec in ordinary {
         assert spec.argv[9] == "--test"

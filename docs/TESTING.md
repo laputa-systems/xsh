@@ -96,8 +96,9 @@ builds that exist only on aarch64 Linux and macOS. The `xsh-ssh` connect, exec,
 stream and agent harnesses and the native `tests/xsh/ssh-` tests need disposable
 OpenSSH servers: run them through `crates/xsh-ssh/fixture/ssh-fixture.sh exec
 COMMAND` (Docker, loopback only). The `authentication`, `descriptors`, `hostile`,
-`known_hosts` and `protocol` harnesses use a scripted peer but need `ssh-keygen`,
-which the gate image lacks; run them with `cargo test -p xsh-ssh --test NAME` on
+`known_hosts` and `protocol` harnesses use a scripted peer but need `ssh-keygen`;
+the `private_key_wipe` allocator probe also needs it. The gate image lacks
+`ssh-keygen`; run these harnesses with `cargo test -p xsh-ssh --test NAME` on
 a host with OpenSSH or through the fixture script. `xsh-archive`'s `interop`
 harness needs the GNU tar and bsdtar oracle image built by
 `dev/reference/oracle.sh`.
